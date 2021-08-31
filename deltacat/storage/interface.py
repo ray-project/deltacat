@@ -133,7 +133,7 @@ def get_manifest(
         *args,
         **kwargs) -> Dict[str, Any]:
     """
-    Get the manifest associated for the given delta locator.
+    Get the manifest associated with the given delta locator.
     """
     raise NotImplementedError("get_manifest not implemented")
 
@@ -195,7 +195,7 @@ def update_namespace(
         permissions: Optional[Dict[str, Any]] = None,
         new_namespace: Optional[str] = None,
         *args,
-        **kwargs):
+        **kwargs) -> None:
     """
     Updates a table namespace's name and/or permissions.
     """
@@ -215,7 +215,7 @@ def create_table_version(
         table_properties: Optional[Dict[str, str]] = None,
         supported_content_types: Optional[List[ContentType]] = None,
         *args,
-        **kwargs):
+        **kwargs) -> None:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned, or partitioned
@@ -238,7 +238,7 @@ def update_table(
         permissions: Optional[Dict[str, Any]] = None,
         description: Optional[str] = None,
         properties: Optional[Dict[str, str]] = None,
-        new_table_name: Optional[str] = None):
+        new_table_name: Optional[str] = None) -> None:
     """
     Update table metadata describing the table versions it contains. By default,
     a table's properties are empty, and its description and permissions are
@@ -252,13 +252,13 @@ def update_table_version(
         table_name: str,
         table_version: str,
         lifecycle_state: Optional[LifecycleState] = None,
-        schema: Optional[str] = None,
+        schema: Optional[Union[pa.Schema, str, bytes]] = None,
         partition_keys: Optional[List[Dict[str, Any]]] = None,
         primary_key_column_names: Optional[List[str]] = None,
         description: Optional[str] = None,
         properties: Optional[Dict[str, str]] = None,
         *args,
-        **kwargs):
+        **kwargs) -> None:
     """
     Update a table version. Notably, updating an unreleased table version's
     lifecycle state to 'active' telegraphs that it is ready for external
@@ -285,7 +285,7 @@ def stage_stream(
 
 
 def commit_stream(
-        partition_staging_area,
+        partition_staging_area: Dict[str, Any],
         *args,
         **kwargs) -> Dict[str, Any]:
     """
@@ -301,7 +301,7 @@ def delete_stream(
         table_name: str,
         table_version: Optional[str] = None,
         *args,
-        **kwargs):
+        **kwargs) -> None:
     """
     Deletes the stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
@@ -360,7 +360,7 @@ def delete_partition(
         table_version: Optional[str] = None,
         partition_values: Optional[List[Any]] = None,
         *args,
-        **kwargs):
+        **kwargs) -> None:
     """
     Deletes the given partition from the specified table version. Resolves to
     the latest active table version if no table version is given. Partition
@@ -506,6 +506,19 @@ def get_table_version_column_names(
     file or other row-oriented content type files appended to the table.
     """
     raise NotImplementedError("get_table_version_column_names not implemented")
+
+
+def get_table_version_schema(
+        namespace: str,
+        table_name: str,
+        table_version: Optional[str] = None,
+        *args,
+        **kwargs) -> Optional[Union[pa.Schema, str, bytes]]:
+    """
+    Gets the schema for the specified table version, or for the latest active
+    table version if none is specified.
+    """
+    raise NotImplementedError("get_table_version_schema not implemented")
 
 
 def table_version_exists(

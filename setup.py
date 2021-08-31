@@ -35,7 +35,6 @@ setuptools.setup(
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     install_requires=[
         # any changes here should also be reflected in requirements.txt
-        "py4j >= 0.10.9.2",
         "s3fs >= 2021.7.0",
         "tenacity >= 8.0.1",
         "ray >= 1.5.1",
@@ -54,5 +53,5 @@ setuptools.setup(
         "Programming Language :: Python :: 3.9",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.7',
+    python_requires=">=3.7",
 )

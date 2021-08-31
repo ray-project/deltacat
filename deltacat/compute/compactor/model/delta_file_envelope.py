@@ -17,6 +17,8 @@ def of(
         raise ValueError("Delta file envelope file index must be defined.")
     if delta_type is None:
         raise ValueError("Delta file envelope delta type must be defined.")
+    if table is None:
+        raise ValueError("Delta file envelope table must be defined.")
 
     return {
         "stream_position": stream_position,

@@ -2,29 +2,23 @@ import ray
 import pyarrow as pa
 import numpy as np
 import logging
-from ray import cloudpickle
 from deltacat import logs
 from itertools import chain
 from pyarrow import csv as pacsv
 from deltacat.compute.compactor.model import delta_manifest_annotated as dma, \
-    delta_file_envelope
+    delta_file_envelope, sort_key as sk
+from deltacat.compute.compactor.utils.primary_key_index import \
+    group_hash_bucket_indices, group_record_indices_by_hash_bucket
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.utils.common import sha1_digest
 from deltacat.types.media import ContentType
 from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY
 from deltacat.compute.compactor.utils import system_columns as sc
-from typing import List, Optional, Generator, Dict, Any
+from typing import List, Optional, Generator, Dict, Any, Tuple
 
 logger = logs.configure_application_logger(logging.getLogger(__name__))
 
 _PK_BYTES_DELIMITER = b'L6kl7u5f'
-
-
-def pk_digest_to_hash_bucket_index(
-        digest,
-        num_buckets: int) -> int:
-
-    return int.from_bytes(digest, "big") % num_buckets
 
 
 def group_by_pk_hash_bucket(
@@ -45,14 +39,10 @@ def group_by_pk_hash_bucket(
     table = table.drop(primary_keys)
 
     # group hash bucket record indices
-    hash_bucket_to_indices = np.empty([num_buckets], dtype="object")
-    record_index = 0
-    for digest in sc.pk_hash_column_np(table):
-        hash_bucket = pk_digest_to_hash_bucket_index(digest, num_buckets)
-        if hash_bucket_to_indices[hash_bucket] is None:
-            hash_bucket_to_indices[hash_bucket] = []
-        hash_bucket_to_indices[hash_bucket].append(record_index)
-        record_index += 1
+    hash_bucket_to_indices = group_record_indices_by_hash_bucket(
+        table,
+        num_buckets,
+    )
 
     # generate the ordered record number column
     hash_bucket_to_table = np.empty([num_buckets], dtype="object")
@@ -81,7 +71,7 @@ def group_file_records_by_pk_hash_bucket(
         num_hash_buckets: int,
         column_names: List[str],
         primary_keys: List[str],
-        sort_keys: List[str],
+        sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[np.ndarray]:
 
@@ -90,14 +80,14 @@ def group_file_records_by_pk_hash_bucket(
         annotated_delta_manifests,
         column_names,
         primary_keys,
-        sort_keys,
+        sort_key_names,
         deltacat_storage,
     )
     if delta_file_envelopes is None:
         return None
 
     # group the data by primary key hash value
-    hb_to_delta_file_envelope = np.empty([num_hash_buckets], dtype="object")
+    hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
         hash_bucket_to_table = group_by_pk_hash_bucket(
             delta_file_envelope.get_table(dfe),
@@ -107,27 +97,27 @@ def group_file_records_by_pk_hash_bucket(
         for hash_bucket in range(len(hash_bucket_to_table)):
             table = hash_bucket_to_table[hash_bucket]
             if table:
-                if hb_to_delta_file_envelope[hash_bucket] is None:
-                    hb_to_delta_file_envelope[hash_bucket] = []
-                hb_to_delta_file_envelope[hash_bucket].append(
+                if hb_to_delta_file_envelopes[hash_bucket] is None:
+                    hb_to_delta_file_envelopes[hash_bucket] = []
+                hb_to_delta_file_envelopes[hash_bucket].append(
                     delta_file_envelope.of(
                         delta_file_envelope.get_stream_position(dfe),
                         delta_file_envelope.get_file_index(dfe),
                         delta_file_envelope.get_delta_type(dfe),
                         table))
-    return hb_to_delta_file_envelope
+    return hb_to_delta_file_envelopes
 
 
 def read_delta_file_envelopes(
         annotated_delta_manifests: List[Dict[str, Any]],
         column_names: List[str],
         primary_keys: List[str],
-        sort_keys: List[str],
+        sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[List[Dict[str, Any]]]:
 
     tables_and_annotations = []
-    columns_to_read = list(chain(primary_keys, sort_keys))
+    columns_to_read = list(chain(primary_keys, sort_key_names))
     for annotated_delta_manifest in annotated_delta_manifests:
         tables = deltacat_storage.download_delta_manifest(
             annotated_delta_manifest,
@@ -171,44 +161,25 @@ def hash_bucket(
         annotated_delta_manifests: List[Dict[str, Any]],
         column_names: List[str],
         primary_keys: List[str],
-        sort_keys: List[str],
+        sort_keys: List[Tuple[str, str]],
         num_buckets: int,
         num_groups: int,
         deltacat_storage=unimplemented_deltacat_storage):
 
     logger.info(f"Starting hash bucket task...")
-    hash_bucket_group_to_obj_id = np.empty([num_groups], dtype="object")
-
+    sort_key_names = [sk.get_key_name(key) for key in sort_keys]
     delta_file_envelope_groups = group_file_records_by_pk_hash_bucket(
         annotated_delta_manifests,
         num_buckets,
         column_names,
         primary_keys,
-        sort_keys,
+        sort_key_names,
         deltacat_storage,
     )
-    if delta_file_envelope_groups is None:
-        return hash_bucket_group_to_obj_id
-
-    # write grouped output data to files including the group name
-    hb_group_to_delta_file_envelopes = np.empty([num_groups], dtype="object")
-    for hb_index in range(len(delta_file_envelope_groups)):
-        delta_file_envelopes = delta_file_envelope_groups[hb_index]
-        if delta_file_envelopes:
-            hb_group = hb_index % num_groups
-            if hb_group_to_delta_file_envelopes[hb_group] is None:
-                hb_group_to_delta_file_envelopes[hb_group] = np.empty(
-                    [num_buckets], dtype="object")
-            hb_group_to_delta_file_envelopes[hb_group][hb_index] = \
-                delta_file_envelopes
-
-    object_refs = []
-    for hb_group in range(len(hb_group_to_delta_file_envelopes)):
-        delta_file_envelopes = hb_group_to_delta_file_envelopes[hb_group]
-        if delta_file_envelopes is not None:
-            obj_ref = ray.put(delta_file_envelopes)
-            object_refs.append(obj_ref)
-            hash_bucket_group_to_obj_id[hb_group] = cloudpickle.dumps(obj_ref)
-
+    hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(
+        delta_file_envelope_groups,
+        num_buckets,
+        num_groups,
+    )
     logger.info(f"Finished hash bucket task...")
     return hash_bucket_group_to_obj_id, object_refs

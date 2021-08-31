@@ -10,6 +10,10 @@ def of(
         stream_id: Optional[str],
         storage_type: Optional[str]) -> Dict[str, Any]:
 
+    """
+    Creates a table version Stream Locator. All input parameters are
+    case-sensitive.
+    """
     return {
         "namespace": namespace,
         "tableName": table_name,
@@ -75,6 +79,11 @@ def set_storage_type(
 
 
 def hexdigest(stream_locator: Dict[str, Any]) -> str:
+    """
+    Returns a hexdigest of the given Stream Locator suitable for use in
+    equality (i.e. two Stream Locators are equal if they have the same
+    hexdigest) and inclusion in URLs.
+    """
     return sha1_hexdigest(
         json.dumps([stream_locator], sort_keys=True).encode("utf-8")
     )

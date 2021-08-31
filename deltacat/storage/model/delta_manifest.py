@@ -9,7 +9,17 @@ def of(
         delta_locator: Optional[Dict[str, Any]],
         delta_type: Optional[DeltaType],
         manifest: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-
+    """
+    Creates a Delta Manifest model for the given Delta Locator, Delta Type,
+    and Manifest. Note that this is a more heavyweight model than the Delta
+    metadata model, since a Manifest includes metadata for every file in the
+    Delta. Thus, use-cases that require a small memory footprint and/or
+    low-latency exchange of Delta information should consider using the
+    Delta metadata model to lazily load the associated manifest via this model.
+    However, this model is ideal for use-cases whose latency may otherwise
+    suffer via repeated Manifest downloads, or that require merging multiple
+    Manifests (e.g. from incrementally staged Deltas) into a single Delta.
+    """
     return {
         "manifest": manifest,
         "type": delta_type,

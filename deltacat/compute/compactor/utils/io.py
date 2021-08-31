@@ -16,12 +16,11 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 def discover_deltas(
         source_partition_locator: Dict[str, Any],
-        round_completion_info: Dict[str, Any],
+        start_position_exclusive: int,
         latest_partition_stream_position: int,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> List[Dict[str, Any]]:
 
-    start_position_exclusive = rci.get_high_watermark(round_completion_info)
     end_position_inclusive = latest_partition_stream_position
     stream_locator = pl.get_stream_locator(source_partition_locator)
     namespace = sl.get_namespace(stream_locator)
@@ -61,9 +60,8 @@ def discover_deltas(
 def limit_input_deltas(
         input_deltas: List[Dict[str, Any]],
         cluster_resources: Dict[str, float],
-        user_hash_bucket_count: int,
+        hash_bucket_count: int,
         user_hash_bucket_chunk_size: int,
-        round_completion_info: Dict[str, Any],
         deltacat_storage=unimplemented_deltacat_storage):
 
     # TODO (pdames): when row counts are available in metadata, use them
@@ -99,21 +97,6 @@ def limit_input_deltas(
     # TODO (pdames): ensure fixed memory per CPU in heterogenous clusters
     worker_mem_per_task = worker_task_mem / worker_cpus
     logger.info(f"Cluster worker memory/task: {worker_mem_per_task}")
-
-    hash_bucket_count = 0
-    if round_completion_info:
-        hash_bucket_count = round_completion_info["hash_buckets"]
-    logger.info(f"Prior hash bucket count: {hash_bucket_count}")
-
-    if not hash_bucket_count:
-        hash_bucket_count = user_hash_bucket_count
-    elif user_hash_bucket_count and hash_bucket_count != user_hash_bucket_count:
-        raise ValueError(f"Given hash bucket count ({user_hash_bucket_count})"
-                         f"does not match the existing compacted hash bucket "
-                         f"count ({hash_bucket_count}. To resolve this "
-                         f"problem either omit a hash bucket count when "
-                         f"running compaction or rehash your existing "
-                         f"compacted dataset.")
 
     delta_bytes = 0
     delta_bytes_pyarrow = 0
@@ -154,13 +137,13 @@ def limit_input_deltas(
     )
     logger.info("Minimum recommended hash buckets: ", min_hash_bucket_count)
 
-    if hash_bucket_count <= 0:
+    if hash_bucket_count is None:
         # TODO (pdames): calc default hash buckets from table growth rate... as
         #  this stands, we don't know whether we're provisioning insufficient
         #  hash buckets for the next 5 minutes of deltas or more than enough
         #  for the next 10 years
         hash_bucket_count = min_hash_bucket_count
-        logger.info(f"Default hash buckets: {hash_bucket_count}")
+        logger.info(f"Using default hash bucket count: {hash_bucket_count}")
 
     if hash_bucket_count < min_hash_bucket_count:
         logger.warn(

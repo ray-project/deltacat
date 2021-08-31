@@ -2,6 +2,8 @@ import logging
 import json
 from deltacat import logs
 from deltacat.storage.model import partition_locator as pl
+from deltacat.compute.compactor.model \
+    import primary_key_index_version_locator as pkivl
 from deltacat.aws import s3u as s3_utils
 from typing import Any, Dict
 
@@ -10,18 +12,22 @@ logger = logs.configure_application_logger(logging.getLogger(__name__))
 
 def get_round_completion_file_s3_url(
         bucket: str,
-        source_partition_locator: Dict[str, Any]):
+        source_partition_locator: Dict[str, Any],
+        pki_root_path: str):
 
-    return f"s3://{bucket}/{pl.hexdigest(source_partition_locator)}.json"
+    source_hexdigest = pl.hexdigest(source_partition_locator)
+    return f"s3://{bucket}/{source_hexdigest}/{pki_root_path}.json"
 
 
 def read_round_completion_file(
         bucket: str,
-        source_partition_locator: Dict[str, Any]):
+        source_partition_locator: Dict[str, Any],
+        primary_key_index_root_path: str):
 
     round_completion_file_url = get_round_completion_file_s3_url(
         bucket,
         source_partition_locator,
+        primary_key_index_root_path,
     )
     logger.info(
         f"reading round completion file from: {round_completion_file_url}")
@@ -37,6 +43,7 @@ def read_round_completion_file(
 def write_round_completion_file(
         bucket: str,
         source_partition_locator: Dict[str, Any],
+        primary_key_index_root_path: str,
         round_completion_info: Dict[str, Any]):
 
     logger.info(
@@ -44,6 +51,7 @@ def write_round_completion_file(
     round_completion_file_s3_url = get_round_completion_file_s3_url(
         bucket,
         source_partition_locator,
+        primary_key_index_root_path,
     )
     logger.info(
         f"writing round completion file to: {round_completion_file_s3_url}")

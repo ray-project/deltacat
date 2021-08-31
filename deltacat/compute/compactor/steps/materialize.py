@@ -7,7 +7,8 @@ from itertools import chain, repeat
 from deltacat import logs
 from deltacat.aws.redshift.model import manifest as rsm, manifest_meta as rsmm
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.compute.compactor.model import materialize_result as mr
+from deltacat.compute.compactor.model import materialize_result as mr, \
+    pyarrow_write_result as pawr
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.storage.model import delta_manifest as dm, \
     delta_staging_area as dsa, delta_locator as dl
@@ -122,8 +123,10 @@ def materialize(
     return mr.of(
         delta_manifest,
         mat_bucket_index,
-        len(rsm.get_entries(manifest)),
-        compacted_table.nbytes,
-        rsmm.get_content_length(manifest),
-        len(compacted_table),
+        pawr.of(
+            len(rsm.get_entries(manifest)),
+            compacted_table.nbytes,
+            rsmm.get_content_length(manifest),
+            len(compacted_table),
+        ),
     )

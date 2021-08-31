@@ -36,7 +36,7 @@ def next_page(list_result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             next_page_provider = get_next_page_provider(list_result)
             if next_page_provider is None:
                 raise ValueError(f"Pagination key ('{pagination_key}') "
-                                 f"specified without a page provider!")
+                                 f"specified without a next page provider!")
             next_list_result = next_page_provider(pagination_key)
             if get_next_page_provider(next_list_result) is None:
                 next_list_result["nextPageProvider"] = next_page_provider

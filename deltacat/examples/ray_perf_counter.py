@@ -31,7 +31,6 @@ def list_all_tables_for_namespaces(
     )
     print(f"Table counts by namespace: {sorted_namespace_table_counts}")
     print(f"Total tables: {len(tables)}")
-    print(f"Prod namespaces: {namespaces}")
 
     return tables
 
@@ -48,8 +47,8 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
         all_items,
         dc_storage.list_namespaces(),
     )
-    print(f"total namespaces: {len(namespaces)}")
-    print(f"list namespace latency: {latency}")
+    print(f"Total namespaces: {len(namespaces)}")
+    print(f"List namespace latency: {latency}")
 
     tables, latency = invoke_with_perf_counter(
         distributed_counter,
@@ -58,7 +57,7 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
         namespaces,
         dc_storage,
     )
-    print(f"list tables latency: {latency}")
+    print(f"List tables latency: {latency}")
 
 
 if __name__ == '__main__':

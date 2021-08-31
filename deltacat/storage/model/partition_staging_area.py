@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 def of(
         stream_locator: Optional[Dict[str, Any]],
-        partition_keys: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        partition_keys: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
 
     return {
         "streamLocator": stream_locator,
@@ -26,14 +26,14 @@ def set_stream_locator(
 
 
 def get_partition_keys(staging_area: Dict[str, Any]) \
-        -> Optional[Dict[str, Any]]:
+        -> Optional[List[Dict[str, Any]]]:
 
     return staging_area.get("partitionKeys")
 
 
 def set_partition_keys(
         partition_staging_area: Dict[str, Any],
-        partition_keys: Optional[Dict[str, Any]]):
+        partition_keys: Optional[List[Dict[str, Any]]]):
 
     partition_staging_area["partitionKeys"] = partition_keys
 
@@ -70,7 +70,7 @@ def validate_partition_values(
         staging_area: Dict[str, Any],
         partition_values: Optional[List[Any]]):
 
-    # TODO: ensure value data types match key data types
+    # TODO (pdames): ensure value data types match key data types
     partition_keys = get_partition_keys(staging_area)
     num_keys = len(partition_keys) if partition_keys else 0
     num_values = len(partition_values) if partition_values else 0

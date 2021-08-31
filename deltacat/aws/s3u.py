@@ -15,6 +15,7 @@ from deltacat.types.tables import TABLE_TYPE_TO_READER_FUNC, \
 from deltacat.types.media import TableType
 from deltacat.exceptions import RetryableError, NonRetryableError
 from typing import Any, Callable, Dict, List, Optional, Generator, Union
+from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 from functools import partial
@@ -51,6 +52,17 @@ def parse_s3_url(url: str) -> ParsedURL:
     return ParsedURL(url)
 
 
+def s3_resource_cache(
+        region: Optional[str],
+        **kwargs) -> ServiceResource:
+
+    return aws_utils.resource_cache(
+        "s3",
+        region,
+        **kwargs,
+    )
+
+
 def s3_client_cache(
         region: Optional[str],
         **kwargs) -> BaseClient:
@@ -75,6 +87,16 @@ def get_object_at_url(
         Bucket=parsed_s3_url.bucket,
         Key=parsed_s3_url.key
     )
+
+
+def delete_files_by_prefix(
+        bucket: str,
+        prefix: str,
+        **s3_client_kwargs) -> None:
+
+    s3 = s3_resource_cache(**s3_client_kwargs)
+    bucket = s3.Bucket(bucket)
+    bucket.objects.filter(Prefix=prefix).delete()
 
 
 def filter_objects_by_prefix(
@@ -316,7 +338,7 @@ def upload(
         body,
         **s3_client_kwargs):
 
-    # TODO: add tenacity retrying
+    # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
     s3 = s3_client_cache(**s3_client_kwargs)
     return s3.put_object(
@@ -331,7 +353,7 @@ def download(
         fail_if_not_found: bool = True,
         **s3_client_kwargs):
 
-    # TODO: add tenacity retrying
+    # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
     s3 = s3_client_cache(**s3_client_kwargs)
     try:

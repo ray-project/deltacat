@@ -1,0 +1,57 @@
+import logging
+import ray
+import pyarrow as pa
+import numpy as np
+from ray import ObjectRef
+from deltacat import logs
+from typing import Any, Dict, List, Tuple
+from deltacat.compute.compactor.utils.primary_key_index import \
+    group_hash_bucket_indices, group_record_indices_by_hash_bucket, \
+    download_hash_bucket_entries
+
+logger = logs.configure_application_logger(logging.getLogger(__name__))
+
+
+def group_file_records_by_pk_hash_bucket(
+        pki_table: pa.Table,
+        num_buckets: int) -> np.ndarray:
+
+    # generate the new table for each new hash bucket
+    hash_bucket_to_indices = group_record_indices_by_hash_bucket(
+        pki_table,
+        num_buckets,
+    )
+    hash_bucket_to_table = np.empty([num_buckets], dtype="object")
+    for hash_bucket in range(len(hash_bucket_to_indices)):
+        indices = hash_bucket_to_indices[hash_bucket]
+        if indices:
+            hash_bucket_to_table[hash_bucket] = pki_table.take(indices)
+    return hash_bucket_to_table
+
+
+@ray.remote(num_returns=2)
+def rehash_bucket(
+        s3_bucket: str,
+        hash_bucket_index: int,
+        old_pki_version_locator: Dict[str, Any],
+        num_buckets: int,
+        num_groups: int) -> Tuple[np.ndarray, List[ObjectRef]]:
+
+    logger.info(f"Starting rehash bucket task...")
+    tables = download_hash_bucket_entries(
+        s3_bucket,
+        hash_bucket_index,
+        old_pki_version_locator,
+    )
+    prior_pk_index_table = pa.concat_tables(tables)
+    hash_bucket_to_table = group_file_records_by_pk_hash_bucket(
+        prior_pk_index_table,
+        num_buckets,
+    )
+    hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(
+        hash_bucket_to_table,
+        num_buckets,
+        num_groups,
+    )
+    logger.info(f"Finished rehash bucket task...")
+    return hash_bucket_group_to_obj_id, object_refs

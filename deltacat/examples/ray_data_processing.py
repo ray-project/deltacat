@@ -10,7 +10,7 @@ ray.init(address="auto")
 def convert_sort_and_dedupe(pyarrow_table):
     pandas_dataframe = pyarrow_table.to_pandas()
     pandas_dataframe.sort_values(["sort_key_1"])
-    pandas_dataframe.drop_duplicates(["dedupe_key_1", "deupde_key_2"])
+    pandas_dataframe.drop_duplicates(["dedupe_key_1", "dedupe_key_2"])
     return pandas_dataframe
 
 
