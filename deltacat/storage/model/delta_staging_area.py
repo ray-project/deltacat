@@ -31,7 +31,8 @@ def set_partition_locator(
 def get_supported_content_types(delta_staging_area: Dict[str, Any]) \
         -> Optional[List[ContentType]]:
 
-    return delta_staging_area.get("supportedContentTypes")
+    content_types = delta_staging_area.get("supportedContentTypes")
+    return [None if _ is None else ContentType(_) for _ in content_types]
 
 
 def set_supported_content_types(

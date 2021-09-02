@@ -96,7 +96,8 @@ def set_manifest(
 
 
 def get_delta_type(delta_manifest: Dict[str, Any]) -> Optional[DeltaType]:
-    return delta_manifest.get("type")
+    delta_type = delta_manifest.get("type")
+    return None if delta_type is None else DeltaType(delta_type)
 
 
 def set_delta_type(
