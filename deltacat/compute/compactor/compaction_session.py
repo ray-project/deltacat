@@ -48,7 +48,7 @@ def check_preconditions(
 
 def compact_partition(
         source_partition_locator: Dict[str, Any],
-        prev_compacted_partition_locator: Dict[str, Any],
+        compacted_partition_locator: Optional[Dict[str, Any]],
         column_names: List[str],
         primary_keys: Set[str],
         hash_bucket_count: Optional[int],
@@ -68,9 +68,9 @@ def compact_partition(
     has_next_compaction_round = True
     while has_next_compaction_round:
         has_next_compaction_round, delta_staging_area = \
-            execute_compaction_round(
+            _execute_compaction_round(
                 source_partition_locator,
-                prev_compacted_partition_locator,
+                compacted_partition_locator,
                 column_names,
                 primary_keys,
                 hash_bucket_count,
@@ -84,7 +84,7 @@ def compact_partition(
                 compacted_file_content_type,
                 delete_prev_primary_key_index,
             )
-        prev_compacted_partition_locator = dsa.get_partition_locator(
+        compacted_partition_locator = dsa.get_partition_locator(
             delta_staging_area
         )
         compaction_rounds_executed += 1
@@ -92,15 +92,15 @@ def compact_partition(
                 f"{compaction_rounds_executed} rounds.")
     if delta_staging_area:
         logger.info(f"Committing compacted partition to: "
-                    f"{prev_compacted_partition_locator}")
+                    f"{compacted_partition_locator}")
         partition = deltacat_storage.commit_partition(delta_staging_area)
         logger.info(f"Committed compacted partition: {partition}")
     logger.info(f"Completed compaction session for: {source_partition_locator}")
 
 
-def execute_compaction_round(
+def _execute_compaction_round(
         source_partition_locator: Dict[str, Any],
-        prev_compacted_partition_locator: Dict[str, Any],
+        prev_compacted_partition_locator: Optional[Dict[str, Any]],
         column_names: List[str],
         primary_keys: Set[str],
         new_hash_bucket_count: Optional[int],

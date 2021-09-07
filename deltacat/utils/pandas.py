@@ -29,7 +29,9 @@ CONTENT_TYPE_TO_PD_READ_FUNC: Dict[str, Callable] = {
 CONTENT_TYPE_TO_READER_KWARGS: Dict[str, Dict[str, Any]] = {
     ContentType.UNESCAPED_TSV.value: {
         "sep": "\t",
-        "header": None
+        "header": None,
+        "na_values": [""],
+        "keep_default_na": False,
     },
     ContentType.TSV.value: {
         "sep": "\t",

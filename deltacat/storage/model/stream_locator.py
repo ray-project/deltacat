@@ -29,7 +29,7 @@ def get_namespace(stream_locator: Dict[str, Any]) -> Optional[str]:
 
 def set_namespace(
         stream_locator: Dict[str, Any],
-        namespace: Optional[str]):
+        namespace: Optional[str]) -> None:
 
     stream_locator["namespace"] = namespace
 
@@ -40,7 +40,7 @@ def get_table_name(stream_locator: Dict[str, Any]) -> Optional[str]:
 
 def set_table_name(
         stream_locator: Dict[str, Any],
-        table_name: Optional[str]):
+        table_name: Optional[str]) -> None:
 
     stream_locator["tableName"] = table_name
 
@@ -51,7 +51,7 @@ def get_table_version(stream_locator: Dict[str, Any]) -> Optional[str]:
 
 def set_table_version(
         stream_locator: Dict[str, Any],
-        table_version: Optional[str]):
+        table_version: Optional[str]) -> None:
 
     stream_locator["tableVersion"] = table_version
 
@@ -62,7 +62,7 @@ def get_stream_id(stream_locator: Dict[str, Any]) -> Optional[str]:
 
 def set_stream_id(
         stream_locator: Dict[str, Any],
-        stream_id: Optional[str]):
+        stream_id: Optional[str]) -> None:
 
     stream_locator["streamId"] = stream_id
 
@@ -73,7 +73,7 @@ def get_storage_type(stream_locator: Dict[str, Any]) -> Optional[str]:
 
 def set_storage_type(
         stream_locator: Dict[str, Any],
-        storage_type: Optional[str]):
+        storage_type: Optional[str]) -> None:
 
     stream_locator["storageType"] = storage_type
 

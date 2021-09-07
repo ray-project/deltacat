@@ -10,12 +10,14 @@ from typing import Any, Dict, List, Tuple
 MAX_SORT_KEYS_BIT_WIDTH: int = 256
 
 
-class SortOrder(Enum):
+class SortOrder(str, Enum):
     ASCENDING = "ascending"
     DESCENDING = "descending"
 
 
-def of(key_name: str, sort_order: SortOrder) -> Tuple[str, str]:
+def of(key_name: str, sort_order: SortOrder=SortOrder.DESCENDING) \
+        -> Tuple[str, str]:
+
     return key_name, sort_order.value
 
 

@@ -90,7 +90,7 @@ def get_manifest(delta_manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def set_manifest(
         delta_manifest: Dict[str, Any],
-        manifest: Optional[Dict[str, Any]]):
+        manifest: Optional[Dict[str, Any]]) -> None:
 
     delta_manifest["manifest"] = manifest
 
@@ -102,7 +102,7 @@ def get_delta_type(delta_manifest: Dict[str, Any]) -> Optional[DeltaType]:
 
 def set_delta_type(
         delta_manifest: Dict[str, Any],
-        delta_type: Optional[DeltaType]):
+        delta_type: Optional[DeltaType]) -> None:
 
     delta_manifest["type"] = delta_type
 
@@ -115,6 +115,6 @@ def get_delta_locator(delta_manifest: Dict[str, Any]) \
 
 def set_delta_locator(
         delta_manifest: Dict[str, Any],
-        delta_locator: Optional[Dict[str, Any]]):
+        delta_locator: Optional[Dict[str, Any]]) -> None:
 
     delta_manifest["locator"] = delta_locator

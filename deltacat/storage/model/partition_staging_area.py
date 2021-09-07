@@ -20,7 +20,7 @@ def get_stream_locator(partition_staging_area: Dict[str, Any]) \
 
 def set_stream_locator(
         partition_staging_area: Dict[str, Any],
-        stream_locator: Optional[Dict[str, Any]]):
+        stream_locator: Optional[Dict[str, Any]]) -> None:
 
     partition_staging_area["streamLocator"] = stream_locator
 
@@ -33,7 +33,7 @@ def get_partition_keys(staging_area: Dict[str, Any]) \
 
 def set_partition_keys(
         partition_staging_area: Dict[str, Any],
-        partition_keys: Optional[List[Dict[str, Any]]]):
+        partition_keys: Optional[List[Dict[str, Any]]]) -> None:
 
     partition_staging_area["partitionKeys"] = partition_keys
 

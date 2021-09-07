@@ -33,7 +33,7 @@ def get_meta(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def set_meta(
         delta: Dict[str, Any],
-        meta: Optional[Dict[str, Any]]):
+        meta: Optional[Dict[str, Any]]) -> None:
 
     delta["meta"] = meta
 
@@ -44,7 +44,7 @@ def get_properties(delta: Dict[str, Any]) -> Optional[Dict[str, str]]:
 
 def set_properties(
         delta: Dict[str, Any],
-        properties: Optional[Dict[str, str]]):
+        properties: Optional[Dict[str, str]]) -> None:
 
     delta["properties"] = properties
 
@@ -56,7 +56,7 @@ def get_delta_type(delta: Dict[str, Any]) -> Optional[DeltaType]:
 
 def set_delta_type(
         delta: Dict[str, Any],
-        delta_type: Optional[DeltaType]):
+        delta_type: Optional[DeltaType]) -> None:
 
     delta["type"] = delta_type
 
@@ -69,6 +69,6 @@ def get_delta_locator(delta: Dict[str, Any]) \
 
 def set_delta_locator(
         delta: Dict[str, Any],
-        delta_locator: Optional[Dict[str, Any]]):
+        delta_locator: Optional[Dict[str, Any]]) -> None:
 
     delta["locator"] = delta_locator

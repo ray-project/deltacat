@@ -34,8 +34,8 @@ def materialize(
     dedupe_task_idx_and_obj_ref_tuples = [
         (
             t[0],
-            cloudpickle.loads(t[1]) for t in dedupe_task_idx_and_obj_id_tuples
-        )
+            cloudpickle.loads(t[1])
+        ) for t in dedupe_task_idx_and_obj_id_tuples
     ]
     logger.info(f"Resolved materialize task obj refs...")
     dedupe_task_indices, obj_refs = zip(

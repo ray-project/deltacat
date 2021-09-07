@@ -1,12 +1,12 @@
 from enum import Enum
 
 
-class DeltaType(Enum):
+class DeltaType(str, Enum):
     UPSERT = "upsert"
     DELETE = "delete"
 
 
-class LifecycleState(Enum):
+class LifecycleState(str, Enum):
     UNRELEASED = "unreleased"
     ACTIVE = "active"
     DEPRECATED = "deprecated"

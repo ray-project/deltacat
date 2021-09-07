@@ -1,11 +1,12 @@
+import pyarrow as pa
 from deltacat.storage.model import stream_locator as sl, partition_locator as pl
 from deltacat.types.media import ContentType
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 
 def of(
         partition_locator: Optional[Dict[str, Any]],
-        schema: Optional[str],
+        schema: Optional[Union[pa.Schema, str, bytes]],
         supported_content_types: Optional[List[ContentType]]) -> Dict[str, Any]:
 
     return {
@@ -23,21 +24,35 @@ def get_partition_locator(delta_staging_area: Dict[str, Any]) \
 
 def set_partition_locator(
         delta_staging_area: Dict[str, Any],
-        partition_locator: Optional[Dict[str, Any]]):
+        partition_locator: Optional[Dict[str, Any]]) -> None:
 
     delta_staging_area["partitionLocator"] = partition_locator
+
+
+def get_schema(delta_staging_area: Dict[str, Any]) \
+        -> Optional[Union[pa.Schema, str, bytes]]:
+
+    return delta_staging_area.get("schema")
+
+
+def set_schema(
+        delta_staging_area: Dict[str, Any],
+        schema: Optional[Union[pa.Schema, str, bytes]]) -> None:
+
+    delta_staging_area["schema"] = schema
 
 
 def get_supported_content_types(delta_staging_area: Dict[str, Any]) \
         -> Optional[List[ContentType]]:
 
     content_types = delta_staging_area.get("supportedContentTypes")
-    return [None if _ is None else ContentType(_) for _ in content_types]
+    return None if content_types is None else \
+        [None if _ is None else ContentType(_) for _ in content_types]
 
 
 def set_supported_content_types(
         delta_staging_area: Dict[str, Any],
-        supported_content_types: Optional[List[ContentType]]):
+        supported_content_types: Optional[List[ContentType]]) -> None:
 
     delta_staging_area["supportedContentTypes"] = supported_content_types
 
@@ -48,7 +63,7 @@ def is_supported_content_type(
 
     supported_content_types = get_supported_content_types(delta_staging_area)
     return (not supported_content_types) or \
-           (content_type.value in supported_content_types)
+           (content_type in supported_content_types)
 
 
 def get_partition_id(staging_area: Dict[str, Any]) -> Optional[str]:
@@ -60,7 +75,7 @@ def get_partition_id(staging_area: Dict[str, Any]) -> Optional[str]:
 
 def set_partition_id(
         staging_area: Dict[str, Any],
-        partition_id: str):
+        partition_id: str) -> None:
 
     pl.set_partition_id(get_partition_locator(staging_area), partition_id)
 

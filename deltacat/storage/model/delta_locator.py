@@ -24,7 +24,7 @@ def get_partition_locator(delta_locator: Dict[str, Any]) \
 
 def set_partition_locator(
         delta_locator: Dict[str, Any],
-        partition_locator: Optional[Dict[str, Any]]):
+        partition_locator: Optional[Dict[str, Any]]) -> None:
 
     delta_locator["partitionLocator"] = partition_locator
 
@@ -35,7 +35,7 @@ def get_stream_position(delta_locator: Dict[str, Any]) -> Optional[int]:
 
 def set_stream_position(
         delta_locator: Dict[str, Any],
-        stream_position: Optional[int]):
+        stream_position: Optional[int]) -> None:
 
     delta_locator["streamPosition"] = stream_position
 

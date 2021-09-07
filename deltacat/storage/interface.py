@@ -23,7 +23,7 @@ def list_tables(
         **kwargs) -> Dict[str, Any]:
     """
     Lists a page of tables for the given table namespace. Tables are returned as
-    list result items.
+    list result items. Raises an error if the given namespace does not exist.
     """
     raise NotImplementedError("list_tables not implemented")
 
@@ -35,7 +35,8 @@ def list_table_versions(
         **kwargs) -> Dict[str, Any]:
     """
     Lists a page of table versions for the given table. Table versions are
-    returned as list result items.
+    returned as list result items. Raises an error if the given table does not
+    exist.
     """
     raise NotImplementedError("list_table_versions not implemented")
 
@@ -49,7 +50,8 @@ def list_partitions(
     """
     Lists a page of partitions for the given table version. Partitions are
     returned as list result items. Table version resolves to the latest active
-    table version if not specified.
+    table version if not specified. Raises an error if the table version does
+    not exist.
     """
     raise NotImplementedError("list_partitions not implemented")
 
@@ -82,7 +84,8 @@ def list_deltas(
     inclusive first and last stream positions. Deltas are returned by
     descending stream position by default. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables.
+    specified for unpartitioned tables. Raises an error if the given table
+    version, partition, or stream positions do not exist.
     """
     raise NotImplementedError("list_deltas not implemented")
 
@@ -99,7 +102,7 @@ def list_deltas_pending_commit(
     raise NotImplementedError("list_deltas_pending_commit not implemented")
 
 
-def latest_delta(
+def get_latest_delta(
         namespace: str,
         table_name: str,
         partition_values: Optional[List[Any]],
@@ -110,7 +113,8 @@ def latest_delta(
     Gets the latest delta (i.e. the delta with the greatest stream position) for
     the given table version and partition. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables.
+    specified for unpartitioned tables. Raises an error if the given table
+    version or partition does not exist.
     """
     raise NotImplementedError("latest_delta not implemented")
 
@@ -185,7 +189,8 @@ def create_namespace(
         *args,
         **kwargs) -> Dict[str, Any]:
     """
-    Creates a table namespace with the given name and permissions.
+    Creates a table namespace with the given name and permissions. Returns
+    the created namespace.
     """
     raise NotImplementedError("create_namespace not implemented")
 
@@ -197,7 +202,8 @@ def update_namespace(
         *args,
         **kwargs) -> None:
     """
-    Updates a table namespace's name and/or permissions.
+    Updates a table namespace's name and/or permissions. Raises an error if the
+    given namespace does not exist.
     """
     raise NotImplementedError("update_namespace not implemented")
 
@@ -205,6 +211,7 @@ def update_namespace(
 def create_table_version(
         namespace: str,
         table_name: str,
+        table_version: Optional[str] = None,
         schema: Optional[Union[pa.Schema, str, bytes]] = None,
         partition_keys: Optional[List[Dict[str, Any]]] = None,
         primary_key_column_names: Optional[List[str]] = None,
@@ -215,7 +222,7 @@ def create_table_version(
         table_properties: Optional[Dict[str, str]] = None,
         supported_content_types: Optional[List[ContentType]] = None,
         *args,
-        **kwargs) -> None:
+        **kwargs) -> Dict[str, Any]:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned, or partitioned
@@ -227,7 +234,9 @@ def create_table_version(
     correspond to a given order day, even if this column doesn't exist in the
     table). Primary keys must exist within the table's schema. Permissions
     specified at the table level override any conflicting permissions specified
-    at the table namespace level.
+    at the table namespace level. Returns the partition staging area for the
+    created table version. Raises an error if the given namespace does not
+    exist.
     """
     raise NotImplementedError("create_table_version not implemented")
 
@@ -242,7 +251,8 @@ def update_table(
     """
     Update table metadata describing the table versions it contains. By default,
     a table's properties are empty, and its description and permissions are
-    equal to those given when its first table version was created.
+    equal to those given when its first table version was created. Raises an
+    error if the given table does not exist.
     """
     raise NotImplementedError("update_table not implemented")
 
@@ -265,7 +275,8 @@ def update_table_version(
     consumption, and causes all calls made to consume/produce streams,
     partitions, or deltas from/to its parent table to automatically resolve to
     this table version by default (i.e. when the client does not explicitly
-    specify a different table version).
+    specify a different table version). Raises an error if the given table
+    version does not exist.
     """
     raise NotImplementedError("update_table_version not implemented")
 
@@ -279,7 +290,8 @@ def stage_stream(
     """
     Stages a new stream for the given table version. Resolves to the latest
     active table version if no table version is given. Returns the partition
-    staging area for the staged stream.
+    staging area for the staged stream. Raises an error if the table version
+    does not exist.
     """
     raise NotImplementedError("stage_stream not implemented")
 
@@ -305,6 +317,7 @@ def delete_stream(
     """
     Deletes the stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
+    Raises an error if the table version does not exist.
     """
     raise NotImplementedError("delete_stream not implemented")
 
@@ -319,8 +332,8 @@ def get_partition_staging_area(
     Gets the partition staging area for the most recently committed stream of
     the given table version and partition key values. Resolves to the latest
     active table version if no table version is given. Returns None if no
-    stream has been committed for the given table version and partition key
-    values.
+    stream has been committed for the given table version, or if the table
+    version does not exist.
     """
     raise NotImplementedError("get_partition_staging_area not implemented")
 
@@ -364,21 +377,22 @@ def delete_partition(
     """
     Deletes the given partition from the specified table version. Resolves to
     the latest active table version if no table version is given. Partition
-    values should not be specified for unpartitioned tables.
+    values should not be specified for unpartitioned tables. Raises an error
+    if the table version or partition does not exist.
     """
     raise NotImplementedError("delete_partition not implemented")
 
 
 def get_delta_staging_area(
-        partition_staging_area: Dict[str, Any],
+        stream_locator: Dict[str, Any],
         partition_values: Optional[List[Any]] = None,
         *args,
         **kwargs) -> Optional[Dict[str, Any]]:
     """
     Gets the delta staging area for the most recently committed partition of the
-    given table version and partition key values. Returns None if no partition
+    given stream locator and partition key values. Returns None if no partition
     has been committed for the given table version and/or partition key values.
-    Partition should not be specified for unpartitioned tables.
+    Partition values should not be specified for unpartitioned tables.
     """
     raise NotImplementedError("get_delta_staging_area not implemented")
 
@@ -411,7 +425,8 @@ def commit_delta(
     Registers a delta manifest as a new delta with its associated target table
     version and partition. Returns the registered delta. If previous stream
     position is specified, then the commit will be rejected if it does not match
-    the target partition's actual previous stream position.
+    the target partition's actual previous stream position. The stream position
+    specified must be greater than any previous stream position.
     """
     raise NotImplementedError("commit_delta not implemented")
 
@@ -421,7 +436,8 @@ def get_namespace(
         *args,
         **kwargs) -> Optional[Dict[str, Any]]:
     """
-    Gets table namespace metadata for the specified table namespace.
+    Gets table namespace metadata for the specified table namespace. Returns
+    None if the given namespace does not exist.
     """
     raise NotImplementedError("get_namespace not implemented")
 
@@ -442,7 +458,8 @@ def get_table(
         *args,
         **kwargs) -> Optional[Dict[str, Any]]:
     """
-    Gets table metadata for the specified table.
+    Gets table metadata for the specified table. Returns None if the given
+    table does not exist.
     """
     raise NotImplementedError("get_table not implemented")
 
@@ -465,7 +482,8 @@ def get_table_version(
         *args,
         **kwargs) -> Optional[Dict[str, Any]]:
     """
-    Gets table version metadata for the specified table version.
+    Gets table version metadata for the specified table version. Returns None
+    if the given table version does not exist.
     """
     raise NotImplementedError("get_table_version not implemented")
 
@@ -477,6 +495,7 @@ def get_latest_table_version(
         **kwargs) -> Optional[Dict[str, Any]]:
     """
     Gets table version metadata for the latest version of the specified table.
+    Returns None if no table version exists for the given table.
     """
     raise NotImplementedError("get_latest_table_version not implemented")
 
@@ -488,7 +507,7 @@ def get_latest_active_table_version(
         **kwargs) -> Optional[Dict[str, Any]]:
     """
     Gets table version metadata for the latest active version of the specified
-    table.
+    table. Returns None if no active table version exists for the given table.
     """
     raise NotImplementedError("get_latest_active_table_version not implemented")
 
@@ -504,6 +523,8 @@ def get_table_version_column_names(
     latest active table version if none is specified. The index of each
     column name returned represents its ordinal position in a delimited text
     file or other row-oriented content type files appended to the table.
+    Returns None for schemaless tables. Raises an error if the table version
+    does not exist.
     """
     raise NotImplementedError("get_table_version_column_names not implemented")
 
@@ -516,7 +537,8 @@ def get_table_version_schema(
         **kwargs) -> Optional[Union[pa.Schema, str, bytes]]:
     """
     Gets the schema for the specified table version, or for the latest active
-    table version if none is specified.
+    table version if none is specified. Returns None if the table version is
+    schemaless. Raises an error if the table version does not exist.
     """
     raise NotImplementedError("get_table_version_schema not implemented")
 

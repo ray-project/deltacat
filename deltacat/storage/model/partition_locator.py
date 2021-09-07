@@ -28,7 +28,7 @@ def get_stream_locator(partition_locator: Dict[str, Any]) \
 
 def set_stream_locator(
         partition_locator: Dict[str, Any],
-        stream_locator: Optional[Dict[str, Any]]):
+        stream_locator: Optional[Dict[str, Any]]) -> None:
 
     partition_locator["streamLocator"] = stream_locator
 
@@ -41,7 +41,7 @@ def get_partition_values(partition_locator: Dict[str, Any]) \
 
 def set_partition_values(
         partition_locator: Dict[str, Any],
-        partition_values: Optional[List[Any]]):
+        partition_values: Optional[List[Any]]) -> None:
 
     partition_locator["partitionValues"] = partition_values
 
@@ -52,7 +52,7 @@ def get_partition_id(partition_locator: Dict[str, Any]) -> Optional[str]:
 
 def set_partition_id(
         partition_locator: Dict[str, Any],
-        partition_id: Optional[str]):
+        partition_id: Optional[str]) -> None:
 
     partition_locator["partitionId"] = partition_id
 

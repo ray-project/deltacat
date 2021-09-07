@@ -5,9 +5,7 @@ import numpy as np
 from ray import ObjectRef
 from deltacat import logs
 from typing import Any, Dict, List, Tuple
-from deltacat.compute.compactor.utils.primary_key_index import \
-    group_hash_bucket_indices, group_record_indices_by_hash_bucket, \
-    download_hash_bucket_entries
+from deltacat.compute.compactor.utils import primary_key_index as pki
 
 logger = logs.configure_application_logger(logging.getLogger(__name__))
 
@@ -17,7 +15,7 @@ def group_file_records_by_pk_hash_bucket(
         num_buckets: int) -> np.ndarray:
 
     # generate the new table for each new hash bucket
-    hash_bucket_to_indices = group_record_indices_by_hash_bucket(
+    hash_bucket_to_indices = pki.group_record_indices_by_hash_bucket(
         pki_table,
         num_buckets,
     )
@@ -38,7 +36,7 @@ def rehash_bucket(
         num_groups: int) -> Tuple[np.ndarray, List[ObjectRef]]:
 
     logger.info(f"Starting rehash bucket task...")
-    tables = download_hash_bucket_entries(
+    tables = pki.download_hash_bucket_entries(
         s3_bucket,
         hash_bucket_index,
         old_pki_version_locator,
@@ -48,7 +46,7 @@ def rehash_bucket(
         prior_pk_index_table,
         num_buckets,
     )
-    hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(
+    hash_bucket_group_to_obj_id, object_refs = pki.group_hash_bucket_indices(
         hash_bucket_to_table,
         num_buckets,
         num_groups,

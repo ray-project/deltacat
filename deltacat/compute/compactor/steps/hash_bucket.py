@@ -122,9 +122,21 @@ def read_delta_file_envelopes(
         tables = deltacat_storage.download_delta_manifest(
             annotated_delta_manifest,
             file_reader_kwargs={
+                CONTENT_TYPE_TO_USER_KWARGS_KEY[
+                    ContentType.UNESCAPED_TSV.value]: {
+                    "read_options": pacsv.ReadOptions(
+                        column_names=column_names,
+                        null_values=[""],
+                        strings_can_be_null=True,
+                    ),
+                    "convert_options":
+                        pacsv.ConvertOptions(include_columns=columns_to_read)
+                },
                 CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.CSV.value]: {
-                    pacsv.ReadOptions(column_names=column_names),
-                    pacsv.ConvertOptions(include_columns=columns_to_read)
+                    "read_options":
+                        pacsv.ReadOptions(column_names=column_names),
+                    "convert_options":
+                        pacsv.ConvertOptions(include_columns=columns_to_read)
                 },
                 CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.PARQUET.value]: {
                     "columns": columns_to_read

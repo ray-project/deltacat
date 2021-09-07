@@ -35,16 +35,33 @@ CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
 def write_feather(
         table: pa.Table,
         path: str,
-        file_system: AbstractFileSystem,
+        filesystem: AbstractFileSystem,
         **kwargs):
 
-    with file_system.open(path, "wb") as f:
+    with filesystem.open(path, "wb") as f:
         paf.write_feather(table, f, **kwargs)
 
 
+def write_csv(
+        table: pa.Table,
+        path: str,
+        filesystem: AbstractFileSystem,
+        **kwargs):
+
+    with filesystem.open(path, "wb") as f:
+        if kwargs.get("write_options") is None:
+            # column names are kept in deltacat table metadata, so omit header
+            kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
+        pacsv.write_csv(table, f, **kwargs)
+
+
 CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: write_csv,
+    ContentType.TSV.value: write_csv,
+    ContentType.CSV.value: write_csv,
+    ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: papq.write_table,
-    ContentType.FEATHER.value: write_feather
+    ContentType.FEATHER.value: write_feather,
 }
 
 
@@ -52,7 +69,11 @@ CONTENT_TYPE_TO_READER_KWARGS: Dict[str, Dict[str, Any]] = {
     ContentType.UNESCAPED_TSV.value: {
         "parse_options": pacsv.ParseOptions(
             delimiter="\t",
-            quote_char=False)
+            quote_char=False),
+        "convert_options": pacsv.ConvertOptions(
+            null_values=[""],  # pyarrow defaults are ["", "NULL", "null"]
+            strings_can_be_null=True,
+        )
     },
     ContentType.TSV.value: {
         "parse_options": pacsv.ParseOptions(
@@ -128,7 +149,7 @@ def s3_file_to_table(
     if pa_read_func_kwargs is None:
         pa_read_func_kwargs = {}
     if content_type in DELIMITED_TEXT_CONTENT_TYPES:
-        # ReadOptions can't be included in CONTENT_TYPE_TO_KWARGS because it doesn't pickle:
+        # ReadOptions can't be included in CONTENT_TYPE_TO_READER_KWARGS because it doesn't pickle:
         #   File "/home/ubuntu/anaconda3/lib/python3.7/site-packages/ray/cloudpickle/cloudpickle_fast.py", line 563, in dump
         #       return Pickler.dump(self, obj)
         #   File "stringsource", line 2, in pyarrow._csv.ReadOptions.__reduce_cython__
