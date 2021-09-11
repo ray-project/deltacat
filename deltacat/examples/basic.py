@@ -3,9 +3,7 @@ from deltacat.storage import interface as unimplemented_deltacat_storage
 
 
 def run_all(dc_storage = unimplemented_deltacat_storage):
-    """
-    Run all examples.
-    """
+    """Run all examples."""
 
     """
     Example list_namespaces() result containing a single namespace:
@@ -112,16 +110,13 @@ def run_all(dc_storage = unimplemented_deltacat_storage):
     """
     # Deltas will automatically be returned for the latest active version of the
     # specified table.
-    partition_deltas = []
     deltas_list_result = dc_storage.list_deltas(
         "TestNamespace",
         "TestTable",
         ["1", "2018-03-06T00:00:00.000Z"],
     )
-    while deltas_list_result:
-        deltas_list_result = lr.next_page(deltas_list_result)
-        partition_deltas.extend(lr.get_items(deltas_list_result))
-    print(f"All Partition Deltas: {partition_deltas}")
+    all_partition_deltas = lr.all_items(deltas_list_result)
+    print(f"All Partition Deltas: {all_partition_deltas}")
 
 
 if __name__ == '__main__':

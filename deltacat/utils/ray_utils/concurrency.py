@@ -30,9 +30,9 @@ def invoke_parallel(
         pending_ids (List[ObjectRef]): List of ready Ray object references.
     """
     pending_ids = []
-    for i in range(len(items)):
+    for i, item in enumerate(items):
         if len(pending_ids) > max_parallelism:
             ray.wait(pending_ids, num_returns=i - max_parallelism)
-        pending_id = ray_task.remote(items[i], *args, **kwargs)
+        pending_id = ray_task.remote(item, *args, **kwargs)
         pending_ids.append(pending_id)
     return pending_ids

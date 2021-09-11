@@ -7,13 +7,13 @@ from deltacat.compute.compactor.model \
 from deltacat.aws import s3u as s3_utils
 from typing import Any, Dict
 
-logger = logs.configure_application_logger(logging.getLogger(__name__))
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def get_round_completion_file_s3_url(
         bucket: str,
         source_partition_locator: Dict[str, Any],
-        pki_root_path: str):
+        pki_root_path: str) -> str:
 
     source_hexdigest = pl.hexdigest(source_partition_locator)
     return f"s3://{bucket}/{source_hexdigest}/{pki_root_path}.json"
@@ -22,7 +22,7 @@ def get_round_completion_file_s3_url(
 def read_round_completion_file(
         bucket: str,
         source_partition_locator: Dict[str, Any],
-        primary_key_index_root_path: str):
+        primary_key_index_root_path: str) -> Dict[str, Any]:
 
     round_completion_file_url = get_round_completion_file_s3_url(
         bucket,
@@ -31,7 +31,7 @@ def read_round_completion_file(
     )
     logger.info(
         f"reading round completion file from: {round_completion_file_url}")
-    round_completion_info = {}
+    round_completion_info = None
     result = s3_utils.download(round_completion_file_url, False)
     if result:
         json_str = result["Body"].read().decode("utf-8")

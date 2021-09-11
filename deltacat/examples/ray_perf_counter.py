@@ -36,9 +36,7 @@ def list_all_tables_for_namespaces(
 
 
 def run_all(dc_storage=unimplemented_deltacat_storage):
-    """
-    Run all examples.
-    """
+    """Run all examples."""
 
     distributed_counter = DistributedCounter.remote()
     namespaces, latency = invoke_with_perf_counter(

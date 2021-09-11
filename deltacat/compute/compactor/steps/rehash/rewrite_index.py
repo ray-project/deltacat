@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from deltacat.compute.compactor.utils import primary_key_index as pki
 from deltacat.compute.compactor.model import pyarrow_write_result as pawr
 
-logger = logs.configure_application_logger(logging.getLogger(__name__))
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 @ray.remote(num_returns=2)
@@ -25,8 +25,7 @@ def rewrite_index(
     logger.info(f"Got {len(table_groups_list)} table groups object refs...")
     hb_index_to_tables = defaultdict(list)
     for table_groups in table_groups_list:
-        for hb_index in range(len(table_groups)):
-            table = table_groups[hb_index]
+        for hb_index, table in enumerate(table_groups):
             if table is not None:
                 hb_index_to_tables[hb_index].append(table)
     logger.info(f"Running {len(hb_index_to_tables)} rewrite index rounds...")

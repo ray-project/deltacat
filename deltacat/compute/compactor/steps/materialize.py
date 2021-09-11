@@ -8,7 +8,7 @@ from deltacat import logs
 from deltacat.aws.redshift.model import manifest as rsm, manifest_meta as rsmm
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.model import materialize_result as mr, \
-    pyarrow_write_result as pawr
+    pyarrow_write_result as pawr, delta_file_locator as dfl
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.storage.model import delta_manifest as dm, \
     delta_staging_area as dsa, delta_locator as dl
@@ -16,7 +16,7 @@ from deltacat.types.media import ContentType
 from ray import cloudpickle
 from typing import Any, Dict, List, Tuple
 
-logger = logs.configure_application_logger(logging.getLogger(__name__))
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 @ray.remote
@@ -43,31 +43,30 @@ def materialize(
     )
     # this depends on `ray.get` result order matching input order, as per the
     # contract established in: https://github.com/ray-project/ray/pull/16763
-    src_file_records_list = ray.get(obj_refs)
+    src_file_records_list = ray.get(list(obj_refs))
     all_src_file_records = defaultdict(list)
-    for i in range(len(src_file_records_list)):
+    for i, src_file_records in enumerate(src_file_records_list):
         dedupe_task_idx = dedupe_task_indices[i]
-        src_file_records = src_file_records_list[i]
-        for src_file_id, record_numbers in src_file_records.items():
-            all_src_file_records[src_file_id].append(
+        for src_dfl, record_numbers in src_file_records.items():
+            all_src_file_records[src_dfl].append(
                 (record_numbers, repeat(dedupe_task_idx, len(record_numbers)))
             )
     manifest_cache = {}
     compacted_tables = []
-    for src_file_id in sorted(all_src_file_records.keys()):
-        record_numbers_dd_task_idx_tpl_list = all_src_file_records[src_file_id]
-        record_numbers_list, dedupe_task_idx_iterator = zip(
+    for src_dfl in sorted(all_src_file_records.keys()):
+        record_numbers_dd_task_idx_tpl_list = all_src_file_records[src_dfl]
+        record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
             *record_numbers_dd_task_idx_tpl_list
         )
-        is_src_partition_file = src_file_id[0]
-        src_file_position = src_file_id[1]
-        src_file_idx = src_file_id[2]
+        is_src_partition_file_np = dfl.is_source_delta(src_dfl)
+        src_stream_position_np = dfl.get_stream_position(src_dfl)
+        src_file_idx_np = dfl.get_file_index(src_dfl)
         src_file_partition_locator = source_partition_locator \
-            if is_src_partition_file \
+            if is_src_partition_file_np \
             else dest_partition_locator
         delta_locator = dl.of(
             src_file_partition_locator,
-            src_file_position,
+            src_stream_position_np.item(),
         )
         dl_hexdigest = dl.hexdigest(delta_locator)
         manifest = manifest_cache.setdefault(
@@ -77,19 +76,20 @@ def materialize(
         pa_table = deltacat_storage.download_manifest_entry(
             delta_locator,
             manifest,
-            src_file_idx,
+            src_file_idx_np.item(),
         )
         mask_pylist = list(repeat(False, len(pa_table)))
-        record_numbers = chain.from_iterable(record_numbers_list)
+        record_numbers = chain.from_iterable(record_numbers_tpl)
         for record_number in record_numbers:
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
         compacted_table = pa_table.filter(mask)
 
         # appending, sorting, taking, and dropping has 2-3X latency of a
-        # single filter on average, and thus provides much better performance
-        # than repeatedly filtering the table in dedupe task index order
-        dedupe_task_indices = chain.from_iterable(dedupe_task_idx_iterator)
+        # single filter on average, and thus provides better average
+        # performance than repeatedly filtering the table in dedupe task index
+        # order
+        dedupe_task_indices = chain.from_iterable(dedupe_task_idx_iter_tpl)
         compacted_table = sc.append_dedupe_task_idx_col(
             compacted_table,
             dedupe_task_indices,
@@ -114,19 +114,21 @@ def materialize(
     )
 
     manifest = dm.get_manifest(delta_manifest)
-    manifest_records = rsmm.get_record_count(manifest)
+    manifest_records = rsmm.get_record_count(rsm.get_meta(manifest))
     assert(manifest_records == len(compacted_table),
            f"Unexpected Error: Materialized delta manifest record count "
            f"({manifest_records}) does not equal compacted table record count "
            f"({len(compacted_table)})")
-
-    return mr.of(
+    materialize_result = mr.of(
         delta_manifest,
         mat_bucket_index,
         pawr.of(
             len(rsm.get_entries(manifest)),
             compacted_table.nbytes,
-            rsmm.get_content_length(manifest),
+            rsmm.get_content_length(rsm.get_meta(manifest)),
             len(compacted_table),
         ),
     )
+    logger.info(f"Materialize result: {materialize_result}")
+    logger.info(f"Finished materialize task...")
+    return materialize_result

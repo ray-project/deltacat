@@ -24,7 +24,7 @@ from deltacat.aws import s3u
 from deltacat import logs
 from typing import Any, Dict, List, Tuple
 
-logger = logs.configure_application_logger(logging.getLogger(__name__))
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def rehash(
@@ -91,8 +91,7 @@ def rehash(
     logger.info(f"Got {len(hb_results)} rehash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hash_group_idx_to_obj_id in hb_results:
-        for hash_group_index in range(len(hash_group_idx_to_obj_id)):
-            object_id = hash_group_idx_to_obj_id[hash_group_index]
+        for hash_group_index, object_id in enumerate(hash_group_idx_to_obj_id):
             if object_id:
                 all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
     hash_group_count = len(all_hash_group_idx_to_obj_id)
@@ -160,7 +159,7 @@ def download_hash_bucket_entries(
     pk_index_manifest = json.loads(result["Body"].read().decode("utf-8"))
     tables = s3u.download_manifest_entries(pk_index_manifest)
     if not tables:
-        logger.warn(f"Primary key index manifest is empty at: "
+        logger.warning(f"Primary key index manifest is empty at: "
                     f"{pk_index_manifest_s3_url}. Primary key index version "
                     f"locator: {primary_key_index_version_locator}")
     return tables
@@ -205,8 +204,7 @@ def group_hash_bucket_indices(
         return hash_bucket_group_to_obj_id, object_refs
 
     hb_group_to_object = np.empty([num_groups], dtype="object")
-    for hb_index in range(len(hash_bucket_object_groups)):
-        obj = hash_bucket_object_groups[hb_index]
+    for hb_index, obj in enumerate(hash_bucket_object_groups):
         if obj:
             hb_group = hb_index % num_groups
             if hb_group_to_object[hb_group] is None:
@@ -214,8 +212,7 @@ def group_hash_bucket_indices(
                     [num_buckets], dtype="object")
             hb_group_to_object[hb_group][hb_index] = obj
 
-    for hb_group in range(len(hb_group_to_object)):
-        obj = hb_group_to_object[hb_group]
+    for hb_group, obj in enumerate(hb_group_to_object):
         if obj is not None:
             obj_ref = ray.put(obj)
             object_refs.append(obj_ref)
@@ -279,7 +276,7 @@ def write_primary_key_index_files(
     result = pawr.of(
         len(manifest_entries),
         table.nbytes,
-        rsmm.get_content_length(manifest),
+        rsmm.get_content_length(rsm.get_meta(manifest)),
         len(table),
     )
     logger.info(f"Wrote primary key index files for hash bucket {hb_index}. "

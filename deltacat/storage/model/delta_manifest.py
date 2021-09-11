@@ -56,29 +56,37 @@ def merge_delta_manifests(
             )
         ) for m in delta_manifests
     ])
-    if len(distinct_storage_types > 1):
-        raise NotImplementedError("Delta manifest to merge must all share the "
-                                  "same storage type.")
-    distinct_partition_locators = set([
+    if len(distinct_storage_types) > 1:
+        raise NotImplementedError(
+            f"Delta manifest to merge must all share the "
+            f"same storage type (found {len(distinct_storage_types)} storage "
+            f"types.")
+    distinct_partition_locator_hexdigests = set([
         pl.hexdigest(
             dl.get_partition_locator(
                 dm.get_delta_locator(m)
             )
         ) for m in delta_manifests
     ])
-    if len(distinct_partition_locators) > 1:
-        raise ValueError("Delta manifests to merge must all belong to the same "
-                         "partition.")
+    if len(distinct_partition_locator_hexdigests) > 1:
+        raise ValueError(
+            f"Delta manifests to merge must all belong to the same "
+            f"partition (found {len(distinct_partition_locator_hexdigests)} "
+            f"partitions).")
     distinct_delta_types = set([dm.get_delta_type(m) for m in delta_manifests])
     if len(distinct_delta_types) > 1:
-        raise ValueError("Delta manifests to merge must all share the same "
-                         "delta type.")
+        raise ValueError(f"Delta manifests to merge must all share the same "
+                         f"delta type (found {len(distinct_delta_types)} "
+                         f"delta types).")
     merged_manifest = rsm.merge_manifests(
         [dm.get_manifest(m) for m in delta_manifests],
         author,
     )
+    partition_locator = dl.get_partition_locator(
+        dm.get_delta_locator(delta_manifests[0])
+    )
     return dm.of(
-        dl.of(distinct_partition_locators.pop(), stream_position),
+        dl.of(partition_locator, stream_position),
         distinct_delta_types.pop(),
         merged_manifest,
     )

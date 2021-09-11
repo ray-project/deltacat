@@ -6,9 +6,7 @@ ray.init(address="auto")
 
 
 def run_all(dc_storage_ray=unimplemented_deltacat_storage):
-    """
-    Run all examples.
-    """
+    """Run all examples."""
 
     # make an asynchronous call to list namespaces
     list_namespaces_future = dc_storage_ray.list_namespaces.remote()

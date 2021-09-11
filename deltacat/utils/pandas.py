@@ -129,7 +129,7 @@ def dataframe_to_file(
         path: str,
         file_system: AbstractFileSystem,
         content_type: str = ContentType.PARQUET.value,
-        **kwargs):
+        **kwargs) -> None:
     """
     Writes the given Pandas Dataframe to a file.
     """

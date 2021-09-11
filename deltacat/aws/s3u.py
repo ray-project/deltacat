@@ -25,7 +25,7 @@ from tenacity import stop_after_delay
 from tenacity import retry_if_exception_type
 from uuid import uuid4
 
-logger = logs.configure_application_logger(logging.getLogger(__name__))
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class ParsedURL:
@@ -94,7 +94,7 @@ def delete_files_by_prefix(
         prefix: str,
         **s3_client_kwargs) -> None:
 
-    s3 = s3_resource_cache(**s3_client_kwargs)
+    s3 = s3_resource_cache(None, **s3_client_kwargs)
     bucket = s3.Bucket(bucket)
     bucket.objects.filter(Prefix=prefix).delete()
 
@@ -229,7 +229,7 @@ def upload_table(
     if table_size_func:
         table_size = table_size_func(table)
     else:
-        logger.warn(f"Unable to estimate '{type(table)}' table size.")
+        logger.warning(f"Unable to estimate '{type(table)}' table size.")
     try:
         return rsme.from_s3_obj_url(
             s3_url,
@@ -336,11 +336,11 @@ def download_manifest_entries(
 def upload(
         s3_url: str,
         body,
-        **s3_client_kwargs):
+        **s3_client_kwargs) -> Dict[str, Any]:
 
     # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
-    s3 = s3_client_cache(**s3_client_kwargs)
+    s3 = s3_client_cache(None, **s3_client_kwargs)
     return s3.put_object(
         Body=body,
         Bucket=parsed_s3_url.bucket,
@@ -351,11 +351,11 @@ def upload(
 def download(
         s3_url: str,
         fail_if_not_found: bool = True,
-        **s3_client_kwargs):
+        **s3_client_kwargs) -> Optional[Dict[str, Any]]:
 
     # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
-    s3 = s3_client_cache(**s3_client_kwargs)
+    s3 = s3_client_cache(None, **s3_client_kwargs)
     try:
         return s3.get_object(
             Bucket=parsed_s3_url.bucket,

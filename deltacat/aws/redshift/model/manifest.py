@@ -1,4 +1,5 @@
 import logging
+import itertools
 from deltacat import logs
 from uuid import uuid4
 from typing import Any, Dict, List, Optional
@@ -75,7 +76,8 @@ def merge_manifests(
         manifests: List[Dict[str, Any]],
         author: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
-    all_entries = [get_entries(manifest) for manifest in manifests]
+    all_entries = list(itertools.chain(*[get_entries(m) for m in manifests]))
+    print(f"all_entries: {all_entries}")
     merged_manifest = of(
         all_entries,
         author)

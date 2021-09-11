@@ -7,7 +7,7 @@ from deltacat import logs
 from typing import Any, Dict, List, Tuple
 from deltacat.compute.compactor.utils import primary_key_index as pki
 
-logger = logs.configure_application_logger(logging.getLogger(__name__))
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def group_file_records_by_pk_hash_bucket(
@@ -20,8 +20,7 @@ def group_file_records_by_pk_hash_bucket(
         num_buckets,
     )
     hash_bucket_to_table = np.empty([num_buckets], dtype="object")
-    for hash_bucket in range(len(hash_bucket_to_indices)):
-        indices = hash_bucket_to_indices[hash_bucket]
+    for hash_bucket, indices in enumerate(hash_bucket_to_indices):
         if indices:
             hash_bucket_to_table[hash_bucket] = pki_table.take(indices)
     return hash_bucket_to_table

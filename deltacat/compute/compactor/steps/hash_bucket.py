@@ -16,7 +16,7 @@ from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY
 from deltacat.compute.compactor.utils import system_columns as sc
 from typing import List, Optional, Generator, Dict, Any, Tuple
 
-logger = logs.configure_application_logger(logging.getLogger(__name__))
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _PK_BYTES_DELIMITER = b'L6kl7u5f'
 
@@ -46,8 +46,7 @@ def group_by_pk_hash_bucket(
 
     # generate the ordered record number column
     hash_bucket_to_table = np.empty([num_buckets], dtype="object")
-    for hash_bucket in range(len(hash_bucket_to_indices)):
-        indices = hash_bucket_to_indices[hash_bucket]
+    for hash_bucket, indices in enumerate(hash_bucket_to_indices):
         if indices:
             hash_bucket_to_table[hash_bucket] = sc.append_record_idx_col(
                 table.take(indices),
@@ -67,7 +66,7 @@ def hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
 
 
 def group_file_records_by_pk_hash_bucket(
-        annotated_delta_manifests: List[Dict[str, Any]],
+        annotated_delta_manifest: Dict[str, Any],
         num_hash_buckets: int,
         column_names: List[str],
         primary_keys: List[str],
@@ -77,7 +76,7 @@ def group_file_records_by_pk_hash_bucket(
 
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes = read_delta_file_envelopes(
-        annotated_delta_manifests,
+        annotated_delta_manifest,
         column_names,
         primary_keys,
         sort_key_names,
@@ -94,8 +93,7 @@ def group_file_records_by_pk_hash_bucket(
             num_hash_buckets,
             primary_keys,
         )
-        for hash_bucket in range(len(hash_bucket_to_table)):
-            table = hash_bucket_to_table[hash_bucket]
+        for hash_bucket, table in enumerate(hash_bucket_to_table):
             if table:
                 if hb_to_delta_file_envelopes[hash_bucket] is None:
                     hb_to_delta_file_envelopes[hash_bucket] = []
@@ -109,68 +107,66 @@ def group_file_records_by_pk_hash_bucket(
 
 
 def read_delta_file_envelopes(
-        annotated_delta_manifests: List[Dict[str, Any]],
+        annotated_delta_manifest: Dict[str, Any],
         column_names: List[str],
         primary_keys: List[str],
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[List[Dict[str, Any]]]:
 
-    tables_and_annotations = []
     columns_to_read = list(chain(primary_keys, sort_key_names))
-    for annotated_delta_manifest in annotated_delta_manifests:
-        tables = deltacat_storage.download_delta_manifest(
-            annotated_delta_manifest,
-            file_reader_kwargs={
-                CONTENT_TYPE_TO_USER_KWARGS_KEY[
-                    ContentType.UNESCAPED_TSV.value]: {
-                    "read_options": pacsv.ReadOptions(
-                        column_names=column_names,
-                        null_values=[""],
-                        strings_can_be_null=True,
-                    ),
-                    "convert_options":
-                        pacsv.ConvertOptions(include_columns=columns_to_read)
-                },
-                CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.CSV.value]: {
-                    "read_options":
-                        pacsv.ReadOptions(column_names=column_names),
-                    "convert_options":
-                        pacsv.ConvertOptions(include_columns=columns_to_read)
-                },
-                CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.PARQUET.value]: {
-                    "columns": columns_to_read
-                },
-                CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.FEATHER.value]: {
-                    "columns": columns_to_read
-                },
+    # TODO (pdames): Always read delimited text primary key columns as strings?
+    tables = deltacat_storage.download_delta_manifest(
+        annotated_delta_manifest,
+        file_reader_kwargs={
+            CONTENT_TYPE_TO_USER_KWARGS_KEY[
+                ContentType.UNESCAPED_TSV.value]: {
+                "read_options": pacsv.ReadOptions(
+                    column_names=column_names,
+                ),
+                "convert_options": pacsv.ConvertOptions(
+                    include_columns=columns_to_read,
+                    null_values=[""],
+                    strings_can_be_null=True,
+                )
             },
-        )
-        annotations = dma.get_annotations(annotated_delta_manifest)
-        assert(len(tables) == len(annotations),
-               f"Unexpected Error: Length of downloaded delta manifest tables "
-               f"({len(tables)}) doesn't match the length of delta manifest "
-               f"annotations ({len(annotations)}).")
-        tables_and_annotations.append((tables, annotations))
-    if not tables_and_annotations:
+            CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.CSV.value]: {
+                "read_options":
+                    pacsv.ReadOptions(column_names=column_names),
+                "convert_options":
+                    pacsv.ConvertOptions(include_columns=columns_to_read)
+            },
+            CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.PARQUET.value]: {
+                "columns": columns_to_read
+            },
+            CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.FEATHER.value]: {
+                "columns": columns_to_read
+            },
+        },
+    )
+    annotations = dma.get_annotations(annotated_delta_manifest)
+    assert(len(tables) == len(annotations),
+           f"Unexpected Error: Length of downloaded delta manifest tables "
+           f"({len(tables)}) doesn't match the length of delta manifest "
+           f"annotations ({len(annotations)}).")
+    if not tables:
         return None
 
     delta_file_envelopes = []
-    for tables, annotations in tables_and_annotations:
-        for i in range(len(tables)):
-            delta_file = delta_file_envelope.of(
-                dma.get_annotation_stream_position(annotations[i]),
-                dma.get_annotation_file_index(annotations[i]),
-                dma.get_annotation_delta_type(annotations[i]),
-                tables[i],
-            )
-            delta_file_envelopes.append(delta_file)
+    for i, table in enumerate(tables):
+        delta_file = delta_file_envelope.of(
+            dma.get_annotation_stream_position(annotations[i]),
+            dma.get_annotation_file_index(annotations[i]),
+            dma.get_annotation_delta_type(annotations[i]),
+            table,
+        )
+        delta_file_envelopes.append(delta_file)
     return delta_file_envelopes
 
 
 @ray.remote(num_returns=2)
 def hash_bucket(
-        annotated_delta_manifests: List[Dict[str, Any]],
+        annotated_delta_manifest: Dict[str, Any],
         column_names: List[str],
         primary_keys: List[str],
         sort_keys: List[Tuple[str, str]],
@@ -181,7 +177,7 @@ def hash_bucket(
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [sk.get_key_name(key) for key in sort_keys]
     delta_file_envelope_groups = group_file_records_by_pk_hash_bucket(
-        annotated_delta_manifests,
+        annotated_delta_manifest,
         num_buckets,
         column_names,
         primary_keys,

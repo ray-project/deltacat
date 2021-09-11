@@ -36,7 +36,7 @@ def write_feather(
         table: pa.Table,
         path: str,
         filesystem: AbstractFileSystem,
-        **kwargs):
+        **kwargs) -> None:
 
     with filesystem.open(path, "wb") as f:
         paf.write_feather(table, f, **kwargs)
@@ -46,20 +46,23 @@ def write_csv(
         table: pa.Table,
         path: str,
         filesystem: AbstractFileSystem,
-        **kwargs):
+        **kwargs) -> None:
 
     with filesystem.open(path, "wb") as f:
-        if kwargs.get("write_options") is None:
-            # column names are kept in deltacat table metadata, so omit header
-            kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
-        pacsv.write_csv(table, f, **kwargs)
+        # TODO (pdames): Add support for client-specified compression types.
+        with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+            if kwargs.get("write_options") is None:
+                # column names are kept in table metadata, so omit header
+                kwargs["write_options"] = pacsv.WriteOptions(
+                    include_header=False)
+            pacsv.write_csv(table, out, **kwargs)
 
 
 CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
-    ContentType.UNESCAPED_TSV.value: write_csv,
-    ContentType.TSV.value: write_csv,
+    # TODO (pdames): add support for other delimited text content types as
+    #  pyarrow adds support for custom delimiters, escaping, and None value
+    #  representations to pyarrow.csv.WriteOptions.
     ContentType.CSV.value: write_csv,
-    ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: papq.write_table,
     ContentType.FEATHER.value: write_feather,
 }
@@ -184,11 +187,14 @@ def table_to_file(
         path: str,
         file_system: AbstractFileSystem,
         content_type: str = ContentType.PARQUET.value,
-        **kwargs):
+        **kwargs) -> None:
     """
     Writes the given Pyarrow Table to a file.
     """
-    writer = CONTENT_TYPE_TO_PA_WRITE_FUNC[content_type]
+    writer = CONTENT_TYPE_TO_PA_WRITE_FUNC.get(content_type)
+    if not writer:
+        raise NotImplementedError(
+            "Pyarrow writer for content type 'content_type' not implemented.")
     writer(
         table,
         path,

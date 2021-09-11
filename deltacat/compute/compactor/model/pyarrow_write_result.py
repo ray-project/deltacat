@@ -22,9 +22,9 @@ def union(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     return of(
         sum([get_files(result) for result in results]),
-        sum([get_pyarrow_bytes(result)] for result in results),
-        sum([get_file_bytes(result)] for result in results),
-        sum([get_records(result)] for result in results),
+        sum([get_pyarrow_bytes(result) for result in results]),
+        sum([get_file_bytes(result) for result in results]),
+        sum([get_records(result) for result in results]),
     )
 
 

@@ -47,13 +47,12 @@ def size_limited_groups(
     dma_group_entry_count = 0
     for src_dma in annotated_delta_manifests:
         src_dma_annotations = get_annotations(src_dma)
-        src_dma_entries = rsm.get_entries(src_dma)
+        src_dma_entries = rsm.get_entries(dm.get_manifest(src_dma))
         assert(len(src_dma_annotations) == len(src_dma_entries),
                f"Unexpected Error: Length of delta manifest annotations "
                f"({len(src_dma_annotations)}) doesn't mach the length of delta "
                f"manifest entries ({len(src_dma_entries)}).")
-        for i in range(len(src_dma_entries)):
-            src_entry = src_dma_entries[i]
+        for i, src_entry in enumerate(src_dma_entries):
             _append_annotated_entry(
                 src_dma,
                 dma_group,
@@ -113,31 +112,34 @@ def _annotation(
         delta_type: Optional[DeltaType],
         stream_position: Optional[int]) \
         -> Tuple[int, Optional[DeltaType], Optional[int]]:
-
+    """
+    Creates a delta manifest annotation as a tuple of
+    (entry_index, delta_type, stream_position)
+    """
     return entry_index, delta_type, stream_position
 
 
 def _append_annotated_entry(
-        src_indexed_delta_manifest: Dict[str, Any],
-        dst_indexed_delta_manifest: Dict[str, Any],
+        src_dma: Dict[str, Any],
+        dst_dma: Dict[str, Any],
         src_entry: Dict[str, Any],
         src_annotation: Tuple[int, Optional[DeltaType], Optional[int]]):
 
-    if not dst_indexed_delta_manifest:
+    if not dst_dma:
         # copy all extended properties from the source delta manifest impl
-        dst_indexed_delta_manifest.update(src_indexed_delta_manifest)
-        dm.set_manifest(dst_indexed_delta_manifest, rsm.of([src_entry]))
-        set_annotations(dst_indexed_delta_manifest, [src_annotation])
+        dst_dma.update(src_dma)
+        dm.set_manifest(dst_dma, rsm.of([src_entry]))
+        set_annotations(dst_dma, [src_annotation])
     else:
-        entries = rsm.get_entries(dm.get_manifest(dst_indexed_delta_manifest))
-        src_delta_locator = dm.get_delta_locator(src_indexed_delta_manifest)
-        dst_delta_locator = dm.get_delta_locator(dst_indexed_delta_manifest)
+        entries = rsm.get_entries(dm.get_manifest(dst_dma))
+        src_delta_locator = dm.get_delta_locator(src_dma)
+        dst_delta_locator = dm.get_delta_locator(dst_dma)
         # remove delta type and stream position if there is a conflict
-        if dm.get_delta_type(src_indexed_delta_manifest) \
-                != dm.get_delta_type(dst_indexed_delta_manifest):
-            dm.set_delta_type(dst_indexed_delta_manifest, None)
+        if dm.get_delta_type(src_dma) \
+                != dm.get_delta_type(dst_dma):
+            dm.set_delta_type(dst_dma, None)
         if dl.get_stream_position(src_delta_locator) \
                 != dl.get_stream_position(dst_delta_locator):
             dl.set_stream_position(dst_delta_locator, None)
         entries.append(src_entry)
-        get_annotations(dst_indexed_delta_manifest).append(src_annotation)
+        get_annotations(dst_dma).append(src_annotation)

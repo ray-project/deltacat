@@ -175,10 +175,10 @@ def download_delta_manifest(
         **kwargs) -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
     """
     Download a delta manifest to 1 or more instances of the specified table
-    type. While the main purpose of this function is to download staged deltas,
-    it can also be used to download delta manifests previously retrieved from
-    committed deltas, or constructed by merging/splitting multiple delta
-    manifests.
+    type. Can be used to easily download staged deltas or delta manifests
+    created by merging/splitting delta manifests. Since delta manifests
+    with many entries can be expensive to retrieve, this is also useful for
+    repeatedly downloading a large delta manifest without re-retrieving it.
     """
     raise NotImplementedError("download_delta_manifest not implemented")
 

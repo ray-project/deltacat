@@ -1,4 +1,6 @@
+import logging
 import pyarrow as pa
+from deltacat import logs
 from enum import Enum
 from deltacat.storage.model import partition_locator as pl, \
     stream_locator as sl
@@ -6,6 +8,7 @@ from deltacat.compute.compactor.model import sort_key as sk
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from typing import Any, Dict, List, Tuple
 
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 MAX_SORT_KEYS_BIT_WIDTH: int = 256
 
@@ -79,11 +82,9 @@ def validate_sort_keys(
                         f"Unable to get bit width of sort key: {pa_field}. "
                         f"Please ensure that all sort keys are fixed-size "
                         f"PyArrow data types.") from e
-
-            raise NotImplementedError()
         else:
             raise NotImplementedError(
-                f"Schema type {type(table_version_schema)} does not support "
-                f"compaction with custom sort keys. Either remove the sort "
-                f"keys, or provide a PyArrow schema.")
+               f"Schema type {type(table_version_schema)} does not support "
+               f"compaction with custom sort keys. Either remove the sort "
+               f"keys, or provide a PyArrow schema.")
     return total_sort_keys_bit_width

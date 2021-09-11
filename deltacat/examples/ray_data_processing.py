@@ -15,6 +15,7 @@ def convert_sort_and_dedupe(pyarrow_table):
 
 
 def run_all(dc_storage_ray=unimplemented_deltacat_storage):
+    """Run all examples."""
     deltas_list_result = ray.get(
         dc_storage_ray.list_deltas.remote(
             "TestProvider",
@@ -35,3 +36,7 @@ def run_all(dc_storage_ray=unimplemented_deltacat_storage):
         pending_futures.append(pending_future)
     pandas_dataframes, latency = timed_invocation(ray.get, pending_futures)
     print(f"Time to read, convert, sort, and dedupe delta: {latency}s")
+
+
+if __name__ == '__main__':
+    run_all()
