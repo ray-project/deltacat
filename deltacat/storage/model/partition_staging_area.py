@@ -38,6 +38,33 @@ def set_partition_keys(
     partition_staging_area["partitionKeys"] = partition_keys
 
 
+def get_namespace_locator(staging_area: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
+
+    stream_locator = get_stream_locator(staging_area)
+    if stream_locator:
+        return sl.get_namespace_locator(stream_locator)
+    return None
+
+
+def get_table_locator(staging_area: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
+
+    stream_locator = get_stream_locator(staging_area)
+    if stream_locator:
+        return sl.get_table_locator(stream_locator)
+    return None
+
+
+def get_table_version_locator(staging_area: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
+
+    stream_locator = get_stream_locator(staging_area)
+    if stream_locator:
+        return sl.get_table_version_locator(stream_locator)
+    return None
+
+
 def get_stream_id(staging_area: Dict[str, Any]) -> Optional[str]:
     stream_locator = get_stream_locator(staging_area)
     if stream_locator:

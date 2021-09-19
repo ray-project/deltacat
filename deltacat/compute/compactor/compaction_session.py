@@ -5,7 +5,7 @@ from ray import ray_constants
 from deltacat.types import media
 from deltacat import logs
 from deltacat.storage import interface as unimplemented_deltacat_storage
-from deltacat.storage.model import delta_manifest as dm, delta_locator as dl, \
+from deltacat.storage.model import delta as dc_delta, delta_locator as dl, \
     partition_locator as pl, stream_locator as sl, delta_staging_area as dsa
 from deltacat.compute.compactor.steps import hash_bucket as hb, dedupe as dd, \
     materialize as mat
@@ -207,7 +207,7 @@ def _execute_compaction_round(
     hash_bucket_count = new_hash_bucket_count \
         if new_hash_bucket_count is not None \
         else old_hash_bucket_count
-    sized_delta_manifests, hash_bucket_count, last_stream_position_compacted = \
+    uniform_deltas, hash_bucket_count, last_stream_position_compacted = \
         io.limit_input_deltas(
             input_deltas,
             cluster_resources,
@@ -241,14 +241,14 @@ def _execute_compaction_round(
 
     # first group like primary keys together by hashing them into buckets
     hb_tasks_pending = []
-    for i, sized_delta_manifest in enumerate(sized_delta_manifests):
+    for i, uniform_delta in enumerate(uniform_deltas):
         # force strict round-robin scheduling of tasks across cluster workers
         node_id = node_idx_to_id[i % len(node_idx_to_id)]
         hb_resources = {node_id: ray_constants.MIN_RESOURCE_GRANULARITY}
         hb_task_promise, _ = hb.hash_bucket \
             .options(resources=hb_resources) \
             .remote(
-                sized_delta_manifest,
+                uniform_delta,
                 column_names,
                 primary_keys,
                 sort_keys,
@@ -382,10 +382,10 @@ def _execute_compaction_round(
     logger.info(f"Got {len(mat_results)} materialize result(s).")
 
     mat_results = sorted(mat_results, key=lambda m: mr.get_task_index(m))
-    delta_manifests = [mr.get_delta_manifest(m) for m in mat_results]
+    deltas = [mr.get_delta(m) for m in mat_results]
     new_compacted_delta_stream_position = current_time_ms()
     compacted_delta = deltacat_storage.commit_delta(
-        dm.merge_delta_manifests(delta_manifests),
+        dc_delta.merge_deltas(deltas),
         stream_position=new_compacted_delta_stream_position,
     )
     logger.info(f"Committed compacted delta: {compacted_delta}")

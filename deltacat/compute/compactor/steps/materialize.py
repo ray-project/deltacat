@@ -10,7 +10,7 @@ from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.model import materialize_result as mr, \
     pyarrow_write_result as pawr, delta_file_locator as dfl
 from deltacat.storage import interface as unimplemented_deltacat_storage
-from deltacat.storage.model import delta_manifest as dm, \
+from deltacat.storage.model import delta as dc_delta, \
     delta_staging_area as dsa, delta_locator as dl
 from deltacat.types.media import ContentType
 from ray import cloudpickle
@@ -68,12 +68,12 @@ def materialize(
             src_file_partition_locator,
             src_stream_position_np.item(),
         )
-        dl_hexdigest = dl.hexdigest(delta_locator)
+        dl_digest = dl.digest(delta_locator)
         manifest = manifest_cache.setdefault(
-            dl_hexdigest,
-            deltacat_storage.get_manifest(delta_locator),
+            dl_digest,
+            deltacat_storage.get_delta_manifest(delta_locator),
         )
-        pa_table = deltacat_storage.download_manifest_entry(
+        pa_table = deltacat_storage.download_delta_manifest_entry(
             delta_locator,
             manifest,
             src_file_idx_np.item(),
@@ -106,21 +106,20 @@ def materialize(
     # TODO (pdames): save memory by writing parquet files eagerly whenever
     #  len(compacted_table) >= max_records_per_output_file
     compacted_table = pa.concat_tables(compacted_tables)
-    delta_manifest = deltacat_storage.stage_delta(
+    delta = deltacat_storage.stage_delta(
         compacted_table,
         delta_staging_area,
         max_records_per_entry=max_records_per_output_file,
         content_type=compacted_file_content_type,
     )
-
-    manifest = dm.get_manifest(delta_manifest)
+    manifest = dc_delta.get_manifest(delta)
     manifest_records = rsmm.get_record_count(rsm.get_meta(manifest))
     assert(manifest_records == len(compacted_table),
            f"Unexpected Error: Materialized delta manifest record count "
            f"({manifest_records}) does not equal compacted table record count "
            f"({len(compacted_table)})")
     materialize_result = mr.of(
-        delta_manifest,
+        delta,
         mat_bucket_index,
         pawr.of(
             len(rsm.get_entries(manifest)),

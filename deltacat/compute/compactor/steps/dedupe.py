@@ -124,8 +124,8 @@ def write_new_primary_key_index(
     )
     for mat_bucket in sorted(row_counts.keys()):
         mat_bucket_row_idx = 0
-        sorted_src_file_ids = sorted(row_counts[mat_bucket].keys())
-        for src_dfl in sorted_src_file_ids:
+        sorted_src_dfls = sorted(row_counts[mat_bucket].keys())
+        for src_dfl in sorted_src_dfls:
             sorted_dd_tasks = sorted(row_counts[mat_bucket][src_dfl].keys())
             for dd_task_idx in sorted_dd_tasks:
                 dest_file_row_indices[mat_bucket][src_dfl][dd_task_idx] = \

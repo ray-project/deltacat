@@ -1,6 +1,6 @@
 from deltacat.compute.compactor.model import \
     primary_key_index_version_meta as pkivm, primary_key_index_locator as pkil
-from deltacat.utils.common import sha1_hexdigest
+from deltacat.utils.common import sha1_digest, sha1_hexdigest
 from typing import Any, Dict
 from uuid import uuid4
 
@@ -129,11 +129,28 @@ def get_pkiv_hb_index_manifest_s3_url(
     return f"{pkiv_hb_index_s3_url_base}.json"
 
 
+def canonical_string(pkiv_locator: Dict[str, Any]) -> str:
+    """
+    Returns a unique string for the given locator that can be used
+    for equality checks (i.e. two locators are equal if they have
+    the same canonical string).
+    """
+    return get_primary_key_index_version_root_path(pkiv_locator)
+
+
+def digest(pkiv_locator: Dict[str, Any]) -> bytes:
+    """
+    Return a digest of the given locator that can be used for
+    equality checks (i.e. two locators are equal if they have the
+    same digest) and uniform random hash distribution.
+    """
+    return sha1_digest(canonical_string(pkiv_locator).encode("utf-8"))
+
+
 def hexdigest(pkiv_locator: Dict[str, Any]) -> str:
     """
-    Returns a hexdigest of the given primary key index version locator suitable
+    Returns a hexdigest of the given locator suitable
     for use in equality (i.e. two locators are equal if they have the same
     hexdigest) and inclusion in URLs.
     """
-    pkiv_root_path = get_primary_key_index_version_root_path(pkiv_locator)
-    return sha1_hexdigest(pkiv_root_path.encode("utf-8"))
+    return sha1_hexdigest(canonical_string(pkiv_locator).encode("utf-8"))

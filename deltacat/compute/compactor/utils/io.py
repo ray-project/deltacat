@@ -4,10 +4,10 @@ from ray import ray_constants
 from deltacat import logs
 from deltacat.aws.redshift.model import manifest as rsm, \
     manifest_entry as rsme, manifest_meta as rsmm
-from deltacat.compute.compactor.model import delta_manifest_annotated as dma
+from deltacat.compute.compactor.model import delta_annotated as da
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.storage.model import list_result as lr, delta_locator as dl, \
-    delta_manifest as dm, partition_locator as pl, stream_locator as sl
+    partition_locator as pl, stream_locator as sl, delta as dc_delta
 from typing import Any, Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -97,12 +97,13 @@ def limit_input_deltas(
     delta_bytes = 0
     delta_bytes_pyarrow = 0
     latest_stream_position = -1
-    limited_input_delta_manifests = []
+    limited_input_da_list = []
     for delta in input_deltas:
-        delta_manifest = deltacat_storage.get_delta_manifest(delta)
+        manifest = deltacat_storage.get_delta_manifest(delta)
+        dc_delta.set_manifest(delta, manifest)
         # TODO (pdames): ensure pyarrow object fits in per-task obj store mem
-        position = dl.get_stream_position(dm.get_delta_locator(delta_manifest))
-        manifest_entries = rsm.get_entries(dm.get_manifest(delta_manifest))
+        position = dc_delta.get_stream_position(delta)
+        manifest_entries = rsm.get_entries(dc_delta.get_manifest(delta))
         for entry in manifest_entries:
             # TODO: Fetch s3_obj["Size"] if entry content length undefined?
             delta_bytes += rsmm.get_content_length(rsme.get_meta(entry))
@@ -110,19 +111,19 @@ def limit_input_deltas(
             latest_stream_position = max(position, latest_stream_position)
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
-                f"Input delta manifests limited to "
-                f"{len(limited_input_delta_manifests)} by object store mem "
+                f"Input deltas limited to "
+                f"{len(limited_input_da_list)} by object store mem "
                 f"({delta_bytes_pyarrow} > {worker_obj_store_mem})")
             break
-        delta_manifest_annotated = dma.from_delta_manifest(delta_manifest)
-        limited_input_delta_manifests.append(delta_manifest_annotated)
+        delta_annotated = da.from_delta(delta)
+        limited_input_da_list.append(delta_annotated)
 
-    logger.info(f"Input delta manifests to compact this round: "
-                f"{len(limited_input_delta_manifests)}")
-    logger.info(f"Input delta manifest bytes to compact: {delta_bytes}")
+    logger.info(f"Input deltas to compact this round: "
+                f"{len(limited_input_da_list)}")
+    logger.info(f"Input delta bytes to compact: {delta_bytes}")
     logger.info(f"Latest input delta stream position: {latest_stream_position}")
 
-    if not limited_input_delta_manifests:
+    if not limited_input_da_list:
         raise RuntimeError("No input deltas to compact!")
 
     # TODO (pdames): determine min hash buckets from size of all deltas
@@ -170,13 +171,13 @@ def limit_input_deltas(
         hash_bucket_chunk_size = math.ceil(max_hash_bucket_chunk_size)
         logger.info(f"Default hash bucket chunk size: {hash_bucket_chunk_size}")
 
-    sized_delta_manifests = dma.size_limited_groups(
-        limited_input_delta_manifests,
+    rebatched_da_list = da.rebatch(
+        limited_input_da_list,
         hash_bucket_chunk_size,
     )
 
     logger.info(f"Hash bucket chunk size: {hash_bucket_chunk_size}")
     logger.info(f"Hash bucket count: {hash_bucket_count}")
-    logger.info(f"Input delta manifest count: {len(sized_delta_manifests)}")
+    logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
-    return sized_delta_manifests, hash_bucket_count, latest_stream_position
+    return rebatched_da_list, hash_bucket_count, latest_stream_position

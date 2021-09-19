@@ -76,6 +76,7 @@ def list_deltas(
         first_stream_position: Optional[int] = None,
         last_stream_position: Optional[int] = None,
         ascending_order: Optional[bool] = None,
+        include_manifest: bool = False,
         *args,
         **kwargs) -> Dict[str, Any]:
     """
@@ -86,6 +87,10 @@ def list_deltas(
     active table version if not specified. Partition values should not be
     specified for unpartitioned tables. Raises an error if the given table
     version, partition, or stream positions do not exist.
+
+    To conserve memory, the deltas returned do not include manifests by
+    default. The manifests can either be optionally retrieved as part of this
+    call or lazily loaded via subsequent calls to `get_delta_manifest`.
     """
     raise NotImplementedError("list_deltas not implemented")
 
@@ -102,11 +107,34 @@ def list_deltas_pending_commit(
     raise NotImplementedError("list_deltas_pending_commit not implemented")
 
 
+def get_delta(
+        namespace: str,
+        table_name: str,
+        stream_position: int,
+        partition_values: Optional[List[Any]],
+        table_version: Optional[str] = None,
+        include_manifest: bool = False,
+        *args,
+        **kwargs) -> Dict[str, Any]:
+    """
+    Gets the delta for the given table version, partition, and stream position.
+    Table version resolves to the latest active table version if not specified.
+    Partition values should not be specified for unpartitioned tables. Raises
+    an error if the given table version or partition does not exist.
+
+    To conserve memory, the delta returned does not include a manifest by
+    default. The manifest can either be optionally retrieved as part of this
+    call or lazily loaded via a subsequent call to `get_delta_manifest`.
+    """
+    raise NotImplementedError("get_delta not implemented")
+
+
 def get_latest_delta(
         namespace: str,
         table_name: str,
         partition_values: Optional[List[Any]],
         table_version: Optional[str] = None,
+        include_manifest: bool = False,
         *args,
         **kwargs) -> Dict[str, Any]:
     """
@@ -115,35 +143,30 @@ def get_latest_delta(
     active table version if not specified. Partition values should not be
     specified for unpartitioned tables. Raises an error if the given table
     version or partition does not exist.
+
+    To conserve memory, the delta returned does not include a manifest by
+    default. The manifest can either be optionally retrieved as part of this
+    call or lazily loaded via a subsequent call to `get_delta_manifest`.
     """
-    raise NotImplementedError("latest_delta not implemented")
+    raise NotImplementedError("get_latest_delta not implemented")
 
 
 def download_delta(
-        delta: Dict[str, Any],
+        delta_like: Dict[str, Any],
         table_type: TableType = TableType.PYARROW,
         max_parallelism: int = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
         *args,
         **kwargs) -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
     """
-    Download a delta into 1 or more instances of the specified table type.
+    Download the given delta or delta locator into 1 or more instances of the
+    specified table type.
     """
     raise NotImplementedError("download_delta not implemented")
 
 
-def get_manifest(
-        delta_locator: Dict[str, Any],
-        *args,
-        **kwargs) -> Dict[str, Any]:
-    """
-    Get the manifest associated with the given delta locator.
-    """
-    raise NotImplementedError("get_manifest not implemented")
-
-
-def download_manifest_entry(
-        delta_locator: Dict[str, Any],
+def download_delta_manifest_entry(
+        delta_like: Dict[str, Any],
         manifest: Dict[str, Any],
         entry_index: int,
         table_type: TableType = TableType.PYARROW,
@@ -151,36 +174,20 @@ def download_manifest_entry(
         *args,
         **kwargs) -> Union[pa.Table, pd.DataFrame, np.ndarray]:
     """
-    Downloads a single manifest entry into the specified table type.
+    Downloads a single manifest entry into the specified table type for the
+    given delta or delta locator.
     """
-    raise NotImplementedError("download_manifest_entry not implemented")
+    raise NotImplementedError("download_delta_manifest_entry not implemented")
 
 
 def get_delta_manifest(
-        delta: Dict[str, Any],
+        delta_like: Dict[str, Any],
         *args,
         **kwargs) -> Dict[str, Any]:
     """
-    Get the delta manifest associated with this delta.
+    Get the manifest associated with the given delta or delta locator.
     """
     raise NotImplementedError("get_delta_manifest not implemented")
-
-
-def download_delta_manifest(
-        delta_manifest: Dict[str, Any],
-        table_type: TableType = TableType.PYARROW,
-        max_parallelism: int = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None,
-        *args,
-        **kwargs) -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
-    """
-    Download a delta manifest to 1 or more instances of the specified table
-    type. Can be used to easily download staged deltas or delta manifests
-    created by merging/splitting delta manifests. Since delta manifests
-    with many entries can be expensive to retrieve, this is also useful for
-    repeatedly downloading a large delta manifest without re-retrieving it.
-    """
-    raise NotImplementedError("download_delta_manifest not implemented")
 
 
 def create_namespace(
@@ -409,24 +416,26 @@ def stage_delta(
         **kwargs) -> Dict[str, Any]:
     """
     Writes the given table to 1 or more S3 files. Returns an unregistered
-    delta manifest whose entries point to the uploaded files.
+    delta whose manifest entries point to the uploaded files.
     """
     raise NotImplementedError("stage_delta not implemented")
 
 
 def commit_delta(
-        delta_manifest: Dict[str, Any],
+        delta: Dict[str, Any],
         properties: Optional[Dict[str, str]] = None,
         stream_position: Optional[int] = None,
         previous_stream_position: Optional[int] = None,
         *args,
         **kwargs) -> Dict[str, Any]:
     """
-    Registers a delta manifest as a new delta with its associated target table
-    version and partition. Returns the registered delta. If previous stream
+    Registers a new delta with its associated target table version and
+    partition. Returns the registered delta. If previous stream
     position is specified, then the commit will be rejected if it does not match
-    the target partition's actual previous stream position. The stream position
-    specified must be greater than any previous stream position.
+    the target partition's actual previous stream position. If stream
+    position is specified, then it will override any stream position specified
+    in the delta. Any stream position given must be greater than the latest
+    stream position in the target partition.
     """
     raise NotImplementedError("commit_delta not implemented")
 

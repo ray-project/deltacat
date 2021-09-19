@@ -194,7 +194,8 @@ def table_to_file(
     writer = CONTENT_TYPE_TO_PA_WRITE_FUNC.get(content_type)
     if not writer:
         raise NotImplementedError(
-            "Pyarrow writer for content type 'content_type' not implemented.")
+            f"Pyarrow writer for content type '{content_type}' not "
+            f"implemented.")
     writer(
         table,
         path,

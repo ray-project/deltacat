@@ -1,5 +1,5 @@
 import pyarrow as pa
-from deltacat.storage.model import stream_locator as sl, partition_locator as pl
+from deltacat.storage.model import partition_locator as pl
 from deltacat.types.media import ContentType
 from typing import Any, Dict, List, Optional, Union
 
@@ -83,9 +83,7 @@ def set_partition_id(
 def get_stream_id(staging_area: Dict[str, Any]) -> Optional[str]:
     partition_locator = get_partition_locator(staging_area)
     if partition_locator:
-        stream_locator = pl.get_stream_locator(partition_locator)
-        if stream_locator:
-            return sl.get_stream_id(stream_locator)
+        return pl.get_stream_id(partition_locator)
     return None
 
 
@@ -95,30 +93,65 @@ def get_partition_values(staging_area: Dict[str, Any]) -> Optional[List[Any]]:
         return pl.get_partition_values(partition_locator)
 
 
+def get_namespace_locator(staging_area: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
+
+    partition_locator = get_partition_locator(staging_area)
+    if partition_locator:
+        return pl.get_namespace_locator(partition_locator)
+    return None
+
+
+def get_table_locator(staging_area: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
+
+    partition_locator = get_partition_locator(staging_area)
+    if partition_locator:
+        return pl.get_table_locator(partition_locator)
+    return None
+
+
+def get_table_version_locator(staging_area: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
+
+    partition_locator = get_partition_locator(staging_area)
+    if partition_locator:
+        return pl.get_table_version_locator(partition_locator)
+    return None
+
+
 def get_stream_locator(staging_area: Dict[str, Any]) \
         -> Optional[Dict[str, Any]]:
 
     partition_locator = get_partition_locator(staging_area)
     if partition_locator:
         return pl.get_stream_locator(partition_locator)
+    return None
+
+
+def get_storage_type(staging_area: Dict[str, Any]) -> Optional[str]:
+    partition_locator = get_partition_locator(staging_area)
+    if partition_locator:
+        return pl.get_storage_type(partition_locator)
+    return None
 
 
 def get_namespace(staging_area: Dict[str, Any]) -> Optional[str]:
-    stream_locator = get_stream_locator(staging_area)
-    if stream_locator:
-        return sl.get_namespace(stream_locator)
+    partition_locator = get_partition_locator(staging_area)
+    if partition_locator:
+        return pl.get_namespace(partition_locator)
     return None
 
 
 def get_table_name(staging_area: Dict[str, Any]) -> Optional[str]:
-    stream_locator = get_stream_locator(staging_area)
-    if stream_locator:
-        return sl.get_table_name(stream_locator)
+    partition_locator = get_partition_locator(staging_area)
+    if partition_locator:
+        return pl.get_table_name(partition_locator)
     return None
 
 
 def get_table_version(staging_area: Dict[str, Any]) -> Optional[str]:
-    stream_locator = get_stream_locator(staging_area)
-    if stream_locator:
-        return sl.get_table_version(stream_locator)
+    partition_locator = get_partition_locator(staging_area)
+    if partition_locator:
+        return pl.get_table_version(partition_locator)
     return None
