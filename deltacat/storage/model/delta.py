@@ -9,10 +9,12 @@ def of(
         delta_type: Optional[DeltaType],
         manifest_meta: Optional[Dict[str, Any]],
         properties: Optional[Dict[str, str]],
-        manifest: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        manifest: Optional[Dict[str, Any]],
+        previous_stream_position: Optional[int] = None) -> Dict[str, Any]:
     """
     Creates a Delta metadata model with the given Delta Locator, Delta Type,
-    manifest metadata, properties, and manifest.
+    manifest metadata, properties, manifest, and previous delta stream
+    position.
     """
     return {
         "manifest": manifest,
@@ -20,6 +22,7 @@ def of(
         "type": delta_type,
         "deltaLocator": delta_locator,
         "properties": properties,
+        "previousStreamPosition": previous_stream_position,
     }
 
 
@@ -38,6 +41,10 @@ def merge_deltas(
     Missing record counts, content lengths, and source content lengths will be
     coalesced to 0. Delta properties, stream position, and manifest author
     will be set to None unless explicitly specified.
+
+    The previous partition stream position of the merged delta is set to the
+    maximum previous partition stream position of all input deltas, or None
+    if the previous partition stream position of any input delta is None.
 
     Input delta manifest entry order will be preserved in the merged delta
     returned. That is, if manifest entry A preceded manifest entry B
@@ -68,12 +75,15 @@ def merge_deltas(
         manifest_author,
     )
     partition_locator = get_partition_locator(deltas[0])
+    prev_positions = [get_previous_stream_position(d) for d in deltas]
+    prev_position = None if None in prev_positions else max(prev_positions)
     return of(
         dl.of(partition_locator, stream_position),
         distinct_delta_types.pop(),
         rsm.get_meta(merged_manifest),
         properties,
         merged_manifest,
+        prev_position,
     )
 
 
@@ -133,6 +143,17 @@ def set_delta_locator(
         delta_locator: Optional[Dict[str, Any]]) -> None:
 
     delta["deltaLocator"] = delta_locator
+
+
+def get_previous_stream_position(delta: Dict[str, Any]) -> Optional[int]:
+    return delta.get("previousStreamPosition")
+
+
+def set_previous_stream_position(
+        delta: Dict[str, Any],
+        previous_stream_position: Optional[int]) -> None:
+
+    delta["previousStreamPosition"] = previous_stream_position
 
 
 def get_namespace_locator(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:

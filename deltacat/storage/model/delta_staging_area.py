@@ -7,12 +7,16 @@ from typing import Any, Dict, List, Optional, Union
 def of(
         partition_locator: Optional[Dict[str, Any]],
         schema: Optional[Union[pa.Schema, str, bytes]],
-        supported_content_types: Optional[List[ContentType]]) -> Dict[str, Any]:
+        supported_content_types: Optional[List[ContentType]],
+        previous_stream_position: Optional[int] = None,
+        previous_partition_id: Optional[str] = None) -> Dict[str, Any]:
 
     return {
         "partitionLocator": partition_locator,
         "schema": schema,
-        "supportedContentTypes": supported_content_types,
+        "contentTypes": supported_content_types,
+        "previousStreamPosition": previous_stream_position,
+        "previousPartitionId": previous_partition_id,
     }
 
 
@@ -45,7 +49,7 @@ def set_schema(
 def get_supported_content_types(delta_staging_area: Dict[str, Any]) \
         -> Optional[List[ContentType]]:
 
-    content_types = delta_staging_area.get("supportedContentTypes")
+    content_types = delta_staging_area.get("contentTypes")
     return None if content_types is None else \
         [None if _ is None else ContentType(_) for _ in content_types]
 
@@ -54,7 +58,7 @@ def set_supported_content_types(
         delta_staging_area: Dict[str, Any],
         supported_content_types: Optional[List[ContentType]]) -> None:
 
-    delta_staging_area["supportedContentTypes"] = supported_content_types
+    delta_staging_area["contentTypes"] = supported_content_types
 
 
 def is_supported_content_type(
@@ -78,6 +82,30 @@ def set_partition_id(
         partition_id: str) -> None:
 
     pl.set_partition_id(get_partition_locator(staging_area), partition_id)
+
+
+def get_previous_stream_position(staging_area: Dict[str, Any]) -> Optional[int]:
+
+    return staging_area.get("previousStreamPosition")
+
+
+def set_previous_stream_position(
+        staging_area: Dict[str, Any],
+        previous_stream_position: Optional[int]) -> None:
+
+    staging_area["previousStreamPosition"] = previous_stream_position
+
+
+def get_previous_partition_id(staging_area: Dict[str, Any]) -> Optional[str]:
+    return staging_area.get("previousPartitionId")
+
+
+def set_previous_partition_id(
+        staging_area: Dict[str, Any],
+        previous_partition_id: Optional[str]) -> None:
+
+    staging_area["previousPartitionId"] = previous_partition_id
+
 
 
 def get_stream_id(staging_area: Dict[str, Any]) -> Optional[str]:

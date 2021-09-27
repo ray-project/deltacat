@@ -4,11 +4,13 @@ from typing import Any, Dict, List, Optional
 
 def of(
         stream_locator: Optional[Dict[str, Any]],
-        partition_keys: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+        partition_keys: Optional[List[Dict[str, Any]]],
+        previous_stream_state_id: Optional[str]) -> Dict[str, Any]:
 
     return {
         "streamLocator": stream_locator,
         "partitionKeys": partition_keys,
+        "previousStreamStateId": previous_stream_state_id,
     }
 
 
@@ -36,6 +38,19 @@ def set_partition_keys(
         partition_keys: Optional[List[Dict[str, Any]]]) -> None:
 
     partition_staging_area["partitionKeys"] = partition_keys
+
+
+def get_previous_stream_state_id(staging_area: Dict[str, Any]) \
+        -> Optional[str]:
+
+    return staging_area.get("previousStreamStateId")
+
+
+def set_previous_stream_state_id(
+        staging_area: Dict[str, Any],
+        previous_stream_state_id: Optional[str]) -> None:
+
+    staging_area["previousStreamStateId"] = previous_stream_state_id
 
 
 def get_namespace_locator(staging_area: Dict[str, Any]) \

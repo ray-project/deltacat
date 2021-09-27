@@ -144,7 +144,7 @@ def s3_file_to_table(
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
     pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]
     input_file_init = ENCODING_TO_FILE_INIT[content_encoding]
-    input_file = input_file_init(fileobj=io.BytesIO(s3_obj['Body'].read()))
+    input_file = input_file_init(fileobj=io.BytesIO(s3_obj["Body"].read()))
 
     args = [input_file]
     kwargs = CONTENT_TYPE_TO_READER_KWARGS[content_type]

@@ -338,9 +338,8 @@ def get_partition_staging_area(
     """
     Gets the partition staging area for the most recently committed stream of
     the given table version and partition key values. Resolves to the latest
-    active table version if no table version is given. Returns None if no
-    stream has been committed for the given table version, or if the table
-    version does not exist.
+    active table version if no table version is given. Returns None if the
+    table version does not exist.
     """
     raise NotImplementedError("get_partition_staging_area not implemented")
 
@@ -360,16 +359,17 @@ def stage_partition(
 
 def commit_partition(
         delta_staging_area: Dict[str, Any],
-        previous_stream_position: Optional[int] = None,
         *args,
         **kwargs) -> Dict[str, Any]:
     """
     Registers the given delta staging area as a new partition within its
     associated table version stream, replacing any previous partition registered
     for the same table version stream and partition keys. Returns the registered
-    partition. If previous stream position is specified, then the commit will be
-    rejected if it does not match the actual previous stream position of the
-    partition being replaced.
+    partition. If the delta staging area's previous delta stream position is
+    specified, then the commit will be rejected if it does not match the actual
+    previous stream position of the partition being replaced. If the delta
+    staging area's previous partition ID is specified, then the commit will be
+    rejected if it does not match the actual ID of the partition being replaced.
     """
     raise NotImplementedError("commit_partition not implemented")
 
@@ -410,6 +410,7 @@ def stage_delta(
         delta_type: DeltaType = DeltaType.UPSERT,
         max_records_per_entry: Optional[int] = None,
         author: Optional[Dict[str, Any]] = None,
+        properties: Optional[Dict[str, str]] = None,
         s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
         content_type: ContentType = ContentType.PARQUET,
         *args,
@@ -423,19 +424,15 @@ def stage_delta(
 
 def commit_delta(
         delta: Dict[str, Any],
-        properties: Optional[Dict[str, str]] = None,
-        stream_position: Optional[int] = None,
-        previous_stream_position: Optional[int] = None,
         *args,
         **kwargs) -> Dict[str, Any]:
     """
     Registers a new delta with its associated target table version and
-    partition. Returns the registered delta. If previous stream
+    partition. Returns the registered delta. If the delta's previous stream
     position is specified, then the commit will be rejected if it does not match
-    the target partition's actual previous stream position. If stream
-    position is specified, then it will override any stream position specified
-    in the delta. Any stream position given must be greater than the latest
-    stream position in the target partition.
+    the target partition's actual previous stream position. If the delta's
+    stream position is specified, it must be greater than the latest stream
+    position in the target partition.
     """
     raise NotImplementedError("commit_delta not implemented")
 

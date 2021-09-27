@@ -383,16 +383,13 @@ def _execute_compaction_round(
 
     mat_results = sorted(mat_results, key=lambda m: mr.get_task_index(m))
     deltas = [mr.get_delta(m) for m in mat_results]
-    new_compacted_delta_stream_position = current_time_ms()
-    compacted_delta = deltacat_storage.commit_delta(
-        dc_delta.merge_deltas(deltas),
-        stream_position=new_compacted_delta_stream_position,
-    )
+    merged_delta = dc_delta.merge_deltas(deltas)
+    compacted_delta = deltacat_storage.commit_delta(merged_delta)
     logger.info(f"Committed compacted delta: {compacted_delta}")
 
     new_compacted_delta_locator = dl.of(
         new_compacted_partition_locator,
-        new_compacted_delta_stream_position,
+        dc_delta.get_stream_position(compacted_delta),
     )
     round_completion_info = rci.of(
         last_stream_position_compacted,

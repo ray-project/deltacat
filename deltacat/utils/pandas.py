@@ -96,7 +96,7 @@ def s3_file_to_dataframe(
     )
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
     pd_read_func = CONTENT_TYPE_TO_PD_READ_FUNC[content_type]
-    args = [io.BytesIO(s3_obj['Body'].read())]
+    args = [io.BytesIO(s3_obj["Body"].read())]
     kwargs = CONTENT_TYPE_TO_READER_KWARGS[content_type]
 
     if pd_read_func_kwargs is None:
