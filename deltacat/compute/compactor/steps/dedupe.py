@@ -16,6 +16,8 @@ from deltacat.compute.compactor.model import delta_file_envelope as dfe, \
 from deltacat.storage.model import delta_locator as dl
 from deltacat.compute.compactor.utils import system_columns as sc, \
     primary_key_index as pki
+
+from ray.data.impl.arrow_block import SortKeyT
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -245,7 +247,7 @@ def dedupe(
         round_completion_info: Optional[Dict[str, Any]],
         new_primary_key_index_version_locator: Dict[str, Any],
         object_ids: List[Any],
-        sort_keys: List[Tuple[str, str]],
+        sort_keys: SortKeyT,
         max_records_per_index_file: int,
         max_records_per_materialized_file: int,
         num_materialize_buckets: int,

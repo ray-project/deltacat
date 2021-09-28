@@ -1,10 +1,11 @@
+from ray.data.impl.arrow_block import SortKeyT
 from typing import Any, Dict, Tuple, List
 
 
 def of(
         compacted_partition_locator: Dict[str, Any],
         primary_keys: List[str],
-        sort_keys: List[Tuple[str, str]],
+        sort_keys: SortKeyT,
         primary_key_index_algorithm_version: str) -> Dict[str, Any]:
     """
     Creates Primary Key Index Metadata from the given compacted
@@ -28,7 +29,7 @@ def get_primary_keys(pki_meta: Dict[str, Any]) -> List[str]:
     return pki_meta["primaryKeys"]
 
 
-def get_sort_keys(pki_meta: Dict[str, Any]) -> List[Tuple[str, str]]:
+def get_sort_keys(pki_meta: Dict[str, Any]) -> SortKeyT:
     return pki_meta["sortKeys"]
 
 

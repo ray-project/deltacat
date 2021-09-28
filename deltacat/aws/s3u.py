@@ -274,7 +274,7 @@ def download_manifest_entry(
     return table
 
 
-def _download_manifest_entries_in_order(
+def _download_manifest_entries(
         manifest: Dict[str, Any],
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
@@ -291,7 +291,7 @@ def _download_manifest_entries_parallel(
         manifest: Dict[str, Any],
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
-        max_parallelism: int = 1,
+        max_parallelism: Optional[int] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None) \
         -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
 
@@ -312,12 +312,12 @@ def download_manifest_entries(
         manifest: Dict[str, Any],
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
-        max_parallelism: int = 1,
+        max_parallelism: Optional[int] = 1,
         file_reader_kwargs: Optional[Dict[str, Any]] = None) \
         -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
 
-    if max_parallelism <= 1:
-        return _download_manifest_entries_in_order(
+    if max_parallelism and max_parallelism <= 1:
+        return _download_manifest_entries(
             manifest,
             token_holder,
             table_type,

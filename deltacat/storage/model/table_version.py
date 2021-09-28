@@ -25,7 +25,8 @@ def of(
     }
 
 
-def get_table_version_locator(table_version: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def get_table_version_locator(table_version: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
     return table_version.get("tableVersionLocator")
 
 

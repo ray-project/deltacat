@@ -1,12 +1,16 @@
 import logging
 import pyarrow as pa
-from deltacat import logs
+
 from enum import Enum
+
+from deltacat import logs
 from deltacat.storage.model import partition_locator as pl, \
     stream_locator as sl
 from deltacat.compute.compactor.model import sort_key as sk
 from deltacat.storage import interface as unimplemented_deltacat_storage
-from typing import Any, Dict, List, Tuple
+
+from ray.data.impl.arrow_block import SortKeyT
+from typing import Any, Dict, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -51,7 +55,7 @@ def is_valid_sort_order(sort_order: str) -> bool:
 
 def validate_sort_keys(
         source_partition_locator: Dict[str, Any],
-        sort_keys: List[Tuple[str, str]],
+        sort_keys: SortKeyT,
         deltacat_storage=unimplemented_deltacat_storage) -> int:
     """
     Validates the input sort keys to ensure that they are unique, are using

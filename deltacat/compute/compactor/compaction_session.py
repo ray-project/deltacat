@@ -2,6 +2,7 @@ import logging
 import ray
 from collections import defaultdict
 from ray import ray_constants
+from ray.data.impl.arrow_block import SortKeyT
 from deltacat.types import media
 from deltacat import logs
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -17,7 +18,6 @@ from deltacat.compute.compactor.model import materialize_result as mr, \
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
-from deltacat.utils.common import current_time_ms
 from typing import Any, Dict, Tuple, Set, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -29,7 +29,7 @@ _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
 
 def check_preconditions(
         source_partition_locator: Dict[str, Any],
-        sort_keys: List[Tuple[str, str]],
+        sort_keys: SortKeyT,
         max_records_per_output_file: int,
         new_hash_bucket_count: Optional[int],
         deltacat_storage=unimplemented_deltacat_storage) -> int:
@@ -55,7 +55,7 @@ def compact_partition(
         compaction_artifact_s3_bucket: str,
         last_stream_position_to_compact: int,
         deltacat_storage=unimplemented_deltacat_storage,
-        sort_keys: List[Tuple[str, str]] = None,
+        sort_keys: SortKeyT = None,
         records_per_primary_key_index_file: int = 38_000_000,
         records_per_compacted_file: int = 4_000_000,
         min_hash_bucket_chunk_size: int = 0,
@@ -108,7 +108,7 @@ def _execute_compaction_round(
         compaction_artifact_s3_bucket: str,
         last_stream_position_to_compact: int,
         deltacat_storage=unimplemented_deltacat_storage,
-        sort_keys: List[Tuple[str, str]] = None,
+        sort_keys: SortKeyT = None,
         records_per_primary_key_index_file: int = 38_000_000,
         records_per_compacted_file: int = 4_000_000,
         min_hash_bucket_chunk_size: int = 0,

@@ -1,10 +1,16 @@
 import pyarrow as pa
 import pandas as pd
 import numpy as np
+from ray.data.dataset import Dataset
+from ray.data.impl.arrow_block import ArrowRow
 from deltacat.types.media import ContentType
 from deltacat.storage.model.types import DeltaType, LifecycleState
-from deltacat.types.media import TableType
+from deltacat.types.media import TableType, StorageType
 from typing import Any, Dict, List, Optional, Union
+
+LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray]
+LocalDataset = List[LocalTable]
+DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
 
 
 def list_namespaces(
@@ -154,28 +160,33 @@ def get_latest_delta(
 def download_delta(
         delta_like: Dict[str, Any],
         table_type: TableType = TableType.PYARROW,
-        max_parallelism: int = None,
+        storage_type: StorageType = StorageType.LOCAL,
+        max_parallelism: Optional[int] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
         *args,
-        **kwargs) -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
+        **kwargs) -> Union[LocalDataset, DistributedDataset]:
     """
-    Download the given delta or delta locator into 1 or more instances of the
-    specified table type.
+    Download the given delta or delta locator into either a list of
+    tables resident in the local node's memory, or into a dataset distributed
+    across this Ray cluster's object store memory. Ordered table N of a local
+    table list, or ordered block N of a distributed dataset, always contain
+    the contents of ordered delta manifest entry N.
     """
     raise NotImplementedError("download_delta not implemented")
 
 
 def download_delta_manifest_entry(
         delta_like: Dict[str, Any],
-        manifest: Dict[str, Any],
         entry_index: int,
         table_type: TableType = TableType.PYARROW,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
         *args,
-        **kwargs) -> Union[pa.Table, pd.DataFrame, np.ndarray]:
+        **kwargs) -> LocalTable:
     """
     Downloads a single manifest entry into the specified table type for the
-    given delta or delta locator.
+    given delta or delta locator. If a delta is provided with a non-empty
+    manifest, then the entry is downloaded from this manifest. Otherwise, the
+    manifest is first retrieved then the given entry index downloaded.
     """
     raise NotImplementedError("download_delta_manifest_entry not implemented")
 
@@ -185,7 +196,9 @@ def get_delta_manifest(
         *args,
         **kwargs) -> Dict[str, Any]:
     """
-    Get the manifest associated with the given delta or delta locator.
+    Get the manifest associated with the given delta or delta locator. This
+    always retrieves the authoritative remote copy of the delta manifest, and
+    never the local manifest defined for any input delta.
     """
     raise NotImplementedError("get_delta_manifest not implemented")
 
@@ -405,7 +418,7 @@ def get_delta_staging_area(
 
 
 def stage_delta(
-        table_to_stage: Union[pa.Table, pd.DataFrame, np.ndarray],
+        table_to_stage: Union[LocalTable, LocalDataset, DistributedDataset],
         delta_staging_area: Dict[str, Any],
         delta_type: DeltaType = DeltaType.UPSERT,
         max_records_per_entry: Optional[int] = None,

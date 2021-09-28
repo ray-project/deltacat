@@ -1,7 +1,8 @@
 from deltacat.compute.compactor.model import primary_key_index_meta as pkim
 from deltacat.storage.model import partition_locator as pl
 from deltacat.utils.common import sha1_digest, sha1_hexdigest
-from typing import Any, Dict, List, Tuple
+from ray.data.impl.arrow_block import SortKeyT
+from typing import Any, Dict, List
 
 
 def of(primary_key_index_meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -26,7 +27,7 @@ def of(primary_key_index_meta: Dict[str, Any]) -> Dict[str, Any]:
 def _root_path(
         compacted_partition_locator: Dict[str, Any],
         primary_keys: List[str],
-        sort_keys: List[Tuple[str, str]],
+        sort_keys: SortKeyT,
         primary_key_index_algorithm_version: str) -> str:
 
     pl_hexdigest = pl.hexdigest(compacted_partition_locator)

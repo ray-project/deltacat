@@ -32,6 +32,11 @@ class TableType(str, Enum):
     NUMPY = "numpy"
 
 
+class StorageType(str, Enum):
+    LOCAL = "local"
+    DISTRIBUTED = "distributed"
+
+
 DELIMITED_TEXT_CONTENT_TYPES: Set[str] = {
     ContentType.UNESCAPED_TSV.value,
     ContentType.TSV.value,

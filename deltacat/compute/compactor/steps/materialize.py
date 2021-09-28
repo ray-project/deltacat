@@ -74,8 +74,7 @@ def materialize(
             deltacat_storage.get_delta_manifest(delta_locator),
         )
         pa_table = deltacat_storage.download_delta_manifest_entry(
-            delta_locator,
-            manifest,
+            dc_delta.of(delta_locator, manifest=manifest),
             src_file_idx_np.item(),
         )
         mask_pylist = list(repeat(False, len(pa_table)))
