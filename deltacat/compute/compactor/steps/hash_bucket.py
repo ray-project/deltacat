@@ -4,7 +4,6 @@ import numpy as np
 import logging
 
 from itertools import chain
-from pyarrow import csv as pacsv
 
 from deltacat import logs
 from deltacat.compute.compactor.model import delta_annotated as da, \
@@ -13,7 +12,6 @@ from deltacat.compute.compactor.utils.primary_key_index import \
     group_hash_bucket_indices, group_record_indices_by_hash_bucket
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.utils.common import sha1_digest
-from deltacat.types.media import ContentType, CONTENT_TYPE_TO_USER_KWARGS_KEY
 from deltacat.compute.compactor.utils import system_columns as sc
 
 from ray.data.impl.arrow_block import SortKeyT
@@ -71,7 +69,6 @@ def hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
 def group_file_records_by_pk_hash_bucket(
         annotated_delta: Dict[str, Any],
         num_hash_buckets: int,
-        column_names: List[str],
         primary_keys: List[str],
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
@@ -80,7 +77,6 @@ def group_file_records_by_pk_hash_bucket(
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes = read_delta_file_envelopes(
         annotated_delta,
-        column_names,
         primary_keys,
         sort_key_names,
         deltacat_storage,
@@ -111,7 +107,6 @@ def group_file_records_by_pk_hash_bucket(
 
 def read_delta_file_envelopes(
         annotated_delta: Dict[str, Any],
-        column_names: List[str],
         primary_keys: List[str],
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
@@ -121,31 +116,7 @@ def read_delta_file_envelopes(
     # TODO (pdames): Always read delimited text primary key columns as strings?
     tables = deltacat_storage.download_delta(
         annotated_delta,
-        file_reader_kwargs={
-            CONTENT_TYPE_TO_USER_KWARGS_KEY[
-                ContentType.UNESCAPED_TSV.value]: {
-                "read_options": pacsv.ReadOptions(
-                    column_names=column_names,
-                ),
-                "convert_options": pacsv.ConvertOptions(
-                    include_columns=columns_to_read,
-                    null_values=[""],
-                    strings_can_be_null=True,
-                )
-            },
-            CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.CSV.value]: {
-                "read_options":
-                    pacsv.ReadOptions(column_names=column_names),
-                "convert_options":
-                    pacsv.ConvertOptions(include_columns=columns_to_read)
-            },
-            CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.PARQUET.value]: {
-                "columns": columns_to_read
-            },
-            CONTENT_TYPE_TO_USER_KWARGS_KEY[ContentType.FEATHER.value]: {
-                "columns": columns_to_read
-            },
-        },
+        include_columns=columns_to_read,
     )
     annotations = da.get_annotations(annotated_delta)
     assert(len(tables) == len(annotations),
@@ -170,7 +141,6 @@ def read_delta_file_envelopes(
 @ray.remote(num_returns=2)
 def hash_bucket(
         annotated_delta: Dict[str, Any],
-        column_names: List[str],
         primary_keys: List[str],
         sort_keys: SortKeyT,
         num_buckets: int,
@@ -182,7 +152,6 @@ def hash_bucket(
     delta_file_envelope_groups = group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,
-        column_names,
         primary_keys,
         sort_key_names,
         deltacat_storage,

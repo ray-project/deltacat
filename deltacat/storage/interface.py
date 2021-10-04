@@ -4,7 +4,8 @@ import numpy as np
 from ray.data.dataset import Dataset
 from ray.data.impl.arrow_block import ArrowRow
 from deltacat.types.media import ContentType
-from deltacat.storage.model.types import DeltaType, LifecycleState
+from deltacat.storage.model.types import DeltaType, LifecycleState, \
+    SchemaConsistencyType
 from deltacat.types.media import TableType, StorageType
 from typing import Any, Dict, List, Optional, Union
 
@@ -162,6 +163,7 @@ def download_delta(
         table_type: TableType = TableType.PYARROW,
         storage_type: StorageType = StorageType.LOCAL,
         max_parallelism: Optional[int] = None,
+        columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
         *args,
         **kwargs) -> Union[LocalDataset, DistributedDataset]:
@@ -179,6 +181,7 @@ def download_delta_manifest_entry(
         delta_like: Dict[str, Any],
         entry_index: int,
         table_type: TableType = TableType.PYARROW,
+        columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
         *args,
         **kwargs) -> LocalTable:
@@ -233,6 +236,7 @@ def create_table_version(
         table_name: str,
         table_version: Optional[str] = None,
         schema: Optional[Union[pa.Schema, str, bytes]] = None,
+        schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
         partition_keys: Optional[List[Dict[str, Any]]] = None,
         primary_key_column_names: Optional[List[str]] = None,
         table_version_description: Optional[str] = None,
@@ -257,6 +261,21 @@ def create_table_version(
     at the table namespace level. Returns the partition staging area for the
     created table version. Raises an error if the given namespace does not
     exist.
+
+    Schemas are optional for DeltaCAT tables and can be used to inform the data
+    consistency checks run for each field. If a schema is present, it can be
+    used to enforce the following column-level data consistency policies at
+    delta staging time:
+
+    None: No consistency checks are run. May be mixed with the below two
+    policies by specifying column names to pass through together with
+    column names to coerce/validate.
+
+    Coerce: Coerce fields to fit the schema whenever possible. An explicit
+    subset of column names to coerce may optionally be specified.
+
+    Validate: Raise an error for any fields that don't fit the schema. An
+    explicit subset of column names to validate may optionally be specified.
     """
     raise NotImplementedError("create_table_version not implemented")
 
@@ -308,10 +327,10 @@ def stage_stream(
         *args,
         **kwargs) -> Dict[str, Any]:
     """
-    Stages a new stream for the given table version. Resolves to the latest
-    active table version if no table version is given. Returns the partition
-    staging area for the staged stream. Raises an error if the table version
-    does not exist.
+    Stages a new delta stream for the given table version. Resolves to the
+    latest active table version if no table version is given. Returns the
+    partition staging area for the staged stream. Raises an error if the table
+    version does not exist.
     """
     raise NotImplementedError("stage_stream not implemented")
 
@@ -321,9 +340,9 @@ def commit_stream(
         *args,
         **kwargs) -> Dict[str, Any]:
     """
-    Registers a stream with a target table version, replacing any previous
-    stream registered for the same table version. Returns stream metadata
-    describing the registered stream.
+    Registers a delta stream with a target table version, replacing any
+    previous stream registered for the same table version. Returns stream
+    metadata describing the registered stream.
     """
     raise NotImplementedError("commit_stream not implemented")
 
@@ -335,7 +354,7 @@ def delete_stream(
         *args,
         **kwargs) -> None:
     """
-    Deletes the stream currently registered with the given table version.
+    Deletes the delta stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
     Raises an error if the table version does not exist.
     """
@@ -365,7 +384,10 @@ def stage_partition(
     """
     Stages a new partition for the given partition staging area and
     key values. Returns the delta staging area for the staged partition.
-    Partition keys should not be specified for unpartitioned tables.
+    If this partition will replace another partition with the same partition
+    values, then the delta staging area will have its previous partition ID
+    set to the ID of the partition being replaced. Partition keys should not be
+    specified for unpartitioned tables.
     """
     raise NotImplementedError("stage_partition not implemented")
 
@@ -430,7 +452,8 @@ def stage_delta(
         **kwargs) -> Dict[str, Any]:
     """
     Writes the given table to 1 or more S3 files. Returns an unregistered
-    delta whose manifest entries point to the uploaded files.
+    delta whose manifest entries point to the uploaded files. Applies any
+    schema consistency policies configured for the parent table version.
     """
     raise NotImplementedError("stage_delta not implemented")
 

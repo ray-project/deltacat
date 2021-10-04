@@ -6,7 +6,8 @@ import pyarrow as pa
 from fsspec import AbstractFileSystem
 from deltacat.types.media import ContentType, ContentEncoding, \
     EXPLICIT_COMPRESSION_CONTENT_TYPES
-from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY
+from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY, \
+    DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
 from deltacat import logs
 from deltacat.aws import s3u as s3_utils
 from deltacat.utils.performance import timed_invocation
@@ -22,6 +23,7 @@ CONTENT_TYPE_TO_PD_READ_FUNC: Dict[str, Callable] = {
     ContentType.CSV.value: pd.read_csv,
     ContentType.PSV.value: pd.read_csv,
     ContentType.PARQUET.value: pd.read_parquet,
+    ContentType.FEATHER.value: pd.read_feather,
     ContentType.ORC.value: pd.read_orc,
     ContentType.JSON.value: pd.read_json
 }
@@ -46,6 +48,7 @@ CONTENT_TYPE_TO_READER_KWARGS: Dict[str, Dict[str, Any]] = {
         "header": None
     },
     ContentType.PARQUET.value: {},
+    ContentType.FEATHER.value: {},
     ContentType.ORC.value: {},
     ContentType.JSON.value: {},
 }
@@ -81,10 +84,31 @@ def concat_dataframes(dataframes: List[pd.DataFrame]) \
     return pd.concat(dataframes, axis=0, copy=False)
 
 
+def _add_column_kwargs(
+        content_type: str,
+        column_names: Optional[List[str]],
+        include_columns: Optional[List[str]],
+        kwargs: Dict[str, Any]):
+
+    if content_type in DELIMITED_TEXT_CONTENT_TYPES:
+        kwargs["names"] = column_names
+        kwargs["usecols"] = include_columns
+    else:
+        if content_type in TABULAR_CONTENT_TYPES:
+            kwargs["columns"]: include_columns
+        else:
+            if include_columns:
+                logger.warning(
+                    f"Ignoring request to include columns {include_columns} "
+                    f"for non-tabular content type {content_type}")
+
+
 def s3_file_to_dataframe(
         s3_url: str,
         content_type: str,
         content_encoding: str,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         pd_read_func_kwargs: Optional[Dict[str, Any]] = None,
         **s3_client_kwargs) -> pd.DataFrame:
 
@@ -98,6 +122,7 @@ def s3_file_to_dataframe(
     pd_read_func = CONTENT_TYPE_TO_PD_READ_FUNC[content_type]
     args = [io.BytesIO(s3_obj["Body"].read())]
     kwargs = CONTENT_TYPE_TO_READER_KWARGS[content_type]
+    _add_column_kwargs(content_type, column_names, include_columns, kwargs)
 
     if pd_read_func_kwargs is None:
         pd_read_func_kwargs = {}
@@ -110,6 +135,7 @@ def s3_file_to_dataframe(
         kwargs.update(pd_read_func_kwargs.get(
             CONTENT_TYPE_TO_USER_KWARGS_KEY[content_type]
         ))
+    logger.debug(f"Reading {s3_url} via {pd_read_func} with kwargs: {kwargs}")
     dataframe, latency = timed_invocation(
         pd_read_func,
         *args,

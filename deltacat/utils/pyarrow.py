@@ -9,7 +9,7 @@ from pyarrow import feather as paf, parquet as papq, csv as pacsv, \
     json as pajson
 from deltacat import logs
 from deltacat.types.media import ContentType, ContentEncoding, \
-    DELIMITED_TEXT_CONTENT_TYPES
+    DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
 from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY
 from deltacat.aws import s3u as s3_utils
 from deltacat.utils.performance import timed_invocation
@@ -98,7 +98,7 @@ CONTENT_TYPE_TO_READER_KWARGS: Dict[str, Dict[str, Any]] = {
     ContentType.JSON.value: {},
 }
 
-# TODO: add deflate and snappy
+# TODO (pdames): add deflate and snappy
 ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
     ContentEncoding.GZIP.value: partial(gzip.GzipFile, mode='rb'),
     ContentEncoding.BZIP2.value: partial(bz2.BZ2File, mode='rb'),
@@ -128,10 +128,42 @@ def slice_table(
     return tables
 
 
+def _add_column_kwargs(
+        content_type: str,
+        column_names: Optional[List[str]],
+        include_columns: Optional[List[str]],
+        kwargs: Dict[str, Any]):
+
+    if content_type in DELIMITED_TEXT_CONTENT_TYPES:
+        # ReadOptions can't be included in CONTENT_TYPE_TO_READER_KWARGS because it doesn't pickle:
+        #   File "/home/ubuntu/anaconda3/lib/python3.7/site-packages/ray/cloudpickle/cloudpickle_fast.py", line 563, in dump
+        #       return Pickler.dump(self, obj)
+        #   File "stringsource", line 2, in pyarrow._csv.ReadOptions.__reduce_cython__
+        #   TypeError: self.options cannot be converted to a Python object for pickling
+        kwargs["read_options"] = pacsv.ReadOptions(
+            autogenerate_column_names=True,
+        ) if not column_names else pacsv.ReadOptions(
+            column_names=column_names,
+        )
+        kwargs["convert_options"] = pacsv.ConvertOptions(
+            include_columns=include_columns,
+        )
+    else:
+        if content_type in TABULAR_CONTENT_TYPES:
+            kwargs["columns"]: include_columns
+        else:
+            if include_columns:
+                logger.warning(
+                    f"Ignoring request to include columns {include_columns} "
+                    f"for non-tabular content type {content_type}")
+
+
 def s3_file_to_table(
         s3_url: str,
         content_type: str,
         content_encoding: str,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         pa_read_func_kwargs: Optional[Dict[str, Any]] = None,
         **s3_client_kwargs) -> pa.Table:
 
@@ -148,32 +180,20 @@ def s3_file_to_table(
 
     args = [input_file]
     kwargs = CONTENT_TYPE_TO_READER_KWARGS[content_type]
+    _add_column_kwargs(content_type, column_names, include_columns, kwargs)
 
     if pa_read_func_kwargs is None:
         pa_read_func_kwargs = {}
-    if content_type in DELIMITED_TEXT_CONTENT_TYPES:
-        # ReadOptions can't be included in CONTENT_TYPE_TO_READER_KWARGS because it doesn't pickle:
-        #   File "/home/ubuntu/anaconda3/lib/python3.7/site-packages/ray/cloudpickle/cloudpickle_fast.py", line 563, in dump
-        #       return Pickler.dump(self, obj)
-        #   File "stringsource", line 2, in pyarrow._csv.ReadOptions.__reduce_cython__
-        #   TypeError: self.options cannot be converted to a Python object for pickling
-        logger.debug(f"{content_type} is a delimited text content type")
-        kwargs["read_options"] = pacsv.ReadOptions(
-            autogenerate_column_names=True
-        )
     if pa_read_func_kwargs:
         kwargs.update(pa_read_func_kwargs.get(
             CONTENT_TYPE_TO_USER_KWARGS_KEY[content_type]
         ))
+    logger.debug(f"Reading {s3_url} via {pa_read_func} with kwargs: {kwargs}")
     table, latency = timed_invocation(
         pa_read_func,
         *args,
         **kwargs
     )
-    # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
-    # https://issues.apache.org/jira/browse/ARROW-7811
-    # if content_type == DatasetConstants.ContentType.ORC:
-    #    result = result.read()
     logger.debug(f"Time to read {s3_url} into PyArrow table: {latency}s")
     return table
 

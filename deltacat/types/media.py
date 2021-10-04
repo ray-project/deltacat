@@ -9,8 +9,6 @@ class ContentType(str, Enum):
     CSV = "text/csv"
     PSV = "text/psv"
     PARQUET = "application/parquet"
-    RC = "application/rc"
-    SEQUENCE = "application/sequence"
     ORC = "application/orc"
     ION = "application/x-amzn-ion"
     JSON = "application/json"
@@ -44,6 +42,15 @@ DELIMITED_TEXT_CONTENT_TYPES: Set[str] = {
     ContentType.PSV.value
 }
 
+TABULAR_CONTENT_TYPES: Set[str] = {
+    ContentType.UNESCAPED_TSV.value,
+    ContentType.TSV.value,
+    ContentType.CSV.value,
+    ContentType.PSV.value,
+    ContentType.PARQUET.value,
+    ContentType.ORC.value,
+    ContentType.FEATHER.value,
+}
 
 EXPLICIT_COMPRESSION_CONTENT_TYPES: Set[str] = {
     ContentType.UNESCAPED_TSV.value,

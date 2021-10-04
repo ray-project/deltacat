@@ -12,3 +12,9 @@ class LifecycleState(str, Enum):
     DEPRECATED = "deprecated"
     BETA = "beta"
     DELETED = "deleted"
+
+
+class SchemaConsistencyType(str, Enum):
+    NONE = "none"
+    COERCE = "coerce"
+    VALIDATE = "validate"

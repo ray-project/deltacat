@@ -1,9 +1,14 @@
 import logging
 import ray
 import pyarrow as pa
-import pyarrow.compute as pc
+
 from collections import defaultdict
 from itertools import chain, repeat
+
+from pyarrow import compute as pc
+
+from ray import cloudpickle
+
 from deltacat import logs
 from deltacat.aws.redshift.model import manifest as rsm, manifest_meta as rsmm
 from deltacat.compute.compactor.utils import system_columns as sc
@@ -13,7 +18,7 @@ from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.storage.model import delta as dc_delta, \
     delta_staging_area as dsa, delta_locator as dl
 from deltacat.types.media import ContentType
-from ray import cloudpickle
+
 from typing import Any, Dict, List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -74,7 +79,7 @@ def materialize(
             deltacat_storage.get_delta_manifest(delta_locator),
         )
         pa_table = deltacat_storage.download_delta_manifest_entry(
-            dc_delta.of(delta_locator, manifest=manifest),
+            dc_delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
         )
         mask_pylist = list(repeat(False, len(pa_table)))

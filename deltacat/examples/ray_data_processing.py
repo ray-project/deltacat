@@ -1,4 +1,5 @@
 import ray
+from ray.data.dataset import Dataset
 from deltacat.utils.performance import timed_invocation
 from deltacat.storage.model import list_result as lr
 from deltacat.storage import interface as unimplemented_deltacat_storage

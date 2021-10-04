@@ -18,7 +18,7 @@ from deltacat.compute.compactor.model import materialize_result as mr, \
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
-from typing import Any, Dict, Tuple, Set, List, Optional
+from typing import Any, Dict, Set, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -38,7 +38,7 @@ def check_preconditions(
         "Max records per output file must be a positive value"
     if new_hash_bucket_count is not None:
         assert new_hash_bucket_count >= 1, \
-        "New hash bucket count must be a positive value"
+            "New hash bucket count must be a positive value"
     return sk.validate_sort_keys(
         source_partition_locator,
         sort_keys,
@@ -49,7 +49,6 @@ def check_preconditions(
 def compact_partition(
         source_partition_locator: Dict[str, Any],
         compacted_partition_locator: Dict[str, Any],
-        column_names: List[str],
         primary_keys: Set[str],
         hash_bucket_count: Optional[int],
         compaction_artifact_s3_bucket: str,
@@ -71,7 +70,6 @@ def compact_partition(
             _execute_compaction_round(
                 source_partition_locator,
                 compacted_partition_locator,
-                column_names,
                 primary_keys,
                 hash_bucket_count,
                 compaction_artifact_s3_bucket,
@@ -102,7 +100,6 @@ def compact_partition(
 def _execute_compaction_round(
         source_partition_locator: Dict[str, Any],
         compacted_partition_locator: Dict[str, Any],
-        column_names: List[str],
         primary_keys: Set[str],
         new_hash_bucket_count: Optional[int],
         compaction_artifact_s3_bucket: str,
@@ -249,7 +246,6 @@ def _execute_compaction_round(
             .options(resources=hb_resources) \
             .remote(
                 uniform_delta,
-                column_names,
                 primary_keys,
                 sort_keys,
                 hash_bucket_count,
@@ -339,9 +335,9 @@ def _execute_compaction_round(
     logger.info(f"Got {len(dd_results)} dedupe results.")
     all_mat_buckets_to_obj_id = defaultdict(list)
     for mat_bucket_idx_to_obj_id in dd_results:
-        for mat_bucket_index, dd_task_index_and_object_id_tuple in \
+        for bucket_idx, dd_task_index_and_object_id_tuple in \
                 mat_bucket_idx_to_obj_id.items():
-            all_mat_buckets_to_obj_id[mat_bucket_index].append(
+            all_mat_buckets_to_obj_id[bucket_idx].append(
                 dd_task_index_and_object_id_tuple)
     logger.info(f"Getting {len(dd_stats_promises)} dedupe result stat(s)...")
     pki_stats = ray.get(dd_stats_promises)
@@ -359,7 +355,7 @@ def _execute_compaction_round(
 
     mat_tasks_pending = []
     i = 0
-    for mat_bucket_index, dedupe_task_index_and_object_id_tuples in all_mat_buckets_to_obj_id.items():
+    for bucket_idx, dd_idx_obj_id_tuples in all_mat_buckets_to_obj_id.items():
         # force strict round-robin scheduling of tasks across cluster workers
         node_id = node_idx_to_id[i % len(node_idx_to_id)]
         mat_resources = {node_id: ray_constants.MIN_RESOURCE_GRANULARITY}
@@ -368,8 +364,8 @@ def _execute_compaction_round(
             .remote(
                 source_partition_locator,
                 delta_staging_area,
-                mat_bucket_index,
-                dedupe_task_index_and_object_id_tuples,
+                bucket_idx,
+                dd_idx_obj_id_tuples,
                 records_per_compacted_file,
                 compacted_file_content_type,
                 deltacat_storage,
@@ -405,5 +401,6 @@ def _execute_compaction_round(
         new_primary_key_index_root_path,
         round_completion_info,
     )
-    return (last_stream_position_compacted < last_stream_position_to_compact),\
-           delta_staging_area
+    return \
+        (last_stream_position_compacted < last_stream_position_to_compact), \
+        delta_staging_area

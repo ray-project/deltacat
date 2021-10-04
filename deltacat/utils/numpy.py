@@ -25,6 +25,8 @@ def s3_file_to_ndarray(
         s3_url: str,
         content_type: str,
         content_encoding: str,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         pd_read_func_kwargs: Optional[Dict[str, Any]] = None,
         **s3_client_kwargs) -> np.ndarray:
     # TODO: Compare perf to s3 -> pyarrow -> pandas [Series/DataFrame] -> numpy
@@ -32,6 +34,8 @@ def s3_file_to_ndarray(
         s3_url,
         content_type,
         content_encoding,
+        column_names,
+        include_columns,
         pd_read_func_kwargs,
         **s3_client_kwargs
     )

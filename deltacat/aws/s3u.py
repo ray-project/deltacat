@@ -124,6 +124,8 @@ def read_file(
         content_type: ContentType,
         content_encoding: ContentEncoding = ContentEncoding.IDENTITY,
         table_type: TableType = TableType.PYARROW,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
         **s3_client_kwargs) \
         -> Union[pa.Table, pd.DataFrame, np.ndarray]:
@@ -134,6 +136,8 @@ def read_file(
             s3_url,
             content_type.value,
             content_encoding.value,
+            column_names,
+            include_columns,
             file_reader_kwargs,
             **s3_client_kwargs
         )
@@ -250,6 +254,8 @@ def download_manifest_entry(
         manifest_entry: Dict[str, Any],
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None) -> \
         Union[pa.Table, pd.DataFrame, np.ndarray]:
 
@@ -268,6 +274,8 @@ def download_manifest_entry(
         ContentType(content_type),
         ContentEncoding(content_encoding),
         table_type,
+        column_names,
+        include_columns,
         file_reader_kwargs,
         **s3_client_kwargs
     )
@@ -278,11 +286,14 @@ def _download_manifest_entries(
         manifest: Dict[str, Any],
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None) \
         -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
 
     return [
-        download_manifest_entry(e, token_holder, table_type, file_reader_kwargs)
+        download_manifest_entry(e, token_holder, table_type, column_names,
+                                include_columns, file_reader_kwargs)
         for e in rsm.get_entries(manifest)
     ]
 
@@ -292,6 +303,8 @@ def _download_manifest_entries_parallel(
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
         max_parallelism: Optional[int] = None,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None) \
         -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
 
@@ -301,6 +314,8 @@ def _download_manifest_entries_parallel(
         download_manifest_entry,
         token_holder=token_holder,
         table_type=table_type,
+        column_names=column_names,
+        include_columns=include_columns,
         file_reader_kwargs=file_reader_kwargs,
     )
     for table in pool.map(downloader, [e for e in rsm.get_entries(manifest)]):
@@ -313,6 +328,8 @@ def download_manifest_entries(
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
         max_parallelism: Optional[int] = 1,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None) \
         -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
 
@@ -321,6 +338,8 @@ def download_manifest_entries(
             manifest,
             token_holder,
             table_type,
+            column_names,
+            include_columns,
             file_reader_kwargs,
         )
     else:
@@ -329,6 +348,8 @@ def download_manifest_entries(
             token_holder,
             table_type,
             max_parallelism,
+            column_names,
+            include_columns,
             file_reader_kwargs,
         )
 
