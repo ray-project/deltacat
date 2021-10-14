@@ -3,7 +3,11 @@ import math
 import io
 import logging
 import pyarrow as pa
+
 from fsspec import AbstractFileSystem
+
+from ray.data.datasource import BlockWritePathProvider
+
 from deltacat.types.media import ContentType, ContentEncoding, \
     EXPLICIT_COMPRESSION_CONTENT_TYPES
 from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY, \
@@ -12,6 +16,7 @@ from deltacat import logs
 from deltacat.aws import s3u as s3_utils
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils import pyarrow as pa_utils
+
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -154,6 +159,7 @@ def dataframe_to_file(
         dataframe: pd.DataFrame,
         path: str,
         file_system: AbstractFileSystem,
+        block_path_provider: BlockWritePathProvider,
         content_type: str = ContentType.PARQUET.value,
         **kwargs) -> None:
     """
@@ -163,6 +169,7 @@ def dataframe_to_file(
         pa.Table.from_pandas(dataframe),
         path,
         file_system,
+        block_path_provider,
         content_type,
         **kwargs
     )

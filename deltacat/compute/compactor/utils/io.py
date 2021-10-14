@@ -6,8 +6,8 @@ from deltacat.aws.redshift.model import manifest as rsm, \
     manifest_entry as rsme, manifest_meta as rsmm
 from deltacat.compute.compactor.model import delta_annotated as da
 from deltacat.storage import interface as unimplemented_deltacat_storage
-from deltacat.storage.model import list_result as lr, delta_locator as dl, \
-    partition_locator as pl, stream_locator as sl, delta as dc_delta
+from deltacat.storage.model import list_result as lr, partition_locator as pl,\
+    stream_locator as sl, delta as dc_delta
 from typing import Any, Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))

@@ -3,17 +3,23 @@ import gzip
 import bz2
 import io
 import logging
-from typing import Any, Callable, Dict, List, Optional
+
+from functools import partial
 from fsspec import AbstractFileSystem
+
 from pyarrow import feather as paf, parquet as papq, csv as pacsv, \
     json as pajson
+
+from ray.data.datasource import BlockWritePathProvider
+
 from deltacat import logs
 from deltacat.types.media import ContentType, ContentEncoding, \
     DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
 from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY
 from deltacat.aws import s3u as s3_utils
 from deltacat.utils.performance import timed_invocation
-from functools import partial
+
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -35,6 +41,7 @@ CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
 def write_feather(
         table: pa.Table,
         path: str,
+        *,
         filesystem: AbstractFileSystem,
         **kwargs) -> None:
 
@@ -45,6 +52,7 @@ def write_feather(
 def write_csv(
         table: pa.Table,
         path: str,
+        *,
         filesystem: AbstractFileSystem,
         **kwargs) -> None:
 
@@ -135,11 +143,6 @@ def _add_column_kwargs(
         kwargs: Dict[str, Any]):
 
     if content_type in DELIMITED_TEXT_CONTENT_TYPES:
-        # ReadOptions can't be included in CONTENT_TYPE_TO_READER_KWARGS because it doesn't pickle:
-        #   File "/home/ubuntu/anaconda3/lib/python3.7/site-packages/ray/cloudpickle/cloudpickle_fast.py", line 563, in dump
-        #       return Pickler.dump(self, obj)
-        #   File "stringsource", line 2, in pyarrow._csv.ReadOptions.__reduce_cython__
-        #   TypeError: self.options cannot be converted to a Python object for pickling
         kwargs["read_options"] = pacsv.ReadOptions(
             autogenerate_column_names=True,
         ) if not column_names else pacsv.ReadOptions(
@@ -204,8 +207,9 @@ def table_size(table: pa.Table) -> int:
 
 def table_to_file(
         table: pa.Table,
-        path: str,
+        base_path: str,
         file_system: AbstractFileSystem,
+        block_path_provider: BlockWritePathProvider,
         content_type: str = ContentType.PARQUET.value,
         **kwargs) -> None:
     """
@@ -215,7 +219,9 @@ def table_to_file(
     if not writer:
         raise NotImplementedError(
             f"Pyarrow writer for content type '{content_type}' not "
-            f"implemented.")
+            f"implemented. Known content types: "
+            f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}")
+    path = block_path_provider(base_path)
     writer(
         table,
         path,

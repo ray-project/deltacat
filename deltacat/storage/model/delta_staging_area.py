@@ -107,7 +107,6 @@ def set_previous_partition_id(
     staging_area["previousPartitionId"] = previous_partition_id
 
 
-
 def get_stream_id(staging_area: Dict[str, Any]) -> Optional[str]:
     partition_locator = get_partition_locator(staging_area)
     if partition_locator:

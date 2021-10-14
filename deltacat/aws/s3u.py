@@ -5,27 +5,58 @@ import pandas as pd
 import numpy as np
 import multiprocessing
 import s3fs
+
+from functools import partial
+
+from uuid import uuid4
+
+from ray.data.block import BlockAccessor
+from ray.data.datasource import BlockWritePathProvider
+
 from deltacat import logs
 from deltacat.aws.redshift.model import manifest as rsm, \
     manifest_entry as rsme, manifest_meta as rsmm
 from deltacat.aws.constants import TIMEOUT_ERROR_CODES
 from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.types.tables import TABLE_TYPE_TO_READER_FUNC, \
-    TABLE_CLASS_TO_SIZE_FUNC
+    TABLE_CLASS_TO_SIZE_FUNC, get_table_length
 from deltacat.types.media import TableType
 from deltacat.exceptions import RetryableError, NonRetryableError
-from typing import Any, Callable, Dict, List, Optional, Generator, Union
+from deltacat.storage.interface import LocalTable, LocalDataset, \
+    DistributedDataset
+
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
-from functools import partial
 from tenacity import Retrying
 from tenacity import wait_random_exponential
 from tenacity import stop_after_delay
 from tenacity import retry_if_exception_type
-from uuid import uuid4
+
+from typing import Any, Callable, Dict, List, Optional, Generator, Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+class UuidBlockWritePathProvider(BlockWritePathProvider):
+    """Block write path provider implementation that writes each
+    dataset block out to a file of the form: {base_path}/{uuid}
+    """
+    def __init__(self):
+        self.write_paths = []
+
+    def _get_write_path_for_block(
+            self,
+            base_path: str,
+            filesystem: Optional["pyarrow.fs.FileSystem"] = None,
+            dataset_uuid: Optional[str] = None,
+            block: Optional[BlockAccessor] = None,
+            block_index: Optional[int] = None,
+            file_format: Optional[str] = None) -> str:
+
+        write_path = f"{base_path}/{str(uuid4())}"
+        self.write_paths.append(write_path)
+        return write_path
 
 
 class ParsedURL:
@@ -39,6 +70,9 @@ class ParsedURL:
             url,
             allow_fragments=False  # support '#' in path
         )
+        if not self._parsed.scheme:  # support paths w/o 's3://' scheme
+            url = f"s3://{url}"
+            self._parsed = urlparse(url, allow_fragments=False)
         if self._parsed.query:  # support '?' in path
             self.key = \
                 f"{self._parsed.path.lstrip('/')}?{self._parsed.query}"
@@ -152,7 +186,7 @@ def read_file(
 
 
 def upload_sliced_table(
-        table: Union[pa.Table, pd.DataFrame, np.ndarray],
+        table: Union[LocalTable, DistributedDataset],
         s3_url_prefix: str,
         s3_file_system: s3fs.S3FileSystem,
         max_records_per_entry: Optional[int],
@@ -171,20 +205,21 @@ def upload_sliced_table(
     )
 
     manifest_entries = []
-    table_record_count = len(table)
+    table_record_count = get_table_length(table)
+
     if max_records_per_entry is None or not table_record_count:
         # write the whole table to a single s3 file
-        manifest_entry = retrying.__call__(
+        manifest_entries = retrying(
             upload_table,
             table,
-            f"{s3_url_prefix}/{uuid4()}",
+            f"{s3_url_prefix}",
             s3_file_system,
             s3_table_writer_func,
             s3_table_writer_kwargs,
             content_type,
             **s3_client_kwargs
         )
-        manifest_entries.append(manifest_entry)
+        manifest_entries.extend(manifest_entries)
     else:
         # iteratively write table slices
         table_slices = table_slicer_func(
@@ -192,39 +227,42 @@ def upload_sliced_table(
             max_records_per_entry
         )
         for table_slice in table_slices:
-            manifest_entry = retrying.__call__(
+            manifest_entries = retrying(
                 upload_table,
                 table_slice,
-                f"{s3_url_prefix}/{uuid4()}",
+                f"{s3_url_prefix}",
                 s3_file_system,
                 s3_table_writer_func,
                 s3_table_writer_kwargs,
+                content_type,
                 **s3_client_kwargs
             )
-            manifest_entries.append(manifest_entry)
+            manifest_entries.extend(manifest_entries)
 
     return manifest_entries
 
 
 def upload_table(
-        table: Union[pa.Table, pd.DataFrame, np.ndarray],
-        s3_url: str,
+        table: Union[LocalTable, DistributedDataset],
+        s3_base_url: str,
         s3_file_system: s3fs.S3FileSystem,
         s3_table_writer_func: Callable,
         s3_table_writer_kwargs: Optional[Dict[str, Any]],
         content_type: ContentType = ContentType.PARQUET,
-        **s3_client_kwargs) -> Dict[str, Any]:
+        **s3_client_kwargs) -> List[Dict[str, Any]]:
     """
-    Writes the given table to an S3 file and returns a Redshift
-    manifest entry describing the uploaded file.
+    Writes the given table to 1 or more S3 files and return Redshift
+    manifest entries describing the uploaded files.
     """
     if s3_table_writer_kwargs is None:
         s3_table_writer_kwargs = {}
 
+    block_write_path_provider = UuidBlockWritePathProvider()
     s3_table_writer_func(
         table,
-        s3_url,
+        s3_base_url,
         s3_file_system,
+        block_write_path_provider,
         content_type.value,
         **s3_table_writer_kwargs
     )
@@ -234,20 +272,24 @@ def upload_table(
         table_size = table_size_func(table)
     else:
         logger.warning(f"Unable to estimate '{type(table)}' table size.")
-    try:
-        return rsme.from_s3_obj_url(
-            s3_url,
-            len(table),
-            table_size,
-            **s3_client_kwargs,
-        )
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchKey":
-            # s3fs may swallow S3 errors - we were probably throttled
-            raise RetryableError(f"Retry table upload to: {s3_url}") \
+    manifest_entries = []
+    for s3_url in block_write_path_provider.write_paths:
+        try:
+            manifest_entry = rsme.from_s3_obj_url(
+                s3_url,
+                get_table_length(table),
+                table_size,
+                **s3_client_kwargs,
+            )
+            manifest_entries.append(manifest_entry)
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                # s3fs may swallow S3 errors - we were probably throttled
+                raise RetryableError(f"Retry table upload to: {s3_url}") \
+                    from e
+            raise NonRetryableError(f"Failed table upload to: {s3_url}") \
                 from e
-        raise NonRetryableError(f"Failed table upload to: {s3_url}") \
-            from e
+    return manifest_entries
 
 
 def download_manifest_entry(
@@ -256,8 +298,7 @@ def download_manifest_entry(
         table_type: TableType = TableType.PYARROW,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None) -> \
-        Union[pa.Table, pd.DataFrame, np.ndarray]:
+        file_reader_kwargs: Optional[Dict[str, Any]] = None) -> LocalTable:
 
     s3_client_kwargs = {
         "aws_access_key_id": token_holder["accessKeyId"],
@@ -289,7 +330,7 @@ def _download_manifest_entries(
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None) \
-        -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
+        -> LocalDataset:
 
     return [
         download_manifest_entry(e, token_holder, table_type, column_names,
@@ -305,8 +346,7 @@ def _download_manifest_entries_parallel(
         max_parallelism: Optional[int] = None,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None) \
-        -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
+        file_reader_kwargs: Optional[Dict[str, Any]] = None) -> LocalDataset:
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
@@ -330,8 +370,7 @@ def download_manifest_entries(
         max_parallelism: Optional[int] = 1,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None) \
-        -> List[Union[pa.Table, pd.DataFrame, np.ndarray]]:
+        file_reader_kwargs: Optional[Dict[str, Any]] = None) -> LocalDataset:
 
     if max_parallelism and max_parallelism <= 1:
         return _download_manifest_entries(

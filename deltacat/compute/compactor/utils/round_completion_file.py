@@ -2,8 +2,6 @@ import logging
 import json
 from deltacat import logs
 from deltacat.storage.model import partition_locator as pl
-from deltacat.compute.compactor.model \
-    import primary_key_index_version_locator as pkivl
 from deltacat.aws import s3u as s3_utils
 from typing import Any, Dict
 

@@ -1,10 +1,14 @@
 import numpy as np
 import pyarrow as pa
+
 from fsspec import AbstractFileSystem
+
+from ray.data.datasource import BlockWritePathProvider
 
 from deltacat.types.media import ContentType
 from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils import pandas as pd_utils
+
 from typing import List, Optional, Dict, Any
 
 
@@ -50,6 +54,7 @@ def ndarray_to_file(
         np_array: np.ndarray,
         path: str,
         file_system: AbstractFileSystem,
+        block_path_provider: BlockWritePathProvider,
         content_type: str = ContentType.PARQUET.value,
         **kwargs) -> None:
     """
@@ -62,6 +67,7 @@ def ndarray_to_file(
         pa.table({"data": np_arrays}),
         path,
         file_system,
+        block_path_provider,
         content_type,
         **kwargs
     )

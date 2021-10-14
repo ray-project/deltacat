@@ -2,7 +2,7 @@ from deltacat.storage.model import list_result as lr
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
 
-def run_all(dc_storage = unimplemented_deltacat_storage):
+def run_all(dc_storage=unimplemented_deltacat_storage):
     """Run all examples."""
 
     """

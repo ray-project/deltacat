@@ -47,9 +47,9 @@ def group_by_pk_hash_bucket(
 
     # generate the ordered record number column
     hash_bucket_to_table = np.empty([num_buckets], dtype="object")
-    for hash_bucket, indices in enumerate(hash_bucket_to_indices):
+    for hb, indices in enumerate(hash_bucket_to_indices):
         if indices:
-            hash_bucket_to_table[hash_bucket] = sc.append_record_idx_col(
+            hash_bucket_to_table[hb] = sc.append_record_idx_col(
                 table.take(indices),
                 indices,
             )
@@ -92,11 +92,11 @@ def group_file_records_by_pk_hash_bucket(
             num_hash_buckets,
             primary_keys,
         )
-        for hash_bucket, table in enumerate(hash_bucket_to_table):
+        for hb, table in enumerate(hash_bucket_to_table):
             if table:
-                if hb_to_delta_file_envelopes[hash_bucket] is None:
-                    hb_to_delta_file_envelopes[hash_bucket] = []
-                hb_to_delta_file_envelopes[hash_bucket].append(
+                if hb_to_delta_file_envelopes[hb] is None:
+                    hb_to_delta_file_envelopes[hb] = []
+                hb_to_delta_file_envelopes[hb].append(
                     delta_file_envelope.of(
                         delta_file_envelope.get_stream_position(dfe),
                         delta_file_envelope.get_file_index(dfe),
@@ -116,7 +116,7 @@ def read_delta_file_envelopes(
     # TODO (pdames): Always read delimited text primary key columns as strings?
     tables = deltacat_storage.download_delta(
         annotated_delta,
-        include_columns=columns_to_read,
+        columns=columns_to_read,
     )
     annotations = da.get_annotations(annotated_delta)
     assert(len(tables) == len(annotations),

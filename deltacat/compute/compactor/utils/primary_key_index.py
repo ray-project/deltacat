@@ -5,9 +5,11 @@ import pyarrow as pa
 import numpy as np
 import s3fs
 from collections import defaultdict
+
 from ray import cloudpickle
 from ray import ray_constants
-from ray import ObjectRef
+from ray.types import ObjectRef
+
 from deltacat.compute.compactor.model import round_completion_info as rci, \
     primary_key_index_locator as pkil, \
     primary_key_index_version_locator as pkivl, \
@@ -22,6 +24,7 @@ from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.aws.redshift.model import manifest as rsm, manifest_meta as rsmm
 from deltacat.aws import s3u
 from deltacat import logs
+
 from typing import Any, Dict, List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -73,7 +76,7 @@ def rehash(
     # launch a rehash task for each bucket of the old primary key index version
     old_hash_bucket_count = pkivm.get_hash_bucket_count(old_pkiv_meta)
     hb_tasks_pending = []
-    for hb_index in range(len(old_hash_bucket_count)):
+    for hb_index in range(old_hash_bucket_count):
         # force strict round-robin scheduling of tasks across cluster workers
         node_id = node_idx_to_id[hb_index % len(node_idx_to_id)]
         hb_resources = {node_id: ray_constants.MIN_RESOURCE_GRANULARITY}
@@ -159,9 +162,10 @@ def download_hash_bucket_entries(
     pk_index_manifest = json.loads(result["Body"].read().decode("utf-8"))
     tables = s3u.download_manifest_entries(pk_index_manifest)
     if not tables:
-        logger.warning(f"Primary key index manifest is empty at: "
-                    f"{pk_index_manifest_s3_url}. Primary key index version "
-                    f"locator: {primary_key_index_version_locator}")
+        logger.warning(
+            f"Primary key index manifest is empty at: "
+            f"{pk_index_manifest_s3_url}. Primary key index version "
+            f"locator: {primary_key_index_version_locator}")
     return tables
 
 

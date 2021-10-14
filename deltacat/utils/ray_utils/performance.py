@@ -8,7 +8,7 @@ def invoke_with_perf_counter(
         counter_key: Any,
         func: Callable,
         *args,
-        **kwargs) -> Tuple[Any, int]:
+        **kwargs) -> Tuple[Any, float]:
 
     start = time.perf_counter()
     result = func(*args, **kwargs)

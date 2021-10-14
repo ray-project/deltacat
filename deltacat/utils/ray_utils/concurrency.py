@@ -1,7 +1,7 @@
 from typing import Collection, Callable, List
 
 import ray
-from ray._raylet import ObjectRef
+from ray.types import ObjectRef
 
 
 def invoke_parallel(

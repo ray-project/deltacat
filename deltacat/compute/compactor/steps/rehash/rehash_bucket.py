@@ -2,7 +2,7 @@ import logging
 import ray
 import pyarrow as pa
 import numpy as np
-from ray import ObjectRef
+from ray.types import ObjectRef
 from deltacat import logs
 from typing import Any, Dict, List, Tuple
 from deltacat.compute.compactor.utils import primary_key_index as pki

@@ -4,7 +4,7 @@ from typing import Tuple
 
 
 def of(
-        is_source_delta: np.bool_,
+        is_src_delta: np.bool_,
         stream_position: np.int64,
         file_index: np.int32) -> \
         Tuple[np.bool_, np.int64, np.int32]:
@@ -13,7 +13,7 @@ def of(
     retrieve a file from any compaction job run input Delta.
 
     Args:
-        is_source_delta (np.bool_): True if this Delta File Locator is pointing
+        is_src_delta (np.bool_): True if this Delta File Locator is pointing
         to a file from the uncompacted source table, False if this Locator is
         pointing to a file in the compacted destination table.
 
@@ -27,7 +27,7 @@ def of(
         File Locator tuple as (is_source_delta, stream_position, file_index).
     """
     return (
-        is_source_delta,
+        is_src_delta,
         stream_position,
         file_index,
     )

@@ -6,7 +6,6 @@ from enum import Enum
 from deltacat import logs
 from deltacat.storage.model import partition_locator as pl, \
     stream_locator as sl
-from deltacat.compute.compactor.model import sort_key as sk
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
 from ray.data.impl.arrow_block import SortKeyT
@@ -65,13 +64,13 @@ def validate_sort_keys(
     """
     total_sort_keys_bit_width = 0
     if sort_keys:
-        sort_key_names = [sk.get_key_name(key) for key in sort_keys]
+        sort_key_names = [get_key_name(key) for key in sort_keys]
         assert len(sort_key_names) == len(set(sort_key_names)), \
             f"Sort key names must be unique: {sort_key_names}"
         for sort_key in sort_keys:
-            assert(sk.is_valid_sort_order(sk.get_sort_order(sort_key)),
+            assert(is_valid_sort_order(get_sort_order(sort_key)),
                    f"Sort order for key '{sort_key}' must be one of: "
-                   f"{[member.value for member in sk.SortOrder]}")
+                   f"{[member for member in SortOrder]}")
         stream_locator = pl.get_stream_locator(source_partition_locator)
         table_version_schema = deltacat_storage.get_table_version_schema(
             sl.get_namespace(stream_locator),

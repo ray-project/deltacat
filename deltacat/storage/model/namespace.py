@@ -12,7 +12,9 @@ def of(
     }
 
 
-def get_namespace_locator(namespace: Dict[str, Any]) -> Optional[str]:
+def get_namespace_locator(namespace: Dict[str, Any]) \
+        -> Optional[Dict[str, Any]]:
+
     return namespace.get("namespaceLocator")
 
 

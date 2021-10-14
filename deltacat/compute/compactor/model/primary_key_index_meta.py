@@ -1,5 +1,5 @@
 from ray.data.impl.arrow_block import SortKeyT
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, List
 
 
 def of(

@@ -258,7 +258,8 @@ def dedupe(
     logger.info(f"Starting dedupe task...")
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
-    src_file_records_obj_refs = [cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]
+    src_file_records_obj_refs = [
+        cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]
     logger.info(f"Getting delta file envelope groups object refs...")
     delta_file_envelope_groups_list = ray.get(src_file_records_obj_refs)
     hb_index_to_delta_file_envelopes_list = defaultdict(list)

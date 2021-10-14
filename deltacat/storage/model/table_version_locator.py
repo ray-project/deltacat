@@ -2,6 +2,7 @@ from deltacat.utils.common import sha1_digest, sha1_hexdigest
 from deltacat.storage.model import table_locator as tl
 from typing import Any, Dict, Optional
 
+
 def of(
         table_locator: Optional[Dict[str, Any]],
         table_version: Optional[str]) -> Dict[str, Any]:
