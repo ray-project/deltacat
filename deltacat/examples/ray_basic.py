@@ -1,5 +1,4 @@
 import ray
-from deltacat.storage.model import list_result as lr
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
 ray.init(address="auto")
@@ -18,7 +17,7 @@ def run_all(dc_storage_ray=unimplemented_deltacat_storage):
     # make asynchronous invocations to list tables for the first 10 namespaces
     pending_futures = []
     for i in range(10):
-        namespace = lr.get_items(namespaces_page_one)[i]["namespace"]
+        namespace = namespaces_page_one.read_page()[i]["namespace"]
         list_tables_future = dc_storage_ray.list_tables.remote(namespace)
         pending_futures.append(list_tables_future)
 

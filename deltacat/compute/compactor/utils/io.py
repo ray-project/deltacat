@@ -1,30 +1,30 @@
 import logging
 import math
+
 from ray import ray_constants
+
+from deltacat.storage import PartitionLocator
 from deltacat import logs
-from deltacat.aws.redshift.model import manifest as rsm, \
-    manifest_entry as rsme, manifest_meta as rsmm
-from deltacat.compute.compactor.model import delta_annotated as da
+from deltacat.storage import Delta
+from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.storage import interface as unimplemented_deltacat_storage
-from deltacat.storage.model import list_result as lr, partition_locator as pl,\
-    stream_locator as sl, delta as dc_delta
-from typing import Any, Dict, List, Optional
+
+from typing import Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def discover_deltas(
-        source_partition_locator: Dict[str, Any],
+        source_partition_locator: PartitionLocator,
         start_position_exclusive: Optional[int],
         end_position_inclusive: int,
-        deltacat_storage=unimplemented_deltacat_storage) \
-        -> List[Dict[str, Any]]:
+        deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
 
-    stream_locator = pl.get_stream_locator(source_partition_locator)
-    namespace = sl.get_namespace(stream_locator)
-    table_name = sl.get_table_name(stream_locator)
-    table_version = sl.get_table_version(stream_locator)
-    partition_values = pl.get_partition_values(source_partition_locator)
+    stream_locator = source_partition_locator.stream_locator
+    namespace = stream_locator.namespace
+    table_name = stream_locator.table_name
+    table_version = stream_locator.table_version
+    partition_values = source_partition_locator.partition_values
     deltas_list_result = deltacat_storage.list_deltas(
         namespace,
         table_name,
@@ -34,7 +34,7 @@ def discover_deltas(
         end_position_inclusive,
         True,
     )
-    deltas = lr.all_items(deltas_list_result)
+    deltas = deltas_list_result.all_items()
     if not deltas:
         raise RuntimeError(f"Unexpected Error: Couldn't find any deltas to "
                            f"compact in delta stream position range "
@@ -54,7 +54,7 @@ def discover_deltas(
 
 
 def limit_input_deltas(
-        input_deltas: List[Dict[str, Any]],
+        input_deltas: List[Delta],
         cluster_resources: Dict[str, float],
         hash_bucket_count: int,
         user_hash_bucket_chunk_size: int,
@@ -100,13 +100,13 @@ def limit_input_deltas(
     limited_input_da_list = []
     for delta in input_deltas:
         manifest = deltacat_storage.get_delta_manifest(delta)
-        dc_delta.set_manifest(delta, manifest)
+        delta.manifest = manifest
         # TODO (pdames): ensure pyarrow object fits in per-task obj store mem
-        position = dc_delta.get_stream_position(delta)
-        manifest_entries = rsm.get_entries(dc_delta.get_manifest(delta))
+        position = delta.stream_position
+        manifest_entries = delta.manifest.entries
         for entry in manifest_entries:
             # TODO: Fetch s3_obj["Size"] if entry content length undefined?
-            delta_bytes += rsmm.get_content_length(rsme.get_meta(entry))
+            delta_bytes += entry.meta.content_length
             delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
             latest_stream_position = max(position, latest_stream_position)
         if delta_bytes_pyarrow > worker_obj_store_mem:
@@ -115,7 +115,7 @@ def limit_input_deltas(
                 f"{len(limited_input_da_list)} by object store mem "
                 f"({delta_bytes_pyarrow} > {worker_obj_store_mem})")
             break
-        delta_annotated = da.from_delta(delta)
+        delta_annotated = DeltaAnnotated.of(delta)
         limited_input_da_list.append(delta_annotated)
 
     logger.info(f"Input deltas to compact this round: "
@@ -171,7 +171,7 @@ def limit_input_deltas(
         hash_bucket_chunk_size = math.ceil(max_hash_bucket_chunk_size)
         logger.info(f"Default hash bucket chunk size: {hash_bucket_chunk_size}")
 
-    rebatched_da_list = da.rebatch(
+    rebatched_da_list = DeltaAnnotated.rebatch(
         limited_input_da_list,
         hash_bucket_chunk_size,
     )

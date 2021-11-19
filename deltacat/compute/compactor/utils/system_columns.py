@@ -1,10 +1,10 @@
 import pyarrow as pa
 import numpy as np
 from itertools import repeat
-from typing import Union, Dict, Any
+from typing import Union
 
-from deltacat.storage.model.types import DeltaType
-from deltacat.compute.compactor.model import delta_file_envelope as dfe
+from deltacat.storage import DeltaType
+from deltacat.compute.compactor import DeltaFileEnvelope
 
 _SYS_COL_UUID = "4000f124-dfbd-48c6-885b-7b22621a6d41"
 
@@ -139,13 +139,13 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     )
 
 
-def project_delta_file_metadata_on_table(delta_file_envelope: Dict[str, Any]) \
-        -> pa.Table:
+def project_delta_file_metadata_on_table(
+        delta_file_envelope: DeltaFileEnvelope) -> pa.Table:
 
-    table = dfe.get_table(delta_file_envelope)
+    table = delta_file_envelope.table
 
     # append event timestamp column
-    stream_position = dfe.get_stream_position(delta_file_envelope)
+    stream_position = delta_file_envelope.stream_position
     stream_position_iterator = repeat(
         int(stream_position),
         len(table),
@@ -153,7 +153,7 @@ def project_delta_file_metadata_on_table(delta_file_envelope: Dict[str, Any]) \
     table = append_stream_position_column(table, stream_position_iterator)
 
     # append ordered file number column
-    ordered_file_number = dfe.get_file_index(delta_file_envelope)
+    ordered_file_number = delta_file_envelope.file_index
     ordered_file_number_iterator = repeat(
         int(ordered_file_number),
         len(table),
@@ -161,7 +161,7 @@ def project_delta_file_metadata_on_table(delta_file_envelope: Dict[str, Any]) \
     table = append_file_idx_column(table, ordered_file_number_iterator)
 
     # append delta type column
-    delta_type = dfe.get_delta_type(delta_file_envelope)
+    delta_type = delta_file_envelope.delta_type
     delta_type_iterator = repeat(
         delta_type_to_field(delta_type),
         len(table),

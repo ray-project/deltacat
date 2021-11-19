@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Dict, Callable, Type, Union
 
 import numpy as np
@@ -6,11 +7,11 @@ import pyarrow as pa
 
 from ray.data.dataset import Dataset
 
+from deltacat.storage import LocalTable, DistributedDataset
 from deltacat.types.media import TableType
 from deltacat.utils import pyarrow as pa_utils, pandas as pd_utils, \
     numpy as np_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
-from deltacat.storage.interface import LocalTable, DistributedDataset
 
 TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
     TableType.PYARROW.value: pa_utils.s3_file_to_table,
@@ -41,6 +42,12 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     np.ndarray: np_utils.ndarray_size,
     Dataset: ds_utils.dataset_size,
 }
+
+
+class TableWriteMode(str, Enum):
+    CREATE = "create"
+    APPEND = "append"
+    REPLACE = "replace"
 
 
 def get_table_length(table: Union[LocalTable, DistributedDataset]) -> int:

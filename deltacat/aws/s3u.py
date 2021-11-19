@@ -1,8 +1,5 @@
 import deltacat.aws.clients as aws_utils
 import logging
-import pyarrow as pa
-import pandas as pd
-import numpy as np
 import multiprocessing
 import s3fs
 
@@ -10,20 +7,19 @@ from functools import partial
 
 from uuid import uuid4
 
-from ray.data.block import BlockAccessor
+from ray.data.block import Block
+from ray.types import ObjectRef
 from ray.data.datasource import BlockWritePathProvider
 
 from deltacat import logs
-from deltacat.aws.redshift.model import manifest as rsm, \
-    manifest_entry as rsme, manifest_meta as rsmm
+from deltacat.storage import LocalTable, LocalDataset, DistributedDataset, \
+    Manifest, ManifestEntry
 from deltacat.aws.constants import TIMEOUT_ERROR_CODES
+from deltacat.exceptions import RetryableError, NonRetryableError
 from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.types.tables import TABLE_TYPE_TO_READER_FUNC, \
     TABLE_CLASS_TO_SIZE_FUNC, get_table_length
 from deltacat.types.media import TableType
-from deltacat.exceptions import RetryableError, NonRetryableError
-from deltacat.storage.interface import LocalTable, LocalDataset, \
-    DistributedDataset
 
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
@@ -50,10 +46,9 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
             base_path: str,
             filesystem: Optional["pyarrow.fs.FileSystem"] = None,
             dataset_uuid: Optional[str] = None,
-            block: Optional[BlockAccessor] = None,
+            block: Optional[ObjectRef[Block]] = None,
             block_index: Optional[int] = None,
             file_format: Optional[str] = None) -> str:
-
         write_path = f"{base_path}/{str(uuid4())}"
         self.write_paths.append(write_path)
         return write_path
@@ -161,8 +156,7 @@ def read_file(
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
-        **s3_client_kwargs) \
-        -> Union[pa.Table, pd.DataFrame, np.ndarray]:
+        **s3_client_kwargs) -> LocalTable:
 
     reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
     try:
@@ -194,8 +188,7 @@ def upload_sliced_table(
         table_slicer_func: Callable,
         s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
         content_type: ContentType = ContentType.PARQUET,
-        **s3_client_kwargs) \
-        -> List[Dict[str, Any]]:
+        **s3_client_kwargs) -> List[ManifestEntry]:
 
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
@@ -249,7 +242,7 @@ def upload_table(
         s3_table_writer_func: Callable,
         s3_table_writer_kwargs: Optional[Dict[str, Any]],
         content_type: ContentType = ContentType.PARQUET,
-        **s3_client_kwargs) -> List[Dict[str, Any]]:
+        **s3_client_kwargs) -> List[ManifestEntry]:
     """
     Writes the given table to 1 or more S3 files and return Redshift
     manifest entries describing the uploaded files.
@@ -275,7 +268,7 @@ def upload_table(
     manifest_entries = []
     for s3_url in block_write_path_provider.write_paths:
         try:
-            manifest_entry = rsme.from_s3_obj_url(
+            manifest_entry = ManifestEntry.from_s3_obj_url(
                 s3_url,
                 get_table_length(table),
                 table_size,
@@ -293,7 +286,7 @@ def upload_table(
 
 
 def download_manifest_entry(
-        manifest_entry: Dict[str, Any],
+        manifest_entry: ManifestEntry,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
         column_names: Optional[List[str]] = None,
@@ -305,11 +298,11 @@ def download_manifest_entry(
         "aws_secret_access_key": token_holder["secretAccessKey"],
         "aws_session_token": token_holder["sessionToken"]
     } if token_holder else {}
-    content_type = rsmm.get_content_type(rsme.get_meta(manifest_entry))
-    content_encoding = rsmm.get_content_encoding(rsme.get_meta(manifest_entry))
-    s3_url = rsme.get_uri(manifest_entry)
+    content_type = manifest_entry.meta.content_type
+    content_encoding = manifest_entry.meta.content_encoding
+    s3_url = manifest_entry.uri
     if s3_url is None:
-        s3_url = rsme.get_url(manifest_entry)
+        s3_url = manifest_entry.url
     table = read_file(
         s3_url,
         ContentType(content_type),
@@ -324,7 +317,7 @@ def download_manifest_entry(
 
 
 def _download_manifest_entries(
-        manifest: Dict[str, Any],
+        manifest: Manifest,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
         column_names: Optional[List[str]] = None,
@@ -335,12 +328,12 @@ def _download_manifest_entries(
     return [
         download_manifest_entry(e, token_holder, table_type, column_names,
                                 include_columns, file_reader_kwargs)
-        for e in rsm.get_entries(manifest)
+        for e in manifest.entries
     ]
 
 
 def _download_manifest_entries_parallel(
-        manifest: Dict[str, Any],
+        manifest: Manifest,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
         max_parallelism: Optional[int] = None,
@@ -358,13 +351,13 @@ def _download_manifest_entries_parallel(
         include_columns=include_columns,
         file_reader_kwargs=file_reader_kwargs,
     )
-    for table in pool.map(downloader, [e for e in rsm.get_entries(manifest)]):
+    for table in pool.map(downloader, [e for e in manifest.entries]):
         tables.append(table)
     return tables
 
 
 def download_manifest_entries(
-        manifest: Dict[str, Any],
+        manifest: Manifest,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
         max_parallelism: Optional[int] = 1,

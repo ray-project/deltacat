@@ -9,15 +9,13 @@ from ray import cloudpickle
 from deltacat import logs
 from collections import defaultdict
 from itertools import repeat
-from deltacat.storage.model.types import DeltaType
-from deltacat.compute.compactor.model import delta_file_envelope as dfe, \
-    round_completion_info as rci, pyarrow_write_result as pawr, \
-    delta_file_locator as dfl
-from deltacat.storage.model import delta_locator as dl
+from deltacat.storage import DeltaType
+from deltacat.compute.compactor import SortKey, SortOrder, \
+    RoundCompletionInfo, PrimaryKeyIndexVersionLocator, DeltaFileEnvelope, \
+    DeltaFileLocator, PyArrowWriteResult
 from deltacat.compute.compactor.utils import system_columns as sc, \
     primary_key_index as pki
 
-from ray.data.impl.arrow_block import SortKeyT
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -25,9 +23,9 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 def union_primary_key_indices(
         s3_bucket: str,
-        round_completion_info: Optional[Dict[str, Any]],
+        round_completion_info: RoundCompletionInfo,
         hash_bucket_index: int,
-        df_envelopes_list) -> pa.Table:
+        df_envelopes_list: List[List[DeltaFileEnvelope]]) -> pa.Table:
 
     logger.info(f"Reading dedupe input for {len(df_envelopes_list)} "
                 f"delta file envelope lists...")
@@ -38,12 +36,12 @@ def union_primary_key_indices(
         tables = pki.download_hash_bucket_entries(
             s3_bucket,
             hash_bucket_index,
-            rci.get_primary_key_index_version_locator(round_completion_info),
+            round_completion_info.primary_key_index_version_locator,
         )
         if tables:
-            prev_compacted_delta_stream_pos = dl.get_stream_position(
-                rci.get_compacted_delta_locator(round_completion_info)
-            )
+            prev_compacted_delta_stream_pos = round_completion_info\
+                .compacted_delta_locator \
+                .stream_position
             if prev_compacted_delta_stream_pos is None:
                 raise ValueError(f"Unexpected Error: No previous compacted "
                                  f"delta stream position found in round "
@@ -76,7 +74,7 @@ def union_primary_key_indices(
     df_envelopes = [d for dfe_list in df_envelopes_list for d in dfe_list]
     df_envelopes = sorted(
         df_envelopes,
-        key=lambda df: (dfe.get_stream_position(df), dfe.get_file_index(df)),
+        key=lambda df: (df.stream_position, df.file_index),
         reverse=False,  # ascending
     )
     for df_envelope in df_envelopes:
@@ -100,7 +98,7 @@ def drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
 
 def write_new_primary_key_index(
         s3_bucket: str,
-        new_primary_key_index_version_locator: Dict[str, Any],
+        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
         max_rows_per_index_file: int,
         max_rows_per_mat_file: int,
         num_materialize_buckets: int,
@@ -149,7 +147,7 @@ def write_new_primary_key_index(
         dest_file_idx_col = []
         dest_file_row_idx_col = []
         for row_idx in range(len(table)):
-            src_dfl = dfl.of(
+            src_dfl = DeltaFileLocator.of(
                 is_source_col[row_idx],
                 stream_pos_col[row_idx],
                 file_idx_col[row_idx],
@@ -188,17 +186,16 @@ def write_new_primary_key_index(
         )
         pki_results.append(hb_pki_result)
 
-    result = pawr.union(pki_results)
+    result = PyArrowWriteResult.union(pki_results)
     logger.info(f"Wrote new deduped primary key index: "
                 f"{new_primary_key_index_version_locator}. Result: {result}")
     return result
 
 
 def delta_file_locator_to_mat_bucket_index(
-        df_locator: Tuple[np.bool_, np.int64, np.int32],
+        df_locator: DeltaFileLocator,
         materialize_bucket_count: int) -> int:
-
-    digest = dfl.digest(df_locator)
+    digest = df_locator.digest()
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
@@ -244,10 +241,10 @@ class RecordCountsPendingMaterialize:
 @ray.remote(num_returns=3)
 def dedupe(
         compaction_artifact_s3_bucket: str,
-        round_completion_info: Optional[Dict[str, Any]],
-        new_primary_key_index_version_locator: Dict[str, Any],
+        round_completion_info: Optional[RoundCompletionInfo],
+        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
         object_ids: List[Any],
-        sort_keys: SortKeyT,
+        sort_keys: List[SortKey],
         max_records_per_index_file: int,
         max_records_per_materialized_file: int,
         num_materialize_buckets: int,
@@ -284,8 +281,14 @@ def dedupe(
         if len(sort_keys):
             # TODO (pdames): convert to O(N) dedupe w/ sort keys
             sort_keys.extend([
-                (sc._PARTITION_STREAM_POSITION_COLUMN_NAME, "ascending"),
-                (sc._ORDERED_FILE_IDX_COLUMN_NAME, "ascending"),
+                SortKey.of(
+                    sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
+                    SortOrder.ASCENDING
+                ),
+                SortKey.of(
+                    sc._ORDERED_FILE_IDX_COLUMN_NAME,
+                    SortOrder.ASCENDING
+                ),
             ])
             table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
 
@@ -301,7 +304,7 @@ def dedupe(
         row_idx_col = sc.record_index_column_np(table)
         is_source_col = sc.is_source_column_np(table)
         for row_idx in range(len(table)):
-            src_dfl = dfl.of(
+            src_dfl = DeltaFileLocator.of(
                 is_source_col[row_idx],
                 stream_position_col[row_idx],
                 file_idx_col[row_idx],
@@ -365,7 +368,7 @@ def dedupe(
     if delete_old_primary_key_index:
         pki.delete_primary_key_index_version(
             compaction_artifact_s3_bucket,
-            rci.get_primary_key_index_version_locator(round_completion_info),
+            round_completion_info.primary_key_index_version_locator,
         )
     logger.info(f"Finished dedupe task...")
     return mat_bucket_to_dd_idx_obj_id, \

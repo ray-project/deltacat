@@ -1,161 +1,192 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 import pyarrow as pa
+
+from deltacat.storage import Locator, NamespaceLocator, TableLocator
 from deltacat.types.media import ContentType
-from deltacat.storage.model import table_version_locator as tvl
 from typing import Any, Dict, List, Optional, Union
 
 
-def of(
-        table_version_locator: Optional[Dict[str, Any]],
-        schema: Optional[Union[pa.Schema, str, bytes]],
-        partition_keys: Optional[List[Dict[str, Any]]] = None,
-        primary_key_column_names: Optional[List[str]] = None,
-        table_version_description: Optional[str] = None,
-        table_version_properties: Optional[Dict[str, str]] = None,
-        supported_content_types: Optional[List[ContentType]] = None) \
-        -> Dict[str, Any]:
+class TableVersion(dict):
+    @staticmethod
+    def of(table_version_locator: Optional[TableVersionLocator],
+           schema: Optional[Union[pa.Schema, str, bytes]],
+           partition_keys: Optional[List[Dict[str, Any]]] = None,
+           primary_key_column_names: Optional[List[str]] = None,
+           table_version_description: Optional[str] = None,
+           table_version_properties: Optional[Dict[str, str]] = None,
+           supported_content_types: Optional[List[ContentType]] = None) \
+            -> TableVersion:
+        return TableVersion({
+            "tableVersionLocator": table_version_locator,
+            "schema": schema,
+            "partitionKeys": partition_keys,
+            "primaryKeys": primary_key_column_names,
+            "description": table_version_description,
+            "properties": table_version_properties,
+            "contentTypes": supported_content_types,
+        })
 
-    return {
-        "tableVersionLocator": table_version_locator,
-        "schema": schema,
-        "partitionKeys": partition_keys,
-        "primaryKeys": primary_key_column_names,
-        "description": table_version_description,
-        "properties": table_version_properties,
-        "contentTypes": supported_content_types,
-    }
+    @property
+    def table_version_locator(self) -> Optional[TableVersionLocator]:
+        return self.get("tableVersionLocator")
 
+    @table_version_locator.setter
+    def table_version_locator(
+            self,
+            table_version_locator: Optional[TableVersionLocator]) -> None:
+        self["tableVersionLocator"] = table_version_locator
 
-def get_table_version_locator(table_version: Dict[str, Any]) \
-        -> Optional[Dict[str, Any]]:
-    return table_version.get("tableVersionLocator")
+    @property
+    def schema(self) -> Optional[Union[pa.Schema, str, bytes]]:
+        return self.get("schema")
 
+    @schema.setter
+    def schema(self, schema: Optional[Union[pa.Schema, str, bytes]]) -> None:
+        self["schema"] = schema
 
-def set_table_version_locator(
-        table_version: Dict[str, Any],
-        table_version_locator: Optional[Dict[str, Any]]) -> None:
+    @property
+    def partition_keys(self) -> Optional[List[Dict[str, Any]]]:
+        return self.get("partitionKeys")
 
-    table_version["tableVersionLocator"] = table_version_locator
+    @partition_keys.setter
+    def partition_keys(
+            self,
+            partition_keys: Optional[List[Dict[str, Any]]]) -> None:
+        self["partitionKeys"] = partition_keys
 
+    @property
+    def primary_keys(self) -> Optional[List[str]]:
+        return self.get("primaryKeys")
 
-def get_schema(table_version: Dict[str, Any]) -> \
-        Optional[Union[pa.Schema, str, bytes]]:
+    @primary_keys.setter
+    def primary_keys(self, primary_keys: Optional[List[str]]) -> None:
+        self["primaryKeys"] = primary_keys
 
-    return table_version.get("schema")
+    @property
+    def description(self) -> Optional[str]:
+        return self.get("description")
 
+    @description.setter
+    def description(self, description: Optional[str]) -> None:
+        self["description"] = description
 
-def set_schema(
-        table_version: Dict[str, Any],
-        schema: Optional[Union[pa.Schema, str, bytes]]) -> None:
+    @property
+    def properties(self) -> Optional[Dict[str, str]]:
+        return self.get("properties")
 
-    table_version["schema"] = schema
+    @properties.setter
+    def properties(self, properties: Optional[Dict[str, str]]) -> None:
+        self["properties"] = properties
 
+    @property
+    def content_types(self) -> Optional[List[ContentType]]:
+        content_types = self.get("contentTypes")
+        return None if content_types is None else \
+            [None if _ is None else ContentType(_) for _ in content_types]
 
-def get_partition_keys(table_version: Dict[str, Any]) -> \
-        Optional[List[Dict[str, Any]]]:
+    @content_types.setter
+    def content_types(
+            self,
+            content_types: Optional[List[ContentType]]) -> None:
+        self["contentTypes"] = content_types
 
-    return table_version.get("partitionKeys")
+    @property
+    def namespace_locator(self) -> Optional[NamespaceLocator]:
+        table_version_locator = self.table_version_locator
+        if table_version_locator:
+            return table_version_locator.namespace_locator
+        return None
 
+    @property
+    def table_locator(self) -> Optional[TableLocator]:
+        table_version_locator = self.table_version_locator
+        if table_version_locator:
+            return table_version_locator.table_locator
+        return None
 
-def set_partition_keys(
-        table_version: Dict[str, Any],
-        partition_keys: Optional[List[Dict[str, Any]]]) -> None:
+    @property
+    def namespace(self) -> Optional[str]:
+        table_version_locator = self.table_version_locator
+        if table_version_locator:
+            return table_version_locator.namespace
+        return None
 
-    table_version["partitionKeys"] = partition_keys
+    @property
+    def table_name(self) -> Optional[str]:
+        table_version_locator = self.table_version_locator
+        if table_version_locator:
+            return table_version_locator.table_name
+        return None
 
+    @property
+    def table_version(self) -> Optional[str]:
+        table_version_locator = self.table_version_locator
+        if table_version_locator:
+            return table_version_locator.table_version
+        return None
 
-def get_primary_keys(table_version: Dict[str, Any]) -> \
-        Optional[List[str]]:
-
-    return table_version.get("primaryKeys")
-
-
-def set_primary_keys(
-        table_version: Dict[str, Any],
-        primary_keys: Optional[List[str]]) -> None:
-
-    table_version["primaryKeys"] = primary_keys
-
-
-def get_description(table_version: Dict[str, Any]) -> Optional[str]:
-    return table_version.get("description")
-
-
-def set_description(
-        table_version: Dict[str, Any],
-        description: Optional[str]) -> None:
-
-    table_version["description"] = description
-
-
-def get_properties(table_version: Dict[str, Any]) -> Optional[Dict[str, str]]:
-    return table_version.get("properties")
-
-
-def set_properties(
-        table_version: Dict[str, Any],
-        properties: Optional[Dict[str, str]]) -> None:
-
-    table_version["properties"] = properties
-
-
-def get_content_types(table_version: Dict[str, Any]) -> \
-        Optional[List[ContentType]]:
-
-    content_types = table_version.get("contentTypes")
-    return None if content_types is None else \
-        [None if _ is None else ContentType(_) for _ in content_types]
-
-
-def set_content_types(
-        table_version: Dict[str, Any],
-        content_types: Optional[List[ContentType]]) -> None:
-
-    table_version["contentTypes"] = content_types
-
-
-def is_supported_content_type(
-        delta_staging_area: Dict[str, Any],
-        content_type: ContentType):
-
-    supported_content_types = get_content_types(delta_staging_area)
-    return (not supported_content_types) or \
-           (content_type in supported_content_types)
-
-
-def get_namespace_locator(table_version: Dict[str, Any]) \
-        -> Optional[Dict[str, Any]]:
-
-    table_version_locator = get_table_version_locator(table_version)
-    if table_version_locator:
-        return tvl.get_namespace_locator(table_version_locator)
-    return None
-
-
-def get_table_locator(table_version: Dict[str, Any]) \
-        -> Optional[Dict[str, Any]]:
-
-    table_version_locator = get_table_version_locator(table_version)
-    if table_version_locator:
-        return tvl.get_table_locator(table_version_locator)
-    return None
+    def is_supported_content_type(
+            self,
+            content_type: ContentType):
+        supported_content_types = self.content_types
+        return (not supported_content_types) or \
+               (content_type in supported_content_types)
 
 
-def get_namespace(table_version: Dict[str, Any]) -> Optional[str]:
-    table_version_locator = get_table_version_locator(table_version)
-    if table_version_locator:
-        return tvl.get_namespace(table_version_locator)
-    return None
+class TableVersionLocator(Locator, dict):
+    @staticmethod
+    def of(table_locator: Optional[TableLocator],
+           table_version: Optional[str]) -> TableVersionLocator:
+        return TableVersionLocator({
+            "tableLocator": table_locator,
+            "tableVersion": table_version,
+        })
 
+    @property
+    def table_locator(self) -> Optional[TableLocator]:
+        return self.get("tableLocator")
 
-def get_table_name(table_version: Dict[str, Any]) -> Optional[str]:
-    table_version_locator = get_table_version_locator(table_version)
-    if table_version_locator:
-        return tvl.get_table_name(table_version_locator)
-    return None
+    @table_locator.setter
+    def table_locator(self, table_locator: Optional[TableLocator]) -> None:
+        self["tableLocator"] = table_locator
 
+    @property
+    def table_version(self) -> Optional[str]:
+        return self.get("tableVersion")
 
-def get_table_version(table_version: Dict[str, Any]) -> Optional[str]:
-    table_version_locator = get_table_version_locator(table_version)
-    if table_version_locator:
-        return tvl.get_table_version(table_version_locator)
-    return None
+    @table_version.setter
+    def table_version(self, table_version: Optional[str]) -> None:
+        self["tableVersion"] = table_version
+
+    @property
+    def namespace_locator(self) -> Optional[NamespaceLocator]:
+        table_locator = self.table_locator
+        if table_locator:
+            return table_locator.namespace_locator
+        return None
+
+    @property
+    def namespace(self) -> Optional[str]:
+        table_locator = self.table_locator
+        if table_locator:
+            return table_locator.namespace
+        return None
+
+    @property
+    def table_name(self) -> Optional[str]:
+        table_locator = self.table_locator
+        if table_locator:
+            return table_locator.table_name
+        return None
+
+    def canonical_string(self) -> str:
+        """
+        Returns a unique string for the given locator that can be used
+        for equality checks (i.e. two locators are equal if they have
+        the same canonical string).
+        """
+        tl_hexdigest = self.table_locator.hexdigest()
+        table_version = self.table_version
+        return f"{tl_hexdigest}|{table_version}"

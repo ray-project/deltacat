@@ -39,9 +39,10 @@ def write_csv(
         block_path_provider: BlockWritePathProvider,
         **kwargs) -> None:
 
-    if kwargs.get("write_options") is None:
-        # column names are kept in table metadata, so omit header
-        kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
+    # column names are kept in table metadata, so omit header
+    arrow_csv_args_fn = lambda: {
+        "write_options": pacsv.WriteOptions(include_header=False)
+    }
     pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
     dataset.write_csv(
         base_path,
@@ -49,6 +50,8 @@ def write_csv(
         filesystem=filesystem,
         try_create_dir=False,
         block_path_provider=block_path_provider,
+        # column names are kept in table metadata, so omit header
+        arrow_csv_args_fn=arrow_csv_args_fn,
         **kwargs,
     )
 

@@ -10,22 +10,20 @@ from ray import cloudpickle
 from ray import ray_constants
 from ray.types import ObjectRef
 
-from deltacat.compute.compactor.model import round_completion_info as rci, \
-    primary_key_index_locator as pkil, \
-    primary_key_index_version_locator as pkivl, \
-    primary_key_index_meta as pkim, primary_key_index_version_meta as pkivm, \
-    pyarrow_write_result as pawr
+from deltacat.storage import Manifest, PartitionLocator
+from deltacat.compute.compactor import PyArrowWriteResult, \
+    RoundCompletionInfo, PrimaryKeyIndexMeta, PrimaryKeyIndexLocator, \
+    PrimaryKeyIndexVersionMeta, PrimaryKeyIndexVersionLocator
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.steps.rehash import rehash_bucket as rb, \
     rewrite_index as ri
 from deltacat.types.tables import get_table_writer, get_table_slicer
 from deltacat.types.media import ContentType, ContentEncoding
-from deltacat.aws.redshift.model import manifest as rsm, manifest_meta as rsmm
 from deltacat.aws import s3u
 from deltacat import logs
 
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -33,48 +31,44 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def rehash(
         node_idx_to_id: Dict[int, str],
         s3_bucket: str,
-        source_partition_locator: Dict[str, Any],
-        old_round_completion_info: Dict[str, Any],
+        source_partition_locator: PartitionLocator,
+        old_rci: RoundCompletionInfo,
         new_hash_bucket_count: int,
         hash_bucket_index_group_count: int,
         records_per_primary_key_index_file: int,
-        delete_old_primary_key_index: bool) \
-        -> Dict[str, Any]:
+        delete_old_primary_key_index: bool) -> RoundCompletionInfo:
 
     logger.info(f"Rehashing primary key index. Old round completion info: "
-                f"{old_round_completion_info}. New hash bucket count: "
-                f"{new_hash_bucket_count}")
+                f"{old_rci}. New hash bucket count: {new_hash_bucket_count}")
 
     # collect old primary key index information
-    old_pki_version_locator = rci.get_primary_key_index_version_locator(
-        old_round_completion_info)
-    old_pkiv_meta = pkivl.get_primary_key_index_version_meta(
-        old_pki_version_locator)
-    old_pki_meta = pkivm.get_primary_key_index_meta(old_pkiv_meta)
-    old_compacted_partition_locator = pkim.get_compacted_partition_locator(
-        old_pki_meta)
-    if pkivm.get_hash_bucket_count(old_pkiv_meta) == new_hash_bucket_count:
+    old_pki_version_locator = old_rci.primary_key_index_version_locator
+    old_pkiv_meta = old_pki_version_locator.primary_key_index_version_meta
+    old_pki_meta = old_pkiv_meta.primary_key_index_meta
+    old_compacted_partition_locator = old_pki_meta.compacted_partition_locator
+    if old_pkiv_meta.hash_bucket_count == new_hash_bucket_count:
         raise ValueError(f"Primary key index rehash failed. Old hash bucket "
                          f"count ({new_hash_bucket_count}) is "
                          f"equal to new hash bucket count. Partition: "
                          f"{old_compacted_partition_locator}.")
 
     # generate a new unique primary key index version locator to rehash into
-    new_pki_meta = pkim.of(
+    new_pki_meta = PrimaryKeyIndexMeta.of(
         old_compacted_partition_locator,
-        pkim.get_primary_keys(old_pki_meta),
-        pkim.get_sort_keys(old_pki_meta),
-        pkim.get_primary_key_index_algorithm_version(old_pki_meta),
+        old_pki_meta.primary_keys,
+        old_pki_meta.sort_keys,
+        old_pki_meta.primary_key_index_algorithm_version,
     )
-    new_pki_locator = pkil.of(new_pki_meta)
-    new_pki_version_meta = pkivm.of(
+    new_pki_locator = PrimaryKeyIndexLocator.of(new_pki_meta)
+    new_pki_version_meta = PrimaryKeyIndexVersionMeta.of(
         new_pki_meta,
         new_hash_bucket_count,
     )
-    rehashed_pki_version_locator = pkivl.generate(new_pki_version_meta)
+    rehashed_pki_version_locator = PrimaryKeyIndexVersionLocator.generate(
+        new_pki_version_meta)
 
     # launch a rehash task for each bucket of the old primary key index version
-    old_hash_bucket_count = pkivm.get_hash_bucket_count(old_pkiv_meta)
+    old_hash_bucket_count = old_pkiv_meta.hash_bucket_count
     hb_tasks_pending = []
     for hb_index in range(old_hash_bucket_count):
         # force strict round-robin scheduling of tasks across cluster workers
@@ -121,18 +115,18 @@ def rehash(
     pki_stats = ray.get(pki_stats_promises)
     logger.info(f"Got {len(pki_stats)} rewrite index results.")
 
-    round_completion_info = rci.of(
-        rci.get_high_watermark(old_round_completion_info),
-        rci.get_compacted_delta_locator(old_round_completion_info),
-        rci.get_compacted_pyarrow_write_result(old_round_completion_info),
-        pawr.union(pki_stats),
-        rci.get_sort_keys_bit_width(old_round_completion_info),
+    round_completion_info = RoundCompletionInfo.of(
+        old_rci.high_watermark,
+        old_rci.compacted_delta_locator,
+        old_rci.compacted_pyarrow_write_result,
+        PyArrowWriteResult.union(pki_stats),
+        old_rci.sort_keys_bit_width,
         rehashed_pki_version_locator,
     )
     rcf.write_round_completion_file(
         s3_bucket,
         source_partition_locator,
-        pkil.get_primary_key_index_root_path(new_pki_locator),
+        new_pki_locator.primary_key_index_root_path,
         round_completion_info,
     )
     if delete_old_primary_key_index:
@@ -148,13 +142,14 @@ def rehash(
 def download_hash_bucket_entries(
         s3_bucket: str,
         hash_bucket_index: int,
-        primary_key_index_version_locator: Dict[str, Any]) -> List[pa.Table]:
+        primary_key_index_version_locator: PrimaryKeyIndexVersionLocator) \
+        -> List[pa.Table]:
 
-    pk_index_manifest_s3_url = pkivl.get_pkiv_hb_index_manifest_s3_url(
-        primary_key_index_version_locator,
-        s3_bucket,
-        hash_bucket_index,
-    )
+    pk_index_manifest_s3_url = primary_key_index_version_locator\
+        .get_pkiv_hb_index_manifest_s3_url(
+            s3_bucket,
+            hash_bucket_index,
+        )
     result = s3u.download(pk_index_manifest_s3_url, False)
     logger.info(f"Downloading primary key index hash bucket manifest entries: "
                 f"{pk_index_manifest_s3_url}. Primary key index version "
@@ -171,12 +166,12 @@ def download_hash_bucket_entries(
 
 def delete_primary_key_index_version(
         s3_bucket: str,
-        pki_version_locator: Dict[str, Any]) -> None:
+        pki_version_locator: PrimaryKeyIndexVersionLocator) -> None:
 
     logger.info(f"Deleting primary key index: {pki_version_locator}")
     s3u.delete_files_by_prefix(
         s3_bucket,
-        pkivl.get_primary_key_index_version_root_path(pki_version_locator),
+        pki_version_locator.primary_key_index_version_root_path,
     )
     logger.info(f"Primary key index deleted: {pki_version_locator}")
 
@@ -234,10 +229,10 @@ def pk_digest_to_hash_bucket_index(
 
 def write_primary_key_index_files(
         table: pa.Table,
-        primary_key_index_version_locator: Dict[str, Any],
+        primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
         s3_bucket: str,
         hb_index: int,
-        records_per_index_file: int) -> Dict[str, int]:
+        records_per_index_file: int) -> PyArrowWriteResult:
     """
     Writes primary key index files for the given hash bucket index out to the
     specified S3 bucket at the path identified by the given primary key index
@@ -254,11 +249,8 @@ def write_primary_key_index_files(
             "ContentEncoding": ContentEncoding.IDENTITY.value,
         }
     )
-    pkiv_hb_index_s3_url_base = pkivl.get_pkiv_hb_index_s3_url_base(
-        primary_key_index_version_locator,
-        s3_bucket,
-        hb_index,
-    )
+    pkiv_hb_index_s3_url_base = primary_key_index_version_locator\
+        .get_pkiv_hb_index_s3_url_base(s3_bucket, hb_index)
     manifest_entries = s3u.upload_sliced_table(
         table,
         pkiv_hb_index_s3_url_base,
@@ -267,20 +259,17 @@ def write_primary_key_index_files(
         get_table_writer(table),
         get_table_slicer(table),
     )
-    manifest = rsm.of(manifest_entries)
-    pkiv_hb_index_s3_manifest_s3_url = pkivl.get_pkiv_hb_index_manifest_s3_url(
-        primary_key_index_version_locator,
-        s3_bucket,
-        hb_index,
-    )
+    manifest = Manifest.of(manifest_entries)
+    pkiv_hb_index_s3_manifest_s3_url = primary_key_index_version_locator\
+        .get_pkiv_hb_index_manifest_s3_url(s3_bucket, hb_index)
     s3u.upload(
         pkiv_hb_index_s3_manifest_s3_url,
         str(json.dumps(manifest))
     )
-    result = pawr.of(
+    result = PyArrowWriteResult.of(
         len(manifest_entries),
         table.nbytes,
-        rsmm.get_content_length(rsm.get_meta(manifest)),
+        manifest.meta.content_length,
         len(table),
     )
     logger.info(f"Wrote primary key index files for hash bucket {hb_index}. "

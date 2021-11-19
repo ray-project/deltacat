@@ -6,16 +6,15 @@ import logging
 from itertools import chain
 
 from deltacat import logs
-from deltacat.compute.compactor.model import delta_annotated as da, \
-    delta_file_envelope, sort_key as sk
+from deltacat.compute.compactor import DeltaAnnotated, DeltaFileEnvelope, \
+    SortKey
 from deltacat.compute.compactor.utils.primary_key_index import \
     group_hash_bucket_indices, group_record_indices_by_hash_bucket
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.utils.common import sha1_digest
 from deltacat.compute.compactor.utils import system_columns as sc
 
-from ray.data.impl.arrow_block import SortKeyT
-from typing import List, Optional, Generator, Dict, Any
+from typing import List, Optional, Generator
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -67,7 +66,7 @@ def hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
 
 
 def group_file_records_by_pk_hash_bucket(
-        annotated_delta: Dict[str, Any],
+        annotated_delta: DeltaAnnotated,
         num_hash_buckets: int,
         primary_keys: List[str],
         sort_key_names: List[str],
@@ -88,7 +87,7 @@ def group_file_records_by_pk_hash_bucket(
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
         hash_bucket_to_table = group_by_pk_hash_bucket(
-            delta_file_envelope.get_table(dfe),
+            dfe.table,
             num_hash_buckets,
             primary_keys,
         )
@@ -97,20 +96,20 @@ def group_file_records_by_pk_hash_bucket(
                 if hb_to_delta_file_envelopes[hb] is None:
                     hb_to_delta_file_envelopes[hb] = []
                 hb_to_delta_file_envelopes[hb].append(
-                    delta_file_envelope.of(
-                        delta_file_envelope.get_stream_position(dfe),
-                        delta_file_envelope.get_file_index(dfe),
-                        delta_file_envelope.get_delta_type(dfe),
+                    DeltaFileEnvelope.of(
+                        dfe.stream_position,
+                        dfe.file_index,
+                        dfe.delta_type,
                         table))
     return hb_to_delta_file_envelopes
 
 
 def read_delta_file_envelopes(
-        annotated_delta: Dict[str, Any],
+        annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
-        -> Optional[List[Dict[str, Any]]]:
+        -> Optional[List[DeltaFileEnvelope]]:
 
     columns_to_read = list(chain(primary_keys, sort_key_names))
     # TODO (pdames): Always read delimited text primary key columns as strings?
@@ -118,7 +117,7 @@ def read_delta_file_envelopes(
         annotated_delta,
         columns=columns_to_read,
     )
-    annotations = da.get_annotations(annotated_delta)
+    annotations = annotated_delta.annotations
     assert(len(tables) == len(annotations),
            f"Unexpected Error: Length of downloaded delta manifest tables "
            f"({len(tables)}) doesn't match the length of delta manifest "
@@ -128,10 +127,10 @@ def read_delta_file_envelopes(
 
     delta_file_envelopes = []
     for i, table in enumerate(tables):
-        delta_file = delta_file_envelope.of(
-            da.get_annotation_stream_position(annotations[i]),
-            da.get_annotation_file_index(annotations[i]),
-            da.get_annotation_delta_type(annotations[i]),
+        delta_file = DeltaFileEnvelope.of(
+            annotations[i].annotation_stream_position,
+            annotations[i].annotation_file_index,
+            annotations[i].annotation_delta_type,
             table,
         )
         delta_file_envelopes.append(delta_file)
@@ -140,15 +139,15 @@ def read_delta_file_envelopes(
 
 @ray.remote(num_returns=2)
 def hash_bucket(
-        annotated_delta: Dict[str, Any],
+        annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
-        sort_keys: SortKeyT,
+        sort_keys: List[SortKey],
         num_buckets: int,
         num_groups: int,
         deltacat_storage=unimplemented_deltacat_storage):
 
     logger.info(f"Starting hash bucket task...")
-    sort_key_names = [sk.get_key_name(key) for key in sort_keys]
+    sort_key_names = [key.key_name for key in sort_keys]
     delta_file_envelope_groups = group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,

@@ -1,100 +1,245 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 import logging
 import itertools
+
 from deltacat import logs
+from deltacat.aws import s3u as s3_utils
 from uuid import uuid4
-from typing import Any, Dict, List, Optional
-from deltacat.aws.redshift.model import manifest_meta as rsmm
-from deltacat.aws.redshift.model import manifest_entry as rsme
+from typing import Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _build_manifest(
-        meta: Optional[Dict[str, Any]],
-        entries: Optional[List[Dict[str, Any]]],
-        author: Optional[Dict[str, Any]] = None,
-        uuid: str = str(uuid4())) -> Dict[str, Any]:
+class Manifest(dict):
+    @staticmethod
+    def _build_manifest(
+            meta: Optional[ManifestMeta],
+            entries: Optional[List[ManifestEntry]],
+            author: Optional[ManifestAuthor] = None,
+            uuid: str = str(uuid4())) -> Manifest:
+        manifest = {"id": uuid}
+        if meta is not None:
+            manifest["meta"] = meta
+        if entries is not None:
+            manifest["entries"] = entries
+        if author is not None:
+            manifest["author"] = author
+        return Manifest(manifest)
 
-    manifest = {"id": uuid}
-    if meta is not None:
-        manifest["meta"] = meta
-    if entries is not None:
-        manifest["entries"] = entries
-    if author is not None:
-        manifest["author"] = author
-    return manifest
+    @staticmethod
+    def of(entries: List[ManifestEntry],
+           author: Optional[ManifestAuthor] = None,
+           uuid: str = str(uuid4())) -> Manifest:
+        total_record_count = 0
+        total_content_length = 0
+        total_source_content_length = 0
+        content_type = None
+        content_encoding = None
+        if entries:
+            content_type = entries[0].meta.content_type
+            content_encoding = entries[0].meta.content_encoding
+            for entry in entries:
+                meta = entry.meta
+                if meta.content_type != content_type:
+                    content_type = None
+                if meta.content_encoding != content_encoding:
+                    content_encoding = None
+                entry_content_type = meta.content_type
+                if entry_content_type != content_type:
+                    msg = f"Expected all manifest entries to have content " \
+                          f"type '{content_type}' but found " \
+                          f"'{entry_content_type}'"
+                    raise ValueError(msg)
+                entry_content_encoding = meta["content_encoding"]
+                if entry_content_encoding != content_encoding:
+                    msg = f"Expected all manifest entries to have content " \
+                          f"encoding '{content_encoding}' but found " \
+                          f"'{entry_content_encoding}'"
+                    raise ValueError(msg)
+                total_record_count += meta.record_count or 0
+                total_content_length += meta.content_length or 0
+                total_source_content_length += meta.source_content_length or 0
+        meta = ManifestMeta.of(
+            total_record_count,
+            total_content_length,
+            content_type,
+            content_encoding,
+            total_source_content_length
+        )
+        manifest = Manifest._build_manifest(
+            meta,
+            entries,
+            author,
+            uuid
+        )
+        return manifest
+
+    @staticmethod
+    def merge_manifests(
+            manifests: List[Manifest],
+            author: Optional[ManifestAuthor] = None) -> Manifest:
+        all_entries = list(
+            itertools.chain(*[m.entries for m in manifests]))
+        print(f"all_entries: {all_entries}")
+        merged_manifest = Manifest.of(
+            all_entries,
+            author)
+        return merged_manifest
+
+    @property
+    def meta(self) -> Optional[ManifestMeta]:
+        return self.get("meta")
+
+    @property
+    def entries(self) -> Optional[List[ManifestEntry]]:
+        return self.get("entries")
+
+    @property
+    def id(self) -> str:
+        return self["id"]
+
+    @property
+    def author(self) -> Optional[ManifestAuthor]:
+        return self.get("author")
 
 
-def of(
-        entries: List[Dict[str, Any]],
-        author: Optional[Dict[str, Any]] = None,
-        uuid: str = str(uuid4())) -> Dict[str, Any]:
+class ManifestMeta(dict):
+    @staticmethod
+    def of(record_count: Optional[int],
+           content_length: Optional[int],
+           content_type: Optional[str],
+           content_encoding: Optional[str],
+           source_content_length: Optional[int] = None,
+           credentials: Optional[Dict[str, str]] = None,
+           content_type_parameters: Optional[List[Dict[str, str]]] = None) \
+            -> ManifestMeta:
+        manifest_meta = {}
+        if record_count is not None:
+            manifest_meta["record_count"] = record_count
+        if content_length is not None:
+            manifest_meta["content_length"] = content_length
+        if source_content_length is not None:
+            manifest_meta["source_content_length"] = source_content_length
+        if content_type is not None:
+            manifest_meta["content_type"] = content_type
+        if content_type_parameters is not None:
+            manifest_meta["content_type_parameters"] = content_type_parameters
+        if content_encoding is not None:
+            manifest_meta["content_encoding"] = content_encoding
+        if credentials is not None:
+            manifest_meta["credentials"] = credentials
+        return ManifestMeta(manifest_meta)
 
-    total_record_count = 0
-    total_content_length = 0
-    total_source_content_length = 0
-    if entries:
-        content_type = rsmm.get_content_type(rsme.get_meta(entries[0]))
-        content_encoding = rsmm.get_content_encoding(rsme.get_meta(entries[0]))
-    for entry in entries:
-        meta = rsme.get_meta(entry)
-        if rsmm.get_content_type(meta) != content_type:
-            content_type = None
-        if rsmm.get_content_encoding(meta) != content_encoding:
-            content_encoding = None
-        entry_content_type = rsmm.get_content_type(meta)
-        if entry_content_type != content_type:
-            msg = f"Expected all manifest entries to have content type " \
-                  f"'{content_type}' but found '{entry_content_type}'"
-            raise ValueError(msg)
-        entry_content_encoding = meta["content_encoding"]
-        if entry_content_encoding != content_encoding:
-            msg = f"Expected all manifest entries to have content " \
-                  f"encoding '{content_encoding}' but found " \
-                  f"'{entry_content_encoding}'"
-            raise ValueError(msg)
-        total_record_count += rsmm.get_record_count(meta, 0)
-        total_content_length += rsmm.get_content_length(meta, 0)
-        total_source_content_length += rsmm.get_source_content_length(meta, 0)
-    meta = rsmm.of(
-        total_record_count,
-        total_content_length,
-        content_type,
-        content_encoding,
-        total_source_content_length
-    )
-    manifest = _build_manifest(
-        meta,
-        entries,
-        author,
-        uuid
-    )
-    return manifest
+    @property
+    def record_count(self) -> Optional[int]:
+        return self.get("record_count")
 
+    @property
+    def content_length(self) -> Optional[int]:
+        return self.get("content_length")
 
-def merge_manifests(
-        manifests: List[Dict[str, Any]],
-        author: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    @property
+    def content_type(self) -> Optional[str]:
+        return self.get("content_type")
 
-    all_entries = list(itertools.chain(*[get_entries(m) for m in manifests]))
-    print(f"all_entries: {all_entries}")
-    merged_manifest = of(
-        all_entries,
-        author)
-    return merged_manifest
+    @property
+    def content_encoding(self) -> Optional[str]:
+        return self.get("content_encoding")
+
+    @property
+    def source_content_length(self) -> Optional[int]:
+        return self.get("source_content_length")
+
+    @property
+    def content_type_parameters(self) -> Optional[List[Dict[str, str]]]:
+        return self.get("content_type_parameters")
+
+    @property
+    def credentials(self) -> Optional[Dict[str, str]]:
+        return self.get("credentials")
 
 
-def get_meta(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    return manifest.get("meta")
+class ManifestAuthor(dict):
+    @staticmethod
+    def of(name: Optional[str],
+           version: Optional[str]) -> ManifestAuthor:
+        manifest_author = {}
+        if name is not None:
+            manifest_author["name"] = name
+        if version is not None:
+            manifest_author["version"] = version
+        return ManifestAuthor(manifest_author)
+
+    @property
+    def name(self) -> Optional[str]:
+        return self.get("name")
+
+    @property
+    def version(self) -> Optional[str]:
+        return self.get("version")
 
 
-def get_entries(manifest: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    return manifest.get("entries")
+class ManifestEntry(dict):
+    @staticmethod
+    def of(uri: Optional[str],
+           meta: Optional[ManifestMeta],
+           mandatory: bool = True,
+           url: Optional[str] = None,
+           uuid: Optional[str] = None) -> ManifestEntry:
+        manifest_entry = {}
+        if not (uri or url):
+            raise ValueError(
+                "No URI or URL specified for manifest entry contents.")
+        if (uri and url) and (uri != url):
+            raise ValueError(f"Manifest entry URI ({uri}) != URL ({url})")
+        if uri:
+            manifest_entry["uri"] = uri
+        elif url:
+            manifest_entry["url"] = url
+        if meta is not None:
+            manifest_entry["meta"] = meta
+        if mandatory is not None:
+            manifest_entry["mandatory"] = mandatory
+        if uuid is not None:
+            manifest_entry["id"] = uuid
+        return ManifestEntry(manifest_entry)
 
+    @staticmethod
+    def from_s3_obj_url(
+            url: str,
+            record_count: int,
+            source_content_length: Optional[int] = None,
+            **s3_client_kwargs) -> ManifestEntry:
+        s3_obj = s3_utils.get_object_at_url(url, **s3_client_kwargs)
+        logger.debug(f"Building manifest entry from {url}: {s3_obj}")
+        manifest_entry_meta = ManifestMeta.of(
+            record_count,
+            s3_obj["ContentLength"],
+            s3_obj["ContentType"],
+            s3_obj["ContentEncoding"],
+            source_content_length,
+        )
+        manifest_entry = ManifestEntry.of(url, manifest_entry_meta)
+        return manifest_entry
 
-def get_id(manifest: Dict[str, Any]) -> str:
-    return manifest["id"]
+    @property
+    def uri(self) -> Optional[str]:
+        return self.get("uri")
 
+    @property
+    def url(self) -> Optional[str]:
+        return self.get("url")
 
-def get_author(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    return manifest.get("author")
+    @property
+    def meta(self) -> Optional[ManifestMeta]:
+        return self.get("meta")
+
+    @property
+    def mandatory(self) -> bool:
+        return self["mandatory"]
+
+    @property
+    def id(self) -> Optional[str]:
+        return self.get("id")

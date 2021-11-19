@@ -1,50 +1,51 @@
-from typing import Any, Dict
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
+from deltacat.storage import DeltaLocator
+from deltacat.compute.compactor import PyArrowWriteResult, \
+    PrimaryKeyIndexVersionLocator
 
 
-def of(
-        high_watermark: int,
-        compacted_delta_locator: Dict[str, Any],
-        compacted_pyarrow_write_result: Dict[str, Any],
-        pk_index_pyarrow_write_result: Dict[str, Any],
-        sort_keys_bit_width: int,
-        primary_key_index_version_locator: Dict[str, Any]) -> Dict[str, Any]:
+class RoundCompletionInfo(dict):
+    @staticmethod
+    def of(high_watermark: int,
+           compacted_delta_locator: DeltaLocator,
+           compacted_pyarrow_write_result: PyArrowWriteResult,
+           pk_index_pyarrow_write_result: PyArrowWriteResult,
+           sort_keys_bit_width: int,
+           primary_key_index_version_locator: PrimaryKeyIndexVersionLocator) \
+            -> RoundCompletionInfo:
 
-    return {
-        "highWatermark": high_watermark,
-        "compactedDeltaLocator": compacted_delta_locator,
-        "compactedPyarrowWriteResult": compacted_pyarrow_write_result,
-        "pkIndexPyarrowWriteResult": pk_index_pyarrow_write_result,
-        "sortKeysBitWidth": sort_keys_bit_width,
-        "primaryKeyIndexVersionLocator": primary_key_index_version_locator,
-    }
+        return RoundCompletionInfo({
+            "highWatermark": high_watermark,
+            "compactedDeltaLocator": compacted_delta_locator,
+            "compactedPyarrowWriteResult": compacted_pyarrow_write_result,
+            "pkIndexPyarrowWriteResult": pk_index_pyarrow_write_result,
+            "sortKeysBitWidth": sort_keys_bit_width,
+            "primaryKeyIndexVersionLocator": primary_key_index_version_locator,
+        })
 
+    @property
+    def high_watermark(self) -> int:
+        return self["highWatermark"]
 
-def get_high_watermark(round_completion_info: Dict[str, Any]) -> int:
-    return round_completion_info["highWatermark"]
+    @property
+    def compacted_delta_locator(self) -> DeltaLocator:
+        return self["compactedDeltaLocator"]
 
+    @property
+    def compacted_pyarrow_write_result(self) -> PyArrowWriteResult:
+        return self["compactedPyarrowWriteResult"]
 
-def get_compacted_delta_locator(round_completion_info: Dict[str, Any]) \
-        -> Dict[str, Any]:
+    @property
+    def pk_index_pyarrow_write_result(self) -> PyArrowWriteResult:
+        return self["pkIndexPyarrowWriteResult"]
 
-    return round_completion_info["compactedDeltaLocator"]
+    @property
+    def sort_keys_bit_width(self) -> int:
+        return self["sortKeysBitWidth"]
 
-
-def get_compacted_pyarrow_write_result(round_completion_info: Dict[str, Any]) \
-        -> Dict[str, Any]:
-
-    return round_completion_info["compactedPyarrowWriteResult"]
-
-
-def get_pk_index_pyarrow_write_result(round_completion_info: Dict[str, Any]) \
-        -> Dict[str, Any]:
-
-    return round_completion_info["pkIndexPyarrowWriteResult"]
-
-
-def get_sort_keys_bit_width(round_completion_info: Dict[str, Any]) -> int:
-    return round_completion_info["sortKeysBitWidth"]
-
-
-def get_primary_key_index_version_locator(
-        round_completion_info: Dict[str, Any]) -> Dict[str, Any]:
-    return round_completion_info["primaryKeyIndexVersionLocator"]
+    @property
+    def primary_key_index_version_locator(self) \
+            -> PrimaryKeyIndexVersionLocator:
+        return self["primaryKeyIndexVersionLocator"]

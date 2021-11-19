@@ -1,44 +1,47 @@
-from typing import Any, Dict, List
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
+from typing import List
 
 
-def of(
-        file_count: int,
-        pyarrow_bytes: int,
-        file_bytes: int,
-        record_count: int) -> Dict[str, int]:
+class PyArrowWriteResult(dict):
+    @staticmethod
+    def of(file_count: int,
+           pyarrow_bytes: int,
+           file_bytes: int,
+           record_count: int) -> PyArrowWriteResult:
+        return PyArrowWriteResult({
+            "files": file_count,
+            "paBytes": pyarrow_bytes,
+            "fileBytes": file_bytes,
+            "records": record_count,
+        })
 
-    return {
-        "files": file_count,
-        "paBytes": pyarrow_bytes,
-        "fileBytes": file_bytes,
-        "records": record_count,
-    }
+    @staticmethod
+    def union(results: List[PyArrowWriteResult]) -> PyArrowWriteResult:
+        """
+        Create a new PyArrowWriteResult containing all results from all input
+        PyArrowWriteResults.
+        """
+        return PyArrowWriteResult.of(
+            sum([result.files for result in results]),
+            sum([result.pyarrow_bytes for result in results]),
+            sum([result.file_bytes for result in results]),
+            sum([result.records for result in results]),
+        )
 
+    @property
+    def files(self) -> int:
+        return self["files"]
 
-def union(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Create a new Primary Key Index Write Result containing all results from
-    both input Primary Key Index Write Results.
-    """
-    return of(
-        sum([get_files(result) for result in results]),
-        sum([get_pyarrow_bytes(result) for result in results]),
-        sum([get_file_bytes(result) for result in results]),
-        sum([get_records(result) for result in results]),
-    )
+    @property
+    def pyarrow_bytes(self) -> int:
+        return self["paBytes"]
 
+    @property
+    def file_bytes(self) -> int:
+        return self["fileBytes"]
 
-def get_files(pki_write_result: Dict[str, Any]) -> int:
-    return pki_write_result["files"]
-
-
-def get_pyarrow_bytes(pki_write_result: Dict[str, Any]) -> int:
-    return pki_write_result["paBytes"]
-
-
-def get_file_bytes(pki_write_result: Dict[str, Any]) -> int:
-    return pki_write_result["fileBytes"]
-
-
-def get_records(pki_write_result: Dict[str, Any]) -> int:
-    return pki_write_result["records"]
+    @property
+    def records(self) -> int:
+        return self["records"]

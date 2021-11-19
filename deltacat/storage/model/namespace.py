@@ -1,36 +1,59 @@
-from deltacat.storage.model import namespace_locator as nl
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 from typing import Any, Dict, Optional
 
-
-def of(
-        namespace_locator: Optional[Dict[str, Any]],
-        permissions: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-
-    return {
-        "namespaceLocator": namespace_locator,
-        "permissions": permissions,
-    }
+from deltacat.storage import Locator
 
 
-def get_namespace_locator(namespace: Dict[str, Any]) \
-        -> Optional[Dict[str, Any]]:
+class Namespace(dict):
+    @staticmethod
+    def of(namespace_locator: Optional[NamespaceLocator],
+           permissions: Optional[Dict[str, Any]]) -> Namespace:
+        return Namespace({
+            "namespaceLocator": namespace_locator,
+            "permissions": permissions,
+        })
 
-    return namespace.get("namespaceLocator")
+    @property
+    def namespace_locator(self) -> Optional[NamespaceLocator]:
+        return self.get("namespaceLocator")
+
+    @property
+    def namespace(self) -> Optional[str]:
+        namespace_locator = self.namespace_locator
+        if namespace_locator:
+            return namespace_locator.namespace
+        return None
+
+    @property
+    def permissions(self) -> Optional[Dict[str, Any]]:
+        return self.get("permissions")
+
+    @permissions.setter
+    def permissions(self, permissions: Optional[Dict[str, Any]]) -> None:
+        self["permissions"] = permissions
 
 
-def get_namespace(namespace: Dict[str, Any]) -> Optional[str]:
-    namespace_locator = get_namespace_locator(namespace)
-    if namespace_locator:
-        return nl.get_namespace(namespace_locator)
-    return None
+class NamespaceLocator(Locator, dict):
+    @staticmethod
+    def of(namespace: Optional[str]) -> NamespaceLocator:
+        return NamespaceLocator({
+            "namespace": namespace,
+        })
 
+    @property
+    def namespace(self) -> Optional[str]:
+        return self.get("namespace")
 
-def get_permissions(namespace: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    return namespace.get("permissions")
+    @namespace.setter
+    def namespace(self, namespace: Optional[str]) -> None:
+        self["namespace"] = namespace
 
-
-def set_permissions(
-        namespace: Dict[str, Any],
-        permissions: Optional[Dict[str, Any]]) -> None:
-
-    namespace["permissions"] = permissions
+    def canonical_string(self) -> str:
+        """
+        Returns a unique string for the given locator that can be used
+        for equality checks (i.e. two locators are equal if they have
+        the same canonical string).
+        """
+        return self.namespace

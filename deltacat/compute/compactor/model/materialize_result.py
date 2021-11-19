@@ -1,29 +1,29 @@
-from typing import Any, Dict
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
+from deltacat.storage import Delta
+from deltacat.compute.compactor import PyArrowWriteResult
 
 
-def of(
-        delta: Dict[str, Any],
-        task_index: int,
-        pyarrow_write_result: Dict[str, Any]) -> Dict[str, Any]:
+class MaterializeResult(dict):
+    @staticmethod
+    def of(delta: Delta,
+           task_index: int,
+           pyarrow_write_result: PyArrowWriteResult) -> MaterializeResult:
+        return MaterializeResult({
+            "delta": delta,
+            "taskIndex": task_index,
+            "paWriteResult": pyarrow_write_result,
+        })
 
-    return {
-        "delta": delta,
-        "taskIndex": task_index,
-        "paWriteResult": pyarrow_write_result,
-    }
+    @property
+    def delta(self) -> Delta:
+        return self["delta"]
 
+    @property
+    def task_index(self) -> int:
+        return self["taskIndex"]
 
-def get_delta(materialize_result: Dict[str, Any]) \
-        -> Dict[str, Any]:
-
-    return materialize_result["delta"]
-
-
-def get_task_index(materialize_result: Dict[str, Any]) -> int:
-    return materialize_result["taskIndex"]
-
-
-def get_pyarrow_write_result(materialize_result: Dict[str, Any]) \
-        -> Dict[str, Any]:
-
-    return materialize_result["paWriteResult"]
+    @property
+    def pyarrow_write_result(self) -> PyArrowWriteResult:
+        return self["paWriteResult"]

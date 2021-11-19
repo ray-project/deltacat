@@ -1,4 +1,3 @@
-from deltacat.storage.model import list_result as lr
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
 
@@ -19,8 +18,8 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
     namespaces = []
     namespaces_list_result = dc_storage.list_namespaces()
     while namespaces_list_result:
-        namespaces_list_result = lr.next_page(namespaces_list_result)
-        namespaces.extend(lr.get_items(namespaces_list_result))
+        namespaces_list_result = namespaces_list_result.next_page()
+        namespaces.extend(namespaces_list_result.read_page())
 
     print(f"All Namespaces: {namespaces}")
 
@@ -46,8 +45,8 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
     test_tables = []
     tables_list_result = dc_storage.list_tables("TestNamespace")
     while tables_list_result:
-        tables_list_result = lr.next_page(tables_list_result)
-        test_tables.extend(lr.get_items(tables_list_result))
+        tables_list_result = tables_list_result.next_page()
+        test_tables.extend(tables_list_result.read_page())
 
     print(f"All 'TestNamespace' Tables: {test_tables}")
 
@@ -70,8 +69,8 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
         "TestTable",
     )
     while partitions_list_result:
-        partitions_list_result = lr.next_page(partitions_list_result)
-        table_partitions.extend(lr.get_items(partitions_list_result))
+        partitions_list_result = partitions_list_result.next_page()
+        table_partitions.extend(partitions_list_result.read_page())
     print(f"All Table Partitions: {table_partitions}")
 
     """
@@ -115,7 +114,7 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
         "TestTable",
         ["1", "2018-03-06T00:00:00.000Z"],
     )
-    all_partition_deltas = lr.all_items(deltas_list_result)
+    all_partition_deltas = deltas_list_result.all_items()
     print(f"All Partition Deltas: {all_partition_deltas}")
 
 

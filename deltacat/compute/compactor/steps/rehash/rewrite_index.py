@@ -4,9 +4,14 @@ import pyarrow as pa
 from collections import defaultdict
 from ray import cloudpickle
 from deltacat import logs
-from typing import Any, Dict, List
+
+from ray.types import ObjectRef
+
+from deltacat.compute.compactor import PrimaryKeyIndexVersionLocator, \
+    PyArrowWriteResult
 from deltacat.compute.compactor.utils import primary_key_index as pki
-from deltacat.compute.compactor.model import pyarrow_write_result as pawr
+
+from typing import Any, List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -14,9 +19,10 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 @ray.remote(num_returns=2)
 def rewrite_index(
         s3_bucket: str,
-        new_primary_key_index_version_locator: Dict[str, Any],
+        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
         object_ids: List[Any],
-        max_records_per_index_file: int):
+        max_records_per_index_file: int) -> \
+        Tuple[PyArrowWriteResult, List[ObjectRef]]:
 
     logger.info(f"Starting rewrite primary key index task...")
     object_refs = [cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]
@@ -41,4 +47,4 @@ def rewrite_index(
         )
         pki_stats.append(hb_pki_stats)
     logger.info(f"Finished rewrite primary key index task...")
-    return pawr.union(pki_stats), object_refs
+    return PyArrowWriteResult.union(pki_stats), object_refs

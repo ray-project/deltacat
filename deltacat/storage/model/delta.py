@@ -1,249 +1,366 @@
-from deltacat.storage.model.types import DeltaType
-from deltacat.storage.model import delta_locator as dl, partition_locator as pl
-from deltacat.aws.redshift.model import manifest as rsm
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
+from deltacat.storage import DeltaType, NamespaceLocator, \
+    PartitionLocator, StreamLocator, TableLocator, TableVersionLocator, Locator
+from deltacat.aws.redshift import Manifest, ManifestMeta, ManifestAuthor
 from typing import Any, Dict, List, Optional
 
 
-def of(
-        delta_locator: Optional[Dict[str, Any]],
-        delta_type: Optional[DeltaType],
-        manifest_meta: Optional[Dict[str, Any]],
-        properties: Optional[Dict[str, str]],
-        manifest: Optional[Dict[str, Any]],
-        previous_stream_position: Optional[int] = None) -> Dict[str, Any]:
-    """
-    Creates a Delta metadata model with the given Delta Locator, Delta Type,
-    manifest metadata, properties, manifest, and previous delta stream
-    position.
-    """
-    return {
-        "manifest": manifest,
-        "meta": manifest_meta,
-        "type": delta_type,
-        "deltaLocator": delta_locator,
-        "properties": properties,
-        "previousStreamPosition": previous_stream_position,
-    }
+class Delta(dict):
+    @staticmethod
+    def of(delta_locator: Optional[DeltaLocator],
+           delta_type: Optional[DeltaType],
+           manifest_meta: Optional[ManifestMeta],
+           properties: Optional[Dict[str, str]],
+           manifest: Optional[Manifest],
+           previous_stream_position: Optional[int] = None) -> Delta:
+        """
+        Creates a Delta metadata model with the given Delta Locator, Delta Type,
+        manifest metadata, properties, manifest, and previous delta stream
+        position.
+        """
+        return Delta({
+            "manifest": manifest,
+            "meta": manifest_meta,
+            "type": delta_type,
+            "deltaLocator": delta_locator,
+            "properties": properties,
+            "previousStreamPosition": previous_stream_position,
+        })
+
+    @staticmethod
+    def merge_deltas(
+            deltas: List[Delta],
+            manifest_author: Optional[ManifestAuthor] = None,
+            stream_position: Optional[int] = None,
+            properties: Optional[Dict[str, str]] = None) -> Delta:
+        """
+        Merges the input list of deltas into a single delta. All input deltas to
+        merge must belong to the same partition, share the same delta type, and
+        have non-empty manifests.
+
+        Manifest content type and content encoding will be set to None in the
+        event of conflicting types or encodings between individual manifest
+        entries. Missing record counts, content lengths, and source content
+        lengths will be coalesced to 0. Delta properties, stream position, and
+        manifest author will be set to None unless explicitly specified.
+
+        The previous partition stream position of the merged delta is set to the
+        maximum previous partition stream position of all input deltas, or None
+        if the previous partition stream position of any input delta is None.
+
+        Input delta manifest entry order will be preserved in the merged delta
+        returned. That is, if manifest entry A preceded manifest entry B
+        in the input delta list, then manifest entry A will precede manifest
+        entry B in the merged delta.
+        """
+        if not deltas:
+            raise ValueError("No deltas given to merge.")
+        manifests = [d.manifest for d in deltas]
+        if any(not m for m in manifests):
+            raise ValueError(f"Deltas to merge must have non-empty manifests.")
+        distinct_storage_types = set([d.storage_type for d in deltas])
+        if len(distinct_storage_types) > 1:
+            raise NotImplementedError(
+                f"Deltas to merge must all share the same storage type "
+                f"(found {len(distinct_storage_types)} storage types.")
+        pl_digest_set = set([d.partition_locator.digest()
+                             for d in deltas])
+        if len(pl_digest_set) > 1:
+            raise ValueError(
+                f"Deltas to merge must all belong to the same partition "
+                f"(found {len(pl_digest_set)} partitions).")
+        distinct_delta_types = set([d.type for d in deltas])
+        if len(distinct_delta_types) > 1:
+            raise ValueError(
+                f"Deltas to merge must all share the same delta type "
+                f"(found {len(distinct_delta_types)} delta types).")
+        merged_manifest = Manifest.merge_manifests(
+            manifests,
+            manifest_author,
+        )
+        partition_locator = deltas[0].partition_locator
+        prev_positions = [d.previous_stream_position for d in deltas]
+        prev_position = None if None in prev_positions else max(prev_positions)
+        return Delta.of(
+            DeltaLocator.of(partition_locator, stream_position),
+            distinct_delta_types.pop(),
+            merged_manifest.meta,
+            properties,
+            merged_manifest,
+            prev_position,
+        )
+
+    @property
+    def manifest(self) -> Optional[Manifest]:
+        return self.get("manifest")
+
+    @manifest.setter
+    def manifest(
+            self,
+            manifest: Optional[Manifest]) -> None:
+        self["manifest"] = manifest
+
+    @property
+    def meta(self) -> Optional[ManifestMeta]:
+        return self.get("meta")
+
+    @meta.setter
+    def meta(
+            self,
+            meta: Optional[ManifestMeta]) -> None:
+        self["meta"] = meta
+
+    @property
+    def properties(self) -> Optional[Dict[str, str]]:
+        return self.get("properties")
+
+    @properties.setter
+    def properties(
+            self,
+            properties: Optional[Dict[str, str]]) -> None:
+        self["properties"] = properties
+
+    @property
+    def type(self) -> Optional[DeltaType]:
+        delta_type = self.get("type")
+        return None if delta_type is None else DeltaType(delta_type)
+
+    @type.setter
+    def type(
+            self,
+            delta_type: Optional[DeltaType]) -> None:
+        self["type"] = delta_type
+
+    @property
+    def delta_locator(self) -> Optional[DeltaLocator]:
+        return self.get("deltaLocator")
+
+    @delta_locator.setter
+    def delta_locator(
+            self,
+            delta_locator: Optional[DeltaLocator]) -> None:
+        self["deltaLocator"] = delta_locator
+
+    @property
+    def previous_stream_position(self) -> Optional[int]:
+        return self.get("previousStreamPosition")
+
+    @previous_stream_position.setter
+    def previous_stream_position(
+            self,
+            previous_stream_position: Optional[int]) -> None:
+        self["previousStreamPosition"] = previous_stream_position
+
+    @property
+    def namespace_locator(self) -> Optional[NamespaceLocator]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.namespace_locator
+        return None
+
+    @property
+    def table_locator(self) -> Optional[TableLocator]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.table_locator
+        return None
+
+    @property
+    def table_version_locator(self) -> Optional[TableVersionLocator]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.table_version_locator
+        return None
+
+    @property
+    def stream_locator(self) -> Optional[StreamLocator]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.stream_locator
+        return None
+
+    @property
+    def partition_locator(self) -> Optional[PartitionLocator]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.partition_locator
+        return None
+
+    @property
+    def storage_type(self) -> Optional[str]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.storage_type
+        return None
+
+    @property
+    def namespace(self) -> Optional[str]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.namespace
+        return None
+
+    @property
+    def table_name(self) -> Optional[str]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.table_name
+        return None
+
+    @property
+    def table_version(self) -> Optional[str]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.table_version
+        return None
+
+    @property
+    def stream_id(self) -> Optional[str]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.stream_id
+        return None
+
+    @property
+    def partition_id(self) -> Optional[str]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.partition_id
+        return None
+
+    @property
+    def partition_values(self) -> Optional[List[Any]]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.partition_values
+        return None
+
+    @property
+    def stream_position(self) -> Optional[int]:
+        delta_locator = self.delta_locator
+        if delta_locator:
+            return delta_locator.stream_position
+        return None
 
 
-def merge_deltas(
-        deltas: List[Dict[str, Any]],
-        manifest_author: Optional[Dict[str, Any]] = None,
-        stream_position: Optional[int] = None,
-        properties: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """
-    Merges the input list of deltas into a single delta. All input deltas to
-    merge must belong to the same partition, share the same delta type, and
-    have non-empty manifests.
+class DeltaLocator(Locator, dict):
+    @staticmethod
+    def of(partition_locator: Optional[PartitionLocator],
+           stream_position: Optional[int]) -> DeltaLocator:
+        """
+        Creates a partition delta locator. Stream Position, if provided, should
+        be greater than that of any prior delta in the partition.
+        """
+        return DeltaLocator({
+            "partitionLocator": partition_locator,
+            "streamPosition": stream_position,
+        })
 
-    Manifest content type and content encoding will be set to None in the event
-    of conflicting types or encodings between individual manifest entries.
-    Missing record counts, content lengths, and source content lengths will be
-    coalesced to 0. Delta properties, stream position, and manifest author
-    will be set to None unless explicitly specified.
+    @property
+    def partition_locator(self) -> Optional[PartitionLocator]:
+        return self.get("partitionLocator")
 
-    The previous partition stream position of the merged delta is set to the
-    maximum previous partition stream position of all input deltas, or None
-    if the previous partition stream position of any input delta is None.
+    @partition_locator.setter
+    def partition_locator(
+            self,
+            partition_locator: Optional[PartitionLocator]) -> None:
+        self["partitionLocator"] = partition_locator
 
-    Input delta manifest entry order will be preserved in the merged delta
-    returned. That is, if manifest entry A preceded manifest entry B
-    in the input delta list, then manifest entry A will precede manifest entry
-    B in the merged delta.
-    """
-    if not deltas:
-        raise ValueError("No deltas given to merge.")
-    manifests = [get_manifest(d) for d in deltas]
-    if any(not m for m in manifests):
-        raise ValueError(f"Deltas to merge must all have non-empty manifests.")
-    distinct_storage_types = set([get_storage_type(d) for d in deltas])
-    if len(distinct_storage_types) > 1:
-        raise NotImplementedError(
-            f"Deltas to merge must all share the same storage type "
-            f"(found {len(distinct_storage_types)} storage types.")
-    pl_digest_set = set([pl.digest(get_partition_locator(d)) for d in deltas])
-    if len(pl_digest_set) > 1:
-        raise ValueError(
-            f"Deltas to merge must all belong to the same partition (found "
-            f"{len(pl_digest_set)} partitions).")
-    distinct_delta_types = set([get_delta_type(m) for m in deltas])
-    if len(distinct_delta_types) > 1:
-        raise ValueError(f"Deltas to merge must all share the same delta type "
-                         f"(found {len(distinct_delta_types)} delta types).")
-    merged_manifest = rsm.merge_manifests(
-        manifests,
-        manifest_author,
-    )
-    partition_locator = get_partition_locator(deltas[0])
-    prev_positions = [get_previous_stream_position(d) for d in deltas]
-    prev_position = None if None in prev_positions else max(prev_positions)
-    return of(
-        dl.of(partition_locator, stream_position),
-        distinct_delta_types.pop(),
-        rsm.get_meta(merged_manifest),
-        properties,
-        merged_manifest,
-        prev_position,
-    )
+    @property
+    def stream_position(self) -> Optional[int]:
+        return self.get("streamPosition")
 
+    @stream_position.setter
+    def stream_position(
+            self,
+            stream_position: Optional[int]) -> None:
+        self["streamPosition"] = stream_position
 
-def get_manifest(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    return delta.get("manifest")
+    @property
+    def namespace_locator(self) -> Optional[NamespaceLocator]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.namespace_locator
+        return None
 
+    @property
+    def table_locator(self) -> Optional[TableLocator]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.table_locator
+        return None
 
-def set_manifest(
-        delta: Dict[str, Any],
-        manifest: Optional[Dict[str, Any]]) -> None:
+    @property
+    def table_version_locator(self) -> Optional[TableVersionLocator]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.table_version_locator
+        return None
 
-    delta["manifest"] = manifest
+    @property
+    def stream_locator(self) -> Optional[StreamLocator]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.stream_locator
+        return None
 
+    @property
+    def partition_values(self) -> Optional[List[Any]]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.partition_values
+        return None
 
-def get_meta(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    return delta.get("meta")
+    @property
+    def partition_id(self) -> Optional[str]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.partition_id
+        return None
 
+    @property
+    def stream_id(self) -> Optional[str]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.stream_id
+        return None
 
-def set_meta(
-        delta: Dict[str, Any],
-        meta: Optional[Dict[str, Any]]) -> None:
+    @property
+    def storage_type(self) -> Optional[str]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.storage_type
+        return None
 
-    delta["meta"] = meta
+    @property
+    def namespace(self) -> Optional[str]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.namespace
+        return None
 
+    @property
+    def table_name(self) -> Optional[str]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.table_name
+        return None
 
-def get_properties(delta: Dict[str, Any]) -> Optional[Dict[str, str]]:
-    return delta.get("properties")
+    @property
+    def table_version(self) -> Optional[str]:
+        partition_locator = self.partition_locator
+        if partition_locator:
+            return partition_locator.table_version
+        return None
 
-
-def set_properties(
-        delta: Dict[str, Any],
-        properties: Optional[Dict[str, str]]) -> None:
-
-    delta["properties"] = properties
-
-
-def get_delta_type(delta: Dict[str, Any]) -> Optional[DeltaType]:
-    delta_type = delta.get("type")
-    return None if delta_type is None else DeltaType(delta_type)
-
-
-def set_delta_type(
-        delta: Dict[str, Any],
-        delta_type: Optional[DeltaType]) -> None:
-
-    delta["type"] = delta_type
-
-
-def get_delta_locator(delta: Dict[str, Any]) \
-        -> Optional[Dict[str, Any]]:
-
-    return delta.get("deltaLocator")
-
-
-def set_delta_locator(
-        delta: Dict[str, Any],
-        delta_locator: Optional[Dict[str, Any]]) -> None:
-
-    delta["deltaLocator"] = delta_locator
-
-
-def get_previous_stream_position(delta: Dict[str, Any]) -> Optional[int]:
-    return delta.get("previousStreamPosition")
-
-
-def set_previous_stream_position(
-        delta: Dict[str, Any],
-        previous_stream_position: Optional[int]) -> None:
-
-    delta["previousStreamPosition"] = previous_stream_position
-
-
-def get_namespace_locator(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_namespace_locator(delta_locator)
-    return None
-
-
-def get_table_locator(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_table_locator(delta_locator)
-    return None
-
-
-def get_table_version_locator(delta: Dict[str, Any]) \
-        -> Optional[Dict[str, Any]]:
-
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_table_version_locator(delta_locator)
-    return None
-
-
-def get_stream_locator(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_stream_locator(delta_locator)
-    return None
-
-
-def get_partition_locator(delta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_partition_locator(delta_locator)
-    return None
-
-
-def get_storage_type(delta: Dict[str, Any]) -> Optional[str]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_storage_type(delta_locator)
-    return None
-
-
-def get_namespace(delta: Dict[str, Any]) -> Optional[str]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_namespace(delta_locator)
-    return None
-
-
-def get_table_name(delta: Dict[str, Any]) -> Optional[str]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_table_name(delta_locator)
-    return None
-
-
-def get_table_version(delta: Dict[str, Any]) -> Optional[str]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_table_version(delta_locator)
-    return None
-
-
-def get_stream_id(delta: Dict[str, Any]) -> Optional[str]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_stream_id(delta_locator)
-    return None
-
-
-def get_partition_id(delta: Dict[str, Any]) -> Optional[str]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_partition_id(delta_locator)
-    return None
-
-
-def get_partition_values(delta: Dict[str, Any]) -> Optional[List[Any]]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_partition_values(delta_locator)
-    return None
-
-
-def get_stream_position(delta: Dict[str, Any]) -> Optional[int]:
-    delta_locator = get_delta_locator(delta)
-    if delta_locator:
-        return dl.get_stream_position(delta_locator)
-    return None
+    def canonical_string(self) -> str:
+        """
+        Returns a unique string for the given locator that can be used
+        for equality checks (i.e. two locators are equal if they have
+        the same canonical string).
+        """
+        pl_hexdigest = self.partition_locator.hexdigest()
+        stream_position = self.stream_position
+        return f"{pl_hexdigest}|{stream_position}"

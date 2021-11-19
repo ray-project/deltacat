@@ -1,22 +1,16 @@
 import pyarrow as pa
-import pandas as pd
-import numpy as np
-from ray.data.dataset import Dataset
-from ray.data.impl.arrow_block import ArrowRow
+from deltacat.storage import Delta, DeltaLocator, Partition, \
+    ListResult, Namespace, Table, TableVersion, Stream, \
+    StreamLocator, DeltaType, LifecycleState, SchemaConsistencyType, \
+    LocalTable, LocalDataset, DistributedDataset, Manifest, ManifestAuthor
 from deltacat.types.media import ContentType
-from deltacat.storage.model.types import DeltaType, LifecycleState, \
-    SchemaConsistencyType
 from deltacat.types.media import TableType, StorageType
-from typing import Any, Dict, List, Optional, Union
-
-LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray]
-LocalDataset = List[LocalTable]
-DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
+from typing import Any, Dict, List, Optional, Set, Union
 
 
 def list_namespaces(
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> ListResult[Namespace]:
     """
     Lists a page of table namespaces. Namespaces are returned as list result
     items.
@@ -27,7 +21,7 @@ def list_namespaces(
 def list_tables(
         namespace: str,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> ListResult[Table]:
     """
     Lists a page of tables for the given table namespace. Tables are returned as
     list result items. Raises an error if the given namespace does not exist.
@@ -39,7 +33,7 @@ def list_table_versions(
         namespace: str,
         table_name: str,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> ListResult[TableVersion]:
     """
     Lists a page of table versions for the given table. Table versions are
     returned as list result items. Raises an error if the given table does not
@@ -53,7 +47,7 @@ def list_partitions(
         table_name: str,
         table_version: Optional[str] = None,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> ListResult:
     """
     Lists a page of partitions for the given table version. Partitions are
     returned as list result items. Table version resolves to the latest active
@@ -63,16 +57,14 @@ def list_partitions(
     raise NotImplementedError("list_partitions not implemented")
 
 
-def list_partitions_pending_commit(
-        partition_staging_area: Dict[str, Any],
+def list_stream_partitions(
+        stream: Stream,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> ListResult:
     """
-    Lists all partitions that will be included in a commit of the current
-    partition staging area to a new stream (i.e. all partitions currently
-    committed to the partition staging area).
+    Lists all partitions committed to the given stream.
     """
-    raise NotImplementedError("list_partitions_pending_commit not implemented")
+    raise NotImplementedError("list_stream_partitions not implemented")
 
 
 def list_deltas(
@@ -85,11 +77,11 @@ def list_deltas(
         ascending_order: Optional[bool] = None,
         include_manifest: bool = False,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> ListResult[Delta]:
     """
-    Lists a page of deltas for the given table version and partition. Deltas are
-    returned as list result items. Deltas returned can optionally be limited to
-    inclusive first and last stream positions. Deltas are returned by
+    Lists a page of deltas for the given table version and committed partition.
+    Deltas are returned as list result items. Deltas returned can optionally be
+    limited to inclusive first and last stream positions. Deltas are returned by
     descending stream position by default. Table version resolves to the latest
     active table version if not specified. Partition values should not be
     specified for unpartitioned tables. Raises an error if the given table
@@ -102,16 +94,19 @@ def list_deltas(
     raise NotImplementedError("list_deltas not implemented")
 
 
-def list_deltas_pending_commit(
-        delta_staging_area: Dict[str, Any],
+def list_partition_deltas(
+        partition: Partition,
+        include_manifest: bool = False,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> ListResult[Delta]:
     """
-    Lists all deltas that will be included in a commit of the current delta
-    staging area to a new partition (i.e. all deltas currently committed to the
-    delta staging area).
+    Lists a page of deltas committed to the given partition.
+
+    To conserve memory, the deltas returned do not include manifests by
+    default. The manifests can either be optionally retrieved as part of this
+    call or lazily loaded via subsequent calls to `get_delta_manifest`.
     """
-    raise NotImplementedError("list_deltas_pending_commit not implemented")
+    raise NotImplementedError("list_partition_deltas not implemented")
 
 
 def get_delta(
@@ -122,7 +117,7 @@ def get_delta(
         table_version: Optional[str] = None,
         include_manifest: bool = False,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Optional[Delta]:
     """
     Gets the delta for the given table version, partition, and stream position.
     Table version resolves to the latest active table version if not specified.
@@ -143,7 +138,7 @@ def get_latest_delta(
         table_version: Optional[str] = None,
         include_manifest: bool = False,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Optional[Delta]:
     """
     Gets the latest delta (i.e. the delta with the greatest stream position) for
     the given table version and partition. Table version resolves to the latest
@@ -159,7 +154,7 @@ def get_latest_delta(
 
 
 def download_delta(
-        delta_like: Dict[str, Any],
+        delta_like: Union[Delta, DeltaLocator],
         table_type: TableType = TableType.PYARROW,
         storage_type: StorageType = StorageType.LOCAL,
         max_parallelism: Optional[int] = None,
@@ -178,7 +173,7 @@ def download_delta(
 
 
 def download_delta_manifest_entry(
-        delta_like: Dict[str, Any],
+        delta_like: Union[Delta, DeltaLocator],
         entry_index: int,
         table_type: TableType = TableType.PYARROW,
         columns: Optional[List[str]] = None,
@@ -195,9 +190,9 @@ def download_delta_manifest_entry(
 
 
 def get_delta_manifest(
-        delta_like: Dict[str, Any],
+        delta_like: Union[Delta, DeltaLocator],
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Manifest:
     """
     Get the manifest associated with the given delta or delta locator. This
     always retrieves the authoritative remote copy of the delta manifest, and
@@ -210,7 +205,7 @@ def create_namespace(
         namespace: str,
         permissions: Dict[str, Any],
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Namespace:
     """
     Creates a table namespace with the given name and permissions. Returns
     the created namespace.
@@ -238,7 +233,7 @@ def create_table_version(
         schema: Optional[Union[pa.Schema, str, bytes]] = None,
         schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
         partition_keys: Optional[List[Dict[str, Any]]] = None,
-        primary_key_column_names: Optional[List[str]] = None,
+        primary_key_column_names: Optional[Set[str]] = None,
         table_version_description: Optional[str] = None,
         table_version_properties: Optional[Dict[str, str]] = None,
         table_permissions: Optional[Dict[str, Any]] = None,
@@ -246,7 +241,7 @@ def create_table_version(
         table_properties: Optional[Dict[str, str]] = None,
         supported_content_types: Optional[List[ContentType]] = None,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Stream:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned, or partitioned
@@ -258,14 +253,13 @@ def create_table_version(
     correspond to a given order day, even if this column doesn't exist in the
     table). Primary keys must exist within the table's schema. Permissions
     specified at the table level override any conflicting permissions specified
-    at the table namespace level. Returns the partition staging area for the
-    created table version. Raises an error if the given namespace does not
-    exist.
+    at the table namespace level. Returns the stream for the created table
+    version. Raises an error if the given namespace does not exist.
 
     Schemas are optional for DeltaCAT tables and can be used to inform the data
     consistency checks run for each field. If a schema is present, it can be
     used to enforce the following column-level data consistency policies at
-    delta staging time:
+    table load time:
 
     None: No consistency checks are run. May be mixed with the below two
     policies by specifying column names to pass through together with
@@ -302,8 +296,7 @@ def update_table_version(
         table_version: str,
         lifecycle_state: Optional[LifecycleState] = None,
         schema: Optional[Union[pa.Schema, str, bytes]] = None,
-        partition_keys: Optional[List[Dict[str, Any]]] = None,
-        primary_key_column_names: Optional[List[str]] = None,
+        schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
         description: Optional[str] = None,
         properties: Optional[Dict[str, str]] = None,
         *args,
@@ -325,24 +318,23 @@ def stage_stream(
         table_name: str,
         table_version: Optional[str] = None,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Stream:
     """
     Stages a new delta stream for the given table version. Resolves to the
     latest active table version if no table version is given. Returns the
-    partition staging area for the staged stream. Raises an error if the table
-    version does not exist.
+    staged stream. Raises an error if the table version does not exist.
     """
     raise NotImplementedError("stage_stream not implemented")
 
 
 def commit_stream(
-        partition_staging_area: Dict[str, Any],
+        stream: Stream,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Stream:
     """
     Registers a delta stream with a target table version, replacing any
-    previous stream registered for the same table version. Returns stream
-    metadata describing the registered stream.
+    previous stream registered for the same table version. Returns the
+    committed stream.
     """
     raise NotImplementedError("commit_stream not implemented")
 
@@ -361,31 +353,29 @@ def delete_stream(
     raise NotImplementedError("delete_stream not implemented")
 
 
-def get_partition_staging_area(
+def get_stream(
         namespace: str,
         table_name: str,
         table_version: Optional[str] = None,
         *args,
-        **kwargs) -> Optional[Dict[str, Any]]:
+        **kwargs) -> Optional[Stream]:
     """
-    Gets the partition staging area for the most recently committed stream of
-    the given table version and partition key values. Resolves to the latest
-    active table version if no table version is given. Returns None if the
-    table version does not exist.
+    Gets the most recently committed stream for the given table version and
+    partition key values. Resolves to the latest active table version if no
+    table version is given. Returns None if the table version does not exist.
     """
-    raise NotImplementedError("get_partition_staging_area not implemented")
+    raise NotImplementedError("get_stream not implemented")
 
 
 def stage_partition(
-        partition_staging_area: Dict[str, Any],
+        stream: Stream,
         partition_values: Optional[List[Any]] = None,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Partition:
     """
-    Stages a new partition for the given partition staging area and
-    key values. Returns the delta staging area for the staged partition.
-    If this partition will replace another partition with the same partition
-    values, then the delta staging area will have its previous partition ID
+    Stages a new partition for the given stream and partition values. Returns
+    the staged partition. If this partition will replace another partition
+    with the same partition values, then it will have its previous partition ID
     set to the ID of the partition being replaced. Partition keys should not be
     specified for unpartitioned tables.
     """
@@ -393,18 +383,18 @@ def stage_partition(
 
 
 def commit_partition(
-        delta_staging_area: Dict[str, Any],
+        partition: Partition,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Partition:
     """
-    Registers the given delta staging area as a new partition within its
-    associated table version stream, replacing any previous partition registered
-    for the same table version stream and partition keys. Returns the registered
-    partition. If the delta staging area's previous delta stream position is
+    Commits the given partition to its associated table version stream,
+    replacing any previous partition registered for the same stream and
+    partition values. Returns the registered partition. If the partition's
+    previous delta stream position is specified, then the commit will
+    be rejected if it does not match the actual previous stream position of
+    the partition being replaced. If the partition's previous partition ID is
     specified, then the commit will be rejected if it does not match the actual
-    previous stream position of the partition being replaced. If the delta
-    staging area's previous partition ID is specified, then the commit will be
-    rejected if it does not match the actual ID of the partition being replaced.
+    ID of the partition being replaced.
     """
     raise NotImplementedError("commit_partition not implemented")
 
@@ -425,31 +415,31 @@ def delete_partition(
     raise NotImplementedError("delete_partition not implemented")
 
 
-def get_delta_staging_area(
-        stream_locator: Dict[str, Any],
+def get_partition(
+        stream_locator: StreamLocator,
         partition_values: Optional[List[Any]] = None,
         *args,
-        **kwargs) -> Optional[Dict[str, Any]]:
+        **kwargs) -> Optional[Partition]:
     """
-    Gets the delta staging area for the most recently committed partition of the
-    given stream locator and partition key values. Returns None if no partition
-    has been committed for the given table version and/or partition key values.
-    Partition values should not be specified for unpartitioned tables.
+    Gets the most recently committed partition for the given stream locator and
+    partition key values. Returns None if no partition has been committed for
+    the given table version and/or partition key values. Partition values
+    should not be specified for unpartitioned tables.
     """
-    raise NotImplementedError("get_delta_staging_area not implemented")
+    raise NotImplementedError("get_partition not implemented")
 
 
 def stage_delta(
         table_to_stage: Union[LocalTable, LocalDataset, DistributedDataset],
-        delta_staging_area: Dict[str, Any],
+        partition: Partition,
         delta_type: DeltaType = DeltaType.UPSERT,
         max_records_per_entry: Optional[int] = None,
-        author: Optional[Dict[str, Any]] = None,
+        author: Optional[ManifestAuthor] = None,
         properties: Optional[Dict[str, str]] = None,
         s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
         content_type: ContentType = ContentType.PARQUET,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Delta:
     """
     Writes the given table to 1 or more S3 files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
@@ -459,9 +449,9 @@ def stage_delta(
 
 
 def commit_delta(
-        delta: Dict[str, Any],
+        delta: Delta,
         *args,
-        **kwargs) -> Dict[str, Any]:
+        **kwargs) -> Delta:
     """
     Registers a new delta with its associated target table version and
     partition. Returns the registered delta. If the delta's previous stream
@@ -476,7 +466,7 @@ def commit_delta(
 def get_namespace(
         namespace: str,
         *args,
-        **kwargs) -> Optional[Dict[str, Any]]:
+        **kwargs) -> Optional[Namespace]:
     """
     Gets table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist.
@@ -498,7 +488,7 @@ def get_table(
         namespace: str,
         table_name: str,
         *args,
-        **kwargs) -> Optional[Dict[str, Any]]:
+        **kwargs) -> Optional[Table]:
     """
     Gets table metadata for the specified table. Returns None if the given
     table does not exist.
@@ -522,7 +512,7 @@ def get_table_version(
         table_name: str,
         table_version: str,
         *args,
-        **kwargs) -> Optional[Dict[str, Any]]:
+        **kwargs) -> Optional[TableVersion]:
     """
     Gets table version metadata for the specified table version. Returns None
     if the given table version does not exist.
@@ -534,7 +524,7 @@ def get_latest_table_version(
         namespace: str,
         table_name: str,
         *args,
-        **kwargs) -> Optional[Dict[str, Any]]:
+        **kwargs) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest version of the specified table.
     Returns None if no table version exists for the given table.
@@ -546,7 +536,7 @@ def get_latest_active_table_version(
         namespace: str,
         table_name: str,
         *args,
-        **kwargs) -> Optional[Dict[str, Any]]:
+        **kwargs) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest active version of the specified
     table. Returns None if no active table version exists for the given table.

@@ -2,10 +2,14 @@ import logging
 import ray
 import pyarrow as pa
 import numpy as np
+
 from ray.types import ObjectRef
+
 from deltacat import logs
-from typing import Any, Dict, List, Tuple
+from deltacat.compute.compactor import PrimaryKeyIndexVersionLocator
 from deltacat.compute.compactor.utils import primary_key_index as pki
+
+from typing import List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -13,7 +17,6 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def group_file_records_by_pk_hash_bucket(
         pki_table: pa.Table,
         num_buckets: int) -> np.ndarray:
-
     # generate the new table for each new hash bucket
     hash_bucket_to_indices = pki.group_record_indices_by_hash_bucket(
         pki_table,
@@ -30,7 +33,7 @@ def group_file_records_by_pk_hash_bucket(
 def rehash_bucket(
         s3_bucket: str,
         hash_bucket_index: int,
-        old_pki_version_locator: Dict[str, Any],
+        old_pki_version_locator: PrimaryKeyIndexVersionLocator,
         num_buckets: int,
         num_groups: int) -> Tuple[np.ndarray, List[ObjectRef]]:
 

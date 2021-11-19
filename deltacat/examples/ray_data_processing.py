@@ -1,7 +1,5 @@
 import ray
-from ray.data.dataset import Dataset
 from deltacat.utils.performance import timed_invocation
-from deltacat.storage.model import list_result as lr
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
 ray.init(address="auto")
@@ -25,7 +23,7 @@ def run_all(dc_storage_ray=unimplemented_deltacat_storage):
         )
     )
 
-    delta = lr.get_items(deltas_list_result)[0]
+    delta = deltas_list_result.read_page()[0]
 
     pa_table_pending_ids = ray.get(
         dc_storage_ray.download_delta.remote(delta)
