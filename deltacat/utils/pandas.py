@@ -13,7 +13,6 @@ from deltacat.types.media import ContentType, ContentEncoding, \
 from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY, \
     DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
 from deltacat import logs
-from deltacat.aws import s3u as s3_utils
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils import pyarrow as pa_utils
 
@@ -117,6 +116,7 @@ def s3_file_to_dataframe(
         pd_read_func_kwargs: Optional[Dict[str, Any]] = None,
         **s3_client_kwargs) -> pd.DataFrame:
 
+    from deltacat.aws import s3u as s3_utils
     logger.debug(f"Reading {s3_url} to Pandas. Content type: {content_type}. "
                  f"Encoding: {content_encoding}")
     s3_obj = s3_utils.get_object_at_url(

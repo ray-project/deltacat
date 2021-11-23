@@ -3,25 +3,34 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from deltacat.storage import Locator
+from deltacat.storage.model.locator import Locator
 
 
 class Namespace(dict):
     @staticmethod
-    def of(namespace_locator: Optional[NamespaceLocator],
+    def of(locator: Optional[NamespaceLocator],
            permissions: Optional[Dict[str, Any]]) -> Namespace:
-        return Namespace({
-            "namespaceLocator": namespace_locator,
-            "permissions": permissions,
-        })
+        namespace = Namespace()
+        namespace.locator = locator
+        namespace.permissions = permissions
+        return namespace
 
     @property
-    def namespace_locator(self) -> Optional[NamespaceLocator]:
-        return self.get("namespaceLocator")
+    def locator(self) -> Optional[NamespaceLocator]:
+        val: Dict[str, Any] = self.get("namespaceLocator")
+        if val is not None and not isinstance(val, NamespaceLocator):
+            self.locator = val = NamespaceLocator(val)
+        return val
+
+    @locator.setter
+    def locator(
+            self,
+            namespace_locator: Optional[NamespaceLocator]) -> None:
+        self["namespaceLocator"] = namespace_locator
 
     @property
     def namespace(self) -> Optional[str]:
-        namespace_locator = self.namespace_locator
+        namespace_locator = self.locator
         if namespace_locator:
             return namespace_locator.namespace
         return None
@@ -38,9 +47,9 @@ class Namespace(dict):
 class NamespaceLocator(Locator, dict):
     @staticmethod
     def of(namespace: Optional[str]) -> NamespaceLocator:
-        return NamespaceLocator({
-            "namespace": namespace,
-        })
+        namespace_locator = NamespaceLocator()
+        namespace_locator.namespace = namespace
+        return namespace_locator
 
     @property
     def namespace(self) -> Optional[str]:

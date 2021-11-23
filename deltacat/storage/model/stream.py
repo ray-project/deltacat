@@ -1,31 +1,37 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import NamespaceLocator, TableLocator, \
-    TableVersionLocator, CommitState, Locator
+from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table_version import TableVersionLocator
+from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.locator import Locator
 
 from typing import Any, Dict, List, Optional
 
 
 class Stream(dict):
     @staticmethod
-    def of(stream_locator: Optional[StreamLocator],
+    def of(locator: Optional[StreamLocator],
            partition_keys: Optional[List[Dict[str, Any]]],
            state: Optional[CommitState] = None,
-           previous_stream_state_id: Optional[str] = None) -> Stream:
-        return Stream({
-            "streamLocator": stream_locator,
-            "partitionKeys": partition_keys,
-            "state": state,
-            "previousStreamStateId": previous_stream_state_id,
-        })
+           previous_stream_digest: Optional[bytes] = None) -> Stream:
+        stream = Stream()
+        stream.locator = locator
+        stream.partition_keys = partition_keys
+        stream.state = state
+        stream.previous_stream_digest = previous_stream_digest
+        return stream
 
     @property
-    def stream_locator(self) -> Optional[StreamLocator]:
-        return self.get("streamLocator")
+    def locator(self) -> Optional[StreamLocator]:
+        val: Dict[str, Any] = self.get("streamLocator")
+        if val is not None and not isinstance(val, StreamLocator):
+            self.locator = val = StreamLocator(val)
+        return val
 
-    @stream_locator.setter
-    def stream_locator(
+    @locator.setter
+    def locator(
             self,
             stream_locator: Optional[StreamLocator]) -> None:
         self["streamLocator"] = stream_locator
@@ -41,14 +47,14 @@ class Stream(dict):
         self["partitionKeys"] = partition_keys
 
     @property
-    def previous_stream_state_id(self) -> Optional[str]:
-        return self.get("previousStreamStateId")
+    def previous_stream_digest(self) -> Optional[str]:
+        return self.get("previousStreamDigest")
 
-    @previous_stream_state_id.setter
-    def previous_stream_state_id(
+    @previous_stream_digest.setter
+    def previous_stream_digest(
             self,
-            previous_stream_state_id: Optional[str]) -> None:
-        self["previousStreamStateId"] = previous_stream_state_id
+            previous_stream_digest: Optional[str]) -> None:
+        self["previousStreamDigest"] = previous_stream_digest
 
     @property
     def state(self) -> Optional[CommitState]:
@@ -61,49 +67,49 @@ class Stream(dict):
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
-        stream_locator = self.stream_locator
+        stream_locator = self.locator
         if stream_locator:
             return stream_locator.namespace_locator
         return None
 
     @property
     def table_locator(self) -> Optional[TableLocator]:
-        stream_locator = self.stream_locator
+        stream_locator = self.locator
         if stream_locator:
             return stream_locator.table_locator
         return None
 
     @property
     def table_version_locator(self) -> Optional[TableVersionLocator]:
-        stream_locator = self.stream_locator
+        stream_locator = self.locator
         if stream_locator:
             return stream_locator.table_version_locator
         return None
 
     @property
     def stream_id(self) -> Optional[str]:
-        stream_locator = self.stream_locator
+        stream_locator = self.locator
         if stream_locator:
             return stream_locator.stream_id
         return None
 
     @property
     def namespace(self) -> Optional[str]:
-        stream_locator = self.stream_locator
+        stream_locator = self.locator
         if stream_locator:
             return stream_locator.namespace
         return None
 
     @property
     def table_name(self) -> Optional[str]:
-        stream_locator = self.stream_locator
+        stream_locator = self.locator
         if stream_locator:
             return stream_locator.table_name
         return None
 
     @property
     def table_version(self) -> Optional[str]:
-        stream_locator = self.stream_locator
+        stream_locator = self.locator
         if stream_locator:
             return stream_locator.table_version
         return None
@@ -130,15 +136,18 @@ class StreamLocator(Locator, dict):
         Creates a table version Stream Locator. All input parameters are
         case-sensitive.
         """
-        return StreamLocator({
-            "tableVersionLocator": table_version_locator,
-            "streamId": stream_id,
-            "storageType": storage_type,
-        })
+        stream_locator = StreamLocator()
+        stream_locator.table_version_locator = table_version_locator
+        stream_locator.stream_id = stream_id
+        stream_locator.storage_type = storage_type
+        return stream_locator
 
     @property
     def table_version_locator(self) -> Optional[TableVersionLocator]:
-        return self.get("tableVersionLocator")
+        val: Dict[str, Any] = self.get("tableVersionLocator")
+        if val is not None and not isinstance(val, TableVersionLocator):
+            self.table_version_locator = val = TableVersionLocator(val)
+        return val
 
     @table_version_locator.setter
     def table_version_locator(

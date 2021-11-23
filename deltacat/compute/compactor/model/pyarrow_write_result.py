@@ -10,12 +10,12 @@ class PyArrowWriteResult(dict):
            pyarrow_bytes: int,
            file_bytes: int,
            record_count: int) -> PyArrowWriteResult:
-        return PyArrowWriteResult({
-            "files": file_count,
-            "paBytes": pyarrow_bytes,
-            "fileBytes": file_bytes,
-            "records": record_count,
-        })
+        pawr = PyArrowWriteResult()
+        pawr["files"] = file_count
+        pawr["paBytes"] = pyarrow_bytes
+        pawr["fileBytes"] = file_bytes
+        pawr["records"] = record_count
+        return pawr
 
     @staticmethod
     def union(results: List[PyArrowWriteResult]) -> PyArrowWriteResult:

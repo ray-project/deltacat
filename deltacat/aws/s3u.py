@@ -13,7 +13,7 @@ from ray.data.datasource import BlockWritePathProvider
 
 from deltacat import logs
 from deltacat.storage import LocalTable, LocalDataset, DistributedDataset, \
-    Manifest, ManifestEntry
+    Manifest, ManifestEntry, ManifestEntryList
 from deltacat.aws.constants import TIMEOUT_ERROR_CODES
 from deltacat.exceptions import RetryableError, NonRetryableError
 from deltacat.types.media import ContentType, ContentEncoding
@@ -188,7 +188,7 @@ def upload_sliced_table(
         table_slicer_func: Callable,
         s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
         content_type: ContentType = ContentType.PARQUET,
-        **s3_client_kwargs) -> List[ManifestEntry]:
+        **s3_client_kwargs) -> ManifestEntryList:
 
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
@@ -197,7 +197,7 @@ def upload_sliced_table(
         retry=retry_if_exception_type(RetryableError)
     )
 
-    manifest_entries = []
+    manifest_entries = ManifestEntryList()
     table_record_count = get_table_length(table)
 
     if max_records_per_entry is None or not table_record_count:
@@ -242,7 +242,7 @@ def upload_table(
         s3_table_writer_func: Callable,
         s3_table_writer_kwargs: Optional[Dict[str, Any]],
         content_type: ContentType = ContentType.PARQUET,
-        **s3_client_kwargs) -> List[ManifestEntry]:
+        **s3_client_kwargs) -> ManifestEntryList:
     """
     Writes the given table to 1 or more S3 files and return Redshift
     manifest entries describing the uploaded files.
@@ -265,7 +265,7 @@ def upload_table(
         table_size = table_size_func(table)
     else:
         logger.warning(f"Unable to estimate '{type(table)}' table size.")
-    manifest_entries = []
+    manifest_entries = ManifestEntryList()
     for s3_url in block_write_path_provider.write_paths:
         try:
             manifest_entry = ManifestEntry.from_s3_obj_url(

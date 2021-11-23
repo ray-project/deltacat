@@ -18,24 +18,24 @@ class DeltaFileEnvelope(dict):
             raise ValueError("Missing Delta file envelope delta type.")
         if table is None:
             raise ValueError("Missing Delta file envelope table.")
-        return DeltaFileEnvelope({
-            "stream_position": stream_position,
-            "file_index": file_index,
-            "delta_type": delta_type.value,
-            "table": table,
-        })
+        delta_file_envelope = DeltaFileEnvelope()
+        delta_file_envelope["streamPosition"] = stream_position
+        delta_file_envelope["fileIndex"] = file_index
+        delta_file_envelope["deltaType"] = delta_type.value
+        delta_file_envelope["table"] = table
+        return delta_file_envelope
 
     @property
     def stream_position(self) -> int:
-        return self["stream_position"]
+        return self["streamPosition"]
 
     @property
     def file_index(self) -> int:
-        return self["file_index"]
+        return self["fileIndex"]
 
     @property
     def delta_type(self) -> DeltaType:
-        return DeltaType(self["delta_type"])
+        return DeltaType(self["deltaType"])
 
     @property
     def table(self) -> LocalTable:

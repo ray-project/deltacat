@@ -47,7 +47,7 @@ def list_partitions(
         table_name: str,
         table_version: Optional[str] = None,
         *args,
-        **kwargs) -> ListResult:
+        **kwargs) -> ListResult[Partition]:
     """
     Lists a page of partitions for the given table version. Partitions are
     returned as list result items. Table version resolves to the latest active
@@ -60,7 +60,7 @@ def list_partitions(
 def list_stream_partitions(
         stream: Stream,
         *args,
-        **kwargs) -> ListResult:
+        **kwargs) -> ListResult[Partition]:
     """
     Lists all partitions committed to the given stream.
     """

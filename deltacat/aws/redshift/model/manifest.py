@@ -5,9 +5,8 @@ import logging
 import itertools
 
 from deltacat import logs
-from deltacat.aws import s3u as s3_utils
 from uuid import uuid4
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -16,20 +15,21 @@ class Manifest(dict):
     @staticmethod
     def _build_manifest(
             meta: Optional[ManifestMeta],
-            entries: Optional[List[ManifestEntry]],
+            entries: Optional[ManifestEntryList],
             author: Optional[ManifestAuthor] = None,
             uuid: str = str(uuid4())) -> Manifest:
-        manifest = {"id": uuid}
+        manifest = Manifest()
+        manifest["id"] = uuid
         if meta is not None:
             manifest["meta"] = meta
         if entries is not None:
             manifest["entries"] = entries
         if author is not None:
             manifest["author"] = author
-        return Manifest(manifest)
+        return manifest
 
     @staticmethod
-    def of(entries: List[ManifestEntry],
+    def of(entries: ManifestEntryList,
            author: Optional[ManifestAuthor] = None,
            uuid: str = str(uuid4())) -> Manifest:
         total_record_count = 0
@@ -80,9 +80,8 @@ class Manifest(dict):
     def merge_manifests(
             manifests: List[Manifest],
             author: Optional[ManifestAuthor] = None) -> Manifest:
-        all_entries = list(
+        all_entries = ManifestEntryList(
             itertools.chain(*[m.entries for m in manifests]))
-        print(f"all_entries: {all_entries}")
         merged_manifest = Manifest.of(
             all_entries,
             author)
@@ -90,11 +89,17 @@ class Manifest(dict):
 
     @property
     def meta(self) -> Optional[ManifestMeta]:
-        return self.get("meta")
+        val: Dict[str, Any] = self.get("meta")
+        if val is not None and not isinstance(val, ManifestMeta):
+            self["meta"] = val = ManifestMeta(val)
+        return val
 
     @property
-    def entries(self) -> Optional[List[ManifestEntry]]:
-        return self.get("entries")
+    def entries(self) -> Optional[ManifestEntryList]:
+        val: List[ManifestEntry] = self.get("entries")
+        if val is not None and not isinstance(val, ManifestEntryList):
+            self["entries"] = val = ManifestEntryList.of(val)
+        return val
 
     @property
     def id(self) -> str:
@@ -102,7 +107,10 @@ class Manifest(dict):
 
     @property
     def author(self) -> Optional[ManifestAuthor]:
-        return self.get("author")
+        val: Dict[str, Any] = self.get("author")
+        if val is not None and not isinstance(val, ManifestAuthor):
+            self["author"] = val = ManifestAuthor(val)
+        return val
 
 
 class ManifestMeta(dict):
@@ -115,7 +123,7 @@ class ManifestMeta(dict):
            credentials: Optional[Dict[str, str]] = None,
            content_type_parameters: Optional[List[Dict[str, str]]] = None) \
             -> ManifestMeta:
-        manifest_meta = {}
+        manifest_meta = ManifestMeta()
         if record_count is not None:
             manifest_meta["record_count"] = record_count
         if content_length is not None:
@@ -130,7 +138,7 @@ class ManifestMeta(dict):
             manifest_meta["content_encoding"] = content_encoding
         if credentials is not None:
             manifest_meta["credentials"] = credentials
-        return ManifestMeta(manifest_meta)
+        return manifest_meta
 
     @property
     def record_count(self) -> Optional[int]:
@@ -165,12 +173,12 @@ class ManifestAuthor(dict):
     @staticmethod
     def of(name: Optional[str],
            version: Optional[str]) -> ManifestAuthor:
-        manifest_author = {}
+        manifest_author = ManifestAuthor()
         if name is not None:
             manifest_author["name"] = name
         if version is not None:
             manifest_author["version"] = version
-        return ManifestAuthor(manifest_author)
+        return manifest_author
 
     @property
     def name(self) -> Optional[str]:
@@ -188,7 +196,7 @@ class ManifestEntry(dict):
            mandatory: bool = True,
            url: Optional[str] = None,
            uuid: Optional[str] = None) -> ManifestEntry:
-        manifest_entry = {}
+        manifest_entry = ManifestEntry()
         if not (uri or url):
             raise ValueError(
                 "No URI or URL specified for manifest entry contents.")
@@ -204,7 +212,7 @@ class ManifestEntry(dict):
             manifest_entry["mandatory"] = mandatory
         if uuid is not None:
             manifest_entry["id"] = uuid
-        return ManifestEntry(manifest_entry)
+        return manifest_entry
 
     @staticmethod
     def from_s3_obj_url(
@@ -212,6 +220,7 @@ class ManifestEntry(dict):
             record_count: int,
             source_content_length: Optional[int] = None,
             **s3_client_kwargs) -> ManifestEntry:
+        from deltacat.aws import s3u as s3_utils
         s3_obj = s3_utils.get_object_at_url(url, **s3_client_kwargs)
         logger.debug(f"Building manifest entry from {url}: {s3_obj}")
         manifest_entry_meta = ManifestMeta.of(
@@ -234,7 +243,10 @@ class ManifestEntry(dict):
 
     @property
     def meta(self) -> Optional[ManifestMeta]:
-        return self.get("meta")
+        val: Dict[str, Any] = self.get("meta")
+        if val is not None and not isinstance(val, ManifestMeta):
+            self["meta"] = val = ManifestMeta(val)
+        return val
 
     @property
     def mandatory(self) -> bool:
@@ -243,3 +255,20 @@ class ManifestEntry(dict):
     @property
     def id(self) -> Optional[str]:
         return self.get("id")
+
+
+class ManifestEntryList(List[ManifestEntry]):
+    @staticmethod
+    def of(entries: List[ManifestEntry]) -> ManifestEntryList:
+        manifest_entries = ManifestEntryList()
+        for entry in entries:
+            if entry is not None and not isinstance(entry, ManifestEntry):
+                entry = ManifestEntry(entry)
+            manifest_entries.append(entry)
+        return manifest_entries
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, ManifestEntry):
+            self[item] = val = ManifestEntry(val)
+        return val

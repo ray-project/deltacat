@@ -1,30 +1,34 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import NamespaceLocator, Locator
+from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.locator import Locator
 
 from typing import Any, Dict, Optional
 
 
 class Table(dict):
     @staticmethod
-    def of(table_locator: Optional[TableLocator],
-           table_permissions: Optional[Dict[str, Any]] = None,
-           table_description: Optional[str] = None,
-           table_properties: Optional[Dict[str, str]] = None) -> Table:
-        return Table({
-            "tableLocator": table_locator,
-            "permissions": table_permissions,
-            "description": table_description,
-            "properties": table_properties,
-        })
+    def of(locator: Optional[TableLocator],
+           permissions: Optional[Dict[str, Any]] = None,
+           description: Optional[str] = None,
+           properties: Optional[Dict[str, str]] = None) -> Table:
+        table = Table()
+        table.locator = locator
+        table.permissions = permissions
+        table.description = description
+        table.properties = properties
+        return table
 
     @property
-    def table_locator(self) -> Optional[TableLocator]:
-        return self.get("tableLocator")
+    def locator(self) -> Optional[TableLocator]:
+        val: Dict[str, Any] = self.get("tableLocator")
+        if val is not None and not isinstance(val, TableLocator):
+            self.locator = val = TableLocator(val)
+        return val
 
-    @table_locator.setter
-    def table_locator(self, table_locator: Optional[TableLocator]) -> None:
+    @locator.setter
+    def locator(self, table_locator: Optional[TableLocator]) -> None:
         self["tableLocator"] = table_locator
 
     @property
@@ -53,21 +57,21 @@ class Table(dict):
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
-        table_locator = self.table_locator
+        table_locator = self.locator
         if table_locator:
             return table_locator.namespace_locator
         return None
 
     @property
     def namespace(self) -> Optional[str]:
-        table_locator = self.table_locator
+        table_locator = self.locator
         if table_locator:
             return table_locator.namespace
         return None
 
     @property
     def table_name(self) -> Optional[str]:
-        table_locator = self.table_locator
+        table_locator = self.locator
         if table_locator:
             return table_locator.table_name
         return None
@@ -77,14 +81,17 @@ class TableLocator(Locator, dict):
     @staticmethod
     def of(namespace_locator: Optional[NamespaceLocator],
            table_name: Optional[str]) -> TableLocator:
-        return TableLocator({
-            "namespaceLocator": namespace_locator,
-            "tableName": table_name
-        })
+        table_locator = TableLocator()
+        table_locator.namespace_locator = namespace_locator
+        table_locator.table_name = table_name
+        return table_locator
 
     @property
     def namespace_locator(self) -> NamespaceLocator:
-        return self.get("namespaceLocator")
+        val: Dict[str, Any] = self.get("namespaceLocator")
+        if val is not None and not isinstance(val, NamespaceLocator):
+            self.namespace_locator = val = NamespaceLocator(val)
+        return val
 
     @namespace_locator.setter
     def namespace_locator(

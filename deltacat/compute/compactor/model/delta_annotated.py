@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 from deltacat import logs
-from deltacat.storage import Delta, DeltaType, Manifest, ManifestEntry
+from deltacat.storage import Delta, DeltaType, Manifest, ManifestEntry, \
+    ManifestEntryList
 from typing import List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -113,12 +114,12 @@ class DeltaAnnotated(Delta):
         if not dst_da:
             # copy all extended properties from the source delta manifest impl
             dst_da.update(src_da)
-            dst_da.manifest = Manifest.of([src_entry])
+            dst_da.manifest = Manifest.of(ManifestEntryList([src_entry]))
             dst_da.annotations = [src_annotation]
         else:
             entries = dst_da.manifest.entries
-            src_dl = src_da.delta_locator
-            dst_dl = dst_da.delta_locator
+            src_dl = src_da.locator
+            dst_dl = dst_da.locator
             # remove delta type and stream position if there is a conflict
             if src_da.type != dst_da.type:
                 dst_da.type = None

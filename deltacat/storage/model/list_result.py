@@ -9,16 +9,15 @@ T = TypeVar('T')
 
 class ListResult(dict, Generic[T]):
     @staticmethod
-    def of(
-            items: Optional[List[T]],
-            pagination_key: Optional[str],
-            next_page_provider: Optional[Callable[..., ListResult[T]]]) \
+    def of(items: Optional[List[T]],
+           pagination_key: Optional[str],
+           next_page_provider: Optional[Callable[..., ListResult[T]]]) \
             -> ListResult:
-        return ListResult({
-            "items": items,
-            "paginationKey": pagination_key,
-            "nextPageProvider": next_page_provider
-        })
+        list_result = ListResult()
+        list_result["items"] = items
+        list_result["paginationKey"] = pagination_key
+        list_result["nextPageProvider"] = next_page_provider
+        return list_result
 
     def read_page(self) -> Optional[List[T]]:
         return self.get("items")
@@ -60,8 +59,9 @@ class ListResult(dict, Generic[T]):
             list_result = list_result.next_page()
         return items
 
+    @staticmethod
     @ray.remote
-    def all_items_ray(self) -> List[T]:
+    def all_items_ray(list_result: ListResult) -> List[T]:
         """
         Eagerly loads and returns a flattened list of all pages of items from
         this list result.
@@ -70,4 +70,4 @@ class ListResult(dict, Generic[T]):
             items (List[Any]): Flattened list of items from all list result
                 pages.
         """
-        return self.all_items()
+        return list_result.all_items()

@@ -6,9 +6,9 @@ import pyarrow as pa
 
 from enum import Enum
 
-from deltacat.storage import PartitionLocator
+from deltacat.storage import PartitionLocator, \
+    interface as unimplemented_deltacat_storage
 from deltacat import logs
-from deltacat.storage import interface as unimplemented_deltacat_storage
 
 from typing import List
 
@@ -79,9 +79,9 @@ class SortKey(tuple):
                             f"PyArrow data types.") from e
             else:
                 raise NotImplementedError(
-                   f"Schema type {type(table_version_schema)} does not support "
-                   f"compaction with custom sort keys. Either remove the sort "
-                   f"keys, or provide a PyArrow schema.")
+                  f"Schema type {type(table_version_schema)} does not support "
+                  f"compaction with custom sort keys. Either remove the sort "
+                  f"keys, or provide a PyArrow schema.")
         return total_sort_keys_bit_width
 
     @property

@@ -1,4 +1,5 @@
 import ray
+from deltacat import ListResult
 from deltacat.utils.ray_utils.collections import DistributedCounter
 from deltacat.utils.ray_utils.performance import invoke_with_perf_counter
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -13,10 +14,8 @@ def list_all_tables_for_namespaces(
     namespace_tables_promises = {}
     for namespace in namespaces:
         namespace = namespace["namespace"]
-        tables_list_result_promise = dc_storage\
-            .list_tables(namespace)\
-            .all_items_ray\
-            .remote()
+        tables_list_result_promise = ListResult.all_items_ray.remote(
+            dc_storage.list_tables(namespace))
         namespace_tables_promises[namespace] = tables_list_result_promise
 
     namespace_table_counts = {}

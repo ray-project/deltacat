@@ -1,17 +1,23 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import DeltaType, NamespaceLocator, \
-    PartitionLocator, StreamLocator, TableLocator, TableVersionLocator, Locator
+from deltacat.storage.model.types import DeltaType
+from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.partition import PartitionLocator
+from deltacat.storage.model.stream import StreamLocator
+from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table_version import TableVersionLocator
+from deltacat.storage.model.locator import Locator
 from deltacat.aws.redshift import Manifest, ManifestMeta, ManifestAuthor
+
 from typing import Any, Dict, List, Optional
 
 
 class Delta(dict):
     @staticmethod
-    def of(delta_locator: Optional[DeltaLocator],
+    def of(locator: Optional[DeltaLocator],
            delta_type: Optional[DeltaType],
-           manifest_meta: Optional[ManifestMeta],
+           meta: Optional[ManifestMeta],
            properties: Optional[Dict[str, str]],
            manifest: Optional[Manifest],
            previous_stream_position: Optional[int] = None) -> Delta:
@@ -20,14 +26,14 @@ class Delta(dict):
         manifest metadata, properties, manifest, and previous delta stream
         position.
         """
-        return Delta({
-            "manifest": manifest,
-            "meta": manifest_meta,
-            "type": delta_type,
-            "deltaLocator": delta_locator,
-            "properties": properties,
-            "previousStreamPosition": previous_stream_position,
-        })
+        delta = Delta()
+        delta.locator = locator
+        delta.type = delta_type
+        delta.meta = meta
+        delta.properties = properties
+        delta.manifest = manifest
+        delta.previous_stream_position = previous_stream_position
+        return delta
 
     @staticmethod
     def merge_deltas(
@@ -94,7 +100,10 @@ class Delta(dict):
 
     @property
     def manifest(self) -> Optional[Manifest]:
-        return self.get("manifest")
+        val: Dict[str, Any] = self.get("manifest")
+        if val is not None and not isinstance(val, Manifest):
+            self.manifest = val = Manifest(val)
+        return val
 
     @manifest.setter
     def manifest(
@@ -104,7 +113,10 @@ class Delta(dict):
 
     @property
     def meta(self) -> Optional[ManifestMeta]:
-        return self.get("meta")
+        val: Dict[str, Any] = self.get("meta")
+        if val is not None and not isinstance(val, ManifestMeta):
+            self.meta = val = ManifestMeta(val)
+        return val
 
     @meta.setter
     def meta(
@@ -134,11 +146,14 @@ class Delta(dict):
         self["type"] = delta_type
 
     @property
-    def delta_locator(self) -> Optional[DeltaLocator]:
-        return self.get("deltaLocator")
+    def locator(self) -> Optional[DeltaLocator]:
+        val: Dict[str, Any] = self.get("deltaLocator")
+        if val is not None and not isinstance(val, DeltaLocator):
+            self.locator = val = DeltaLocator(val)
+        return val
 
-    @delta_locator.setter
-    def delta_locator(
+    @locator.setter
+    def locator(
             self,
             delta_locator: Optional[DeltaLocator]) -> None:
         self["deltaLocator"] = delta_locator
@@ -155,91 +170,91 @@ class Delta(dict):
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.namespace_locator
         return None
 
     @property
     def table_locator(self) -> Optional[TableLocator]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.table_locator
         return None
 
     @property
     def table_version_locator(self) -> Optional[TableVersionLocator]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.table_version_locator
         return None
 
     @property
     def stream_locator(self) -> Optional[StreamLocator]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.stream_locator
         return None
 
     @property
     def partition_locator(self) -> Optional[PartitionLocator]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.partition_locator
         return None
 
     @property
     def storage_type(self) -> Optional[str]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.storage_type
         return None
 
     @property
     def namespace(self) -> Optional[str]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.namespace
         return None
 
     @property
     def table_name(self) -> Optional[str]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.table_name
         return None
 
     @property
     def table_version(self) -> Optional[str]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.table_version
         return None
 
     @property
     def stream_id(self) -> Optional[str]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.stream_id
         return None
 
     @property
     def partition_id(self) -> Optional[str]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.partition_id
         return None
 
     @property
     def partition_values(self) -> Optional[List[Any]]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.partition_values
         return None
 
     @property
     def stream_position(self) -> Optional[int]:
-        delta_locator = self.delta_locator
+        delta_locator = self.locator
         if delta_locator:
             return delta_locator.stream_position
         return None
@@ -253,14 +268,17 @@ class DeltaLocator(Locator, dict):
         Creates a partition delta locator. Stream Position, if provided, should
         be greater than that of any prior delta in the partition.
         """
-        return DeltaLocator({
-            "partitionLocator": partition_locator,
-            "streamPosition": stream_position,
-        })
+        delta_locator = DeltaLocator()
+        delta_locator.partition_locator = partition_locator
+        delta_locator.stream_position = stream_position
+        return delta_locator
 
     @property
     def partition_locator(self) -> Optional[PartitionLocator]:
-        return self.get("partitionLocator")
+        val: Dict[str, Any] = self.get("partitionLocator")
+        if val is not None and not isinstance(val, PartitionLocator):
+            self.partition_locator = val = PartitionLocator(val)
+        return val
 
     @partition_locator.setter
     def partition_locator(
@@ -273,9 +291,7 @@ class DeltaLocator(Locator, dict):
         return self.get("streamPosition")
 
     @stream_position.setter
-    def stream_position(
-            self,
-            stream_position: Optional[int]) -> None:
+    def stream_position(self, stream_position: Optional[int]) -> None:
         self["streamPosition"] = stream_position
 
     @property

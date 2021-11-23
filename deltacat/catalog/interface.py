@@ -1,7 +1,7 @@
 import pyarrow as pa
 from deltacat import SortKey, TableWriteMode, ContentType, ListResult, \
     Namespace, LifecycleState, SchemaConsistencyType, LocalTable, \
-    LocalDataset, DistributedDataset
+    LocalDataset, DistributedDataset, TableDefinition
 from typing import Any, Dict, List, Optional, Set, Union
 
 
@@ -14,8 +14,14 @@ def write_to_table(
         content_type: ContentType = ContentType.PARQUET,
         *args,
         **kwargs) -> None:
-    """Write local or distributed data to a table."""
-    raise NotImplementedError
+    """Write local or distributed data to a table. Raises an error if the
+    table does not exist and the table write mode is not CREATE.
+
+    When creating a table, all `create_table` parameters may be optionally
+    specified as additional keyword arguments. When appending to, or replacing,
+    an existing table, all `alter_table` parameters may be optionally specified
+    as additional keyword arguments."""
+    raise NotImplementedError("write_to_table not implemented")
 
 
 def read_table(
@@ -24,7 +30,7 @@ def read_table(
         *args,
         **kwargs) -> DistributedDataset:
     """Read a table into a distributed dataset."""
-    raise NotImplementedError
+    raise NotImplementedError("read_table not implemented")
 
 
 def alter_table(
@@ -40,7 +46,7 @@ def alter_table(
         *args,
         **kwargs) -> None:
     """Alter table definition."""
-    raise NotImplementedError
+    raise NotImplementedError("alter_table not implemented")
 
 
 def create_table(
@@ -58,9 +64,10 @@ def create_table(
         content_types: Optional[List[ContentType]] = None,
         replace_existing_table: bool = False,
         *args,
-        **kwargs) -> Dict[str, Any]:
-    """Create an empty table."""
-    raise NotImplementedError
+        **kwargs) -> TableDefinition:
+    """Create an empty table. Raises an error if the table already exists and
+    `replace_existing_table` is False."""
+    raise NotImplementedError("create_table not implemented")
 
 
 def drop_table(
@@ -69,8 +76,9 @@ def drop_table(
         purge: bool = False,
         *args,
         **kwargs) -> None:
-    """Drop a table from the catalog and optionally purge it."""
-    raise NotImplementedError
+    """Drop a table from the catalog and optionally purge it. Raises an error
+    if the table does not exist."""
+    raise NotImplementedError("drop_table not implemented")
 
 
 def refresh_table(
@@ -79,24 +87,26 @@ def refresh_table(
         *args,
         **kwargs) -> None:
     """Refresh metadata cached on the Ray cluster for the given table."""
-    raise NotImplementedError
+    raise NotImplementedError("refresh_table not implemented")
 
 
 def list_tables(
         namespace: Optional[str] = None,
         *args,
-        **kwargs) -> ListResult[Dict[str, Any]]:
-    """List all tables in the given namespace."""
-    raise NotImplementedError
+        **kwargs) -> ListResult[TableDefinition]:
+    """List a page of table definitions. Raises an error if the given namespace
+    does not exist."""
+    raise NotImplementedError("list_tables not implemented")
 
 
 def get_table(
         table: str,
         namespace: Optional[str] = None,
         *args,
-        **kwargs) -> Dict[str, Any]:
-    """Get table metadata."""
-    raise NotImplementedError
+        **kwargs) -> Optional[TableDefinition]:
+    """Get table definition metadata. Returns None if the given table does not
+    exist."""
+    raise NotImplementedError("get_table not implemented")
 
 
 def truncate_table(
@@ -104,8 +114,8 @@ def truncate_table(
         namespace: Optional[str] = None,
         *args,
         **kwargs) -> None:
-    """Truncate table data."""
-    raise NotImplementedError
+    """Truncate table data. Raises an error if the table does not exist."""
+    raise NotImplementedError("truncate_table not implemented")
 
 
 def rename_table(
@@ -115,7 +125,7 @@ def rename_table(
         *args,
         **kwargs) -> None:
     """Rename a table."""
-    raise NotImplementedError
+    raise NotImplementedError("rename_table not implemented")
 
 
 def table_exists(
@@ -124,15 +134,14 @@ def table_exists(
         *args,
         **kwargs) -> bool:
     """Returns True if the given table exists, False if not."""
-    raise NotImplementedError
+    raise NotImplementedError("table_exists not implemented")
 
 
 # namespace functions
 def list_namespaces(
         *args,
         **kwargs) -> ListResult[Namespace]:
-    """Lists a page of table namespaces. Namespaces are returned as list result
-    items."""
+    """List a page of table namespaces."""
     raise NotImplementedError("list_namespaces not implemented")
 
 
@@ -159,7 +168,7 @@ def create_namespace(
         *args,
         **kwargs) -> Namespace:
     """Creates a table namespace with the given name and permissions. Returns
-    the created namespace."""
+    the created namespace. Raises an error if the namespace already exists."""
     raise NotImplementedError("create_namespace not implemented")
 
 
@@ -169,8 +178,7 @@ def alter_namespace(
         new_namespace: Optional[str] = None,
         *args,
         **kwargs) -> None:
-    """Updates a table namespace's name and/or permissions. Raises an error if
-    the given namespace does not exist."""
+    """Alter table namespace definition."""
     raise NotImplementedError("alter_namespace not implemented")
 
 
@@ -181,15 +189,15 @@ def drop_namespace(
         **kwargs) -> None:
     """Drop the given namespace and all of its tables from the catalog,
     optionally purging them."""
-    raise NotImplementedError
+    raise NotImplementedError("drop_namespace not implemented")
 
 
 def default_namespace() -> str:
     """Returns the default namespace for the catalog."""
-    raise NotImplementedError
+    raise NotImplementedError("default_namespace not implemented")
 
 
 # catalog functions
 def initialize(*args, **kwargs) -> None:
     """Initializes the data catalog with the given arguments."""
-    raise NotImplementedError
+    raise NotImplementedError("initialize not implemented")

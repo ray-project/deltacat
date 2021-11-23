@@ -16,7 +16,6 @@ from deltacat import logs
 from deltacat.types.media import ContentType, ContentEncoding, \
     DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
 from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY
-from deltacat.aws import s3u as s3_utils
 from deltacat.utils.performance import timed_invocation
 
 from typing import Any, Callable, Dict, List, Optional
@@ -170,6 +169,7 @@ def s3_file_to_table(
         pa_read_func_kwargs: Optional[Dict[str, Any]] = None,
         **s3_client_kwargs) -> pa.Table:
 
+    from deltacat.aws import s3u as s3_utils
     logger.debug(f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
                  f"Encoding: {content_encoding}")
     s3_obj = s3_utils.get_object_at_url(

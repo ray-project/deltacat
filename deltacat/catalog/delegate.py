@@ -4,7 +4,7 @@ import ray
 
 from deltacat import SortKey, TableWriteMode, ContentType, all_catalogs, \
     ListResult, Namespace, LifecycleState, SchemaConsistencyType, LocalTable, \
-    LocalDataset, DistributedDataset, Catalog
+    LocalDataset, DistributedDataset, Catalog, TableDefinition
 from typing import Any, Dict, List, Optional, Set, Union
 
 
@@ -34,7 +34,13 @@ def write_to_table(
         content_type: ContentType = ContentType.PARQUET,
         *args,
         **kwargs) -> None:
-    """Write local or distributed data to a table."""
+    """Write local or distributed data to a table. Raises an error if the
+    table does not exist and the table write mode is not CREATE.
+
+    When creating a table, all `create_table` parameters may be optionally
+    specified as additional keyword arguments. When appending to, or replacing,
+    an existing table, all `alter_table` parameters may be optionally specified
+    as additional keyword arguments."""
     _get_catalog(catalog).impl.write_to_table(
         data,
         table,
@@ -103,8 +109,9 @@ def create_table(
         content_types: Optional[List[ContentType]] = None,
         replace_existing_table: bool = False,
         *args,
-        **kwargs) -> Dict[str, Any]:
-    """Create an empty table."""
+        **kwargs) -> TableDefinition:
+    """Create an empty table. Raises an error if the table already exists and
+    `replace_existing_table` is False."""
     return _get_catalog(catalog).impl.create_table(
         table,
         namespace,
@@ -130,7 +137,8 @@ def drop_table(
         purge: bool = False,
         *args,
         **kwargs) -> None:
-    """Drop a table from the catalog and optionally purge it."""
+    """Drop a table from the catalog and optionally purge it. Raises an error
+    if the table does not exist."""
     _get_catalog(catalog).impl.drop_table(
         table,
         namespace,
@@ -157,8 +165,9 @@ def list_tables(
         namespace: Optional[str] = None,
         catalog: Optional[str] = None,
         *args,
-        **kwargs) -> ListResult[Dict[str, Any]]:
-    """List all tables in the given namespace."""
+        **kwargs) -> ListResult[TableDefinition]:
+    """List a page of table definitions. Raises an error if the given namespace
+    does not exist."""
     return _get_catalog(catalog).impl.list_tables(
         namespace,
         *args,
@@ -170,8 +179,9 @@ def get_table(
         namespace: Optional[str] = None,
         catalog: Optional[str] = None,
         *args,
-        **kwargs) -> Dict[str, Any]:
-    """Get table metadata."""
+        **kwargs) -> Optional[TableDefinition]:
+    """Get table definition metadata. Returns None if the given table does not
+    exist."""
     return _get_catalog(catalog).impl.get_table(
         table,
         namespace,
@@ -185,7 +195,7 @@ def truncate_table(
         catalog: Optional[str] = None,
         *args,
         **kwargs) -> None:
-    """Truncate table data."""
+    """Truncate table data. Raises an error if the table does not exist."""
     _get_catalog(catalog).impl.truncate_table(
         table,
         namespace,
@@ -228,8 +238,7 @@ def list_namespaces(
         catalog: Optional[str] = None,
         *args,
         **kwargs) -> ListResult[Namespace]:
-    """Lists a page of table namespaces. Namespaces are returned as list result
-    items."""
+    """List a page of table namespaces."""
     return _get_catalog(catalog).impl.list_namespaces(*args, **kwargs)
 
 
@@ -238,7 +247,7 @@ def get_namespace(
         catalog: Optional[str] = None,
         *args,
         **kwargs) -> Optional[Namespace]:
-    """Gets table namespace metadata for the specified table namespace. Returns
+    """Get table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist."""
     return _get_catalog(catalog).impl.get_namespace(
         namespace,
@@ -265,7 +274,7 @@ def create_namespace(
         *args,
         **kwargs) -> Namespace:
     """Creates a table namespace with the given name and permissions. Returns
-    the created namespace."""
+    the created namespace. Raises an error if the namespace already exists."""
     return _get_catalog(catalog).impl.create_namespace(
         namespace,
         permissions,
@@ -280,8 +289,7 @@ def alter_namespace(
         new_namespace: Optional[str] = None,
         *args,
         **kwargs) -> None:
-    """Updates a table namespace's name and/or permissions. Raises an error if
-    the given namespace does not exist."""
+    """Alter table namespace definition."""
     _get_catalog(catalog).impl.alter_namespace(
         namespace,
         permissions,

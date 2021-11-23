@@ -17,16 +17,16 @@ from deltacat.compute.compactor.model.sort_key import \
 
 
 __all__ = [
-    DeltaAnnotated,
-    DeltaFileEnvelope,
-    DeltaFileLocator,
-    MaterializeResult,
-    PrimaryKeyIndexLocator,
-    PrimaryKeyIndexMeta,
-    PrimaryKeyIndexVersionLocator,
-    PrimaryKeyIndexVersionMeta,
-    PyArrowWriteResult,
-    RoundCompletionInfo,
-    SortKey,
-    SortOrder
+    "DeltaAnnotated",
+    "DeltaFileEnvelope",
+    "DeltaFileLocator",
+    "MaterializeResult",
+    "PrimaryKeyIndexLocator",
+    "PrimaryKeyIndexMeta",
+    "PrimaryKeyIndexVersionLocator",
+    "PrimaryKeyIndexVersionMeta",
+    "PyArrowWriteResult",
+    "RoundCompletionInfo",
+    "SortKey",
+    "SortOrder",
 ]

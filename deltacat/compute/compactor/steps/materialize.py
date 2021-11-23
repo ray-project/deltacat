@@ -10,10 +10,10 @@ from pyarrow import compute as pc
 from ray import cloudpickle
 
 from deltacat import logs
-from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator
+from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
+    interface as unimplemented_deltacat_storage
 from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import ContentType
 
 from typing import Any, List, Tuple
@@ -32,7 +32,7 @@ def materialize(
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
 
     logger.info(f"Starting materialize task...")
-    dest_partition_locator = partition.partition_locator
+    dest_partition_locator = partition.locator
     dedupe_task_idx_and_obj_ref_tuples = [
         (
             t[0],
@@ -60,9 +60,9 @@ def materialize(
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
             *record_numbers_dd_task_idx_tpl_list
         )
-        is_src_partition_file_np = src_dfl.is_source_delta()
-        src_stream_position_np = src_dfl.get_stream_position()
-        src_file_idx_np = src_dfl.get_file_index()
+        is_src_partition_file_np = src_dfl.is_source_delta
+        src_stream_position_np = src_dfl.stream_position
+        src_file_idx_np = src_dfl.file_index
         src_file_partition_locator = source_partition_locator \
             if is_src_partition_file_np \
             else dest_partition_locator

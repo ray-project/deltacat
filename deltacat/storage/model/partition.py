@@ -3,35 +3,47 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from deltacat.storage import NamespaceLocator, StreamLocator, TableLocator, \
-    TableVersionLocator, CommitState, Locator
+from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.stream import StreamLocator
+from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table_version import TableVersionLocator
+from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.locator import Locator
 from deltacat.types.media import ContentType
-from typing import Any, List, Optional, Union
+
+from typing import Any, Dict, List, Optional, Union
 
 
 class Partition(dict):
     @staticmethod
-    def of(partition_locator: Optional[PartitionLocator],
+    def of(locator: Optional[PartitionLocator],
            schema: Optional[Union[pa.Schema, str, bytes]],
-           supported_content_types: Optional[List[ContentType]],
+           content_types: Optional[List[ContentType]],
            state: Optional[CommitState] = None,
            previous_stream_position: Optional[int] = None,
-           previous_partition_id: Optional[str] = None) -> Partition:
-        return Partition({
-            "partitionLocator": partition_locator,
-            "schema": schema,
-            "contentTypes": supported_content_types,
-            "state": state,
-            "previousStreamPosition": previous_stream_position,
-            "previousPartitionId": previous_partition_id,
-        })
+           previous_partition_id: Optional[str] = None,
+           stream_position: Optional[int] = None,
+           next_partition_id: Optional[str] = None) -> Partition:
+        partition = Partition()
+        partition.locator = locator
+        partition.schema = schema
+        partition.content_types = content_types
+        partition.state = state
+        partition.previous_stream_position = previous_stream_position
+        partition.previous_partition_id = previous_partition_id
+        partition.stream_position = stream_position
+        partition.next_partition_id = next_partition_id
+        return partition
 
     @property
-    def partition_locator(self) -> Optional[PartitionLocator]:
-        return self.get("partitionLocator")
+    def locator(self) -> Optional[PartitionLocator]:
+        val: Dict[str, Any] = self.get("partitionLocator")
+        if val is not None and not isinstance(val, PartitionLocator):
+            self.locator = val = PartitionLocator(val)
+        return val
 
-    @partition_locator.setter
-    def partition_locator(
+    @locator.setter
+    def locator(
             self,
             partition_locator: Optional[PartitionLocator]) -> None:
         self["partitionLocator"] = partition_locator
@@ -86,77 +98,93 @@ class Partition(dict):
         self["previousPartitionId"] = previous_partition_id
 
     @property
+    def stream_position(self) -> Optional[int]:
+        return self.get("streamPosition")
+
+    @stream_position.setter
+    def stream_position(self, stream_position: Optional[int]):
+        self["streamPosition"] = stream_position
+
+    @property
+    def next_partition_id(self) -> Optional[str]:
+        return self.get("nextPartitionId")
+
+    @next_partition_id.setter
+    def next_partition_id(self, next_partition_id: Optional[str]):
+        self["nextPartitionId"] = next_partition_id
+
+    @property
     def partition_id(self) -> Optional[str]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.partition_id
         return None
 
     @property
     def stream_id(self) -> Optional[str]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.stream_id
         return None
 
     @property
     def partition_values(self) -> Optional[List[Any]]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.partition_values
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.namespace_locator
         return None
 
     @property
     def table_locator(self) -> Optional[TableLocator]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.table_locator
         return None
 
     @property
     def table_version_locator(self) -> Optional[TableVersionLocator]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.table_version_locator
         return None
 
     @property
     def stream_locator(self) -> Optional[StreamLocator]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.stream_locator
         return None
 
     @property
     def storage_type(self) -> Optional[str]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.storage_type
         return None
 
     @property
     def namespace(self) -> Optional[str]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.namespace
         return None
 
     @property
     def table_name(self) -> Optional[str]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.table_name
         return None
 
     @property
     def table_version(self) -> Optional[str]:
-        partition_locator = self.partition_locator
+        partition_locator = self.locator
         if partition_locator:
             return partition_locator.table_version
         return None
@@ -180,15 +208,18 @@ class PartitionLocator(Locator, dict):
         representations of partition values are equal, than the two partition
         values are equal).
         """
-        return PartitionLocator({
-            "streamLocator": stream_locator,
-            "partitionValues": partition_values,
-            "partitionId": partition_id,
-        })
+        partition_locator = PartitionLocator()
+        partition_locator.stream_locator = stream_locator
+        partition_locator.partition_values = partition_values
+        partition_locator.partition_id = partition_id
+        return partition_locator
 
     @property
     def stream_locator(self) -> Optional[StreamLocator]:
-        return self.get("streamLocator")
+        val: Dict[str, Any] = self.get("streamLocator")
+        if val is not None and not isinstance(val, StreamLocator):
+            self.stream_locator = val = StreamLocator(val)
+        return val
 
     @stream_locator.setter
     def stream_locator(

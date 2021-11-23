@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from deltacat.compute.compactor import SortKey
+from deltacat.compute.compactor.model.sort_key import SortKey
 from deltacat.storage import Locator, PartitionLocator
 from deltacat.utils.common import sha1_hexdigest
 
-from typing import List
+from typing import Any, Dict, List
 
 
 class PrimaryKeyIndexLocator(Locator, dict):
@@ -26,10 +26,10 @@ class PrimaryKeyIndexLocator(Locator, dict):
             primary_key_index_meta.sort_keys,
             primary_key_index_meta.primary_key_index_algorithm_version,
         )
-        return PrimaryKeyIndexLocator({
-            "primaryKeyIndexMeta": primary_key_index_meta,
-            "primaryKeyIndexRootPath": pki_root_path,
-        })
+        pkil = PrimaryKeyIndexLocator()
+        pkil["primaryKeyIndexMeta"] = primary_key_index_meta
+        pkil["primaryKeyIndexRootPath"] = pki_root_path
+        return pkil
 
     @staticmethod
     def _root_path(
@@ -44,7 +44,10 @@ class PrimaryKeyIndexLocator(Locator, dict):
 
     @property
     def primary_key_index_meta(self) -> PrimaryKeyIndexMeta:
-        return self["primaryKeyIndexMeta"]
+        val: Dict[str, Any] = self.get("primaryKeyIndexMeta")
+        if val is not None and not isinstance(val, PrimaryKeyIndexMeta):
+            self["primaryKeyIndexMeta"] = val = PrimaryKeyIndexMeta(val)
+        return val
 
     @property
     def primary_key_index_root_path(self) -> str:
@@ -82,16 +85,19 @@ class PrimaryKeyIndexMeta(dict):
         Partition Locator, primary keys, sort keys, and primary key index
         algorithm version.
         """
-        return PrimaryKeyIndexMeta({
-            "compactedPartitionLocator": compacted_partition_locator,
-            "primaryKeys": primary_keys,
-            "sortKeys": sort_keys,
-            "primaryKeyIndexAlgorithmVersion": primary_key_index_algo_version
-        })
+        pkim = PrimaryKeyIndexMeta()
+        pkim["compactedPartitionLocator"] = compacted_partition_locator
+        pkim["primaryKeys"] = primary_keys
+        pkim["sortKeys"] = sort_keys
+        pkim["primaryKeyIndexAlgorithmVersion"] = primary_key_index_algo_version
+        return pkim
 
     @property
     def compacted_partition_locator(self) -> PartitionLocator:
-        return self["compactedPartitionLocator"]
+        val: Dict[str, Any] = self.get("compactedPartitionLocator")
+        if val is not None and not isinstance(val, PartitionLocator):
+            self["compactedPartitionLocator"] = val = PartitionLocator(val)
+        return val
 
     @property
     def primary_keys(self) -> List[str]:
@@ -117,10 +123,10 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
         index version, the `generate` function should be used to create unique
         locators for all new primary key index versions.
         """
-        return PrimaryKeyIndexVersionLocator({
-            "primaryKeyIndexVersionMeta": primary_key_index_version_meta,
-            "primaryKeyIndexVersionRootPath": pki_version_root_path,
-        })
+        pkivl = PrimaryKeyIndexVersionLocator()
+        pkivl["primaryKeyIndexVersionMeta"] = primary_key_index_version_meta
+        pkivl["primaryKeyIndexVersionRootPath"] = pki_version_root_path
+        return pkivl
 
     @staticmethod
     def generate(pki_version_meta: PrimaryKeyIndexVersionMeta) \
@@ -141,10 +147,10 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
                 PrimaryKeyIndexVersionLocator._pki_root_path(pki_version_meta),
                 pki_version_meta.hash_bucket_count,
             )
-        return PrimaryKeyIndexVersionLocator({
-            "primaryKeyIndexVersionMeta": pki_version_meta,
-            "primaryKeyIndexVersionRootPath": pki_version_root_path,
-        })
+        pkivl = PrimaryKeyIndexVersionLocator()
+        pkivl["primaryKeyIndexVersionMeta"] = pki_version_meta
+        pkivl["primaryKeyIndexVersionRootPath"] = pki_version_root_path
+        return pkivl
 
     @staticmethod
     def _pki_root_path(pki_version_meta: PrimaryKeyIndexVersionMeta) -> str:
@@ -160,7 +166,11 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
 
     @property
     def primary_key_index_version_meta(self) -> PrimaryKeyIndexVersionMeta:
-        return self["primaryKeyIndexVersionMeta"]
+        val: Dict[str, Any] = self.get("primaryKeyIndexVersionMeta")
+        if val is not None and not isinstance(val, PrimaryKeyIndexVersionMeta):
+            self["primaryKeyIndexVersionMeta"] = val = \
+                PrimaryKeyIndexVersionMeta(val)
+        return val
 
     @property
     def primary_key_index_root_path(self) -> str:
@@ -237,14 +247,17 @@ class PrimaryKeyIndexVersionMeta(dict):
         Creates Primary Key Index Version Metadata from the given Primary Key
         Index Metadata and hash bucket count.
         """
-        return PrimaryKeyIndexVersionMeta({
-            "primaryKeyIndexMeta": primary_key_index_meta,
-            "hashBucketCount": hash_bucket_count,
-        })
+        pkivm = PrimaryKeyIndexVersionMeta()
+        pkivm["primaryKeyIndexMeta"] = primary_key_index_meta
+        pkivm["hashBucketCount"] = hash_bucket_count
+        return pkivm
 
     @property
     def primary_key_index_meta(self) -> PrimaryKeyIndexMeta:
-        return self["primaryKeyIndexMeta"]
+        val: Dict[str, Any] = self.get("primaryKeyIndexMeta")
+        if val is not None and not isinstance(val, PrimaryKeyIndexMeta):
+            self["primaryKeyIndexMeta"] = val = PrimaryKeyIndexMeta(val)
+        return val
 
     @property
     def hash_bucket_count(self) -> int:

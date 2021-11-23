@@ -3,37 +3,42 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from deltacat.storage import Locator, NamespaceLocator, TableLocator
+from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.locator import Locator
 from deltacat.types.media import ContentType
+
 from typing import Any, Dict, List, Optional, Union
 
 
 class TableVersion(dict):
     @staticmethod
-    def of(table_version_locator: Optional[TableVersionLocator],
+    def of(locator: Optional[TableVersionLocator],
            schema: Optional[Union[pa.Schema, str, bytes]],
            partition_keys: Optional[List[Dict[str, Any]]] = None,
-           primary_key_column_names: Optional[List[str]] = None,
-           table_version_description: Optional[str] = None,
-           table_version_properties: Optional[Dict[str, str]] = None,
-           supported_content_types: Optional[List[ContentType]] = None) \
-            -> TableVersion:
-        return TableVersion({
-            "tableVersionLocator": table_version_locator,
-            "schema": schema,
-            "partitionKeys": partition_keys,
-            "primaryKeys": primary_key_column_names,
-            "description": table_version_description,
-            "properties": table_version_properties,
-            "contentTypes": supported_content_types,
-        })
+           primary_key_columns: Optional[List[str]] = None,
+           description: Optional[str] = None,
+           properties: Optional[Dict[str, str]] = None,
+           content_types: Optional[List[ContentType]] = None) -> TableVersion:
+        table_version = TableVersion()
+        table_version.locator = locator
+        table_version.schema = schema
+        table_version.partition_keys = partition_keys
+        table_version.primary_keys = primary_key_columns
+        table_version.description = description
+        table_version.properties = properties
+        table_version.content_types = content_types
+        return table_version
 
     @property
-    def table_version_locator(self) -> Optional[TableVersionLocator]:
-        return self.get("tableVersionLocator")
+    def locator(self) -> Optional[TableVersionLocator]:
+        val: Dict[str, Any] = self.get("tableVersionLocator")
+        if val is not None and not isinstance(val, TableVersionLocator):
+            self.locator = val = TableVersionLocator(val)
+        return val
 
-    @table_version_locator.setter
-    def table_version_locator(
+    @locator.setter
+    def locator(
             self,
             table_version_locator: Optional[TableVersionLocator]) -> None:
         self["tableVersionLocator"] = table_version_locator
@@ -94,35 +99,35 @@ class TableVersion(dict):
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
-        table_version_locator = self.table_version_locator
+        table_version_locator = self.locator
         if table_version_locator:
             return table_version_locator.namespace_locator
         return None
 
     @property
     def table_locator(self) -> Optional[TableLocator]:
-        table_version_locator = self.table_version_locator
+        table_version_locator = self.locator
         if table_version_locator:
             return table_version_locator.table_locator
         return None
 
     @property
     def namespace(self) -> Optional[str]:
-        table_version_locator = self.table_version_locator
+        table_version_locator = self.locator
         if table_version_locator:
             return table_version_locator.namespace
         return None
 
     @property
     def table_name(self) -> Optional[str]:
-        table_version_locator = self.table_version_locator
+        table_version_locator = self.locator
         if table_version_locator:
             return table_version_locator.table_name
         return None
 
     @property
     def table_version(self) -> Optional[str]:
-        table_version_locator = self.table_version_locator
+        table_version_locator = self.locator
         if table_version_locator:
             return table_version_locator.table_version
         return None
@@ -139,14 +144,17 @@ class TableVersionLocator(Locator, dict):
     @staticmethod
     def of(table_locator: Optional[TableLocator],
            table_version: Optional[str]) -> TableVersionLocator:
-        return TableVersionLocator({
-            "tableLocator": table_locator,
-            "tableVersion": table_version,
-        })
+        table_version_locator = TableVersionLocator()
+        table_version_locator.table_locator = table_locator
+        table_version_locator.table_version = table_version
+        return table_version_locator
 
     @property
     def table_locator(self) -> Optional[TableLocator]:
-        return self.get("tableLocator")
+        val: Dict[str, Any] = self.get("tableLocator")
+        if val is not None and not isinstance(val, TableLocator):
+            self.table_locator = val = TableLocator(val)
+        return val
 
     @table_locator.setter
     def table_locator(self, table_locator: Optional[TableLocator]) -> None:

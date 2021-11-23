@@ -3,11 +3,10 @@ import math
 
 from ray import ray_constants
 
-from deltacat.storage import PartitionLocator
+from deltacat.storage import PartitionLocator, Delta, \
+    interface as unimplemented_deltacat_storage
 from deltacat import logs
-from deltacat.storage import Delta
 from deltacat.compute.compactor import DeltaAnnotated
-from deltacat.storage import interface as unimplemented_deltacat_storage
 
 from typing import Dict, List, Optional
 

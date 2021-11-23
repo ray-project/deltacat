@@ -25,3 +25,11 @@ class Locator:
         hexdigest) and inclusion in URLs.
         """
         return sha1_hexdigest(self.canonical_string().encode("utf-8"))
+
+    def path(self, root: str, separator: str = "/") -> str:
+        """
+        Returns a path for the locator of the form: "{root}/{hexdigest}", where
+        the default path separator of "/" may optionally be overridden with
+        any string.
+        """
+        return f"{root}{separator}{self.hexdigest()}"

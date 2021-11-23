@@ -4,7 +4,6 @@ import json
 from deltacat.storage import PartitionLocator
 from deltacat.compute.compactor import RoundCompletionInfo
 from deltacat import logs
-from deltacat.aws import s3u as s3_utils
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -23,6 +22,7 @@ def read_round_completion_file(
         source_partition_locator: PartitionLocator,
         primary_key_index_root_path: str) -> RoundCompletionInfo:
 
+    from deltacat.aws import s3u as s3_utils
     round_completion_file_url = get_round_completion_file_s3_url(
         bucket,
         source_partition_locator,
@@ -34,8 +34,8 @@ def read_round_completion_file(
     result = s3_utils.download(round_completion_file_url, False)
     if result:
         json_str = result["Body"].read().decode("utf-8")
-        round_completion_info = json.loads(json_str)
-        print(f"read round completion info: {round_completion_info}")
+        round_completion_info = RoundCompletionInfo(json.loads(json_str))
+        logger.info(f"read round completion info: {round_completion_info}")
     return round_completion_info
 
 
@@ -45,6 +45,7 @@ def write_round_completion_file(
         primary_key_index_root_path: str,
         round_completion_info: RoundCompletionInfo):
 
+    from deltacat.aws import s3u as s3_utils
     logger.info(
         f"writing round completion file contents: {round_completion_info}")
     round_completion_file_s3_url = get_round_completion_file_s3_url(

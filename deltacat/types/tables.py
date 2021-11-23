@@ -4,10 +4,10 @@ from typing import Dict, Callable, Type, Union
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import deltacat.storage as dcs
 
 from ray.data.dataset import Dataset
 
-from deltacat.storage import LocalTable, DistributedDataset
 from deltacat.types.media import TableType
 from deltacat.utils import pyarrow as pa_utils, pandas as pd_utils, \
     numpy as np_utils
@@ -20,7 +20,7 @@ TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
 }
 
 TABLE_CLASS_TO_WRITER_FUNC: Dict[
-    Type[Union[LocalTable, DistributedDataset]], Callable] = {
+    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable] = {
     pa.Table: pa_utils.table_to_file,
     pd.DataFrame: pd_utils.dataframe_to_file,
     np.ndarray: np_utils.ndarray_to_file,
@@ -28,7 +28,7 @@ TABLE_CLASS_TO_WRITER_FUNC: Dict[
 }
 
 TABLE_CLASS_TO_SLICER_FUNC: Dict[
-    Type[Union[LocalTable, DistributedDataset]], Callable] = {
+    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable] = {
     pa.Table: pa_utils.slice_table,
     pd.DataFrame: pd_utils.slice_dataframe,
     np.ndarray: np_utils.slice_ndarray,
@@ -36,7 +36,7 @@ TABLE_CLASS_TO_SLICER_FUNC: Dict[
 }
 
 TABLE_CLASS_TO_SIZE_FUNC: Dict[
-    Type[Union[LocalTable, DistributedDataset]], Callable] = {
+    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable] = {
     pa.Table: pa_utils.table_size,
     pd.DataFrame: pd_utils.dataframe_size,
     np.ndarray: np_utils.ndarray_size,
@@ -50,13 +50,13 @@ class TableWriteMode(str, Enum):
     REPLACE = "replace"
 
 
-def get_table_length(table: Union[LocalTable, DistributedDataset]) -> int:
+def get_table_length(table: Union[dcs.LocalTable, dcs.DistributedDataset]) \
+        -> int:
     return len(table) if not isinstance(table, Dataset) else table.count()
 
 
-def get_table_writer(table: Union[LocalTable, DistributedDataset]) \
+def get_table_writer(table: Union[dcs.LocalTable, dcs.DistributedDataset]) \
         -> Callable:
-
     table_writer_func = TABLE_CLASS_TO_WRITER_FUNC.get(type(table))
     if table_writer_func is None:
         msg = f"No writer found for table type: {type(table)}.\n" \
@@ -65,7 +65,8 @@ def get_table_writer(table: Union[LocalTable, DistributedDataset]) \
     return table_writer_func
 
 
-def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
+def get_table_slicer(table: Union[dcs.LocalTable, dcs.DistributedDataset]) \
+        -> Callable:
     table_slicer_func = TABLE_CLASS_TO_SLICER_FUNC.get(type(table))
     if table_slicer_func is None:
         msg = f"No slicer found for table type: {type(table)}.\n" \

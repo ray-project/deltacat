@@ -5,8 +5,7 @@ from ray import ray_constants
 from deltacat.types import media
 from deltacat import logs
 from deltacat.storage import Delta, DeltaLocator, Partition, \
-    PartitionLocator
-from deltacat.storage import interface as unimplemented_deltacat_storage
+    PartitionLocator, interface as unimplemented_deltacat_storage
 from deltacat.compute.compactor.steps import hash_bucket as hb, dedupe as dd, \
     materialize as mat
 from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
@@ -27,11 +26,16 @@ _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
 
 def check_preconditions(
         source_partition_locator: PartitionLocator,
+        compacted_partition_locator: PartitionLocator,
         sort_keys: List[SortKey],
         max_records_per_output_file: int,
         new_hash_bucket_count: Optional[int],
         deltacat_storage=unimplemented_deltacat_storage) -> int:
 
+    assert source_partition_locator.partition_values \
+           == compacted_partition_locator.partition_values, \
+        "In-place compaction must use the same partition values for the " \
+        "source and destination."
     assert max_records_per_output_file >= 1, \
         "Max records per output file must be a positive value"
     if new_hash_bucket_count is not None:
@@ -81,7 +85,7 @@ def compact_partition(
                 delete_prev_primary_key_index,
             )
         if partition:
-            compacted_partition_locator = partition.partition_locator
+            compacted_partition_locator = partition.locator
             compaction_rounds_executed += 1
     logger.info(f"Compaction session data processing completed in "
                 f"{compaction_rounds_executed} rounds.")
@@ -119,10 +123,12 @@ def _execute_compaction_round(
     # TODO (pdames): detect and handle schema evolution (at least ensure that
     #  we don't recompact simple backwards-compatible changes like constraint
     #  widening and null column additions).
+    # TODO (pdames): detect and optimize in-place compaction
 
     # check preconditions before doing any computationally expensive work
     bit_width_of_sort_keys = check_preconditions(
         source_partition_locator,
+        compacted_partition_locator,
         sort_keys,
         records_per_compacted_file,
         new_hash_bucket_count,
@@ -279,7 +285,7 @@ def _execute_compaction_round(
         stream,
         compacted_partition_locator.partition_values,
     )
-    new_compacted_partition_locator = partition.partition_locator
+    new_compacted_partition_locator = partition.locator
     # generate a new primary key index locator for this round
     new_primary_key_index_meta = PrimaryKeyIndexMeta.of(
         new_compacted_partition_locator,
@@ -385,6 +391,7 @@ def _execute_compaction_round(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
     )
+
     round_completion_info = RoundCompletionInfo.of(
         last_stream_position_compacted,
         new_compacted_delta_locator,
