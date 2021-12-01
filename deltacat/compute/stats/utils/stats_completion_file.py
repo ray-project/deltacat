@@ -13,8 +13,8 @@ def get_stats_completion_file_s3_url(
         bucket: str,
         delta_locator: DeltaLocator) -> str:
 
-    hexdigest = delta_locator.hexdigest()
-    return f"s3://{bucket}/{hexdigest}.json"
+    base_url = delta_locator.path(f"s3://{bucket}")
+    return f"{base_url}.json"
 
 
 def read_stats_completion_file(

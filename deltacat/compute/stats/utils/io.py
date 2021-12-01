@@ -2,62 +2,72 @@ import logging
 
 import ray
 import deltacat.compute.stats.utils.stats_completion_file as scf
+from deltacat.aws.redshift import Manifest
+from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
 from deltacat.compute.stats.models.stats_completion_info import StatsCompletionInfo
 
 from deltacat.compute.stats.models.stats_result import StatsResult
 from deltacat.compute.stats.types import StatsType
-from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.storage import PartitionLocator, Delta, DeltaLocator
-from deltacat import logs
+from deltacat import logs, LocalTable
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Tuple
 
-from ray.types import ObjectRef
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def discover_deltas_stats(
+@ray.remote
+def read_cached_delta_stats(
         source_partition_locator: PartitionLocator,
         start_position_inclusive: int,
         end_position_inclusive: int,
-        stat_types_to_collect: Set[StatsType],
-        stat_results_s3_bucket: str = None,
-        deltacat_storage=unimplemented_deltacat_storage) -> Dict[int, StatsResult]:
+        stat_results_s3_bucket: str,
+        deltacat_storage=unimplemented_deltacat_storage) -> DeltaStatsCacheResult:
 
-    processed_stats: Dict[int, StatsResult] = {}
-    pending_stats: List[ObjectRef[StatsCompletionInfo]] = []
-    deltas: List[Delta] = _get_deltas_from_range(
-        source_partition_locator,
-        start_position_inclusive,
-        end_position_inclusive,
-        deltacat_storage
-    )
+    deltas: List[Delta] = _get_deltas_from_range(source_partition_locator,
+                                                 start_position_inclusive,
+                                                 end_position_inclusive,
+                                                 deltacat_storage)
+    cache_hit_stats_completion_info, cache_miss_delta_locators = [], []
 
     for delta in deltas:
-        stats_completion_info_s3: Optional[StatsCompletionInfo] = None
-
-        # lookup delta stats in s3
-        if stat_results_s3_bucket:
-            delta_locator = DeltaLocator.of(source_partition_locator, delta.stream_position)
-            stats_completion_info_s3 = scf.read_stats_completion_file(stat_results_s3_bucket, delta_locator)
-
+        delta_locator = DeltaLocator.of(delta.partition_locator, delta.stream_position)
+        stats_completion_info_s3 = scf.read_stats_completion_file(stat_results_s3_bucket, delta_locator)
         if stats_completion_info_s3:
-            processed_stats[delta.stream_position] = stats_completion_info_s3.stats_result
+            cache_hit_stats_completion_info.append(stats_completion_info_s3)
         else:
-            pending_stats.append(_get_delta_stats.remote(delta, stat_types_to_collect, deltacat_storage))
+            cache_miss_delta_locators.append(delta_locator)
 
-    for promise in pending_stats:
-        stats_completion_info: StatsCompletionInfo = ray.get(promise)
+    return DeltaStatsCacheResult.of(cache_hit_stats_completion_info, cache_miss_delta_locators)
 
-        # cache delta stats in s3
-        if stat_results_s3_bucket:
-            scf.write_stats_completion_file(stat_results_s3_bucket, stats_completion_info)
 
-        processed_stats[stats_completion_info.high_watermark] = stats_completion_info.stats_result
+@ray.remote
+def cache_delta_stats(stat_results_s3_bucket: str,
+                      stats_completion_info: StatsCompletionInfo):
+    scf.write_stats_completion_file(stat_results_s3_bucket, stats_completion_info)
 
-    return processed_stats
+
+@ray.remote
+def get_delta_stats(delta: DeltaLocator,
+                    stat_types_to_collect: Set[StatsType],
+                    deltacat_storage=unimplemented_deltacat_storage) -> StatsCompletionInfo:
+
+    delta_stats = {}
+    manifest = deltacat_storage.get_delta_manifest(delta)
+    row_count, delta_bytes_pyarrow, delta_manifest_entry_stats = \
+        _calculate_delta_stats(delta, manifest, deltacat_storage)
+
+    if StatsType.ROW_COUNT in stat_types_to_collect:
+        delta_stats[StatsType.ROW_COUNT.value] = row_count
+
+    if StatsType.PYARROW_TABLE_BYTES in stat_types_to_collect:
+        delta_stats[StatsType.PYARROW_TABLE_BYTES.value] = delta_bytes_pyarrow
+
+    delta_stats = StatsResult(delta_stats)
+
+    return StatsCompletionInfo.of(delta, delta_stats, delta_manifest_entry_stats)
 
 
 def _get_deltas_from_range(
@@ -81,26 +91,19 @@ def _get_deltas_from_range(
     return deltas_list_result.all_items()
 
 
-@ray.remote
-def _get_delta_stats(delta: Delta,
-                     stat_types_to_collect: Set[StatsType],
-                     deltacat_storage) -> StatsCompletionInfo:
-    delta_bytes, delta_bytes_pyarrow, row_count = 0, 0, 0
-    manifest = deltacat_storage.get_delta_manifest(delta)
-    delta.manifest = manifest
-    manifest_entries = delta.manifest.entries
-    delta_stats = {}
-    for entry in manifest_entries:
-        row_count += entry.meta.record_count
-        delta_bytes += entry.meta.content_length
-        delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
+def _calculate_delta_stats(delta: DeltaLocator,
+                           manifest: Manifest,
+                           deltacat_storage=unimplemented_deltacat_storage) -> Tuple[int, int, Dict[int, StatsResult]]:
+    total_rows, total_pyarrow_bytes = 0, 0
+    delta_manifest_entry_stats: Dict[int, StatsResult] = {}
 
-    if StatsType.ROW_COUNT in stat_types_to_collect:
-        delta_stats[StatsType.ROW_COUNT.value] = row_count
+    for file_idx, manifest in enumerate(manifest.entries):
+        entry_pyarrow_table: LocalTable = deltacat_storage.download_delta_manifest_entry(delta, file_idx)
+        entry_rows, entry_pyarrow_bytes = len(entry_pyarrow_table), entry_pyarrow_table.nbytes
+        delta_manifest_entry_stats[file_idx] = StatsResult.of(entry_rows, entry_pyarrow_bytes)
+        total_rows += len(entry_pyarrow_table)
+        total_pyarrow_bytes += entry_pyarrow_table.nbytes
 
-    if StatsType.PYARROW_TABLE_BYTES in stat_types_to_collect:
-        delta_stats[StatsType.PYARROW_TABLE_BYTES.value] = delta_bytes_pyarrow
-
-    return StatsCompletionInfo.of(delta.stream_position, delta.locator, StatsResult(delta_stats))
+    return total_rows, total_pyarrow_bytes, delta_manifest_entry_stats
 
 
