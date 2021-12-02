@@ -50,14 +50,15 @@ def cache_delta_stats(stat_results_s3_bucket: str,
 
 
 @ray.remote
-def get_delta_stats(delta: DeltaLocator,
+def get_delta_stats(delta_locator: DeltaLocator,
                     stat_types_to_collect: Set[StatsType],
                     deltacat_storage=unimplemented_deltacat_storage) -> StatsCompletionInfo:
 
     delta_stats = {}
-    manifest = deltacat_storage.get_delta_manifest(delta)
+    manifest = deltacat_storage.get_delta_manifest(delta_locator)
+    delta = Delta.of(delta_locator, None, None, None, manifest)
     row_count, delta_bytes_pyarrow, delta_manifest_entry_stats = \
-        _calculate_delta_stats(delta, manifest, deltacat_storage)
+        _calculate_delta_stats(delta, deltacat_storage)
 
     if StatsType.ROW_COUNT in stat_types_to_collect:
         delta_stats[StatsType.ROW_COUNT.value] = row_count
@@ -67,7 +68,7 @@ def get_delta_stats(delta: DeltaLocator,
 
     delta_stats = StatsResult(delta_stats)
 
-    return StatsCompletionInfo.of(delta, delta_stats, delta_manifest_entry_stats)
+    return StatsCompletionInfo.of(delta_locator, delta_stats, delta_manifest_entry_stats)
 
 
 def _get_deltas_from_range(
@@ -91,13 +92,14 @@ def _get_deltas_from_range(
     return deltas_list_result.all_items()
 
 
-def _calculate_delta_stats(delta: DeltaLocator,
-                           manifest: Manifest,
+def _calculate_delta_stats(delta: Delta,
                            deltacat_storage=unimplemented_deltacat_storage) -> Tuple[int, int, Dict[int, StatsResult]]:
+    assert delta.manifest is not None, \
+        f"Manifest should not be missing from delta for stats calculation: {delta}"
     total_rows, total_pyarrow_bytes = 0, 0
     delta_manifest_entry_stats: Dict[int, StatsResult] = {}
 
-    for file_idx, manifest in enumerate(manifest.entries):
+    for file_idx, manifest in enumerate(delta.manifest.entries):
         entry_pyarrow_table: LocalTable = deltacat_storage.download_delta_manifest_entry(delta, file_idx)
         entry_rows, entry_pyarrow_bytes = len(entry_pyarrow_table), entry_pyarrow_table.nbytes
         delta_manifest_entry_stats[file_idx] = StatsResult.of(entry_rows, entry_pyarrow_bytes)

@@ -36,11 +36,11 @@ def collect(
     delta_stats_cached_list, delta_stats_pending_list = _get_cached_and_pending_stats(discover_deltas_pending,
                                                                                       stat_types_to_collect,
                                                                                       deltacat_storage)
-    delta_stats_resolved_list = _resolve_pending_stats(delta_stats_pending_list)
+    delta_stats_resolved_list: List[StatsCompletionInfo] = _resolve_pending_stats(delta_stats_pending_list)
 
     # Sequentially cache the stats into the file store
     delta_stats_to_cache: List[ObjectRef] = \
-        list(map(lambda stats: cache_delta_stats.remote(stat_results_s3_bucket, stats), delta_stats_resolved_list))
+        [cache_delta_stats.remote(stat_results_s3_bucket, _) for _ in delta_stats_resolved_list]
     ray.get(delta_stats_to_cache)
 
     delta_stats_processed_list: List[StatsCompletionInfo] = [*delta_stats_cached_list, *delta_stats_resolved_list]

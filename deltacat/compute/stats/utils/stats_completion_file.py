@@ -31,7 +31,7 @@ def read_stats_completion_file(
     result = s3_utils.download(stats_completion_file_url, fail_if_not_found=False)
     if result:
         json_str = result["Body"].read().decode("utf-8")
-        stats_completion_info_file = json.loads(json_str)
+        stats_completion_info_file = StatsCompletionInfo(json.loads(json_str))
         logger.info(f"read stats completion info: {stats_completion_info_file}")
     return stats_completion_info_file
 

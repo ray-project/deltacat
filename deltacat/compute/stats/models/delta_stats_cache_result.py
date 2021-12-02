@@ -21,9 +21,9 @@ class DeltaStatsCacheResult(dict):
     @property
     def stats(self) -> List[StatsCompletionInfo]:
         val = self["stats"]
-        return list(map(lambda x: StatsCompletionInfo(x), val)) if val else []
+        return [StatsCompletionInfo(_) for _ in val] if val else []
 
     @property
     def cache_miss_delta_locators(self) -> List[DeltaLocator]:
         val = self["cacheMissDeltaLocators"]
-        return list(map(lambda x: DeltaLocator(x), val)) if val else []
+        return [DeltaLocator(_) for _ in val] if val else []
