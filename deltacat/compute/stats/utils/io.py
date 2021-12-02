@@ -1,5 +1,6 @@
 import logging
 
+import pyarrow
 import ray
 import deltacat.compute.stats.utils.stats_completion_file as scf
 from deltacat.aws.redshift import Manifest
@@ -101,6 +102,8 @@ def _calculate_delta_stats(delta: Delta,
 
     for file_idx, manifest in enumerate(delta.manifest.entries):
         entry_pyarrow_table: LocalTable = deltacat_storage.download_delta_manifest_entry(delta, file_idx)
+        assert isinstance(entry_pyarrow_table, pyarrow.Table), \
+            f"Stats collections supported for PyArrow table only"
         entry_rows, entry_pyarrow_bytes = len(entry_pyarrow_table), entry_pyarrow_table.nbytes
         delta_manifest_entry_stats[file_idx] = StatsResult.of(entry_rows, entry_pyarrow_bytes)
         total_rows += len(entry_pyarrow_table)
