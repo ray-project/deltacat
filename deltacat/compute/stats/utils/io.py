@@ -103,7 +103,8 @@ def _calculate_delta_stats(delta: Delta,
     for file_idx, manifest in enumerate(delta.manifest.entries):
         entry_pyarrow_table: LocalTable = deltacat_storage.download_delta_manifest_entry(delta, file_idx)
         assert isinstance(entry_pyarrow_table, pyarrow.Table), \
-            f"Stats collection is only supported for PyArrow tables, but received a table of type '{type(entry_pyarrow_table)}' for manifest entry {file_idx} of delta: {delta.delta_locator}."
+            f"Stats collection is only supported for PyArrow tables, but received a table of " \
+            f"type '{type(entry_pyarrow_table)}' for manifest entry {file_idx} of delta: {delta.locator}."
         entry_rows, entry_pyarrow_bytes = len(entry_pyarrow_table), entry_pyarrow_table.nbytes
         delta_manifest_entry_stats[file_idx] = StatsResult.of(entry_rows, entry_pyarrow_bytes)
         total_rows += len(entry_pyarrow_table)
