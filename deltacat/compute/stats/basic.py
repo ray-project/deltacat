@@ -9,6 +9,7 @@ from deltacat.compute.stats.models.stats_result import StatsResult
 from deltacat.compute.stats.types import StatsType
 from deltacat.compute.stats.utils.io import read_cached_delta_stats, cache_delta_stats, \
     get_delta_stats
+from deltacat.compute.stats.utils.intervals import merge_intervals
 
 from deltacat.storage import PartitionLocator, DeltaLocator
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -22,7 +23,7 @@ def collect(
         deltacat_storage=unimplemented_deltacat_storage) -> Dict[int, StatsResult]:
     delta_stream_range_stats: Dict[int, StatsResult] = {}
     discover_deltas_pending: List[ObjectRef] = []
-    for range_pair in delta_stream_position_range_set:
+    for range_pair in merge_intervals(delta_stream_position_range_set):
         begin_pos, end_pos = range_pair
         promise: ObjectRef[StatsCompletionInfo] = read_cached_delta_stats.remote(
             source_partition_locator,
