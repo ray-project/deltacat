@@ -1,6 +1,7 @@
 from typing import Set, Tuple
 from collections import Iterable
 
+# TODO: Allow users to add infinite ranges in intervals: i.e. (5, None) => (5, math.inf)
 def merge_intervals(intervals: Set[Tuple[int, int]]):
     merged = set()
     intervals_list: List[Tuple[int, int]] = list(intervals)
