@@ -1,28 +1,43 @@
 import logging
 import json
+from typing import List
 
 from deltacat.compute.stats.models.stats_completion_info import StatsCompletionInfo
+from deltacat.compute.stats.models.dataset_column_stats import DatasetColumnStats
 from deltacat.storage import DeltaLocator
 from deltacat import logs
 from deltacat.aws import s3u as s3_utils
+from deltacat.utils.common import sha1_hexdigest
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def get_stats_completion_file_s3_url(
         bucket: str,
+        column_name: str,
         delta_locator: DeltaLocator) -> str:
+    stats_column_id = f"{delta_locator.canonical_string()}|{column_name}"
+    stats_column_hexdigest = sha1_hexdigest(stats_column_id.encode("utf-8"))
+    base_path = s3_utils.get_s3_base_path(bucket)
+    return f"{base_path}/{stats_column_hexdigest}.json"
 
-    base_url = delta_locator.path(f"s3://{bucket}")
-    return f"{base_url}.json"
+
+def read_stats_completion_file_by_columns(
+        bucket: str,
+        column_names: List[str],
+        delta_locator: DeltaLocator) -> List[DatasetColumnStats]:
+    return [DatasetColumnStats.of(column, read_stats_completion_file(bucket, column, delta_locator))
+            for column in column_names]
 
 
 def read_stats_completion_file(
         bucket: str,
+        column_name: str,
         delta_locator: DeltaLocator) -> StatsCompletionInfo:
 
     stats_completion_file_url = get_stats_completion_file_s3_url(
         bucket,
+        column_name,
         delta_locator
     )
     logger.info(
@@ -38,12 +53,13 @@ def read_stats_completion_file(
 
 def write_stats_completion_file(
         bucket: str,
+        column_name: str,
         stats_completion_info: StatsCompletionInfo):
-
     logger.info(
         f"writing stats completion file contents: {stats_completion_info}")
     stats_completion_file_s3_url = get_stats_completion_file_s3_url(
         bucket,
+        column_name,
         stats_completion_info.delta_locator,
     )
     logger.info(

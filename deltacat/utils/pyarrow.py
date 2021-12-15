@@ -152,7 +152,7 @@ def _add_column_kwargs(
         )
     else:
         if content_type in TABULAR_CONTENT_TYPES:
-            kwargs["columns"]: include_columns
+            kwargs["columns"] = include_columns
         else:
             if include_columns:
                 logger.warning(
