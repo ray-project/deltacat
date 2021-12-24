@@ -175,7 +175,7 @@ def read_file(
             # Timeout error not caught by botocore
             raise RetryableError(f"Retry table download from: {s3_url}") \
                 from e
-        raise NonRetryableError(f"Failed table table download from: {s3_url}") \
+        raise NonRetryableError(f"Failed table download from: {s3_url}") \
             from e
 
 

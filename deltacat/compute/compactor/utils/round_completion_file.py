@@ -13,8 +13,8 @@ def get_round_completion_file_s3_url(
         source_partition_locator: PartitionLocator,
         pki_root_path: str) -> str:
 
-    source_hexdigest = source_partition_locator.hexdigest()
-    return f"s3://{bucket}/{source_hexdigest}/{pki_root_path}.json"
+    base_url = source_partition_locator.path(f"s3://{bucket}")
+    return f"{base_url}/{pki_root_path}.json"
 
 
 def read_round_completion_file(
