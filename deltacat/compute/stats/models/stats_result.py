@@ -1,11 +1,10 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Optional, List, Set, Dict
+from typing import Optional, List, Set, Dict, Any
 
 from collections import defaultdict
 from deltacat.compute.stats.types import StatsType, ALL_STATS_TYPES
-from deltacat.utils.common import camel_case_to_snake_case
 
 
 class StatsResult(dict):
@@ -24,6 +23,11 @@ class StatsResult(dict):
     @property
     def pyarrow_table_bytes(self) -> int:
         return self[StatsType.PYARROW_TABLE_BYTES.value]
+
+    @staticmethod
+    def from_stats_types(stats_types: Dict[StatsType, Any]) -> StatsResult:
+        return StatsResult({k: v for k, v in stats_types.items()
+                            if k in [StatsType.ROW_COUNT, StatsType.PYARROW_TABLE_BYTES]})
 
     @staticmethod
     def merge(stats_list: List[StatsResult],
@@ -49,7 +53,7 @@ class StatsResult(dict):
         # Fallback to all stat types if not provided
         stats_to_collect: Set = stat_types or ALL_STATS_TYPES
 
-        kwargs: Dict[str, int] = defaultdict(int)
+        kwargs: Dict[StatsType, int] = defaultdict(int)
         for stats_result in stats_list:
             for stat_type in stats_to_collect:
                 kwargs[stat_type.value] += stats_result[stat_type.value]
@@ -57,5 +61,4 @@ class StatsResult(dict):
         if record_row_count_once and StatsType.ROW_COUNT in stats_to_collect:
             kwargs[StatsType.ROW_COUNT.value] = stats_list[0].row_count
 
-        kwargs = {camel_case_to_snake_case(k): v for k, v in kwargs.items()}
-        return StatsResult.of(**kwargs)
+        return StatsResult.from_stats_types(kwargs)

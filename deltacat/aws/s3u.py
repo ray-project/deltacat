@@ -431,6 +431,3 @@ def download(
                 f"file not found: {s3_url}")
     return None
 
-
-def get_s3_base_path(bucket_key: str):
-    return f"s3://{bucket_key}/"

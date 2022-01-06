@@ -1,7 +1,7 @@
 import ray
 from typing import Dict, Set, Tuple, List, Optional
 
-from deltacat.compute.stats.models.dataset_stats import DatasetStats
+from deltacat.compute.stats.models.delta_stats import DeltaStats
 from ray.types import ObjectRef
 
 from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
@@ -22,14 +22,13 @@ from deltacat.storage import interface as unimplemented_deltacat_storage
 def collect(
         source_partition_locator: PartitionLocator,
         delta_stream_position_range_set: Set[Tuple[int, int]],  # TODO: R&D on RangeSet impl
-        stat_types: Optional[Set[StatsType]],
         columns: Optional[List[str]] = None,
         stat_results_s3_bucket: Optional[str] = None,
-        deltacat_storage=unimplemented_deltacat_storage) -> Dict[int, StatsResult]:
-    delta_stream_range_stats: Dict[int, StatsResult] = {}
+        deltacat_storage=unimplemented_deltacat_storage) -> Dict[int, DeltaStats]:
+    delta_stream_range_stats: Dict[int, DeltaStats] = {}
     delta_range_lookup_pending: List[ObjectRef[List[Delta]]] = []
 
-    if columns is None:
+    if not columns:
         columns = deltacat_storage.get_table_version_column_names(source_partition_locator.namespace,
                                                                   source_partition_locator.table_name,
                                                                   source_partition_locator.table_version)
@@ -42,16 +41,16 @@ def collect(
     delta_list_by_ranges: List[List[Delta]] = ray.get(delta_range_lookup_pending)
     deltas = [delta for delta_list in delta_list_by_ranges for delta in delta_list]
 
-    delta_stats_processed_list: List[DatasetStats] = _collect_stats_from_deltas(deltas,
-                                                                                columns,
-                                                                                stat_results_s3_bucket,
-                                                                                deltacat_storage)
+    delta_stats_processed_list: List[DeltaStats] = _collect_stats_from_deltas(deltas,
+                                                                              columns,
+                                                                              stat_results_s3_bucket,
+                                                                              deltacat_storage)
 
     for delta_column_stats in delta_stats_processed_list:
         assert len(delta_column_stats.columns) > 0, \
             f"Expected columns of: {delta_column_stats} to be non-empty"
         stream_position = delta_column_stats.columns[0].manifest_stats.delta_locator.stream_position
-        delta_stream_range_stats[stream_position] = StatsResult.merge([delta_column_stats.stats], stat_types)
+        delta_stream_range_stats[stream_position] = delta_column_stats
 
     return delta_stream_range_stats
 
@@ -72,7 +71,7 @@ def collect_from_deltas(
                                                                   delta_locator.table_name,
                                                                   delta_locator.table_version)
 
-    delta_stats_processed_list: List[DatasetStats] = \
+    delta_stats_processed_list: List[DeltaStats] = \
         _collect_stats_from_deltas(deltas, columns, stat_results_s3_bucket, deltacat_storage)
 
     return StatsResult.merge([delta_ds.stats for delta_ds in delta_stats_processed_list], stat_types)
@@ -82,9 +81,9 @@ def _collect_stats_from_deltas(
         deltas: List[Delta],
         columns: Optional[List[str]] = None,
         stat_results_s3_bucket: Optional[str] = None,
-        deltacat_storage=unimplemented_deltacat_storage) -> List[DatasetStats]:
+        deltacat_storage=unimplemented_deltacat_storage) -> List[DeltaStats]:
     delta_cache_lookup_pending: List[ObjectRef[DeltaStatsCacheResult]] = []
-    delta_stats_compute_pending: List[ObjectRef[DatasetStats]] = []
+    delta_stats_compute_pending: List[ObjectRef[DeltaStats]] = []
 
     for delta in deltas:
         if stat_results_s3_bucket:
@@ -101,25 +100,25 @@ def _collect_stats_from_deltas(
 
 def _process_stats(
         delta_cache_lookup_pending: List[ObjectRef[DeltaStatsCacheResult]],
-        delta_stats_compute_pending: List[ObjectRef[DatasetStats]],
+        delta_stats_compute_pending: List[ObjectRef[DeltaStats]],
         stat_results_s3_bucket: Optional[str] = None,
-        deltacat_storage=unimplemented_deltacat_storage) -> List[DatasetStats]:
+        deltacat_storage=unimplemented_deltacat_storage) -> List[DeltaStats]:
     if stat_results_s3_bucket:
-        delta_stats_processed_list: List[DatasetStats] = _resolve_pending_stats_and_cache(delta_cache_lookup_pending,
-                                                                                          stat_results_s3_bucket,
-                                                                                          deltacat_storage)
+        delta_stats_processed_list: List[DeltaStats] = _resolve_pending_stats_and_cache(delta_cache_lookup_pending,
+                                                                                        stat_results_s3_bucket,
+                                                                                        deltacat_storage)
     else:
-        delta_stats_processed_list: List[DatasetStats] = _resolve_pending_stats(delta_stats_compute_pending)
+        delta_stats_processed_list: List[DeltaStats] = _resolve_pending_stats(delta_stats_compute_pending)
 
     return delta_stats_processed_list
 
 
 def _resolve_pending_stats_and_cache(delta_cache_lookup_pending: List[ObjectRef[DeltaStatsCacheResult]],
                                      stat_results_s3_bucket: str,
-                                     deltacat_storage) -> List[DatasetStats]:
+                                     deltacat_storage) -> List[DeltaStats]:
     delta_stats_cached_list, delta_stats_pending_list = \
         _get_cached_and_pending_stats(delta_cache_lookup_pending, deltacat_storage)
-    delta_stats_resolved_list: List[DatasetStats] = _resolve_pending_stats(delta_stats_pending_list)
+    delta_stats_resolved_list: List[DeltaStats] = _resolve_pending_stats(delta_stats_pending_list)
 
     # Cache the stats into the file store
     delta_stats_to_cache: List[ObjectRef] = [cache_delta_column_stats.remote(stat_results_s3_bucket, dcs)
@@ -132,13 +131,13 @@ def _resolve_pending_stats_and_cache(delta_cache_lookup_pending: List[ObjectRef[
 
 def _get_cached_and_pending_stats(discover_deltas_pending: List[ObjectRef[DeltaStatsCacheResult]],
                                   deltacat_storage=unimplemented_deltacat_storage) \
-        -> Tuple[List[DatasetStats], List[ObjectRef[DatasetStats]]]:
+        -> Tuple[List[DeltaStats], List[ObjectRef[DeltaStats]]]:
     """
     Returns a tuple of a list of delta stats fetched from the cache, and a list of Ray tasks which will
     calculate the stats for deltas on cache miss.
     """
-    delta_stats_processed: List[DatasetStats] = []
-    delta_stats_pending: List[ObjectRef[DatasetStats]] = []
+    delta_stats_processed: List[DeltaStats] = []
+    delta_stats_pending: List[ObjectRef[DeltaStats]] = []
     while discover_deltas_pending:
         ready, discover_deltas_pending = ray.wait(discover_deltas_pending)
 
@@ -155,12 +154,12 @@ def _get_cached_and_pending_stats(discover_deltas_pending: List[ObjectRef[DeltaS
     return delta_stats_processed, delta_stats_pending
 
 
-def _resolve_pending_stats(delta_stats_pending_list: List[ObjectRef[DatasetStats]]) \
-        -> List[DatasetStats]:
-    delta_stats_processed_list: List[DatasetStats] = []
+def _resolve_pending_stats(delta_stats_pending_list: List[ObjectRef[DeltaStats]]) \
+        -> List[DeltaStats]:
+    delta_stats_processed_list: List[DeltaStats] = []
     while delta_stats_pending_list:
         ready, delta_stats_pending_list = ray.wait(delta_stats_pending_list)
-        processed_stats_batch: List[DatasetStats] = ray.get(ready)
+        processed_stats_batch: List[DeltaStats] = ray.get(ready)
         delta_stats_processed_list.extend(processed_stats_batch)
 
     return delta_stats_processed_list

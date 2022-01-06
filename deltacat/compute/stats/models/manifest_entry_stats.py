@@ -9,7 +9,7 @@ from deltacat.storage import DeltaLocator
 from typing import Any, Dict, List
 
 
-class StatsCompletionInfo(dict):
+class ManifestEntryStats(dict):
     """
     Holds computed statistics for one or more manifest entries (tables) and their corresponding delta locator.
 
@@ -17,11 +17,11 @@ class StatsCompletionInfo(dict):
     """
     @staticmethod
     def of(manifest_entries_stats: List[StatsResult],
-           delta_locator: DeltaLocator) -> StatsCompletionInfo:
+           delta_locator: DeltaLocator) -> ManifestEntryStats:
 
-        sci = StatsCompletionInfo()
+        sci = ManifestEntryStats()
         sci["deltaLocator"] = delta_locator
-        sci["manifestEntriesStats"] = manifest_entries_stats
+        sci["stats"] = manifest_entries_stats
         sci["pyarrowVersion"] = pa.__version__
         return sci
 
@@ -33,8 +33,8 @@ class StatsCompletionInfo(dict):
         return val
 
     @property
-    def manifest_entries_stats(self) -> List[StatsResult]:
-        val = self["manifestEntriesStats"]
+    def stats(self) -> List[StatsResult]:
+        val = self["stats"]
         return [StatsResult(_) for _ in val] if val else []
 
     @property

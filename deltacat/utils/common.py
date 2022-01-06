@@ -37,10 +37,3 @@ def sha1_hexdigest(_bytes) -> str:
     hasher = hashlib.sha1()
     hasher.update(_bytes)
     return hasher.hexdigest()
-
-
-def camel_case_to_snake_case(s: str):
-    return camel_case_regex_pattern.sub('_', s).lower()
-
-
-camel_case_regex_pattern = re.compile(r'(?<!^)(?=[A-Z])')

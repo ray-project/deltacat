@@ -4,21 +4,21 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import List, Dict, Optional, Set, Any, NamedTuple
 
-from deltacat.compute.stats.models.dataset_column_stats import DatasetColumnStats
-from deltacat.compute.stats.models.stats_completion_info import StatsCompletionInfo
+from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
+from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.stats_result import StatsResult
 from deltacat.compute.stats.types import StatsType
 from deltacat.storage import DeltaLocator
 
 
-class DatasetStats(dict):
+class DeltaStats(dict):
     """
     Stats container for all columns across a dataset (a list of tables).
 
     Provides a stats summary for the entire dataset and contains
-    a list of references to DatasetColumnStats, one for each column in the dataset.
+    a list of references to DeltaColumnStats, one for each column in the dataset.
 
-    Each DatasetColumnStats has a column name and a StatsCompletionInfo object,
+    Each DeltaColumnStats has a column name and a ManifestEntryStats object,
     which contains stats results of each table for that particular column.
 
     Example of visual representation:
@@ -34,34 +34,34 @@ class DatasetStats(dict):
         G   H   I
         J   K   L
 
-        DatasetStats([
-            DatasetColumnStats("foo",
-                StatsCompletionInfo([
+        DeltaStats([
+            DeltaColumnStats("foo",
+                ManifestEntryStats([
                     Stats([A, D]),     #  Table 1
                     Stats([G, J]),     #  Table 2
                 ]))
-            DatasetColumnStats("bar",
-                StatsCompletionInfo([
+            DeltaColumnStats("bar",
+                ManifestEntryStats([
                     Stats([B, E]),     #  Table 1
                     Stats([H, K]),     #  Table 2
                 ]))
-            DatasetColumnStats("baz",
-                StatsCompletionInfo([
+            DeltaColumnStats("baz",
+                ManifestEntryStats([
                     Stats([C, F]),     #  Table 1
                     Stats([I, L]),     #  Table 2
                 ]))
-        ], Stats(AllDatasetColumnStats))
+        ], Stats(AllDeltaColumnStats))
     """
 
     @staticmethod
-    def of(columns: List[DatasetColumnStats]):
-        ds = DatasetStats()
+    def of(columns: List[DeltaColumnStats]):
+        ds = DeltaStats()
         ds["columns"] = columns
-        ds["stats"] = DatasetStats.generate_stats_from_columns(columns)
+        ds["stats"] = DeltaStats.generate_stats_from_columns(columns)
         return ds
 
     @property
-    def columns(self) -> List[DatasetColumnStats]:
+    def columns(self) -> List[DeltaColumnStats]:
         return self["columns"]
 
     @property
@@ -70,63 +70,63 @@ class DatasetStats(dict):
         if val is not None and not isinstance(val, StatsResult):
             self["stats"] = val = StatsResult(val)
         elif val is None and self.columns:
-            self["stats"] = val = DatasetStats.generate_stats_from_columns(self.columns)
+            self["stats"] = val = DeltaStats.generate_stats_from_columns(self.columns)
 
         return val
 
     @property
     def column_names(self) -> List[str]:
-        return DatasetStats.get_column_names(self.columns)
+        return DeltaStats.get_column_names(self.columns)
 
     def table_stats(self, table_idx: int) -> StatsResult:
-        return StatsResult.merge(DatasetStats.get_table_stats_list(self.columns, table_idx),
+        return StatsResult.merge(DeltaStats.get_table_stats_list(self.columns, table_idx),
                                  record_row_count_once=True)
 
     def table_stats_list(self, table_idx: int) -> List[StatsResult]:
-        return DatasetStats.get_table_stats_list(self.columns, table_idx)
+        return DeltaStats.get_table_stats_list(self.columns, table_idx)
 
     @staticmethod
-    def get_table_stats_list(columns: List[DatasetColumnStats], table_idx: int) -> List[StatsResult]:
+    def get_table_stats_list(columns: List[DeltaColumnStats], table_idx: int) -> List[StatsResult]:
         """
         Helper method to provide a list of columnar stats for a specific table/manifest entry
 
         TODO (ricmiyam): A table specific stats container would be nice to have (i.e. TableStats, TableColumnStats)
         """
-        dataset_columnar_stats_list: List[StatsCompletionInfo] = [column.manifest_stats for column in columns
-                                                                  if column.manifest_stats is not None]
+        dataset_columnar_stats_list: List[ManifestEntryStats] = [column.manifest_stats for column in columns
+                                                                 if column.manifest_stats is not None]
         try:
-            return [stats.manifest_entries_stats[table_idx] for stats in dataset_columnar_stats_list]
+            return [stats.stats[table_idx] for stats in dataset_columnar_stats_list]
         except IndexError:
-            sci: StatsCompletionInfo = dataset_columnar_stats_list[0]
+            sci: ManifestEntryStats = dataset_columnar_stats_list[0]
             raise ValueError(f"Table index {table_idx} is not present in this dataset of {sci.delta_locator} "
-                             f"with manifest table count of {len(sci.manifest_entries_stats)}")
+                             f"with manifest table count of {len(sci.stats)}")
 
     @staticmethod
-    def get_column_names(columns: List[DatasetColumnStats]):
+    def get_column_names(columns: List[DeltaColumnStats]):
         return [column_stats.column for column_stats in columns] if columns else []
 
     @staticmethod
-    def generate_stats_from_columns(columns: List[DatasetColumnStats],
+    def generate_stats_from_columns(columns: List[DeltaColumnStats],
                                     stat_types: Optional[Set[StatsType]] = None) -> Optional[StatsResult]:
         assert columns and len(columns) > 0, \
-            f"Expected columns {columns} of type ({type(columns)}) " \
-            f"to be a non-empty list of DatasetColumnStats"
+            f"Expected columns `{columns}` of type `{type(columns)}` " \
+            f"to be a non-empty list of DeltaColumnStats"
 
         assert all([col.manifest_stats for col in columns]), \
             f"Expected stats completion info to be present in each item of {columns} "
 
-        manifest_entry_count = len(columns[0].manifest_stats.manifest_entries_stats)
+        manifest_entry_count = len(columns[0].manifest_stats.stats)
         column_stats_map: Dict[str, List[Optional[StatsResult]]] = \
             defaultdict(lambda: [None] * manifest_entry_count)
 
         for column_stats in columns:
-            for file_idx, entry_stats in enumerate(column_stats.manifest_stats.manifest_entries_stats):
+            for file_idx, entry_stats in enumerate(column_stats.manifest_stats.stats):
                 column_stats_map[column_stats.column][file_idx] = entry_stats
 
-        return DatasetStats._merge_stats_from_columns_to_dataset(DatasetStats.get_column_names(columns),
-                                                                 column_stats_map,
-                                                                 manifest_entry_count,
-                                                                 stat_types)
+        return DeltaStats._merge_stats_from_columns_to_dataset(DeltaStats.get_column_names(columns),
+                                                               column_stats_map,
+                                                               manifest_entry_count,
+                                                               stat_types)
 
     @staticmethod
     def _merge_stats_from_columns_to_dataset(column_names: List[str],
@@ -145,7 +145,7 @@ class DatasetStats(dict):
         return StatsResult.merge(table_stats_list, stat_types)
 
 
-class DatasetStatsCacheMiss(NamedTuple):
+class DeltaStatsCacheMiss(NamedTuple):
     """
     A helper class for cache miss results from DeltaStatsCacheResult.
 
