@@ -53,12 +53,12 @@ class StatsResult(dict):
         # Fallback to all stat types if not provided
         stats_to_collect: Set = stat_types or ALL_STATS_TYPES
 
-        kwargs: Dict[StatsType, int] = defaultdict(int)
+        merged_stats: Dict[StatsType, int] = defaultdict(int)
         for stats_result in stats_list:
             for stat_type in stats_to_collect:
-                kwargs[stat_type.value] += stats_result[stat_type.value]
+                merged_stats[stat_type.value] += stats_result[stat_type.value]
 
         if record_row_count_once and StatsType.ROW_COUNT in stats_to_collect:
-            kwargs[StatsType.ROW_COUNT.value] = stats_list[0].row_count
+            merged_stats[StatsType.ROW_COUNT.value] = stats_list[0].row_count
 
-        return StatsResult.from_stats_types(kwargs)
+        return StatsResult.from_stats_types(merged_stats)
