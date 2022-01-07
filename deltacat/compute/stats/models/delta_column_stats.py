@@ -10,16 +10,17 @@ from deltacat.compute.stats.types import StatsType
 
 class DeltaColumnStats(dict):
     """
-    Stats container for an individual column across a dataset (a list of tables).
+    Stats container for an individual column of a Delta.
+    Provides distinct stats results for each manifest entry of the Delta.
 
     Example:
-        Table 1
+        Manifest Entry 1
         =======
         foo bar baz
         A   B   C
         D   E   F
 
-        Table 2
+        Manifest Entry 2
         =======
         foo bar baz
         G   H   I
@@ -27,18 +28,18 @@ class DeltaColumnStats(dict):
 
         DeltaColumnStats("foo",
             ManifestEntryStats([
-                SomeStats([A, D]),     #  Table 1
-                SomeStats([G, J]),     #  Table 2
+                StatsResult([A, D]),     #  Manifest Entry 1
+                StatsResult([G, J]),     #  Manifest Entry 2
             ]))
         DeltaColumnStats("bar",
             ManifestEntryStats([
-                SomeStats([B, E]),     #  Table 1
-                SomeStats([H, K]),     #  Table 2
+                StatsResult([B, E]),     #  Manifest Entry 1
+                StatsResult([H, K]),     #  Manifest Entry 2
             ]))
         DeltaColumnStats("baz",
             ManifestEntryStats([
-                SomeStats([C, F]),     #  Table 1
-                SomeStats([I, L]),     #  Table 2
+                StatsResult([C, F]),     #  Manifest Entry 1
+                StatsResult([I, L]),     #  Manifest Entry 2
             ]))
     """
     @staticmethod
@@ -67,7 +68,7 @@ class DeltaColumnStats(dict):
     @property
     def stats(self) -> Optional[StatsResult]:
         """
-        Aggregate of all stats for this dataset-wide column
+        Aggregate of all stats for this column across every delta manifest entry.
         """
         val: Dict[str, Any] = self.get("stats")
         if val is not None and not isinstance(val, StatsResult):

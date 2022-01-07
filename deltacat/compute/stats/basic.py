@@ -47,9 +47,9 @@ def collect(
                                                                               deltacat_storage)
 
     for delta_column_stats in delta_stats_processed_list:
-        assert len(delta_column_stats.columns) > 0, \
+        assert len(delta_column_stats.column_stats) > 0, \
             f"Expected columns of `{delta_column_stats}` to be non-empty"
-        stream_position = delta_column_stats.columns[0].manifest_stats.delta_locator.stream_position
+        stream_position = delta_column_stats.column_stats[0].manifest_stats.delta_locator.stream_position
         delta_stream_range_stats[stream_position] = delta_column_stats
 
     return delta_stream_range_stats
@@ -123,7 +123,7 @@ def _resolve_pending_stats_and_cache(delta_cache_lookup_pending: List[ObjectRef[
     # Cache the stats into the file store
     delta_stats_to_cache: List[ObjectRef] = [cache_delta_column_stats.remote(stat_results_s3_bucket, dcs)
                                              for dataset_stats in delta_stats_resolved_list
-                                             for dcs in dataset_stats.columns]
+                                             for dcs in dataset_stats.column_stats]
     ray.get(delta_stats_to_cache)
 
     return [*delta_stats_cached_list, *delta_stats_resolved_list]
