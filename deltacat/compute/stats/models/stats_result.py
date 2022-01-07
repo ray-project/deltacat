@@ -10,7 +10,7 @@ from deltacat.compute.stats.types import StatsType, ALL_STATS_TYPES
 class StatsResult(dict):
     @staticmethod
     def of(row_count: Optional[int] = 0,
-           pyarrow_table_bytes: Optional[int] = 0):
+           pyarrow_table_bytes: Optional[int] = 0) -> StatsResult:
         sr = StatsResult()
         sr[StatsType.ROW_COUNT.value] = row_count
         sr[StatsType.PYARROW_TABLE_BYTES.value] = pyarrow_table_bytes

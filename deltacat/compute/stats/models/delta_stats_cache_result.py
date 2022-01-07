@@ -1,3 +1,6 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 from typing import Optional
 
 from deltacat.compute.stats.models.delta_stats import DeltaStats, DeltaStatsCacheMiss
@@ -19,7 +22,7 @@ class DeltaStatsCacheResult(dict):
     as a reference to the delta metadata tied to the missing dataset columns.
     """
     @staticmethod
-    def of(hits: Optional[DeltaStats], misses: Optional[DeltaStatsCacheMiss]):
+    def of(hits: Optional[DeltaStats], misses: Optional[DeltaStatsCacheMiss]) -> DeltaStatsCacheResult:
         cds = DeltaStatsCacheResult()
         cds["hits"] = hits
         cds["misses"] = misses

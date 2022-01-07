@@ -54,7 +54,7 @@ def read_stats_completion_file(
 def write_stats_completion_file(
         bucket: str,
         column_name: str,
-        stats_completion_info: ManifestEntryStats):
+        stats_completion_info: ManifestEntryStats) -> None:
     logger.info(
         f"writing stats completion file contents: {stats_completion_info}")
     stats_completion_file_s3_url = get_stats_completion_file_s3_url(

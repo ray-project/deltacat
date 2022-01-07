@@ -46,7 +46,7 @@ def read_cached_delta_stats(delta: Delta,
 
 @ray.remote
 def cache_delta_column_stats(stat_results_s3_bucket: str,
-                             dataset_column: DeltaColumnStats):
+                             dataset_column: DeltaColumnStats) -> None:
     scf.write_stats_completion_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
 
 

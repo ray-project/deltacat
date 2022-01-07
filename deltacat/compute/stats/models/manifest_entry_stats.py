@@ -19,11 +19,11 @@ class ManifestEntryStats(dict):
     def of(manifest_entries_stats: List[StatsResult],
            delta_locator: DeltaLocator) -> ManifestEntryStats:
 
-        sci = ManifestEntryStats()
-        sci["deltaLocator"] = delta_locator
-        sci["stats"] = manifest_entries_stats
-        sci["pyarrowVersion"] = pa.__version__
-        return sci
+        mes = ManifestEntryStats()
+        mes["deltaLocator"] = delta_locator
+        mes["stats"] = manifest_entries_stats
+        mes["pyarrowVersion"] = pa.__version__
+        return mes
 
     @property
     def delta_locator(self) -> DeltaLocator:

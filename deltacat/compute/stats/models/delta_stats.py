@@ -54,7 +54,7 @@ class DeltaStats(dict):
     """
 
     @staticmethod
-    def of(column_stats: List[DeltaColumnStats]):
+    def of(column_stats: List[DeltaColumnStats]) -> DeltaStats:
         ds = DeltaStats()
         ds["column_stats"] = column_stats
         ds["stats"] = DeltaStats.get_delta_stats(column_stats)
@@ -100,7 +100,7 @@ class DeltaStats(dict):
                              f"with manifest table count of {len(sci.stats)}")
 
     @staticmethod
-    def get_column_names(columns: List[DeltaColumnStats]):
+    def get_column_names(columns: List[DeltaColumnStats]) -> List[str]:
         return [column_stats.column for column_stats in columns] if columns else []
 
     @staticmethod
