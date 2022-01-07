@@ -48,7 +48,7 @@ def collect(
 
     for delta_column_stats in delta_stats_processed_list:
         assert len(delta_column_stats.columns) > 0, \
-            f"Expected columns of: {delta_column_stats} to be non-empty"
+            f"Expected columns of `{delta_column_stats}` to be non-empty"
         stream_position = delta_column_stats.columns[0].manifest_stats.delta_locator.stream_position
         delta_stream_range_stats[stream_position] = delta_column_stats
 
