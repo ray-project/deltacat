@@ -1,29 +1,37 @@
-from typing import List
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
 
-from deltacat.compute.stats.models.stats_completion_info import StatsCompletionInfo
-from deltacat.storage import DeltaLocator
+from typing import Optional
+
+from deltacat.compute.stats.models.delta_stats import DeltaStats, DeltaStatsCacheMiss
 
 
 class DeltaStatsCacheResult(dict):
     """
-    A result wrapper for a list of cached delta stats in a file system.
+    A helper class containing the results from a cache query.
 
-    `stats` represents a list of stats completion info for each delta resulting in a cache hit.
-    `cache_miss_delta_locators` represents a list of delta locators for each delta resulting in a cache miss.
+    Stats are fetched and cached at the column level, and each column may represent one
+    or more manifest entries.
+
+    `hits` represents a DeltaStats object that contains dataset-wide statistics across
+    many of its tables (or manifest entries) and is comprised of one or more column-wide
+    DeltaColumnStats.
+
+    `misses` represents a DeltaStatsCacheMiss object that contains a list of
+    column names that were not found in the file system (ex: S3) and a `delta_locator`
+    as a reference to the delta metadata tied to the missing dataset columns.
     """
     @staticmethod
-    def of(stats: List[StatsCompletionInfo], cache_miss_delta_locators: List[DeltaLocator]):
+    def of(hits: Optional[DeltaStats], misses: Optional[DeltaStatsCacheMiss]) -> DeltaStatsCacheResult:
         cds = DeltaStatsCacheResult()
-        cds["stats"] = stats
-        cds["cacheMissDeltaLocators"] = cache_miss_delta_locators
+        cds["hits"] = hits
+        cds["misses"] = misses
         return cds
 
     @property
-    def stats(self) -> List[StatsCompletionInfo]:
-        val = self["stats"]
-        return [StatsCompletionInfo(_) for _ in val] if val else []
+    def hits(self) -> Optional[DeltaStats]:
+        return self["hits"]
 
     @property
-    def cache_miss_delta_locators(self) -> List[DeltaLocator]:
-        val = self["cacheMissDeltaLocators"]
-        return [DeltaLocator(_) for _ in val] if val else []
+    def misses(self) -> Optional[DeltaStatsCacheMiss]:
+        return self["misses"]

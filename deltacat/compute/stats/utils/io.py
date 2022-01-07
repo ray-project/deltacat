@@ -2,74 +2,67 @@ import logging
 
 import pyarrow
 import ray
+from collections import defaultdict
+
 import deltacat.compute.stats.utils.stats_completion_file as scf
-from deltacat.aws.redshift import Manifest
 from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
-from deltacat.compute.stats.models.stats_completion_info import StatsCompletionInfo
+from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
+from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
+from deltacat.compute.stats.models.delta_stats import DeltaStats, DeltaStatsCacheMiss
 
 from deltacat.compute.stats.models.stats_result import StatsResult
-from deltacat.compute.stats.types import StatsType
 from deltacat.storage import PartitionLocator, Delta, DeltaLocator
-from deltacat import logs, LocalTable
+from deltacat import logs, LocalTable, TableType
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
-from typing import Dict, List, Set, Tuple
-
+from typing import Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 @ray.remote
-def read_cached_delta_stats(
-        source_partition_locator: PartitionLocator,
-        start_position_inclusive: int,
-        end_position_inclusive: int,
-        stat_results_s3_bucket: str,
-        deltacat_storage=unimplemented_deltacat_storage) -> DeltaStatsCacheResult:
+def read_cached_delta_stats(delta: Delta,
+                            columns_to_fetch: List[str],
+                            stat_results_s3_bucket: str) -> DeltaStatsCacheResult:
 
-    deltas: List[Delta] = _get_deltas_from_range(source_partition_locator,
-                                                 start_position_inclusive,
-                                                 end_position_inclusive,
-                                                 deltacat_storage)
-    cache_hit_stats_completion_info, cache_miss_delta_locators = [], []
+    delta_locator = DeltaLocator.of(delta.partition_locator, delta.stream_position)
+    column_stats_completion_info: List[DeltaColumnStats] = \
+        scf.read_stats_completion_file_by_columns(stat_results_s3_bucket, columns_to_fetch, delta_locator)
 
-    for delta in deltas:
-        delta_locator = DeltaLocator.of(delta.partition_locator, delta.stream_position)
-        stats_completion_info_s3 = scf.read_stats_completion_file(stat_results_s3_bucket, delta_locator)
-        if stats_completion_info_s3:
-            cache_hit_stats_completion_info.append(stats_completion_info_s3)
+    found_columns_stats: List[DeltaColumnStats] = []
+    missed_columns: List[str] = []
+    for column_stats in column_stats_completion_info:
+        if column_stats.manifest_stats:
+            found_columns_stats.append(column_stats)
         else:
-            cache_miss_delta_locators.append(delta_locator)
+            missed_columns.append(column_stats.column)
 
-    return DeltaStatsCacheResult.of(cache_hit_stats_completion_info, cache_miss_delta_locators)
+    found_stats: Optional[DeltaStats] = DeltaStats.of(found_columns_stats) if found_columns_stats else None
+    missed_stats: Optional[DeltaStatsCacheMiss] = DeltaStatsCacheMiss(missed_columns, delta.locator) \
+        if missed_columns else None
+
+    return DeltaStatsCacheResult.of(found_stats, missed_stats)
 
 
 @ray.remote
-def cache_delta_stats(stat_results_s3_bucket: str,
-                      stats_completion_info: StatsCompletionInfo):
-    scf.write_stats_completion_file(stat_results_s3_bucket, stats_completion_info)
+def cache_delta_column_stats(stat_results_s3_bucket: str,
+                             dataset_column: DeltaColumnStats) -> None:
+    scf.write_stats_completion_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
 
 
 @ray.remote
 def get_delta_stats(delta_locator: DeltaLocator,
-                    stat_types_to_collect: Set[StatsType],
-                    deltacat_storage=unimplemented_deltacat_storage) -> StatsCompletionInfo:
+                    columns: Optional[List[str]] = None,
+                    deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
 
-    delta_stats = {}
     manifest = deltacat_storage.get_delta_manifest(delta_locator)
     delta = Delta.of(delta_locator, None, None, None, manifest)
-    row_count, delta_bytes_pyarrow, delta_manifest_entry_stats = \
-        _calculate_delta_stats(delta, deltacat_storage)
+    return _collect_stats_by_columns(delta, columns, deltacat_storage)
 
-    if StatsType.ROW_COUNT in stat_types_to_collect:
-        delta_stats[StatsType.ROW_COUNT.value] = row_count
 
-    if StatsType.PYARROW_TABLE_BYTES in stat_types_to_collect:
-        delta_stats[StatsType.PYARROW_TABLE_BYTES.value] = delta_bytes_pyarrow
-
-    delta_stats = StatsResult(delta_stats)
-
-    return StatsCompletionInfo.of(delta_locator, delta_stats, delta_manifest_entry_stats)
+@ray.remote
+def get_deltas_from_range(*args, **kwargs) -> List[Delta]:
+    return _get_deltas_from_range(*args, **kwargs)
 
 
 def _get_deltas_from_range(
@@ -93,23 +86,54 @@ def _get_deltas_from_range(
     return deltas_list_result.all_items()
 
 
-def _calculate_delta_stats(delta: Delta,
-                           deltacat_storage=unimplemented_deltacat_storage) -> Tuple[int, int, Dict[int, StatsResult]]:
-    assert delta.manifest is not None, \
-        f"Manifest should not be missing from delta for stats calculation: {delta}"
-    total_rows, total_pyarrow_bytes = 0, 0
-    delta_manifest_entry_stats: Dict[int, StatsResult] = {}
+def _collect_stats_by_columns(delta: Delta,
+                              columns_to_compute: Optional[List[str]] = None,
+                              deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
+    """
+    Materializes one manifest entry at a time to save memory usage and
+    calculate statistics from each of its columns.
+    """
+    assert delta.manifest is not None, f"Manifest should not be missing from delta for stats calculation: {delta}"
 
+    # Mapping of column_name -> [stats_file_idx_1, stats_file_idx_2, ... stats_file_idx_n]
+    column_stats_map: Dict[str, List[Optional[StatsResult]]] = defaultdict(lambda: [None] * len(delta.manifest.entries))
+
+    total_tables_size = 0
     for file_idx, manifest in enumerate(delta.manifest.entries):
-        entry_pyarrow_table: LocalTable = deltacat_storage.download_delta_manifest_entry(delta, file_idx)
+        entry_pyarrow_table: LocalTable = \
+            deltacat_storage.download_delta_manifest_entry(delta, file_idx, TableType.PYARROW, columns_to_compute)
         assert isinstance(entry_pyarrow_table, pyarrow.Table), \
             f"Stats collection is only supported for PyArrow tables, but received a table of " \
             f"type '{type(entry_pyarrow_table)}' for manifest entry {file_idx} of delta: {delta.locator}."
-        entry_rows, entry_pyarrow_bytes = len(entry_pyarrow_table), entry_pyarrow_table.nbytes
-        delta_manifest_entry_stats[file_idx] = StatsResult.of(entry_rows, entry_pyarrow_bytes)
-        total_rows += len(entry_pyarrow_table)
-        total_pyarrow_bytes += entry_pyarrow_table.nbytes
+        total_tables_size += entry_pyarrow_table.nbytes
+        if not columns_to_compute:
+            columns_to_compute = entry_pyarrow_table.column_names
 
-    return total_rows, total_pyarrow_bytes, delta_manifest_entry_stats
+        for column_idx, pyarrow_column in enumerate(entry_pyarrow_table.columns):
+            column_name = columns_to_compute[column_idx]
+            column_stats_map[column_name][file_idx] = StatsResult.of(len(pyarrow_column), pyarrow_column.nbytes)
+
+    # Add column-wide stats for a list of tables, these will be used for caching and retrieving later
+    delta_ds_column_stats: List[DeltaColumnStats] = \
+        _to_dataset_column_stats(delta.locator, columns_to_compute, column_stats_map)
+
+    dataset_stats: DeltaStats = DeltaStats.of(delta_ds_column_stats)
+
+    # Quick validation for calculations
+    assert dataset_stats.stats.pyarrow_table_bytes == total_tables_size, \
+        f"Expected the size of all PyArrow tables ({total_tables_size} bytes) " \
+        f"to match the sum of each of its columns ({dataset_stats.stats.pyarrow_table_bytes} bytes)"
+
+    return dataset_stats
 
 
+def _to_dataset_column_stats(delta_locator: DeltaLocator,
+                             column_names: List[str],
+                             column_manifest_map: Dict[str, List[Optional[StatsResult]]]) \
+        -> List[DeltaColumnStats]:
+    dataset_stats: List[DeltaColumnStats] = []
+    for column_name in column_names:
+        column_manifest_stats = ManifestEntryStats.of(column_manifest_map[column_name], delta_locator)
+        dataset_column_stats = DeltaColumnStats.of(column_name, column_manifest_stats)
+        dataset_stats.append(dataset_column_stats)
+    return dataset_stats
