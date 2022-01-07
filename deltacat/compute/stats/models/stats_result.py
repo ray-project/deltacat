@@ -8,6 +8,9 @@ from deltacat.compute.stats.types import StatsType, ALL_STATS_TYPES
 
 
 class StatsResult(dict):
+    """
+    A generic container that holds stats for a single manifest entry file.
+    """
     @staticmethod
     def of(row_count: Optional[int] = 0,
            pyarrow_table_bytes: Optional[int] = 0) -> StatsResult:
@@ -18,14 +21,23 @@ class StatsResult(dict):
 
     @property
     def row_count(self) -> int:
+        """
+        Represents the row count of a manifest entry file.
+        """
         return self[StatsType.ROW_COUNT.value]
 
     @property
     def pyarrow_table_bytes(self) -> int:
+        """
+        Represents the size of a manifest entry file (in bytes) as it was loaded into a PyArrow table.
+        """
         return self[StatsType.PYARROW_TABLE_BYTES.value]
 
     @staticmethod
     def from_stats_types(stats_types: Dict[StatsType, Any]) -> StatsResult:
+        """
+        A helper method to filter a dictionary by supported StatsTypes and returns a StatsResult object.
+        """
         return StatsResult({k: v for k, v in stats_types.items()
                             if k in [StatsType.ROW_COUNT, StatsType.PYARROW_TABLE_BYTES]})
 

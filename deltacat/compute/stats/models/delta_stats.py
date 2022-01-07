@@ -62,10 +62,16 @@ class DeltaStats(dict):
 
     @property
     def column_stats(self) -> List[DeltaColumnStats]:
+        """
+        Returns a list of stats associated to each column in this delta.
+        """
         return self["column_stats"]
 
     @property
     def stats(self) -> Optional[StatsResult]:
+        """
+        Returns a StatsResult object that represents this delta, aggregated by the column stats of this delta.
+        """
         val: Dict[str, Any] = self.get("stats")
         if val is not None and not isinstance(val, StatsResult):
             self["stats"] = val = StatsResult(val)
@@ -76,6 +82,9 @@ class DeltaStats(dict):
 
     @property
     def columns(self) -> List[str]:
+        """
+        Returns a list of column names associated to this delta.
+        """
         return DeltaStats.get_column_names(self.column_stats)
 
     def manifest_entry_stats(self, manifest_entry_idx: int) -> StatsResult:
@@ -88,7 +97,7 @@ class DeltaStats(dict):
     @staticmethod
     def get_manifest_entry_column_stats(columns: List[DeltaColumnStats], manifest_entry_idx: int) -> List[StatsResult]:
         """
-        Helper method to provide a list of columnar stats for a specific manifest entry
+        Helper method to provide a list of columnar stats for a specific manifest entry.
         """
         dataset_columnar_stats_list: List[ManifestEntryStats] = [column.manifest_stats for column in columns
                                                                  if column.manifest_stats is not None]
@@ -101,11 +110,18 @@ class DeltaStats(dict):
 
     @staticmethod
     def get_column_names(columns: List[DeltaColumnStats]) -> List[str]:
+        """
+        Returns a list of stats associated to each column in this delta.
+        """
         return [column_stats.column for column_stats in columns] if columns else []
 
     @staticmethod
     def get_delta_stats(columns: List[DeltaColumnStats],
                         stat_types: Optional[Set[StatsType]] = None) -> Optional[StatsResult]:
+        """
+        Merges the column stats for this delta and returns a single StatsResult object,
+        given a list of columns to lookup and the stat types requested.
+        """
         assert columns and len(columns) > 0, \
             f"Expected columns `{columns}` of type `{type(columns)}` " \
             f"to be a non-empty list of DeltaColumnStats"

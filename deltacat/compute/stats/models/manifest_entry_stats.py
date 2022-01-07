@@ -18,6 +18,13 @@ class ManifestEntryStats(dict):
     @staticmethod
     def of(manifest_entries_stats: List[StatsResult],
            delta_locator: DeltaLocator) -> ManifestEntryStats:
+        """
+        Creates a stats container that represents a particular manifest.
+
+        `manifest_entries_stats` are a list of distinct stats for each manifest entry file
+        tied to this manifest. `delta_locator` is provided as a reference to the delta where the
+        manifest entries reside.
+        """
 
         mes = ManifestEntryStats()
         mes["deltaLocator"] = delta_locator
@@ -34,9 +41,15 @@ class ManifestEntryStats(dict):
 
     @property
     def stats(self) -> List[StatsResult]:
+        """
+        Returns a list of distinct stats for each manifest entry file.
+        """
         val = self["stats"]
         return [StatsResult(_) for _ in val] if val else []
 
     @property
     def pyarrow_version(self) -> str:
+        """
+        Read-only property which returns the PyArrow version number as it was written into a file system.
+        """
         return self.get("pyarrowVersion")

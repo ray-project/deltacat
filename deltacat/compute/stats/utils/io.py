@@ -4,7 +4,7 @@ import pyarrow
 import ray
 from collections import defaultdict
 
-import deltacat.compute.stats.utils.stats_completion_file as scf
+import deltacat.compute.stats.utils.manifest_stats_file as scf
 from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
@@ -24,10 +24,15 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def read_cached_delta_stats(delta: Delta,
                             columns_to_fetch: List[str],
                             stat_results_s3_bucket: str) -> DeltaStatsCacheResult:
+    """
+    Ray distributed task to read delta stats from a file system (i.e. S3) based on specified columns.
+    Stats are extracted from columns that are found (cache hit), while columns that are missing
+    from the file system will record their column names and the delta locator as a cache miss.
+    """
 
     delta_locator = DeltaLocator.of(delta.partition_locator, delta.stream_position)
     column_stats_completion_info: List[DeltaColumnStats] = \
-        scf.read_stats_completion_file_by_columns(stat_results_s3_bucket, columns_to_fetch, delta_locator)
+        scf.read_manifest_stats_by_columns(stat_results_s3_bucket, columns_to_fetch, delta_locator)
 
     found_columns_stats: List[DeltaColumnStats] = []
     missed_columns: List[str] = []
@@ -47,13 +52,20 @@ def read_cached_delta_stats(delta: Delta,
 @ray.remote
 def cache_delta_column_stats(stat_results_s3_bucket: str,
                              dataset_column: DeltaColumnStats) -> None:
-    scf.write_stats_completion_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
+    """
+    Ray distributed task to cache the delta column stats into a file system (i.e. S3).
+    """
+    scf.write_manifest_stats_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
 
 
 @ray.remote
 def get_delta_stats(delta_locator: DeltaLocator,
                     columns: Optional[List[str]] = None,
                     deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
+    """
+    Ray distributed task to compute and collect stats for a requested delta and its specified columns.
+    If no columns are provided, stats will be computed for all columns.
+    """
 
     manifest = deltacat_storage.get_delta_manifest(delta_locator)
     delta = Delta.of(delta_locator, None, None, None, manifest)
@@ -61,15 +73,14 @@ def get_delta_stats(delta_locator: DeltaLocator,
 
 
 @ray.remote
-def get_deltas_from_range(*args, **kwargs) -> List[Delta]:
-    return _get_deltas_from_range(*args, **kwargs)
-
-
-def _get_deltas_from_range(
+def get_deltas_from_range(
         source_partition_locator: PartitionLocator,
         start_position_inclusive: int,
         end_position_inclusive: int,
         deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
+    """
+    Looks up deltas in the specified partition using Ray, given both starting and ending delta stream positions.
+    """
 
     namespace, partition_values = source_partition_locator.namespace, source_partition_locator.partition_values
     table_name, table_version = source_partition_locator.table_name, source_partition_locator.table_version

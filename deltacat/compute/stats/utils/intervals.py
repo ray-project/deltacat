@@ -1,8 +1,14 @@
 from typing import Set, Tuple
 from collections import Iterable
 
+
 # TODO: Allow users to add infinite ranges in intervals: i.e. (5, None) => (5, math.inf)
 def merge_intervals(intervals: Set[Tuple[int, int]]):
+    """
+    Generic algorithm to merge interval pairs of any overlapping number ranges.
+
+    Example: ((3, 9), (8, 12), (15, 19)) => ((3, 12), (15, 19))
+    """
     merged = set()
     intervals_list: List[Tuple[int, int]] = list(intervals)
 

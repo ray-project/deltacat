@@ -44,6 +44,9 @@ class DeltaColumnStats(dict):
     """
     @staticmethod
     def of(column: str, manifest_stats: ManifestEntryStats) -> DeltaColumnStats:
+        """
+        Creates a container of a column name and the column stats for one or more manifest entries.
+        """
         dcs = DeltaColumnStats()
         dcs["column"] = column
         dcs["manifestStats"] = manifest_stats
@@ -56,6 +59,9 @@ class DeltaColumnStats(dict):
 
     @property
     def column(self) -> str:
+        """
+        Returns the column name.
+        """
         return self.get("column")
 
     @property
@@ -68,7 +74,7 @@ class DeltaColumnStats(dict):
     @property
     def stats(self) -> Optional[StatsResult]:
         """
-        Aggregate of all stats for this column across every delta manifest entry.
+        Aggregate stats across every delta manifest entry.
         """
         val: Dict[str, Any] = self.get("stats")
         if val is not None and not isinstance(val, StatsResult):
