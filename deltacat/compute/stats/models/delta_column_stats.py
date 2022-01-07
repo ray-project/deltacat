@@ -50,7 +50,7 @@ class DeltaColumnStats(dict):
 
         if manifest_stats:
             # Omit row count for columnar-centric stats
-            dcs["stats"] = dcs.calculate_columnar_stats()
+            dcs["stats"] = dcs._merge_manifest_stats()
 
         return dcs
 
@@ -74,9 +74,9 @@ class DeltaColumnStats(dict):
         if val is not None and not isinstance(val, StatsResult):
             self["stats"] = val = StatsResult(val)
         elif val is None and self.manifest_stats:
-            self["stats"] = val = self.calculate_columnar_stats()
+            self["stats"] = val = self._merge_manifest_stats()
 
         return val
 
-    def calculate_columnar_stats(self):
+    def _merge_manifest_stats(self) -> StatsResult:
         return StatsResult.merge(self.manifest_stats.stats, {StatsType.PYARROW_TABLE_BYTES})
