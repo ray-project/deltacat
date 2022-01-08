@@ -78,10 +78,13 @@ class SortKey(tuple):
                             f"Please ensure that all sort keys are fixed-size "
                             f"PyArrow data types.") from e
             else:
-                raise NotImplementedError(
-                  f"Schema type {type(table_version_schema)} does not support "
-                  f"compaction with custom sort keys. Either remove the sort "
-                  f"keys, or provide a PyArrow schema.")
+                logger.warning(
+                    f"Unable to estimate sort key bit width for schema type "
+                    f"{type(table_version_schema)}. This compaction job run "
+                    f"may run out of memory, run more slowly, or underutilize "
+                    f"available resources. To fix this, either remove the "
+                    f"sort keys or provide a PyArrow schema.")
+                total_sort_keys_bit_width = MAX_SORT_KEYS_BIT_WIDTH
         return total_sort_keys_bit_width
 
     @property

@@ -8,12 +8,14 @@ from functools import lru_cache
 from deltacat import logs
 from deltacat.aws.constants import BOTO_MAX_RETRIES
 
+from typing import Optional
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _resource(
         name: str,
-        region: str,
+        region: Optional[str],
         **kwargs) -> ServiceResource:
     boto_config = Config(
         retries={
@@ -31,7 +33,7 @@ def _resource(
 
 def _client(
         name: str,
-        region: str,
+        region: Optional[str],
         **kwargs) -> BaseClient:
     try:
         # try to re-use a client from the resource cache first
@@ -54,7 +56,7 @@ def _client(
 
 def resource_cache(
         name: str,
-        region: str,
+        region: Optional[str],
         **kwargs) -> ServiceResource:
     # we don't use the @lru_cache decorator because Ray can't pickle it
     cached_function = lru_cache()(_resource)
@@ -63,7 +65,7 @@ def resource_cache(
 
 def client_cache(
         name: str,
-        region: str,
+        region: Optional[str],
         **kwargs) -> BaseClient:
     # we don't use the @lru_cache decorator because Ray can't pickle it
     cached_function = lru_cache()(_client)

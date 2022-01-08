@@ -17,7 +17,9 @@ class Manifest(dict):
             meta: Optional[ManifestMeta],
             entries: Optional[ManifestEntryList],
             author: Optional[ManifestAuthor] = None,
-            uuid: str = str(uuid4())) -> Manifest:
+            uuid: str = None) -> Manifest:
+        if not uuid:
+            uuid = str(uuid4())
         manifest = Manifest()
         manifest["id"] = uuid
         if meta is not None:
@@ -31,7 +33,9 @@ class Manifest(dict):
     @staticmethod
     def of(entries: ManifestEntryList,
            author: Optional[ManifestAuthor] = None,
-           uuid: str = str(uuid4())) -> Manifest:
+           uuid: str = None) -> Manifest:
+        if not uuid:
+            uuid = str(uuid4())
         total_record_count = 0
         total_content_length = 0
         total_source_content_length = 0

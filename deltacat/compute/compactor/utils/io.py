@@ -9,7 +9,7 @@ from deltacat.storage import PartitionLocator, Delta, \
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -58,7 +58,8 @@ def limit_input_deltas(
         cluster_resources: Dict[str, float],
         hash_bucket_count: int,
         user_hash_bucket_chunk_size: int,
-        deltacat_storage=unimplemented_deltacat_storage):
+        deltacat_storage=unimplemented_deltacat_storage) \
+        -> Tuple[List[DeltaAnnotated], int, int]:
 
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of

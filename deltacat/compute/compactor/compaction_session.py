@@ -186,6 +186,8 @@ def _execute_compaction_round(
         source_partition_locator,
         compatible_primary_key_index_root_path,
     )
+
+    # read the previous compaction round's hash bucket count, if any
     old_hash_bucket_count = None
     if round_completion_info:
         old_pki_version_locator = round_completion_info\
@@ -193,6 +195,11 @@ def _execute_compaction_round(
         old_hash_bucket_count = old_pki_version_locator\
             .primary_key_index_version_meta \
             .hash_bucket_count
+
+    # use the new hash bucket count if provided, or fall back to old count
+    hash_bucket_count = new_hash_bucket_count \
+        if new_hash_bucket_count is not None \
+        else old_hash_bucket_count
 
     # discover input delta files
     high_watermark = round_completion_info.high_watermark \
@@ -207,9 +214,8 @@ def _execute_compaction_round(
         logger.info("No input deltas found to compact.")
         return False, None
 
-    hash_bucket_count = new_hash_bucket_count \
-        if new_hash_bucket_count is not None \
-        else old_hash_bucket_count
+    # limit the input deltas to fit on this cluster and convert them to
+    # annotated deltas of equivalent size for easy parallel distribution
     uniform_deltas, hash_bucket_count, last_stream_position_compacted = \
         io.limit_input_deltas(
             input_deltas,
@@ -222,6 +228,7 @@ def _execute_compaction_round(
         f"Unexpected Error: Default hash bucket count ({hash_bucket_count}) " \
         f"is invalid."
 
+    # rehash the primary key index if necessary
     if round_completion_info:
         logger.info(f"Round completion file contents: {round_completion_info}")
         # the previous primary key index is compatible with the current, but
@@ -242,7 +249,8 @@ def _execute_compaction_round(
                     f"{source_partition_locator}. Primary key index locator: "
                     f"{compatible_primary_key_index_locator}")
 
-    # first group like primary keys together by hashing them into buckets
+    # parallel step 1:
+    # group like primary keys together by hashing them into buckets
     hb_tasks_pending = []
     for i, uniform_delta in enumerate(uniform_deltas):
         # force strict round-robin scheduling of tasks across cluster workers
@@ -286,6 +294,7 @@ def _execute_compaction_round(
         compacted_partition_locator.partition_values,
     )
     new_compacted_partition_locator = partition.locator
+
     # generate a new primary key index locator for this round
     new_primary_key_index_meta = PrimaryKeyIndexMeta.of(
         new_compacted_partition_locator,
@@ -306,6 +315,9 @@ def _execute_compaction_round(
     new_pki_version_locator = PrimaryKeyIndexVersionLocator.generate(
         new_primary_key_index_version_meta)
 
+    # parallel step 2:
+    # discover records with duplicate primary keys in each hash bucket, and
+    # identify the index of records to keep or drop based on sort keys
     dd_tasks_pending = []
     dd_stats_promises = []
     num_materialize_buckets = max_parallelism
@@ -357,6 +369,8 @@ def _execute_compaction_round(
     # TODO(pdames): garbage collect hash bucket output since it's no longer
     #  needed
 
+    # parallel step 3:
+    # materialize records to keep by index
     mat_tasks_pending = []
     i = 0
     for bucket_idx, dd_idx_obj_id_tuples in all_mat_buckets_to_obj_id.items():
