@@ -45,9 +45,23 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
 
 
 class TableWriteMode(str, Enum):
+    """
+    Enum controlling how a given dataset will be written to a table.
+
+    AUTO: CREATE if the table doesn't exist, APPEND if the table exists
+    without primary keys, and MERGE if the table exists with primary keys.
+    CREATE: Create the table if it doesn't exist, throw an error if it does.
+    APPEND: Append to the table if it exists, throw an error if it doesn't.
+    REPLACE: Replace existing table contents with the data to write.
+    MERGE: Insert, update, or delete records matching a given predicate.
+    Updates or inserts records based on the table's primary and sort keys by
+    default.
+    """
+    AUTO = "auto"
     CREATE = "create"
     APPEND = "append"
     REPLACE = "replace"
+    MERGE = "merge"
 
 
 def get_table_length(table: Union[dcs.LocalTable, dcs.DistributedDataset]) \

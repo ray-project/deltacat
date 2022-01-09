@@ -12,7 +12,7 @@ def _get_catalog(name: Optional[str] = None) -> Catalog:
     if not all_catalogs:
         raise ValueError(
             "No catalogs available! Call "
-            "`dc.init(catalogs={...})` to register one or more "
+            "`deltacat.init(catalogs={...})` to register one or more "
             "catalogs then retry.")
     catalog = ray.get(all_catalogs.get.remote(name)) if name \
         else ray.get(all_catalogs.default.remote())
@@ -30,12 +30,12 @@ def write_to_table(
         table: str,
         namespace: Optional[str] = None,
         catalog: Optional[str] = None,
-        mode: TableWriteMode = TableWriteMode.APPEND,
+        mode: TableWriteMode = TableWriteMode.AUTO,
         content_type: ContentType = ContentType.PARQUET,
         *args,
         **kwargs) -> None:
     """Write local or distributed data to a table. Raises an error if the
-    table does not exist and the table write mode is not CREATE.
+    table does not exist and the table write mode is not CREATE or AUTO.
 
     When creating a table, all `create_table` parameters may be optionally
     specified as additional keyword arguments. When appending to, or replacing,

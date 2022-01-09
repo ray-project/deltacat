@@ -6,8 +6,7 @@ import pyarrow as pa
 
 from enum import Enum
 
-from deltacat.storage import PartitionLocator, \
-    interface as unimplemented_deltacat_storage
+from deltacat.storage import PartitionLocator
 from deltacat import logs
 
 from typing import List
@@ -42,7 +41,7 @@ class SortKey(tuple):
     def validate_sort_keys(
             source_partition_locator: PartitionLocator,
             sort_keys: List[SortKey],
-            deltacat_storage=unimplemented_deltacat_storage) -> int:
+            deltacat_storage) -> int:
         """
         Validates the input sort keys to ensure that they are unique, are using
         a valid sort key model, are all fixed-width data types, and that the

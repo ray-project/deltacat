@@ -10,12 +10,12 @@ def write_to_table(
         data: Union[LocalTable, LocalDataset, DistributedDataset],
         table: str,
         namespace: Optional[str] = None,
-        mode: TableWriteMode = TableWriteMode.APPEND,
+        mode: TableWriteMode = TableWriteMode.AUTO,
         content_type: ContentType = ContentType.PARQUET,
         *args,
         **kwargs) -> None:
     """Write local or distributed data to a table. Raises an error if the
-    table does not exist and the table write mode is not CREATE.
+    table does not exist and the table write mode is not CREATE or AUTO.
 
     When creating a table, all `create_table` parameters may be optionally
     specified as additional keyword arguments. When appending to, or replacing,

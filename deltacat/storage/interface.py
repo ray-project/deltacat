@@ -1,4 +1,5 @@
 import pyarrow as pa
+from deltacat import SortKey
 from deltacat.storage import Delta, DeltaLocator, Partition, \
     ListResult, Namespace, Table, TableVersion, Stream, \
     StreamLocator, DeltaType, LifecycleState, SchemaConsistencyType, \
@@ -234,6 +235,7 @@ def create_table_version(
         schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
         partition_keys: Optional[List[Dict[str, Any]]] = None,
         primary_key_column_names: Optional[Set[str]] = None,
+        sort_keys: Optional[List[SortKey]] = None,
         table_version_description: Optional[str] = None,
         table_version_properties: Optional[Dict[str, str]] = None,
         table_permissions: Optional[Dict[str, Any]] = None,
@@ -251,10 +253,11 @@ def create_table_version(
     of a delta stream where partition keys are known but not projected onto each
     row of the table (e.g. all rows of a customer orders table are known to
     correspond to a given order day, even if this column doesn't exist in the
-    table). Primary keys must exist within the table's schema. Permissions
-    specified at the table level override any conflicting permissions specified
-    at the table namespace level. Returns the stream for the created table
-    version. Raises an error if the given namespace does not exist.
+    table). Primary and sort keys must exist within the table's schema.
+    Permissions specified at the table level override any conflicting
+    permissions specified at the table namespace level. Returns the stream
+    for the created table version. Raises an error if the given namespace does
+    not exist.
 
     Schemas are optional for DeltaCAT tables and can be used to inform the data
     consistency checks run for each field. If a schema is present, it can be
