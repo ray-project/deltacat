@@ -15,6 +15,7 @@ DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
 
 
 class DeltaType(str, Enum):
+    APPEND = "append"
     UPSERT = "upsert"
     DELETE = "delete"
 

@@ -37,11 +37,11 @@ setuptools.setup(
         # any changes here should also be reflected in requirements.txt
         "s3fs >= 2021.7.0",
         "tenacity >= 8.0.1",
-        "ray >= 1.6.0",
+        "ray >= 1.9.2",
         "pandas >= 1.3.1",
         "pyarrow >= 5.0.0",
         "numpy >= 1.21.1",
-        "boto3 == 1.18.17"
+        "boto3 == 1.20.40"
     ],
     setup_requires=["wheel"],
     classifiers=[

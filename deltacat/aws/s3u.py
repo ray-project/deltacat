@@ -212,7 +212,6 @@ def upload_sliced_table(
             content_type,
             **s3_client_kwargs
         )
-        manifest_entries.extend(manifest_entries)
     else:
         # iteratively write table slices
         table_slices = table_slicer_func(
@@ -220,7 +219,7 @@ def upload_sliced_table(
             max_records_per_entry
         )
         for table_slice in table_slices:
-            manifest_entries = retrying(
+            slice_entries = retrying(
                 upload_table,
                 table_slice,
                 f"{s3_url_prefix}",
@@ -230,7 +229,7 @@ def upload_sliced_table(
                 content_type,
                 **s3_client_kwargs
             )
-            manifest_entries.extend(manifest_entries)
+            manifest_entries.extend(slice_entries)
 
     return manifest_entries
 
