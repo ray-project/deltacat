@@ -1,3 +1,4 @@
+import ray
 import deltacat.aws.clients as aws_utils
 import logging
 import multiprocessing
@@ -7,9 +8,9 @@ from functools import partial
 
 from uuid import uuid4
 
-from ray.data.block import Block
 from ray.types import ObjectRef
 from ray.data.datasource import BlockWritePathProvider
+from ray.data.block import Block, BlockAccessor, BlockMetadata
 
 from deltacat import logs
 from deltacat.storage import LocalTable, LocalDataset, DistributedDataset, \
@@ -29,7 +30,7 @@ from tenacity import wait_random_exponential
 from tenacity import stop_after_delay
 from tenacity import retry_if_exception_type
 
-from typing import Any, Callable, Dict, List, Optional, Generator, Union
+from typing import Any, Callable, Dict, List, Optional, Generator, Union, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -39,7 +40,8 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
     dataset block out to a file of the form: {base_path}/{uuid}
     """
     def __init__(self):
-        self.write_paths = []
+        self.write_paths: List[str] = []
+        self.block_refs: List[ObjectRef[Block]] = []
 
     def _get_write_path_for_block(
             self,
@@ -51,6 +53,8 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
             file_format: Optional[str] = None) -> str:
         write_path = f"{base_path}/{str(uuid4())}"
         self.write_paths.append(write_path)
+        if block:
+            self.block_refs.append(block)
         return write_path
 
 
@@ -234,14 +238,54 @@ def upload_sliced_table(
     return manifest_entries
 
 
-def upload_table(
+@ray.remote
+def _block_metadata(block: Block) -> BlockMetadata:
+    return BlockAccessor.for_block(block).get_metadata(input_files=None)
+
+
+def _get_metadata(
         table: Union[LocalTable, DistributedDataset],
-        s3_base_url: str,
-        s3_file_system: s3fs.S3FileSystem,
-        s3_table_writer_func: Callable,
-        s3_table_writer_kwargs: Optional[Dict[str, Any]],
-        content_type: ContentType = ContentType.PARQUET,
-        **s3_client_kwargs) -> ManifestEntryList:
+        block_write_path_provider: UuidBlockWritePathProvider) \
+        -> List[BlockMetadata]:
+    metadata: List[BlockMetadata] = []
+    if not block_write_path_provider.block_refs:
+        # this must be a local table - ensure it was written to only 1 file
+        assert len(block_write_path_provider.write_paths == 1), \
+            f"Expected table of type '{type(table)}' to be written to 1 " \
+            f"file, but found {block_write_path_provider.write_paths} files."
+        table_size = None
+        table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
+        if table_size_func:
+            table_size = table_size_func(table)
+        else:
+            logger.warning(f"Unable to estimate '{type(table)}' table size.")
+        metadata.append(
+            BlockMetadata(
+                num_rows=get_table_length(table),
+                size_bytes=table_size,
+                schema=None,
+                input_files=None)
+        )
+    else:
+        # TODO(pdames): Expose BlockList metadata getter from Ray Dataset?
+        metadata = table._blocks.get_metadata()
+        if not metadata or metadata[0].size_bytes is None or \
+                metadata[0].num_rows is None:
+            metadata_futures = [_block_metadata.remote(block_ref)
+                                for block_ref
+                                in block_write_path_provider.block_refs]
+            metadata = ray.get(metadata_futures)
+    return metadata
+
+
+def upload_table(
+    table: Union[LocalTable, DistributedDataset],
+    s3_base_url: str,
+    s3_file_system: s3fs.S3FileSystem,
+    s3_table_writer_func: Callable,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]],
+    content_type: ContentType = ContentType.PARQUET,
+    **s3_client_kwargs) -> ManifestEntryList:
     """
     Writes the given table to 1 or more S3 files and return Redshift
     manifest entries describing the uploaded files.
@@ -258,19 +302,14 @@ def upload_table(
         content_type.value,
         **s3_table_writer_kwargs
     )
-    table_size = None
-    table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
-    if table_size_func:
-        table_size = table_size_func(table)
-    else:
-        logger.warning(f"Unable to estimate '{type(table)}' table size.")
+    metadata = _get_metadata(table, block_write_path_provider)
     manifest_entries = ManifestEntryList()
-    for s3_url in block_write_path_provider.write_paths:
+    for block_idx, s3_url in enumerate(block_write_path_provider.write_paths):
         try:
             manifest_entry = ManifestEntry.from_s3_obj_url(
                 s3_url,
-                get_table_length(table),
-                table_size,
+                metadata[block_idx].num_rows,
+                metadata[block_idx].size_bytes,
                 **s3_client_kwargs,
             )
             manifest_entries.append(manifest_entry)
