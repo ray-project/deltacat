@@ -250,7 +250,7 @@ def _get_metadata(
     metadata: List[BlockMetadata] = []
     if not block_write_path_provider.block_refs:
         # this must be a local table - ensure it was written to only 1 file
-        assert len(block_write_path_provider.write_paths == 1), \
+        assert len(block_write_path_provider.write_paths) == 1, \
             f"Expected table of type '{type(table)}' to be written to 1 " \
             f"file, but found {block_write_path_provider.write_paths} files."
         table_size = None
