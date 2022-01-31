@@ -6,7 +6,7 @@ from deltacat.storage import Delta, DeltaLocator, Partition, \
     LocalTable, LocalDataset, DistributedDataset, Manifest, ManifestAuthor
 from deltacat.types.media import ContentType
 from deltacat.types.media import TableType, StorageType
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 
 def list_namespaces(
@@ -161,6 +161,7 @@ def download_delta(
         max_parallelism: Optional[int] = None,
         columns: Optional[List[str]] = None,
         file_reader_kwargs: Optional[Dict[str, Any]] = None,
+        ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
         *args,
         **kwargs) -> Union[LocalDataset, DistributedDataset]:
     """
