@@ -7,6 +7,7 @@ import pyarrow as pa
 import deltacat.storage as dcs
 
 from ray.data.dataset import Dataset
+from ray.data.read_api import from_arrow_refs, from_pandas_refs, from_numpy
 
 from deltacat.types.media import TableType
 from deltacat.utils import pyarrow as pa_utils, pandas as pd_utils, \
@@ -41,6 +42,18 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     pd.DataFrame: pd_utils.dataframe_size,
     np.ndarray: np_utils.ndarray_size,
     Dataset: ds_utils.dataset_size,
+}
+
+TABLE_CLASS_TO_TABLE_TYPE: Dict[dcs.LocalTable, str] = {
+    pa.Table: TableType.PYARROW.value,
+    pd.DataFrame: TableType.PANDAS.value,
+    np.ndarray: TableType.NUMPY.value,
+}
+
+TABLE_TYPE_TO_DATASET_CREATE_FUNC: Dict[str, Callable] = {
+    TableType.PYARROW.value: from_arrow_refs,
+    TableType.NUMPY.value: from_numpy,
+    TableType.PANDAS.value: from_pandas_refs,
 }
 
 
