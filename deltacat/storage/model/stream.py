@@ -123,8 +123,8 @@ class Stream(dict):
         num_values = len(partition_values) if partition_values else 0
         if num_values != num_keys:
             raise ValueError(
-                f"Found {num_values} partition values but only "
-                f"{num_keys} keys: {self}")
+                f"Found {num_values} partition values but "
+                f"{num_keys} partition keys: {self}")
 
 
 class StreamLocator(Locator, dict):
