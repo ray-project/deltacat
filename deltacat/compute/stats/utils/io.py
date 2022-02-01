@@ -24,10 +24,16 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def read_cached_delta_stats(delta: Delta,
                             columns_to_fetch: List[str],
                             stat_results_s3_bucket: str) -> DeltaStatsCacheResult:
-    """
-    Ray distributed task to read delta stats from a file system (i.e. S3) based on specified columns.
+    """Read delta stats that are cached in S3
+
+    This Ray distributed task reads delta stats from a file system (i.e. S3) based on specified columns.
     Stats are extracted from columns that are found (cache hit), while columns that are missing
     from the file system will record their column names and the delta locator as a cache miss.
+
+    Args:
+        delta: The delta object to look up
+        columns_to_fetch: Columns to look up for this delta
+        stat_results_s3_bucket: The S3 bucket name
     """
 
     delta_locator = DeltaLocator.of(delta.partition_locator, delta.stream_position)
@@ -52,8 +58,11 @@ def read_cached_delta_stats(delta: Delta,
 @ray.remote
 def cache_delta_column_stats(stat_results_s3_bucket: str,
                              dataset_column: DeltaColumnStats) -> None:
-    """
-    Ray distributed task to cache the delta column stats into a file system (i.e. S3).
+    """Ray distributed task to cache the delta column stats into a file system (i.e. S3).
+
+    Args:
+        stat_results_s3_bucket: The S3 bucket name
+        dataset_column: Column-oriented stats for a given delta
     """
     scf.write_manifest_stats_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
 
@@ -62,9 +71,18 @@ def cache_delta_column_stats(stat_results_s3_bucket: str,
 def get_delta_stats(delta_locator: DeltaLocator,
                     columns: Optional[List[str]] = None,
                     deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
-    """
-    Ray distributed task to compute and collect stats for a requested delta and its specified columns.
-    If no columns are provided, stats will be computed for all columns.
+    """Ray distributed task to compute and collect stats for a requested delta.
+
+    If no columns are requested, stats will be computed for all columns.
+
+    Args:
+        delta_locator: A reference to the delta
+        columns: Column names to specify for this delta. If not provided, all columns are considered.
+        deltacat_storage: Client implementation of the DeltaCAT storage interface
+
+    Returns:
+        A delta wide stats container
+
     """
 
     manifest = deltacat_storage.get_delta_manifest(delta_locator)
@@ -78,8 +96,16 @@ def get_deltas_from_range(
         start_position_inclusive: int,
         end_position_inclusive: int,
         deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
-    """
-    Looks up deltas in the specified partition using Ray, given both starting and ending delta stream positions.
+    """Looks up deltas in the specified partition using Ray, given both starting and ending delta stream positions.
+
+    Args:
+        source_partition_locator: Reference to the partition locator tied to the given delta stream positions
+        start_position_inclusive: Starting stream position of a closed, bounded range interval
+        end_position_inclusive: Ending stream position of a closed, bounded range interval
+        deltacat_storage: Client implementation of the DeltaCAT storage interface
+
+    Returns:
+        a list of delta objects
     """
 
     namespace, partition_values = source_partition_locator.namespace, source_partition_locator.partition_values
@@ -100,9 +126,15 @@ def get_deltas_from_range(
 def _collect_stats_by_columns(delta: Delta,
                               columns_to_compute: Optional[List[str]] = None,
                               deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
-    """
-    Materializes one manifest entry at a time to save memory usage and
-    calculate statistics from each of its columns.
+    """Materializes one manifest entry at a time to save memory usage and calculate stats from each of its columns.
+
+    Args:
+        delta: A delta object to calculate stats for
+        columns_to_compute: Columns to calculate stats for. If not provided, all columns are considered.
+        deltacat_storage: Client implementation of the DeltaCAT storage interface
+
+    Returns:
+        A delta wide stats container
     """
     assert delta.manifest is not None, f"Manifest should not be missing from delta for stats calculation: {delta}"
 

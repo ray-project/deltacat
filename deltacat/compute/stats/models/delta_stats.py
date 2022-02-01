@@ -69,8 +69,7 @@ class DeltaStats(dict):
 
     @property
     def stats(self) -> Optional[StatsResult]:
-        """
-        Returns a StatsResult object that represents this delta, aggregated by the column stats of this delta.
+        """Returns a StatsResult object that represents this delta, aggregated by the column stats of this delta.
         """
         val: Dict[str, Any] = self.get("stats")
         if val is not None and not isinstance(val, StatsResult):
@@ -82,22 +81,42 @@ class DeltaStats(dict):
 
     @property
     def columns(self) -> List[str]:
-        """
-        Returns a list of column names associated to this delta.
+        """Returns a list of column names associated to this delta.
+
+        Returns:
+            A list of column names
         """
         return DeltaStats.get_column_names(self.column_stats)
 
     def manifest_entry_stats(self, manifest_entry_idx: int) -> StatsResult:
+        """Calculate the stats of a manifest entry by combining its columnar stats.
+
+        Args:
+            manifest_entry_idx: The manifest entry table to calculate stats for
+
+        Returns:
+            Stats for the manifest entry.
+        """
         return StatsResult.merge(DeltaStats.get_manifest_entry_column_stats(self.column_stats, manifest_entry_idx),
                                  record_row_count_once=True)
 
     def manifest_entry_column_stats(self, manifest_entry_idx: int) -> List[StatsResult]:
+        """Fetch a list of stats for each column in a manifest entry.
+
+        Args:
+            manifest_entry_idx: The manifest entry table to calculate stats for
+
+        Returns:
+            A list of columnar stats for the manifest entry
+        """
         return DeltaStats.get_manifest_entry_column_stats(self.column_stats, manifest_entry_idx)
 
     @staticmethod
     def get_manifest_entry_column_stats(columns: List[DeltaColumnStats], manifest_entry_idx: int) -> List[StatsResult]:
-        """
-        Helper method to provide a list of columnar stats for a specific manifest entry.
+        """Helper method to provide a list of columnar stats for a specific manifest entry.
+
+        Returns:
+            A list of columnar stats for the manifest entry
         """
         dataset_columnar_stats_list: List[ManifestEntryStats] = [column.manifest_stats for column in columns
                                                                  if column.manifest_stats is not None]
@@ -110,17 +129,26 @@ class DeltaStats(dict):
 
     @staticmethod
     def get_column_names(columns: List[DeltaColumnStats]) -> List[str]:
-        """
-        Returns a list of stats associated to each column in this delta.
+        """Helper method to get the names of each column from a list of delta column stats
+
+        Args:
+            columns: A list of delta column stats
+
+        Returns:
+            A list of column names
         """
         return [column_stats.column for column_stats in columns] if columns else []
 
     @staticmethod
     def get_delta_stats(columns: List[DeltaColumnStats],
                         stat_types: Optional[Set[StatsType]] = None) -> Optional[StatsResult]:
-        """
-        Merges the column stats for this delta and returns a single StatsResult object,
-        given a list of columns to lookup and the stat types requested.
+        """Calculate the sum of provided column stats and return it
+
+        Args:
+            columns: A list of delta column stats
+
+        Returns:
+            Stats for the calculated sum
         """
         assert columns and len(columns) > 0, \
             f"Expected columns `{columns}` of type `{type(columns)}` " \
@@ -162,11 +190,10 @@ class DeltaStats(dict):
 
 
 class DeltaStatsCacheMiss(NamedTuple):
-    """
-    A helper class for cache miss results from DeltaStatsCacheResult.
+    """A helper class for cache miss results from DeltaStatsCacheResult.
 
-    `columns` represents missing dataset column names from the file system (ex: S3).
-    `delta_locator` is tied to the missing dataset columns and provided for future calculations.
+    `column_names` represents missing dataset column names from the file system (ex: S3).
+    delta_locator` is tied to the missing dataset columns and provided for future calculations.
     """
     column_names: List[str]
     delta_locator: DeltaLocator

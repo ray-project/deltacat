@@ -4,10 +4,20 @@ from collections import Iterable
 
 # TODO: Allow users to add infinite ranges in intervals: i.e. (5, None) => (5, math.inf)
 def merge_intervals(intervals: Set[Tuple[int, int]]):
-    """
-    Generic algorithm to merge interval pairs of any overlapping number ranges.
+    """Merges a set of N input intervals into a minimal number of output intervals.
 
-    Example: ((3, 9), (8, 12), (15, 19)) => ((3, 12), (15, 19))
+    Each input interval must be closed bounded intervals. Intervals will be merged into
+    a minimal number of closed bounded output intervals in O(N log N) time.
+
+    Example:
+        >>> merge_intervals((3, 9), (8, 12), (15, 19))
+        ((3, 12), (15, 19))
+
+    Args:
+        intervals: A list of closed bounded intervals
+
+    Returns:
+        A minimal number of closed bounded output intervals
     """
     merged = set()
     intervals_list: List[Tuple[int, int]] = list(intervals)

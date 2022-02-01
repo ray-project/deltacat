@@ -10,8 +10,7 @@ from typing import Any, Dict, List
 
 
 class ManifestEntryStats(dict):
-    """
-    Holds computed statistics for one or more manifest entries (tables) and their corresponding delta locator.
+    """Holds computed statistics for one or more manifest entries (tables) and their corresponding delta locator.
 
     To be stored/retrieved from a file system (ex: S3).
     """
@@ -34,6 +33,11 @@ class ManifestEntryStats(dict):
 
     @property
     def delta_locator(self) -> DeltaLocator:
+        """Reference to the delta that holds the manifest entries
+
+        Returns:
+            A delta locator object
+        """
         val: Dict[str, Any] = self.get("deltaLocator")
         if val is not None and not isinstance(val, DeltaLocator):
             self["deltaLocator"] = val = DeltaLocator(val)

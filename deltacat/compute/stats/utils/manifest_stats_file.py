@@ -16,8 +16,15 @@ def get_manifest_stats_s3_url(
         bucket: str,
         column_name: str,
         delta_locator: DeltaLocator) -> str:
-    """
-    Given a S3 bucket name, column name (of a Delta) and its corresponding delta locator, return the S3 file path.
+    """Returns the S3 URL path to the column-oriented delta stats
+
+    Args:
+        bucket: The S3 bucket
+        column_name: The name of the column to look up stats for
+        delta_locator: The reference to the delta corresponding to the manifest entries
+
+    Returns:
+        A S3 URL path
     """
     stats_column_id = f"{delta_locator.canonical_string()}|{column_name}"
     stats_column_hexdigest = sha1_hexdigest(stats_column_id.encode("utf-8"))
@@ -29,9 +36,15 @@ def read_manifest_stats_by_columns(
         bucket: str,
         column_names: List[str],
         delta_locator: DeltaLocator) -> List[DeltaColumnStats]:
-    """
-    Given a S3 bucket name, a list of column names corresponding to a delta and a reference to its delta locator,
-    retrieve a deserialized list of delta column stats.
+    """Fetch a list of delta column stats by reading each column-oriented delta stats file from S3
+
+    Args:
+        bucket: The S3 bucket
+        column_names: A list of column names to look up stats for
+        delta_locator: The reference to the delta corresponding to the manifest entries
+
+    Returns:
+        A list of delta column stats
     """
     return [DeltaColumnStats.of(column, read_manifest_stats_file(bucket, column, delta_locator))
             for column in column_names]
@@ -41,9 +54,15 @@ def read_manifest_stats_file(
         bucket: str,
         column_name: str,
         delta_locator: DeltaLocator) -> ManifestEntryStats:
-    """
-    Given a S3 bucket name, column name (of a Delta) and its corresponding delta locator,
-    fetch the manifest entry stats from file storage.
+    """Read a manifest entry stats from S3
+
+    Args:
+        bucket: The S3 bucket
+        column_name: The name of the column to look up stats for
+        delta_locator: The reference to the delta corresponding to the manifest entries
+
+    Returns:
+        A container that holds a list of manifest entry stats for the given column name
     """
 
     stats_completion_file_url = get_manifest_stats_s3_url(
@@ -66,9 +85,12 @@ def write_manifest_stats_file(
         bucket: str,
         column_name: str,
         manifest_entry_stats: ManifestEntryStats) -> None:
-    """
-    Given a S3 bucket name, column name (of a Delta) and a manifest entry stats,
-    serialize the manifest entry stats as a JSON into the file storage.
+    """Write a manifest entry stats into S3
+
+    Args:
+        bucket: The S3 bucket
+        column_name: The name of the column which represents this manifest entry stats
+        manifest_entry_stats: The manifest entry stats to serialize and store into S3
     """
     logger.info(
         f"writing stats completion file contents: {manifest_entry_stats}")

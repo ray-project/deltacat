@@ -25,22 +25,26 @@ def collect(
         columns: Optional[List[str]] = None,
         stat_results_s3_bucket: Optional[str] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> Dict[int, DeltaStats]:
-    """
-    Collects statistics on deltas, given a set of delta stream position ranges.
-
-    The source partition locator is a reference to the partition locator object tied to the given
-    delta stream positions. Columns can be optionally included to collect stats on specific columns,
-    otherwise by default all columns will be calculated. `stat_results_s3_bucket` is used as a cache file storage
-    for computed delta stats. `deltacat_storage` is a client implementation of the DeltaCAT storage interface.
-
-    The returned result will be a mapping of Stream Positions (int) -> DeltaStats.
+    """Collects statistics on deltas, given a set of delta stream position ranges.
 
     Example:
-        collect(locator, set((1, 5), (4, 8), (13, 16)), ...) ->
-            {
-                1: DeltaStats(),  # DeltaStats for stream positions 1 - 8
-                13: DeltaStats()  # DeltaStats for stream positions 13 - 16
-            }
+        >>> collect(locator, set((1, 5), (4, 8), (13, 16)))
+        {
+            1: DeltaStats(),  # DeltaStats for stream positions 1 - 8
+            13: DeltaStats()  # DeltaStats for stream positions 13 - 16
+        }
+
+    Args:
+        source_partition_locator: Reference to the partition locator tied to the given delta stream positions
+        delta_stream_position_range_set: Each delta stream position range is a closed bounded interval of integer
+            values. Currently, there is no support for infinity ranges but this is subject to change.
+        columns: Columns can be optionally included to collect stats on specific columns.
+            By default, all columns will be calculated.
+        stat_results_s3_bucket: Used as a cache file storage for computed delta stats
+        deltacat_storage: Client implementation of the DeltaCAT storage interface
+
+    Returns:
+        A mapping of stream positions to their corresponding delta stats.
     """
     delta_stream_range_stats: Dict[int, DeltaStats] = {}
     delta_range_lookup_pending: List[ObjectRef[List[Delta]]] = []
