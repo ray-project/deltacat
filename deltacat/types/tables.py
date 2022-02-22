@@ -7,7 +7,8 @@ import pyarrow as pa
 import deltacat.storage as dcs
 
 from ray.data.dataset import Dataset
-from ray.data.read_api import from_arrow_refs, from_pandas_refs, from_numpy
+from ray.data.read_api import from_arrow_refs, from_pandas_refs, from_numpy, \
+    from_arrow, from_pandas
 
 from deltacat.types.media import TableType
 from deltacat.utils import pyarrow as pa_utils, pandas as pd_utils, \
@@ -51,6 +52,12 @@ TABLE_CLASS_TO_TABLE_TYPE: Dict[dcs.LocalTable, str] = {
 }
 
 TABLE_TYPE_TO_DATASET_CREATE_FUNC: Dict[str, Callable] = {
+    TableType.PYARROW.value: from_arrow,
+    TableType.NUMPY.value: from_numpy,
+    TableType.PANDAS.value: from_pandas,
+}
+
+TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
     TableType.PYARROW.value: from_arrow_refs,
     TableType.NUMPY.value: from_numpy,
     TableType.PANDAS.value: from_pandas_refs,

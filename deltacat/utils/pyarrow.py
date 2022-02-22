@@ -15,10 +15,10 @@ from ray.data.datasource import BlockWritePathProvider
 from deltacat import logs
 from deltacat.types.media import ContentType, ContentEncoding, \
     DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
-from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Iterable
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -75,35 +75,33 @@ CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
 }
 
 
-CONTENT_TYPE_TO_READER_KWARGS: Dict[str, Dict[str, Any]] = {
-    ContentType.UNESCAPED_TSV.value: {
-        "parse_options": pacsv.ParseOptions(
-            delimiter="\t",
-            quote_char=False),
-        "convert_options": pacsv.ConvertOptions(
-            null_values=[""],  # pyarrow defaults are ["", "NULL", "null"]
-            strings_can_be_null=True,
-        )
-    },
-    ContentType.TSV.value: {
-        "parse_options": pacsv.ParseOptions(
-            delimiter="\t")
-    },
-    ContentType.CSV.value: {
-        "parse_options": pacsv.ParseOptions(
-            delimiter=",")
-    },
-    ContentType.PSV.value: {
-        "parse_options": pacsv.ParseOptions(
-            delimiter="|")
-    },
-    ContentType.PARQUET.value: {},
-    ContentType.FEATHER.value: {},
+def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "parse_options": pacsv.ParseOptions(
+                delimiter="\t",
+                quote_char=False),
+            "convert_options": pacsv.ConvertOptions(
+                null_values=[""],  # pyarrow defaults are ["", "NULL", "null"]
+                strings_can_be_null=True,
+            )
+        }
+    if content_type == ContentType.TSV.value:
+        return {"parse_options": pacsv.ParseOptions(delimiter="\t")}
+    if content_type == ContentType.CSV.value:
+        return {"parse_options": pacsv.ParseOptions(delimiter=",")}
+    if content_type == ContentType.PSV.value:
+        return {"parse_options": pacsv.ParseOptions(delimiter="|")}
+    if content_type in {ContentType.PARQUET.value,
+                        ContentType.FEATHER.value,
+                        ContentType.JSON.value}:
+        return {}
     # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
     # https://issues.apache.org/jira/browse/ARROW-7811
-    # DataTypes.ContentType.ORC: {},
-    ContentType.JSON.value: {},
-}
+    # if DataTypes.ContentType.ORC:
+    #   return {},
+    raise ValueError(f"Unsupported content type: {content_type}")
+
 
 # TODO (pdames): add deflate and snappy
 ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
@@ -135,6 +133,40 @@ def slice_table(
     return tables
 
 
+class ReadKwargsProviderPyArrowCsvPureUtf8(ReadKwargsProvider):
+    """ReadKwargsProvider impl that reads columns of delimited text files
+    as UTF-8 strings (i.e. disables type inference). Useful for ensuring
+    lossless reads of UTF-8 delimited text datasets and improving read
+    performance in cases where type casting is not required."""
+    def __init__(self, include_columns: Optional[Iterable[str]] = None):
+        self.include_columns = include_columns
+
+    def _get_read_kwargs(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        if content_type in DELIMITED_TEXT_CONTENT_TYPES:
+            convert_options: pacsv.ConvertOptions = \
+                kwargs.get("convert_options")
+            if convert_options is None:
+                convert_options = pacsv.ConvertOptions()
+            # read only the included columns as strings?
+            column_names = self.include_columns \
+                if self.include_columns else convert_options.include_columns
+            if not column_names:
+                # read all columns as strings?
+                read_options: pacsv.ReadOptions = kwargs.get("read_options")
+                if read_options and read_options.column_names:
+                    column_names = read_options.column_names
+                else:
+                    raise ValueError("No column names found!")
+            convert_options.column_types = {
+                column_name: pa.string() for column_name in column_names
+            }
+            kwargs["convert_options"] = convert_options
+        return kwargs
+
+
 def _add_column_kwargs(
         content_type: str,
         column_names: Optional[List[str]],
@@ -142,14 +174,20 @@ def _add_column_kwargs(
         kwargs: Dict[str, Any]):
 
     if content_type in DELIMITED_TEXT_CONTENT_TYPES:
-        kwargs["read_options"] = pacsv.ReadOptions(
-            autogenerate_column_names=True,
-        ) if not column_names else pacsv.ReadOptions(
-            column_names=column_names,
-        )
-        kwargs["convert_options"] = pacsv.ConvertOptions(
-            include_columns=include_columns,
-        )
+        read_options: pacsv.ReadOptions = kwargs.get("read_options")
+        if read_options is None:
+            read_options = pacsv.ReadOptions()
+        if column_names:
+            read_options.column_names = column_names
+        else:
+            read_options.autogenerate_column_names = True
+        kwargs["read_options"] = read_options
+        convert_options: pacsv.ConvertOptions = kwargs.get("convert_options")
+        if convert_options is None:
+            convert_options = pacsv.ConvertOptions()
+        if include_columns:
+            convert_options.include_columns = include_columns
+        kwargs["convert_options"] = convert_options
     else:
         if content_type in TABULAR_CONTENT_TYPES:
             kwargs["columns"] = include_columns
@@ -166,7 +204,7 @@ def s3_file_to_table(
         content_encoding: str,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        pa_read_func_kwargs: Optional[Dict[str, Any]] = None,
+        pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
         **s3_client_kwargs) -> pa.Table:
 
     from deltacat.aws import s3u as s3_utils
@@ -182,15 +220,12 @@ def s3_file_to_table(
     input_file = input_file_init(fileobj=io.BytesIO(s3_obj["Body"].read()))
 
     args = [input_file]
-    kwargs = CONTENT_TYPE_TO_READER_KWARGS[content_type]
+    kwargs = content_type_to_reader_kwargs(content_type)
     _add_column_kwargs(content_type, column_names, include_columns, kwargs)
 
-    if pa_read_func_kwargs is None:
-        pa_read_func_kwargs = {}
-    if pa_read_func_kwargs:
-        kwargs.update(pa_read_func_kwargs.get(
-            CONTENT_TYPE_TO_USER_KWARGS_KEY[content_type]
-        ))
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
     logger.debug(f"Reading {s3_url} via {pa_read_func} with kwargs: {kwargs}")
     table, latency = timed_invocation(
         pa_read_func,

@@ -3,6 +3,7 @@ import hashlib
 import time
 import os
 
+from typing import Any, Dict
 
 def env_bool(key: str, default: bool) -> int:
     if key in os.environ:
@@ -36,3 +37,17 @@ def sha1_hexdigest(_bytes) -> str:
     hasher = hashlib.sha1()
     hasher.update(_bytes)
     return hasher.hexdigest()
+
+
+class ReadKwargsProvider:
+    def _get_read_kwargs(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def __call__(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        return self._get_read_kwargs(content_type, kwargs)

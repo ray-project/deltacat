@@ -21,6 +21,7 @@ from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.types.tables import TABLE_TYPE_TO_READER_FUNC, \
     TABLE_CLASS_TO_SIZE_FUNC, get_table_length
 from deltacat.types.media import TableType
+from deltacat.utils.common import ReadKwargsProvider
 
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
@@ -30,7 +31,7 @@ from tenacity import wait_random_exponential
 from tenacity import stop_after_delay
 from tenacity import retry_if_exception_type
 
-from typing import Any, Callable, Dict, List, Optional, Generator, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Generator, Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -159,7 +160,7 @@ def read_file(
         table_type: TableType = TableType.PYARROW,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
         **s3_client_kwargs) -> LocalTable:
 
     reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
@@ -170,7 +171,7 @@ def read_file(
             content_encoding.value,
             column_names,
             include_columns,
-            file_reader_kwargs,
+            file_reader_kwargs_provider,
             **s3_client_kwargs
         )
         return table
@@ -252,7 +253,8 @@ def _get_metadata(
         # this must be a local table - ensure it was written to only 1 file
         assert len(block_write_path_provider.write_paths) == 1, \
             f"Expected table of type '{type(table)}' to be written to 1 " \
-            f"file, but found {block_write_path_provider.write_paths} files."
+            f"file, but found {len(block_write_path_provider.write_paths)} " \
+            f"files."
         table_size = None
         table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
         if table_size_func:
@@ -264,7 +266,9 @@ def _get_metadata(
                 num_rows=get_table_length(table),
                 size_bytes=table_size,
                 schema=None,
-                input_files=None)
+                input_files=None,
+                exec_stats=None,
+            )
         )
     else:
         # TODO(pdames): Expose BlockList metadata getter from Ray Dataset?
@@ -279,13 +283,13 @@ def _get_metadata(
 
 
 def upload_table(
-    table: Union[LocalTable, DistributedDataset],
-    s3_base_url: str,
-    s3_file_system: s3fs.S3FileSystem,
-    s3_table_writer_func: Callable,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]],
-    content_type: ContentType = ContentType.PARQUET,
-    **s3_client_kwargs) -> ManifestEntryList:
+        table: Union[LocalTable, DistributedDataset],
+        s3_base_url: str,
+        s3_file_system: s3fs.S3FileSystem,
+        s3_table_writer_func: Callable,
+        s3_table_writer_kwargs: Optional[Dict[str, Any]],
+        content_type: ContentType = ContentType.PARQUET,
+        **s3_client_kwargs) -> ManifestEntryList:
     """
     Writes the given table to 1 or more S3 files and return Redshift
     manifest entries describing the uploaded files.
@@ -329,7 +333,8 @@ def download_manifest_entry(
         table_type: TableType = TableType.PYARROW,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None) -> LocalTable:
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
+        -> LocalTable:
 
     s3_client_kwargs = {
         "aws_access_key_id": token_holder["accessKeyId"],
@@ -348,7 +353,7 @@ def download_manifest_entry(
         table_type,
         column_names,
         include_columns,
-        file_reader_kwargs,
+        file_reader_kwargs_provider,
         **s3_client_kwargs
     )
     return table
@@ -360,12 +365,12 @@ def _download_manifest_entries(
         table_type: TableType = TableType.PYARROW,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None) \
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
         -> LocalDataset:
 
     return [
         download_manifest_entry(e, token_holder, table_type, column_names,
-                                include_columns, file_reader_kwargs)
+                                include_columns, file_reader_kwargs_provider)
         for e in manifest.entries
     ]
 
@@ -377,7 +382,8 @@ def _download_manifest_entries_parallel(
         max_parallelism: Optional[int] = None,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None) -> LocalDataset:
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
+        -> LocalDataset:
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
@@ -387,7 +393,7 @@ def _download_manifest_entries_parallel(
         table_type=table_type,
         column_names=column_names,
         include_columns=include_columns,
-        file_reader_kwargs=file_reader_kwargs,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
     )
     for table in pool.map(downloader, [e for e in manifest.entries]):
         tables.append(table)
@@ -401,7 +407,8 @@ def download_manifest_entries(
         max_parallelism: Optional[int] = 1,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None) -> LocalDataset:
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
+        -> LocalDataset:
 
     if max_parallelism and max_parallelism <= 1:
         return _download_manifest_entries(
@@ -410,7 +417,7 @@ def download_manifest_entries(
             table_type,
             column_names,
             include_columns,
-            file_reader_kwargs,
+            file_reader_kwargs_provider,
         )
     else:
         return _download_manifest_entries_parallel(
@@ -420,7 +427,7 @@ def download_manifest_entries(
             max_parallelism,
             column_names,
             include_columns,
-            file_reader_kwargs,
+            file_reader_kwargs_provider,
         )
 
 

@@ -14,9 +14,12 @@ from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
     interface as unimplemented_deltacat_storage
 from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.types.media import ContentType
+from deltacat.types.media import ContentType, DELIMITED_TEXT_CONTENT_TYPES
 
 from typing import Any, List, Tuple
+
+from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -75,9 +78,15 @@ def materialize(
             dl_digest,
             deltacat_storage.get_delta_manifest(delta_locator),
         )
+        read_kwargs_provider = None
+        # for delimited text output, disable type inference to prevent
+        # unintentional type-casting side-effects and improve performance
+        if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+            read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
+            file_reader_kwargs_provider=read_kwargs_provider,
         )
         mask_pylist = list(repeat(False, len(pa_table)))
         record_numbers = chain.from_iterable(record_numbers_tpl)
@@ -104,9 +113,20 @@ def materialize(
         )
         compacted_tables.append(compacted_table)
 
-    # TODO (pdames): save memory by writing parquet files eagerly whenever
-    #  len(compacted_table) >= max_records_per_output_file
+    # TODO (pdames): save memory by writing output files eagerly whenever
+    #  len(compacted_table) >= max_records_per_output_file (but don't write
+    #  partial slices from the compacted_table remainder every time!)
     compacted_table = pa.concat_tables(compacted_tables)
+    if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+        # convert to pandas since pyarrow doesn't support custom delimiters
+        # and doesn't support utf-8 conversion of all types (e.g. Decimal128)
+        # TODO (pdames): compare performance to pandas-native materialize path
+        df = compacted_table.to_pandas(
+            split_blocks=True,
+            self_destruct=True,
+        )
+        del compacted_table
+        compacted_table = df
     delta = deltacat_storage.stage_delta(
         compacted_table,
         partition,
@@ -122,9 +142,11 @@ def materialize(
     materialize_result = MaterializeResult.of(
         delta,
         mat_bucket_index,
+        # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
+        #  and in-memory-table-bytes instead of tight coupling to paBytes
         PyArrowWriteResult.of(
             len(manifest.entries),
-            compacted_table.nbytes,
+            TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table),
             manifest.meta.content_length,
             len(compacted_table),
         ),

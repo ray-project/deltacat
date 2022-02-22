@@ -1,4 +1,6 @@
 import ray
+
+from deltacat.types.media import StorageType
 from deltacat.utils.performance import timed_invocation
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
@@ -26,7 +28,8 @@ def run_all(dc_storage_ray=unimplemented_deltacat_storage):
     delta = deltas_list_result.read_page()[0]
 
     pa_table_pending_ids = ray.get(
-        dc_storage_ray.download_delta.remote(delta)
+        dc_storage_ray.download_delta.remote(delta),
+        storage_type=StorageType.LOCAL,
     )
 
     pending_futures = []

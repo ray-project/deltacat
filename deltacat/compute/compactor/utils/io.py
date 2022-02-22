@@ -1,6 +1,6 @@
 import logging
 import math
-from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
+from deltacat.constants import PYARROW_INFLATION_MULTIPLIER, BYTES_PER_MEBIBYTE
 
 from ray import ray_constants
 
@@ -87,6 +87,7 @@ def limit_input_deltas(
 
     delta_bytes = 0
     delta_bytes_pyarrow = 0
+    delta_manifest_entries = 0
     latest_stream_position = -1
     limited_input_da_list = []
     for delta in input_deltas:
@@ -95,6 +96,7 @@ def limit_input_deltas(
         # TODO (pdames): ensure pyarrow object fits in per-task obj store mem
         position = delta.stream_position
         manifest_entries = delta.manifest.entries
+        delta_manifest_entries += len(manifest_entries)
         for entry in manifest_entries:
             # TODO: Fetch s3_obj["Size"] if entry content length undefined?
             delta_bytes += entry.meta.content_length
@@ -112,6 +114,7 @@ def limit_input_deltas(
     logger.info(f"Input deltas to compact this round: "
                 f"{len(limited_input_da_list)}")
     logger.info(f"Input delta bytes to compact: {delta_bytes}")
+    logger.info(f"Input delta files to compact: {delta_manifest_entries}")
     logger.info(f"Latest input delta stream position: {latest_stream_position}")
 
     if not limited_input_da_list:
@@ -119,8 +122,9 @@ def limit_input_deltas(
 
     # TODO (pdames): determine min hash buckets from size of all deltas
     #  (not just deltas for this round)
-    min_hash_bucket_count = math.ceil(
-        delta_bytes_pyarrow / worker_obj_store_mem_per_task
+    min_hash_bucket_count = max(
+        math.ceil(delta_bytes_pyarrow / worker_obj_store_mem_per_task),
+        min(worker_cpus, 256),
     )
     logger.info(f"Minimum recommended hash buckets: {min_hash_bucket_count}")
 
@@ -136,11 +140,11 @@ def limit_input_deltas(
         logger.warning(
             f"Provided hash bucket count ({hash_bucket_count}) "
             f"is less than the min recommended ({min_hash_bucket_count}). "
-            f"This compaction job run may run out of memory. To resolve this "
-            f"problem either specify a larger number of hash buckets when "
-            f"running compaction, omit a custom hash bucket count when "
-            f"running compaction, or provision workers with more task "
-            f"memory per CPU.")
+            f"This compaction job run may run out of memory, or run slowly. To "
+            f"resolve this problem either specify a larger number of hash "
+            f"buckets when running compaction, omit a custom hash bucket "
+            f"count when running compaction, or provision workers with more "
+            f"task memory per CPU.")
 
     hash_bucket_chunk_size = user_hash_bucket_chunk_size
     max_hash_bucket_chunk_size = math.ceil(
@@ -159,7 +163,14 @@ def limit_input_deltas(
             f"compaction, or provision workers with more task and object "
             f"store memory per CPU.")
     elif not hash_bucket_chunk_size:
-        hash_bucket_chunk_size = math.ceil(max_hash_bucket_chunk_size)
+        hash_bucket_chunk_size_load_balanced = max(
+            delta_bytes / worker_cpus,
+            BYTES_PER_MEBIBYTE,
+        )
+        hash_bucket_chunk_size = min(
+            max_hash_bucket_chunk_size,
+            hash_bucket_chunk_size_load_balanced,
+        )
         logger.info(f"Default hash bucket chunk size: {hash_bucket_chunk_size}")
 
     rebatched_da_list = DeltaAnnotated.rebatch(

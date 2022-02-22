@@ -35,9 +35,9 @@ setuptools.setup(
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     install_requires=[
         # any changes here should also be reflected in requirements.txt
-        "s3fs >= 2021.7.0",
-        "tenacity >= 8.0.1",
-        "ray >= 1.9.2",
+        "s3fs == 2022.1.0",
+        "tenacity == 8.0.1",
+        "ray == 1.10.0",
         "pandas >= 1.3.1",
         "pyarrow >= 5.0.0",
         "numpy >= 1.21.1",

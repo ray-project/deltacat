@@ -202,10 +202,12 @@ class PartitionLocator(Locator, dict):
            partition_id: Optional[str]) -> PartitionLocator:
         """
         Creates a stream partition locator. Partition ID is
-        case-sensitive. Partition Value types must ensure that
+        case-sensitive.
+
+        Partition Value types must ensure that
         `str(partition_value1) == str(partition_value2)` always implies
         `partition_value1 == partition_value2` (i.e. if two string
-        representations of partition values are equal, than the two partition
+        representations of partition values are equal, then the two partition
         values are equal).
         """
         partition_locator = PartitionLocator()
@@ -213,6 +215,27 @@ class PartitionLocator(Locator, dict):
         partition_locator.partition_values = partition_values
         partition_locator.partition_id = partition_id
         return partition_locator
+
+    @staticmethod
+    def at(namespace: Optional[str],
+           table_name: Optional[str],
+           table_version: Optional[str],
+           stream_id: Optional[str],
+           storage_type: Optional[str],
+           partition_values: Optional[List[Any]],
+           partition_id: Optional[str]) -> PartitionLocator:
+        stream_locator = StreamLocator.at(
+            namespace,
+            table_name,
+            table_version,
+            stream_id,
+            storage_type,
+        )
+        return PartitionLocator.of(
+            stream_locator,
+            partition_values,
+            partition_id,
+        )
 
     @property
     def stream_locator(self) -> Optional[StreamLocator]:
