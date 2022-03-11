@@ -39,8 +39,12 @@ def sha1_hexdigest(_bytes) -> str:
     return hasher.hexdigest()
 
 
-class ReadKwargsProvider:
-    def _get_read_kwargs(
+class ContentTypeKwargsProvider:
+    """Abstract callable that takes a content type and keyword arg dictionary
+    as input, and returns finalized keyword args as output. Useful for merging
+    content-type-specific keyword arguments into an existing fixed dictionary
+    of keyword arguments."""
+    def _get_kwargs(
             self,
             content_type: str,
             kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -50,4 +54,7 @@ class ReadKwargsProvider:
             self,
             content_type: str,
             kwargs: Dict[str, Any]) -> Dict[str, Any]:
-        return self._get_read_kwargs(content_type, kwargs)
+        return self._get_kwargs(content_type, kwargs)
+
+
+ReadKwargsProvider = ContentTypeKwargsProvider

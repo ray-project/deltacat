@@ -45,7 +45,7 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     Dataset: ds_utils.dataset_size,
 }
 
-TABLE_CLASS_TO_TABLE_TYPE: Dict[dcs.LocalTable, str] = {
+TABLE_CLASS_TO_TABLE_TYPE: Dict[Type[dcs.LocalTable], str] = {
     pa.Table: TableType.PYARROW.value,
     pd.DataFrame: TableType.PANDAS.value,
     np.ndarray: TableType.NUMPY.value,

@@ -75,9 +75,10 @@ def current_node_options_provider(*args, **kwargs) -> Dict[str, Any]:
 
 
 def round_robin_options_provider(
-        i,
+        i: int,
+        item: Any,
+        resource_keys: List[str],
         *args,
-        resource_keys: List[str] = None,
         resource_amount_provider: Callable[[int], int] =
         lambda i: MIN_RESOURCE_GRANULARITY,
         **kwargs) -> Dict[str, Any]:
@@ -92,6 +93,7 @@ def round_robin_options_provider(
         foo.options(**opt).remote()
     ```
     """
+    assert resource_keys, f"No resource keys given to round robin!"
     resource_key_index = i % len(resource_keys)
     key = resource_keys[resource_key_index]
     return {"resources": {key: resource_amount_provider(resource_key_index)}}

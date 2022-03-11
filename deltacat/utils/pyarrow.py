@@ -15,7 +15,7 @@ from ray.data.datasource import BlockWritePathProvider
 from deltacat import logs
 from deltacat.types.media import ContentType, ContentEncoding, \
     DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
-from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
 from deltacat.utils.performance import timed_invocation
 
 from typing import Any, Callable, Dict, List, Optional, Iterable
@@ -133,7 +133,7 @@ def slice_table(
     return tables
 
 
-class ReadKwargsProviderPyArrowCsvPureUtf8(ReadKwargsProvider):
+class ReadKwargsProviderPyArrowCsvPureUtf8(ContentTypeKwargsProvider):
     """ReadKwargsProvider impl that reads columns of delimited text files
     as UTF-8 strings (i.e. disables type inference). Useful for ensuring
     lossless reads of UTF-8 delimited text datasets and improving read
@@ -141,7 +141,7 @@ class ReadKwargsProviderPyArrowCsvPureUtf8(ReadKwargsProvider):
     def __init__(self, include_columns: Optional[Iterable[str]] = None):
         self.include_columns = include_columns
 
-    def _get_read_kwargs(
+    def _get_kwargs(
             self,
             content_type: str,
             kwargs: Dict[str, Any]) -> Dict[str, Any]:

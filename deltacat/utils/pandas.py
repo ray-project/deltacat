@@ -4,7 +4,6 @@ import math
 import io
 import logging
 import pyarrow as pa
-import functools
 
 from fsspec import AbstractFileSystem
 
@@ -12,12 +11,11 @@ from ray.data.datasource import BlockWritePathProvider
 
 from deltacat.types.media import ContentType, ContentEncoding, \
     EXPLICIT_COMPRESSION_CONTENT_TYPES
-from deltacat.types.media import CONTENT_TYPE_TO_USER_KWARGS_KEY, \
-    DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
+from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, \
+    TABULAR_CONTENT_TYPES
 from deltacat import logs
-from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils import pyarrow as pa_utils
 
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -36,7 +34,7 @@ CONTENT_TYPE_TO_PD_READ_FUNC: Dict[str, Callable] = {
 }
 
 
-class ReadKwargsProviderPandasCsvPureUtf8(ReadKwargsProvider):
+class ReadKwargsProviderPandasCsvPureUtf8(ContentTypeKwargsProvider):
     """ReadKwargsProvider impl that reads columns of delimited text files
     as UTF-8 strings (i.e. disables type inference). Useful for ensuring
     lossless reads of UTF-8 delimited text datasets and improving read
@@ -44,7 +42,7 @@ class ReadKwargsProviderPandasCsvPureUtf8(ReadKwargsProvider):
     def __init__(self, include_columns: Optional[Iterable[str]] = None):
         self.include_columns = include_columns
 
-    def _get_read_kwargs(
+    def _get_kwargs(
             self,
             content_type: str,
             kwargs: Dict[str, Any]) -> Dict[str, Any]:

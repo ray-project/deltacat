@@ -3,9 +3,9 @@ import deltacat.aws.clients as aws_utils
 import logging
 import multiprocessing
 import s3fs
+import pyarrow as pa
 
 from functools import partial
-
 from uuid import uuid4
 
 from ray.types import ObjectRef
@@ -36,18 +36,57 @@ from typing import Any, Callable, Dict, List, Optional, Generator, Union
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+@ray.remote
+class CapturedBlockWritePaths:
+    def __init__(self):
+        self._write_paths: List[str] = []
+        self._block_refs: List[ObjectRef[Block]] = []
+
+    def extend(
+            self,
+            write_paths: List[str],
+            block_refs: List[ObjectRef[Block]]):
+        try:
+            iter(write_paths)
+        except TypeError:
+            pass
+        else:
+            self._write_paths.extend(write_paths)
+        try:
+            iter(block_refs)
+        except TypeError:
+            pass
+        else:
+            self._block_refs.extend(block_refs)
+
+    def write_paths(self) -> List[str]:
+        return self._write_paths
+
+    def block_refs(self) -> List[ObjectRef[Block]]:
+        return self._block_refs
+
+
 class UuidBlockWritePathProvider(BlockWritePathProvider):
     """Block write path provider implementation that writes each
     dataset block out to a file of the form: {base_path}/{uuid}
     """
-    def __init__(self):
+    def __init__(self, capture_actor: CapturedBlockWritePaths):
         self.write_paths: List[str] = []
         self.block_refs: List[ObjectRef[Block]] = []
+        self.capture_actor = capture_actor
+
+    def __del__(self):
+        if self.write_paths or self.block_refs:
+            self.capture_actor.extend.remote(
+                self.write_paths,
+                self.block_refs,
+            )
 
     def _get_write_path_for_block(
             self,
             base_path: str,
-            filesystem: Optional["pyarrow.fs.FileSystem"] = None,
+            *,
+            filesystem: Optional[pa.filesystem.FileSystem] = None,
             dataset_uuid: Optional[str] = None,
             block: Optional[ObjectRef[Block]] = None,
             block_index: Optional[int] = None,
@@ -59,7 +98,7 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
         return write_path
 
 
-class ParsedURL:
+class S3Url:
     def __init__(
             self,
             url: str):
@@ -82,8 +121,8 @@ class ParsedURL:
         self.url = self._parsed.geturl()
 
 
-def parse_s3_url(url: str) -> ParsedURL:
-    return ParsedURL(url)
+def parse_s3_url(url: str) -> S3Url:
+    return S3Url(url)
 
 
 def s3_resource_cache(
@@ -131,6 +170,22 @@ def delete_files_by_prefix(
     s3 = s3_resource_cache(None, **s3_client_kwargs)
     bucket = s3.Bucket(bucket)
     bucket.objects.filter(Prefix=prefix).delete()
+
+
+def filter_paths_by_prefix(bucket, prefix):
+    return objects_to_paths(
+        bucket,
+        filter_objects_by_prefix(bucket, prefix),
+    )
+
+
+def objects_to_paths(bucket, objects):
+    for obj in objects:
+        yield get_path_from_object(bucket, obj)
+
+
+def get_path_from_object(bucket, obj):
+    return "s3://{}/{}".format(bucket, obj["Key"])
 
 
 def filter_objects_by_prefix(
@@ -241,20 +296,22 @@ def upload_sliced_table(
 
 @ray.remote
 def _block_metadata(block: Block) -> BlockMetadata:
-    return BlockAccessor.for_block(block).get_metadata(input_files=None)
+    return BlockAccessor.for_block(block).get_metadata(
+        input_files=None,
+        exec_stats=None,
+    )
 
 
 def _get_metadata(
         table: Union[LocalTable, DistributedDataset],
-        block_write_path_provider: UuidBlockWritePathProvider) \
-        -> List[BlockMetadata]:
+        write_paths: List[str],
+        block_refs: List[ObjectRef[Block]])-> List[BlockMetadata]:
     metadata: List[BlockMetadata] = []
-    if not block_write_path_provider.block_refs:
+    if not block_refs:
         # this must be a local table - ensure it was written to only 1 file
-        assert len(block_write_path_provider.write_paths) == 1, \
+        assert len(write_paths) == 1, \
             f"Expected table of type '{type(table)}' to be written to 1 " \
-            f"file, but found {len(block_write_path_provider.write_paths)} " \
-            f"files."
+            f"file, but found {len(write_paths)} files."
         table_size = None
         table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
         if table_size_func:
@@ -272,12 +329,15 @@ def _get_metadata(
         )
     else:
         # TODO(pdames): Expose BlockList metadata getter from Ray Dataset?
-        metadata = table._blocks.get_metadata()
+        # ray 1.10
+        # metadata = dataset._blocks.get_metadata()
+        # ray 2.0.0dev
+        metadata = table._plan.execute().get_metadata()
         if not metadata or metadata[0].size_bytes is None or \
                 metadata[0].num_rows is None:
             metadata_futures = [_block_metadata.remote(block_ref)
                                 for block_ref
-                                in block_write_path_provider.block_refs]
+                                in block_refs]
             metadata = ray.get(metadata_futures)
     return metadata
 
@@ -297,7 +357,8 @@ def upload_table(
     if s3_table_writer_kwargs is None:
         s3_table_writer_kwargs = {}
 
-    block_write_path_provider = UuidBlockWritePathProvider()
+    capture_actor = CapturedBlockWritePaths.remote()
+    block_write_path_provider = UuidBlockWritePathProvider(capture_actor)
     s3_table_writer_func(
         table,
         s3_base_url,
@@ -306,9 +367,11 @@ def upload_table(
         content_type.value,
         **s3_table_writer_kwargs
     )
-    metadata = _get_metadata(table, block_write_path_provider)
+    block_refs = ray.get(capture_actor.block_refs.remote())
+    write_paths = ray.get(capture_actor.write_paths.remote())
+    metadata = _get_metadata(table, write_paths, block_refs)
     manifest_entries = ManifestEntryList()
-    for block_idx, s3_url in enumerate(block_write_path_provider.write_paths):
+    for block_idx, s3_url in enumerate(write_paths):
         try:
             manifest_entry = ManifestEntry.from_s3_obj_url(
                 s3_url,
@@ -333,23 +396,32 @@ def download_manifest_entry(
         table_type: TableType = TableType.PYARROW,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
-        -> LocalTable:
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+        content_type: Optional[ContentType] = None,
+        content_encoding: Optional[ContentEncoding] = None) -> LocalTable:
 
     s3_client_kwargs = {
         "aws_access_key_id": token_holder["accessKeyId"],
         "aws_secret_access_key": token_holder["secretAccessKey"],
         "aws_session_token": token_holder["sessionToken"]
     } if token_holder else {}
-    content_type = manifest_entry.meta.content_type
-    content_encoding = manifest_entry.meta.content_encoding
+    if not content_type:
+        content_type = manifest_entry.meta.content_type
+        assert content_type, \
+            f"Unknown content type for manifest entry: {manifest_entry}"
+        content_type = ContentType(content_type)
+    if not content_encoding:
+        content_encoding = manifest_entry.meta.content_encoding
+        assert content_encoding, \
+            f"Unknown content encoding for manifest entry: {manifest_entry}"
+        content_encoding = ContentEncoding(content_encoding)
     s3_url = manifest_entry.uri
     if s3_url is None:
         s3_url = manifest_entry.url
     table = read_file(
         s3_url,
-        ContentType(content_type),
-        ContentEncoding(content_encoding),
+        content_type,
+        content_encoding,
         table_type,
         column_names,
         include_columns,
@@ -475,4 +547,3 @@ def download(
             logger.info(
                 f"file not found: {s3_url}")
     return None
-
