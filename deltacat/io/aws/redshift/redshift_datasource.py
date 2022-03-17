@@ -6,24 +6,23 @@ import numpy as np
 import pyarrow as pa
 import ray
 import s3fs
-import posixpath
 
 from errno import ENOENT
 from enum import Enum
 from collections import OrderedDict, defaultdict
 
-from deltacat.io.pyarrow.parquet_datasource import ParquetDatasource
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
 from pyarrow.fs import FileType, FileSystem, S3FileSystem
 from pyarrow import parquet as pq
-from pyarrow import csv
 
 from ray.data.datasource.file_based_datasource import \
     _resolve_paths_and_filesystem
+from ray.data.datasource.partitioning import PartitionStyle
 from ray.types import ObjectRef
 from ray.data.datasource import CSVDatasource, BlockWritePathProvider, \
     DefaultBlockWritePathProvider, BaseFileMetadataProvider, \
-    ParquetMetadataProvider, DefaultFileMetadataProvider
+    ParquetMetadataProvider, DefaultFileMetadataProvider, ParquetFastDatasource, \
+    PathPartitioning
 from ray.data.datasource.datasource import ReadTask, WriteResult, Datasource, \
     ArrowRow
 from ray.data.block import Block
@@ -92,8 +91,14 @@ class CachedFileMetadataProvider(
             block_metadata = self._meta_cache.get(path)
             if block_metadata is None:
                 raise ValueError(f"Block metadata not found for path: {path}")
-            agg_block_metadata.num_rows += block_metadata.num_rows
-            agg_block_metadata.size_bytes += block_metadata.size_bytes
+            if block_metadata.num_rows is None:
+                agg_block_metadata.num_rows = None
+            elif agg_block_metadata.num_rows is not None:
+                agg_block_metadata.num_rows += block_metadata.num_rows
+            if block_metadata.size_bytes is None:
+                agg_block_metadata.size_bytes = None
+            elif agg_block_metadata.size_bytes is not None:
+                agg_block_metadata.size_bytes += block_metadata.size_bytes
             agg_block_metadata.input_files.append(path)
         return agg_block_metadata
 
@@ -106,16 +111,28 @@ class CachedFileMetadataProvider(
 
 
 class RedshiftUnloadTextArgs:
-    def __init__(self, format_as_csv: bool = False):
-        self.header = False
-        self.delimiter = "," if format_as_csv else "|"
-        self.bzip2 = False
-        self.gzip = False
-        self.zstd = False
-        self.add_quotes = True if format_as_csv else False
-        self.null_as = ""
-        self.escape = False
-        self.fixed_width = False
+    def __init__(
+            self,
+            csv: bool = False,
+            header: bool = False,
+            delimiter: Optional[str] = None,
+            bzip2: bool = False,
+            gzip: bool = False,
+            zstd: bool = False,
+            add_quotes: Optional[bool] = None,
+            null_as: str = "",
+            escape: bool = False,
+            fixed_width: bool = False,
+    ):
+        self.header = header
+        self.delimiter = delimiter if delimiter else "," if csv else "|"
+        self.bzip2 = bzip2
+        self.gzip = gzip
+        self.zstd = zstd
+        self.add_quotes = add_quotes if add_quotes else True if csv else False
+        self.null_as = null_as
+        self.escape = escape
+        self.fixed_width = fixed_width
 
     def _get_arrow_compression_codec_name(self) -> str:
         arrow_compression_codec_name = None
@@ -138,6 +155,7 @@ class RedshiftUnloadTextArgs:
             self,
             include_columns: Optional[List[str]],
             schema: Optional[pa.Schema]) -> Dict[str, Any]:
+        from pyarrow import csv
         if self.fixed_width:
             raise NotImplementedError(
                 "Redshift text files unloaded with FIXEDWIDTH are not "
@@ -212,24 +230,6 @@ def _normalize_s3_paths_for_filesystem(
     return paths, urls
 
 
-def _parse_hive_partition_keys_and_values(url: S3Url) -> Dict[str, str]:
-    dir_path = posixpath.dirname(url.key)
-    dirs = [d for d in dir_path.split("/") if d and (d.count("=") == 1)]
-    return dict(d.split("=") for d in dirs) if dirs else {}
-
-
-def _filter_partitions(
-        urls: List[S3Url],
-        paths: List[str],
-        filter_fn: Callable[[Dict[str, str]], bool],
-) -> List[str]:
-    filtered_paths = [
-        paths[i] for i, url in enumerate(urls)
-        if filter_fn(_parse_hive_partition_keys_and_values(url))
-    ]
-    return filtered_paths
-
-
 def _read_manifest_entry_paths(
         entries: ManifestEntryList,
         manifest_content_type: Optional[str],
@@ -267,6 +267,7 @@ def _expand_manifest_paths(
     with filesystem.open_input_file(path) as f:
         manifest = Manifest(json.loads(f.read()))
     content_type_to_paths = {}
+    meta_provider = CachedFileMetadataProvider({})
     if not manifest.entries:
         logger.warning(f"No entries to read in Redshift Manifest: {path}")
     else:
@@ -328,7 +329,6 @@ def _expand_paths_by_content_type(
         path_type: S3PathType,
         user_fs: Optional[Union[S3FileSystem, s3fs.S3FileSystem]],
         resolved_fs: S3FileSystem,
-        partition_filter_fn: Optional[Callable[[Dict[str, str]], bool]],
         **s3_client_kwargs,
 ) -> Tuple[Dict[ContentType, List[str]], CachedFileMetadataProvider]:
     if path_type == S3PathType.MANIFEST:
@@ -369,12 +369,6 @@ def _expand_paths_by_content_type(
             paths,
             user_fs,
         )
-        if partition_filter_fn is not None:
-            paths = _filter_partitions(
-                urls,
-                paths,
-                partition_filter_fn,
-            )
         content_type_to_paths[content_type] = paths
     # normalize block metadata provider S3 file paths based on the filesystem
     meta_provider = CachedFileMetadataProvider({
@@ -395,6 +389,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
             columns: Optional[List[str]] = None,
             schema: Optional[pa.Schema] = None,
             unload_args: RedshiftUnloadTextArgs = RedshiftUnloadTextArgs(),
+            partition_base_dir: Optional[str] = None,
             partition_filter: Optional[Callable[[Dict[str, str]], bool]] = None,
             open_stream_args: Optional[Dict[str, Any]] = None,
             read_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -409,7 +404,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
             paths,
             filesystem,
         )
-        # _expand_paths_by_content_type
+        # find all files in manifests, prefixes, and folders
         content_type_to_paths, meta_provider = _expand_paths_by_content_type(
             paths,
             urls,
@@ -417,7 +412,6 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
             path_type,
             filesystem,
             resolved_fs,
-            partition_filter,
             **s3_client_kwargs,
         )
         num_content_types = len(content_type_to_paths)
@@ -427,9 +421,14 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
             with resolved_fs.open_input_file(path, **open_stream_args) as f:
                 schema = pq.read_schema(f)
         content_type_to_reader = {
-            ContentType.PARQUET: ParquetDatasource(),
+            ContentType.PARQUET: ParquetFastDatasource(),
             ContentType.CSV: CSVDatasource(),
         }
+        partitioning = PathPartitioning(
+            style=PartitionStyle.HIVE,
+            base_dir=partition_base_dir,
+            filter_fn=partition_filter,
+        ) if partition_filter else None
         all_read_tasks = []
         for content_type, paths in content_type_to_paths.items():
             reader = content_type_to_reader.get(content_type)
@@ -440,6 +439,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
                 "filesystem": resolved_fs,
                 "schema": schema,
                 "meta_provider": meta_provider,
+                "partitioning": partitioning,
             }
             if content_type == ContentType.PARQUET:
                 if columns:
@@ -447,6 +447,8 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
             elif content_type in DELIMITED_TEXT_CONTENT_TYPES:
                 prepare_read_kwargs.update(
                     unload_args.to_arrow_reader_kwargs(columns, schema))
+            else:
+                raise NotImplementedError(f"Unsupported content type: {content_type}")
             # merge any provided reader kwargs for this content type with those
             # inferred from Redshift UNLOAD args
             if read_kwargs_provider:
@@ -486,7 +488,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         path = paths[0]
         block_path_provider = CapturingBlockWritePathProvider(
             block_path_provider)
-        writer = ParquetDatasource()
+        writer = ParquetFastDatasource()
         write_results = writer.do_write(
             blocks,
             metadata,

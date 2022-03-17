@@ -22,6 +22,7 @@ def read_redshift(
         columns: Optional[List[str]] = None,
         schema: Optional[pa.Schema] = None,
         unload_text_args: RedshiftUnloadTextArgs = RedshiftUnloadTextArgs(),
+        partition_base_dir: Optional[str] = None,
         partition_filter_fn: Optional[Callable[[Dict[str, str]], bool]] = None,
         content_type_provider: Callable[[str], ContentType] = lambda p:
         ContentType.PARQUET if p.endswith(".parquet") else ContentType.CSV,
@@ -96,14 +97,18 @@ def read_redshift(
             text files will be correctly parsed. If not specified, then all 
             text files read are assumed to use Redshift UNLOAD's default 
             pipe-delimited text format.
-        partition_filter_fn: Optional[Callable[[Dict[str, str]], bool]]
-            Callback used to filter `PARTITION` columns. Receives a dictionary
-            mapping partition keys to values as input, returns `True` to read
-            a partition, and `False` to skip it. Each partition key and value
+        partition_base_dir: Base directory to start searching for partitions
+            (exclusive). File paths outside of this directory will not be parsed
+            for partitions and automatically added to the dataset without passing
+            through any partition filter. Specify `None` or an empty string to
+            search for partitions in all file path directories.
+        partition_filter_fn: Callback used to filter `PARTITION` columns. Receives a 
+            dictionary mapping partition keys to values as input, returns `True` to
+            read a partition, and `False` to skip it. Each partition key and value
             is a string parsed directly from an S3 key using hive-style
-            partition directory names of the form "key=value". For example:
+            partition directory names of the form "{key}={value}". For example:
             ``lambda x: 
-            True if x["day"] == "TU" and x["year"] == "2022" else False``
+            True if x["month"] == "January" and x["year"] == "2022" else False``
         content_type_provider: Takes a file path as input and returns the file
             content type as output.
         parallelism: The requested parallelism of the read. Parallelism may be
@@ -127,6 +132,7 @@ def read_redshift(
         columns=columns,
         schema=schema,
         unload_args=unload_text_args,
+        partition_base_dir=partition_base_dir,
         partition_filter=partition_filter_fn,
         ray_remote_args=ray_remote_args,
         open_stream_args=arrow_open_stream_args,
