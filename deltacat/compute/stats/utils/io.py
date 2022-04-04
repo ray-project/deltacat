@@ -11,7 +11,7 @@ from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
 from deltacat.compute.stats.models.delta_stats import DeltaStats, DeltaStatsCacheMiss
 
 from deltacat.compute.stats.models.stats_result import StatsResult
-from deltacat.compute.stats.utils.intervals import UnboundedRange
+from deltacat.compute.stats.utils.intervals import DeltaRange
 from deltacat.storage import PartitionLocator, Delta, DeltaLocator
 from deltacat import logs, LocalTable, TableType
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -94,8 +94,8 @@ def get_delta_stats(delta_locator: DeltaLocator,
 @ray.remote
 def get_deltas_from_range(
         source_partition_locator: PartitionLocator,
-        start_position_inclusive: UnboundedRange,
-        end_position_inclusive: UnboundedRange,
+        start_position_inclusive: DeltaRange,
+        end_position_inclusive: DeltaRange,
         deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
     """Looks up deltas in the specified partition using Ray, given both starting and ending delta stream positions.
 

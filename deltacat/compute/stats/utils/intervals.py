@@ -1,11 +1,11 @@
-from typing import Set, Tuple, List, Iterable, Union
+from typing import Set, Tuple, List, Iterable, Union, Optional
 
-UnboundedRange = Union[int, None]
-NumericalRange = Union[int, float]
+DeltaPosition = Optional[int]
+NumericDeltaPosition = Union[int, float]  # float is added here to support math.inf
+DeltaRange = Tuple[DeltaPosition, DeltaPosition]
 
 
-def merge_intervals(intervals: Set[Tuple[UnboundedRange, UnboundedRange]]) -> \
-        Set[Tuple[UnboundedRange, UnboundedRange]]:
+def merge_intervals(intervals: Set[DeltaRange]) -> Set[DeltaRange]:
     """Merges a set of N input intervals into a minimal number of output intervals.
 
     Each input interval is an open unbounded interval with infinite ranges.
@@ -26,8 +26,8 @@ def merge_intervals(intervals: Set[Tuple[UnboundedRange, UnboundedRange]]) -> \
     Returns:
         A minimal number of output intervals
     """
-    merged: Set[Tuple[UnboundedRange, UnboundedRange]] = set()
-    intervals_list: List[Tuple[UnboundedRange, UnboundedRange]] = list(intervals)
+    merged: Set[DeltaRange] = set()
+    intervals_list: List[DeltaRange] = list(intervals)
 
     if len(intervals_list) == 0:
         return merged
@@ -58,13 +58,13 @@ def merge_intervals(intervals: Set[Tuple[UnboundedRange, UnboundedRange]]) -> \
     return merged
 
 
-def _add_merged_interval(result_set: set, start: NumericalRange, end: NumericalRange):
-    start_pos: UnboundedRange = start if isinstance(start, int) else None
-    end_pos: UnboundedRange = end if isinstance(end, int) else None
+def _add_merged_interval(result_set: set, start: NumericDeltaPosition, end: NumericDeltaPosition):
+    start_pos: DeltaPosition = start if isinstance(start, int) else None
+    end_pos: DeltaPosition = end if isinstance(end, int) else None
     result_set.add((start_pos, end_pos))
 
 
-def _to_numeric_values(intervals_list: List[Tuple[UnboundedRange, UnboundedRange]]):
+def _to_numeric_values(intervals_list: List[DeltaRange]):
     for i, interval in enumerate(intervals_list):
         start, end = _get_validated_interval(interval)
         if start is None:
@@ -75,7 +75,7 @@ def _to_numeric_values(intervals_list: List[Tuple[UnboundedRange, UnboundedRange
         intervals_list[i] = (start, end)
 
 
-def _get_validated_interval(interval: Tuple[UnboundedRange, UnboundedRange]) -> Tuple[UnboundedRange, UnboundedRange]:
+def _get_validated_interval(interval: DeltaRange) -> DeltaRange:
     if not isinstance(interval, Iterable) or len(interval) != 2:
         raise ValueError(f"Interval {interval} must be a tuple of size 2")
 
