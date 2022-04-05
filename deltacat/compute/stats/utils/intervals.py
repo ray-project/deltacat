@@ -8,8 +8,7 @@ DeltaRange = Tuple[DeltaPosition, DeltaPosition]
 def merge_intervals(intervals: Set[DeltaRange]) -> Set[DeltaRange]:
     """Merges a set of N input intervals into a minimal number of output intervals.
 
-    Each input interval is an open unbounded interval with infinite ranges.
-    Intervals will be merged into a minimal number of output intervals in O(N log N) time.
+    All input intervals will be merged into a minimal number of output intervals in O(N log N) time.
 
     Example:
         >>> merge_intervals((3, 9), (8, 12), (15, 19))
@@ -20,7 +19,7 @@ def merge_intervals(intervals: Set[DeltaRange]) -> Set[DeltaRange]:
         ((None, 30))
 
     Args:
-        intervals: A list of open bounded intervals with an int type representing finite, closed bounded values and
+        intervals: A list of intervals with an int type representing finite, closed bounded values and
             a None type representing infinity.
 
     Returns:
