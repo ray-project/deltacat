@@ -555,6 +555,9 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         manifest = Manifest.of(manifest_entries)
         manifest_path = f"{result.path}/manifest"
         logger.debug(f"Write succeeded for Dataset ID: {result.dataset_uuid}")
-        with result.filesystem.open_output_stream(manifest_path) as f:
+        with result.filesystem.open_output_stream(
+                manifest_path,
+                metadata={"Content-Type": ContentType.JSON.value},
+        ) as f:
             f.write(json.dumps(manifest).encode("utf-8"))
         logger.debug(f"Manifest committed to: {manifest_path}")
