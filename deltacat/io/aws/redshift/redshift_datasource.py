@@ -460,7 +460,6 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
             # from Redshift UNLOAD args
             if open_stream_args:
                 prepare_read_kwargs["open_stream_args"] = open_stream_args
-            print(f"prepare_read_kwargs: {prepare_read_kwargs}")
             read_tasks = reader.prepare_read(**prepare_read_kwargs)
             all_read_tasks.extend(read_tasks)
         return all_read_tasks
