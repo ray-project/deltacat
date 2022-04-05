@@ -8,7 +8,7 @@ from ray.data.impl.arrow_block import ArrowRow
 from deltacat import ContentType
 from deltacat.io.dataset import DeltacatDataset
 from deltacat.io.aws.redshift.redshift_datasource import \
-    RedshiftDatasource, RedshiftUnloadTextArgs, S3PathType
+    RedshiftDatasource, RedshiftUnloadTextArgs, S3PathType, HivePartitionParser
 
 from typing import Optional, Union, List, Dict, Any, Callable
 
@@ -22,8 +22,7 @@ def read_redshift(
         columns: Optional[List[str]] = None,
         schema: Optional[pa.Schema] = None,
         unload_text_args: RedshiftUnloadTextArgs = RedshiftUnloadTextArgs(),
-        partition_base_dir: Optional[str] = None,
-        partition_filter_fn: Optional[Callable[[Dict[str, str]], bool]] = None,
+        partitioning: HivePartitionParser = None,
         content_type_provider: Callable[[str], ContentType] = lambda p:
         ContentType.PARQUET if p.endswith(".parquet") else ContentType.CSV,
         parallelism: int = 200,
@@ -132,8 +131,7 @@ def read_redshift(
         columns=columns,
         schema=schema,
         unload_args=unload_text_args,
-        partition_base_dir=partition_base_dir,
-        partition_filter=partition_filter_fn,
+        partitioning=partitioning,
         ray_remote_args=ray_remote_args,
         open_stream_args=arrow_open_stream_args,
         read_kwargs_provider=pa_read_func_kwargs_provider,

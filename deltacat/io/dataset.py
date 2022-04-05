@@ -11,8 +11,7 @@ from ray.data.datasource import DefaultBlockWritePathProvider, \
     BlockWritePathProvider
 from ray.data.impl.arrow_block import T
 
-from deltacat.io.aws.redshift.redshift_datasource import \
-    CapturingBlockWritePathProvider, RedshiftDatasource
+from deltacat.io.aws.redshift.redshift_datasource import RedshiftDatasource
 
 
 class DeltacatDataset(Dataset[T]):

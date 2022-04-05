@@ -2,7 +2,6 @@ import json
 import logging
 from os import strerror
 
-import numpy as np
 import pyarrow as pa
 import ray
 import s3fs
@@ -17,12 +16,12 @@ from pyarrow import parquet as pq
 
 from ray.data.datasource.file_based_datasource import \
     _resolve_paths_and_filesystem
+from ray.data.datasource.file_based_datasource import FastFileMetadataProvider
 from ray.data.datasource.partitioning import PartitionStyle
 from ray.types import ObjectRef
 from ray.data.datasource import CSVDatasource, BlockWritePathProvider, \
-    DefaultBlockWritePathProvider, BaseFileMetadataProvider, \
-    ParquetMetadataProvider, DefaultFileMetadataProvider, ParquetFastDatasource, \
-    PathPartitioning
+    DefaultBlockWritePathProvider, ParquetMetadataProvider, \
+    DefaultFileMetadataProvider, ParquetBaseDatasource, PathPartitionParser
 from ray.data.datasource.datasource import ReadTask, WriteResult, Datasource, \
     ArrowRow
 from ray.data.block import Block
@@ -65,7 +64,7 @@ class CapturingBlockWritePathProvider(BlockWritePathProvider):
 
 
 class CachedFileMetadataProvider(
-    BaseFileMetadataProvider,
+    FastFileMetadataProvider,
     ParquetMetadataProvider,
 ):
     def __init__(self, meta_cache: Dict[str, BlockMetadata]):
@@ -102,12 +101,17 @@ class CachedFileMetadataProvider(
             agg_block_metadata.input_files.append(path)
         return agg_block_metadata
 
-    def expand_paths(
+
+class HivePartitionParser(PathPartitionParser):
+    def __init__(
             self,
-            paths: List[str],
-            filesystem: pa.FileSystem,
-    ) -> Tuple[List[str], List[Optional[int]]]:
-        return paths, np.empty(len(paths), dtype=object)
+            base_dir: Optional[str] = None,
+            filter_fn: Optional[Callable[[Dict[str, str]], bool]] = None,
+    ):
+        super(HivePartitionParser, self).__init__(
+            base_dir=base_dir,
+            filter_fn=filter_fn,
+        )
 
 
 class RedshiftUnloadTextArgs:
@@ -389,8 +393,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
             columns: Optional[List[str]] = None,
             schema: Optional[pa.Schema] = None,
             unload_args: RedshiftUnloadTextArgs = RedshiftUnloadTextArgs(),
-            partition_base_dir: Optional[str] = None,
-            partition_filter: Optional[Callable[[Dict[str, str]], bool]] = None,
+            partitioning: HivePartitionParser = None,
             open_stream_args: Optional[Dict[str, Any]] = None,
             read_kwargs_provider: Optional[ReadKwargsProvider] = None,
             **s3_client_kwargs,
@@ -417,18 +420,15 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         num_content_types = len(content_type_to_paths)
         if num_content_types > 1 and not schema:
             # infer schema from a single parquet file
+            # TODO (pdames): read verbose manifest schema if available, and infer
+            #  schema from a sample parquet dataset if not
             path = content_type_to_paths[ContentType.PARQUET][0]
             with resolved_fs.open_input_file(path, **open_stream_args) as f:
                 schema = pq.read_schema(f)
         content_type_to_reader = {
-            ContentType.PARQUET: ParquetFastDatasource(),
+            ContentType.PARQUET: ParquetBaseDatasource(),
             ContentType.CSV: CSVDatasource(),
         }
-        partitioning = PathPartitioning(
-            style=PartitionStyle.HIVE,
-            base_dir=partition_base_dir,
-            filter_fn=partition_filter,
-        ) if partition_filter else None
         all_read_tasks = []
         for content_type, paths in content_type_to_paths.items():
             reader = content_type_to_reader.get(content_type)
@@ -488,7 +488,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         path = paths[0]
         block_path_provider = CapturingBlockWritePathProvider(
             block_path_provider)
-        writer = ParquetFastDatasource()
+        writer = ParquetBaseDatasource()
         write_results = writer.do_write(
             blocks,
             metadata,
@@ -517,6 +517,8 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
 
     def on_write_complete(self, write_results: List[WriteResult], **kwargs) \
             -> None:
+        # TODO (pdames): time latency of this operation - overall redshift write times
+        #  are 2-3x pure read_parquet_fast() times
         # restore the write operation summary from the last write result
         result: RedshiftWriteResult = write_results[len(write_results)-1]
         write_path_args = result.block_write_path_provider.write_path_kwargs
