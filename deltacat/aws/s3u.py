@@ -264,7 +264,8 @@ def _get_metadata(
                 num_rows=get_table_length(table),
                 size_bytes=table_size,
                 schema=None,
-                input_files=None)
+                input_files=None,
+                exec_stats=None)
         )
     else:
         # TODO(pdames): Expose BlockList metadata getter from Ray Dataset?
