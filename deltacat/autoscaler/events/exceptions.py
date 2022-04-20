@@ -1,0 +1,2 @@
+class EventNotFoundException(Exception):
+    pass
