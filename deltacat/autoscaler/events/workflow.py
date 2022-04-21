@@ -2,9 +2,11 @@ import logging
 from uuid import uuid4
 
 import time
-from typing import Dict, Callable, Union, Tuple, Optional
+from typing import Dict, Callable, Union, Tuple, Optional, List, Any
 
+from botocore.exceptions import BotoCoreError
 from ray.autoscaler._private.aws.events import AwsEventManagerBase
+from ray.autoscaler._private.event_system import States
 
 from deltacat import logs
 from deltacat.autoscaler.events.dispatcher import EventDispatcher
@@ -13,6 +15,9 @@ from deltacat.autoscaler.events.exceptions import EventNotFoundException
 
 logging.basicConfig(level=logging.INFO)
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+QUERY_EVENTS_MAX_RETRY_COUNTER = 100
+SLEEP_PERIOD_SECONDS = 10
 
 
 def poll_events(events_manager: AwsEventManagerBase,
@@ -41,33 +46,71 @@ def poll_events(events_manager: AwsEventManagerBase,
     dest_provider = events_manager.config["parameters"]["destinationTable"]["owner"]
     dest_table = events_manager.config["parameters"]["destinationTable"]["name"]
     expiry_timestamp = events_manager.config["parameters"]["expirationTimestamp"]
-    while round(time.time() * 1000) < expiry_timestamp:
+
+    retry_ctr = 0
+    while round(time.time() * 1000) < expiry_timestamp and retry_ctr < QUERY_EVENTS_MAX_RETRY_COUNTER:
         logger.info(f"Polling latest job states for trace_id: {trace_id}, "
                     f"provider: {dest_provider} and table: {dest_table}...")
+
         try:
-            state, state_sequence = get_latest_active_event(event_store, trace_id)
-            to_next_state(state, state_sequence, state_transition_map)
-        except EventNotFoundException as e:
+            events = event_store.query_events(trace_id)
+
+            # Latest non-active / active event must be checked for the completed state.
+            latest_state, latest_state_sequence = get_latest_event(events, trace_id)
+            if latest_state == States.COMPLETED.name:
+                logger.info("Completed Ray job! Shutting down cluster.")
+                break
+
+            # Latest active event must be checked for the next state transition
+            latest_active_state, latest_active_state_sequence = get_latest_active_event(events, trace_id)
+            to_next_state(latest_active_state, latest_active_state_sequence, state_transition_map)
+
+        except (EventNotFoundException, BotoCoreError) as e:
             logger.error(e)
+            retry_ctr += 1
 
-        time.sleep(20)
+        time.sleep(SLEEP_PERIOD_SECONDS)
+
+    if retry_ctr == QUERY_EVENTS_MAX_RETRY_COUNTER:
+        # TODO: Dispatch timeout event for IN_PROGRESS
+        logger.error(f"Failed to fetch events for {trace_id} after "
+                     f"{QUERY_EVENTS_MAX_RETRY_COUNTER} attempts")
 
 
-def get_latest_active_event(event_store: EventStoreClient,
-                            trace_id: str) -> Tuple[Optional[str], int]:
+def get_latest_event(events: List[Dict[str, Any]],
+                     trace_id: str) -> Tuple[Optional[str], int]:
     """
 
     Args:
-        event_store: High-level API client for the Event Store database
+        events: Job events which may be active or non-active
         trace_id: Trace ID for a Ray Job
 
     Returns: tuple of state name (str) and the state sequence (int)
 
     """
-    active_events = event_store.query_active_events(trace_id)
-    latest_event = event_store.get_latest_event(active_events)
+    latest_event = EventStoreClient.get_latest_event(events)
     if latest_event is None:
-        raise EventNotFoundException(f"No events found for {trace_id}")
+        raise EventNotFoundException(f"No events found for Ray job: {trace_id}")
+
+    latest_state, latest_state_sequence = latest_event["state"]["S"], int(latest_event["stateSequence"]["N"])
+    return latest_state, latest_state_sequence
+
+
+def get_latest_active_event(events: List[Dict[str, Any]],
+                            trace_id: str) -> Tuple[Optional[str], int]:
+    """
+
+    Args:
+        events: Job events which may be active or non-active
+        trace_id: Trace ID for a Ray Job
+
+    Returns: tuple of state name (str) and the state sequence (int)
+
+    """
+    active_events = [x for x in events if x.get("active")]
+    latest_event = EventStoreClient.get_latest_event(active_events)
+    if latest_event is None:
+        raise EventNotFoundException(f"No events found for Ray job: {trace_id}")
 
     latest_state, latest_state_sequence = latest_event["state"]["S"], int(latest_event["stateSequence"]["N"])
     return latest_state, latest_state_sequence

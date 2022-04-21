@@ -10,8 +10,8 @@ class EventStoreClient:
         self.dynamodb_client = dynamodb_client
         self.table_name = table_name
 
-    def query_active_events(self,
-                            trace_id: str) -> List[Optional[Dict[str, Any]]]:
+    def query_events(self,
+                     trace_id: str) -> List[Optional[Dict[str, Any]]]:
         """Query active events by Trace ID
 
         Args:
@@ -34,7 +34,7 @@ class EventStoreClient:
                 },
             },
         )
-        return self.get_active_events(result)
+        return self.get_events(result)
 
     def query_active_events_by_destination_job_table(self,
                                                      destination_job_table: str) -> List[Optional[Dict[str, Any]]]:
@@ -99,8 +99,19 @@ class EventStoreClient:
         Returns: a filtered list of active job state events
 
         """
-        items: List[Dict[str, Any]] = query_result["Items"]
-        return [item for item in items if item.get("active")]
+        return [item for item in query_result["Items"] if item.get("active")]
+
+    @staticmethod
+    def get_events(query_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Gets a filtered list of active job state events
+
+        Args:
+            query_result: list of job state events
+
+        Returns: a filtered list of active job state events
+
+        """
+        return query_result["Items"]
 
     @staticmethod
     def get_latest_event(items: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
