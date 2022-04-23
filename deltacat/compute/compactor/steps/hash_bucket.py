@@ -11,7 +11,8 @@ from deltacat.compute.compactor import DeltaAnnotated, DeltaFileEnvelope, \
 from deltacat.compute.compactor.utils.primary_key_index import \
     group_hash_bucket_indices, group_record_indices_by_hash_bucket
 from deltacat.storage import interface as unimplemented_deltacat_storage
-from deltacat.utils.common import sha1_digest
+from deltacat.types.media import StorageType
+from deltacat.utils.common import sha1_digest, ReadKwargsProvider
 from deltacat.compute.compactor.utils import system_columns as sc
 
 from typing import List, Optional, Generator
@@ -112,10 +113,10 @@ def read_delta_file_envelopes(
         -> Optional[List[DeltaFileEnvelope]]:
 
     columns_to_read = list(chain(primary_keys, sort_key_names))
-    # TODO (pdames): Always read delimited text primary key columns as strings?
     tables = deltacat_storage.download_delta(
         annotated_delta,
         columns=columns_to_read,
+        storage_type=StorageType.LOCAL,
     )
     annotations = annotated_delta.annotations
     assert(len(tables) == len(annotations),

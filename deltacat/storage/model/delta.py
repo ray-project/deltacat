@@ -273,6 +273,29 @@ class DeltaLocator(Locator, dict):
         delta_locator.stream_position = stream_position
         return delta_locator
 
+    @staticmethod
+    def at(namespace: Optional[str],
+           table_name: Optional[str],
+           table_version: Optional[str],
+           stream_id: Optional[str],
+           storage_type: Optional[str],
+           partition_values: Optional[List[Any]],
+           partition_id: Optional[str],
+           stream_position: Optional[int]) -> DeltaLocator:
+        partition_locator = PartitionLocator.at(
+            namespace,
+            table_name,
+            table_version,
+            stream_id,
+            storage_type,
+            partition_values,
+            partition_id,
+        )
+        return DeltaLocator.of(
+            partition_locator,
+            stream_position,
+        )
+
     @property
     def partition_locator(self) -> Optional[PartitionLocator]:
         val: Dict[str, Any] = self.get("partitionLocator")

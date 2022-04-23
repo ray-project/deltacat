@@ -1,11 +1,13 @@
 import pyarrow as pa
+
 from deltacat import SortKey
 from deltacat.storage import Delta, DeltaLocator, Partition, \
     ListResult, Namespace, Table, TableVersion, Stream, \
     StreamLocator, DeltaType, LifecycleState, SchemaConsistencyType, \
     LocalTable, LocalDataset, DistributedDataset, Manifest, ManifestAuthor
-from deltacat.types.media import ContentType
-from deltacat.types.media import TableType, StorageType
+from deltacat.types.media import ContentType, TableType, StorageType
+from deltacat.utils.common import ReadKwargsProvider
+
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 
@@ -86,7 +88,7 @@ def list_deltas(
     descending stream position by default. Table version resolves to the latest
     active table version if not specified. Partition values should not be
     specified for unpartitioned tables. Raises an error if the given table
-    version, partition, or stream positions do not exist.
+    version or partition does not exist.
 
     To conserve memory, the deltas returned do not include manifests by
     default. The manifests can either be optionally retrieved as part of this
@@ -114,7 +116,7 @@ def get_delta(
         namespace: str,
         table_name: str,
         stream_position: int,
-        partition_values: Optional[List[Any]],
+        partition_values: Optional[List[Any]] = None,
         table_version: Optional[str] = None,
         include_manifest: bool = False,
         *args,
@@ -135,7 +137,7 @@ def get_delta(
 def get_latest_delta(
         namespace: str,
         table_name: str,
-        partition_values: Optional[List[Any]],
+        partition_values: Optional[List[Any]] = None,
         table_version: Optional[str] = None,
         include_manifest: bool = False,
         *args,
@@ -157,10 +159,10 @@ def get_latest_delta(
 def download_delta(
         delta_like: Union[Delta, DeltaLocator],
         table_type: TableType = TableType.PYARROW,
-        storage_type: StorageType = StorageType.LOCAL,
+        storage_type: StorageType = StorageType.DISTRIBUTED,
         max_parallelism: Optional[int] = None,
         columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
         ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
         *args,
         **kwargs) -> Union[LocalDataset, DistributedDataset]:
@@ -179,7 +181,7 @@ def download_delta_manifest_entry(
         entry_index: int,
         table_type: TableType = TableType.PYARROW,
         columns: Optional[List[str]] = None,
-        file_reader_kwargs: Optional[Dict[str, Any]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
         *args,
         **kwargs) -> LocalTable:
     """
@@ -434,7 +436,7 @@ def get_partition(
 
 
 def stage_delta(
-        table_to_stage: Union[LocalTable, LocalDataset, DistributedDataset],
+        data: Union[LocalTable, LocalDataset, DistributedDataset],
         partition: Partition,
         delta_type: DeltaType = DeltaType.UPSERT,
         max_records_per_entry: Optional[int] = None,

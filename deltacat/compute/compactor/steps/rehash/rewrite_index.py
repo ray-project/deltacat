@@ -18,9 +18,9 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 @ray.remote(num_returns=2)
 def rewrite_index(
+        object_ids: List[Any],
         s3_bucket: str,
         new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        object_ids: List[Any],
         max_records_per_index_file: int) -> \
         Tuple[PyArrowWriteResult, List[ObjectRef]]:
 
