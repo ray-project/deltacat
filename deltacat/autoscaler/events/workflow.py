@@ -1,5 +1,4 @@
 import logging
-from uuid import uuid4
 
 import time
 from typing import Dict, Callable, Union, Tuple, Optional, List, Any
@@ -9,22 +8,30 @@ from ray.autoscaler._private.aws.events import AwsEventManagerBase
 from ray.autoscaler._private.event_system import States
 
 from deltacat import logs
-from deltacat.autoscaler.events.dispatcher import EventDispatcher
+from deltacat.autoscaler.events.dispatcher import CompactionEventDispatcher
 from deltacat.autoscaler.events.event_store import EventStoreClient
 from deltacat.autoscaler.events.exceptions import EventNotFoundException
 
 logging.basicConfig(level=logging.INFO)
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-QUERY_EVENTS_MAX_RETRY_COUNTER = 100
-SLEEP_PERIOD_SECONDS = 10
+QUERY_EVENTS_MAX_RETRY_COUNTER = 10
+SLEEP_PERIOD_SECONDS = 20
 
+
+# TODO: Make this the primary open-source Job Run Event Handler / Dispatcher?
+#  Might be worth porting over some features of the Job Event Daemon (Java) to here
 
 def poll_events(events_manager: AwsEventManagerBase,
                 event_store: EventStoreClient,
-                event_dispatcher: EventDispatcher,
+                event_dispatcher: CompactionEventDispatcher,
                 state_transition_map: Dict[str, Union[Callable[[], None], Dict]] = None):
     """Polls the event store and handles state transitions based on incoming events.
+
+    This function will dispatch the STARTED event when first executed.
+    The event listener will only listen to event states from STARTED and onwards.
+
+    Event states before STARTED (i.e. NEW, DISPATCHED) are emitted from the Event Daemon (Java).
 
     Args:
         events_manager: Events manager for publishing events through a cloud provider
@@ -33,19 +40,16 @@ def poll_events(events_manager: AwsEventManagerBase,
         state_transition_map: A mapping of event states to callbacks or a dictionary of callbacks.
 
     """
-    # Generate new parent session ID
-    parent_uuid = str(uuid4())
-    events_manager.config["parameters"]["rayParentSessionId"] = parent_uuid
     logger.info(f"Start initializing...")
 
     if state_transition_map is None:
         state_transition_map = event_dispatcher.build_state_transitions()
 
     event_dispatcher.start_initializing()
-    trace_id = events_manager.config["parameters"]["traceId"]
-    dest_provider = events_manager.config["parameters"]["destinationTable"]["owner"]
-    dest_table = events_manager.config["parameters"]["destinationTable"]["name"]
-    expiry_timestamp = events_manager.config["parameters"]["expirationTimestamp"]
+    trace_id = events_manager.metadata["traceId"]
+    dest_provider = events_manager.metadata["destinationTable"]["owner"]
+    dest_table = events_manager.metadata["destinationTable"]["name"]
+    expiry_timestamp = events_manager.metadata["expirationTimestamp"]
 
     retry_ctr = 0
     while round(time.time() * 1000) < expiry_timestamp and retry_ctr < QUERY_EVENTS_MAX_RETRY_COUNTER:
@@ -58,14 +62,20 @@ def poll_events(events_manager: AwsEventManagerBase,
             # Latest non-active / active event must be checked for the completed state.
             latest_state, latest_state_sequence = get_latest_event(events, trace_id)
             if latest_state == States.COMPLETED.name:
-                logger.info("Completed Ray job! Shutting down cluster.")
+                logger.info("Completed Ray job! Exiting.")
                 break
 
             # Latest active event must be checked for the next state transition
             latest_active_state, latest_active_state_sequence = get_latest_active_event(events, trace_id)
+
+            # Uncomment for testing on non-active events to test specific steps of workflows
+            # latest_active_state, latest_active_state_sequence = get_latest_event(events, trace_id)
+
             to_next_state(latest_active_state, latest_active_state_sequence, state_transition_map)
 
-        except (EventNotFoundException, BotoCoreError) as e:
+        except EventNotFoundException as e:
+            logger.warning(e)
+        except BotoCoreError as e:
             logger.error(e)
             retry_ctr += 1
 

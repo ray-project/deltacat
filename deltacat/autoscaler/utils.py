@@ -1,11 +1,15 @@
 import os
 import subprocess
-from typing import Any
+from typing import Any, Optional, List
 
 import ray
 
 
-def run_cmd(cmd: str) -> None:
+def run_cmd(cmd: str, background_process=False) -> None:
+    if background_process:
+        import subprocess
+        subprocess.Popen(cmd.split(" "))
+        return
     exit_code = int(os.system(cmd))
     assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code}"
 
@@ -14,6 +18,22 @@ def ray_exec(cluster_cfg: str, command: str) -> None:
     print(f"Running script on Ray cluster '{cluster_cfg}' with command '{command}'")
     run_cmd(f"ray exec {cluster_cfg} {command}")
     print(f"Ran script on Ray cluster '{cluster_cfg}' with command '{command}'")
+
+
+def ray_submit(cluster_cfg: str,
+               path_to_script: str,
+               script_arguments: Optional[List[str]] = None,
+               background_process: bool = False) -> None:
+    if script_arguments is None:
+        script_arguments = []
+
+    script_arguments_str = " ".join(script_arguments)
+    cmd = f"ray submit --no-config-cache --start --stop {cluster_cfg} {path_to_script}"
+    if script_arguments:
+        cmd = f"{cmd} -- {script_arguments_str}"
+
+    run_cmd(cmd, background_process=background_process)
+    print(f"Submitted script on Ray cluster '{cluster_cfg}' with command '{cmd}'")
 
 
 def ray_down(cluster_cfg: str) -> None:

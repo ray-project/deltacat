@@ -128,8 +128,8 @@ class EventStoreClient:
         #
         latest_events = sorted(items,
                                key=lambda x: (States[x["state"]["S"]].value,
-                                              x["stateSequence"]["N"],
-                                              x["timestamp"]["N"]),
+                                              int(x["stateSequence"]["N"]),
+                                              int(x["timestamp"]["N"])),
                                reverse=True)
         return latest_events[0] if latest_events else None
 

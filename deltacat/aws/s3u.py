@@ -367,6 +367,9 @@ def upload_table(
         content_type.value,
         **s3_table_writer_kwargs
     )
+    # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
+    del block_write_path_provider
+
     block_refs = ray.get(capture_actor.block_refs.remote())
     write_paths = ray.get(capture_actor.write_paths.remote())
     metadata = _get_metadata(table, write_paths, block_refs)

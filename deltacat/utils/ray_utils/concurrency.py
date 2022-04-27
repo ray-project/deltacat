@@ -5,14 +5,14 @@ from ray.types import ObjectRef
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
 
-from typing import Any, Iterable, Callable, Dict, List, Tuple, Union
+from typing import Any, Iterable, Callable, Dict, List, Tuple, Union, Optional
 
 
 def invoke_parallel(
         items: Iterable,
         ray_task: Callable,
         *args,
-        max_parallelism: int = 1000,
+        max_parallelism: Optional[int] = 1000,
         options_provider: Callable[[int, Any], Dict[str, Any]] = None,
         kwargs_provider: Callable[[int, Any], Dict[str, Any]] = None,
         **kwargs) -> List[Union[ObjectRef, Tuple[ObjectRef, ...]]]:

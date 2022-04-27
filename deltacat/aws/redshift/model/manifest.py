@@ -207,9 +207,9 @@ class ManifestEntry(dict):
         if (uri and url) and (uri != url):
             raise ValueError(f"Manifest entry URI ({uri}) != URL ({url})")
         if url:
-            manifest_entry["url"] = url
+            manifest_entry["url"] = manifest_entry["uri"] = url
         elif uri:
-            manifest_entry["uri"] = uri
+            manifest_entry["url"] = manifest_entry["uri"] = uri
         if meta is not None:
             manifest_entry["meta"] = meta
         if mandatory is not None:
