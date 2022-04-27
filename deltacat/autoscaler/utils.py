@@ -5,7 +5,7 @@ from typing import Any, Optional, List
 import ray
 
 
-def run_cmd(cmd: str, background_process=False) -> None:
+def run_cmd(cmd: str, background_process: bool = False) -> None:
     if background_process:
         import subprocess
         subprocess.Popen(cmd.split(" "))

@@ -1,4 +1,4 @@
-import uuid
+from typing import Optional
 
 
 class SessionLauncher:
@@ -7,15 +7,10 @@ class SessionLauncher:
                  compaction_cluster_config_path: str):
         self.stats_metadata_cluster_config_path = stats_metadata_cluster_config_path
         self.compaction_cluster_config_path = compaction_cluster_config_path
-        self._session_id = str(uuid.uuid4())
-
-    @property
-    def session_id(self):
-        return self._session_id
 
     def stats_metadata(self):
         raise NotImplementedError("Stats Metadata Collection is not implemented.")
 
-    def compact(self):
+    def compact(self, session_id: Optional[str] = None):
         raise NotImplementedError("Compaction is not implemented.")
 

@@ -27,7 +27,9 @@ class CompactionEventDispatcher:
     def __init__(self,
                  events_manager: AwsEventManagerBase,
                  deltacat_storage: unimplemented_deltacat_storage,
-                 session_launcher: SessionLauncher = None):
+                 session_launcher: SessionLauncher = None,
+                 session_id: Optional[str] = None,
+                 parent_session_id: Optional[str] = None):
         """Constructor for the event dispatcher.
 
         Intended for usage by Ray parent and child clusters running BDT compaction workflows.
@@ -35,15 +37,20 @@ class CompactionEventDispatcher:
         annotated with event metadata for tracking purposes, such as parent and child Ray session IDs.
 
         Args:
+            session_id: Ray application session ID
             events_manager: Events manager for publishing events through a cloud provider
+            session_launcher: Manager for launching child Ray sessions
             deltacat_storage: Storage interface for deltacat
         """
         self.events_manager = events_manager
         self.session_launcher = session_launcher
         self.deltacat_storage = deltacat_storage
 
-        if session_launcher is None:
-            self.session_id = str(uuid.uuid4())
+        if not session_id:
+            session_id = str(uuid.uuid4())
+
+        self.session_id = session_id
+        self.parent_session_id = parent_session_id
 
     def dispatch_event(self,
                        event: RayEvent,
@@ -63,12 +70,11 @@ class CompactionEventDispatcher:
             event_data = {}
 
         event_data["event"] = event
-        event_data["rayParentSessionId"] = ray_parent_session_id = self.events_manager.metadata.get("rayParentSessionId")
-        event_data["raySessionId"] = ray_session_id = self.session_launcher.session_id \
-            if self.session_launcher is not None else self.session_id
+        event_data["rayParentSessionId"] = self.parent_session_id
+        event_data["raySessionId"] = self.session_id
 
-        logger.info(f"Dispatching event {event.name} with parent Ray session ID = {ray_parent_session_id} "
-                    f"and current Ray session ID = {ray_session_id}")
+        logger.info(f"Dispatching event {event.name} with parent Ray session ID = {self.parent_session_id} "
+                    f"and current Ray session ID = {self.session_id}")
 
         self._publish_event({
             **self.events_manager.config["parameters"],
@@ -115,8 +121,7 @@ class CompactionEventDispatcher:
 
     def _compact(self):
         if self.session_launcher:
-            logger.info("Starting compaction session.")
-            self.session_launcher.compact()
+            self.session_launcher.compact(self.session_id)
 
     def compaction_session_completed(self):
         """Publish a job state event
