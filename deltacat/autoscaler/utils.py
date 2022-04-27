@@ -5,25 +5,25 @@ from typing import Any, Optional, List
 import ray
 
 
-def run_cmd(cmd: str, background_process: bool = False) -> None:
+def run_cmd(cmd: str,
+            background_process: bool = False,
+            stdout: Optional[Any] = None,
+            stderr: Optional[Any] = None) -> None:
+    cmd_list = cmd.split(" ")
     if background_process:
-        import subprocess
-        subprocess.Popen(cmd.split(" "))
+        subprocess.Popen(cmd_list, stdout=stdout, stderr=stderr)
         return
-    exit_code = int(os.system(cmd))
-    assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code}"
-
-
-def ray_exec(cluster_cfg: str, command: str) -> None:
-    print(f"Running script on Ray cluster '{cluster_cfg}' with command '{command}'")
-    run_cmd(f"ray exec {cluster_cfg} {command}")
-    print(f"Ran script on Ray cluster '{cluster_cfg}' with command '{command}'")
+    else:
+        exit_code = subprocess.call(cmd_list, stdout=stdout, stderr=stderr)
+        assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code}"
 
 
 def ray_submit(cluster_cfg: str,
                path_to_script: str,
                script_arguments: Optional[List[str]] = None,
-               background_process: bool = False) -> None:
+               background_process: bool = False,
+               stdout: Optional[Any] = None,
+               stderr: Optional[Any] = None) -> None:
     if script_arguments is None:
         script_arguments = []
 
@@ -32,7 +32,7 @@ def ray_submit(cluster_cfg: str,
     if script_arguments:
         cmd = f"{cmd} -- {script_arguments_str}"
 
-    run_cmd(cmd, background_process=background_process)
+    run_cmd(cmd, background_process=background_process, stdout=stdout, stderr=stderr)
     print(f"Submitted script on Ray cluster '{cluster_cfg}' with command '{cmd}'")
 
 
