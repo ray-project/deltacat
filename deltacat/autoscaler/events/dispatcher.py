@@ -10,10 +10,10 @@ from ray.autoscaler._private.event_system import RayEvent, ScriptStartedEvent, S
 from deltacat import logs
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
-stats_metadata_collection_started_event = ScriptInProgressCustomEvent("STATS_METADATA_COLLECTION_STARTED", 2)
-stats_metadata_collection_completed_event = ScriptInProgressCustomEvent("STATS_METADATA_COLLECTION_COMPLETED", 3)
-compaction_session_started_event = ScriptInProgressCustomEvent("COMPACTION_SESSION_STARTED", 4)
-compaction_session_completed_event = ScriptInProgressCustomEvent("COMPACTION_SESSION_COMPLETED", 5)
+stats_metadata_collection_started_event = ScriptInProgressCustomEvent("STATS_METADATA_COLLECTION_STARTED", 1)
+stats_metadata_collection_completed_event = ScriptInProgressCustomEvent("STATS_METADATA_COLLECTION_COMPLETED", 2)
+compaction_session_started_event = ScriptInProgressCustomEvent("COMPACTION_SESSION_STARTED", 3)
+compaction_session_completed_event = ScriptInProgressCustomEvent("COMPACTION_SESSION_COMPLETED", 4)
 custom_events = [stats_metadata_collection_started_event,
                  stats_metadata_collection_completed_event,
                  compaction_session_started_event,
@@ -51,6 +51,9 @@ class CompactionEventDispatcher:
 
         self.session_id = session_id
         self.parent_session_id = parent_session_id
+
+        # Setup event callbacks in the constructor
+        self.add_event_handlers()
 
     def dispatch_event(self,
                        event: RayEvent,
@@ -138,22 +141,27 @@ class CompactionEventDispatcher:
         self.dispatch_event(ScriptCompletedEvent.complete_success)
 
     def build_state_transitions(self) -> Dict[str, Union[Callable[[], None], Dict]]:
-        """Builds a mapping of event states to callbacks or a dictionary of callbacks.
+        """Builds a mapping of event states to state transitioning callbacks, or
+        a dictionary of state transitioning callbacks.
 
         If an event has state sequences, a dictionary of callbacks is provided
         with sequences as keys and callback functions as values.
 
         Returns: a map of event states to callbacks or a dictionary of callbacks
         """
-        self.add_event_handlers()
+        start_sequence = 0
         return {
             States.STARTED.name: self.in_progress,
             States.IN_PROGRESS.name: {
-                0: self.stats_metadata_collection,
-                1: self.stats_metadata_collection_completed,
-                2: self.compaction_session,
-                3: self.compaction_session_completed,
-                4: self.complete_job
+                start_sequence: self.stats_metadata_collection,
+                # TODO: This callback immediately transitions to the stats metadata collection completed event
+                #  and should be updated appropriately when stats_metadata_collection is implemented
+                stats_metadata_collection_started_event.state_sequence: self.stats_metadata_collection_completed,
+                stats_metadata_collection_completed_event.state_sequence: self.compaction_session,
+                # Print logs until child compaction session completes
+                compaction_session_started_event.state_sequence:
+                    lambda *args: logger.info("Waiting for compaction session to succeed..."),
+                compaction_session_completed_event.state_sequence: self.complete_job
             },
         }
 
