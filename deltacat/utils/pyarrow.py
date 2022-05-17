@@ -18,7 +18,7 @@ from deltacat.types.media import ContentType, ContentEncoding, \
 from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
 from deltacat.utils.performance import timed_invocation
 
-from typing import Any, Callable, Dict, List, Optional, Iterable
+from typing import Any, Callable, Dict, List, Optional, Iterable, Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -163,6 +163,25 @@ class ReadKwargsProviderPyArrowCsvPureUtf8(ContentTypeKwargsProvider):
             convert_options.column_types = {
                 column_name: pa.string() for column_name in column_names
             }
+            kwargs["convert_options"] = convert_options
+        return kwargs
+
+
+class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
+    """ReadKwargsProvider impl that explicitly maps column names to column types when loading
+    delimited text files into a PyArrow table. Disables the default type inference behavior on the defined columns.
+    """
+    def __init__(self, schema: Optional[Union[pa.Schema, str, bytes]] = None):
+        self.schema = schema
+
+    def _get_kwargs(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        if content_type in DELIMITED_TEXT_CONTENT_TYPES:
+            convert_options = kwargs.get("convert_options", pacsv.ConvertOptions())
+            if self.schema:
+                convert_options.column_types = self.schema
             kwargs["convert_options"] = convert_options
         return kwargs
 

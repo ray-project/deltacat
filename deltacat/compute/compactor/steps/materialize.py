@@ -16,10 +16,10 @@ from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.types.media import ContentType, DELIMITED_TEXT_CONTENT_TYPES
 
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Optional, Union
 
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
-from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8, ReadKwargsProviderPyArrowSchemaOverride
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -32,6 +32,7 @@ def materialize(
         dedupe_task_idx_and_obj_id_tuples: List[Tuple[int, Any]],
         max_records_per_output_file: int,
         compacted_file_content_type: ContentType,
+        schema: Optional[pa.Schema] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
 
     logger.info(f"Starting materialize task...")
@@ -83,10 +84,13 @@ def materialize(
         # unintentional type-casting side-effects and improve performance
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
             read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
+        # enforce a consistent schema if provided, when reading files into PyArrow tables
+        elif schema is not None:
+            read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
-            file_reader_kwargs_provider=read_kwargs_provider,
+            file_reader_kwargs=read_kwargs_provider,
         )
         mask_pylist = list(repeat(False, len(pa_table)))
         record_numbers = chain.from_iterable(record_numbers_tpl)

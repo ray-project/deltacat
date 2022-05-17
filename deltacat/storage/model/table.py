@@ -89,7 +89,7 @@ class TableLocator(Locator, dict):
     @staticmethod
     def at(namespace: Optional[str],
            table_name: Optional[str]) -> TableLocator:
-        namespace_locator = NamespaceLocator(namespace)
+        namespace_locator = NamespaceLocator.of(namespace)
         return TableLocator.of(namespace_locator, table_name)
 
     @property

@@ -145,7 +145,7 @@ def download_hash_bucket_entries(
     logger.info(f"Downloading primary key index hash bucket manifest entries: "
                 f"{pk_index_manifest_s3_url}. Primary key index version "
                 f"locator: {primary_key_index_version_locator}")
-    pk_index_manifest = json.loads(result["Body"].read().decode("utf-8"))
+    pk_index_manifest = Manifest(json.loads(result["Body"].read().decode("utf-8")))
     tables = s3u.download_manifest_entries(pk_index_manifest)
     if not tables:
         logger.warning(

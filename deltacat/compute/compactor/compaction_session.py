@@ -22,6 +22,7 @@ from deltacat.types.media import ContentType
 
 from typing import List, Set, Optional, Tuple
 
+import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _SORT_KEY_NAME_INDEX: int = 0
@@ -66,6 +67,7 @@ def compact_partition(
         min_hash_bucket_chunk_size: int = 0,
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
+        schema_on_read: Optional[pa.schema] = None,
         deltacat_storage=unimplemented_deltacat_storage):
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
@@ -87,7 +89,8 @@ def compact_partition(
                 min_hash_bucket_chunk_size,
                 compacted_file_content_type,
                 delete_prev_primary_key_index,
-                deltacat_storage,
+                schema_on_read=schema_on_read,
+                deltacat_storage=deltacat_storage
             )
         if new_partition:
             partition = new_partition
@@ -115,6 +118,7 @@ def _execute_compaction_round(
         min_hash_bucket_chunk_size: int,
         compacted_file_content_type: ContentType,
         delete_prev_primary_key_index: bool,
+        schema_on_read: Optional[pa.schema] = None,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Tuple[bool, Optional[Partition]]:
 
@@ -375,6 +379,7 @@ def _execute_compaction_round(
             "mat_bucket_index": mat_bucket_idx_to_obj_id[0],
             "dedupe_task_idx_and_obj_id_tuples": mat_bucket_idx_to_obj_id[1],
         },
+        schema=schema_on_read,
         source_partition_locator=source_partition_locator,
         partition=partition,
         max_records_per_output_file=records_per_compacted_file,
