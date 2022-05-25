@@ -3,6 +3,9 @@ import ray
 import pyarrow as pa
 
 from collections import defaultdict
+
+from deltacat.compute.compactor.steps.dedupe import DedupeTaskIndexWithObjectId, \
+    DeltaFileLocatorToRecords
 from itertools import chain, repeat
 
 from pyarrow import compute as pc
@@ -12,11 +15,11 @@ from ray import cloudpickle
 from deltacat import logs
 from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
     interface as unimplemented_deltacat_storage
-from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult
+from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult, DeltaFileLocator, RoundCompletionInfo
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.types.media import ContentType, DELIMITED_TEXT_CONTENT_TYPES
 
-from typing import Any, List, Tuple, Optional, Union
+from typing import Any, List, Tuple, Optional, Union, Dict
 
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8, ReadKwargsProviderPyArrowSchemaOverride
@@ -27,16 +30,16 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 @ray.remote
 def materialize(
         source_partition_locator: PartitionLocator,
+        round_completion_info: Optional[RoundCompletionInfo],
         partition: Partition,
         mat_bucket_index: int,
-        dedupe_task_idx_and_obj_id_tuples: List[Tuple[int, Any]],
+        dedupe_task_idx_and_obj_id_tuples: List[DedupeTaskIndexWithObjectId],
         max_records_per_output_file: int,
         compacted_file_content_type: ContentType,
         schema: Optional[pa.Schema] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
 
     logger.info(f"Starting materialize task...")
-    dest_partition_locator = partition.locator
     dedupe_task_idx_and_obj_ref_tuples = [
         (
             t[0],
@@ -60,7 +63,8 @@ def materialize(
     manifest_cache = {}
     compacted_tables = []
     for src_dfl in sorted(all_src_file_records.keys()):
-        record_numbers_dd_task_idx_tpl_list = all_src_file_records[src_dfl]
+        record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
+            all_src_file_records[src_dfl]
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
             *record_numbers_dd_task_idx_tpl_list
         )
@@ -69,7 +73,7 @@ def materialize(
         src_file_idx_np = src_dfl.file_index
         src_file_partition_locator = source_partition_locator \
             if is_src_partition_file_np \
-            else dest_partition_locator
+            else round_completion_info.compacted_delta_locator.partition_locator
         delta_locator = DeltaLocator.of(
             src_file_partition_locator,
             src_stream_position_np.item(),

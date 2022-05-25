@@ -3,6 +3,7 @@ import pyarrow as pa
 import numpy as np
 import logging
 
+from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from itertools import chain
 
 from deltacat import logs
@@ -12,14 +13,19 @@ from deltacat.compute.compactor.utils.primary_key_index import \
     group_hash_bucket_indices, group_record_indices_by_hash_bucket
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import StorageType
-from deltacat.utils.common import sha1_digest, ReadKwargsProvider
+from deltacat.utils.common import sha1_digest
 from deltacat.compute.compactor.utils import system_columns as sc
 
-from typing import List, Optional, Generator
+from typing import List, Optional, Generator, Tuple
+
+from ray.types import ObjectRef
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _PK_BYTES_DELIMITER = b'L6kl7u5f'
+
+HashBucketGroupToObjectId = np.ndarray
+HashBucketResult = Tuple[HashBucketGroupToObjectId, List[ObjectRef[DeltaFileEnvelopeGroups]]]
 
 
 def group_by_pk_hash_bucket(
@@ -72,7 +78,7 @@ def group_file_records_by_pk_hash_bucket(
         primary_keys: List[str],
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
-        -> Optional[np.ndarray]:
+        -> Optional[DeltaFileEnvelopeGroups]:
 
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes = read_delta_file_envelopes(
@@ -145,7 +151,7 @@ def hash_bucket(
         sort_keys: List[SortKey],
         num_buckets: int,
         num_groups: int,
-        deltacat_storage=unimplemented_deltacat_storage):
+        deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
 
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [key.key_name for key in sort_keys]

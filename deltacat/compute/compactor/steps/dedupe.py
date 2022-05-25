@@ -4,7 +4,10 @@ import ray
 import time
 import pyarrow.compute as pc
 import numpy as np
+from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from ray import cloudpickle
+from ray.types import ObjectRef
 
 from deltacat import logs
 from collections import defaultdict
@@ -19,6 +22,17 @@ from deltacat.compute.compactor.utils import system_columns as sc, \
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+MaterializeBucketIndex = int
+DeltaFileLocatorToRecords = Dict[DeltaFileLocator, np.ndarray]
+DedupeTaskIndex, PickledObjectRef = int, str
+DedupeTaskIndexWithObjectId = Tuple[DedupeTaskIndex, PickledObjectRef]
+DedupeResult = Tuple[
+    Dict[MaterializeBucketIndex, DedupeTaskIndexWithObjectId],
+    List[ObjectRef[DeltaFileLocatorToRecords]],
+    PyArrowWriteResult
+]
 
 
 def union_primary_key_indices(
@@ -37,6 +51,8 @@ def union_primary_key_indices(
             s3_bucket,
             hash_bucket_index,
             round_completion_info.primary_key_index_version_locator,
+            # Enforce consistent column ordering by reading from a schema, to prevent schema mismatch errors
+            file_reader_kwargs_provider=ReadKwargsProviderPyArrowSchemaOverride(schema=get_minimal_hb_schema())
         )
         if tables:
             prev_compacted_delta_stream_pos = round_completion_info\
@@ -105,7 +121,7 @@ def write_new_primary_key_index(
         dedupe_task_index: int,
         deduped_tables: List[Tuple[int, pa.Table]],
         row_counts: Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32],
-                                   Dict[int, int]]]) -> Dict[str, int]:
+                                   Dict[int, int]]]) -> PyArrowWriteResult:
 
     logger.info(f"Writing new deduped primary key index: "
                 f"{new_primary_key_index_version_locator}")
@@ -250,7 +266,7 @@ def dedupe(
         num_materialize_buckets: int,
         dedupe_task_index: int,
         delete_old_primary_key_index: bool,
-        record_counts_pending_materialize: RecordCountsPendingMaterialize):
+        record_counts_pending_materialize: RecordCountsPendingMaterialize) -> DedupeResult:
 
     logger.info(f"Starting dedupe task...")
     # TODO (pdames): mitigate risk of running out of memory here in cases of
@@ -314,7 +330,7 @@ def dedupe(
 
     logger.info(f"Finished all dedupe rounds...")
     mat_bucket_to_src_file_record_count = defaultdict(dict)
-    mat_bucket_to_src_file_records = defaultdict(dict)
+    mat_bucket_to_src_file_records: Dict[MaterializeBucketIndex, DeltaFileLocatorToRecords] = defaultdict(dict)
     for src_dfl, src_row_indices in src_file_id_to_row_indices.items():
         mat_bucket = delta_file_locator_to_mat_bucket_index(
             src_dfl,
@@ -326,8 +342,8 @@ def dedupe(
         mat_bucket_to_src_file_record_count[mat_bucket][src_dfl] = \
             len(src_row_indices)
 
-    mat_bucket_to_dd_idx_obj_id = {}
-    src_file_records_obj_refs = []
+    mat_bucket_to_dd_idx_obj_id: Dict[MaterializeBucketIndex, DedupeTaskIndexWithObjectId] = {}
+    src_file_records_obj_refs: List[ObjectRef[DeltaFileLocatorToRecords]] = []
     for mat_bucket, src_file_records in mat_bucket_to_src_file_records.items():
         object_ref = ray.put(src_file_records)
         src_file_records_obj_refs.append(object_ref)
@@ -355,7 +371,7 @@ def dedupe(
     record_counts = ray.get(
         record_counts_pending_materialize.get_record_counts.remote()
     )
-    write_pki_result = write_new_primary_key_index(
+    write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
         compaction_artifact_s3_bucket,
         new_primary_key_index_version_locator,
         max_records_per_index_file,

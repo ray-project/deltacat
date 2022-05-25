@@ -6,9 +6,8 @@ import numpy as np
 import s3fs
 from collections import defaultdict
 
+from deltacat.utils.common import ReadKwargsProvider
 from ray import cloudpickle
-from ray import ray_constants
-from ray.types import ObjectRef
 
 from deltacat.storage import Manifest, PartitionLocator
 from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
@@ -25,7 +24,9 @@ from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.aws import s3u
 from deltacat import logs
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from ray.types import ObjectRef
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -133,7 +134,8 @@ def rehash(
 def download_hash_bucket_entries(
         s3_bucket: str,
         hash_bucket_index: int,
-        primary_key_index_version_locator: PrimaryKeyIndexVersionLocator) \
+        primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
         -> List[pa.Table]:
 
     pk_index_manifest_s3_url = primary_key_index_version_locator\
@@ -146,7 +148,8 @@ def download_hash_bucket_entries(
                 f"{pk_index_manifest_s3_url}. Primary key index version "
                 f"locator: {primary_key_index_version_locator}")
     pk_index_manifest = Manifest(json.loads(result["Body"].read().decode("utf-8")))
-    tables = s3u.download_manifest_entries(pk_index_manifest)
+    tables = s3u.download_manifest_entries(pk_index_manifest,
+                                           file_reader_kwargs_provider=file_reader_kwargs_provider)
     if not tables:
         logger.warning(
             f"Primary key index manifest is empty at: "

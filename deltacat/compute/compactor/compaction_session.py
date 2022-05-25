@@ -5,6 +5,7 @@ import ray
 from collections import defaultdict
 
 from deltacat import logs
+from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import Delta, DeltaLocator, Partition, \
     PartitionLocator, interface as unimplemented_deltacat_storage
 from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
@@ -20,7 +21,7 @@ from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
 
-from typing import List, Set, Optional, Tuple
+from typing import List, Set, Optional, Tuple, Dict
 
 import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -64,6 +65,8 @@ def compact_partition(
         sort_keys: List[SortKey] = None,
         records_per_primary_key_index_file: int = 38_000_000,
         records_per_compacted_file: int = 4_000_000,
+        input_deltas_stats: Dict[int, DeltaStats] = None,
+        min_pk_indices_size: int = 0,
         min_hash_bucket_chunk_size: int = 0,
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
@@ -75,7 +78,7 @@ def compact_partition(
     compaction_rounds_executed = 0
     has_next_compaction_round = True
     while has_next_compaction_round:
-        has_next_compaction_round, new_partition = \
+        has_next_compaction_round, new_partition, new_rci = \
             _execute_compaction_round(
                 source_partition_locator,
                 compacted_partition_locator,
@@ -86,16 +89,23 @@ def compact_partition(
                 sort_keys,
                 records_per_primary_key_index_file,
                 records_per_compacted_file,
+                input_deltas_stats,
+                min_pk_indices_size,
                 min_hash_bucket_chunk_size,
                 compacted_file_content_type,
                 delete_prev_primary_key_index,
-                schema_on_read=schema_on_read,
+                schema_on_read,
                 deltacat_storage=deltacat_storage
             )
         if new_partition:
             partition = new_partition
             compacted_partition_locator = new_partition.locator
             compaction_rounds_executed += 1
+
+        # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
+        if new_rci:
+            min_pk_indices_size = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
+
     logger.info(f"Compaction session data processing completed in "
                 f"{compaction_rounds_executed} rounds.")
     if partition:
@@ -115,12 +125,14 @@ def _execute_compaction_round(
         sort_keys: List[SortKey],
         records_per_primary_key_index_file: int,
         records_per_compacted_file: int,
+        input_deltas_stats: Dict[int, DeltaStats],
+        min_pk_indices_size: int,
         min_hash_bucket_chunk_size: int,
         compacted_file_content_type: ContentType,
         delete_prev_primary_key_index: bool,
-        schema_on_read: Optional[pa.schema] = None,
+        schema_on_read: Optional[pa.schema],
         deltacat_storage=unimplemented_deltacat_storage) \
-        -> Tuple[bool, Optional[Partition]]:
+        -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
@@ -215,7 +227,7 @@ def _execute_compaction_round(
     )
     if not input_deltas:
         logger.info("No input deltas found to compact.")
-        return False, None
+        return False, None, None
 
     # limit the input deltas to fit on this cluster and convert them to
     # annotated deltas of equivalent size for easy parallel distribution
@@ -224,8 +236,10 @@ def _execute_compaction_round(
             input_deltas,
             cluster_resources,
             hash_bucket_count,
+            min_pk_indices_size,
             min_hash_bucket_chunk_size,
-            deltacat_storage,
+            input_deltas_stats=input_deltas_stats,
+            deltacat_storage=deltacat_storage
         )
     assert hash_bucket_count is not None and hash_bucket_count > 0, \
         f"Unexpected Error: Default hash bucket count ({hash_bucket_count}) " \
@@ -380,6 +394,7 @@ def _execute_compaction_round(
             "dedupe_task_idx_and_obj_id_tuples": mat_bucket_idx_to_obj_id[1],
         },
         schema=schema_on_read,
+        round_completion_info=round_completion_info,
         source_partition_locator=source_partition_locator,
         partition=partition,
         max_records_per_output_file=records_per_compacted_file,
@@ -387,7 +402,7 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
-    mat_results: List[MaterializeResult] = ray.get(mat_tasks_pending)
+    mat_results = ray.get(mat_tasks_pending)
     logger.info(f"Got {len(mat_results)} materialize result(s).")
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
@@ -418,4 +433,6 @@ def _execute_compaction_round(
     )
     return \
         (last_stream_position_compacted < last_stream_position_to_compact), \
-        partition
+        partition, \
+        round_completion_info
+

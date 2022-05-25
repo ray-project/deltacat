@@ -39,7 +39,7 @@ setuptools.setup(
         "tenacity == 8.0.1",
         "ray == 1.12.0",
         "pandas >= 1.3.1",
-        "pyarrow >= 4.0.1, < 7.0.0",
+        "pyarrow == 8.0.0",
         "numpy >= 1.21.1",
         "boto3 == 1.20.24"
     ],
