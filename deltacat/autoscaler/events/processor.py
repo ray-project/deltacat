@@ -55,7 +55,7 @@ class EventProcessor:
 
         retry_ctr = 0
         while round(time.time() * 1000) < expiry_timestamp and retry_ctr < QUERY_EVENTS_MAX_RETRY_COUNTER:
-            logger.info(f"Polling latest job states for trace_id: {trace_id}, "
+            logger.debug(f"Polling latest job states for trace_id: {trace_id}, "
                         f"provider: {dest_provider} and table: {dest_table}...")
 
             try:
@@ -76,7 +76,7 @@ class EventProcessor:
                 self.workflow.to_next_state(latest_active_state, latest_active_state_sequence)
 
             except EventNotFoundException as e:
-                logger.warning(e)
+                logger.debug(e)
             except BotoCoreError as e:
                 logger.error(e)
                 retry_ctr += 1

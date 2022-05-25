@@ -4,8 +4,8 @@ from typing import Any, Optional, List
 
 def run_cmd(cmd: str,
             background_process: bool = False,
-            stdout: Optional[Any] = None,
-            stderr: Optional[Any] = None) -> None:
+            stdout: Optional[Any] = subprocess.DEVNULL,
+            stderr: Optional[Any] = subprocess.DEVNULL) -> None:
     cmd_list = cmd.split(" ")
     if background_process:
         subprocess.Popen(cmd_list, stdout=stdout, stderr=stderr)

@@ -1,4 +1,6 @@
 from typing import List, Dict, Any, Optional
+
+import boto3
 from botocore.client import BaseClient
 
 from deltacat.autoscaler.events.event_store import EventStoreClient
@@ -7,8 +9,11 @@ from deltacat.autoscaler.events.states import ScriptStartedEvent, ScriptInProgre
 
 class DynamoDBEventStoreClient(EventStoreClient):
     def __init__(self,
-                 dynamodb_client: BaseClient,
-                 table_name: str):
+                 table_name: str,
+                 dynamodb_client: BaseClient = None):
+        if dynamodb_client is None:
+            dynamodb_client = boto3.client("dynamodb", "us-east-1")
+
         self.dynamodb_client = dynamodb_client
         self.table_name = table_name
 
