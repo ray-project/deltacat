@@ -63,15 +63,6 @@ class ScriptCompletedEvent(StateEvent):
     completed = auto()
 
 
-stats_metadata_collection_started_event = ScriptInProgressCustomEvent("STATS_METADATA_COLLECTION_STARTED", 1)
-stats_metadata_collection_completed_event = ScriptInProgressCustomEvent("STATS_METADATA_COLLECTION_COMPLETED", 2)
-compaction_session_started_event = ScriptInProgressCustomEvent("COMPACTION_SESSION_STARTED", 3)
-compaction_session_completed_event = ScriptInProgressCustomEvent("COMPACTION_SESSION_COMPLETED", 4)
-custom_events = [stats_metadata_collection_started_event,
-                 stats_metadata_collection_completed_event,
-                 compaction_session_started_event,
-                 compaction_session_completed_event]
-
 event_enums = [CreateClusterEvent, ScriptStartedEvent, ScriptInProgressEvent, ScriptCompletedEvent]
 event_enum_values = [sequence for event in event_enums
                      for sequence in event.__members__.values()]

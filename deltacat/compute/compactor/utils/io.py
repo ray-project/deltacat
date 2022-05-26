@@ -58,7 +58,7 @@ def limit_input_deltas(
         input_deltas: List[Delta],
         cluster_resources: Dict[str, float],
         hash_bucket_count: int,
-        min_pk_indices_size: int,
+        min_pk_index_pa_bytes: int,
         user_hash_bucket_chunk_size: int,
         input_deltas_stats: Dict[int, DeltaStats],
         deltacat_storage=unimplemented_deltacat_storage) \
@@ -77,8 +77,8 @@ def limit_input_deltas(
         cluster_resources["object_store_memory"]
     )
 
-    if min_pk_indices_size > 0:
-        required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_indices_size
+    if min_pk_index_pa_bytes > 0:
+        required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_index_pa_bytes
         assert required_heap_mem_for_dedupe > 0, f"Not enough required memory available to re-batch input deltas" \
                                                  f"and initiate the dedupe step."
         # Size of batched deltas must also be shrunken down to have enough space for primary key index files
@@ -106,32 +106,26 @@ def limit_input_deltas(
     if input_deltas_stats is None:
         input_deltas_stats = {}
 
-    stream_position_keys_with_stats = sorted(input_deltas_stats.keys())
-    stream_position_grouped_stats = list(zip(stream_position_keys_with_stats,
-                                             stream_position_keys_with_stats[1:]))
-    stream_position_range_map = {interval[0]: interval[1] - 1
-                                 for interval in stream_position_grouped_stats}
-    skip_stream_positions_up_to = -1
+    input_deltas_stats = {int(stream_pos): DeltaStats(delta_stats)
+                          for stream_pos, delta_stats in input_deltas_stats.items()}
     for delta in input_deltas:
+        manifest = deltacat_storage.get_delta_manifest(delta)
+        delta.manifest = manifest
         position = delta.stream_position
-        if position in input_deltas_stats and position > skip_stream_positions_up_to:
-            delta_stats = input_deltas_stats[position]
+        delta_stats = input_deltas_stats.get(delta.stream_position, DeltaStats())
+        if delta_stats:
             delta_bytes_pyarrow += delta_stats.stats.pyarrow_table_bytes
-            # missing key implies the last stream position with unbounded end interval
-            skip_stream_positions_up_to = stream_position_range_map.get(position, float("inf"))
-            # TODO (ricmiyam): Add number of manifest entries per stream position to the stats object?
-        elif position not in input_deltas_stats:
-            manifest = deltacat_storage.get_delta_manifest(delta)
-            delta.manifest = manifest
+        else:
             # TODO (pdames): ensure pyarrow object fits in per-task obj store mem
-            manifest_entries = delta.manifest.entries
-            delta_manifest_entries += len(manifest_entries)
-            for entry in manifest_entries:
-                # TODO: Fetch s3_obj["Size"] if entry content length undefined?
-                delta_bytes += entry.meta.content_length
+            logger.warning(f"Stats are missing for delta stream position {delta.stream_position}, "
+                           f"materialized delta may not fit in per-task object store memory.")
+        manifest_entries = delta.manifest.entries
+        delta_manifest_entries += len(manifest_entries)
+        for entry in manifest_entries:
+            delta_bytes += entry.meta.content_length
+            if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
         latest_stream_position = max(position, latest_stream_position)
-
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
                 f"Input deltas limited to "
@@ -143,7 +137,7 @@ def limit_input_deltas(
 
     logger.info(f"Input deltas to compact this round: "
                 f"{len(limited_input_da_list)}")
-    logger.info(f"Input delta bytes to compact: {delta_bytes_pyarrow}")
+    logger.info(f"Input delta bytes to compact: {delta_bytes}")
     logger.info(f"Input delta files to compact: {delta_manifest_entries}")
     logger.info(f"Latest input delta stream position: {latest_stream_position}")
 
@@ -194,7 +188,7 @@ def limit_input_deltas(
             f"store memory per CPU.")
     elif not hash_bucket_chunk_size:
         hash_bucket_chunk_size_load_balanced = max(
-            delta_bytes_pyarrow / worker_cpus,
+            math.ceil(max(delta_bytes, delta_bytes_pyarrow) / worker_cpus),
             BYTES_PER_MEBIBYTE,
         )
         hash_bucket_chunk_size = min(

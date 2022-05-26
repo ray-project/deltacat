@@ -66,11 +66,11 @@ def compact_partition(
         records_per_primary_key_index_file: int = 38_000_000,
         records_per_compacted_file: int = 4_000_000,
         input_deltas_stats: Dict[int, DeltaStats] = None,
-        min_pk_indices_size: int = 0,
+        min_pk_index_pa_bytes: int = 0,
         min_hash_bucket_chunk_size: int = 0,
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
-        schema_on_read: Optional[pa.schema] = None,
+        schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         deltacat_storage=unimplemented_deltacat_storage):
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
@@ -90,7 +90,7 @@ def compact_partition(
                 records_per_primary_key_index_file,
                 records_per_compacted_file,
                 input_deltas_stats,
-                min_pk_indices_size,
+                min_pk_index_pa_bytes,
                 min_hash_bucket_chunk_size,
                 compacted_file_content_type,
                 delete_prev_primary_key_index,
@@ -104,7 +104,7 @@ def compact_partition(
 
         # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
         if new_rci:
-            min_pk_indices_size = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
+            min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
 
     logger.info(f"Compaction session data processing completed in "
                 f"{compaction_rounds_executed} rounds.")
@@ -126,7 +126,7 @@ def _execute_compaction_round(
         records_per_primary_key_index_file: int,
         records_per_compacted_file: int,
         input_deltas_stats: Dict[int, DeltaStats],
-        min_pk_indices_size: int,
+        min_pk_index_pa_bytes: int,
         min_hash_bucket_chunk_size: int,
         compacted_file_content_type: ContentType,
         delete_prev_primary_key_index: bool,
@@ -210,6 +210,7 @@ def _execute_compaction_round(
         old_hash_bucket_count = old_pki_version_locator\
             .primary_key_index_version_meta \
             .hash_bucket_count
+        min_pk_index_pa_bytes = round_completion_info.pk_index_pyarrow_write_result.pyarrow_bytes
 
     # use the new hash bucket count if provided, or fall back to old count
     hash_bucket_count = new_hash_bucket_count \
@@ -236,7 +237,7 @@ def _execute_compaction_round(
             input_deltas,
             cluster_resources,
             hash_bucket_count,
-            min_pk_indices_size,
+            min_pk_index_pa_bytes,
             min_hash_bucket_chunk_size,
             input_deltas_stats=input_deltas_stats,
             deltacat_storage=deltacat_storage

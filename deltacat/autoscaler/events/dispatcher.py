@@ -1,8 +1,8 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable, List
 
 from deltacat.autoscaler.events.session_manager import SessionManager
-from deltacat.autoscaler.events.states import event_enum_values, custom_events
+from deltacat.autoscaler.events.states import event_enum_values
 from ray.autoscaler._private.event_system import RayEvent, EventPublisher
 
 from deltacat import logs
@@ -30,7 +30,7 @@ class EventDispatcher:
         self.session_manager = session_manager
 
         # Setup event callbacks in the constructor
-        self.add_event_handlers()
+        self._add_base_event_handlers()
 
     def dispatch_event(self,
                        event: RayEvent,
@@ -61,8 +61,8 @@ class EventDispatcher:
             **event_data
         })
 
-    def add_event_handlers(self):
-        """Add callback handlers to job events
+    def _add_base_event_handlers(self):
+        """Add callback handlers for base job events
         """
         publisher = self.events_publisher
         if publisher:
@@ -70,7 +70,13 @@ class EventDispatcher:
                 logger.info(f"[{publisher.__class__.__name__}]: Adding callback for event {event.name}")
                 publisher.add_callback(event)
 
+    def add_event_handlers(self, custom_events: List[RayEvent]):
+        """Add callback handlers for custom job events
+        """
+        publisher = self.events_publisher
+        if publisher:
             for event in custom_events:
+                logger.info(f"[{publisher.__class__.__name__}]: Adding callback for event {event.name}")
                 publisher.add_callback(event)
 
     def _publish_event(self, event_data: Dict[str, Any]):

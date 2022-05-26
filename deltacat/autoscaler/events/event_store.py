@@ -37,3 +37,11 @@ class EventStoreClient:
 
         """
         raise NotImplementedError("Method not implemented")
+
+    def get_compacted_partition_ids(self) -> List[str]:
+        """Retrieve all compacted partition IDs.
+
+        Returns: list of all compacted partition IDs
+
+        """
+        raise NotImplementedError("Method not implemented")

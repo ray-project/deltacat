@@ -2,6 +2,8 @@ import os
 import subprocess
 from typing import Any, Optional, List
 
+import ray
+
 
 def run_cmd(cmd: str,
             background_process: bool = False,
@@ -55,12 +57,4 @@ def get_head_node_ip(cluster_cfg: str) -> str:
     head_node_ip = proc.stdout.splitlines()[-1]
     print(f"Ray cluster head node IP for '{cluster_cfg}': {head_node_ip}")
     return head_node_ip
-
-
-def ray_init(host, port) -> Any:
-    ray_init_uri = f"ray://{host}:{port}"
-    print(f"Connecting Ray Client to '{ray_init_uri}'")
-    client = ray.init(ray_init_uri, allow_multiple=True)
-    print(f"Connected Ray Client to '{ray_init_uri}'")
-    return client
 
