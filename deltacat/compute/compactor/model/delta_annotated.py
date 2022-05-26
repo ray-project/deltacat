@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import logging
 from deltacat import logs
-from deltacat.storage import Delta, DeltaType, Manifest, ManifestEntry, \
+from deltacat.storage import DeltaType, Manifest, ManifestEntry, \
     ManifestEntryList
-from typing import List, Optional
+from typing import List, Optional, Callable
+from types import FunctionType
+from deltacat.storage import Delta
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -85,6 +87,55 @@ class DeltaAnnotated(Delta):
                 new_da_bytes += src_entry.meta.content_length
                 da_group_entry_count += 1
                 if new_da_bytes >= min_delta_bytes:
+                    logger.info(
+                        f"Appending group of {da_group_entry_count} elements "
+                        f"and {new_da_bytes} bytes.")
+                    groups.append(new_da)
+                    new_da = DeltaAnnotated()
+                    new_da_bytes = 0
+                    da_group_entry_count = 0
+        if new_da:
+            groups.append(new_da)
+        return groups
+
+    @staticmethod
+    def rebatch_based_on_memory_and_file_count_limit(
+            annotated_deltas: List[DeltaAnnotated],
+            min_delta_bytes,
+            min_file_counts,
+            estimation_function: Optional[Callable]) -> List[DeltaAnnotated]:
+        """
+        Simple greedy algorithm to split/merge 1 or more annotated deltas into
+        size-limited annotated deltas. All ordered manifest entries in the input
+        annotated deltas are appended to an annotated delta until
+        delta_size_bytes >= min_delta_bytes, then a new delta is started. Note
+        that byte size is measured in terms of manifest entry content length,
+        which is expected to be equal to the number of bytes at rest for the
+        associated object. Returns the list of annotated delta groups.
+        """
+        groups = []
+        new_da = DeltaAnnotated()
+        new_da_bytes = 0
+        da_group_entry_count = 0
+        for src_da in annotated_deltas:
+            src_da_annotations = src_da.annotations
+            src_da_entries = src_da.manifest.entries
+            assert (len(src_da_annotations) == len(src_da_entries),
+                    f"Unexpected Error: Length of delta annotations "
+                    f"({len(src_da_annotations)}) doesn't mach the length of "
+                    f"delta manifest entries ({len(src_da_entries)}).")
+            for i, src_entry in enumerate(src_da_entries):
+                DeltaAnnotated._append_annotated_entry(
+                    src_da,
+                    new_da,
+                    src_entry,
+                    src_da_annotations[i])
+                # TODO: Fetch s3_obj["Size"] if entry content length undefined?
+                estimated_new_da_bytes = estimation_function(src_entry.meta.content_length) if type(
+                    estimation_function) is FunctionType else src_entry.meta.content_length
+                new_da_bytes += estimated_new_da_bytes
+                da_group_entry_count += 1
+                if new_da_bytes >= min_delta_bytes or da_group_entry_count >= min_file_counts:
                     logger.info(
                         f"Appending group of {da_group_entry_count} elements "
                         f"and {new_da_bytes} bytes.")
