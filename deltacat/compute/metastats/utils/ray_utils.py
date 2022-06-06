@@ -66,7 +66,8 @@ def replace_cluster_cfg_vars(
         contents = contents.replace(
             "{{worker-object-store-memory-pct}}",
             str(worker_object_store_memory_pct))
-    out_file_name = os.path.basename(file_path)
+    partition_id = partition_canonical_string.split("|")[-1]
+    out_file_name = f"{trace_id}-{partition_id}.{os.path.basename(file_path)}"
     out_file_dir = os.path.join(os.path.dirname(file_path), "tmp")
     out_file_path = os.path.join(out_file_dir, out_file_name)
     try:

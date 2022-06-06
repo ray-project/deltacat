@@ -51,6 +51,7 @@ def start_stats_collection(batched_delta_stats_compute_list: List[DeltaAnnotated
         Returns:
             A mapping of stream positions to their corresponding delta stats.
     """
+    # TODO: Add CompactionEventDispatcher for stats collection started event
     delta_stats_compute_pending: List[ObjectRef[Dict[str, List[StatsResult, int]]]] = []
 
     for batched_deltas in batched_delta_stats_compute_list:
@@ -76,6 +77,7 @@ def start_stats_collection(batched_delta_stats_compute_list: List[DeltaAnnotated
         inflation_rate_stats_s3_url = f"{base_path}/inflation-rates.json"
         cache_inflation_rate_data_for_delta_stats_ready(delta_stream_range_stats, inflation_rate_stats_s3_url,
                                                          deltacat_storage)
+        # TODO: Add CompactionEventDispatcher for stats collection completed event
         return delta_stream_range_stats
 
 

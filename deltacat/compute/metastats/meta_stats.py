@@ -44,10 +44,12 @@ def collect_metastats(source_partition_locators: List[PartitionLocator],
                       *args,
                       **kwargs) -> Dict[str, Dict[int, DeltaStats]]:
 
+    # TODO: Add CompactionEventDispatcher for metastats collection started event
     stats_res_all_partitions: Dict[str, Dict[int, DeltaStats]] = {}
+    stats_res_obj_ref_all_partitions: Dict[str, ObjectRef] = {}
     for partition_locator in source_partition_locators:
         partition_canonical_string = partition_locator.canonical_string()
-        stats_res = collect_from_partition(
+        stats_res_obj_ref = collect_from_partition.remote(
             source_partition_locator=partition_locator,
             partition_canonical_string=partition_canonical_string,
             columns=columns,
@@ -58,10 +60,13 @@ def collect_metastats(source_partition_locators: List[PartitionLocator],
             *args,
             **kwargs
         )
-        stats_res_all_partitions[partition_locator.partition_id] = stats_res
+        stats_res_obj_ref_all_partitions[partition_locator.partition_id] = stats_res_obj_ref
+    for partition_id, stats_res_obj_ref in stats_res_obj_ref_all_partitions.items():
+        stats_res_all_partitions[partition_id] = ray.get(stats_res_obj_ref)
+    # TODO: Add CompactionEventDispatcher for metastats collection completed event
     return stats_res_all_partitions
 
-
+@ray.remote
 def collect_from_partition(source_partition_locator: PartitionLocator,
                            partition_canonical_string: Optional[str],
                             delta_stream_position_range_set: Optional[Set[DeltaRange]] = None,
@@ -258,6 +263,7 @@ def _start_stats_cluster(out_cluster_cfg: str,
             metastats_results_s3_bucket,
             deltacat_storage
         )
+    client.disconnect()
     return delta_stream_range_stats
 
 
@@ -307,7 +313,7 @@ def _batch_deltas(delta_stats_compute_list,
 
 def _setup_stats_cluster(min_workers, partition_canonical_string, trace_id):
     parent_dir_path = pathlib.Path(__file__).parent.resolve()
-    in_cfg = os.path.join(parent_dir_path, "config", "stats_cluster.yaml")
+    in_cfg = os.path.join(parent_dir_path, "config", "stats_cluster_test.yaml")
     out_cluster_cfg_file_path = replace_cluster_cfg_vars(
         partition_canonical_string=partition_canonical_string,
         trace_id=trace_id,
