@@ -48,10 +48,10 @@ class EventProcessor:
         """
         logger.info(f"Start initializing...")
 
-        trace_id = self.event_publisher.params["traceId"]
-        dest_provider = self.event_publisher.params["destinationTable"]["owner"]
-        dest_table = self.event_publisher.params["destinationTable"]["name"]
-        expiry_timestamp = self.event_publisher.params["expirationTimestamp"]
+        trace_id = self.event_publisher.event_base_params["traceId"]
+        dest_provider = self.event_publisher.event_base_params["destinationTable"]["owner"]
+        dest_table = self.event_publisher.event_base_params["destinationTable"]["name"]
+        expiry_timestamp = self.event_publisher.event_base_params["expirationTimestamp"]
 
         retry_ctr = 0
         while round(time.time() * 1000) < expiry_timestamp and retry_ctr < QUERY_EVENTS_MAX_RETRY_COUNTER:

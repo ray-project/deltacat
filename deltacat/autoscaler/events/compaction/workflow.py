@@ -23,6 +23,7 @@ COMPACTION_SESSION_PARTITION_COMPLETED = "COMPACTION_SESSION_PARTITION_COMPLETED
 COMPACTION_SESSION_COMPLETED = "COMPACTION_SESSION_COMPLETED"
 
 
+# TODO: Might be worth renaming this later to avoid confusion with Ray Workflows
 class CompactionWorkflow(EventWorkflow):
 
     def __init__(self,
@@ -40,7 +41,6 @@ class CompactionWorkflow(EventWorkflow):
         # Initialization
         self._build_states()
         self.state_transitions = self._build_state_transitions()
-        self.start_initializing()
 
         if compaction_inputs is None:
             compaction_inputs = []

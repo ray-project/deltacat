@@ -187,11 +187,15 @@ def generate_compaction_session_yaml(config: Dict[str, Any],
     new_config["available_node_types"]["ray.head.default"]["node_config"]["InstanceType"] = instance_type
 
     # TODO: Formalize supported parameter key/values after initial shadow compaction
-    new_events = {**config["events"], "parameters": {**config["events"]["parameters"]}}
-    new_events["parameters"]["partitionKeyValues"] = compress(partition_key_values).decode('utf-8')
+    new_events = {
+        **config["events"],
+        "parameters": {**config["events"]["parameters"]},
+        "metadata": {
+            "partitionKeyValues": compress(partition_key_values).decode('utf-8')
+        }
+    }
     if stats_metadata:
-        new_events["parameters"]["statsMetadata"] = compress(stats_metadata).decode('utf-8')
-
+        new_events["metadata"]["statsMetadata"] = compress(stats_metadata).decode('utf-8')
     new_config["events"] = new_events
 
     with open(new_filename, "w") as yaml_file:
