@@ -56,10 +56,18 @@ class EventDispatcher:
                         f"with parent Ray session ID = {self.session_manager.parent_session_id} "
                         f"and current Ray session ID = {self.session_manager.session_id}")
 
-        self._publish_event({
+        event_payload = {
             **self.events_publisher.config["parameters"],
             **event_data
-        })
+        }
+
+        # Trim un-required, space intensive data from payload
+        if "statsMetadata" in event_payload:
+            event_payload.pop("statsMetadata")
+        if "partitionsToCompact" in event_payload:
+            event_payload.pop("partitionsToCompact")
+
+        self._publish_event(event_payload)
 
     def _add_base_event_handlers(self):
         """Add callback handlers for base job events

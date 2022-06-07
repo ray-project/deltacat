@@ -100,12 +100,9 @@ class DynamoDBEventStoreClient(EventStoreClient):
 
     def get_compacted_partition_ids(self) -> List[str]:
         items = self.query_active_events_by_event_name(COMPACTION_SESSION_PARTITION_COMPLETED)
-        state_detail_md_list = [json.loads(event["stateDetailMetadata"]["S"]) for event in items
-                                      if "stateDetailMetadata" in event]
-
-        partition_id_list = [state_detail_md["partition_id"] for state_detail_md in state_detail_md_list]
+        partition_id_list = [event["stateDetailMetadata"]["M"]["partition_id"]["S"] for event in items
+                             if "stateDetailMetadata" in event]
         return partition_id_list
-
 
     @staticmethod
     def get_events(query_result: Dict[str, Any]) -> List[Dict[str, Any]]:

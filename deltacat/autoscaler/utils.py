@@ -25,13 +25,22 @@ def ray_submit(cluster_cfg: str,
                path_to_script: str,
                script_arguments: Optional[List[str]] = None,
                background_process: bool = False,
+               start_cluster: bool = True,
+               stop_cluster: bool = True,
                stdout: Optional[Any] = subprocess.DEVNULL,
                stderr: Optional[Any] = subprocess.STDOUT) -> None:
+    cluster_args = []
+    if start_cluster:
+        cluster_args.append("--start")
+    if stop_cluster:
+        cluster_args.append("--stop")
+
     if script_arguments is None:
         script_arguments = []
 
     script_arguments_str = " ".join(script_arguments)
-    cmd = f"ray submit --no-config-cache --start --stop {cluster_cfg} {path_to_script}"
+
+    cmd = f"ray submit --no-config-cache {' '.join(cluster_args)} {cluster_cfg} {path_to_script}"
     if script_arguments:
         cmd = f"{cmd} -- {script_arguments_str}"
 
