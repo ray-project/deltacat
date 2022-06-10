@@ -6,7 +6,6 @@ from botocore.client import BaseClient
 from deltacat.autoscaler.events.compaction.workflow import COMPACTION_SESSION_PARTITION_COMPLETED
 
 from deltacat.autoscaler.events.event_store import EventStoreClient
-from deltacat.autoscaler.events.states import ScriptStartedEvent, ScriptInProgressEvent, ScriptCompletedEvent
 
 
 class DynamoDBEventStoreClient(EventStoreClient):
@@ -44,6 +43,32 @@ class DynamoDBEventStoreClient(EventStoreClient):
             },
         )
         return self.get_events(result)
+
+    def query_active_events(self,
+                            trace_id: str) -> List[Optional[Dict[str, Any]]]:
+        """Query active events by Trace ID
+
+        Args:
+            trace_id: Trace ID for the job
+
+        Returns: list of events that are active
+
+        """
+        result = self.dynamodb_client.query(
+            TableName=self.table_name,
+            ScanIndexForward=False,  # descending order traversal
+            KeyConditions={
+                "traceId": {
+                    "AttributeValueList": [
+                        {
+                            "S": trace_id
+                        },
+                    ],
+                    "ComparisonOperator": "EQ"
+                },
+            },
+        )
+        return self.get_active_events(result)
 
     def query_active_events_by_destination_job_table(self,
                                                      destination_job_table: str) -> List[Optional[Dict[str, Any]]]:
@@ -98,8 +123,8 @@ class DynamoDBEventStoreClient(EventStoreClient):
         )
         return self.get_active_events(result)
 
-    def get_compacted_partition_ids(self) -> List[str]:
-        items = self.query_active_events_by_event_name(COMPACTION_SESSION_PARTITION_COMPLETED)
+    def get_compacted_partition_ids(self, trace_id: str) -> List[str]:
+        items = self._get_completed_partition_events(trace_id)
         partition_id_list = [event["stateDetailMetadata"]["M"]["partition_id"]["S"] for event in items
                              if "stateDetailMetadata" in event]
         return partition_id_list
@@ -128,7 +153,7 @@ class DynamoDBEventStoreClient(EventStoreClient):
         """
         return [item for item in query_result["Items"] if item.get("active")]
 
-    def _get_active_running_events(self,
-                                   query_result: Dict[str, Any]) -> List[Dict[str, Any]]:
-        return [item for item in self.get_active_events(query_result)
-                if item["state"] in (ScriptStartedEvent.state, ScriptInProgressEvent.state, ScriptCompletedEvent.state)]
+    def _get_completed_partition_events(self,
+                                        trace_id: str) -> List[Dict[str, Any]]:
+        return [item for item in self.query_active_events(trace_id)
+                if item["eventName"]["S"] == COMPACTION_SESSION_PARTITION_COMPLETED]

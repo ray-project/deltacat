@@ -187,7 +187,7 @@ class CompactionWorkflow(EventWorkflow):
             # TODO: Separate this workflow out into multiple workflows, for different applications
             raise ValueError("Event Store and partition IDs must be provided.")
 
-        partition_ids_completed = set(self.event_store.get_compacted_partition_ids())
+        partition_ids_completed = set(self.event_store.get_compacted_partition_ids(self.trace_id))
         if partition_ids_completed == self._partition_ids_to_compact:
             logger.info(f"Compaction run complete.")
             event = self._event_map[COMPACTION_SESSION_COMPLETED]
@@ -208,3 +208,7 @@ class CompactionWorkflow(EventWorkflow):
     @property
     def session_manager(self):
         return self.event_dispatcher.session_manager
+
+    @property
+    def trace_id(self):
+        return self.event_dispatcher.events_publisher.event_base_params.get("traceId", "UNKNOWN_TRACE_ID")
