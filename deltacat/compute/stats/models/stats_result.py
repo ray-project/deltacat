@@ -6,7 +6,6 @@ from typing import Optional, List, Set, Dict, Any
 from collections import defaultdict
 from deltacat.compute.stats.types import StatsType, ALL_STATS_TYPES
 
-
 class StatsResult(dict):
     """A generic container that holds stats for a single manifest entry file.
     """
@@ -86,7 +85,8 @@ class StatsResult(dict):
         merged_stats: Dict[StatsType, int] = defaultdict(int)
         for stats_result in stats_list:
             for stat_type in stats_to_collect:
-                merged_stats[stat_type.value] += stats_result[stat_type.value]
+                if stats_result:
+                    merged_stats[stat_type.value] += stats_result[stat_type.value]
 
         if record_row_count_once and StatsType.ROW_COUNT in stats_to_collect:
             merged_stats[StatsType.ROW_COUNT.value] = stats_list[0].row_count

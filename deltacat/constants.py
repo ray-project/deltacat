@@ -26,3 +26,6 @@ BYTES_PER_PEBIBYTE = 2**50
 # of the table in the worst case, but here we're assuming that they
 # represent no more than ~1/4th of the total table bytes)
 PYARROW_INFLATION_MULTIPLIER = 1.5
+
+# Inflation multiplier from snappy-compressed parquet to pyarrow for all columns.
+PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6

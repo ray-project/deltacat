@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import logging
 from deltacat import logs
-from deltacat.storage import Delta, DeltaType, Manifest, ManifestEntry, \
+from deltacat.storage import DeltaType, Manifest, ManifestEntry, \
     ManifestEntryList
-from typing import List, Optional
+from typing import List, Optional, Callable, Union
+from types import FunctionType
+from deltacat.storage import Delta
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -54,7 +56,9 @@ class DeltaAnnotated(Delta):
     @staticmethod
     def rebatch(
             annotated_deltas: List[DeltaAnnotated],
-            min_delta_bytes) -> List[DeltaAnnotated]:
+            min_delta_bytes,
+            min_file_counts: Optional[Union[int, float]]=float("inf"),
+            estimation_function: Optional[Callable]=None) -> List[DeltaAnnotated]:
         """
         Simple greedy algorithm to split/merge 1 or more annotated deltas into
         size-limited annotated deltas. All ordered manifest entries in the input
@@ -82,12 +86,19 @@ class DeltaAnnotated(Delta):
                     src_entry,
                     src_da_annotations[i])
                 # TODO: Fetch s3_obj["Size"] if entry content length undefined?
-                new_da_bytes += src_entry.meta.content_length
+                estimated_new_da_bytes = estimation_function(src_entry.meta.content_length) if type(
+                    estimation_function) is FunctionType else src_entry.meta.content_length
+                new_da_bytes += estimated_new_da_bytes
                 da_group_entry_count += 1
-                if new_da_bytes >= min_delta_bytes:
-                    logger.info(
-                        f"Appending group of {da_group_entry_count} elements "
-                        f"and {new_da_bytes} bytes.")
+                if new_da_bytes >= min_delta_bytes or da_group_entry_count >= min_file_counts:
+                    if new_da_bytes >= min_delta_bytes:
+                        logger.info(
+                            f"Appending group of {da_group_entry_count} elements "
+                            f"and {new_da_bytes} bytes to meet file size limit")
+                    if da_group_entry_count >= min_file_counts:
+                        logger.info(
+                            f"Appending group of {da_group_entry_count} elements "
+                            f"and {da_group_entry_count} files to meet file count limit")
                     groups.append(new_da)
                     new_da = DeltaAnnotated()
                     new_da_bytes = 0
@@ -95,6 +106,7 @@ class DeltaAnnotated(Delta):
         if new_da:
             groups.append(new_da)
         return groups
+
 
     @property
     def annotations(self) -> List[DeltaAnnotation]:

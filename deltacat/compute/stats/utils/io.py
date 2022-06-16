@@ -4,7 +4,7 @@ import pyarrow
 import ray
 from collections import defaultdict
 
-import deltacat.compute.stats.utils.manifest_stats_file as scf
+from deltacat.compute.stats.utils.manifest_stats_file import read_manifest_stats_by_columns, write_manifest_stats_file
 from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
@@ -15,8 +15,9 @@ from deltacat.compute.stats.utils.intervals import DeltaRange
 from deltacat.storage import PartitionLocator, Delta, DeltaLocator
 from deltacat import logs, LocalTable, TableType
 from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.compute.compactor import DeltaAnnotated
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -24,7 +25,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 @ray.remote
 def read_cached_delta_stats(delta: Delta,
                             columns_to_fetch: List[str],
-                            stat_results_s3_bucket: str) -> DeltaStatsCacheResult:
+                            stat_results_s3_bucket: str):
     """Read delta stats that are cached in S3
 
     This Ray distributed task reads delta stats from a file system (i.e. S3) based on specified columns.
@@ -39,7 +40,7 @@ def read_cached_delta_stats(delta: Delta,
 
     delta_locator = DeltaLocator.of(delta.partition_locator, delta.stream_position)
     column_stats_completion_info: List[DeltaColumnStats] = \
-        scf.read_manifest_stats_by_columns(stat_results_s3_bucket, columns_to_fetch, delta_locator)
+        read_manifest_stats_by_columns(stat_results_s3_bucket, columns_to_fetch, delta_locator)
 
     found_columns_stats: List[DeltaColumnStats] = []
     missed_columns: List[str] = []
@@ -65,13 +66,13 @@ def cache_delta_column_stats(stat_results_s3_bucket: str,
         stat_results_s3_bucket: The S3 bucket name
         dataset_column: Column-oriented stats for a given delta
     """
-    scf.write_manifest_stats_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
+    write_manifest_stats_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
 
 
 @ray.remote
-def get_delta_stats(delta_locator: DeltaLocator,
+def get_delta_stats(annotated_delta: DeltaAnnotated,
                     columns: Optional[List[str]] = None,
-                    deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
+                    deltacat_storage=unimplemented_deltacat_storage) -> Dict[str, Any]:
     """Ray distributed task to compute and collect stats for a requested delta.
 
     If no columns are requested, stats will be computed for all columns.
@@ -86,9 +87,7 @@ def get_delta_stats(delta_locator: DeltaLocator,
 
     """
 
-    manifest = deltacat_storage.get_delta_manifest(delta_locator)
-    delta = Delta.of(delta_locator, None, None, None, manifest)
-    return _collect_stats_by_columns(delta, columns, deltacat_storage)
+    return _collect_stats_by_columns(annotated_delta, columns, deltacat_storage)
 
 
 @ray.remote
@@ -126,9 +125,9 @@ def get_deltas_from_range(
     return deltas_list_result.all_items()
 
 
-def _collect_stats_by_columns(delta: Delta,
+def _collect_stats_by_columns(delta_annotated: DeltaAnnotated,
                               columns_to_compute: Optional[List[str]] = None,
-                              deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
+                              deltacat_storage=unimplemented_deltacat_storage) -> Dict[str, Any]:
     """Materializes one manifest entry at a time to save memory usage and calculate stats from each of its columns.
 
     Args:
@@ -139,38 +138,29 @@ def _collect_stats_by_columns(delta: Delta,
     Returns:
         A delta wide stats container
     """
-    assert delta.manifest is not None, f"Manifest should not be missing from delta for stats calculation: {delta}"
+    total_tables_size = 0
 
     # Mapping of column_name -> [stats_file_idx_1, stats_file_idx_2, ... stats_file_idx_n]
-    column_stats_map: Dict[str, List[Optional[StatsResult]]] = defaultdict(lambda: [None] * len(delta.manifest.entries))
-
-    total_tables_size = 0
-    for file_idx, manifest in enumerate(delta.manifest.entries):
+    column_stats_map = defaultdict(lambda: [[None, None]] * len(delta_annotated["manifest"].get("entries")))
+    src_da_entries = delta_annotated["manifest"].get("entries")
+    manifest_annotations = delta_annotated["annotations"]
+    for file_idx, manifest in enumerate(src_da_entries):
         entry_pyarrow_table: LocalTable = \
-            deltacat_storage.download_delta_manifest_entry(delta, file_idx, TableType.PYARROW, columns_to_compute)
+            deltacat_storage.download_delta_manifest_entry(delta_annotated, file_idx, TableType.PYARROW, columns_to_compute, equivalent_table_types="uncompacted")
         assert isinstance(entry_pyarrow_table, pyarrow.Table), \
             f"Stats collection is only supported for PyArrow tables, but received a table of " \
-            f"type '{type(entry_pyarrow_table)}' for manifest entry {file_idx} of delta: {delta.locator}."
+            f"type '{type(entry_pyarrow_table)}' for manifest entry {file_idx} of delta: {delta_annotated.locator}."
         total_tables_size += entry_pyarrow_table.nbytes
         if not columns_to_compute:
             columns_to_compute = entry_pyarrow_table.column_names
 
         for column_idx, pyarrow_column in enumerate(entry_pyarrow_table.columns):
             column_name = columns_to_compute[column_idx]
-            column_stats_map[column_name][file_idx] = StatsResult.of(len(pyarrow_column), pyarrow_column.nbytes)
+            origin_delta_stream_position = manifest_annotations[file_idx][-1]
+            column_stats_map[column_name][file_idx] = [StatsResult.of(len(pyarrow_column), pyarrow_column.nbytes),
+                                                       origin_delta_stream_position]
 
-    # Add column-wide stats for a list of tables, these will be used for caching and retrieving later
-    delta_ds_column_stats: List[DeltaColumnStats] = \
-        _to_dataset_column_stats(delta.locator, columns_to_compute, column_stats_map)
-
-    dataset_stats: DeltaStats = DeltaStats.of(delta_ds_column_stats)
-
-    # Quick validation for calculations
-    assert dataset_stats.stats.pyarrow_table_bytes == total_tables_size, \
-        f"Expected the size of all PyArrow tables ({total_tables_size} bytes) " \
-        f"to match the sum of each of its columns ({dataset_stats.stats.pyarrow_table_bytes} bytes)"
-
-    return dataset_stats
+    return column_stats_map
 
 
 def _to_dataset_column_stats(delta_locator: DeltaLocator,
