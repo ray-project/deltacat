@@ -19,9 +19,9 @@ from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCac
 from deltacat.compute.stats.utils.io import read_cached_delta_stats, get_deltas_from_range
 from deltacat.compute.stats.utils.intervals import merge_intervals, DeltaRange
 
-from deltacat.compute.metastats.utils.ray_utils import ray_up, ray_init, get_head_node_ip, replace_cluster_cfg_vars
+from deltacat.compute.metastats.utils.ray_utils import ray_up, ray_init, get_head_node_ip, replace_cluster_cfg_vars, ray_down, clean_up_cluster_cfg_file
 from deltacat.compute.metastats.utils.constants import MANIFEST_FILE_COUNT_PER_CPU, R5_MEMORY_PER_CPU, HEAD_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO, \
-    WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO, INSTANCE_TYPE_TO_MEMORY_MULTIPLIER, STATS_CLUSTER_R5_INSTANCE_TYPE, DEFAULT_JOB_RUN_TRACE_ID
+    WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO, STATS_CLUSTER_R5_INSTANCE_TYPE, DEFAULT_JOB_RUN_TRACE_ID, DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE
 from deltacat.compute.metastats.model.stats_cluster_size_estimator import StatsClusterSizeEstimator
 from deltacat.compute.metastats.utils.pyarrow_memory_estimation_function import estimation_function
 
@@ -48,7 +48,7 @@ def collect_metastats(source_partition_locators: List[PartitionLocator],
     stats_res_all_partitions: Dict[str, Dict[int, DeltaStats]] = {}
     stats_res_obj_ref_all_partitions: Dict[str, ObjectRef] = {}
     for partition_locator in source_partition_locators:
-        partition_canonical_string = partition_locator.canonical_string()
+        partition_canonical_string = str(partition_locator.partition_values[0])
         stats_res_obj_ref = collect_from_partition.remote(
             source_partition_locator=partition_locator,
             partition_canonical_string=partition_canonical_string,
@@ -91,12 +91,18 @@ def collect_from_partition(source_partition_locator: PartitionLocator,
         trace_id = kwargs.get("trace_id")
     else:
         logger.warning(f"No job run trace id specified, default to {DEFAULT_JOB_RUN_TRACE_ID}")
+    cpus_per_instance = DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE
+    if cpus_per_instance in kwargs:
+        cpus_per_instance = kwargs.get("cpus_per_instance")
+    else:
+        logger.info(f"Stats cluster CPUS per instance not specified, default to {DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE}")
     return _start_all_stats_collection_from_deltas(
                                 deltas,
                                 partition_canonical_string,
                                 columns,
                                 trace_id,
                                 file_count_per_cpu,
+                                cpus_per_instance,
                                 stat_results_s3_bucket,
                                 metastats_results_s3_bucket,
                                 deltacat_storage)
@@ -127,14 +133,15 @@ def _start_all_stats_collection_from_deltas(
         columns: Optional[List[str]] = None,
         trace_id: Optional[str] = None,
         file_count_per_cpu: Optional[int] = MANIFEST_FILE_COUNT_PER_CPU,
+        cpus_per_instance: Optional[int] = DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE,
         stat_results_s3_bucket: Optional[str] = None,
         metastats_results_s3_bucket: Optional[str] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> Dict[int, DeltaStats]:
 
     delta_cache_lookup_pending: List[List[ObjectRef[DeltaStatsCacheResult], Delta]] = []
     delta_stats_compute_list: List[DeltaLocator] = []
-    meta_stats_list_ready = []
-    meta_stats_list_to_compute = []
+    meta_stats_list_ready: List[DeltaLocator] = []
+    meta_stats_list_to_compute: List[DeltaLocator] = []
     for delta in deltas:
         if stat_results_s3_bucket:
             promise: ObjectRef[DeltaStatsCacheResult] = \
@@ -149,8 +156,7 @@ def _start_all_stats_collection_from_deltas(
         ready, delta_cache_lookup_pending = ray.wait(delta_cache_lookup_pending)
 
         cached_results: List[List[DeltaStatsCacheResult, Delta]] = ray.get(ready)
-        for item in cached_results:
-            cached_result = item[0]
+        for cached_result in cached_results:
             if cached_result.hits:
                 delta_cache_res.append(cached_result.hits)
                 meta_stats_list_ready.append(cached_result.hits.column_stats[0].manifest_stats.delta_locator)
@@ -169,6 +175,7 @@ def _start_all_stats_collection_from_deltas(
                                             columns=columns,
                                             trace_id=trace_id,
                                             file_count_per_cpu=file_count_per_cpu,
+                                            cpus_per_instance=cpus_per_instance,
                                             stat_results_s3_bucket=stat_results_s3_bucket,
                                             metastats_results_s3_bucket=metastats_results_s3_bucket,
                                             deltacat_storage=deltacat_storage)
@@ -191,6 +198,7 @@ def _start_metadata_stats_collection(
         columns: Optional[List[str]] = None,
         trace_id: Optional[str] = None,
         file_count_per_cpu: Optional[int] = MANIFEST_FILE_COUNT_PER_CPU,
+        cpus_per_instance: Optional[int] = DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE,
         stat_results_s3_bucket: Optional[str] = None,
         metastats_results_s3_bucket: Optional[str] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> Dict[int, DeltaStats]:
@@ -225,17 +233,19 @@ def _start_metadata_stats_collection(
         meta_stats_to_compute[delta.stream_position] = delta_meta_count
 
     min_cpus = _estimate_cpus_needed(meta_stats_to_compute, R5_MEMORY_PER_CPU, file_count_per_cpu, manifest_file_count_to_compute)
-    min_workers = int(min_cpus // INSTANCE_TYPE_TO_MEMORY_MULTIPLIER) + 1
+    min_workers = int(min_cpus // cpus_per_instance) + 1
 
     batched_delta_stats_compute_list = _batch_deltas(delta_stats_compute_list,
                                                      file_count_per_cpu,
+                                                     cpus_per_instance,
                                                      deltacat_storage,
                                                      content_type,
                                                      content_encoding)
 
     out_cluster_cfg = _setup_stats_cluster(min_workers,
                                            partition_canonical_string,
-                                           trace_id)
+                                           trace_id,
+                                           cpus_per_instance)
     delta_stats_res: Dict[int, DeltaStats] = _start_stats_cluster(out_cluster_cfg,
                                                                   batched_delta_stats_compute_list,
                                                                   columns,
@@ -264,10 +274,12 @@ def _start_stats_cluster(out_cluster_cfg: str,
             deltacat_storage
         )
     client.disconnect()
+    ray_down(out_cluster_cfg)
+    clean_up_cluster_cfg_file(out_cluster_cfg)
     return delta_stream_range_stats
 
 
-def _estimate_cpus_needed(meta_stats_to_compute, memory_per_cpu, file_count_per_cpu, manifest_file_count_to_compute):
+def _estimate_cpus_needed(meta_stats_to_compute, memory_gb_per_cpu, file_count_per_cpu, manifest_file_count_to_compute):
     content_length_sum = 0
     for val in meta_stats_to_compute.values():
         content_length_sum += val
@@ -276,7 +288,7 @@ def _estimate_cpus_needed(meta_stats_to_compute, memory_per_cpu, file_count_per_
         manifest_file_count_sum += val
     estimated_memory_bytes_needed = content_length_sum * PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS
     estimated_memory_gib_needed = estimated_memory_bytes_needed / BYTES_PER_GIBIBYTE
-    memory_per_cpu_available = memory_per_cpu * (1 - WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO)
+    memory_per_cpu_available = memory_gb_per_cpu * (1 - WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO)
     estimator = StatsClusterSizeEstimator.of(memory_per_cpu_available, file_count_per_cpu,
                                             estimated_memory_gib_needed, manifest_file_count_sum)
     min_cpus = StatsClusterSizeEstimator.estimate_cpus_needed(estimator)
@@ -285,10 +297,11 @@ def _estimate_cpus_needed(meta_stats_to_compute, memory_per_cpu, file_count_per_
 
 def _batch_deltas(delta_stats_compute_list,
                   file_count_per_cpu,
+                  cpu_per_instance,
                    deltacat_storage,
                    content_type,
                    content_encoding) -> List[DeltaAnnotated]:
-    worker_node_mem = INSTANCE_TYPE_TO_MEMORY_MULTIPLIER * (1 - WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO) * BYTES_PER_GIBIBYTE
+    worker_node_mem = cpu_per_instance * (1 - WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO) * BYTES_PER_GIBIBYTE
     delta_list = []
 
     estimate_based_on_content_length = functools.partial(
@@ -301,7 +314,7 @@ def _batch_deltas(delta_stats_compute_list,
         delta_annotated = DeltaAnnotated.of(delta)
         delta_list.append(delta_annotated)
 
-    rebatched_da_list = DeltaAnnotated.rebatch_based_on_memory_and_file_count_limit(
+    rebatched_da_list = DeltaAnnotated.rebatch(
         delta_list,
         worker_node_mem,
         file_count_per_cpu,
@@ -311,17 +324,19 @@ def _batch_deltas(delta_stats_compute_list,
     return rebatched_da_list
 
 
-def _setup_stats_cluster(min_workers, partition_canonical_string, trace_id):
+def _setup_stats_cluster(min_workers, partition_canonical_string, trace_id, cpus_per_instance):
+    stats_cluster_instance_type = int(cpus_per_instance // 4) if cpus_per_instance else STATS_CLUSTER_R5_INSTANCE_TYPE
+    stats_cluster_instance_type_str = f"r5.{stats_cluster_instance_type}xlarge".strip()
     parent_dir_path = pathlib.Path(__file__).parent.resolve()
-    in_cfg = os.path.join(parent_dir_path, "config", "stats_cluster_test.yaml")
+    in_cfg = os.path.join(parent_dir_path, "config", "stats_cluster_example.yaml")
     out_cluster_cfg_file_path = replace_cluster_cfg_vars(
         partition_canonical_string=partition_canonical_string,
         trace_id=trace_id,
         file_path=in_cfg,
         min_workers=min_workers,
-        head_type=f"r5.{STATS_CLUSTER_R5_INSTANCE_TYPE}xlarge",
-        worker_type=f"r5.{STATS_CLUSTER_R5_INSTANCE_TYPE}xlarge",
-        head_object_store_memory_pct=HEAD_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
+        head_type=stats_cluster_instance_type_str,
+        worker_type=stats_cluster_instance_type_str,
+        head_object_store_memory_pct=HEAD_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO*100,
         worker_object_store_memory_pct=WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO*100)
 
     return out_cluster_cfg_file_path

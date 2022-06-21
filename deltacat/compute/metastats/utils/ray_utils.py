@@ -2,8 +2,37 @@ import os
 import subprocess
 import ray
 import errno
+import logging
+
+from deltacat import logs
+from tenacity import retry, stop_after_attempt
 from typing import Any
 from deltacat.compute.metastats.utils.constants import WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO, MAX_WORKER_MULTIPLIER
+from tenacity import Retrying, stop_after_attempt, wait_fixed, RetryError
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+RAY_DOWN_DEFAULT_RETRY_ATTEMPTS = 3
+
+
+def run_cmd_exit_code(cmd: str) -> int:
+    logger.info(f"running command {cmd}")
+    exit_code = int(os.system(cmd))
+    logger.info(f"Got {exit_code} when running {cmd}")
+
+
+def run_cmd_with_retry(cmd: str) -> None:
+    retrying = Retrying(
+        wait=wait_fixed(2),
+        stop=stop_after_attempt(RAY_DOWN_DEFAULT_RETRY_ATTEMPTS)
+    )
+    try:
+        retrying(
+           run_cmd_exit_code(cmd)
+        )
+    except RetryError:
+        logger.info(f"{cmd} failed after {RAY_DOWN_DEFAULT_RETRY_ATTEMPTS} retries.")
+
 
 def run_cmd(cmd: str) -> None:
     exit_code = int(os.system(cmd))
@@ -11,13 +40,25 @@ def run_cmd(cmd: str) -> None:
 
 
 def ray_up(cluster_cfg: str) -> None:
-    print(f"Starting Ray cluster '{cluster_cfg}'")
+    logger.info(f"Starting Ray cluster '{cluster_cfg}'")
     run_cmd(f"ray up {cluster_cfg} -y --no-config-cache --no-restart")
-    print(f"Started Ray cluster '{cluster_cfg}'")
+    logger.info(f"Started Ray cluster '{cluster_cfg}'")
+
+
+def ray_down(cluster_cfg: str) -> None:
+    logger.info(f"Destroying Ray cluster '{cluster_cfg}'")
+    run_cmd_with_retry(f"ray down {cluster_cfg} -y")
+    logger.info(f"Destroyed Ray cluster '{cluster_cfg}'")
+
+
+def clean_up_cluster_cfg_file(cluster_cfg) -> None:
+    logger.info(f"Removing stats cluster config at: '{cluster_cfg}'")
+    run_cmd(f"rm -f {cluster_cfg}")
+    logger.info(f"Removed stats cluster config at: '{cluster_cfg}'")
 
 
 def get_head_node_ip(cluster_cfg: str) -> str:
-    print(f"Getting Ray cluster head node IP for '{cluster_cfg}'")
+    logger.info(f"Getting Ray cluster head node IP for '{cluster_cfg}'")
     proc = subprocess.run(
         f"ray get-head-ip {cluster_cfg}",
         shell=True,
@@ -26,15 +67,15 @@ def get_head_node_ip(cluster_cfg: str) -> str:
         check=True)
     # the head node IP should be the last line printed to stdout
     head_node_ip = proc.stdout.splitlines()[-1]
-    print(f"Ray cluster head node IP for '{cluster_cfg}': {head_node_ip}")
+    logger.info(f"Ray cluster head node IP for '{cluster_cfg}': {head_node_ip}")
     return head_node_ip
 
 
 def ray_init(host, port) -> Any:
     ray_init_uri = f"ray://{host}:{port}"
-    print(f"Connecting Ray Client to '{ray_init_uri}'")
+    logger.info(f"Connecting Ray Client to '{ray_init_uri}'")
     client = ray.init(ray_init_uri, allow_multiple=True)
-    print(f"Connected Ray Client to '{ray_init_uri}'")
+    logger.info(f"Connected Ray Client to '{ray_init_uri}'")
     return client
 
 
