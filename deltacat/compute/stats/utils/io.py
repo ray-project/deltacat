@@ -54,7 +54,7 @@ def read_cached_delta_stats(delta: Delta,
     missed_stats: Optional[DeltaStatsCacheMiss] = DeltaStatsCacheMiss(missed_columns, delta.locator) \
         if missed_columns else None
 
-    return [DeltaStatsCacheResult.of(found_stats, missed_stats), delta]
+    return DeltaStatsCacheResult.of(found_stats, missed_stats)
 
 
 @ray.remote

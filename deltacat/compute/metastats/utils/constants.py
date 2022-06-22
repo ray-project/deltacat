@@ -1,6 +1,9 @@
+# Default to use r5.8xlarge instance type for stats collection cluster
 STATS_CLUSTER_R5_INSTANCE_TYPE = 8
-INSTANCE_TYPE_TO_MEMORY_MULTIPLIER = 32
+# Using R5 instance type, 8GiB memory is available per cpu
 R5_MEMORY_PER_CPU = 8
+# Default to use r5.8xlarge instance type for stats collection cluster
+DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE = 32
 # memory reserved for head node object store
 HEAD_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO = 0.3
 # memory reserved for worker node object store

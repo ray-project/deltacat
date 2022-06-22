@@ -26,7 +26,7 @@ def cache_inflation_rate_data_for_delta_stats_ready(delta_stats_processed_list, 
     for key, value in delta_stats_processed_list.items():
         delta_stats_pyarrow_bytes_sum = 0
         delta_stats_row_count = 0
-        for column_stats in delta_stats_processed_list[key].get("column_stats")[0].get("manifestStats").get("stats"):
+        for column_stats in delta_stats_processed_list[key].column_stats[0].manifest_stats.stats:
             delta_stats_row_count += column_stats.get("rowCount")
         for stats in delta_stats_processed_list[key].get("column_stats"):
 
