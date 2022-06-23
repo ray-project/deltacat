@@ -9,6 +9,7 @@ from tenacity import retry, stop_after_attempt
 from typing import Any
 from deltacat.compute.metastats.utils.constants import WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO, MAX_WORKER_MULTIPLIER
 from tenacity import Retrying, stop_after_attempt, wait_fixed, RetryError
+from subprocess import run, PIPE
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -35,8 +36,10 @@ def run_cmd_with_retry(cmd: str) -> None:
 
 
 def run_cmd(cmd: str) -> None:
-    exit_code = int(os.system(cmd))
-    assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code}"
+    result = run(cmd, shell=True, capture_output=True)
+    exit_code = int(result.returncode)
+    assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code} " \
+                           f"Error Trace: {result.stderr}"
 
 
 def ray_up(cluster_cfg: str) -> None:
