@@ -40,7 +40,7 @@ def ray_submit(cluster_cfg: str,
 
     script_arguments_str = " ".join(script_arguments)
 
-    cmd = f"ray submit --no-config-cache {' '.join(cluster_args)} {cluster_cfg} {path_to_script}"
+    cmd = f"ray submit --log-style record --no-config-cache {' '.join(cluster_args)} {cluster_cfg} {path_to_script}"
     if script_arguments:
         cmd = f"{cmd} -- {script_arguments_str}"
 

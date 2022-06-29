@@ -1,4 +1,3 @@
-import json
 from typing import List, Dict, Any, Optional
 
 import boto3
@@ -20,7 +19,7 @@ class DynamoDBEventStoreClient(EventStoreClient):
 
     def query_events(self,
                      trace_id: str) -> List[Optional[Dict[str, Any]]]:
-        """Query active events by Trace ID
+        """Query events by Trace ID
 
         Args:
             trace_id: Trace ID for the job
@@ -28,21 +27,7 @@ class DynamoDBEventStoreClient(EventStoreClient):
         Returns: list of events that are active
 
         """
-        result = self.dynamodb_client.query(
-            TableName=self.table_name,
-            ScanIndexForward=False,  # descending order traversal
-            KeyConditions={
-                "traceId": {
-                    "AttributeValueList": [
-                        {
-                            "S": trace_id
-                        },
-                    ],
-                    "ComparisonOperator": "EQ"
-                },
-            },
-        )
-        return self.get_events(result)
+        return self.get_events(self._query_events(trace_id))
 
     def query_active_events(self,
                             trace_id: str) -> List[Optional[Dict[str, Any]]]:
@@ -54,21 +39,7 @@ class DynamoDBEventStoreClient(EventStoreClient):
         Returns: list of events that are active
 
         """
-        result = self.dynamodb_client.query(
-            TableName=self.table_name,
-            ScanIndexForward=False,  # descending order traversal
-            KeyConditions={
-                "traceId": {
-                    "AttributeValueList": [
-                        {
-                            "S": trace_id
-                        },
-                    ],
-                    "ComparisonOperator": "EQ"
-                },
-            },
-        )
-        return self.get_active_events(result)
+        return self.get_active_events(self._query_events(trace_id))
 
     def query_active_events_by_destination_job_table(self,
                                                      destination_job_table: str) -> List[Optional[Dict[str, Any]]]:
@@ -157,3 +128,21 @@ class DynamoDBEventStoreClient(EventStoreClient):
                                         trace_id: str) -> List[Dict[str, Any]]:
         return [item for item in self.query_active_events(trace_id)
                 if item["eventName"]["S"] == COMPACTION_SESSION_PARTITION_COMPLETED]
+
+    def _query_events(self, trace_id: str):
+        return self.dynamodb_client.query(
+            TableName=self.table_name,
+            IndexName="traceId.timestamp",
+            ScanIndexForward=False,  # descending order traversal
+            KeyConditions={
+                "traceId": {
+                    "AttributeValueList": [
+                        {
+                            "S": trace_id
+                        },
+                    ],
+                    "ComparisonOperator": "EQ"
+                },
+            },
+        )
+

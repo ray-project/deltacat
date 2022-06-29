@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from typing import List, Union, Dict, Set, Any
 
 from deltacat import logs
@@ -149,7 +150,9 @@ class CompactionWorkflow(EventWorkflow):
             new_hash_bucket_count, yaml_file = get_compaction_size_inputs(self.config,
                                                                           compaction_input.partition_key_values,
                                                                           cluster_memory_bytes,
-                                                                          stats_metadata=stats_metadata)
+                                                                          stats_metadata=stats_metadata,
+                                                                          parent_session_id=self.session_manager.session_id,
+                                                                          session_id=str(uuid.uuid4()))
             compaction_process = CompactionProcess(compaction_input.source_partition_locator,
                                                    yaml_file.name,
                                                    new_hash_bucket_count,

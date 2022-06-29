@@ -142,7 +142,9 @@ def calc_compaction_cluster_memory_bytes(compaction_input: CompactionInput,
 def get_compaction_size_inputs(config: Dict[str, Any],
                                partition_key_values: PartitionKeyValues,
                                cluster_memory_bytes: int,
-                               stats_metadata: Dict[int, DeltaStats] = None) -> Tuple[int, TextIO]:
+                               stats_metadata: Dict[int, DeltaStats] = None,
+                               parent_session_id: str = None,
+                               session_id: str = None) -> Tuple[int, TextIO]:
     suggester = ClusterSizeSuggester(cluster_memory_bytes=cluster_memory_bytes)
     new_hash_bucket_count = calc_new_hash_bucket_count(cluster_memory_bytes,
                                                        suggester.get_max_memory_per_vcpu(),
@@ -156,15 +158,20 @@ def get_compaction_size_inputs(config: Dict[str, Any],
                                                  partition_key_values,
                                                  worker_node_count=cluster_nodes,
                                                  instance_type=suggester.instance_type,
-                                                 stats_metadata=stats_metadata)
+                                                 stats_metadata=stats_metadata,
+                                                 parent_session_id=parent_session_id,
+                                                 session_id=session_id)
     return new_hash_bucket_count, yaml_file
+
 
 def generate_compaction_session_yaml(config: Dict[str, Any],
                                      partition_key_values: PartitionKeyValues,
                                      head_node_count: int = 0,
                                      worker_node_count: int = 0,
                                      stats_metadata: Dict[int, DeltaStats] = None,
-                                     instance_type: str = None) -> TextIO:
+                                     instance_type: str = None,
+                                     parent_session_id: str = None,
+                                     session_id: str = None) -> TextIO:
     # TODO: Remove this workaround when custom AMIs are built with baked-in build files (i.e. wheels, jars)
     new_config = {**config}
     for local_path, _ in new_config["file_mounts"].items():
@@ -189,7 +196,11 @@ def generate_compaction_session_yaml(config: Dict[str, Any],
     # TODO: Formalize supported parameter key/values after initial shadow compaction
     new_events = {
         **config["events"],
-        "parameters": {**config["events"]["parameters"]},
+        "parameters": {
+            **config["events"]["parameters"],
+            "rayParentSessionId": parent_session_id,
+            "raySessionId": session_id,
+        },
         "metadata": {
             "partitionKeyValues": compress(partition_key_values).decode('utf-8')
         }
