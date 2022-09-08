@@ -44,6 +44,10 @@ class TableType(str, Enum):
     NUMPY = "numpy"
 
 
+class SchemaType(str, Enum):
+    ARROW = "arrow"
+
+
 class StorageType(str, Enum):
     LOCAL = "local"
     DISTRIBUTED = "distributed"
