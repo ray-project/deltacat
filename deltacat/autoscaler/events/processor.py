@@ -5,12 +5,13 @@ from typing import Dict, Callable, Union, Tuple, Optional, List, Any
 
 from botocore.exceptions import BotoCoreError
 from deltacat.autoscaler.events.EventWorkflow import EventWorkflow
+from deltacat.autoscaler.events.compaction.workflow import CompactionWorkflow
 from deltacat.autoscaler.events.states import States
 from ray.autoscaler._private.event_system import EventPublisher
 
 from deltacat import logs
 from deltacat.autoscaler.events.event_store import EventStoreClient
-from deltacat.autoscaler.events.exceptions import EventNotFoundException
+from deltacat.autoscaler.events.exceptions import EventNotFoundException, WorkflowException
 
 logging.basicConfig(level=logging.INFO)
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -26,7 +27,7 @@ class EventProcessor:
     def __init__(self,
                  events_publisher: EventPublisher,
                  event_store: EventStoreClient,
-                 workflow: EventWorkflow):
+                 workflow: CompactionWorkflow):
         """
 
         Args:
@@ -46,7 +47,8 @@ class EventProcessor:
 
         Event states before STARTED (i.e. NEW, DISPATCHED) are emitted from the Event Daemon (Java).
         """
-        logger.info(f"Start initializing...")
+        logger.info(f"Starting workflow...!")
+        compaction_workflow.start_workflow()
 
         trace_id = self.event_publisher.event_base_params["traceId"]
         dest_provider = self.event_publisher.event_base_params["destinationTable"]["owner"]
@@ -75,6 +77,8 @@ class EventProcessor:
 
                 self.workflow.to_next_state(latest_active_state, latest_active_state_sequence)
 
+            except WorkflowException as e:
+                self.workflow.workflow_failure(error_message=str(e))
             except EventNotFoundException as e:
                 logger.debug(e)
             except BotoCoreError as e:
@@ -168,6 +172,6 @@ class EventProcessor:
             transition_sequence_cb: Callable[[], None] = transition_cb.get(event_state_sequence)
             if transition_sequence_cb and callable(transition_sequence_cb):
                 logger.info(f"Calling function for {event_state} and sequence {event_state_sequence}")
-                transition_sequence_cb()
+                transition_sequence_cb(event_state, event_state_sequence)
         elif callable(transition_cb):
-            transition_cb()
+            transition_cb(event_state, event_state_sequence)

@@ -12,6 +12,16 @@ class States(Enum):
     COMPLETED = 5
 
 
+class RayJobRequestEvent(StateEvent):
+    """Events for a new Ray job request.
+    """
+    @property
+    def state(self) -> str:
+        return States.NEW.name
+
+    new_request_delivered = auto()
+
+
 class ScriptStartedEvent(StateEvent):
     """Events to track for Ray scripts that are executed.
     """
@@ -61,6 +71,16 @@ class ScriptCompletedEvent(StateEvent):
         return States.COMPLETED.name
 
     completed = auto()
+
+
+class ScriptFailureEvent(StateEvent):
+    """Event marking the failure of Ray app execution.
+    """
+    @property
+    def state(self) -> str:
+        return States.IN_PROGRESS.name
+
+    failed = auto()
 
 
 event_enums = [CreateClusterEvent, ScriptStartedEvent, ScriptInProgressEvent, ScriptCompletedEvent]

@@ -2,7 +2,8 @@ from typing import List, Dict, Any, Optional
 
 import boto3
 from botocore.client import BaseClient
-from deltacat.autoscaler.events.compaction.workflow import COMPACTION_SESSION_PARTITION_COMPLETED
+from deltacat.autoscaler.events.compaction.workflow import COMPACTION_SESSION_PARTITIONS_COMPACTED, \
+    COMPACTION_SESSION_PARTITIONS_FAILURE
 
 from deltacat.autoscaler.events.event_store import EventStoreClient
 
@@ -96,8 +97,16 @@ class DynamoDBEventStoreClient(EventStoreClient):
 
     def get_compacted_partition_ids(self, trace_id: str) -> List[str]:
         items = self._get_completed_partition_events(trace_id)
-        partition_id_list = [event["stateDetailMetadata"]["M"]["partition_id"]["S"] for event in items
-                             if "stateDetailMetadata" in event]
+        partition_id_list = [partition_id for event in items
+                             if "stateDetailMetadata" in event
+                             for partition_id in event["stateDetailMetadata"]["M"].keys()]
+        return partition_id_list
+
+    def get_failed_partition_ids(self, trace_id: str) -> List[str]:
+        items = self._get_failed_partition_events(trace_id)
+        partition_id_list = [partition_id for event in items
+                             if "stateDetailMetadata" in event
+                             for partition_id in event["stateDetailMetadata"]["M"].keys()]
         return partition_id_list
 
     @staticmethod
@@ -124,10 +133,17 @@ class DynamoDBEventStoreClient(EventStoreClient):
         """
         return [item for item in query_result["Items"] if item.get("active")]
 
-    def _get_completed_partition_events(self,
-                                        trace_id: str) -> List[Dict[str, Any]]:
+    def _get_completed_partition_events(
+            self,
+            trace_id: str) -> List[Dict[str, Any]]:
         return [item for item in self.query_active_events(trace_id)
-                if item["eventName"]["S"] == COMPACTION_SESSION_PARTITION_COMPLETED]
+                if item["eventName"]["S"] == COMPACTION_SESSION_PARTITIONS_COMPACTED]
+
+    def _get_failed_partition_events(
+            self,
+            trace_id: str) -> List[Dict[str, Any]]:
+        return [item for item in self.query_active_events(trace_id)
+                if item["eventName"]["S"] == COMPACTION_SESSION_PARTITIONS_FAILURE]
 
     def _query_events(self, trace_id: str):
         return self.dynamodb_client.query(

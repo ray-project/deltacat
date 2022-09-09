@@ -5,7 +5,8 @@ from typing import Dict, Union, Callable
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-StateTransitionMap = Dict[str, Union[Callable[[], None], Dict]]
+StateTransitionCallback = Callable[[], None]
+StateTransitionMap = Dict[str, Union[StateTransitionCallback, Dict]]
 
 
 class EventWorkflow(ABC):
@@ -36,9 +37,12 @@ class EventWorkflow(ABC):
             event_state_sequence: ID of the job event state sequence
 
         """
-        transition_cb = self.state_transition_map.get(event_state)
+        transition_cb: Union[StateTransitionCallback, Dict[int, StateTransitionCallback]] = \
+            self.state_transition_map.get(event_state)
 
         if transition_cb is None:
+            logger.debug(f"No callback found for state: {event_state}, "
+                         f"sequence ID: {event_state_sequence}")
             return
 
         if isinstance(transition_cb, dict):

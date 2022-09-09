@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Tuple, Optional, Set, Union, TextIO
 from deltacat.autoscaler.events.compaction.cluster import ClusterSizeSuggester
 from deltacat.autoscaler.events.compaction.collections.partition_key_value import PartitionKeyValues, PartitionKeyValue
 from deltacat.autoscaler.events.compaction.input import CompactionInput
+from deltacat.autoscaler.events.session_manager import SessionManager, SESSION_ID_KEY
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import interface as dcs
@@ -21,12 +22,6 @@ from deltacat import ContentType, logs, SortKey
 from deltacat.compute.compactor import RoundCompletionInfo, compaction_session, PrimaryKeyIndexMeta, \
     PrimaryKeyIndexLocator
 from deltacat.storage import PartitionLocator
-
-# from sungate.examples.common.fixtures import create_table_version
-# from sungate.examples.compactor.cluster import ClusterSizeSuggester
-# from sungate.storage.andes import EquivalentTableType
-# from sungate.storage.andes.schema.utils import to_pyarrow_schema
-from deltacat.storage.interface import create_table_version
 
 _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
 
@@ -198,8 +193,7 @@ def generate_compaction_session_yaml(config: Dict[str, Any],
         **config["events"],
         "parameters": {
             **config["events"]["parameters"],
-            "rayParentSessionId": parent_session_id,
-            "raySessionId": session_id,
+            SESSION_ID_KEY: session_id,
         },
         "metadata": {
             "partitionKeyValues": compress(partition_key_values).decode('utf-8')

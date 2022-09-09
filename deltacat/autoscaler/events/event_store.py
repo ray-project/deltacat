@@ -45,3 +45,11 @@ class EventStoreClient:
 
         """
         raise NotImplementedError("Method not implemented")
+
+    def get_failed_partition_ids(self, trace_id: str) -> List[str]:
+        """Retrieve all partition IDs that failed compaction.
+
+        Returns: list of all failed partition IDs
+
+        """
+        raise NotImplementedError("Method not implemented")

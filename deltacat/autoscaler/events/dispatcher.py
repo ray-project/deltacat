@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, Optional, Callable, List
 
-from deltacat.autoscaler.events.session_manager import SessionManager
+from deltacat.autoscaler.events.session_manager import SessionManager, SESSION_ID_KEY, PARENT_SESSION_ID_KEY
 from deltacat.autoscaler.events.states import event_enum_values
 from ray.autoscaler._private.event_system import RayEvent, EventPublisher
 
@@ -47,14 +47,14 @@ class EventDispatcher:
         if event_data is None:
             event_data = {}
 
-        event_data["event"] = event
+        event_data["event_name"] = event
         if self.session_manager:
-            event_data["rayParentSessionId"] = self.session_manager.parent_session_id
-            event_data["raySessionId"] = self.session_manager.session_id
+            event_data.setdefault(PARENT_SESSION_ID_KEY, self.session_manager.session_id)
+            event_data.setdefault(SESSION_ID_KEY, self.session_manager.session_id)
 
             logger.info(f"Dispatching event {event.name} "
-                        f"with parent Ray session ID = {self.session_manager.parent_session_id} "
-                        f"and current Ray session ID = {self.session_manager.session_id}")
+                        f"with parent Ray session ID = {event_data[PARENT_SESSION_ID_KEY]} "
+                        f"and current Ray session ID = {event_data[SESSION_ID_KEY]}")
 
         event_payload = {
             **self.events_publisher.config["parameters"],
@@ -89,7 +89,7 @@ class EventDispatcher:
 
     def _publish_event(self, event_data: Dict[str, Any]):
         publisher = self.events_publisher
-        if publisher and event_data and event_data.get("event"):
-            event: RayEvent = event_data["event"]
+        if publisher and event_data and event_data.get("event_name"):
+            event: RayEvent = event_data["event_name"]
             logger.info(f"[{publisher.__class__.__name__}]: Publishing event {event.name}")
             publisher.publish(event, event_data)
