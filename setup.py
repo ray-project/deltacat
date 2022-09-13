@@ -37,7 +37,7 @@ setuptools.setup(
         # any changes here should also be reflected in requirements.txt
         "s3fs == 2022.1.0",
         "tenacity == 8.0.1",
-        "ray == 1.13.0",
+        "ray == 2.0.0",
         "pandas >= 1.3.1",
         "pyarrow == 8.0.0",
         "numpy >= 1.21.1",
