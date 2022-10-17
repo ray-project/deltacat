@@ -5,7 +5,7 @@ import numpy as np
 from enum import Enum
 
 from ray.data.dataset import Dataset
-from ray.data.impl.arrow_block import ArrowRow
+from ray.data._internal.arrow_block import ArrowRow
 
 from typing import Any, List, Union
 

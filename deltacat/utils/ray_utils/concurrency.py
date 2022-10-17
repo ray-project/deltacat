@@ -1,6 +1,6 @@
 import ray
 
-from ray.ray_constants import MIN_RESOURCE_GRANULARITY
+from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
