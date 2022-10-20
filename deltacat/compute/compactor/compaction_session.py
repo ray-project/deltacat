@@ -63,6 +63,7 @@ def compact_partition(
         last_stream_position_to_compact: int,
         hash_bucket_count: Optional[int] = None,
         sort_keys: List[SortKey] = None,
+        node_group_res: Dict[str, Union[str, float]] = None,
         records_per_primary_key_index_file: int = 38_000_000,
         records_per_compacted_file: int = 4_000_000,
         input_deltas_stats: Dict[int, DeltaStats] = None,
@@ -71,7 +72,7 @@ def compact_partition(
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
-        deltacat_storage=unimplemented_deltacat_storage):
+        deltacat_storage=unimplemented_deltacat_storage,):
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
     partition = None
@@ -160,20 +161,39 @@ def _execute_compaction_round(
     primary_keys = sorted(primary_keys)
 
     # collect cluster resource stats
+    # cluster_resources = ray.cluster_resources()
+    # logger.info(f"Total cluster resources: {cluster_resources}")
+    # logger.info(f"Available cluster resources: {ray.available_resources()}")
+    # cluster_cpus = int(cluster_resources["CPU"])
+    # logger.info(f"Total cluster CPUs: {cluster_cpus}")
+
+    # collect node group resources
+
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
-    logger.info(f"Available cluster resources: {ray.available_resources()}")
-    cluster_cpus = int(cluster_resources["CPU"])
-    logger.info(f"Total cluster CPUs: {cluster_cpus}")
+    if node_group_res:
+        logger.info(f"Available cluster resources in node group:{node_group_res['group']}: {node_group_res}")
+        cluster_cpus = node_group_res['CPU']
+        logger.info(f"Total node group CPUs: {cluster_cpus}")
+    else:
+        logger.info(f"Available cluster resources: {ray.available_resources()}")
+        cluster_cpus = int(cluster_resources["CPU"])
+        logger.info(f"Total cluster CPUs: {cluster_cpus}")        
 
     # assign a distinct index to each node in the cluster
     # head_node_ip = urllib.request.urlopen(
     #     "http://169.254.169.254/latest/meta-data/local-ipv4"
     # ).read().decode("utf-8")
     # print(f"head node ip: {head_node_ip}")
-    node_resource_keys = live_node_resource_keys()
-    logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
-                f"{node_resource_keys}")
+    if not node_group_res:
+        node_resource_keys = live_node_resource_keys()
+        logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
+                   f"{node_resource_keys}")
+    else:
+        node_resource_keys = node_group_res['node_id']
+        logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
+                   f"{node_resource_keys}")
+
 
     # set max task parallelism equal to total cluster CPUs...
     # we assume here that we're running on a fixed-size cluster - this

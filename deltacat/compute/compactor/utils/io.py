@@ -73,9 +73,10 @@ def limit_input_deltas(
     # resources we COULD get for this cluster, and the amount of memory
     # available per CPU should remain fixed across the cluster.
     worker_cpus = int(cluster_resources["CPU"])
-    worker_obj_store_mem = ray_constants.from_memory_units(
-        cluster_resources["object_store_memory"]
-    )
+    worker_obj_store_mem = float(cluster_resources["object_store_memory"])
+    # worker_obj_store_mem = ray_constants.from_memory_units(
+    #     cluster_resources["object_store_memory"]
+    # )
 
     if min_pk_index_pa_bytes > 0:
         required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_index_pa_bytes
@@ -89,9 +90,10 @@ def limit_input_deltas(
     worker_obj_store_mem_per_task = worker_obj_store_mem / worker_cpus
     logger.info(f"Worker object store memory/task: "
                 f"{worker_obj_store_mem_per_task}")
-    worker_task_mem = ray_constants.from_memory_units(
-        cluster_resources["memory"]
-    )
+    worker_task_mem = cluster_resources["memory"]
+    # worker_task_mem = ray_constants.from_memory_units(
+    #     cluster_resources["memory"]
+    # )
     logger.info(f"Total worker memory: {worker_task_mem}")
     # TODO (pdames): ensure fixed memory per CPU in heterogenous clusters
     worker_mem_per_task = worker_task_mem / worker_cpus
