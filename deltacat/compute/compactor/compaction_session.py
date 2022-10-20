@@ -21,7 +21,7 @@ from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
 
-from typing import List, Set, Optional, Tuple, Dict
+from typing import List, Set, Optional, Tuple, Dict, Union
 
 import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -63,7 +63,6 @@ def compact_partition(
         last_stream_position_to_compact: int,
         hash_bucket_count: Optional[int] = None,
         sort_keys: List[SortKey] = None,
-        node_group_res: Dict[str, Union[str, float]] = None,
         records_per_primary_key_index_file: int = 38_000_000,
         records_per_compacted_file: int = 4_000_000,
         input_deltas_stats: Dict[int, DeltaStats] = None,
@@ -72,6 +71,7 @@ def compact_partition(
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
+        node_group_res: Dict[str, Union[str, float]] = None,
         deltacat_storage=unimplemented_deltacat_storage,):
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
@@ -96,7 +96,8 @@ def compact_partition(
                 compacted_file_content_type,
                 delete_prev_primary_key_index,
                 schema_on_read,
-                deltacat_storage=deltacat_storage
+                deltacat_storage=deltacat_storage,
+                node_group_res=node_group_res
             )
         if new_partition:
             partition = new_partition
@@ -132,7 +133,8 @@ def _execute_compaction_round(
         compacted_file_content_type: ContentType,
         delete_prev_primary_key_index: bool,
         schema_on_read: Optional[pa.schema],
-        deltacat_storage=unimplemented_deltacat_storage) \
+        deltacat_storage=unimplemented_deltacat_storage,
+        node_group_res: Dict[str, Union[str, float]] = None) \
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
     if not primary_keys:

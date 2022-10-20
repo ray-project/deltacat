@@ -12,7 +12,7 @@ from deltacat.aws.clients import resource_cache, client_cache
 from deltacat.compute.compactor import RoundCompletionInfo, compaction_session
 
 from sungate.storage.andes.schema.utils import to_pyarrow_schema
-
+from deltacat.autoscaler.node_group import NodeGroupManager as ngm
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -94,8 +94,12 @@ def run_scaling_test(deltacat_storage, partition_values):
         source_locators.append(actual_partition.locator)
 
     res_obj_ref_dict = {}
-    for i in range(len(source_locators)):
+    node_group_manager = ngm("./tmp/custom_resource_test.yaml","partition")
+    pre_filled_node_group_names = ['partition_0','partition_1','partition_2']
+    #for i in range(len(source_locators)):
+    for i in range(3):
         print(source_locators[i].partition_values)
+        node_group_res = node_group_manager.get_group_by_name(pre_filled_node_group_names[i])
         res_obj_ref_dict[source_locators[i].partition_values[0]] = invoke_parallel_compact_partition.remote(
                     actual_partition,
                     source_locators[i],
@@ -103,7 +107,8 @@ def run_scaling_test(deltacat_storage, partition_values):
                     table_version,
                     compaction_output_bucket_name,
                     arrow_schema,
-                    deltacat_storage)
+                    deltacat_storage,
+                    node_group_res)
     res_dict = {}
     print(res_obj_ref_dict)
     for k, v in res_obj_ref_dict.items():
@@ -119,7 +124,8 @@ def invoke_parallel_compact_partition(actual_partition,
                                       table_version,
                                       compaction_output_bucket_name,
                                       arrow_schema,
-                                      deltacat_storage):
+                                      deltacat_storage,
+                                      node_group_res):
     res, latency = timed_invocation(
         func=compaction_session.compact_partition,
         source_partition_locator=source_locator,
@@ -128,7 +134,8 @@ def invoke_parallel_compact_partition(actual_partition,
         compaction_artifact_s3_bucket=compaction_output_bucket_name,
         last_stream_position_to_compact=actual_partition.stream_position,
         schema_on_read=arrow_schema,
-        deltacat_storage=deltacat_storage
+        deltacat_storage=deltacat_storage,
+        node_group_res=node_group_res
     )
     return res, latency
 
