@@ -175,7 +175,7 @@ def _execute_compaction_round(
     logger.info(f"Total cluster resources: {cluster_resources}")
     if node_group_res:
         logger.info(f"Available cluster resources in node group:{node_group_res['group']}: {node_group_res}")
-        cluster_cpus = node_group_res['CPU']
+        cluster_cpus = int(node_group_res['CPU'])
         logger.info(f"Total node group CPUs: {cluster_cpus}")
     else:
         logger.info(f"Available cluster resources: {ray.available_resources()}")
@@ -201,7 +201,7 @@ def _execute_compaction_round(
     # we assume here that we're running on a fixed-size cluster - this
     # assumption could be removed but we'd still need to know the maximum
     # "safe" number of parallel tasks that our autoscaling cluster could handle
-    max_parallelism = cluster_cpus
+    max_parallelism = int(cluster_cpus)
     logger.info(f"Max parallelism: {max_parallelism}")
 
     # get the root path of a compatible primary key index for this round
@@ -300,7 +300,7 @@ def _execute_compaction_round(
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
-        max_parallelism=None,
+        max_parallelism=max_parallelism,
         options_provider=round_robin_opt_provider,
         primary_keys=primary_keys,
         sort_keys=sort_keys,
@@ -366,7 +366,7 @@ def _execute_compaction_round(
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
-        max_parallelism=None,
+        max_parallelism=max_parallelism,
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, item: {"dedupe_task_index": index,
                                              "object_ids": item},
@@ -410,7 +410,7 @@ def _execute_compaction_round(
     mat_tasks_pending = invoke_parallel(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,
-        max_parallelism=None,
+        max_parallelism=max_parallelism,
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, mat_bucket_idx_to_obj_id: {
             "mat_bucket_index": mat_bucket_idx_to_obj_id[0],
