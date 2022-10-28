@@ -6,6 +6,7 @@ from ray.types import ObjectRef
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
 
 from typing import Any, Iterable, Callable, Dict, List, Tuple, Union, Optional
+import itertools
 
 
 def invoke_parallel(
@@ -49,7 +50,10 @@ def invoke_parallel(
     pending_ids = []
     for i, item in enumerate(items):
         if max_parallelism is not None and len(pending_ids) > max_parallelism:
-            ray.wait(pending_ids, num_returns=i - max_parallelism)
+            #some task has two return, but it's possible that some task has only one return
+            #remove the number_returns
+            #flattern the list of obj refs
+            ray.wait(list(itertools.chain(*pending_ids))) #, num_returns=2*(i - max_parallelism + 1)
         opt = {}
         if options_provider:
             opt = options_provider(i, item)
