@@ -262,7 +262,8 @@ def _execute_compaction_round(
             min_pk_index_pa_bytes,
             min_hash_bucket_chunk_size,
             input_deltas_stats=input_deltas_stats,
-            deltacat_storage=deltacat_storage
+            deltacat_storage=deltacat_storage,
+            node_group_res=node_group_res
         )
     assert hash_bucket_count is not None and hash_bucket_count > 0, \
         f"Unexpected Error: Default hash bucket count ({hash_bucket_count}) " \

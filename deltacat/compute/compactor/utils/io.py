@@ -61,7 +61,8 @@ def limit_input_deltas(
         min_pk_index_pa_bytes: int,
         user_hash_bucket_chunk_size: int,
         input_deltas_stats: Dict[int, DeltaStats],
-        deltacat_storage=unimplemented_deltacat_storage) \
+        deltacat_storage=unimplemented_deltacat_storage,
+        node_group_res=None) \
         -> Tuple[List[DeltaAnnotated], int, int]:
 
     # TODO (pdames): when row counts are available in metadata, use them
@@ -77,6 +78,9 @@ def limit_input_deltas(
     # worker_obj_store_mem = ray_constants.from_memory_units(
     #     cluster_resources["object_store_memory"]
     # )
+    if node_group_res:
+        worker_cpus = int(node_group_res["CPU"])
+        worker_obj_store_mem = float(node_group_res["object_store_memory"])
 
     if min_pk_index_pa_bytes > 0:
         required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_index_pa_bytes
@@ -91,6 +95,8 @@ def limit_input_deltas(
     logger.info(f"Worker object store memory/task: "
                 f"{worker_obj_store_mem_per_task}")
     worker_task_mem = cluster_resources["memory"]
+    if node_group_res:
+        worker_task_mem = node_group_res["memory"]
     # worker_task_mem = ray_constants.from_memory_units(
     #     cluster_resources["memory"]
     # )
@@ -148,10 +154,10 @@ def limit_input_deltas(
 
     # TODO (pdames): determine min hash buckets from size of all deltas
     #  (not just deltas for this round)
-    min_hash_bucket_count = max(
+    min_hash_bucket_count = int(max(
         math.ceil(delta_bytes_pyarrow / worker_obj_store_mem_per_task),
         min(worker_cpus, 256),
-    )
+    ))
     logger.info(f"Minimum recommended hash buckets: {min_hash_bucket_count}")
 
     if hash_bucket_count is None:
