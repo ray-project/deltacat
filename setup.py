@@ -48,7 +48,7 @@ setuptools.setup(
     ],
     setup_requires=["wheel"],
     package_data={
-            "compute/metastats": ["*.yaml"],
+        "compute/metastats": ["*.yaml"],
         },
     classifiers=[
         "Development Status :: 4 - Beta",

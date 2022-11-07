@@ -31,11 +31,11 @@ def read_round_completion_file(
     logger.info(
         f"reading round completion file from: {round_completion_file_url}")
     round_completion_info = None
-    result = s3_utils.download(round_completion_file_url, False)
-    if result:
-        json_str = result["Body"].read().decode("utf-8")
-        round_completion_info = RoundCompletionInfo(json.loads(json_str))
-        logger.info(f"read round completion info: {round_completion_info}")
+    # result = s3_utils.download(round_completion_file_url, False)
+    # if result:
+    #     json_str = result["Body"].read().decode("utf-8")
+    #     round_completion_info = RoundCompletionInfo(json.loads(json_str))
+    #     logger.info(f"read round completion info: {round_completion_info}")
     return round_completion_info
 
 
