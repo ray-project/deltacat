@@ -1,4 +1,4 @@
-import logging
+import logging,time
 import ray
 import pyarrow as pa
 
@@ -27,7 +27,7 @@ from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8, ReadKwa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote
+@ray.remote(num_cpus=0.5)
 def materialize(
         source_partition_locator: PartitionLocator,
         round_completion_info: Optional[RoundCompletionInfo],
@@ -79,10 +79,29 @@ def materialize(
             src_stream_position_np.item(),
         )
         dl_digest = delta_locator.digest()
-        manifest = manifest_cache.setdefault(
-            dl_digest,
-            deltacat_storage.get_delta_manifest(delta_locator),
-        )
+        max_retry_get_delta_manifest = 5
+        retry_get_delta_manifest =0
+        while True:
+            if retry_get_delta_manifest >=max_retry_get_delta_manifest:
+                print("max retry get manifest in materialize exceeded")
+                break
+            try:
+                manifest = manifest_cache.setdefault(
+                    dl_digest,
+                    deltacat_storage.get_delta_manifest(delta_locator),
+                )
+                if retry_get_delta_manifest>0:
+                    print("materialize.py:get_delta_manifest. \
+                    After retrying {} times, succeeded".format(retry_get_delta_manifest))
+                break
+            except Exception as e:
+                print("materialize.py:get_delta_manifest:\
+                    failed {}-th times".format(retry_get_delta_manifest))
+                logger.info(f"Failed to get delta manifest in materialize:{e}")
+                retry_get_delta_manifest+=1
+                time.sleep(0.5)
+                pass
+
         read_kwargs_provider = None
         # for delimited text output, disable type inference to prevent
         # unintentional type-casting side-effects and improve performance

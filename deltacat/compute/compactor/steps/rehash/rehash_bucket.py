@@ -29,7 +29,7 @@ def group_file_records_by_pk_hash_bucket(
     return hash_bucket_to_table
 
 
-@ray.remote(num_returns=2)
+@ray.remote(num_cpus=1,num_returns=2)
 def rehash_bucket(
         hash_bucket_index: int,
         s3_bucket: str,

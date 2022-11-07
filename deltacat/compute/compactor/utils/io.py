@@ -1,4 +1,4 @@
-import logging
+import logging,time
 import math
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER, BYTES_PER_MEBIBYTE
@@ -61,8 +61,7 @@ def limit_input_deltas(
         min_pk_index_pa_bytes: int,
         user_hash_bucket_chunk_size: int,
         input_deltas_stats: Dict[int, DeltaStats],
-        deltacat_storage=unimplemented_deltacat_storage,
-        node_group_res=None) \
+        deltacat_storage=unimplemented_deltacat_storage) \
         -> Tuple[List[DeltaAnnotated], int, int]:
 
     # TODO (pdames): when row counts are available in metadata, use them
@@ -78,10 +77,6 @@ def limit_input_deltas(
     # worker_obj_store_mem = ray_constants.from_memory_units(
     #     cluster_resources["object_store_memory"]
     # )
-    if node_group_res:
-        worker_cpus = int(node_group_res["CPU"])
-        worker_obj_store_mem = float(node_group_res["object_store_memory"])
-
     if min_pk_index_pa_bytes > 0:
         required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_index_pa_bytes
         assert required_heap_mem_for_dedupe > 0, f"Not enough required memory available to re-batch input deltas" \
@@ -95,11 +90,6 @@ def limit_input_deltas(
     logger.info(f"Worker object store memory/task: "
                 f"{worker_obj_store_mem_per_task}")
     worker_task_mem = cluster_resources["memory"]
-    if node_group_res:
-        worker_task_mem = node_group_res["memory"]
-    # worker_task_mem = ray_constants.from_memory_units(
-    #     cluster_resources["memory"]
-    # )
     logger.info(f"Total worker memory: {worker_task_mem}")
     # TODO (pdames): ensure fixed memory per CPU in heterogenous clusters
     worker_mem_per_task = worker_task_mem / worker_cpus
@@ -117,7 +107,23 @@ def limit_input_deltas(
     input_deltas_stats = {int(stream_pos): DeltaStats(delta_stats)
                           for stream_pos, delta_stats in input_deltas_stats.items()}
     for delta in input_deltas:
-        manifest = deltacat_storage.get_delta_manifest(delta)
+        max_retry=5
+        retry_get_manifest = 0
+        while True:
+            if retry_get_manifest>=max_retry:
+                print("io.py:get_delta_manifest exceeds max retry in limit delta")
+                break
+            try:
+                manifest = deltacat_storage.get_delta_manifest(delta)
+                if retry_get_manifest>0:
+                    print("io.py:get_delta_manifest. After retrying {}, succeeded".format(retry_get_manifest))
+                break
+            except Exception as e:
+                print("io.py:get_delta_manifest failed {}-th times".format(retry_get_manifest))
+                logger.info(f"get delta manifest in limit delta failed:{e}")
+                time.sleep(0.5)
+                retry_get_manifest +=1
+                pass
         delta.manifest = manifest
         position = delta.stream_position
         delta_stats = input_deltas_stats.get(delta.stream_position, DeltaStats())

@@ -20,6 +20,7 @@ from deltacat.compute.compactor.utils import system_columns as sc, \
     primary_key_index as pki
 
 from typing import Any, Dict, List, Optional, Tuple
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -215,7 +216,7 @@ def delta_file_locator_to_mat_bucket_index(
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
-@ray.remote
+@ray.remote(num_cpus=0.2)
 class RecordCountsPendingMaterialize:
     def __init__(self, expected_result_count: int):
         # materialize_bucket -> src_file_id
@@ -254,7 +255,7 @@ class RecordCountsPendingMaterialize:
         return self.actual_result_count == self.expected_result_count
 
 
-@ray.remote(num_returns=3)
+@ray.remote(num_cpus=0.5,num_returns=3)
 def dedupe(
         compaction_artifact_s3_bucket: str,
         round_completion_info: Optional[RoundCompletionInfo],
@@ -371,16 +372,34 @@ def dedupe(
     record_counts = ray.get(
         record_counts_pending_materialize.get_record_counts.remote()
     )
-    write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
-        compaction_artifact_s3_bucket,
-        new_primary_key_index_version_locator,
-        max_records_per_index_file,
-        max_records_per_materialized_file,
-        num_materialize_buckets,
-        dedupe_task_index,
-        deduped_tables,
-        record_counts,
-    )
+    max_retry_write_pki=5
+    retry_write_pki = 0
+    while True:
+        if retry_write_pki>=max_retry_write_pki:
+            break
+        try:
+            write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
+                compaction_artifact_s3_bucket,
+                new_primary_key_index_version_locator,
+                max_records_per_index_file,
+                max_records_per_materialized_file,
+                num_materialize_buckets,
+                dedupe_task_index,
+                deduped_tables,
+                record_counts,
+            )
+            if retry_write_pki>0:
+                print("dedupe.py:write_new_primary_key_index. \
+                    After retrying {} times, succeeded".format(retry_write_pki))
+            break
+        except Exception as e:
+            print("dedupe.py:write_new_primary_key_index:\
+                failed {}-th times".format(retry_write_pki))
+            logger.info(f"write new primary key index failed:{e}")
+            time.sleep(0.5)
+            retry_write_pki +=1
+            pass
+
     if delete_old_primary_key_index:
         pki.delete_primary_key_index_version(
             compaction_artifact_s3_bucket,

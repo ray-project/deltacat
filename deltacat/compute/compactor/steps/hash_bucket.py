@@ -121,6 +121,7 @@ def read_delta_file_envelopes(
     columns_to_read = list(chain(primary_keys, sort_key_names))
     tables = deltacat_storage.download_delta(
         annotated_delta,
+        max_parallelism=1,
         columns=columns_to_read,
         storage_type=StorageType.LOCAL,
     )
@@ -144,7 +145,7 @@ def read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_returns=2)
+@ray.remote(num_cpus=0.5, num_returns=2)
 def hash_bucket(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],

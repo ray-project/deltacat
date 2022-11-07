@@ -8,7 +8,6 @@ from deltacat.utils.ray_utils.runtime import current_node_resource_key
 from typing import Any, Iterable, Callable, Dict, List, Tuple, Union, Optional
 import itertools
 
-
 def invoke_parallel(
         items: Iterable,
         ray_task: Callable,
@@ -53,7 +52,10 @@ def invoke_parallel(
             #some task has two return, but it's possible that some task has only one return
             #remove the number_returns
             #flattern the list of obj refs
-            ray.wait(list(itertools.chain(*pending_ids))) #, num_returns=2*(i - max_parallelism + 1)
+            if isinstance(pending_ids[0], list):
+                ray.wait(list(itertools.chain(*pending_ids)),num_returns=int(len(pending_ids[0])*(len(pending_ids) - max_parallelism ))) #, 
+            else:
+                ray.wait(pending_ids,num_returns=len(pending_ids)-max_parallelism)
         opt = {}
         if options_provider:
             opt = options_provider(i, item)
@@ -76,7 +78,6 @@ def current_node_options_provider(*args, **kwargs) -> Dict[str, Any]:
             current_node_resource_key(): MIN_RESOURCE_GRANULARITY
         }
     }
-
 
 def round_robin_options_provider(
         i: int,

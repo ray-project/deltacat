@@ -16,7 +16,7 @@ from typing import Any, List, Tuple
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote(num_returns=2)
+@ray.remote(num_cpus=1, num_returns=2)
 def rewrite_index(
         object_ids: List[Any],
         s3_bucket: str,

@@ -36,12 +36,15 @@ setuptools.setup(
     install_requires=[
         # any changes here should also be reflected in requirements.txt
         "s3fs == 2022.1.0",
+        "memray == 1.3.1",
         "tenacity == 8.0.1",
-        "ray == 2.0.0",
+        "ray[default] == 2.0.0",
         "pandas >= 1.3.1",
         "pyarrow == 8.0.0",
+        "pydantic == 1.10.2",
         "numpy >= 1.21.1",
-        "boto3 == 1.20.24"
+        "boto3 == 1.20.24",
+        "typing-extensions == 4.4.0"
     ],
     setup_requires=["wheel"],
     package_data={
