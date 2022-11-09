@@ -1,6 +1,8 @@
 import ray
 import sungate as sg
-import logging
+import logging,time
+import re
+import sys
 
 from deltacat.types.media import StorageType, ContentType, ContentEncoding, \
     DELIMITED_TEXT_CONTENT_TYPES
@@ -12,17 +14,17 @@ from deltacat.aws.clients import resource_cache, client_cache
 from deltacat.compute.compactor import RoundCompletionInfo, compaction_session
 
 from sungate.storage.andes.schema.utils import to_pyarrow_schema
-from deltacat.autoscaler.node_group import NodeGroupManager as ngm
+from deltacat.autoscaler.node_group import NodeGroupManager as ngm, PlacementGroupManager as  pgm
 from deltacat import logs
+
+from sungate.storage.andes import PartitionKey, PartitionKeyType
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-from sungate.examples.scaling_test.constants import DEFAULT_COMPACTION_TEST_BUCKET_NAME, DEFAULT_COMPACTION_TEST_PROVIDER, SCALING_TEST_TABLE_NAME,SCALING_TEST_TABLE_VERSION,\
-SCALING_TEST_STREAM_ID, SCALING_TEST_PARTITION_KEYS, SCALING_TEST_STORAGE, SCALING_TEST_PARTITION_VALUES, SCALING_TEST_DESTINATION_PROVIDER, SCALING_TEST_DESTINATION_TABLE_NAME
-
 ray.init(address="auto")
 
-def run_scaling_test(deltacat_storage, partition_values):
+
+def run_scaling_test(deltacat_storage, partition_values, num_partitions=1):
     client = client_cache("sts", None)
     account_id = client.get_caller_identity()["Account"]
     compaction_output_bucket_name = DEFAULT_COMPACTION_TEST_BUCKET_NAME + account_id
@@ -85,27 +87,39 @@ def run_scaling_test(deltacat_storage, partition_values):
                     None
                 )
     source_locators = []
+    actual_partitions = []
     for pv in partition_values:
         actual_partition = deltacat_storage.get_partition(
            stream_locator,
             pv,
             equivalent_table_types=[EquivalentTableType.UNCOMPACTED],
         )
+        actual_partitions.append(actual_partition)
         source_locators.append(actual_partition.locator)
 
     res_obj_ref_dict = {}
-    node_group_manager = ngm("./tmp/custom_resource_test.yaml","partition")
-    pre_filled_node_group_names = ['partition_0','partition_1','partition_2']
+    #node_group_manager = ngm("./ray_bootstrap_config.yaml", "partition")
+    #pre_filled_node_group_names = []
     #for i in range(len(source_locators)):
-    for i in range(3):
+    #    pre_filled_node_group_names.append(f"partition_{i}")
+    #for i in range(len(source_locators)):
+    #num_partitions = len(source_locators)
+
+    pg_configs = pgm(num_partitions, 32).pgs
+    print("Successfully created %d placement groups for %d partitions"%(len(pg_configs),num_partitions))
+    print("Running compaction for %d partitions"%(min(len(pg_configs),num_partitions)))
+    for i in range(min(len(pg_configs),num_partitions)):
         print(source_locators[i].partition_values)
-        node_group_res = node_group_manager.get_group_by_name(pre_filled_node_group_names[i])
-        res_obj_ref_dict[source_locators[i].partition_values[0]] = invoke_parallel_compact_partition.remote(
-                    actual_partition,
+        #node_group_res = node_group_manager.get_group_by_name(pre_filled_node_group_names[i])
+        node_group_res = None
+        pg_config = pg_configs[i]
+        res_obj_ref_dict[source_locators[i].partition_values[1]] = invoke_parallel_compact_partition.options(resources={'cpu_tasks':0.01}).remote(
+                    actual_partitions[i],
                     source_locators[i],
                     compacted_partition_locators[i],
                     table_version,
                     compaction_output_bucket_name,
+                    pg_config,
                     arrow_schema,
                     deltacat_storage,
                     node_group_res)
@@ -117,12 +131,13 @@ def run_scaling_test(deltacat_storage, partition_values):
     print(res_dict)
 
 
-@ray.remote(num_cpus=1)
+@ray.remote(num_cpus=0.01)
 def invoke_parallel_compact_partition(actual_partition,
                                       source_locator,
                                       compacted_partition_locator,
                                       table_version,
                                       compaction_output_bucket_name,
+                                      pg_config,
                                       arrow_schema,
                                       deltacat_storage,
                                       node_group_res):
@@ -133,6 +148,7 @@ def invoke_parallel_compact_partition(actual_partition,
         primary_keys=set(table_version.primary_keys),
         compaction_artifact_s3_bucket=compaction_output_bucket_name,
         last_stream_position_to_compact=actual_partition.stream_position,
+        pg_config=pg_config,
         schema_on_read=arrow_schema,
         deltacat_storage=deltacat_storage,
         node_group_res=node_group_res
@@ -141,4 +157,11 @@ def invoke_parallel_compact_partition(actual_partition,
 
 
 if __name__ == '__main__':
-    run_scaling_test(SCALING_TEST_STORAGE, SCALING_TEST_PARTITION_VALUES)
+    if len(sys.argv)>=2:
+        num_partitions = int(sys.argv[1])
+    else:
+        num_partitions = 1
+    start = time.time()
+    run_scaling_test(SCALING_TEST_STORAGE, SCALING_TEST_PARTITION_VALUES,num_partitions)
+    end = time.time()
+    print("Total Time {}".format(end-start))
