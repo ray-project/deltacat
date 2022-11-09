@@ -116,12 +116,12 @@ def compact_partition(
             compaction_rounds_executed += 1
         time_e = time.time()
         round_time = time_e-time_s
-        logger.info(f"Compaction session round: {compaction_rounds_executed} with {round_time} seconds")
+        logger.info(f"partition:{source_partition_locator.partition_values}-> Compaction session round: {compaction_rounds_executed} with {round_time} seconds")
         # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
         if new_rci:
             min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
 
-    logger.info(f"Compaction session data processing completed in "
+    logger.info(f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
                 f"{compaction_rounds_executed} rounds.")
     print("Partition {} completed in {} rounds".format(source_partition_locator.partition_values,compaction_rounds_executed))
     if partition:
@@ -513,7 +513,7 @@ def _execute_compaction_round(
     )
     time_mat_e = time.time()
     logger.info(f"_execute_compaction_round materialize took {time_mat_e - time_dd_e} seconds")
-    logger.info(f"compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}")
+    logger.info(f"partition-{source_partition_locator.partition_values},compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}")
     return \
         (last_stream_position_compacted < last_stream_position_to_compact), \
         partition, \

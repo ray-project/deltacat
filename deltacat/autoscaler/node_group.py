@@ -181,8 +181,8 @@ class PlacementGroupManager():
 		return self._pg_configs
 
 	def _config(self,num_pgs: int, instance_cpus: int, time_out: Optional[float] = None) -> List[Tuple[Dict[str,Any], Dict[str,Any]]]:
+		pg_configs = []
 		for i in range(num_pgs):
-			pg_configs = []
 			try:
 				opts ={}
 				cluster_resources={}
