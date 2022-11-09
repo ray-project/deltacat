@@ -513,6 +513,7 @@ def _execute_compaction_round(
     )
     time_mat_e = time.time()
     logger.info(f"_execute_compaction_round materialize took {time_mat_e - time_dd_e} seconds")
+    logger.info(f"compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}")
     return \
         (last_stream_position_compacted < last_stream_position_to_compact), \
         partition, \
