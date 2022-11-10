@@ -55,7 +55,7 @@ def collect_metastats(source_partition_locators: List[PartitionLocator],
         partition_value_string = str(partition_locator.partition_values[1])
         partition_canonical_string = partition_locator.canonical_string()
         partition_id = partition_locator.partition_id
-        stats_res_obj_ref = collect_from_partition(
+        stats_res_obj_ref = collect_from_partition.remote(
             source_partition_locator=partition_locator,
             partition_value_string=partition_value_string,
             partition_canonical_string=partition_canonical_string,
@@ -68,9 +68,11 @@ def collect_metastats(source_partition_locators: List[PartitionLocator],
             **kwargs
         )
         stats_res_obj_ref_all_partitions[partition_value_string] = stats_res_obj_ref
-    for partition_id, stats_res_obj_ref in stats_res_obj_ref_all_partitions.items():
-        stats_res_all_partitions[partition_value_string] = ray.get(stats_res_obj_ref)
+    for pv, stats_res_obj_ref in stats_res_obj_ref_all_partitions.items():
+        stats_res_all_partitions[pv] = ray.get(stats_res_obj_ref)
     # TODO: Add CompactionEventDispatcher for metastats collection completed event
+
+    logger.info(f"stats_res_all_partitions: {stats_res_all_partitions}")
 
     # For compaction result validation purpose only
     aggregate_partition_stats_for_validation: Dict[str, list] = {}
@@ -89,7 +91,7 @@ def collect_metastats(source_partition_locators: List[PartitionLocator],
 
     # return stats_res_all_partitions
 
-
+@ray.remote(num_cpus=1)
 def collect_from_partition(source_partition_locator: PartitionLocator,
                            partition_value_string,
                            partition_canonical_string,
@@ -122,7 +124,7 @@ def collect_from_partition(source_partition_locator: PartitionLocator,
     else:
         logger.info(f"Stats cluster CPUS per instance not specified, default to {DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE}")
 
-    stats_res_obj_ref = _start_all_stats_collection_from_deltas.remote(
+    stats_res_obj_ref = _start_all_stats_collection_from_deltas(
                                 deltas,
                                 partition_value_string,
                                 partition_canonical_string,
@@ -154,7 +156,7 @@ def _find_deltas(source_partition_locator: PartitionLocator,
     deltas = [delta for delta_list in delta_list_by_ranges for delta in delta_list]
     return deltas
 
-@ray.remote(num_cpus=1)
+
 def _start_all_stats_collection_from_deltas(
         deltas: List[Delta],
         partition_value_string: Optional[str],
