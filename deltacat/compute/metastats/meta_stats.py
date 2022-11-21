@@ -52,9 +52,12 @@ def collect_metastats(source_partition_locators: List[PartitionLocator],
     stats_res_all_partitions: Dict[str, Dict[int, DeltaStats]] = {}
     stats_res_obj_ref_all_partitions: Dict[str, ObjectRef] = {}
     for partition_locator in source_partition_locators:
-        partition_value_string = str(partition_locator.partition_values[1])
-        partition_canonical_string = partition_locator.canonical_string()
         partition_id = partition_locator.partition_id
+        if partition_locator.partition_values:
+            partition_value_string = "_".join(partition_locator.partition_values)
+        else:
+            partition_value_string = f"no_partition_value_{partition_id}"
+        partition_canonical_string = partition_locator.canonical_string()
         stats_res_obj_ref = collect_from_partition.remote(
             source_partition_locator=partition_locator,
             partition_value_string=partition_value_string,
@@ -112,6 +115,7 @@ def collect_from_partition(source_partition_locator: PartitionLocator,
                  delta_stream_position_range_set,
                  deltacat_storage)
 
+    logger.info(f"Find {len(deltas)} deltas!")
     trace_id = DEFAULT_JOB_RUN_TRACE_ID
     if "trace_id" in kwargs:
         trace_id = kwargs.get("trace_id")
@@ -195,6 +199,7 @@ def _start_all_stats_collection_from_deltas(
             delta_stats_compute_list.append(delta.locator)
             meta_stats_list_to_compute.append(delta.locator)
 
+    logger.info(f"Collecting stats on {len(delta_stats_compute_list)} deltas!")
     delta_stats_compute_res: Dict[int, DeltaStats] = {}
     if delta_stats_compute_list:
         delta_stats_compute_res = _start_metadata_stats_collection(delta_stats_compute_list=delta_stats_compute_list,
