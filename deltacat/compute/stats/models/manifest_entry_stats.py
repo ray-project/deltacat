@@ -31,6 +31,13 @@ class ManifestEntryStats(dict):
         mes["pyarrowVersion"] = pa.__version__
         return mes
 
+    @staticmethod
+    def build_from_dict(manifest_entries_stats: dict) -> ManifestEntryStats:
+        stats_res_list = []
+        for stats_res in manifest_entries_stats["stats"]:
+            stats_res_list.append(StatsResult.of(stats_res["rowCount"], stats_res["pyarrowTableBytes"]))
+        return ManifestEntryStats.of(stats_res_list, manifest_entries_stats["deltaLocator"])
+
     @property
     def delta_locator(self) -> DeltaLocator:
         """Reference to the delta that holds the manifest entries

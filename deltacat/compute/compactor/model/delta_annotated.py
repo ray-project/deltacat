@@ -107,6 +107,45 @@ class DeltaAnnotated(Delta):
             groups.append(new_da)
         return groups
 
+    @staticmethod
+    def split(
+            src_da: DeltaAnnotated,
+            pieces: int) -> List[DeltaAnnotated]:
+        groups = []
+        new_da = DeltaAnnotated()
+        da_group_entry_count = 0
+        src_da_annotations = src_da.annotations
+        src_da_entries = src_da.manifest.entries
+        assert (len(src_da_annotations) == len(src_da_entries),
+                f"Unexpected Error: Length of delta annotations "
+                f"({len(src_da_annotations)}) doesn't mach the length of "
+                f"delta manifest entries ({len(src_da_entries)}).")
+        src_da_entries_length = len(src_da_entries)
+        equal_length = src_da_entries_length // pieces
+        for i in range(len(src_da_entries)):
+            DeltaAnnotated._append_annotated_entry(
+                src_da,
+                new_da,
+                src_da_entries[i],
+                src_da_annotations[i])
+            # TODO: Fetch s3_obj["Size"] if entry content length undefined?
+            da_group_entry_count += 1
+            if da_group_entry_count >= equal_length and i < equal_length * (pieces - 1):
+                logger.info(
+                    f"Splitting {da_group_entry_count} manifest files "
+                    f"to {pieces} pieces of {equal_length} size.")
+                groups.append(new_da)
+                new_da = DeltaAnnotated()
+                da_group_entry_count = 0
+            if i == len(src_da_entries) - 1:
+                groups.append(new_da)
+                logger.info(
+                    f"Splitting {da_group_entry_count} manifest files "
+                    f"to {pieces} pieces of {equal_length} size.")
+                new_da = DeltaAnnotated()
+        if new_da:
+            groups.append(new_da)
+        return groups
 
     @property
     def annotations(self) -> List[DeltaAnnotation]:

@@ -9,8 +9,10 @@ from ray.types import ObjectRef
 
 from deltacat import logs
 from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
-from deltacat.compute.stats.utils.io import cache_delta_column_stats, get_delta_stats
-from deltacat.compute.metastats.utils.io import cache_inflation_rate_data_for_delta_stats_ready
+
+from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
+    round_robin_options_provider
+from deltacat.compute.metastats.utils.io import collect_stats_by_columns, cache_inflation_rate_data_for_delta_stats_ready, cache_partition_stats_to_s3
 
 from deltacat.storage import PartitionLocator, DeltaLocator, Delta
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -25,6 +27,9 @@ from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
 from deltacat.compute.compactor import DeltaAnnotated
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+# TODO: get cpu info from ray.nodes() resource key
+DEFAULT_CPUS_STATS_CLUSTER_INSTANCE = 32
 
 
 def start_stats_collection(batched_delta_stats_compute_list: List[DeltaAnnotated],
@@ -55,23 +60,18 @@ def start_stats_collection(batched_delta_stats_compute_list: List[DeltaAnnotated
     delta_stats_compute_pending: List[ObjectRef[Dict[str, List[StatsResult, int]]]] = []
 
     for batched_deltas in batched_delta_stats_compute_list:
-        delta_stats_compute_pending.append(get_delta_stats.remote(batched_deltas, columns, deltacat_storage))
+        splitted_annotated_deltas = DeltaAnnotated.split(batched_deltas, DEFAULT_CPUS_STATS_CLUSTER_INSTANCE)
+        for splitted_annotated_delta in splitted_annotated_deltas:
+            delta_stats_compute_pending.append(collect_stats_by_columns.remote(splitted_annotated_delta, columns, deltacat_storage))
 
-    logger.info(f"List of deltas to collect stats {batched_delta_stats_compute_list}")
     column_stats_map = _process_stats(delta_stats_compute_pending)
 
     if not batched_delta_stats_compute_list:
         logger.info("No new delta need stats collection")
     else:
-        stats_res_list = resolve_annotated_delta_stats_to_original_deltas_stats(column_stats_map, columns, batched_delta_stats_compute_list[0])
+        delta_stream_range_stats, partition_canonical_string = resolve_annotated_delta_stats_to_original_deltas_stats(column_stats_map, columns, batched_delta_stats_compute_list[0])
 
-        _cache_delta_res_to_s3(stat_results_s3_bucket, stats_res_list)
-        delta_stream_range_stats: Dict[int, DeltaStats] = {}
-        for delta_column_stats in stats_res_list:
-            assert len(delta_column_stats.column_stats) > 0, \
-                f"Expected columns of `{delta_column_stats}` to be non-empty"
-            stream_position = delta_column_stats.column_stats[0].manifest_stats.delta_locator.stream_position
-            delta_stream_range_stats[stream_position] = delta_column_stats
+        _cache_stats_res_to_s3(stat_results_s3_bucket, delta_stream_range_stats, partition_canonical_string)
 
         base_path = s3_utils.parse_s3_url(metastats_results_s3_bucket).url
         inflation_rate_stats_s3_url = f"{base_path}/inflation-rates.json"
@@ -93,31 +93,6 @@ def _process_stats(delta_stats_compute_pending: List[ObjectRef[DeltaStats]]) -> 
     return delta_stats_processed_list
 
 
-def _get_cached_and_pending_stats(discover_deltas_pending: List[ObjectRef[DeltaStatsCacheResult]],
-                                  deltacat_storage=unimplemented_deltacat_storage) \
-        -> Tuple[List[DeltaStats], List[ObjectRef[DeltaStats]]]:
-    """
-    Returns a tuple of a list of delta stats fetched from the cache, and a list of Ray tasks which will
-    calculate the stats for deltas on cache miss.
-    """
-    delta_stats_processed: List[DeltaStats] = []
-    delta_stats_pending: List[ObjectRef[DeltaStats]] = []
-    while discover_deltas_pending:
-        ready, discover_deltas_pending = ray.wait(discover_deltas_pending)
-
-        cached_results: List[DeltaStatsCacheResult] = ray.get(ready)
-        for cached_result in cached_results:
-            if cached_result.hits:
-                delta_stats_processed.append(cached_result.hits)
-
-            if cached_result.misses:
-                missed_column_names: List[str] = cached_result.misses.column_names
-                delta_locator: DeltaLocator = cached_result.misses.delta_locator
-                delta_stats_pending.append(get_delta_stats.remote(delta_locator, missed_column_names, deltacat_storage))
-
-    return delta_stats_processed, delta_stats_pending
-
-
 def _resolve_pending_stats(delta_stats_pending_list: List[ObjectRef[DeltaStats]]) -> List[DeltaStats]:
     delta_stats_processed_list: List[DeltaStats] = []
 
@@ -125,23 +100,20 @@ def _resolve_pending_stats(delta_stats_pending_list: List[ObjectRef[DeltaStats]]
         ready, delta_stats_pending_list = ray.wait(delta_stats_pending_list)
         processed_stats_batch: List[DeltaStats] = ray.get(ready)
         delta_stats_processed_list.extend(processed_stats_batch)
-    logger.info(f"List of processed delta stats {delta_stats_processed_list}")
 
     return delta_stats_processed_list
 
 
-def _cache_delta_res_to_s3(stat_results_s3_bucket,
-                           delta_stats_processed_list):
+def _cache_stats_res_to_s3(stat_results_s3_bucket,
+                           delta_stream_range_stats,
+                           partition_canonical_string):
     if stat_results_s3_bucket:
         # Cache the stats into the file store
-        delta_stats_to_cache: List[ObjectRef] = [cache_delta_column_stats.remote(stat_results_s3_bucket, dcs)
-                                                 for dataset_stats in delta_stats_processed_list
-                                                 for dcs in dataset_stats.column_stats]
-        ray.get(delta_stats_to_cache)
+        cache_partition_stats_to_s3(stat_results_s3_bucket, delta_stream_range_stats, partition_canonical_string)
 
 
 def resolve_annotated_delta_stats_to_original_deltas_stats(column_stats_map, column_names, delta_annotated) -> \
-List[DeltaStats]:
+Dict[int, DeltaStats]:
 
     partition_values = delta_annotated["deltaLocator"]["partitionLocator"]["partitionValues"]
     partition_id = delta_annotated["deltaLocator"]["partitionLocator"]["partitionId"]
@@ -156,9 +128,10 @@ List[DeltaStats]:
                 manifest_column_stats_list[column_stats_map[i][column_name][j][1]].append(
                     [column_stats_map[i][column_name][j][0], column_name])
 
-    stats_res: List[DeltaStats] = []
+    stats_res: Dict[int, List[DeltaStats]] = {}
     for key, value in manifest_column_stats_list.items():
         delta_locator = DeltaLocator.of(partition_locator, key)
+
         # Dict[column_name: List[StatsResult]]
         manifest_stats_list = defaultdict(lambda: [])
         for manifest_stat in value:
@@ -171,6 +144,6 @@ List[DeltaStats]:
             delta_ds_column_stats.append(dataset_column_stats)
 
         dataset_stats: DeltaStats = DeltaStats.of(delta_ds_column_stats)
-        stats_res.append(dataset_stats)
+        stats_res[key] = dataset_stats
 
-    return stats_res
+    return stats_res, partition_locator.canonical_string()
