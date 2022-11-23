@@ -38,7 +38,7 @@ setuptools.setup(
         "s3fs == 2022.1.0",
         "memray == 1.3.1",
         "tenacity == 8.0.1",
-        "ray[default] == 2.0.0",
+        "ray[default] == 2.1.0",
         "pandas >= 1.3.1",
         "pyarrow == 8.0.0",
         "pydantic == 1.10.2",
