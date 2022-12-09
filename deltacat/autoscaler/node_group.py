@@ -175,56 +175,56 @@ class PlacementGroupManager():
 		instance_cpus: number of cpus per instance
 	"""
 	def __init__(self, num_pgs: int, instance_cpus: int, time_out: Optional[float] = None):
-		self._pg_configs =self._config(num_pgs, instance_cpus, time_out)
+		#self._pg_configs =self._config(num_pgs, instance_cpus, time_out)
+		self._pg_configs = ray.get([_config.remote(instance_cpus) for _ in range(num_pgs)])
 	@property
 	def pgs(self):
 		return self._pg_configs
 
-	def _config(self,num_pgs: int, instance_cpus: int, time_out: Optional[float] = None) -> List[Tuple[Dict[str,Any], Dict[str,Any]]]:
-		pg_configs = []
-		for i in range(num_pgs):
-			try:
-				opts ={}
-				cluster_resources={}
-				bundle1={'CPU': instance_cpus} # hardcode for now
-				pg = placement_group([bundle1], strategy="PACK")
-				ray.get(pg.ready(), timeout=time_out)
-				if not pg:
-					continue
-				opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
-					placement_group=pg, placement_group_capture_child_tasks=True)
-				}
-				pg_id = placement_group_table(pg)['placement_group_id']
-				#print("pg id{}".format(pg_id))
-				pg_details = get_placement_group(pg_id)
-				#print("pgs-{}".format(pgs))
-				bundles = pg_details['bundles']
-				node_ids =[]
-				for bd in bundles:
-					node_ids.append(bd['node_id'])
-				#query available resources given list of node id
-				all_nodes_available_res = ray._private.state.state._available_resources_per_node()
-				pg_res = {'CPU':0,'memory':0,'object_store_memory':0,'node_id':[]}
-				for node_id in node_ids:
-					if node_id in all_nodes_available_res:
-						v = all_nodes_available_res[node_id]
-						node_detail = get_node(node_id)
-						pg_res['CPU']+=node_detail['resources_total']['CPU']
-						pg_res['memory']+=v['memory']
-						pg_res['object_store_memory']+=v['object_store_memory']
-							#pg_res['node_id'].append(node_id)
-				cluster_resources['CPU'] = int(pg_res['CPU'])
-				cluster_resources['memory'] = float(pg_res['memory'])
-				cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-				#cluster_resources['node_id'] = pg_res['node_id']
-				#cluster_cpus = cluster_resources['CPU']
-				pg_configs.append([opts,cluster_resources])
-				print("{}-th pg has resources:{}".format(i,cluster_resources))
+@ray.remote
+def _config(instance_cpus: int, time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
+	pg_config = None
+	try:
+		opts ={}
+		cluster_resources={}
+		bundle1={'CPU': instance_cpus} # hardcode for now
+		pg = placement_group([bundle1], strategy="PACK")
+		ray.get(pg.ready(), timeout=time_out)
+		if not pg:
+			return
+		opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
+			placement_group=pg, placement_group_capture_child_tasks=True)
+		}
+		pg_id = placement_group_table(pg)['placement_group_id']
+		#print("pg id{}".format(pg_id))
+		pg_details = get_placement_group(pg_id)
+		#print("pgs-{}".format(pgs))
+		bundles = pg_details['bundles']
+		node_ids =[]
+		for bd in bundles:
+			node_ids.append(bd['node_id'])
+		#query available resources given list of node id
+		all_nodes_available_res = ray._private.state.state._available_resources_per_node()
+		pg_res = {'CPU':0,'memory':0,'object_store_memory':0,'node_id':[]}
+		for node_id in node_ids:
+			if node_id in all_nodes_available_res:
+				v = all_nodes_available_res[node_id]
+				node_detail = get_node(node_id)
+				pg_res['CPU']+=node_detail['resources_total']['CPU']
+				pg_res['memory']+=v['memory']
+				pg_res['object_store_memory']+=v['object_store_memory']
+					#pg_res['node_id'].append(node_id)
+		cluster_resources['CPU'] = int(pg_res['CPU'])
+		cluster_resources['memory'] = float(pg_res['memory'])
+		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
+		#cluster_resources['node_id'] = pg_res['node_id']
+		#cluster_cpus = cluster_resources['CPU']
+		pg_config=[opts,cluster_resources]
+		print("pg has resources:{}".format(cluster_resources))
 
-			except Exception as e:
-				print("Getting error in creating {}-th pg:{}".format(i,e))
-				logger.error(f"placement group error{e}")
-				pass
-		return pg_configs	
-
+	except Exception as e:
+		print("Error in creating pg:{}".format(e))
+		logger.error(f"placement group error{e}")
+		pass
+	return pg_config
 
