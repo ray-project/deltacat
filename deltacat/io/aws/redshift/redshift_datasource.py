@@ -556,6 +556,9 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         logger.debug(f"Write succeeded for Dataset ID: {result.dataset_uuid}")
         with result.filesystem.open_output_stream(
                 manifest_path,
+                # Also See:
+                # docs.aws.amazon.com/AmazonS3/latest/API/RESTCommonRequestHeaders.html
+                # Arrow s3fs.cc: tinyurl.com/2axa6m9m
                 metadata={"Content-Type": ContentType.JSON.value},
         ) as f:
             f.write(json.dumps(manifest).encode("utf-8"))

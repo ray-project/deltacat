@@ -369,7 +369,6 @@ def upload_table(
     )
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
-
     block_refs = ray.get(capture_actor.block_refs.remote())
     write_paths = ray.get(capture_actor.write_paths.remote())
     metadata = _get_metadata(table, write_paths, block_refs)
