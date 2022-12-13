@@ -1,9 +1,8 @@
-import logging,time
+import logging
+import time
 import math
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER, BYTES_PER_MEBIBYTE
-
-from ray import ray_constants
 
 from deltacat.storage import PartitionLocator, Delta, \
     interface as unimplemented_deltacat_storage
@@ -79,10 +78,12 @@ def limit_input_deltas(
     # )
     if min_pk_index_pa_bytes > 0:
         required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_index_pa_bytes
-        assert required_heap_mem_for_dedupe > 0, f"Not enough required memory available to re-batch input deltas" \
-                                                 f"and initiate the dedupe step."
-        # Size of batched deltas must also be shrunken down to have enough space for primary key index files
-        # (from earlier compaction rounds) in the dedupe step, since they will be loaded into worker heap memory.
+        assert required_heap_mem_for_dedupe > 0, \
+            f"Not enough required memory available to re-batch input deltas" \
+            f"and initiate the dedupe step."
+        # Size of batched deltas must also be reduced to have enough space for primary
+        # key index files (from earlier compaction rounds) in the dedupe step, since
+        # they will be loaded into worker heap memory.
         worker_obj_store_mem = required_heap_mem_for_dedupe
 
     logger.info(f"Total worker object store memory: {worker_obj_store_mem}")
@@ -107,22 +108,22 @@ def limit_input_deltas(
     input_deltas_stats = {int(stream_pos): DeltaStats(delta_stats)
                           for stream_pos, delta_stats in input_deltas_stats.items()}
     for delta in input_deltas:
-        max_retry=5
-        retry_get_manifest = 0
+        max_retry = 5
+        retry_count = 0
         while True:
-            if retry_get_manifest>=max_retry:
-                print("io.py:get_delta_manifest exceeds max retry in limit delta")
-                break
+            if retry_count >= max_retry:
+                raise RuntimeError(
+                    "max get_delta_manifest retries exceeded in limit_input_deltas")
             try:
                 manifest = deltacat_storage.get_delta_manifest(delta)
-                if retry_get_manifest>0:
-                    print("io.py:get_delta_manifest. After retrying {}, succeeded".format(retry_get_manifest))
+                if retry_count > 0:
+                    logger.info(f"get_delta_manifest retry {retry_count} succeeded!")
                 break
             except Exception as e:
-                print("io.py:get_delta_manifest failed {}-th times".format(retry_get_manifest))
-                logger.info(f"get delta manifest in limit delta failed:{e}")
+                logger.info(f"get_delta_manifest in limit_input_deltas failed "
+                            f"{retry_count} times: {e}")
                 time.sleep(0.5)
-                retry_get_manifest +=1
+                retry_count += 1
                 pass
         delta.manifest = manifest
         position = delta.stream_position
@@ -131,8 +132,9 @@ def limit_input_deltas(
             delta_bytes_pyarrow += delta_stats.stats.pyarrow_table_bytes
         else:
             # TODO (pdames): ensure pyarrow object fits in per-task obj store mem
-            logger.warning(f"Stats are missing for delta stream position {delta.stream_position}, "
-                           f"materialized delta may not fit in per-task object store memory.")
+            logger.warning(
+                f"Stats are missing for delta stream position {delta.stream_position}, "
+                f"materialized delta may not fit in per-task object store memory.")
         manifest_entries = delta.manifest.entries
         delta_manifest_entries += len(manifest_entries)
         for entry in manifest_entries:

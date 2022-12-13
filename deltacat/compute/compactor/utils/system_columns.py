@@ -79,6 +79,10 @@ def pk_hash_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_PK_HASH_COLUMN_NAME]
 
 
+def delta_type_column(table: pa.Table) -> pa.ChunkedArray:
+    return table[_DELTA_TYPE_COLUMN_NAME]
+
+
 def get_dedupe_task_idx_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
         obj,

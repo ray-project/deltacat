@@ -15,14 +15,16 @@ from ray import cloudpickle
 from deltacat import logs
 from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
     interface as unimplemented_deltacat_storage
-from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult, DeltaFileLocator, RoundCompletionInfo
+from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult, \
+    RoundCompletionInfo
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.types.media import ContentType, DELIMITED_TEXT_CONTENT_TYPES
+from typing import List, Tuple, Optional
 
-from typing import Any, List, Tuple, Optional, Union, Dict
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
-from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8, ReadKwargsProviderPyArrowSchemaOverride
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -79,29 +81,26 @@ def materialize(
             src_stream_position_np.item(),
         )
         dl_digest = delta_locator.digest()
-        max_retry_get_delta_manifest = 5
-        retry_get_delta_manifest =0
+        max_retry = 5
+        retry_count =0
         while True:
-            if retry_get_delta_manifest >=max_retry_get_delta_manifest:
-                print("max retry get manifest in materialize exceeded")
-                break
+            if retry_count >= max_retry:
+                raise RuntimeError(
+                    "max get_delta_manifest retries exceeded in materialize")
             try:
                 manifest = manifest_cache.setdefault(
                     dl_digest,
                     deltacat_storage.get_delta_manifest(delta_locator),
                 )
-                if retry_get_delta_manifest>0:
-                    print("materialize.py:get_delta_manifest. \
-                    After retrying {} times, succeeded".format(retry_get_delta_manifest))
+                if retry_count > 0:
+                    logger.info(f"get_delta_manifest retry {retry_count} succeeded!")
                 break
             except Exception as e:
-                print("materialize.py:get_delta_manifest:\
-                    failed {}-th times".format(retry_get_delta_manifest))
-                logger.info(f"Failed to get delta manifest in materialize:{e}")
-                retry_get_delta_manifest+=1
+                logger.info(f"get_delta_manifest in limit_input_deltas failed "
+                            f"{retry_count} times: {e}")
                 time.sleep(0.5)
+                retry_count += 1
                 pass
-
         read_kwargs_provider = None
         # for delimited text output, disable type inference to prevent
         # unintentional type-casting side-effects and improve performance
@@ -109,7 +108,8 @@ def materialize(
             read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
         # enforce a consistent schema if provided, when reading files into PyArrow tables
         elif schema is not None:
-            read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+            read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
+                schema=schema)
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
