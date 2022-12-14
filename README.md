@@ -9,3 +9,6 @@ used to successfully host exabyte-scale enterprise data lakes.
 DeltaCAT uses the Ray distributed compute framework together with Apache Arrow
 for common table management tasks, including petabyte-scale 
 change-data-capture, data consistency checks, and table repair.
+
+
+## Section 2

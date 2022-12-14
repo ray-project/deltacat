@@ -1,4 +1,5 @@
-import logging,time
+import logging
+import time
 import functools
 import ray
 
@@ -15,7 +16,7 @@ from deltacat.compute.compactor.steps import hash_bucket as hb, dedupe as dd, \
     materialize as mat
 from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
     PrimaryKeyIndexLocator, PrimaryKeyIndexVersionMeta, \
-    PrimaryKeyIndexVersionLocator, MaterializeResult, RoundCompletionInfo, \
+    PrimaryKeyIndexVersionLocator, RoundCompletionInfo, \
     PyArrowWriteResult
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
@@ -74,7 +75,7 @@ def compact_partition(
         pg_config: Optional[List[Dict[str, Any]]] = None,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         node_group_res: Dict[str, Union[str, float]] = None,
-        deltacat_storage=unimplemented_deltacat_storage,):
+        deltacat_storage=unimplemented_deltacat_storage):
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
     partition = None

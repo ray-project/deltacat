@@ -29,7 +29,7 @@ from botocore.exceptions import ClientError
 from tenacity import Retrying
 from tenacity import wait_random_exponential
 from tenacity import stop_after_delay
-from tenacity import retry_if_exception_type
+from tenacity import retry_if_exception_type, retry_if_not_exception_type
 
 from typing import Any, Callable, Dict, List, Optional, Generator, Union
 
@@ -369,7 +369,6 @@ def upload_table(
     )
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
-
     block_refs = ray.get(capture_actor.block_refs.remote())
     write_paths = ray.get(capture_actor.write_paths.remote())
     metadata = _get_metadata(table, write_paths, block_refs)
@@ -421,7 +420,14 @@ def download_manifest_entry(
     s3_url = manifest_entry.uri
     if s3_url is None:
         s3_url = manifest_entry.url
-    table = read_file(
+    # @retry decorator can't be pickled by Ray, so wrap download in Retrying
+    retrying = Retrying(
+        wait=wait_random_exponential(multiplier=1, max=60),
+        stop=stop_after_delay(30 * 60),
+        retry=retry_if_not_exception_type(NonRetryableError)
+    )
+    table = retrying(
+        read_file,
         s3_url,
         content_type,
         content_encoding,
@@ -429,7 +435,7 @@ def download_manifest_entry(
         column_names,
         include_columns,
         file_reader_kwargs_provider,
-        **s3_client_kwargs
+        **s3_client_kwargs,
     )
     return table
 

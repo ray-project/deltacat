@@ -15,14 +15,16 @@ from ray import cloudpickle
 from deltacat import logs
 from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
     interface as unimplemented_deltacat_storage
-from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult, DeltaFileLocator, RoundCompletionInfo
+from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult, \
+    RoundCompletionInfo
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.types.media import ContentType, DELIMITED_TEXT_CONTENT_TYPES
+from typing import List, Tuple, Optional
 
-from typing import Any, List, Tuple, Optional, Union, Dict
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
-from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8, ReadKwargsProviderPyArrowSchemaOverride
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -92,7 +94,8 @@ def materialize(
             read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
         # enforce a consistent schema if provided, when reading files into PyArrow tables
         elif schema is not None:
-            read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+            read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
+                schema=schema)
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
