@@ -18,6 +18,9 @@ from ray.experimental.state.api import list_placement_groups, get_node, get_plac
 from deltacat import logs
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+#Limitation of current node group or placement group manager
+#Must run on driver or on head node
+#Issue: https://github.com/ray-project/ray/issues/29959
 class NodeGroupManager():
 
 	def __init__(self,path: str, gname: str):
@@ -132,7 +135,7 @@ class NodeGroupManager():
 			try:
 				group_res['group_res']=ray.available_resources()[gname]
 			except Exception as e:
-				print("There is no available resources for %s"%gname)
+				logger.info(f"There is no available resources for {gname}")
 				return None
 			return group_res
 		else:
@@ -152,7 +155,7 @@ class NodeGroupManager():
 		try:
 			group_res['group_res']=ray.available_resources()[gname]
 		except Exception as e:
-			print("There is no available resources for %s"%gname)
+			logger.info(f"There is no available resources for {gname}")
 			return None
 		return group_res
 
@@ -175,7 +178,6 @@ class PlacementGroupManager():
 		instance_cpus: number of cpus per instance
 	"""
 	def __init__(self, num_pgs: int, instance_cpus: int, time_out: Optional[float] = None):
-		#self._pg_configs =self._config(num_pgs, instance_cpus, time_out)
 		self._pg_configs = ray.get([_config.remote(instance_cpus) for _ in range(num_pgs)])
 	@property
 	def pgs(self):
@@ -191,14 +193,12 @@ def _config(instance_cpus: int, time_out: Optional[float] = None) -> Tuple[Dict[
 		pg = placement_group([bundle1], strategy="PACK")
 		ray.get(pg.ready(), timeout=time_out)
 		if not pg:
-			return
+			return None
 		opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
 			placement_group=pg, placement_group_capture_child_tasks=True)
 		}
 		pg_id = placement_group_table(pg)['placement_group_id']
-		#print("pg id{}".format(pg_id))
 		pg_details = get_placement_group(pg_id)
-		#print("pgs-{}".format(pgs))
 		bundles = pg_details['bundles']
 		node_ids =[]
 		for bd in bundles:
@@ -217,13 +217,11 @@ def _config(instance_cpus: int, time_out: Optional[float] = None) -> Tuple[Dict[
 		cluster_resources['CPU'] = int(pg_res['CPU'])
 		cluster_resources['memory'] = float(pg_res['memory'])
 		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-		#cluster_resources['node_id'] = pg_res['node_id']
-		#cluster_cpus = cluster_resources['CPU']
+		cluster_resources['node_id'] = pg_res['node_id']
 		pg_config=[opts,cluster_resources]
-		print("pg has resources:{}".format(cluster_resources))
+		logger.info(f"pg has resources:{cluster_resources}")
 
 	except Exception as e:
-		print("Error in creating pg:{}".format(e))
 		logger.error(f"placement group error{e}")
 		pass
 	return pg_config

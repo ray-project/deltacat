@@ -372,33 +372,17 @@ def dedupe(
     record_counts = ray.get(
         record_counts_pending_materialize.get_record_counts.remote()
     )
-    max_retry_write_pki=5
-    retry_write_pki = 0
-    while True:
-        if retry_write_pki>=max_retry_write_pki:
-            break
-        try:
-            write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
-                compaction_artifact_s3_bucket,
-                new_primary_key_index_version_locator,
-                max_records_per_index_file,
-                max_records_per_materialized_file,
-                num_materialize_buckets,
-                dedupe_task_index,
-                deduped_tables,
-                record_counts,
-            )
-            if retry_write_pki>0:
-                print("dedupe.py:write_new_primary_key_index. \
-                    After retrying {} times, succeeded".format(retry_write_pki))
-            break
-        except Exception as e:
-            print("dedupe.py:write_new_primary_key_index:\
-                failed {}-th times".format(retry_write_pki))
-            logger.info(f"write new primary key index failed:{e}")
-            time.sleep(0.5)
-            retry_write_pki +=1
-            pass
+
+    write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
+        compaction_artifact_s3_bucket,
+        new_primary_key_index_version_locator,
+        max_records_per_index_file,
+        max_records_per_materialized_file,
+        num_materialize_buckets,
+        dedupe_task_index,
+        deduped_tables,
+        record_counts,
+    )
 
     if delete_old_primary_key_index:
         pki.delete_primary_key_index_version(

@@ -44,7 +44,8 @@ setuptools.setup(
         "pydantic == 1.10.2",
         "numpy >= 1.21.1",
         "boto3 == 1.20.24",
-        "typing-extensions == 4.4.0"
+        "typing-extensions == 4.4.0",
+        "binpacking == 1.5.2"
     ],
     setup_requires=["wheel"],
     package_data={

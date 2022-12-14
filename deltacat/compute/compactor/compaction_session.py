@@ -84,7 +84,6 @@ def compact_partition(
     if pg_config:
         opts=pg_config[0]
     while has_next_compaction_round:
-        time_s = time.time()
         has_next_compaction_round_obj, new_partition_obj, new_rci_obj = \
             _execute_compaction_round.options(**opts).remote(
                 source_partition_locator,
@@ -114,16 +113,12 @@ def compact_partition(
             partition = new_partition
             compacted_partition_locator = new_partition.locator
             compaction_rounds_executed += 1
-        time_e = time.time()
-        round_time = time_e-time_s
-        logger.info(f"partition:{source_partition_locator.partition_values}-> Compaction session round: {compaction_rounds_executed} with {round_time} seconds")
         # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
         if new_rci:
             min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
 
     logger.info(f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
                 f"{compaction_rounds_executed} rounds.")
-    print("Partition {} completed in {} rounds".format(source_partition_locator.partition_values,compaction_rounds_executed))
     if partition:
         logger.info(f"Committing compacted partition to: {partition.locator}")
         partition = deltacat_storage.commit_partition(partition)
@@ -153,7 +148,6 @@ def _execute_compaction_round(
         node_group_res: Dict[str, Union[str, float]] = None) \
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
-    time_pre_s = time.time()
 
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
@@ -233,7 +227,6 @@ def _execute_compaction_round(
     # assumption could be removed but we'd still need to know the maximum
     # "safe" number of parallel tasks that our autoscaling cluster could handle
     max_parallelism = int(cluster_cpus)
-    #max_parallelism = 1
     logger.info(f"Max parallelism: {max_parallelism}")
 
     # get the root path of a compatible primary key index for this round
@@ -250,7 +243,6 @@ def _execute_compaction_round(
 
     # read the results from any previously completed compaction round that used
     # a compatible primary key index
-    round_completion_info=None
     if read_round_completion:
         round_completion_info = rcf.read_round_completion_file(
             compaction_artifact_s3_bucket,
@@ -276,30 +268,13 @@ def _execute_compaction_round(
     # discover input delta files
     high_watermark = round_completion_info.high_watermark \
         if round_completion_info else None
-    discover_i=0
-    max_discover_retry=5
-    while True:
-        if discover_i >= max_discover_retry:
-            print("max retry of discover deltas exceeds:%d"%max_discover_retry)
-            break
-        try:
-            input_deltas = io.discover_deltas(
-                source_partition_locator,
-                high_watermark,
-                last_stream_position_to_compact,
-                deltacat_storage,
-            )
-            if discover_i>0:
-                print("compaction_session.py:discover_deltas. \
-                    After retrying {} times, succeeded".format(discover_i))
-            break
-        except Exception as e:
-            print("compaction_session.py:io.discover_deltas:\
-                \nFailed to discover deltas {}-th times".format(discover_i))
-            logger.info(f"failed to discover delta in compaction session:{e}")
-            time.sleep(0.5)
-            discover_i+=1
-            pass
+
+    input_deltas = io.discover_deltas(
+        source_partition_locator,
+        high_watermark,
+        last_stream_position_to_compact,
+        deltacat_storage,
+    )
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -343,9 +318,6 @@ def _execute_compaction_round(
         logger.info(f"No prior round completion file found. Source partition: "
                     f"{source_partition_locator}. Primary key index locator: "
                     f"{compatible_primary_key_index_locator}")
-
-    time_pre_e = time.time()
-    logger.info(f"_execute_compaction_round pre step took {time_pre_e-time_pre_s} seconds")
 
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
@@ -408,8 +380,6 @@ def _execute_compaction_round(
     new_pki_version_locator = PrimaryKeyIndexVersionLocator.generate(
         new_primary_key_index_version_meta)
 
-    time_hb_e = time.time()
-    logger.info(f"_execute_compaction_round hash bucketing took {time_hb_e-time_pre_e} seconds")
 
     # parallel step 2:
     # discover records with duplicate primary keys in each hash bucket, and
@@ -460,8 +430,6 @@ def _execute_compaction_round(
     # TODO(pdames): garbage collect hash bucket output since it's no longer
     #  needed
 
-    time_dd_e = time.time()
-    logger.info(f"_execute_compaction_round dedupe took {time_dd_e - time_hb_e} seconds")
     # parallel step 3:
     # materialize records to keep by index
     mat_tasks_pending = invoke_parallel(
@@ -512,7 +480,6 @@ def _execute_compaction_round(
         round_completion_info,
     )
     time_mat_e = time.time()
-    logger.info(f"_execute_compaction_round materialize took {time_mat_e - time_dd_e} seconds")
     logger.info(f"partition-{source_partition_locator.partition_values},compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}")
     return \
         (last_stream_position_compacted < last_stream_position_to_compact), \
