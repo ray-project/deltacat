@@ -74,7 +74,6 @@ def compact_partition(
         read_round_completion: bool = False,
         pg_config: Optional[List[Dict[str, Any]]] = None,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
-        node_group_res: Dict[str, Union[str, float]] = None,
         deltacat_storage=unimplemented_deltacat_storage):
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
@@ -104,8 +103,7 @@ def compact_partition(
                 read_round_completion,
                 schema_on_read,
                 deltacat_storage=deltacat_storage,
-                pg_config=pg_config,
-                node_group_res=node_group_res
+                pg_config=pg_config
             )
         has_next_compaction_round = ray.get(has_next_compaction_round_obj)
         new_partition = ray.get(new_partition_obj)
@@ -145,8 +143,7 @@ def _execute_compaction_round(
         read_round_completion: bool,
         schema_on_read: Optional[pa.schema],
         deltacat_storage = unimplemented_deltacat_storage,
-        pg_config: Optional[List[Dict[str, Any]]] = None,
-        node_group_res: Dict[str, Union[str, float]] = None) \
+        pg_config: Optional[List[Dict[str, Any]]] = None) \
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
 
@@ -189,16 +186,7 @@ def _execute_compaction_round(
     if pg_config: # use resource in each placement group
         node_resource_keys=None
         cluster_resources = pg_config[1]
-        cluster_cpus = cluster_resources['CPU']
-    elif node_group_res: # use resource in each node group
-        logger.info(f"Available cluster resources in this node group:{node_group_res['group']}: {node_group_res}")
-        cluster_cpus = int(node_group_res['CPU'])
-        logger.info(f"Total node group CPUs: {cluster_cpus}")
-        cluster_resources['CPU'] = int(node_group_res["CPU"])
-        cluster_resources['object_store_memory'] = float(node_group_res["object_store_memory"])
-        node_resource_keys = node_group_res['node_id']
-        logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
-                   f"{node_resource_keys}")        
+        cluster_cpus = cluster_resources['CPU']   
     else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])

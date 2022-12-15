@@ -7,12 +7,11 @@ from typing import Optional, Union, List, Dict, Any, Callable, Tuple
 from ray.util.placement_group import (
 	placement_group,
 	placement_group_table,
-	remove_placement_group,
 	get_current_placement_group
 )
 
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
-from ray.experimental.state.api import list_placement_groups, get_node, get_placement_group
+from ray.experimental.state.api import get_node, get_placement_group
 
 
 from deltacat import logs
