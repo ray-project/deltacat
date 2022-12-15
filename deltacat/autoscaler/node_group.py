@@ -177,11 +177,20 @@ class PlacementGroupManager():
 		instance_cpus: number of cpus per instance
 	"""
 	def __init__(self, num_pgs: int, instance_cpus: int, time_out: Optional[float] = None):
-		self._pg_configs = ray.get([_config.remote(instance_cpus) for _ in range(num_pgs)])
+		head_res_k = get_current_node_resource_key()
+		self._pg_configs = ray.get([_config.options(resources={head_res_k:0.01}).remote(instance_cpus) for _ in range(num_pgs)])
 	@property
 	def pgs(self):
 		return self._pg_configs
 
+	def get_current_node_resource_key() -> str: 
+	    current_node_id = ray.get_runtime_context().node_id.hex() 
+	    for node in ray.nodes(): 
+	        if node["NodeID"] == current_node_id: 
+	            # Found the node. 
+	            for key in node["Resources"].keys(): 
+	                if key.startswith("node:"): 
+	                    return key
 @ray.remote
 def _config(instance_cpus: int, time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
 	pg_config = None
