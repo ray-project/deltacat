@@ -1,7 +1,8 @@
-import setuptools
+import logging
 import os
 import re
-import logging
+
+import setuptools
 
 logger = logging.getLogger(__name__)
 
