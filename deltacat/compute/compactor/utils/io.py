@@ -108,23 +108,7 @@ def limit_input_deltas(
     input_deltas_stats = {int(stream_pos): DeltaStats(delta_stats)
                           for stream_pos, delta_stats in input_deltas_stats.items()}
     for delta in input_deltas:
-        max_retry = 5
-        retry_count = 0
-        while True:
-            if retry_count >= max_retry:
-                raise RuntimeError(
-                    "max get_delta_manifest retries exceeded in limit_input_deltas")
-            try:
-                manifest = deltacat_storage.get_delta_manifest(delta)
-                if retry_count > 0:
-                    logger.info(f"get_delta_manifest retry {retry_count} succeeded!")
-                break
-            except Exception as e:
-                logger.info(f"get_delta_manifest in limit_input_deltas failed "
-                            f"{retry_count} times: {e}")
-                time.sleep(0.5)
-                retry_count += 1
-                pass
+        manifest = deltacat_storage.get_delta_manifest(delta)
         delta.manifest = manifest
         position = delta.stream_position
         delta_stats = input_deltas_stats.get(delta.stream_position, DeltaStats())
