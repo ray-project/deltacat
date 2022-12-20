@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = os.path.dirname(__file__)
 
-print("hello pierce")
+print("hello pierce faraone")
 
 def find_version(*paths):
     version_file_path = os.path.join(ROOT_DIR, *paths)
