@@ -1,0 +1,23 @@
+# This is an appspec.yml template file for use with an AWS Lambda deployment in CodeDeploy.
+# The lines in this template starting with the hashtag symbol are 
+#   instructional comments and can be safely left in the file or 
+#   ignored.
+# For help completing this file, see the "AppSpec File Reference" in the  
+#   "CodeDeploy User Guide" at
+#   https://docs.aws.amazon.com/codedeploy/latest/userguide/app-spec-ref.html
+version: 0.0
+# In the Resources section specify the name, alias, 
+# target version, and (optional) the current version of your AWS Lambda function. 
+Resources:
+  - DeployDeltacatToPyPiTestFaraoneP: # Replace "MyFunction" with the name of your Lambda function 
+      Type: AWS::Lambda::Function
+      Properties:
+        Name: "" # Specify the name of your Lambda function
+        Alias: "" # Specify the alias for your Lambda function
+        CurrentVersion: "" # Specify the current version of your Lambda function
+        TargetVersion: "" # Specify the version of your Lambda function to deploy
+# (Optional) In the Hooks section, specify a validation Lambda function to run during 
+# a lifecycle event. Replace "LifeCycleEvent" with BeforeAllowTraffic
+# or AfterAllowTraffic. 
+Hooks:
+    - LifeCycleEvent: "" # Specify a Lambda validation function between double-quotes.
