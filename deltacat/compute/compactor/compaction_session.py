@@ -232,6 +232,7 @@ def _execute_compaction_round(
 
     # read the results from any previously completed compaction round that used
     # a compatible primary key index
+    round_completion_info = None
     if read_round_completion:
         round_completion_info = rcf.read_round_completion_file(
             compaction_artifact_s3_bucket,
@@ -288,6 +289,7 @@ def _execute_compaction_round(
         f"is invalid."
 
     # rehash the primary key index if necessary
+    round_completion_info = None
     if round_completion_info:
         logger.info(f"Round completion file contents: {round_completion_info}")
         # the previous primary key index is compatible with the current, but
