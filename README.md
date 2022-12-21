@@ -1,4 +1,4 @@
-# DeltaCAT
+# DeltaCAT - this is a new version
 
 DeltaCAT is a Pythonic Data Catalog powered by Ray.
 
