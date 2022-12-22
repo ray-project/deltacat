@@ -33,7 +33,7 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Run unit tests
       run: >-
-        python -m unittest
+        python -m pytest
     - name: Build a binary wheel and a source tarball
       run: >-
         python -m
