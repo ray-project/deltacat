@@ -1,6 +1,6 @@
 name: Publish Python distributions to PyPI and TestPyPI
 on: 
-  push: # Runs your workflow when you push a commit or tag.
+  push: # Runs your workflow when you push a commit or tag to main or release branches.
       branches:
         - main
         - 'releases/**'
