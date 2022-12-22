@@ -1,13 +1,11 @@
-import pyarrow as pa
-import pandas as pd
-import numpy as np
-
 from enum import Enum
+from typing import Any, List, Union
 
+import numpy as np
+import pandas as pd
+import pyarrow as pa
 from ray.data.dataset import Dataset
 from ray.data.impl.arrow_block import ArrowRow
-
-from typing import Any, List, Union
 
 LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray]
 LocalDataset = List[LocalTable]
