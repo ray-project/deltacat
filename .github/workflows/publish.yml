@@ -4,9 +4,6 @@ on:
       branches:
         - main
         - 'releases/**'
-# on:
-#   release:
-#     types: [published] # triggered whenever a new GitHub release is published
 jobs:
   build-n-publish:
     name: Build and publish Python distributions to PyPI and TestPyPI
