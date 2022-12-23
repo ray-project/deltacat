@@ -50,7 +50,6 @@ def write_csv(
         filesystem=filesystem,
         try_create_dir=False,
         block_path_provider=block_path_provider,
-        # column names are kept in table metadata, so omit header
         arrow_csv_args_fn=arrow_csv_args_fn,
         **kwargs,
     )
@@ -96,7 +95,7 @@ def dataset_to_file(
         content_type: str = ContentType.PARQUET.value,
         **kwargs) -> None:
     """
-    Writes the given Distributed Dataset to a file.
+    Writes the given Distributed Dataset to one or more files.
     """
     writer = CONTENT_TYPE_TO_DATASET_WRITE_FUNC.get(content_type)
     if not writer:
