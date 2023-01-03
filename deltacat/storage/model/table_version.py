@@ -149,6 +149,13 @@ class TableVersionLocator(Locator, dict):
         table_version_locator.table_version = table_version
         return table_version_locator
 
+    @staticmethod
+    def at(namespace: Optional[str],
+           table_name: Optional[str],
+           table_version: Optional[str]) -> TableVersionLocator:
+        table_locator = TableLocator.at(namespace, table_name)
+        return TableVersionLocator.of(table_locator, table_version)
+
     @property
     def table_locator(self) -> Optional[TableLocator]:
         val: Dict[str, Any] = self.get("tableLocator")

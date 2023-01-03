@@ -1,0 +1,34 @@
+cluster_name: stats-collection-{{trace_id}}-{{partition_canonical_string}}
+
+provider:
+  type: aws
+  region: us-east-1
+  availability_zone: us-east-1a, us-east-1b, us-east-1c, us-east-1d, us-east-1f
+  cache_stopped_nodes: false
+  use_internal_ips: true
+
+max_workers: {{max-workers}}
+
+available_node_types:
+  ray.head.default:
+    max_workers: 0
+    resources: {}
+    node_config:
+      InstanceType: {{head-instance-type}}
+      ImageId: latest_dlami
+      LaunchTemplate:
+        # TODO: replace this with your launch template name!
+        LaunchTemplateName:
+        Version: "$Latest"
+  ray.worker.default:
+    min_workers: {{min-workers}}
+    max_workers: {{max-workers}}
+    resources: {}
+    node_config:
+      InstanceType: {{worker-instance-type}}
+      ImageId: latest_dlami
+      LaunchTemplate:
+        # TODO: replace this with your launch template name!
+        LaunchTemplateName:
+        Version: "$Latest"
+head_node_type: ray.head.default

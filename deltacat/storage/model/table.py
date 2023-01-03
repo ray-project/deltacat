@@ -86,6 +86,12 @@ class TableLocator(Locator, dict):
         table_locator.table_name = table_name
         return table_locator
 
+    @staticmethod
+    def at(namespace: Optional[str],
+           table_name: Optional[str]) -> TableLocator:
+        namespace_locator = NamespaceLocator.of(namespace)
+        return TableLocator.of(namespace_locator, table_name)
+
     @property
     def namespace_locator(self) -> NamespaceLocator:
         val: Dict[str, Any] = self.get("namespaceLocator")

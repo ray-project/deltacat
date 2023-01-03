@@ -6,11 +6,12 @@ import numpy as np
 import s3fs
 from collections import defaultdict
 
+from deltacat.utils.common import ReadKwargsProvider
 from ray import cloudpickle
-from ray import ray_constants
-from ray.types import ObjectRef
 
 from deltacat.storage import Manifest, PartitionLocator
+from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
+    round_robin_options_provider
 from deltacat.compute.compactor import PyArrowWriteResult, \
     RoundCompletionInfo, PrimaryKeyIndexMeta, PrimaryKeyIndexLocator, \
     PrimaryKeyIndexVersionMeta, PrimaryKeyIndexVersionLocator
@@ -23,13 +24,15 @@ from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.aws import s3u
 from deltacat import logs
 
-from typing import Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from ray.types import ObjectRef
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def rehash(
-        node_idx_to_id: Dict[int, str],
+        options_provider: Callable[[int, Any], Dict[str, Any]],
         s3_bucket: str,
         source_partition_locator: PartitionLocator,
         old_rci: RoundCompletionInfo,
@@ -69,22 +72,18 @@ def rehash(
 
     # launch a rehash task for each bucket of the old primary key index version
     old_hash_bucket_count = old_pkiv_meta.hash_bucket_count
-    hb_tasks_pending = []
-    for hb_index in range(old_hash_bucket_count):
-        # force strict round-robin scheduling of tasks across cluster workers
-        node_id = node_idx_to_id[hb_index % len(node_idx_to_id)]
-        hb_resources = {node_id: ray_constants.MIN_RESOURCE_GRANULARITY}
-        hb_task_promise, _ = rb.rehash_bucket.options(resources=hb_resources) \
-            .remote(
-                s3_bucket,
-                hb_index,
-                old_pki_version_locator,
-                new_hash_bucket_count,
-                hash_bucket_index_group_count,
-            )
-        hb_tasks_pending.append(hb_task_promise)
+    hb_tasks_pending = invoke_parallel(
+        items=range(old_hash_bucket_count),
+        ray_task=rb.rehash_bucket,
+        max_parallelism=None,
+        options_provider=options_provider,
+        s3_bucket=s3_bucket,
+        old_pki_version_locator=old_pki_version_locator,
+        num_buckets=new_hash_bucket_count,
+        num_groups=hash_bucket_index_group_count,
+    )
     logger.info(f"Getting {len(hb_tasks_pending)} rehash bucket results...")
-    hb_results = ray.get(hb_tasks_pending)
+    hb_results = ray.get([t[0] for t in hb_tasks_pending])
     logger.info(f"Got {len(hb_results)} rehash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hash_group_idx_to_obj_id in hb_results:
@@ -95,24 +94,17 @@ def rehash(
     logger.info(f"Rehash bucket groups created: {hash_group_count}")
 
     # write primary key index files for each rehashed output bucket
-    pki_stats_promises = []
-    i = 0
-    for hash_group_index, object_ids in all_hash_group_idx_to_obj_id.items():
-        # force strict round-robin scheduling of tasks across cluster workers
-        node_id = node_idx_to_id[i % len(node_idx_to_id)]
-        dd_resources = {node_id: ray_constants.MIN_RESOURCE_GRANULARITY}
-        pki_stat, _ = ri.rewrite_index \
-            .options(resources=dd_resources) \
-            .remote(
-                s3_bucket,
-                rehashed_pki_version_locator,
-                object_ids,
-                records_per_primary_key_index_file,
-            )
-        pki_stats_promises.append(pki_stat)
-        i += 1
+    pki_stats_promises = invoke_parallel(
+        items=all_hash_group_idx_to_obj_id.values(),
+        ray_task=ri.rewrite_index,
+        max_parallelism=None,
+        options_provider=options_provider,
+        s3_bucket=s3_bucket,
+        new_primary_key_index_version_locator=rehashed_pki_version_locator,
+        max_records_per_index_file=records_per_primary_key_index_file,
+    )
     logger.info(f"Getting {len(pki_stats_promises)} rewrite index results...")
-    pki_stats = ray.get(pki_stats_promises)
+    pki_stats = ray.get([t[0] for t in pki_stats_promises])
     logger.info(f"Got {len(pki_stats)} rewrite index results.")
 
     round_completion_info = RoundCompletionInfo.of(
@@ -142,7 +134,8 @@ def rehash(
 def download_hash_bucket_entries(
         s3_bucket: str,
         hash_bucket_index: int,
-        primary_key_index_version_locator: PrimaryKeyIndexVersionLocator) \
+        primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
         -> List[pa.Table]:
 
     pk_index_manifest_s3_url = primary_key_index_version_locator\
@@ -154,8 +147,9 @@ def download_hash_bucket_entries(
     logger.info(f"Downloading primary key index hash bucket manifest entries: "
                 f"{pk_index_manifest_s3_url}. Primary key index version "
                 f"locator: {primary_key_index_version_locator}")
-    pk_index_manifest = json.loads(result["Body"].read().decode("utf-8"))
-    tables = s3u.download_manifest_entries(pk_index_manifest)
+    pk_index_manifest = Manifest(json.loads(result["Body"].read().decode("utf-8")))
+    tables = s3u.download_manifest_entries(pk_index_manifest,
+                                           file_reader_kwargs_provider=file_reader_kwargs_provider)
     if not tables:
         logger.warning(
             f"Primary key index manifest is empty at: "
