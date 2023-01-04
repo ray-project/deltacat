@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.stats_result import StatsResult
@@ -56,6 +56,11 @@ class DeltaColumnStats(dict):
             dcs["stats"] = dcs._merge_manifest_stats()
 
         return dcs
+
+    @staticmethod
+    def build_from_dict(delta_column_stats: List[str, Any]) -> List[DeltaColumnStats]:
+        return DeltaColumnStats.of(delta_column_stats["column"],
+                                   ManifestEntryStats.build_from_dict(delta_column_stats["manifestStats"]))
 
     @property
     def column(self) -> str:

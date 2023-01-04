@@ -60,6 +60,13 @@ class DeltaStats(dict):
         ds["stats"] = DeltaStats.get_delta_stats(column_stats)
         return ds
 
+    @staticmethod
+    def build_from_dict(delta_stats: dict) -> DeltaStats:
+        delta_column_stats_list = []
+        for dcs in delta_stats["column_stats"]:
+            delta_column_stats_list.append(DeltaColumnStats.build_from_dict(dcs))
+        return DeltaStats.of(delta_column_stats_list)
+
     @property
     def column_stats(self) -> List[DeltaColumnStats]:
         """

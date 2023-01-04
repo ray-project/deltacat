@@ -47,6 +47,9 @@ setuptools.setup(
         "typing-extensions >= 4.4.0"
     ],
     setup_requires=["wheel"],
+    package_data={
+        "compute/metastats": ["*.yaml"],
+        },
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",

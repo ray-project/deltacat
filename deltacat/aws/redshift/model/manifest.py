@@ -195,10 +195,10 @@ class ManifestAuthor(dict):
 
 class ManifestEntry(dict):
     @staticmethod
-    def of(uri: Optional[str],
+    def of(url: Optional[str],
            meta: Optional[ManifestMeta],
            mandatory: bool = True,
-           url: Optional[str] = None,
+           uri: Optional[str] = None,
            uuid: Optional[str] = None) -> ManifestEntry:
         manifest_entry = ManifestEntry()
         if not (uri or url):
@@ -206,10 +206,10 @@ class ManifestEntry(dict):
                 "No URI or URL specified for manifest entry contents.")
         if (uri and url) and (uri != url):
             raise ValueError(f"Manifest entry URI ({uri}) != URL ({url})")
-        if uri:
-            manifest_entry["uri"] = uri
-        elif url:
-            manifest_entry["url"] = url
+        if url:
+            manifest_entry["url"] = manifest_entry["uri"] = url
+        elif uri:
+            manifest_entry["url"] = manifest_entry["uri"] = uri
         if meta is not None:
             manifest_entry["meta"] = meta
         if mandatory is not None:

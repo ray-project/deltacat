@@ -142,6 +142,23 @@ class StreamLocator(Locator, dict):
         stream_locator.storage_type = storage_type
         return stream_locator
 
+    @staticmethod
+    def at(namespace: Optional[str],
+           table_name: Optional[str],
+           table_version: Optional[str],
+           stream_id: Optional[str],
+           storage_type: Optional[str]) -> StreamLocator:
+        table_version_locator = TableVersionLocator.at(
+            namespace,
+            table_name,
+            table_version,
+        )
+        return StreamLocator.of(
+            table_version_locator,
+            stream_id,
+            storage_type,
+        )
+
     @property
     def table_version_locator(self) -> Optional[TableVersionLocator]:
         val: Dict[str, Any] = self.get("tableVersionLocator")
