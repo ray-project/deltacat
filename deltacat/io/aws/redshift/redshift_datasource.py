@@ -16,7 +16,7 @@ from pyarrow import parquet as pq
 
 from ray.data.datasource.file_based_datasource import \
     _resolve_paths_and_filesystem
-from ray.data.datasource.file_based_datasource import FastFileMetadataProvider
+from ray.data.datasource.file_meta_provider import FastFileMetadataProvider
 from ray.data.datasource.partitioning import PartitionStyle
 from ray.types import ObjectRef
 from ray.data.datasource import CSVDatasource, BlockWritePathProvider, \
@@ -24,8 +24,7 @@ from ray.data.datasource import CSVDatasource, BlockWritePathProvider, \
     DefaultFileMetadataProvider, ParquetBaseDatasource, PathPartitionParser
 from ray.data.datasource.datasource import ReadTask, WriteResult, Datasource, \
     ArrowRow
-from ray.data.block import Block
-from ray.data.impl.block_list import BlockMetadata
+from ray.data.block import Block, BlockMetadata
 
 from deltacat import ContentType, ContentEncoding
 from deltacat import logs
