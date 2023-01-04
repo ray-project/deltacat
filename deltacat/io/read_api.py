@@ -3,7 +3,7 @@ import pyarrow as pa
 from deltacat.utils.common import ReadKwargsProvider
 
 from ray.data import read_datasource
-from ray.data.impl.arrow_block import ArrowRow
+from ray.data._internal.arrow_block import ArrowRow
 
 from deltacat import ContentType
 from deltacat.io.dataset import DeltacatDataset

@@ -4,14 +4,15 @@ from __future__ import annotations
 import pyarrow as pa
 import s3fs
 
-from typing import Optional, Union, Callable, Dict, Any, cast
+from typing import Optional, Union, Callable, Dict, Any, cast, TypeVar
 
 from ray.data import Dataset
 from ray.data.datasource import DefaultBlockWritePathProvider, \
     BlockWritePathProvider
-from ray.data.impl.arrow_block import T
 
 from deltacat.io.aws.redshift.redshift_datasource import RedshiftDatasource
+
+T = TypeVar('T')
 
 
 class DeltacatDataset(Dataset[T]):
