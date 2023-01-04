@@ -1,8 +1,11 @@
-import logging
+import logging,time
 import ray
 import pyarrow as pa
 
 from collections import defaultdict
+
+from deltacat.compute.compactor.steps.dedupe import DedupeTaskIndexWithObjectId, \
+    DeltaFileLocatorToRecords
 from itertools import chain, repeat
 
 from pyarrow import compute as pc
@@ -12,27 +15,33 @@ from ray import cloudpickle
 from deltacat import logs
 from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
     interface as unimplemented_deltacat_storage
-from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult
+from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult, \
+    RoundCompletionInfo
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.types.media import ContentType
+from deltacat.types.media import ContentType, DELIMITED_TEXT_CONTENT_TYPES
+from typing import List, Tuple, Optional
 
-from typing import Any, List, Tuple
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
+
+from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote
+@ray.remote(num_cpus=0.5)
 def materialize(
         source_partition_locator: PartitionLocator,
+        round_completion_info: Optional[RoundCompletionInfo],
         partition: Partition,
         mat_bucket_index: int,
-        dedupe_task_idx_and_obj_id_tuples: List[Tuple[int, Any]],
+        dedupe_task_idx_and_obj_id_tuples: List[DedupeTaskIndexWithObjectId],
         max_records_per_output_file: int,
         compacted_file_content_type: ContentType,
+        schema: Optional[pa.Schema] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
 
     logger.info(f"Starting materialize task...")
-    dest_partition_locator = partition.locator
     dedupe_task_idx_and_obj_ref_tuples = [
         (
             t[0],
@@ -56,7 +65,8 @@ def materialize(
     manifest_cache = {}
     compacted_tables = []
     for src_dfl in sorted(all_src_file_records.keys()):
-        record_numbers_dd_task_idx_tpl_list = all_src_file_records[src_dfl]
+        record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
+            all_src_file_records[src_dfl]
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
             *record_numbers_dd_task_idx_tpl_list
         )
@@ -65,19 +75,31 @@ def materialize(
         src_file_idx_np = src_dfl.file_index
         src_file_partition_locator = source_partition_locator \
             if is_src_partition_file_np \
-            else dest_partition_locator
+            else round_completion_info.compacted_delta_locator.partition_locator
         delta_locator = DeltaLocator.of(
             src_file_partition_locator,
             src_stream_position_np.item(),
         )
         dl_digest = delta_locator.digest()
+
         manifest = manifest_cache.setdefault(
             dl_digest,
             deltacat_storage.get_delta_manifest(delta_locator),
         )
+
+        read_kwargs_provider = None
+        # for delimited text output, disable type inference to prevent
+        # unintentional type-casting side-effects and improve performance
+        if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+            read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
+        # enforce a consistent schema if provided, when reading files into PyArrow tables
+        elif schema is not None:
+            read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
+                schema=schema)
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
+            file_reader_kwargs=read_kwargs_provider,
         )
         mask_pylist = list(repeat(False, len(pa_table)))
         record_numbers = chain.from_iterable(record_numbers_tpl)
@@ -104,9 +126,20 @@ def materialize(
         )
         compacted_tables.append(compacted_table)
 
-    # TODO (pdames): save memory by writing parquet files eagerly whenever
-    #  len(compacted_table) >= max_records_per_output_file
+    # TODO (pdames): save memory by writing output files eagerly whenever
+    #  len(compacted_table) >= max_records_per_output_file (but don't write
+    #  partial slices from the compacted_table remainder every time!)
     compacted_table = pa.concat_tables(compacted_tables)
+    if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+        # convert to pandas since pyarrow doesn't support custom delimiters
+        # and doesn't support utf-8 conversion of all types (e.g. Decimal128)
+        # TODO (pdames): compare performance to pandas-native materialize path
+        df = compacted_table.to_pandas(
+            split_blocks=True,
+            self_destruct=True,
+        )
+        del compacted_table
+        compacted_table = df
     delta = deltacat_storage.stage_delta(
         compacted_table,
         partition,
@@ -122,9 +155,11 @@ def materialize(
     materialize_result = MaterializeResult.of(
         delta,
         mat_bucket_index,
+        # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
+        #  and in-memory-table-bytes instead of tight coupling to paBytes
         PyArrowWriteResult.of(
             len(manifest.entries),
-            compacted_table.nbytes,
+            TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table),
             manifest.meta.content_length,
             len(compacted_table),
         ),

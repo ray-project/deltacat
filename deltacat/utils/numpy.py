@@ -8,8 +8,9 @@ from ray.data.datasource import BlockWritePathProvider
 from deltacat.types.media import ContentType
 from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils import pandas as pd_utils
+from deltacat.utils.common import ReadKwargsProvider
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 
 def slice_ndarray(
@@ -31,7 +32,7 @@ def s3_file_to_ndarray(
         content_encoding: str,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
-        pd_read_func_kwargs: Optional[Dict[str, Any]] = None,
+        pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
         **s3_client_kwargs) -> np.ndarray:
     # TODO: Compare perf to s3 -> pyarrow -> pandas [Series/DataFrame] -> numpy
     dataframe = pd_utils.s3_file_to_dataframe(
@@ -40,7 +41,7 @@ def s3_file_to_ndarray(
         content_encoding,
         column_names,
         include_columns,
-        pd_read_func_kwargs,
+        pd_read_func_kwargs_provider,
         **s3_client_kwargs
     )
     return dataframe.to_numpy()

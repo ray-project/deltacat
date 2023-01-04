@@ -1,4 +1,8 @@
 from enum import Enum
+
+from ray.data.dataset import Dataset
+from ray.data._internal.arrow_block import ArrowRow
+
 from typing import Any, List, Union
 
 import numpy as np

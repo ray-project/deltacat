@@ -4,7 +4,7 @@ import pyarrow
 import ray
 from collections import defaultdict
 
-import deltacat.compute.stats.utils.manifest_stats_file as scf
+from deltacat.compute.stats.utils.manifest_stats_file import read_manifest_stats_by_columns, write_manifest_stats_file
 from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
@@ -15,8 +15,9 @@ from deltacat.compute.stats.utils.intervals import DeltaRange
 from deltacat.storage import PartitionLocator, Delta, DeltaLocator
 from deltacat import logs, LocalTable, TableType
 from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.compute.compactor import DeltaAnnotated
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -24,7 +25,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 @ray.remote
 def read_cached_delta_stats(delta: Delta,
                             columns_to_fetch: List[str],
-                            stat_results_s3_bucket: str) -> DeltaStatsCacheResult:
+                            stat_results_s3_bucket: str):
     """Read delta stats that are cached in S3
 
     This Ray distributed task reads delta stats from a file system (i.e. S3) based on specified columns.
@@ -39,7 +40,7 @@ def read_cached_delta_stats(delta: Delta,
 
     delta_locator = DeltaLocator.of(delta.partition_locator, delta.stream_position)
     column_stats_completion_info: List[DeltaColumnStats] = \
-        scf.read_manifest_stats_by_columns(stat_results_s3_bucket, columns_to_fetch, delta_locator)
+        read_manifest_stats_by_columns(stat_results_s3_bucket, columns_to_fetch, delta_locator)
 
     found_columns_stats: List[DeltaColumnStats] = []
     missed_columns: List[str] = []
@@ -65,7 +66,7 @@ def cache_delta_column_stats(stat_results_s3_bucket: str,
         stat_results_s3_bucket: The S3 bucket name
         dataset_column: Column-oriented stats for a given delta
     """
-    scf.write_manifest_stats_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
+    write_manifest_stats_file(stat_results_s3_bucket, dataset_column.column, dataset_column.manifest_stats)
 
 
 @ray.remote
@@ -73,17 +74,13 @@ def get_delta_stats(delta_locator: DeltaLocator,
                     columns: Optional[List[str]] = None,
                     deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
     """Ray distributed task to compute and collect stats for a requested delta.
-
     If no columns are requested, stats will be computed for all columns.
-
     Args:
         delta_locator: A reference to the delta
         columns: Column names to specify for this delta. If not provided, all columns are considered.
         deltacat_storage: Client implementation of the DeltaCAT storage interface
-
     Returns:
         A delta wide stats container
-
     """
 
     manifest = deltacat_storage.get_delta_manifest(delta_locator)
@@ -130,12 +127,10 @@ def _collect_stats_by_columns(delta: Delta,
                               columns_to_compute: Optional[List[str]] = None,
                               deltacat_storage=unimplemented_deltacat_storage) -> DeltaStats:
     """Materializes one manifest entry at a time to save memory usage and calculate stats from each of its columns.
-
     Args:
         delta: A delta object to calculate stats for
         columns_to_compute: Columns to calculate stats for. If not provided, all columns are considered.
         deltacat_storage: Client implementation of the DeltaCAT storage interface
-
     Returns:
         A delta wide stats container
     """

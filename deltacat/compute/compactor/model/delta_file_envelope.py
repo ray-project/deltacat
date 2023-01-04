@@ -1,7 +1,11 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import numpy as np
 from deltacat.storage import DeltaType, LocalTable
+
+
+DeltaFileEnvelopeGroups = np.ndarray
 
 
 class DeltaFileEnvelope(dict):
@@ -10,6 +14,18 @@ class DeltaFileEnvelope(dict):
            file_index: int,
            delta_type: DeltaType,
            table: LocalTable) -> DeltaFileEnvelope:
+        """ Static factory builder for a Delta File Envelope
+        `
+        Args:
+            stream_position: Stream position of a delta.
+            file_index: Manifest file index number of a delta.
+            delta_type: A delta type.
+            table: The table object that represents the delta file.
+
+        Returns:
+            A delta file envelope.
+
+        """
         if stream_position is None:
             raise ValueError("Missing delta file envelope stream position.")
         if file_index is None:

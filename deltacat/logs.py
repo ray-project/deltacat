@@ -77,6 +77,7 @@ def _configure_logger(
         debug_log_base_file_name: str) -> Logger:
 
     primary_log_level = log_level
+    logger.propagate = False
     if log_level.upper() == "DEBUG":
         if not _file_handler_exists(logger, log_dir, debug_log_base_file_name):
             handler = _create_rotating_file_handler(

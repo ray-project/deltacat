@@ -4,23 +4,36 @@ from typing import Set, Dict
 
 
 class ContentType(str, Enum):
-    # See also: https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.17
-    UNESCAPED_TSV = "application/x-amzn-unescaped-tsv"
-    TSV = "text/tsv"
+    # See also:
+    # https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.17
+    # https://www.iana.org/assignments/media-types/media-types.xhtml
+
+    # IANA registered types
     CSV = "text/csv"
+    JSON = "application/json"
+
+    # unregistered types
+    TSV = "text/tsv"
     PSV = "text/psv"
     PARQUET = "application/parquet"
     ORC = "application/orc"
-    ION = "application/x-amzn-ion"
-    JSON = "application/json"
     FEATHER = "application/feather"
+    UNESCAPED_TSV = "application/x-amzn-unescaped-tsv"
+    ION = "application/x-amzn-ion"
 
 
 class ContentEncoding(str, Enum):
-    # See also: https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.11
+    # See also:
+    # https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.11
+    # http://www.iana.org/assignments/http-parameters/http-parameters.xhtml#content-coding
+
+    # IANA registered encodings
     GZIP = "gzip"
     DEFLATE = "deflate"
     IDENTITY = "identity"
+    ZSTD = "zstd"
+
+    # unregistered encodings
     BZIP2 = "bzip2"
     SNAPPY = "snappy"
 
@@ -29,6 +42,10 @@ class TableType(str, Enum):
     PYARROW = "pyarrow"
     PANDAS = "pandas"
     NUMPY = "numpy"
+
+
+class SchemaType(str, Enum):
+    ARROW = "arrow"
 
 
 class StorageType(str, Enum):

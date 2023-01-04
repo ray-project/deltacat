@@ -13,14 +13,14 @@ all_catalogs: Optional[Catalogs] = None
 class Catalog:
     def __init__(
             self,
-            impl: catalog_interface,
+            impl=catalog_interface,
             *args,
             **kwargs):
         self._impl = impl
         self._impl.initialize(*args, **kwargs)
 
     @property
-    def impl(self) -> catalog_interface:
+    def impl(self):
         return self._impl
 
 

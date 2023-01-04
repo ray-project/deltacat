@@ -79,6 +79,10 @@ def pk_hash_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_PK_HASH_COLUMN_NAME]
 
 
+def delta_type_column(table: pa.Table) -> pa.ChunkedArray:
+    return table[_DELTA_TYPE_COLUMN_NAME]
+
+
 def get_dedupe_task_idx_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
         obj,
@@ -144,14 +148,6 @@ def project_delta_file_metadata_on_table(
 
     table = delta_file_envelope.table
 
-    # append event timestamp column
-    stream_position = delta_file_envelope.stream_position
-    stream_position_iterator = repeat(
-        int(stream_position),
-        len(table),
-    )
-    table = append_stream_position_column(table, stream_position_iterator)
-
     # append ordered file number column
     ordered_file_number = delta_file_envelope.file_index
     ordered_file_number_iterator = repeat(
@@ -159,6 +155,14 @@ def project_delta_file_metadata_on_table(
         len(table),
     )
     table = append_file_idx_column(table, ordered_file_number_iterator)
+
+    # append event timestamp column
+    stream_position = delta_file_envelope.stream_position
+    stream_position_iterator = repeat(
+        int(stream_position),
+        len(table),
+    )
+    table = append_stream_position_column(table, stream_position_iterator)
 
     # append delta type column
     delta_type = delta_file_envelope.delta_type
@@ -260,3 +264,11 @@ def append_is_source_col(
         get_is_source_column_array(booleans),
     )
     return table
+
+
+def get_minimal_hb_schema() -> pa.schema:
+    return pa.schema([
+        _PK_HASH_COLUMN_FIELD,
+        _ORDERED_RECORD_IDX_COLUMN_FIELD,
+        _ORDERED_FILE_IDX_COLUMN_FIELD
+    ])
