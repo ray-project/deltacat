@@ -9,7 +9,7 @@ from typing import Optional, Union, Callable, Dict, Any, cast
 from ray.data import Dataset
 from ray.data.datasource import DefaultBlockWritePathProvider, \
     BlockWritePathProvider
-from ray.data.impl.arrow_block import T
+from ray.data._internal.arrow_block import T
 
 from deltacat.io.aws.redshift.redshift_datasource import RedshiftDatasource
 
