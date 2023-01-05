@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Exit if not on master branch
-      if: endsWith(github.ref, 'main') == false
+      if: endsWith(github.ref, 'main') == false # if the current branch doesn't end with main then exit the workflow 
       run: exit -1
     - name: Checkout
       uses: actions/checkout@main
