@@ -30,7 +30,9 @@ jobs:
       run: >-
         python -m pytest
     - name: Echo tag
-      run: echo ${{ github.ref_name }}
+      run: echo ${{ github.ref_name }} >> $RELEASE_TAG
+    # - name: Install the package
+    #   run: pip install -U ~/SunGatePython-1.0.0-py3-none-any.whl
     - name: Build a binary wheel and a source tarball
       run: >-
         python -m
