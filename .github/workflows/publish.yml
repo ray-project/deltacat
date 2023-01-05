@@ -29,6 +29,8 @@ jobs:
     - name: Run unit tests
       run: >-
         python -m pytest
+    - name: Echo tag
+      run: echo ${{ github.ref_name }}
     - name: Build a binary wheel and a source tarball
       run: >-
         python -m
