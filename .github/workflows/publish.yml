@@ -13,7 +13,7 @@ jobs:
       with:
           fetch-depth: 0
     - name: Exit if not on main branch
-      if: endsWith(github.ref, 'main') == false # if the current branch doesn't end with main then exit the workflow 
+      if: endsWith(github.event.base_ref, 'main') == false # if the current branch doesn't end with main then exit the workflow 
       run: exit -1
     - name: Set up Python 3.10
       uses: actions/setup-python@v3
