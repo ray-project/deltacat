@@ -1,7 +1,7 @@
 name: Publish Python distributions to PyPI
 on:
   release:
-    types: [published]
+    types: [published] # triggered whenever a new GitHub release is published
 jobs:
   build-n-publish:
     name: Build and publish Python distributions to PyPI
