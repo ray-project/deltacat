@@ -1,14 +1,16 @@
-name: Publish Python distributions to PyPI and TestPyPI
-on: 
-  push: # Runs your workflow when you push a commit or tag to main or release branches.
-      branches:
-        - main
-        - 'releases/**'
+name: Publish Python distributions to PyPI
+on:
+  push:
+    tags:        
+      - '*' # Push events on every tags
 jobs:
   build-n-publish:
     name: Build and publish Python distributions to PyPI
     runs-on: ubuntu-latest
     steps:
+    - name: Exit if not on master branch
+      if: endsWith(github.ref, 'main') == false
+      run: exit -1
     - name: Checkout
       uses: actions/checkout@main
       with:
