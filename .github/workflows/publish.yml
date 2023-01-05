@@ -13,6 +13,8 @@ jobs:
       uses: actions/checkout@main
       with:
           fetch-depth: 0
+    - name: Echo branch
+      run: echo "${{ github.base_ref }}"
     - name: Exit if not on main branch
       if: endsWith(github.base_ref, 'main') == false # if the current branch doesn't end with main then exit the workflow 
       run: exit -1
