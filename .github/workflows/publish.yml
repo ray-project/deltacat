@@ -1,20 +1,20 @@
 name: Publish Python distributions to PyPI
 on:
   push:
-    tags:        
-      - '*' # Push events on every tags
+    tags:
+      - "*" # Push events on every tag not including '/' https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#patterns-to-match-branches-and-tags
 jobs:
   build-n-publish:
     name: Build and publish Python distributions to PyPI
     runs-on: ubuntu-latest
     steps:
-    - name: Exit if not on main branch
-      if: endsWith(github.ref, 'main') == false # if the current branch doesn't end with main then exit the workflow 
-      run: exit -1
     - name: Checkout
       uses: actions/checkout@main
       with:
           fetch-depth: 0
+    - name: Exit if not on main branch
+      if: endsWith(github.ref, 'main') == false # if the current branch doesn't end with main then exit the workflow 
+      run: exit -1
     - name: Set up Python 3.10
       uses: actions/setup-python@v3
       with:
