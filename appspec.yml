@@ -1,8 +1,0 @@
-version: 0.0
-os: linux
-files:
-  - source: /
-    destination: /home/ec2-user/deltacat
-hook:
-  CreateWheel:
-    - location: scripts/createwheel.sh
