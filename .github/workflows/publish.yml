@@ -8,7 +8,7 @@ jobs:
     name: Build and publish Python distributions to PyPI
     runs-on: ubuntu-latest
     steps:
-    - name: Exit if not on master branch
+    - name: Exit if not on main branch
       if: endsWith(github.ref, 'main') == false # if the current branch doesn't end with main then exit the workflow 
       run: exit -1
     - name: Checkout
