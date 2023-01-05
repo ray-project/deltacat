@@ -17,7 +17,7 @@ from deltacat.catalog.delegate import alter_table, create_table, drop_table, \
 
 logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "0.1.9"
+__version__ = "0.1.9" 
 
 
 __all__ = [
