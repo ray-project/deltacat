@@ -11,8 +11,6 @@ jobs:
       uses: actions/checkout@main
       with:
           fetch-depth: 0
-    - name: Echo branch
-      run: echo "${{ github.base_ref }}"
     - name: Set up Python 3.10
       uses: actions/setup-python@v3
       with:
@@ -31,6 +29,8 @@ jobs:
     - name: Run unit tests
       run: >-
         python -m pytest
+    - name: Echo tag
+      run: echo ${{ github.ref_name }}
     - name: Build a binary wheel and a source tarball
       run: >-
         python -m
