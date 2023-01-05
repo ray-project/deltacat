@@ -1,9 +1,7 @@
 name: Publish Python distributions to PyPI
 on:
-  push:
-    tags:
-      - "*.*.*" # Push events on every tag matching this pattern
-      # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#patterns-to-match-branches-and-tags
+  release:
+    types: [published]
 jobs:
   build-n-publish:
     name: Build and publish Python distributions to PyPI
