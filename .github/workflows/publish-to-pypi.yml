@@ -1,9 +1,7 @@
-name: Publish Python distributions to PyPI and TestPyPI
-on: 
-  push: # Runs your workflow when you push a commit or tag to main or release branches.
-      branches:
-        - main
-        - 'releases/**'
+name: Publish Python distributions to PyPI
+on:
+  release:
+    types: [published] # triggered whenever a new GitHub release is published
 jobs:
   build-n-publish:
     name: Build and publish Python distributions to PyPI
@@ -31,6 +29,8 @@ jobs:
     - name: Run unit tests
       run: >-
         python -m pytest
+    - name: Echo release tag
+      run: echo ${{ github.ref_name }} >> $RELEASE_TAG
     - name: Build a binary wheel and a source tarball
       run: >-
         python -m
@@ -43,4 +43,5 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
+        verbose: true
         
