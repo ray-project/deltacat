@@ -13,11 +13,6 @@ repos:
     -   id: end-of-file-fixer
     -   id: requirements-txt-fixer
     -   id: trailing-whitespace
-# -   repo: https://github.com/pycqa/bandit
-#     rev: 1.7.0
-#     hooks:
-#       - id: bandit
-#         args: [ --exclude, tests ]
 -   repo: https://github.com/psf/black
     rev: 22.12.0
     hooks:
