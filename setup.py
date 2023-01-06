@@ -13,9 +13,8 @@ def find_version(*paths):
     version_file_path = os.path.join(ROOT_DIR, *paths)
     with open(version_file_path) as file_stream:
         version_match = re.search(
-            r"^__version__ = ['\"]([^'\"]*)['\"]",
-            file_stream.read(),
-            re.M)
+            r"^__version__ = ['\"]([^'\"]*)['\"]", file_stream.read(), re.M
+        )
         if version_match:
             return version_match.group(1)
         raise RuntimeError(f"Failed to find version at: {version_file_path}")
@@ -44,12 +43,12 @@ setuptools.setup(
         "pydantic == 1.10.4",
         "numpy >= 1.21.1",
         "boto3 == 1.24.59",
-        "typing-extensions == 4.4.0"
+        "typing-extensions == 4.4.0",
     ],
     setup_requires=["wheel"],
     package_data={
         "compute/metastats": ["*.yaml"],
-        },
+    },
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
