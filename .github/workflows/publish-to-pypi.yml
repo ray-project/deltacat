@@ -30,7 +30,7 @@ jobs:
       run: >-
         python -m pytest
     - name: Echo release tag
-      run: echo ${{ github.ref_name }} >> $RELEASE_TAG
+      run: echo ${{ github.ref_name }}
     - name: Build a binary wheel and a source tarball
       run: >-
         python -m
