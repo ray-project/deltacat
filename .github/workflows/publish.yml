@@ -29,6 +29,8 @@ jobs:
     - name: Run unit tests
       run: >-
         python -m pytest
+    - name: Echo pip list
+      run: pip list
     - name: Echo tag
       run: echo ${{ github.ref_name }} >> $RELEASE_TAG
     # - name: Install the package
