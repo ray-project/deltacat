@@ -1,4 +1,7 @@
 [flake8]
+exclude =
+  build/*
+  *.egg
 max-line-length = 88
 inline-quotes = '"'
 ignore =
