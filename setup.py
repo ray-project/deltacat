@@ -41,7 +41,7 @@ setuptools.setup(
         "pandas == 1.5.2",
         "pyarrow == 10.0.1",
         "pydantic == 1.10.4",
-        "numpy >= 1.21.1",
+        "numpy == 1.23.4",
         "boto3 == 1.24.59",
         "typing-extensions == 4.4.0",
     ],

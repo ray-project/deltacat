@@ -13,14 +13,18 @@ repos:
     -   id: trailing-whitespace
     -   id: no-commit-to-branch
         args: [--branch, main]
--   repo: https://github.com/psf/black
-    rev: 22.12.0
+-   repo: https://github.com/hadialqattan/pycln
+    rev: v2.1.2
     hooks:
-      - id: black
+    -   id: pycln
 -   repo: https://github.com/PyCQA/isort
     rev: 5.11.4
     hooks:
     -   id: isort
+-   repo: https://github.com/psf/black
+    rev: 22.12.0
+    hooks:
+      - id: black
 -   repo: https://github.com/pycqa/flake8
     rev: 6.0.0
     hooks:
