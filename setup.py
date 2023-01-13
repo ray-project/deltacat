@@ -25,24 +25,24 @@ with open(os.path.join(ROOT_DIR, "README.md"), "r", encoding="utf-8") as fh:
 
 
 setuptools.setup(
-    name="deltacat",
+    name="deltacat-fork",
     version=find_version("deltacat", "__init__.py"),
     author="Ray Team",
     description="A scalable, fast, ACID-compliant Data Catalog powered by Ray.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/ray-project/deltacat",
+    url="https://github.com/ray-project/deltacat-fork",
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     install_requires=[
         # any changes here should also be reflected in requirements.txt
-        "s3fs == 2022.1.0",
-        "tenacity == 8.1.0",
-        "ray[default] == 2.0.0",
-        "pandas == 1.5.2",
+        "boto3 == 1.20.24",
+        "numpy == 1.21.5",
+        "pandas == 1.3.5",
         "pyarrow == 10.0.1",
         "pydantic == 1.10.4",
-        "numpy == 1.23.4",
-        "boto3 == 1.24.59",
+        "ray[default] == 2.0.0",
+        "s3fs == 2022.2.0",
+        "tenacity == 8.1.0",
         "typing-extensions == 4.4.0",
     ],
     setup_requires=["wheel"],
