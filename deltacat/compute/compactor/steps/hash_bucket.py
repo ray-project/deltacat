@@ -77,6 +77,7 @@ def group_file_records_by_pk_hash_bucket(
         num_hash_buckets: int,
         primary_keys: List[str],
         sort_key_names: List[str],
+        ignore_missing_manifest: bool = False,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[DeltaFileEnvelopeGroups]:
 
@@ -85,6 +86,7 @@ def group_file_records_by_pk_hash_bucket(
         annotated_delta,
         primary_keys,
         sort_key_names,
+        ignore_missing_manifest,
         deltacat_storage,
     )
     if delta_file_envelopes is None:
@@ -115,17 +117,29 @@ def read_delta_file_envelopes(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_key_names: List[str],
+        ignore_missing_manifest: bool = False,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[List[DeltaFileEnvelope]]:
 
     columns_to_read = list(chain(primary_keys, sort_key_names))
-    tables = deltacat_storage.download_delta(
+    missing_ids=[]
+    tables_and_missing_ids = deltacat_storage.download_delta(
         annotated_delta,
-        max_parallelism=1,
+        max_parallelism=1, # if >1, will use python multiprocessing
         columns=columns_to_read,
         storage_type=StorageType.LOCAL,
+        ignore_missing_manifest=ignore_missing_manifest,
     )
+    if ignore_missing_manifest:
+        missing_ids = tables_and_missing_ids[1]
+        tables=tables_and_missing_ids[0]
+    else:
+        tables = tables_and_missing_ids
     annotations = annotated_delta.annotations
+    if len(missing_ids)>0:
+        print(f"missing files:{len(missing_ids)}")
+        for id_missing in sorted(missing_ids, reverse=True):
+            del annotations[id_missing]
     assert(len(tables) == len(annotations),
            f"Unexpected Error: Length of downloaded delta manifest tables "
            f"({len(tables)}) doesn't match the length of delta manifest "
@@ -152,6 +166,7 @@ def hash_bucket(
         sort_keys: List[SortKey],
         num_buckets: int,
         num_groups: int,
+        ignore_missing_manifest: bool = False,
         deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
 
     logger.info(f"Starting hash bucket task...")
@@ -161,6 +176,7 @@ def hash_bucket(
         num_buckets,
         primary_keys,
         sort_key_names,
+        ignore_missing_manifest,
         deltacat_storage,
     )
     hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(

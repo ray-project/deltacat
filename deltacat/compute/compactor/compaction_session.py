@@ -72,6 +72,9 @@ def compact_partition(
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
         read_round_completion: bool = False,
+        ignore_missing_manifest: bool = False,
+        max_parallelism: List[float] = None,
+        num_cpus: List[int] = None,
         pg_config: Optional[List[Dict[str, Any]]] = None,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         deltacat_storage=unimplemented_deltacat_storage):
@@ -101,6 +104,9 @@ def compact_partition(
                 compacted_file_content_type,
                 delete_prev_primary_key_index,
                 read_round_completion,
+                ignore_missing_manifest,
+                max_parallelism,
+                num_cpus,
                 schema_on_read,
                 deltacat_storage=deltacat_storage,
                 pg_config=pg_config
@@ -141,6 +147,9 @@ def _execute_compaction_round(
         compacted_file_content_type: ContentType,
         delete_prev_primary_key_index: bool,
         read_round_completion: bool,
+        ignore_missing_manifest: bool,
+        max_parallelism: List[float],
+        num_cpus = List[int],
         schema_on_read: Optional[pa.schema],
         deltacat_storage = unimplemented_deltacat_storage,
         pg_config: Optional[List[Dict[str, Any]]] = None) \
@@ -215,8 +224,17 @@ def _execute_compaction_round(
     # we assume here that we're running on a fixed-size cluster - this
     # assumption could be removed but we'd still need to know the maximum
     # "safe" number of parallel tasks that our autoscaling cluster could handle
-    max_parallelism = int(cluster_cpus)
-    logger.info(f"Max parallelism: {max_parallelism}")
+    if max_parallelism and len(max_parallelism)==3: # customized for each major step: hb, dd, mat
+        max_parallelism = [int(cluster_cpus*i) for i in max_parallelism]
+    else:
+        max_parallelism = [int(cluster_cpus) for _ in range(3)]
+    logger.info(f"Max parallelism for each steps: {max_parallelism}")
+
+
+    if not num_cpus:
+        num_cpus=[1,1,1] # allocate 1 cpu for each task (hb, dd or mat)
+
+    logger.info(f"Number of cpus for each steps: {num_cpus}")
 
     # get the root path of a compatible primary key index for this round
     compatible_primary_key_index_meta = PrimaryKeyIndexMeta.of(
@@ -301,7 +319,7 @@ def _execute_compaction_round(
                 source_partition_locator,
                 round_completion_info,
                 hash_bucket_count,
-                max_parallelism,
+                max_parallelism[0],
                 records_per_primary_key_index_file,
                 delete_prev_primary_key_index,
             )
@@ -315,12 +333,14 @@ def _execute_compaction_round(
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
-        max_parallelism=max_parallelism,
+        max_parallelism=max_parallelism[0],
+        num_cpus = num_cpus[0]
         options_provider=round_robin_opt_provider,
         primary_keys=primary_keys,
         sort_keys=sort_keys,
         num_buckets=hash_bucket_count,
-        num_groups=max_parallelism,
+        num_groups=max_parallelism[0],
+        ignore_missing_manifest=ignore_missing_manifest,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -375,14 +395,15 @@ def _execute_compaction_round(
     # parallel step 2:
     # discover records with duplicate primary keys in each hash bucket, and
     # identify the index of records to keep or drop based on sort keys
-    num_materialize_buckets = max_parallelism
+    num_materialize_buckets = max_parallelism[1]
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
     record_counts_pending_materialize = \
         dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
-        max_parallelism=max_parallelism,
+        max_parallelism=max_parallelism[1],
+        num_cpus = num_cpus[1],
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, item: {"dedupe_task_index": index,
                                              "object_ids": item},
@@ -426,7 +447,8 @@ def _execute_compaction_round(
     mat_tasks_pending = invoke_parallel(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,
-        max_parallelism=max_parallelism,
+        max_parallelism=max_parallelism[2],
+        num_cpus = num_cpus[2]
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, mat_bucket_idx_to_obj_id: {
             "mat_bucket_index": mat_bucket_idx_to_obj_id[0],

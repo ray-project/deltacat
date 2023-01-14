@@ -13,6 +13,7 @@ def invoke_parallel(
         ray_task: Callable,
         *args,
         max_parallelism: Optional[int] = 1000,
+        num_cpus: int = 1,
         options_provider: Callable[[int, Any], Dict[str, Any]] = None,
         kwargs_provider: Callable[[int, Any], Dict[str, Any]] = None,
         **kwargs) -> List[Union[ObjectRef, Tuple[ObjectRef, ...]]]:
@@ -61,9 +62,9 @@ def invoke_parallel(
                 )
             else:
                 ray.wait(pending_ids, num_returns=len(pending_ids)-max_parallelism)
-        opt = {}
+        opt = {"num_cpus":num_cpus}
         if options_provider:
-            opt = options_provider(i, item)
+            opt.update(options_provider(i, item))
         if not kwargs_provider:
             pending_id = ray_task.options(**opt).remote(item, *args, **kwargs)
         else:

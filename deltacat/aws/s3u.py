@@ -31,7 +31,7 @@ from tenacity import wait_random_exponential
 from tenacity import stop_after_delay
 from tenacity import retry_if_exception_type, retry_if_not_exception_type
 
-from typing import Any, Callable, Dict, List, Optional, Generator, Union
+from typing import Any, Callable, Dict, List, Optional, Generator, Union, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -444,22 +444,38 @@ def _download_manifest_entries(
         manifest: Manifest,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
+        ignore_missing_manifest: bool = False,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
         file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
-        -> LocalDataset:
+        -> Tuple[LocalDataset,Optional[List[int]]]:
 
-    return [
-        download_manifest_entry(e, token_holder, table_type, column_names,
-                                include_columns, file_reader_kwargs_provider)
-        for e in manifest.entries
-    ]
+    if ignore_missing_manifest:
+        result = []
+        missing = []
+        for ide, e in enumerate(manifest.entries):
+            try: 
+                tmp = download_manifest_entry(e, token_holder, table_type, column_names,
+                                        include_columns, file_reader_kwargs_provider)
+                result.append(tmp)
+            except Exception as e:
+                missing.append(ide)
+                logger.info(f"missing {len(missing)} manifest_entry")
+                pass
 
+        return result, missing
+    else:
+        return [
+            download_manifest_entry(e, token_holder, table_type, column_names,
+                                    include_columns, file_reader_kwargs_provider)
+            for e in manifest.entries
+        ]
 
 def _download_manifest_entries_parallel(
         manifest: Manifest,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
+        ignore_missing_manifest: bool = False,
         max_parallelism: Optional[int] = None,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
@@ -485,17 +501,19 @@ def download_manifest_entries(
         manifest: Manifest,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
+        ignore_missing_manifest: bool = False,
         max_parallelism: Optional[int] = 1,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
         file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
-        -> LocalDataset:
+        -> Tuple[LocalDataset,Optional[List[int]]]:
 
     if max_parallelism and max_parallelism <= 1:
         return _download_manifest_entries(
             manifest,
             token_holder,
             table_type,
+            ignore_missing_manifest,
             column_names,
             include_columns,
             file_reader_kwargs_provider,
@@ -505,6 +523,7 @@ def download_manifest_entries(
             manifest,
             token_holder,
             table_type,
+            ignore_missing_manifest,
             max_parallelism,
             column_names,
             include_columns,
