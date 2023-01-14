@@ -11,8 +11,6 @@ jobs:
       uses: actions/checkout@main
       with:
           fetch-depth: 0
-    - name: Branch name
-      run: echo running on branch ${GITHUB_REF##*/}
     - name: Set up Python 3.7 (minimum supported python version for deltaCAT)
       uses: actions/setup-python@v3
       with:
