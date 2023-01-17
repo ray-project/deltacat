@@ -40,7 +40,8 @@ def union_primary_key_indices(
         s3_bucket: str,
         round_completion_info: RoundCompletionInfo,
         hash_bucket_index: int,
-        df_envelopes_list: List[List[DeltaFileEnvelope]]) -> pa.Table:
+        df_envelopes_list: List[List[DeltaFileEnvelope]],
+        build_initial_primary_key_indices) -> pa.Table:
 
     logger.info(f"Reading dedupe input for {len(df_envelopes_list)} "
                 f"delta file envelope lists...")
@@ -64,13 +65,14 @@ def union_primary_key_indices(
                                  f"delta stream position found in round "
                                  f"completion info: {round_completion_info}")
             prior_pk_index_table = pa.concat_tables(tables)
-            prior_pk_index_table = sc.append_stream_position_column(
-                prior_pk_index_table,
-                repeat(
-                    prev_compacted_delta_stream_pos,
-                    len(prior_pk_index_table),
-                ),
-            )
+            if not sc.if_stream_position_column_exists(prior_pk_index_table):
+                prior_pk_index_table = sc.append_stream_position_column(
+                    prior_pk_index_table,
+                    repeat(
+                        prev_compacted_delta_stream_pos,
+                        len(prior_pk_index_table),
+                    ),
+                )
             prior_pk_index_table = sc.append_delta_type_col(
                 prior_pk_index_table,
                 repeat(
@@ -81,6 +83,7 @@ def union_primary_key_indices(
             prior_pk_index_table = sc.append_is_source_col(
                 prior_pk_index_table,
                 repeat(
+                    # For previous primary key indices, is_source column set to false.
                     False,
                     len(prior_pk_index_table),
                 )
@@ -129,6 +132,7 @@ def drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
 def write_new_primary_key_index(
         s3_bucket: str,
         new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        build_initial_primary_key_indices: bool,
         max_rows_per_index_file: int,
         max_rows_per_mat_file: int,
         num_materialize_buckets: int,
@@ -198,14 +202,22 @@ def write_new_primary_key_index(
             dest_file_row_idx = dest_file_row_idx_offset % max_rows_per_mat_file
             dest_file_row_idx_col.append(dest_file_row_idx)
             src_dfl_row_counts[src_dfl] += 1
-        table = table.drop([
-            sc._IS_SOURCE_COLUMN_NAME,
-            sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
-            sc._ORDERED_FILE_IDX_COLUMN_NAME,
-            sc._ORDERED_RECORD_IDX_COLUMN_NAME,
-        ])
-        table = sc.append_file_idx_column(table, dest_file_idx_col)
-        table = sc.append_record_idx_col(table, dest_file_row_idx_col)
+
+        if not build_initial_primary_key_indices:
+            table = table.drop([
+                sc._IS_SOURCE_COLUMN_NAME,
+                sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
+                sc._ORDERED_FILE_IDX_COLUMN_NAME,
+                sc._ORDERED_RECORD_IDX_COLUMN_NAME,
+            ])
+            table = sc.append_file_idx_column(table, dest_file_idx_col)
+            table = sc.append_record_idx_col(table, dest_file_row_idx_col)
+        else:
+            # Force primary key file idx and record idx point to source compacted partition
+            # when building initial primary key indices
+            table = table.drop([
+                sc._IS_SOURCE_COLUMN_NAME
+            ])
 
         hb_pki_result = pki.write_primary_key_index_files(
             table,
@@ -273,6 +285,7 @@ def dedupe(
         compaction_artifact_s3_bucket: str,
         round_completion_info: Optional[RoundCompletionInfo],
         new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        build_initial_primary_key_indices: bool,
         object_ids: List[Any],
         sort_keys: List[SortKey],
         max_records_per_index_file: int,
@@ -304,12 +317,13 @@ def dedupe(
             round_completion_info,
             hb_idx,
             dfe_list,
+            build_initial_primary_key_indices
         )
         logger.info(f"Dedupe round input record count: {len(table)}")
 
         # sort by sort keys
         if len(sort_keys):
-            # TODO (pdames): convert to O(N) dedupe w/ sort keys
+            # TODO (pdames): convert to O(N) dedupe w/ sort keys sort_keys sort_keys sort_keys
             sort_keys.extend([
                 SortKey.of(
                     sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
@@ -389,6 +403,7 @@ def dedupe(
     write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
         compaction_artifact_s3_bucket,
         new_primary_key_index_version_locator,
+        build_initial_primary_key_indices,
         max_records_per_index_file,
         max_records_per_materialized_file,
         num_materialize_buckets,

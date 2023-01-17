@@ -64,6 +64,11 @@ _IS_SOURCE_COLUMN_FIELD = pa.field(
 )
 
 
+def if_stream_position_column_exists(obj) -> bool:
+    return True if _PARTITION_STREAM_POSITION_COLUMN_NAME\
+                   in obj.column_names else False
+
+
 def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
         obj,

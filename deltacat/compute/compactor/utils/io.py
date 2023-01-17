@@ -53,15 +53,41 @@ def discover_deltas(
     return deltas
 
 
-def limit_input_deltas(
-        input_deltas: List[Delta],
+def _get_hash_bucket_count(delta_bytes_pyarrow,
+                           worker_obj_store_mem_per_task,
+                           worker_cpus,
+                           hash_bucket_count):
+    # TODO (pdames): determine min hash buckets from size of all deltas
+    #  (not just deltas for this round)
+    min_hash_bucket_count = int(max(
+        math.ceil(delta_bytes_pyarrow / worker_obj_store_mem_per_task),
+        min(worker_cpus, 256),
+    ))
+    logger.info(f"Minimum recommended hash buckets: {min_hash_bucket_count}")
+
+    if hash_bucket_count is None:
+        # TODO (pdames): calc default hash buckets from table growth rate... as
+        #  this stands, we don't know whether we're provisioning insufficient
+        #  hash buckets for the next 5 minutes of deltas or more than enough
+        #  for the next 10 years
+        hash_bucket_count = min_hash_bucket_count
+        logger.info(f"Using default hash bucket count: {hash_bucket_count}")
+
+    if hash_bucket_count < min_hash_bucket_count:
+        logger.warning(
+            f"Provided hash bucket count ({hash_bucket_count}) "
+            f"is less than the min recommended ({min_hash_bucket_count}). "
+            f"This compaction job run may run out of memory, or run slowly. To "
+            f"resolve this problem either specify a larger number of hash "
+            f"buckets when running compaction, omit a custom hash bucket "
+            f"count when running compaction, or provision workers with more "
+            f"task memory per CPU.")
+    return hash_bucket_count
+
+
+def _get_worker_mem_stats(
         cluster_resources: Dict[str, float],
-        hash_bucket_count: int,
-        min_pk_index_pa_bytes: int,
-        user_hash_bucket_chunk_size: int,
-        input_deltas_stats: Dict[int, DeltaStats],
-        deltacat_storage=unimplemented_deltacat_storage) \
-        -> Tuple[List[DeltaAnnotated], int, int]:
+        min_pk_index_pa_bytes: int):
 
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
@@ -95,7 +121,21 @@ def limit_input_deltas(
     # TODO (pdames): ensure fixed memory per CPU in heterogenous clusters
     worker_mem_per_task = worker_task_mem / worker_cpus
     logger.info(f"Cluster worker memory/task: {worker_mem_per_task}")
+    return worker_mem_per_task, worker_obj_store_mem, worker_obj_store_mem_per_task, worker_cpus
 
+
+def limit_input_deltas(
+        input_deltas: List[Delta],
+        cluster_resources: Dict[str, float],
+        hash_bucket_count: int,
+        min_pk_index_pa_bytes: int,
+        user_hash_bucket_chunk_size: int,
+        input_deltas_stats: Dict[int, DeltaStats],
+        deltacat_storage=unimplemented_deltacat_storage) \
+        -> Tuple[List[DeltaAnnotated], int, int]:
+
+    worker_mem_per_task, worker_obj_store_mem, worker_obj_store_mem_per_task, worker_cpus\
+        = _get_worker_mem_stats(cluster_resources, min_pk_index_pa_bytes)
     delta_bytes = 0
     delta_bytes_pyarrow = 0
     delta_manifest_entries = 0
@@ -144,32 +184,11 @@ def limit_input_deltas(
     if not limited_input_da_list:
         raise RuntimeError("No input deltas to compact!")
 
-    # TODO (pdames): determine min hash buckets from size of all deltas
-    #  (not just deltas for this round)
-    min_hash_bucket_count = int(max(
-        math.ceil(delta_bytes_pyarrow / worker_obj_store_mem_per_task),
-        min(worker_cpus, 256),
-    ))
-    logger.info(f"Minimum recommended hash buckets: {min_hash_bucket_count}")
-
-    if hash_bucket_count is None:
-        # TODO (pdames): calc default hash buckets from table growth rate... as
-        #  this stands, we don't know whether we're provisioning insufficient
-        #  hash buckets for the next 5 minutes of deltas or more than enough
-        #  for the next 10 years
-        hash_bucket_count = min_hash_bucket_count
-        logger.info(f"Using default hash bucket count: {hash_bucket_count}")
-
-    if hash_bucket_count < min_hash_bucket_count:
-        logger.warning(
-            f"Provided hash bucket count ({hash_bucket_count}) "
-            f"is less than the min recommended ({min_hash_bucket_count}). "
-            f"This compaction job run may run out of memory, or run slowly. To "
-            f"resolve this problem either specify a larger number of hash "
-            f"buckets when running compaction, omit a custom hash bucket "
-            f"count when running compaction, or provision workers with more "
-            f"task memory per CPU.")
-
+    hash_bucket_count = _get_hash_bucket_count(
+                            delta_bytes_pyarrow,
+                            worker_obj_store_mem_per_task,
+                            worker_cpus,
+                            hash_bucket_count)
     hash_bucket_chunk_size = user_hash_bucket_chunk_size
     max_hash_bucket_chunk_size = math.ceil(
         worker_obj_store_mem_per_task / PYARROW_INFLATION_MULTIPLIER
@@ -207,3 +226,77 @@ def limit_input_deltas(
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
     return rebatched_da_list, hash_bucket_count, latest_stream_position
+
+
+def annotate_delta_for_primary_key_indices_building(
+        input_deltas: List[Delta],
+        cluster_resources: Dict[str, float],
+        hash_bucket_count: int,
+        min_pk_index_pa_bytes: int,
+        input_deltas_stats: Dict[int, DeltaStats],
+        deltacat_storage=unimplemented_deltacat_storage) \
+        -> Tuple[List[DeltaAnnotated], int, int]:
+
+    worker_mem_per_task, worker_obj_store_mem, worker_obj_store_mem_per_task, worker_cpus \
+        = _get_worker_mem_stats(cluster_resources, min_pk_index_pa_bytes)
+    delta_bytes = 0
+    delta_bytes_pyarrow = 0
+    delta_manifest_entries = 0
+    sum_of_content_length = 0
+    limited_input_da_list = []
+
+    if input_deltas_stats is None:
+        input_deltas_stats = {}
+
+    input_deltas_stats = {int(stream_pos): DeltaStats(delta_stats)
+                          for stream_pos, delta_stats in input_deltas_stats.items()}
+    for delta in input_deltas:
+        manifest = deltacat_storage.get_delta_manifest(delta)
+        delta.manifest = manifest
+
+        delta_stats = input_deltas_stats.get(delta.stream_position, DeltaStats())
+        if delta_stats:
+            delta_bytes_pyarrow += delta_stats.stats.pyarrow_table_bytes
+        else:
+            # TODO (pdames): ensure pyarrow object fits in per-task obj store mem
+            logger.warning(
+                f"Stats are missing for delta stream position {delta.stream_position}, "
+                f"materialized delta may not fit in per-task object store memory.")
+        manifest_entries = delta.manifest.entries
+        delta_manifest_entries += len(manifest_entries)
+        for entry in manifest_entries:
+            delta_bytes += entry.meta.content_length
+            sum_of_content_length += entry.meta.content_length
+            if not delta_stats:
+                delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
+
+        worker_obj_store_mem = float(cluster_resources["object_store_memory"])
+        # TODO: Enable multiple rounds of initialx primary key indices building.
+        #  Currently, we assume initial primary key indices building should complete in one round
+        #  because initial primary key indices building is part of one compaction run.
+        if delta_bytes_pyarrow > worker_obj_store_mem:
+            logger.warning(
+                f"Not able to fit deltas into memory for "
+                f"initial primary key indices building "
+                f"estimated in-memory pyarrow bytes of deltas is {delta_bytes_pyarrow} "
+                f"larger than {worker_obj_store_mem}. Increase your cluster size!")
+            raise NotImplementedError(
+                "Initial primary key indices building doesn't support multiple runs to split input delta")
+        delta_annotated = DeltaAnnotated.of(delta)
+    limited_input_da_list.append(delta_annotated)
+
+    logger.info(f"Input deltas to build primary key indices this round: "
+                f"{len(limited_input_da_list)}")
+    logger.info(f"Input delta bytes to build primary key indices: {delta_bytes}")
+    logger.info(f"Input delta files to build primary key indices: {delta_manifest_entries}")
+
+    if not limited_input_da_list:
+        raise RuntimeError("No input deltas to compact!")
+
+    hash_bucket_count = _get_hash_bucket_count(
+        delta_bytes_pyarrow,
+        worker_obj_store_mem_per_task,
+        worker_cpus,
+        hash_bucket_count)
+
+    return limited_input_da_list, hash_bucket_count, delta_manifest_entries, sum_of_content_length
