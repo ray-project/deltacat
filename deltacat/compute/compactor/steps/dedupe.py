@@ -229,7 +229,7 @@ def delta_file_locator_to_mat_bucket_index(
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
-@ray.remote(num_cpus=0.2)
+@ray.remote(num_cpus=0.1)
 class RecordCountsPendingMaterialize:
     def __init__(self, expected_result_count: int):
         # materialize_bucket -> src_file_id
@@ -268,7 +268,7 @@ class RecordCountsPendingMaterialize:
         return self.actual_result_count == self.expected_result_count
 
 
-@ray.remote(num_cpus=0.5,num_returns=3)
+@ray.remote(num_returns=3)
 def dedupe(
         compaction_artifact_s3_bucket: str,
         round_completion_info: Optional[RoundCompletionInfo],

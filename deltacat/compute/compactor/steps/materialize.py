@@ -29,7 +29,7 @@ from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote(num_cpus=0.5)
+@ray.remote
 def materialize(
         source_partition_locator: PartitionLocator,
         round_completion_info: Optional[RoundCompletionInfo],

@@ -27,9 +27,38 @@ from typing import List, Set, Optional, Tuple, Dict, Union, Any
 import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-_SORT_KEY_NAME_INDEX: int = 0
-_SORT_KEY_ORDER_INDEX: int = 1
-_PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
+
+
+
+@ray.remote(num_cpus=0.01)
+class STATES_ACTOR:
+    def __init__(self):
+        self._SORT_KEY_NAME_INDEX: int = 0
+        self._SORT_KEY_ORDER_INDEX: int = 1
+        self._PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
+        self._TOTAL_ENTRIES: int = 0
+        self._TOTAL_DELTAS: int = 0
+        self._TOTAL_ROUNDS: float = 0
+
+    def SORT_KEY_NAME_INDEX(self):
+        return self._SORT_KEY_NAME_INDEX
+    def SORT_KEY_ORDER_INDEX(self):
+        return self._SORT_KEY_NAME_INDEX
+    def PRIMARY_KEY_INDEX_ALGORITHM_VERSION(self):
+        return self._PRIMARY_KEY_INDEX_ALGORITHM_VERSION
+    def TOTAL_ROUNDS(self):
+        return self._TOTAL_ROUNDS
+    def TOTAL_ENTRIES(self):
+        return self._TOTAL_ENTRIES
+    def TOTAL_DELTAS(self):
+        return self._TOTAL_DELTAS
+
+    def update_delta(self, delta):
+        self._TOTAL_DELTAS = delta
+    def update_entry(self, entry):
+        self._TOTAL_ENTRIES = entry
+    def update_round(self, round):
+        self._TOTAL_ROUNDS = round
 
 
 def check_preconditions(
@@ -86,7 +115,12 @@ def compact_partition(
     opts={}
     if pg_config:
         opts=pg_config[0]
+    round_id = 1
+    states = STATES_ACTOR.remote()
     while has_next_compaction_round:
+        round_start = time.time()
+        logger.info(f"round {round_id} started")
+        print(f"round {round_id} started")
         has_next_compaction_round_obj, new_partition_obj, new_rci_obj = \
             _execute_compaction_round.options(**opts).remote(
                 source_partition_locator,
@@ -107,11 +141,18 @@ def compact_partition(
                 ignore_missing_manifest,
                 max_parallelism,
                 num_cpus,
+                round_id,
+                states,
                 schema_on_read,
                 deltacat_storage=deltacat_storage,
                 pg_config=pg_config
             )
+        round_id +=1
         has_next_compaction_round = ray.get(has_next_compaction_round_obj)
+        round_end = time.time()
+        TOTAL_ROUNDS = ray.get(states.TOTAL_ROUNDS.remote())
+        logger.info(f"Round {round_id}/{TOTAL_ROUNDS} took {round_end-round_start} seconds, estimated time to finish:{(TOTAL_ROUNDS-round_id)*(round_end-round_start)}")
+        print(f"Round {round_id}/{TOTAL_ROUNDS} took {round_end-round_start} seconds, estimated time to finish:{(TOTAL_ROUNDS-round_id)*(round_end-round_start)}")
         new_partition = ray.get(new_partition_obj)
         new_rci = ray.get(new_rci_obj)
         if new_partition:
@@ -130,7 +171,11 @@ def compact_partition(
         logger.info(f"Committed compacted partition: {partition}")
     logger.info(f"Completed compaction session for: {source_partition_locator}")
 
-@ray.remote(num_cpus=0.1,num_returns=3)
+
+@ray.remote
+def get_metadata(deltacat_storage, delta):
+    return len(deltacat_storage.get_delta_manifest(delta).entries)
+@ray.remote(num_cpus=1,num_returns=3,max_retries=1)
 def _execute_compaction_round(
         source_partition_locator: PartitionLocator,
         compacted_partition_locator: PartitionLocator,
@@ -149,13 +194,16 @@ def _execute_compaction_round(
         read_round_completion: bool,
         ignore_missing_manifest: bool,
         max_parallelism: List[float],
-        num_cpus = List[int],
+        num_cpus: List[int],
+        round_id: int,
+        states: STATES_ACTOR,
         schema_on_read: Optional[pa.schema],
         deltacat_storage = unimplemented_deltacat_storage,
         pg_config: Optional[List[Dict[str, Any]]] = None) \
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
 
+    pre_hb_start = time.time()
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
         #  with normalized manifest entry sizes
@@ -193,9 +241,10 @@ def _execute_compaction_round(
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
     if pg_config: # use resource in each placement group
-        node_resource_keys=None
+        #node_resource_keys=None
         cluster_resources = pg_config[1]
-        cluster_cpus = cluster_resources['CPU']   
+        cluster_cpus = cluster_resources['CPU']
+        node_resource_keys = cluster_resources['node_id']   
     else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
@@ -237,6 +286,7 @@ def _execute_compaction_round(
     logger.info(f"Number of cpus for each steps: {num_cpus}")
 
     # get the root path of a compatible primary key index for this round
+    _PRIMARY_KEY_INDEX_ALGORITHM_VERSION=ray.get(states.PRIMARY_KEY_INDEX_ALGORITHM_VERSION.remote())
     compatible_primary_key_index_meta = PrimaryKeyIndexMeta.of(
         compacted_partition_locator,
         primary_keys,
@@ -302,6 +352,24 @@ def _execute_compaction_round(
             deltacat_storage=deltacat_storage
         )
 
+    uniform_deltas_entries=sum([len(i.manifest.entries) for i in uniform_deltas])
+    if round_id == 1: # first round, total_deltas is known
+        #TOTAL_ENTRIES = sum([len(deltacat_storage.get_delta_manifest(i).manifest.entries) for i in input_deltas])
+        #TOTAL_ENTRIES = sum(ray.get([get_metadata.remote(deltacat_storage,i) for i in input_deltas]))
+        #TODO: use stats, otherwise too slow to get all manifest's metadata
+        TOTAL_ENTRIES = 722451
+        TOTAL_DELTAS = len(input_deltas)
+        ray.get(states.update_entry.remote(TOTAL_ENTRIES))
+        ray.get(states.update_delta.remote(TOTAL_DELTAS))
+        logger.info(f"Estimated Rounds:{TOTAL_ENTRIES/uniform_deltas_entries}")
+        TOTAL_ROUNDS = TOTAL_ENTRIES/uniform_deltas_entries
+        ray.get(states.update_round.remote(TOTAL_ROUNDS))
+    TOTAL_ROUNDS = ray.get(states.TOTAL_ROUNDS.remote())
+    TOTAL_ENTRIES = ray.get(states.TOTAL_ENTRIES.remote())
+    TOTAL_DELTAS = ray.get(states.TOTAL_DELTAS.remote())
+    logger.info(f"Round {round_id}/{TOTAL_ROUNDS}: {uniform_deltas_entries}/{TOTAL_ENTRIES} entries in total deltas {TOTAL_DELTAS}")
+    print(f"Round {round_id}/{TOTAL_ROUNDS}: {uniform_deltas_entries}/{TOTAL_ENTRIES} entries in total deltas {TOTAL_DELTAS}")
+
     assert hash_bucket_count is not None and hash_bucket_count > 0, \
         f"Unexpected Error: Default hash bucket count ({hash_bucket_count}) " \
         f"is invalid."
@@ -328,13 +396,17 @@ def _execute_compaction_round(
                     f"{source_partition_locator}. Primary key index locator: "
                     f"{compatible_primary_key_index_locator}")
 
+
+    hb_start = time.time()
+    logger.info(f"adhoc_rootliu, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
+    print(f"adhoc_rootliu, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
         max_parallelism=max_parallelism[0],
-        num_cpus = num_cpus[0]
+        num_cpus = num_cpus[0],
         options_provider=round_robin_opt_provider,
         primary_keys=primary_keys,
         sort_keys=sort_keys,
@@ -345,6 +417,7 @@ def _execute_compaction_round(
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
     hb_results = ray.get([t[0] for t in hb_tasks_pending])
+    print(f"adhoc_rootliu, Round {round_id} Got {len(hb_results)} hash bucket results.")
     logger.info(f"Got {len(hb_results)} hash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hash_group_idx_to_obj_id in hb_results:
@@ -353,6 +426,9 @@ def _execute_compaction_round(
                 all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
     hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
     logger.info(f"Hash bucket groups created: {hash_group_count}")
+    hb_end = time.time()
+    logger.info(f"adhoc_rootliu, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
+    print(f"adhoc_rootliu, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
 
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
@@ -420,6 +496,7 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
     logger.info(f"Got {len(dd_results)} dedupe results.")
+    print((f"adhoc_rootliu, Round {round_id} Got {len(dd_results)} dedupe results."))
     all_mat_buckets_to_obj_id = defaultdict(list)
     for mat_bucket_idx_to_obj_id in dd_results:
         for bucket_idx, dd_task_index_and_object_id_tuple in \
@@ -432,6 +509,9 @@ def _execute_compaction_round(
     logger.info(f"Materialize buckets created: "
                 f"{len(all_mat_buckets_to_obj_id)}")
 
+    dd_end = time.time()
+    logger.info(f"adhoc_rootliu, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
+    print(f"adhoc_rootliu, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
     #  tables from S3 then wait for deduping to finish before continuing
@@ -448,7 +528,7 @@ def _execute_compaction_round(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,
         max_parallelism=max_parallelism[2],
-        num_cpus = num_cpus[2]
+        num_cpus = num_cpus[2],
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, mat_bucket_idx_to_obj_id: {
             "mat_bucket_index": mat_bucket_idx_to_obj_id[0],
@@ -465,13 +545,19 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
     mat_results = ray.get(mat_tasks_pending)
     logger.info(f"Got {len(mat_results)} materialize result(s).")
+    print(f"adhoc_rootliu, Round {round_id} Got {len(mat_results)} materialize result(s).")
 
+    mat_end = time.time()
+    logger.info(f"adhoc_rootliu, Round {round_id} mat took:{mat_end-dd_end} seconds")
+    print(f"adhoc_rootliu, Round {round_id} mat took:{mat_end-dd_end} seconds")
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
     compacted_delta = deltacat_storage.commit_delta(merged_delta)
     logger.info(f"Committed compacted delta: {compacted_delta}")
-
+    commit_end=time.time()
+    logger.info(f"adhoc_rootliu, Round {round_id} commit took:{commit_end-mat_end} seconds")
+    print(f"adhoc_rootliu, Round {round_id} commit took:{commit_end-mat_end} seconds")
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,

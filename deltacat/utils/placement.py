@@ -15,6 +15,7 @@ from ray.experimental.state.api import get_node, get_placement_group
 
 
 from deltacat import logs
+from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 #Limitation of current node group or placement group manager
@@ -179,7 +180,10 @@ class PlacementGroupManager():
 	"""
 	def __init__(self, num_pgs: int, instance_cpus: int, instance_type: int = 8, time_out: Optional[float] = None):
 		head_res_key = self.get_current_node_resource_key()
-		self._pg_configs = ray.get([_config.options(resources={head_res_key:0.01}).remote(instance_cpus, instance_type) for _ in range(num_pgs)])
+		all_node_res_key = live_node_resource_keys()
+		all_node_res_key.remove(head_res_key)
+		num_bundles = (int)(instance_cpus/instance_type)
+		self._pg_configs = ray.get([_config.options(resources={head_res_key:0.01}).remote(instance_cpus, instance_type, all_node_res_key[i*num_bundles:(i+1)*num_bundles]) for i in range(num_pgs)])
 	@property
 	def pgs(self):
 		return self._pg_configs
@@ -193,13 +197,13 @@ class PlacementGroupManager():
 	                if key.startswith("node:"): 
 	                    return key
 @ray.remote(num_cpus=0.01)
-def _config(instance_cpus: int, instance_type: int, time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
+def _config(instance_cpus: int, instance_type: int, node_res_keys: List[str], time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
 	pg_config = None
 	try:
 		opts ={}
 		cluster_resources={}
 		num_bundles = (int)(instance_cpus/instance_type)
-		bundles = [{'CPU':instance_type} for _ in range(num_bundles)]
+		bundles = [{'CPU':instance_type,node_res_keys[i]:1} for i in range(num_bundles)]
 		pg = placement_group(bundles, strategy="SPREAD")
 		ray.get(pg.ready(), timeout=time_out)
 		if not pg:
@@ -223,11 +227,10 @@ def _config(instance_cpus: int, instance_type: int, time_out: Optional[float] = 
 				pg_res['CPU']+=node_detail['resources_total']['CPU']
 				pg_res['memory']+=v['memory']
 				pg_res['object_store_memory']+=v['object_store_memory']
-				pg_res['node_id'].append(node_id)
 		cluster_resources['CPU'] = int(pg_res['CPU'])
 		cluster_resources['memory'] = float(pg_res['memory'])
 		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-		cluster_resources['node_id'] = pg_res['node_id']
+		cluster_resources['node_id'] = node_res_keys
 		pg_config=[opts,cluster_resources]
 		logger.info(f"pg has resources:{cluster_resources}")
 

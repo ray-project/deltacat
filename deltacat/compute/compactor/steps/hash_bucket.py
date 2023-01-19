@@ -159,7 +159,7 @@ def read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_cpus=0.5, num_returns=2)
+@ray.remote(num_returns=2)
 def hash_bucket(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
