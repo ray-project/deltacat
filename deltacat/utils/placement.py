@@ -178,6 +178,7 @@ class PlacementGroupManager():
 		num_pgs: number of placement groups to be created
 		instance_cpus: number of cpus per instance
 	"""
+	#TODO: add para for taking the head res key
 	def __init__(self, num_pgs: int, instance_cpus: int, instance_type: int = 8, time_out: Optional[float] = None):
 		head_res_key = self.get_current_node_resource_key()
 		all_node_res_key = live_node_resource_keys()

@@ -20,7 +20,7 @@ from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
     PyArrowWriteResult
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
-from deltacat.types.media import ContentType
+from deltacat.types.media import ContentType,StorageType
 
 from typing import List, Set, Optional, Tuple, Dict, Union, Any
 
@@ -101,6 +101,8 @@ def compact_partition(
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
         read_round_completion: bool = False,
+        storage_type: StorageType = StorageType.LOCAL,
+        max_io_parallelism: int = 1,
         ignore_missing_manifest: bool = False,
         max_parallelism: List[float] = None,
         num_cpus: List[int] = None,
@@ -138,6 +140,8 @@ def compact_partition(
                 compacted_file_content_type,
                 delete_prev_primary_key_index,
                 read_round_completion,
+                storage_type,
+                max_io_parallelism,
                 ignore_missing_manifest,
                 max_parallelism,
                 num_cpus,
@@ -192,6 +196,8 @@ def _execute_compaction_round(
         compacted_file_content_type: ContentType,
         delete_prev_primary_key_index: bool,
         read_round_completion: bool,
+        storage_type: StorageType,
+        max_io_parallelism: int,
         ignore_missing_manifest: bool,
         max_parallelism: List[float],
         num_cpus: List[int],
@@ -375,7 +381,6 @@ def _execute_compaction_round(
         f"is invalid."
 
     # rehash the primary key index if necessary
-    round_completion_info = None
     if round_completion_info:
         logger.info(f"Round completion file contents: {round_completion_info}")
         # the previous primary key index is compatible with the current, but
@@ -398,8 +403,8 @@ def _execute_compaction_round(
 
 
     hb_start = time.time()
-    logger.info(f"adhoc_rootliu, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
-    print(f"adhoc_rootliu, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
+    logger.info(f"adhoc, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
+    print(f"adhoc, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
     hb_tasks_pending = invoke_parallel(
@@ -412,12 +417,14 @@ def _execute_compaction_round(
         sort_keys=sort_keys,
         num_buckets=hash_bucket_count,
         num_groups=max_parallelism[0],
+        storage_type = storage_type,
+        max_io_parallelism = max_io_parallelism,
         ignore_missing_manifest=ignore_missing_manifest,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
     hb_results = ray.get([t[0] for t in hb_tasks_pending])
-    print(f"adhoc_rootliu, Round {round_id} Got {len(hb_results)} hash bucket results.")
+    print(f"adhoc, Round {round_id} Got {len(hb_results)} hash bucket results.")
     logger.info(f"Got {len(hb_results)} hash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hash_group_idx_to_obj_id in hb_results:
@@ -427,8 +434,8 @@ def _execute_compaction_round(
     hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
     logger.info(f"Hash bucket groups created: {hash_group_count}")
     hb_end = time.time()
-    logger.info(f"adhoc_rootliu, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
-    print(f"adhoc_rootliu, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
+    logger.info(f"adhoc, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
+    print(f"adhoc, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
 
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
@@ -496,7 +503,7 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
     logger.info(f"Got {len(dd_results)} dedupe results.")
-    print((f"adhoc_rootliu, Round {round_id} Got {len(dd_results)} dedupe results."))
+    print((f"adhoc, Round {round_id} Got {len(dd_results)} dedupe results."))
     all_mat_buckets_to_obj_id = defaultdict(list)
     for mat_bucket_idx_to_obj_id in dd_results:
         for bucket_idx, dd_task_index_and_object_id_tuple in \
@@ -510,8 +517,8 @@ def _execute_compaction_round(
                 f"{len(all_mat_buckets_to_obj_id)}")
 
     dd_end = time.time()
-    logger.info(f"adhoc_rootliu, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
-    print(f"adhoc_rootliu, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
+    logger.info(f"adhoc, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
+    print(f"adhoc, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
     #  tables from S3 then wait for deduping to finish before continuing
@@ -545,19 +552,19 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
     mat_results = ray.get(mat_tasks_pending)
     logger.info(f"Got {len(mat_results)} materialize result(s).")
-    print(f"adhoc_rootliu, Round {round_id} Got {len(mat_results)} materialize result(s).")
+    print(f"adhoc, Round {round_id} Got {len(mat_results)} materialize result(s).")
 
     mat_end = time.time()
-    logger.info(f"adhoc_rootliu, Round {round_id} mat took:{mat_end-dd_end} seconds")
-    print(f"adhoc_rootliu, Round {round_id} mat took:{mat_end-dd_end} seconds")
+    logger.info(f"adhoc, Round {round_id} mat took:{mat_end-dd_end} seconds")
+    print(f"adhoc, Round {round_id} mat took:{mat_end-dd_end} seconds")
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
     compacted_delta = deltacat_storage.commit_delta(merged_delta)
     logger.info(f"Committed compacted delta: {compacted_delta}")
     commit_end=time.time()
-    logger.info(f"adhoc_rootliu, Round {round_id} commit took:{commit_end-mat_end} seconds")
-    print(f"adhoc_rootliu, Round {round_id} commit took:{commit_end-mat_end} seconds")
+    logger.info(f"adhoc, Round {round_id} commit took:{commit_end-mat_end} seconds")
+    print(f"adhoc, Round {round_id} commit took:{commit_end-mat_end} seconds")
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,

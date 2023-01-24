@@ -396,6 +396,7 @@ def download_manifest_entry(
         manifest_entry: ManifestEntry,
         token_holder: Optional[Dict[str, Any]] = None,
         table_type: TableType = TableType.PYARROW,
+        ignore_missing_manifest: bool = False,
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
         file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -426,17 +427,36 @@ def download_manifest_entry(
         stop=stop_after_delay(30 * 60),
         retry=retry_if_not_exception_type(NonRetryableError)
     )
-    table = retrying(
-        read_file,
-        s3_url,
-        content_type,
-        content_encoding,
-        table_type,
-        column_names,
-        include_columns,
-        file_reader_kwargs_provider,
-        **s3_client_kwargs,
-    )
+    table = None
+    if ignore_missing_manifest:
+        try:
+            #in case of ignoring missing manifest, capture the exception after retrying
+            table = retrying(
+                read_file,
+                s3_url,
+                content_type,
+                content_encoding,
+                table_type,
+                column_names,
+                include_columns,
+                file_reader_kwargs_provider,
+                **s3_client_kwargs,
+            )
+        except Exception as e:
+            pass
+    else:
+        #otherwise, throw the exception after retrying, so the compaction stops
+        table = retrying(
+            read_file,
+            s3_url,
+            content_type,
+            content_encoding,
+            table_type,
+            column_names,
+            include_columns,
+            file_reader_kwargs_provider,
+            **s3_client_kwargs,
+        )
     return table
 
 
@@ -452,18 +472,19 @@ def _download_manifest_entries(
 
     if ignore_missing_manifest:
         result = []
-        missing = []
+        total_missing = 0
+        missings=[] # for recording the missing entry ids
         for ide, e in enumerate(manifest.entries):
-            try: 
-                tmp = download_manifest_entry(e, token_holder, table_type, column_names,
-                                        include_columns, file_reader_kwargs_provider)
+            #exception is already captured in download_manifest_entry
+            tmp = download_manifest_entry(e, token_holder, table_type, column_names,
+                                    include_columns, file_reader_kwargs_provider)
+            if tmp:
                 result.append(tmp)
-            except Exception as e:
-                missing.append(ide)
-                logger.info(f"missing {len(missing)} manifest_entry")
-                pass
-
-        return result, missing
+            else:
+                missings.append(ide)
+            total_missing += 1
+        logger.info(f"missing or error in accessing {total_missing} manifest_entries")
+        return result, missings
     else:
         return [
             download_manifest_entry(e, token_holder, table_type, column_names,
@@ -480,7 +501,7 @@ def _download_manifest_entries_parallel(
         column_names: Optional[List[str]] = None,
         include_columns: Optional[List[str]] = None,
         file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
-        -> LocalDataset:
+        -> Tuple[LocalDataset,Optional[List[int]]]:
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
@@ -492,9 +513,21 @@ def _download_manifest_entries_parallel(
         include_columns=include_columns,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
     )
-    for table in pool.map(downloader, [e for e in manifest.entries]):
-        tables.append(table)
-    return tables
+    if ignore_missing_manifest:
+        missings=[]
+        total_missing=0
+        for ide,table in enumerate(pool.map(downloader, [e for e in manifest.entries])):
+            if table:
+                tables.append(table)
+            else:
+                missings.append(ide)
+                total_missing+=1
+        logger.info(f"missing or error in accessing {total_missing} manifest_entries")
+        return tables,missings
+    else:
+        for table in pool.map(downloader, [e for e in manifest.entries]):
+            tables.append(table)
+        return tables
 
 
 def download_manifest_entries(

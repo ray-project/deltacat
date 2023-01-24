@@ -77,6 +77,8 @@ def group_file_records_by_pk_hash_bucket(
         num_hash_buckets: int,
         primary_keys: List[str],
         sort_key_names: List[str],
+        storage_type: StorageType=StorageType.LOCAL,
+        max_io_parallelism: int = 1,
         ignore_missing_manifest: bool = False,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[DeltaFileEnvelopeGroups]:
@@ -86,6 +88,8 @@ def group_file_records_by_pk_hash_bucket(
         annotated_delta,
         primary_keys,
         sort_key_names,
+        storage_type,
+        max_io_parallelism,
         ignore_missing_manifest,
         deltacat_storage,
     )
@@ -117,6 +121,8 @@ def read_delta_file_envelopes(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_key_names: List[str],
+        storage_type: StorageType=StorageType.LOCAL,
+        max_io_parallelism: int = 1,
         ignore_missing_manifest: bool = False,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[List[DeltaFileEnvelope]]:
@@ -125,14 +131,15 @@ def read_delta_file_envelopes(
     missing_ids=[]
     tables_and_missing_ids = deltacat_storage.download_delta(
         annotated_delta,
-        max_parallelism=1, # if >1, will use python multiprocessing
+        max_parallelism=max_io_parallelism, # if >1, will use python multiprocessing or ray depends on stoage_type
         columns=columns_to_read,
-        storage_type=StorageType.LOCAL,
+        storage_type=storage_type,
         ignore_missing_manifest=ignore_missing_manifest,
     )
+
     if ignore_missing_manifest:
         missing_ids = tables_and_missing_ids[1]
-        tables=tables_and_missing_ids[0]
+        tables = tables_and_missing_ids[0]
     else:
         tables = tables_and_missing_ids
     annotations = annotated_delta.annotations
@@ -166,6 +173,8 @@ def hash_bucket(
         sort_keys: List[SortKey],
         num_buckets: int,
         num_groups: int,
+        storage_type: StorageType=StorageType.LOCAL,
+        max_io_parallelism: int = 1,
         ignore_missing_manifest: bool = False,
         deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
 
@@ -176,6 +185,8 @@ def hash_bucket(
         num_buckets,
         primary_keys,
         sort_key_names,
+        storage_type,
+        max_io_parallelism,
         ignore_missing_manifest,
         deltacat_storage,
     )
