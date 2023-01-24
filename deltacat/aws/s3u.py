@@ -482,7 +482,7 @@ def _download_manifest_entries(
                 result.append(tmp)
             else:
                 missings.append(ide)
-            total_missing += 1
+                total_missing += 1
         logger.info(f"missing or error in accessing {total_missing} manifest_entries")
         return result, missings
     else:

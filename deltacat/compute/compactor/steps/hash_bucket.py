@@ -2,6 +2,7 @@ import ray
 import pyarrow as pa
 import numpy as np
 import logging
+import time
 
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from itertools import chain
@@ -129,6 +130,8 @@ def read_delta_file_envelopes(
 
     columns_to_read = list(chain(primary_keys, sort_key_names))
     missing_ids=[]
+    logger.info(f"adhoc downloading delta {len(annotated_delta.annotations)}")
+    download_start = time.time()
     tables_and_missing_ids = deltacat_storage.download_delta(
         annotated_delta,
         max_parallelism=max_io_parallelism, # if >1, will use python multiprocessing or ray depends on stoage_type
@@ -136,6 +139,7 @@ def read_delta_file_envelopes(
         storage_type=storage_type,
         ignore_missing_manifest=ignore_missing_manifest,
     )
+    logger.info(f"adhoc downloaded delta {len(annotated_delta.annotations)}, {time.time()-download_start}")
 
     if ignore_missing_manifest:
         missing_ids = tables_and_missing_ids[1]
