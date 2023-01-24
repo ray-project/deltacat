@@ -28,7 +28,7 @@ import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-
+TABLE_ENTRIES={"D_MP_ASINS_CAIRNS": 722451} # tableName: number of entries
 
 @ray.remote(num_cpus=0.01)
 class STATES_ACTOR:
@@ -100,7 +100,7 @@ def compact_partition(
         min_hash_bucket_chunk_size: int = 0,
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
-        read_round_completion: bool = False,
+        read_round_completion: bool = True,
         storage_type: StorageType = StorageType.LOCAL,
         max_io_parallelism: int = 1,
         ignore_missing_manifest: bool = False,
@@ -363,11 +363,15 @@ def _execute_compaction_round(
         #TOTAL_ENTRIES = sum([len(deltacat_storage.get_delta_manifest(i).manifest.entries) for i in input_deltas])
         #TOTAL_ENTRIES = sum(ray.get([get_metadata.remote(deltacat_storage,i) for i in input_deltas]))
         #TODO: use stats, otherwise too slow to get all manifest's metadata
-        TOTAL_ENTRIES = 722451
+        table_name = source_partition_locator['streamLocator']['tableVersionLocator']['tableLocator']['tableName']
+        if table_name in TABLE_ENTRIES:
+            TOTAL_ENTRIES = TABLE_ENTRIES[table_name] # 722451 for D_MP_ASINS
+        else:
+            TOTAL_ENTRIES = sum(ray.get([get_metadata.remote(deltacat_storage,i) for i in input_deltas]))
         TOTAL_DELTAS = len(input_deltas)
         ray.get(states.update_entry.remote(TOTAL_ENTRIES))
         ray.get(states.update_delta.remote(TOTAL_DELTAS))
-        logger.info(f"Estimated Rounds:{TOTAL_ENTRIES/uniform_deltas_entries}")
+        logger.info(f"Estimated Rounds: {TOTAL_ENTRIES/uniform_deltas_entries}")
         TOTAL_ROUNDS = TOTAL_ENTRIES/uniform_deltas_entries
         ray.get(states.update_round.remote(TOTAL_ROUNDS))
     TOTAL_ROUNDS = ray.get(states.TOTAL_ROUNDS.remote())
@@ -403,8 +407,8 @@ def _execute_compaction_round(
 
 
     hb_start = time.time()
-    logger.info(f"adhoc, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
-    print(f"adhoc, Round {round_id} Pre-Hash bucket took:{hb_start-pre_hb_start} seconds")
+    logger.info(f"adhoc, Round {round_id} Pre-Hash bucket took: {hb_start-pre_hb_start} seconds")
+    print(f"adhoc, Round {round_id} Pre-Hash bucket took: {hb_start-pre_hb_start} seconds")
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
     hb_tasks_pending = invoke_parallel(

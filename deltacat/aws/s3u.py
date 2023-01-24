@@ -487,7 +487,7 @@ def _download_manifest_entries(
         return result, missings
     else:
         return [
-            download_manifest_entry(e, token_holder, table_type, column_names,
+            download_manifest_entry(e, token_holder, table_type, ignore_missing_manifest, column_names,
                                     include_columns, file_reader_kwargs_provider)
             for e in manifest.entries
         ]
