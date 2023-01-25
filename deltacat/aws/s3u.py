@@ -476,7 +476,7 @@ def _download_manifest_entries(
         missings=[] # for recording the missing entry ids
         for ide, e in enumerate(manifest.entries):
             #exception is already captured in download_manifest_entry
-            tmp = download_manifest_entry(e, token_holder, table_type, column_names,
+            tmp = download_manifest_entry(e, token_holder, table_type, ignore_missing_manifest, column_names,
                                     include_columns, file_reader_kwargs_provider)
             if tmp:
                 result.append(tmp)

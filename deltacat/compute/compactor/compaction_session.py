@@ -176,9 +176,12 @@ def compact_partition(
     logger.info(f"Completed compaction session for: {source_partition_locator}")
 
 
-@ray.remote
-def get_metadata(deltacat_storage, delta):
-    return len(deltacat_storage.get_delta_manifest(delta).entries)
+@ray.remote(num_cpus=1,num_returns=1)
+def get_metadata(delta):
+    import sungate as sg
+    manifest = sg.andes.get_delta_manifest(delta)
+    return len(manifest.entries)
+
 @ray.remote(num_cpus=1,num_returns=3,max_retries=1)
 def _execute_compaction_round(
         source_partition_locator: PartitionLocator,
@@ -346,6 +349,17 @@ def _execute_compaction_round(
 
     # limit the input deltas to fit on this cluster and convert them to
     # annotated deltas of equivalent size for easy parallel distribution
+    if round_id == 1:
+        table_name = source_partition_locator['streamLocator']['tableVersionLocator']['tableLocator']['tableName']
+        if table_name in TABLE_ENTRIES: # use pre-cached stats in Q1 production. TODO: prefill all 5 tables stats
+            TOTAL_ENTRIES = TABLE_ENTRIES[table_name] # 722451 for D_MP_ASINS
+        else:
+            get_metadata_pendingids = invoke_parallel(
+                items=input_deltas,
+                ray_task=get_metadata,
+                max_parallelism=len(input_deltas),
+            )
+            TOTAL_ENTRIES = sum(ray.get(get_metadata_pendingids))
 
     uniform_deltas, hash_bucket_count, last_stream_position_compacted = \
         io.limit_input_deltas(
@@ -360,14 +374,6 @@ def _execute_compaction_round(
 
     uniform_deltas_entries=sum([len(i.manifest.entries) for i in uniform_deltas])
     if round_id == 1: # first round, total_deltas is known
-        #TOTAL_ENTRIES = sum([len(deltacat_storage.get_delta_manifest(i).manifest.entries) for i in input_deltas])
-        #TOTAL_ENTRIES = sum(ray.get([get_metadata.remote(deltacat_storage,i) for i in input_deltas]))
-        #TODO: use stats, otherwise too slow to get all manifest's metadata
-        table_name = source_partition_locator['streamLocator']['tableVersionLocator']['tableLocator']['tableName']
-        if table_name in TABLE_ENTRIES:
-            TOTAL_ENTRIES = TABLE_ENTRIES[table_name] # 722451 for D_MP_ASINS
-        else:
-            TOTAL_ENTRIES = sum(ray.get([get_metadata.remote(deltacat_storage,i) for i in input_deltas]))
         TOTAL_DELTAS = len(input_deltas)
         ray.get(states.update_entry.remote(TOTAL_ENTRIES))
         ray.get(states.update_delta.remote(TOTAL_DELTAS))
@@ -407,10 +413,11 @@ def _execute_compaction_round(
 
 
     hb_start = time.time()
-    logger.info(f"adhoc, Round {round_id} Pre-Hash bucket took: {hb_start-pre_hb_start} seconds")
-    print(f"adhoc, Round {round_id} Pre-Hash bucket took: {hb_start-pre_hb_start} seconds")
+    logger.info(f"adhoc, Round {round_id} Pre-Hash bucket took: {(hb_start-pre_hb_start):.2f} seconds")
+    print(f"adhoc, Round {round_id} Pre-Hash bucket took: {(hb_start-pre_hb_start):.2f} seconds")
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
+    print(f"num_cpus:{num_cpus},max_parallelism:{max_parallelism},storage_type:{storage_type},ignore_missing_manifest:{ignore_missing_manifest}")
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
@@ -438,8 +445,8 @@ def _execute_compaction_round(
     hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
     logger.info(f"Hash bucket groups created: {hash_group_count}")
     hb_end = time.time()
-    logger.info(f"adhoc, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
-    print(f"adhoc, Round {round_id} Hash bucket took:{hb_end-hb_start} seconds")
+    logger.info(f"adhoc, Round {round_id} Hash bucket took:{(hb_end-hb_start):.2f} seconds")
+    print(f"adhoc, Round {round_id} Hash bucket took:{(hb_end-hb_start):.2f} seconds")
 
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
