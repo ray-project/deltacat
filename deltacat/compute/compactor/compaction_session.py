@@ -528,8 +528,8 @@ def _execute_compaction_round(
                 f"{len(all_mat_buckets_to_obj_id)}")
 
     dd_end = time.time()
-    logger.info(f"adhoc, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
-    print(f"adhoc, Round {round_id} dedupe took:{dd_end-hb_end} seconds")
+    logger.info(f"adhoc, Round {round_id} dedupe took:{(dd_end-hb_end):.2f} seconds")
+    print(f"adhoc, Round {round_id} dedupe took:{(dd_end-hb_end):.2f} seconds")
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
     #  tables from S3 then wait for deduping to finish before continuing
