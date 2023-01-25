@@ -25,13 +25,13 @@ with open(os.path.join(ROOT_DIR, "README.md"), "r", encoding="utf-8") as fh:
 
 
 setuptools.setup(
-    name="deltacat-fork",
+    name="deltacat",
     version=find_version("deltacat", "__init__.py"),
     author="Ray Team",
     description="A scalable, fast, ACID-compliant Data Catalog powered by Ray.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/ray-project/deltacat-fork",
+    url="https://github.com/ray-project/deltacat",
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     install_requires=[
         # any changes here should also be reflected in requirements.txt
