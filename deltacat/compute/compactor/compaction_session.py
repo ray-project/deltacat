@@ -566,16 +566,16 @@ def _execute_compaction_round(
     print(f"adhoc, Round {round_id} Got {len(mat_results)} materialize result(s).")
 
     mat_end = time.time()
-    logger.info(f"adhoc, Round {round_id} mat took:{mat_end-dd_end} seconds")
-    print(f"adhoc, Round {round_id} mat took:{mat_end-dd_end} seconds")
+    logger.info(f"adhoc, Round {round_id} mat took:{(mat_end-dd_end):.2f} seconds")
+    print(f"adhoc, Round {round_id} mat took:{(mat_end-dd_end):.2f} seconds")
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
     compacted_delta = deltacat_storage.commit_delta(merged_delta)
     logger.info(f"Committed compacted delta: {compacted_delta}")
     commit_end=time.time()
-    logger.info(f"adhoc, Round {round_id} commit took:{commit_end-mat_end} seconds")
-    print(f"adhoc, Round {round_id} commit took:{commit_end-mat_end} seconds")
+    logger.info(f"adhoc, Round {round_id} commit took:{(commit_end-mat_end):.2f} seconds")
+    print(f"adhoc, Round {round_id} commit took:{(commit_end-mat_end):.2f} seconds")
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
