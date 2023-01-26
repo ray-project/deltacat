@@ -108,4 +108,14 @@ def round_robin_options_provider(
     assert resource_keys, f"No resource keys given to round robin!"
     resource_key_index = i % len(resource_keys)
     key = resource_keys[resource_key_index]
-    return {"resources": {key: resource_amount_provider(resource_key_index)}}
+    if kwargs.get("resource_key") == "pg_resource":
+        pg_handle = kwargs.get('pg_handle')
+        opt = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
+            placement_group=pg_handle, 
+            placement_group_capture_child_tasks=True,
+            placement_group_bundle_index=key
+        )}
+        return opt
+    else:
+        opt = {"resources": {key: resource_amount_provider(resource_key_index)}}
+        return opt

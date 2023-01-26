@@ -8,7 +8,7 @@ from deltacat.compute.compactor.steps.dedupe import DedupeTaskIndexWithObjectId,
     DeltaFileLocatorToRecords
 from itertools import chain, repeat
 
-from pyarrow import compute as pc
+from pyarrow import compute as pc, csv as pacsv
 
 from ray import cloudpickle
 
@@ -64,7 +64,9 @@ def materialize(
             )
     manifest_cache = {}
     compacted_tables = []
+    i =0
     for src_dfl in sorted(all_src_file_records.keys()):
+        i+=1
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
@@ -99,8 +101,9 @@ def materialize(
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
-            file_reader_kwargs=read_kwargs_provider,
+            file_reader_kwargs_provider=read_kwargs_provider,
         )
+        #print(f"pa_table {i} schema:{pa_table.schema}")
         mask_pylist = list(repeat(False, len(pa_table)))
         record_numbers = chain.from_iterable(record_numbers_tpl)
         for record_number in record_numbers:
@@ -129,6 +132,9 @@ def materialize(
     # TODO (pdames): save memory by writing output files eagerly whenever
     #  len(compacted_table) >= max_records_per_output_file (but don't write
     #  partial slices from the compacted_table remainder every time!)
+    #for i in range(len(compacted_tables)):
+    #    print(f"compacted_table {i+1} schema:{compacted_tables[i].schema}")
+
     compacted_table = pa.concat_tables(compacted_tables)
     if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
         # convert to pandas since pyarrow doesn't support custom delimiters

@@ -231,8 +231,10 @@ def _config(instance_cpus: int, instance_type: int, node_res_keys: List[str], ti
 		cluster_resources['CPU'] = int(pg_res['CPU'])
 		cluster_resources['memory'] = float(pg_res['memory'])
 		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-		cluster_resources['node_id'] = node_res_keys
-		pg_config=[opts,cluster_resources]
+		cluster_resources['node_id'] = node_res_keys # bundle_id
+		cluster_resources['pg_handle'] = pg
+		cluster_resources['bundle_length'] = num_bundles
+		pg_config=[opts,cluster_resources] # opts is used in parent task, cluster_resources' pg handle and bundle length are used in child tasks for round-robin
 		logger.info(f"pg has resources:{cluster_resources}")
 
 	except Exception as e:

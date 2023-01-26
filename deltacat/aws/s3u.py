@@ -509,6 +509,7 @@ def _download_manifest_entries_parallel(
         download_manifest_entry,
         token_holder=token_holder,
         table_type=table_type,
+        ignore_missing_manifest=ignore_missing_manifest,
         column_names=column_names,
         include_columns=include_columns,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
