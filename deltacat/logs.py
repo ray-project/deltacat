@@ -10,11 +10,11 @@ DEFAULT_LOG_FORMAT = \
 DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 256  # 256 MiB
 DEFAULT_BACKUP_COUNT = 0
 
-DEFAULT_APPLICATION_LOG_DIR = "/tmp/deltacat/var/output/logs/"
+DEFAULT_APPLICATION_LOG_DIR = "/home/ubuntu/tmp/deltacat/var/output/logs/"
 DEFAULT_APPLICATION_LOG_BASE_FILE_NAME = "application.info.log"
 DEFAULT_DEBUG_APPLICATION_LOG_BASE_FILE_NAME = "application.debug.log"
 
-DEFAULT_DELTACAT_LOG_DIR = "/tmp/deltacat/var/output/logs/"
+DEFAULT_DELTACAT_LOG_DIR = "/home/ubuntu/tmp/deltacat/var/output/logs/"
 DEFAULT_DELTACAT_LOG_BASE_FILE_NAME = "deltacat-python.info.log"
 DEFAULT_DEBUG_DELTACAT_LOG_BASE_FILE_NAME = "deltacat-python.debug.log"
 

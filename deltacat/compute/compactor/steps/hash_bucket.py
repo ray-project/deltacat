@@ -146,7 +146,6 @@ def read_delta_file_envelopes(
         tables = tables_and_missing_ids
     annotations = annotated_delta.annotations
     if len(missing_ids)>0:
-        print(f"missing files:{len(missing_ids)}")
         for id_missing in sorted(missing_ids, reverse=True):
             del annotations[id_missing]
     assert(len(tables) == len(annotations),

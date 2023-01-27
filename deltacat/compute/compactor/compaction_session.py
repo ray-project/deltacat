@@ -23,12 +23,13 @@ from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
 from deltacat.types.media import ContentType,StorageType
 
 from typing import List, Set, Optional, Tuple, Dict, Union, Any
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-TABLE_ENTRIES={"D_MP_ASINS_CAIRNS": 722451} # tableName: number of entries
+TABLE_ENTRIES={"D_MP_ASINS_CAIRNS": 722451, "D_MP_ASIN_KEYWORDS_CAIRNS": 194529} # tableName: number of entries
 
 @ray.remote(num_cpus=0.01)
 class STATES_ACTOR:
@@ -116,7 +117,11 @@ def compact_partition(
     has_next_compaction_round = True
     opts={}
     if pg_config:
-        opts=pg_config[0]
+        cr=pg_config[1]
+        pg = cr['pg_handle']
+        opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(placement_group=pg, 
+                placement_group_capture_child_tasks=True,
+                placement_group_bundle_index=0)}
     round_id = 1
     states = STATES_ACTOR.remote()
     while has_next_compaction_round:
@@ -239,21 +244,23 @@ def _execute_compaction_round(
     primary_keys = sorted(primary_keys)
 
     # collect cluster resource stats
-    # cluster_resources = ray.cluster_resources()
-    # logger.info(f"Total cluster resources: {cluster_resources}")
-    # logger.info(f"Available cluster resources: {ray.available_resources()}")
-    # cluster_cpus = int(cluster_resources["CPU"])
-    # logger.info(f"Total cluster CPUs: {cluster_cpus}")
+    cluster_resources = ray.cluster_resources()
+    logger.info(f"Total cluster resources: {cluster_resources}")
+    logger.info(f"Available cluster resources: {ray.available_resources()}")
+    cluster_cpus = int(cluster_resources["CPU"])
+    logger.info(f"Total cluster CPUs: {cluster_cpus}")
 
     # collect node group resources
 
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
+    pg_handle = None
     if pg_config: # use resource in each placement group
         #node_resource_keys=None
         cluster_resources = pg_config[1]
         cluster_cpus = cluster_resources['CPU']
-        node_resource_keys = cluster_resources['node_id']   
+        node_resource_keys = cluster_resources['node_id'] 
+        pg_handle = cluster_resources['pg_handle']  
     else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
@@ -268,6 +275,7 @@ def _execute_compaction_round(
         round_robin_opt_provider = functools.partial(
             round_robin_options_provider,
             resource_keys=node_resource_keys,
+            pg_handle=pg_handle
         )
     else:
         logger.info("Setting round robin scheduling to None")
@@ -311,11 +319,13 @@ def _execute_compaction_round(
     # a compatible primary key index
     round_completion_info = None
     if read_round_completion:
+        print(f"reading round completion: {compatible_primary_key_index_root_path}")
         round_completion_info = rcf.read_round_completion_file(
             compaction_artifact_s3_bucket,
             source_partition_locator,
             compatible_primary_key_index_root_path,
         )
+        print(f"round completion file: {round_completion_info}")
 
     # read the previous compaction round's hash bucket count, if any
     old_hash_bucket_count = None
@@ -336,12 +346,16 @@ def _execute_compaction_round(
     high_watermark = round_completion_info.high_watermark \
         if round_completion_info else None
 
+    print(f"High watermark: {high_watermark}")
+
     input_deltas = io.discover_deltas(
         source_partition_locator,
         high_watermark,
         last_stream_position_to_compact,
         deltacat_storage,
     )
+
+    print(f"input deltas: {len(input_deltas)}")
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -360,6 +374,7 @@ def _execute_compaction_round(
                 max_parallelism=len(input_deltas),
             )
             TOTAL_ENTRIES = sum(ray.get(get_metadata_pendingids))
+            print(f'Total entries: {TOTAL_ENTRIES}')
 
     uniform_deltas, hash_bucket_count, last_stream_position_compacted = \
         io.limit_input_deltas(
@@ -392,10 +407,12 @@ def _execute_compaction_round(
 
     # rehash the primary key index if necessary
     if round_completion_info:
-        logger.info(f"Round completion file contents: {round_completion_info}")
+        print(f"Round completion file contents: {round_completion_info}")
         # the previous primary key index is compatible with the current, but
         # will need to be rehashed if the hash bucket count has changed
         if hash_bucket_count != old_hash_bucket_count:
+            # TODO(draghave): come here after the happy path works
+            print(f"Rehashing as hash bucket count is different")
             round_completion_info = pki.rehash(
                 round_robin_opt_provider,
                 compaction_artifact_s3_bucket,
@@ -491,8 +508,6 @@ def _execute_compaction_round(
     # identify the index of records to keep or drop based on sort keys
     num_materialize_buckets = max_parallelism[1]
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
-    record_counts_pending_materialize = \
-        dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
@@ -506,10 +521,9 @@ def _execute_compaction_round(
         new_primary_key_index_version_locator=new_pki_version_locator,
         sort_keys=sort_keys,
         max_records_per_index_file=records_per_primary_key_index_file,
-        max_records_per_materialized_file=records_per_compacted_file,
+                max_records_per_materialized_file=records_per_compacted_file,
         num_materialize_buckets=num_materialize_buckets,
-        delete_old_primary_key_index=delete_prev_primary_key_index,
-        record_counts_pending_materialize=record_counts_pending_materialize,
+        delete_old_primary_key_index=delete_prev_primary_key_index
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])

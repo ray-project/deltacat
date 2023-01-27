@@ -4,6 +4,7 @@ import logging
 import multiprocessing
 import s3fs
 import pyarrow as pa
+import traceback
 
 from functools import partial
 from uuid import uuid4
@@ -36,7 +37,6 @@ from typing import Any, Callable, Dict, List, Optional, Generator, Union, Tuple
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote
 class CapturedBlockWritePaths:
     def __init__(self):
         self._write_paths: List[str] = []
@@ -77,7 +77,7 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
 
     def __del__(self):
         if self.write_paths or self.block_refs:
-            self.capture_actor.extend.remote(
+            self.capture_actor.extend(
                 self.write_paths,
                 self.block_refs,
             )
@@ -290,6 +290,7 @@ def upload_sliced_table(
                 **s3_client_kwargs
             )
             manifest_entries.extend(slice_entries)
+            # TODO: validate how many entries are returned
 
     return manifest_entries
 
@@ -357,7 +358,7 @@ def upload_table(
     if s3_table_writer_kwargs is None:
         s3_table_writer_kwargs = {}
 
-    capture_actor = CapturedBlockWritePaths.remote()
+    capture_actor = CapturedBlockWritePaths()
     block_write_path_provider = UuidBlockWritePathProvider(capture_actor)
     s3_table_writer_func(
         table,
@@ -369,8 +370,8 @@ def upload_table(
     )
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
-    block_refs = ray.get(capture_actor.block_refs.remote())
-    write_paths = ray.get(capture_actor.write_paths.remote())
+    block_refs = capture_actor.block_refs()
+    write_paths = capture_actor.write_paths()
     metadata = _get_metadata(table, write_paths, block_refs)
     manifest_entries = ManifestEntryList()
     for block_idx, s3_url in enumerate(write_paths):

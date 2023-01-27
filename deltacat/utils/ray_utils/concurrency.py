@@ -2,6 +2,7 @@ import ray
 
 from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
 
@@ -90,6 +91,7 @@ def round_robin_options_provider(
         i: int,
         item: Any,
         resource_keys: List[str],
+        pg_handle: Any,
         *args,
         resource_amount_provider: Callable[[int], int] =
         lambda i: MIN_RESOURCE_GRANULARITY,
@@ -106,16 +108,10 @@ def round_robin_options_provider(
     ```
     """
     assert resource_keys, f"No resource keys given to round robin!"
-    resource_key_index = i % len(resource_keys)
-    key = resource_keys[resource_key_index]
-    if kwargs.get("resource_key") == "pg_resource":
-        pg_handle = kwargs.get('pg_handle')
-        opt = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
-            placement_group=pg_handle, 
-            placement_group_capture_child_tasks=True,
-            placement_group_bundle_index=key
-        )}
-        return opt
-    else:
-        opt = {"resources": {key: resource_amount_provider(resource_key_index)}}
-        return opt
+    index = (i % (len(resource_keys) - 1)) + 1
+    opt = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
+        placement_group=pg_handle, 
+        placement_group_capture_child_tasks=True,
+        placement_group_bundle_index=index
+    )}
+    return opt
