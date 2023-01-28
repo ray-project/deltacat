@@ -511,6 +511,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         rwr.filesystem = filesystem
         rwr_obj_ref = ray.put(rwr)
         write_results.append(rwr_obj_ref)
+        del rwr_obj_ref
         return write_results
 
     def on_write_complete(self, write_results: List[WriteResult], **kwargs) \

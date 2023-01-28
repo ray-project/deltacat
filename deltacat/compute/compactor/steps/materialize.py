@@ -1,4 +1,4 @@
-import logging,time
+import logging
 import ray
 import pyarrow as pa
 
@@ -9,8 +9,6 @@ from deltacat.compute.compactor.steps.dedupe import DedupeTaskIndexWithObjectId,
 from itertools import chain, repeat
 
 from pyarrow import compute as pc
-
-from ray import cloudpickle
 
 from deltacat import logs
 from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
@@ -45,7 +43,7 @@ def materialize(
     dedupe_task_idx_and_obj_ref_tuples = [
         (
             t[0],
-            cloudpickle.loads(t[1])
+            t[1],
         ) for t in dedupe_task_idx_and_obj_id_tuples
     ]
     logger.info(f"Resolved materialize task obj refs...")

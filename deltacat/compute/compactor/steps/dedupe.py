@@ -6,7 +6,6 @@ import pyarrow.compute as pc
 import numpy as np
 from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
-from ray import cloudpickle
 from ray.types import ObjectRef
 
 from deltacat import logs
@@ -286,7 +285,7 @@ def dedupe(
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
     src_file_records_obj_refs = [
-        cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]
+        obj_id_pkl for obj_id_pkl in object_ids]
     logger.info(f"Getting delta file envelope groups object refs...")
     delta_file_envelope_groups_list = ray.get(src_file_records_obj_refs)
     hb_index_to_delta_file_envelopes_list = defaultdict(list)
@@ -363,8 +362,9 @@ def dedupe(
         src_file_records_obj_refs.append(object_ref)
         mat_bucket_to_dd_idx_obj_id[mat_bucket] = (
             dedupe_task_index,
-            cloudpickle.dumps(object_ref),
+            object_ref,
         )
+        del ray.put
     logger.info(f"Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
