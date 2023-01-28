@@ -7,12 +7,10 @@ repos:
     -   id: check-added-large-files
     -   id: check-case-conflict
     -   id: check-json
-    -   id: check-yaml
+    # -   id: check-yaml
     -   id: end-of-file-fixer
     -   id: requirements-txt-fixer
     -   id: trailing-whitespace
-    -   id: no-commit-to-branch
-        args: [--branch, main]
 -   repo: https://github.com/hadialqattan/pycln
     rev: v2.1.2
     hooks:

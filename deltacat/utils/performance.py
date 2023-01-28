@@ -4,11 +4,8 @@ from typing import Any, Callable, Tuple
 
 
 def invoke_with_perf_counter(
-        counter: Counter,
-        counter_key: Any,
-        func: Callable,
-        *args,
-        **kwargs) -> Tuple[Any, float]:
+    counter: Counter, counter_key: Any, func: Callable, *args, **kwargs
+) -> Tuple[Any, float]:
 
     start = time.perf_counter()
     result = func(*args, **kwargs)
@@ -18,10 +15,7 @@ def invoke_with_perf_counter(
     return result, latency
 
 
-def timed_invocation(
-        func: Callable,
-        *args,
-        **kwargs) -> Tuple[Any, float]:
+def timed_invocation(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
 
     start = time.perf_counter()
     result = func(*args, **kwargs)
