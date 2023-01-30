@@ -2,6 +2,8 @@ import logging
 import time
 import functools
 import ray
+import gc
+from ray._private.internal_api import free
 
 from collections import defaultdict
 
@@ -171,6 +173,8 @@ def compact_partition(
         # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
         if new_rci:
             min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
+        
+        gc.collect()
 
     logger.info(f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
                 f"{compaction_rounds_executed} rounds.")
@@ -180,12 +184,177 @@ def compact_partition(
         logger.info(f"Committed compacted partition: {partition}")
     logger.info(f"Completed compaction session for: {source_partition_locator}")
 
+def _free_memory(refs):
+    for ref in refs:
+        free(ref)
+    gc.collect()
 
 @ray.remote(num_cpus=1,num_returns=1)
 def get_metadata(delta):
     import sungate as sg
     manifest = sg.andes.get_delta_manifest(delta)
     return len(manifest.entries)
+
+def _execute_hash_bucket(round_id,
+                        uniform_deltas,
+                        pre_hb_start,
+                        num_cpus,
+                        max_parallelism,
+                        storage_type,
+                        ignore_missing_manifest,
+                        round_robin_opt_provider,
+                        primary_keys,
+                        sort_keys,
+                        hash_bucket_count,
+                        max_io_parallelism,
+                        deltacat_storage):
+    hb_start = time.time()
+    logger.info(f"adhoc, Round {round_id} Pre-Hash bucket took: {(hb_start-pre_hb_start):.2f} seconds")
+    print(f"adhoc, Round {round_id} Pre-Hash bucket took: {(hb_start-pre_hb_start):.2f} seconds")
+
+    # parallel step 1:
+    # group like primary keys together by hashing them into buckets
+    print(f"num_cpus:{num_cpus},max_parallelism:{max_parallelism},storage_type:{storage_type},ignore_missing_manifest:{ignore_missing_manifest}")
+    hb_tasks_pending = invoke_parallel(
+        items=uniform_deltas,
+        ray_task=hb.hash_bucket,
+        max_parallelism=max_parallelism[0],
+        num_cpus = num_cpus[0],
+        options_provider=round_robin_opt_provider,
+        primary_keys=primary_keys,
+        sort_keys=sort_keys,
+        num_buckets=hash_bucket_count,
+        num_groups=max_parallelism[0],
+        storage_type = storage_type,
+        max_io_parallelism = max_io_parallelism,
+        ignore_missing_manifest=ignore_missing_manifest,
+        deltacat_storage=deltacat_storage,
+    )
+    logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
+    hb_results = ray.get([t[0] for t in hb_tasks_pending])
+    print(f"adhoc, Round {round_id} Got {len(hb_results)} hash bucket results.")
+    logger.info(f"Got {len(hb_results)} hash bucket results.")
+    all_hash_group_idx_to_obj_id = defaultdict(list)
+    for hash_group_idx_to_obj_id in hb_results:
+        for hash_group_index, object_id in enumerate(hash_group_idx_to_obj_id):
+            if object_id:
+                all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
+    hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
+    logger.info(f"Hash bucket groups created: {hash_group_count}")
+    hb_end = time.time()
+    logger.info(f"adhoc, Round {round_id} Hash bucket took:{(hb_end-hb_start):.2f} seconds")
+    print(f"adhoc, Round {round_id} Hash bucket took:{(hb_end-hb_start):.2f} seconds")
+
+    return hb_end, all_hash_group_idx_to_obj_id, hb_tasks_pending[1]
+
+def _execute_dedupe(round_id,
+                    dd_start,
+                    all_hash_group_idx_to_obj_id,
+                    max_parallelism,
+                    num_cpus,
+                    round_robin_opt_provider,
+                    compaction_artifact_s3_bucket,
+                    round_completion_info,
+                    new_pki_version_locator,
+                    sort_keys,
+                    records_per_primary_key_index_file,
+                    records_per_compacted_file,
+                    delete_prev_primary_key_index):
+    # parallel step 2:
+    # discover records with duplicate primary keys in each hash bucket, and
+    # identify the index of records to keep or drop based on sort keys
+    num_materialize_buckets = max_parallelism[1]
+    logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
+    dd_tasks_pending = invoke_parallel(
+        items=all_hash_group_idx_to_obj_id.values(),
+        ray_task=dd.dedupe,
+        max_parallelism=max_parallelism[1],
+        num_cpus = num_cpus[1],
+        options_provider=round_robin_opt_provider,
+        kwargs_provider=lambda index, item: {"dedupe_task_index": index,
+                                             "object_ids": item},
+        compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
+        round_completion_info=round_completion_info,
+        new_primary_key_index_version_locator=new_pki_version_locator,
+        sort_keys=sort_keys,
+        max_records_per_index_file=records_per_primary_key_index_file,
+                max_records_per_materialized_file=records_per_compacted_file,
+        num_materialize_buckets=num_materialize_buckets,
+        delete_old_primary_key_index=delete_prev_primary_key_index
+    )
+    logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
+    dd_results = ray.get([t[0] for t in dd_tasks_pending])
+    logger.info(f"Got {len(dd_results)} dedupe results.")
+    print((f"adhoc, Round {round_id} Got {len(dd_results)} dedupe results."))
+    all_mat_buckets_to_obj_id = defaultdict(list)
+    for mat_bucket_idx_to_obj_id in dd_results:
+        for bucket_idx, dd_task_index_and_object_id_tuple in \
+                mat_bucket_idx_to_obj_id.items():
+            all_mat_buckets_to_obj_id[bucket_idx].append(
+                dd_task_index_and_object_id_tuple)
+    logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
+    pki_stats = ray.get([t[2] for t in dd_tasks_pending])
+    logger.info(f"Got {len(pki_stats)} dedupe result stat(s).")
+    logger.info(f"Materialize buckets created: "
+                f"{len(all_mat_buckets_to_obj_id)}")
+
+    dd_end = time.time()
+    logger.info(f"adhoc, Round {round_id} dedupe took:{(dd_end-dd_start):.2f} seconds")
+    print(f"adhoc, Round {round_id} dedupe took:{(dd_end-dd_start):.2f} seconds")
+
+    return dd_end, all_mat_buckets_to_obj_id, dd_tasks_pending[1], pki_stats
+
+def _execute_materialize(round_id,
+                        mat_start,
+                        all_mat_buckets_to_obj_id,
+                        max_parallelism,
+                        num_cpus,
+                        round_robin_opt_provider,
+                        schema_on_read,
+                        round_completion_info,
+                        source_partition_locator,
+                        partition,
+                        records_per_compacted_file,
+                        compacted_file_content_type,
+                        deltacat_storage):
+    # parallel step 3:
+    # materialize records to keep by index
+    mat_tasks_pending = invoke_parallel(
+        items=all_mat_buckets_to_obj_id.items(),
+        ray_task=mat.materialize,
+        max_parallelism=max_parallelism[2],
+        num_cpus = num_cpus[2],
+        options_provider=round_robin_opt_provider,
+        kwargs_provider=lambda index, mat_bucket_idx_to_obj_id: {
+            "mat_bucket_index": mat_bucket_idx_to_obj_id[0],
+            "dedupe_task_idx_and_obj_id_tuples": mat_bucket_idx_to_obj_id[1],
+        },
+        schema=schema_on_read,
+        round_completion_info=round_completion_info,
+        source_partition_locator=source_partition_locator,
+        partition=partition,
+        max_records_per_output_file=records_per_compacted_file,
+        compacted_file_content_type=compacted_file_content_type,
+        deltacat_storage=deltacat_storage,
+    )
+    logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
+    mat_results = ray.get(mat_tasks_pending)
+    logger.info(f"Got {len(mat_results)} materialize result(s).")
+    print(f"adhoc, Round {round_id} Got {len(mat_results)} materialize result(s).")
+
+    mat_end = time.time()
+    logger.info(f"adhoc, Round {round_id} mat took:{(mat_end-mat_start):.2f} seconds")
+    print(f"adhoc, Round {round_id} mat took:{(mat_end-mat_start):.2f} seconds")
+    mat_results = sorted(mat_results, key=lambda m: m.task_index)
+    deltas = [m.delta for m in mat_results]
+    merged_delta = Delta.merge_deltas(deltas)
+    compacted_delta = deltacat_storage.commit_delta(merged_delta)
+    logger.info(f"Committed compacted delta: {compacted_delta}")
+    commit_end=time.time()
+    logger.info(f"adhoc, Round {round_id} commit took:{(commit_end-mat_end):.2f} seconds")
+    print(f"adhoc, Round {round_id} commit took:{(commit_end-mat_end):.2f} seconds")
+
+    return mat_results, compacted_delta
 
 @ray.remote(num_cpus=1,num_returns=3,max_retries=1)
 def _execute_compaction_round(
@@ -428,42 +597,19 @@ def _execute_compaction_round(
                     f"{source_partition_locator}. Primary key index locator: "
                     f"{compatible_primary_key_index_locator}")
 
-
-    hb_start = time.time()
-    logger.info(f"adhoc, Round {round_id} Pre-Hash bucket took: {(hb_start-pre_hb_start):.2f} seconds")
-    print(f"adhoc, Round {round_id} Pre-Hash bucket took: {(hb_start-pre_hb_start):.2f} seconds")
-    # parallel step 1:
-    # group like primary keys together by hashing them into buckets
-    print(f"num_cpus:{num_cpus},max_parallelism:{max_parallelism},storage_type:{storage_type},ignore_missing_manifest:{ignore_missing_manifest}")
-    hb_tasks_pending = invoke_parallel(
-        items=uniform_deltas,
-        ray_task=hb.hash_bucket,
-        max_parallelism=max_parallelism[0],
-        num_cpus = num_cpus[0],
-        options_provider=round_robin_opt_provider,
-        primary_keys=primary_keys,
-        sort_keys=sort_keys,
-        num_buckets=hash_bucket_count,
-        num_groups=max_parallelism[0],
-        storage_type = storage_type,
-        max_io_parallelism = max_io_parallelism,
-        ignore_missing_manifest=ignore_missing_manifest,
-        deltacat_storage=deltacat_storage,
-    )
-    logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
-    hb_results = ray.get([t[0] for t in hb_tasks_pending])
-    print(f"adhoc, Round {round_id} Got {len(hb_results)} hash bucket results.")
-    logger.info(f"Got {len(hb_results)} hash bucket results.")
-    all_hash_group_idx_to_obj_id = defaultdict(list)
-    for hash_group_idx_to_obj_id in hb_results:
-        for hash_group_index, object_id in enumerate(hash_group_idx_to_obj_id):
-            if object_id:
-                all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
-    hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
-    logger.info(f"Hash bucket groups created: {hash_group_count}")
-    hb_end = time.time()
-    logger.info(f"adhoc, Round {round_id} Hash bucket took:{(hb_end-hb_start):.2f} seconds")
-    print(f"adhoc, Round {round_id} Hash bucket took:{(hb_end-hb_start):.2f} seconds")
+    hb_end, all_hash_group_idx_to_obj_id, hb_refs = _execute_hash_bucket(round_id,
+                                                                uniform_deltas,
+                                                                pre_hb_start,
+                                                                num_cpus,
+                                                                max_parallelism,
+                                                                storage_type,
+                                                                ignore_missing_manifest,
+                                                                round_robin_opt_provider,
+                                                                primary_keys,
+                                                                sort_keys,
+                                                                hash_bucket_count,
+                                                                max_io_parallelism,
+                                                                deltacat_storage)
 
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
@@ -502,48 +648,23 @@ def _execute_compaction_round(
     new_pki_version_locator = PrimaryKeyIndexVersionLocator.generate(
         new_primary_key_index_version_meta)
 
+    dd_end, all_mat_buckets_to_obj_id, dd_refs, pki_stats = _execute_dedupe(round_id,
+                                                        hb_end,
+                                                        all_hash_group_idx_to_obj_id,
+                                                        max_parallelism,
+                                                        num_cpus,
+                                                        round_robin_opt_provider,
+                                                        compaction_artifact_s3_bucket,
+                                                        round_completion_info,
+                                                        new_pki_version_locator,
+                                                        sort_keys,
+                                                        records_per_primary_key_index_file,
+                                                        records_per_compacted_file,
+                                                        delete_prev_primary_key_index)
 
-    # parallel step 2:
-    # discover records with duplicate primary keys in each hash bucket, and
-    # identify the index of records to keep or drop based on sort keys
-    num_materialize_buckets = max_parallelism[1]
-    logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
-    dd_tasks_pending = invoke_parallel(
-        items=all_hash_group_idx_to_obj_id.values(),
-        ray_task=dd.dedupe,
-        max_parallelism=max_parallelism[1],
-        num_cpus = num_cpus[1],
-        options_provider=round_robin_opt_provider,
-        kwargs_provider=lambda index, item: {"dedupe_task_index": index,
-                                             "object_ids": item},
-        compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
-        round_completion_info=round_completion_info,
-        new_primary_key_index_version_locator=new_pki_version_locator,
-        sort_keys=sort_keys,
-        max_records_per_index_file=records_per_primary_key_index_file,
-                max_records_per_materialized_file=records_per_compacted_file,
-        num_materialize_buckets=num_materialize_buckets,
-        delete_old_primary_key_index=delete_prev_primary_key_index
-    )
-    logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
-    dd_results = ray.get([t[0] for t in dd_tasks_pending])
-    logger.info(f"Got {len(dd_results)} dedupe results.")
-    print((f"adhoc, Round {round_id} Got {len(dd_results)} dedupe results."))
-    all_mat_buckets_to_obj_id = defaultdict(list)
-    for mat_bucket_idx_to_obj_id in dd_results:
-        for bucket_idx, dd_task_index_and_object_id_tuple in \
-                mat_bucket_idx_to_obj_id.items():
-            all_mat_buckets_to_obj_id[bucket_idx].append(
-                dd_task_index_and_object_id_tuple)
-    logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
-    pki_stats = ray.get([t[2] for t in dd_tasks_pending])
-    logger.info(f"Got {len(pki_stats)} dedupe result stat(s).")
-    logger.info(f"Materialize buckets created: "
-                f"{len(all_mat_buckets_to_obj_id)}")
+    del all_hash_group_idx_to_obj_id
+    _free_memory(hb_refs)
 
-    dd_end = time.time()
-    logger.info(f"adhoc, Round {round_id} dedupe took:{(dd_end-hb_end):.2f} seconds")
-    print(f"adhoc, Round {round_id} dedupe took:{(dd_end-hb_end):.2f} seconds")
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
     #  tables from S3 then wait for deduping to finish before continuing
@@ -551,45 +672,24 @@ def _execute_compaction_round(
     # TODO(pdames): balance inputs to materialization tasks to ensure that each
     #  task has an approximately equal amount of input to materialize
 
-    # TODO(pdames): garbage collect hash bucket output since it's no longer
-    #  needed
+    mat_results, compacted_delta = _execute_materialize(round_id,
+                                                        dd_end,
+                                                        all_mat_buckets_to_obj_id,
+                                                        max_parallelism,
+                                                        num_cpus,
+                                                        round_robin_opt_provider,
+                                                        schema_on_read,
+                                                        round_completion_info,
+                                                        source_partition_locator,
+                                                        partition,
+                                                        records_per_compacted_file,
+                                                        compacted_file_content_type,
+                                                        deltacat_storage)
 
-    # parallel step 3:
-    # materialize records to keep by index
-    mat_tasks_pending = invoke_parallel(
-        items=all_mat_buckets_to_obj_id.items(),
-        ray_task=mat.materialize,
-        max_parallelism=max_parallelism[2],
-        num_cpus = num_cpus[2],
-        options_provider=round_robin_opt_provider,
-        kwargs_provider=lambda index, mat_bucket_idx_to_obj_id: {
-            "mat_bucket_index": mat_bucket_idx_to_obj_id[0],
-            "dedupe_task_idx_and_obj_id_tuples": mat_bucket_idx_to_obj_id[1],
-        },
-        schema=schema_on_read,
-        round_completion_info=round_completion_info,
-        source_partition_locator=source_partition_locator,
-        partition=partition,
-        max_records_per_output_file=records_per_compacted_file,
-        compacted_file_content_type=compacted_file_content_type,
-        deltacat_storage=deltacat_storage,
-    )
-    logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
-    mat_results = ray.get(mat_tasks_pending)
-    logger.info(f"Got {len(mat_results)} materialize result(s).")
-    print(f"adhoc, Round {round_id} Got {len(mat_results)} materialize result(s).")
+    # free up dedupe memory
+    del all_mat_buckets_to_obj_id
+    _free_memory(dd_refs)
 
-    mat_end = time.time()
-    logger.info(f"adhoc, Round {round_id} mat took:{(mat_end-dd_end):.2f} seconds")
-    print(f"adhoc, Round {round_id} mat took:{(mat_end-dd_end):.2f} seconds")
-    mat_results = sorted(mat_results, key=lambda m: m.task_index)
-    deltas = [m.delta for m in mat_results]
-    merged_delta = Delta.merge_deltas(deltas)
-    compacted_delta = deltacat_storage.commit_delta(merged_delta)
-    logger.info(f"Committed compacted delta: {compacted_delta}")
-    commit_end=time.time()
-    logger.info(f"adhoc, Round {round_id} commit took:{(commit_end-mat_end):.2f} seconds")
-    print(f"adhoc, Round {round_id} commit took:{(commit_end-mat_end):.2f} seconds")
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,

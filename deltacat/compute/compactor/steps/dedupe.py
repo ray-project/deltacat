@@ -9,6 +9,7 @@ from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from ray import cloudpickle
 from ray.types import ObjectRef
 import sys
+import gc
 
 from deltacat import logs
 from collections import defaultdict
@@ -21,7 +22,6 @@ from deltacat.compute.compactor.utils import system_columns as sc, \
     primary_key_index as pki
 
 from typing import Any, Dict, List, Optional, Tuple
-from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -58,6 +58,7 @@ def union_primary_key_indices(
         )
         if tables:
             prior_pk_index_table = pa.concat_tables(tables)
+            logger.info(f"Number of earlier records in hash bucket count {hash_bucket_index}: {prior_pk_index_table.num_rows}")
             hb_tables.append(prior_pk_index_table)
 
     # sort by delta file stream position now instead of sorting every row later
@@ -72,6 +73,7 @@ def union_primary_key_indices(
 
     hb_table = pa.concat_tables(hb_tables)
 
+    logger.info(f"Total records in hash bucket {hash_bucket_index}: {hb_table.num_rows}")
     return hb_table
 
 
@@ -113,8 +115,6 @@ def write_new_primary_key_index(
 
     pki_results = []
     for hb_index, table in deduped_tables:
-        # this is always true, saving some space
-        table = table.drop([sc._IS_SOURCE_COLUMN_NAME])
         hb_pki_result = pki.write_primary_key_index_files(
             table,
             new_primary_key_index_version_locator,
@@ -137,8 +137,7 @@ def delta_file_locator_to_mat_bucket_index(
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
-@ray.remote(num_returns=3)
-def dedupe(
+def _dedupe(
         compaction_artifact_s3_bucket: str,
         round_completion_info: Optional[RoundCompletionInfo],
         new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
@@ -149,7 +148,6 @@ def dedupe(
         num_materialize_buckets: int,
         dedupe_task_index: int,
         delete_old_primary_key_index: bool) -> DedupeResult:
-
     logger.info(f"{dedupe_task_index}: Starting dedupe task...")
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
@@ -200,7 +198,6 @@ def dedupe(
         st = time.time()
         table = drop_duplicates_by_primary_key_hash(table)
         ed = time.time()
-        table = table.drop([sc._DELTA_TYPE_COLUMN_NAME])
         logger.info(f"{dedupe_task_index}: Dedupe round output record count: {len(table)}, took: {ed - st}")
 
         deduped_tables.append((hb_idx, table))
@@ -241,7 +238,6 @@ def dedupe(
             dedupe_task_index,
             object_ref,
         )
-        del object_ref
     logger.info(f"{dedupe_task_index}: Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
@@ -261,6 +257,37 @@ def dedupe(
             round_completion_info.primary_key_index_version_locator,
         )
     logger.info(f"Finished dedupe task...")
+    return mat_bucket_to_dd_idx_obj_id, \
+        src_file_records_obj_refs, \
+        write_pki_result
+
+@ray.remote(num_returns=3)
+def dedupe(
+        compaction_artifact_s3_bucket: str,
+        round_completion_info: Optional[RoundCompletionInfo],
+        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        object_ids: List[Any],
+        sort_keys: List[SortKey],
+        max_records_per_index_file: int,
+        max_records_per_materialized_file: int,
+        num_materialize_buckets: int,
+        dedupe_task_index: int,
+        delete_old_primary_key_index: bool) -> DedupeResult:
+
+    mat_bucket_to_dd_idx_obj_id, \
+        src_file_records_obj_refs, \
+        write_pki_result = _dedupe(compaction_artifact_s3_bucket,
+                                    round_completion_info,
+                                    new_primary_key_index_version_locator,
+                                    object_ids,
+                                    sort_keys,
+                                    max_records_per_index_file,
+                                    max_records_per_materialized_file,
+                                    num_materialize_buckets,
+                                    dedupe_task_index,
+                                    delete_old_primary_key_index)
+
+    gc.collect()
     return mat_bucket_to_dd_idx_obj_id, \
         src_file_records_obj_refs, \
         write_pki_result

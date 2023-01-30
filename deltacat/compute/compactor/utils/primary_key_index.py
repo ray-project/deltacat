@@ -30,6 +30,12 @@ from ray.types import ObjectRef
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+S3_CONFIG = {
+   "retries": {
+      'max_attempts': 25,
+      'mode': 'standard'
+   }
+}
 
 def rehash(
         options_provider: Callable[[int, Any], Dict[str, Any]],
@@ -242,7 +248,8 @@ def write_primary_key_index_files(
         s3_additional_kwargs={
             "ContentType": ContentType.PARQUET.value,
             "ContentEncoding": ContentEncoding.IDENTITY.value,
-        }
+        },
+        config_kwargs=S3_CONFIG
     )
     pkiv_hb_index_s3_url_base = primary_key_index_version_locator\
         .get_pkiv_hb_index_s3_url_base(s3_bucket, hb_index)

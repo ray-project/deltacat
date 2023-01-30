@@ -3,6 +3,7 @@ import pyarrow as pa
 import numpy as np
 import logging
 import time
+import gc
 
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from itertools import chain
@@ -167,8 +168,7 @@ def read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_returns=2)
-def hash_bucket(
+def _hash_bucket(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_keys: List[SortKey],
@@ -197,4 +197,30 @@ def hash_bucket(
         num_groups,
     )
     logger.info(f"Finished hash bucket task...")
+    return hash_bucket_group_to_obj_id, object_refs
+
+@ray.remote(num_returns=2)
+def hash_bucket(
+        annotated_delta: DeltaAnnotated,
+        primary_keys: List[str],
+        sort_keys: List[SortKey],
+        num_buckets: int,
+        num_groups: int,
+        storage_type: StorageType=StorageType.LOCAL,
+        max_io_parallelism: int = 1,
+        ignore_missing_manifest: bool = False,
+        deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
+
+    hash_bucket_group_to_obj_id, object_refs = _hash_bucket(annotated_delta,
+                                                            primary_keys,
+                                                            sort_keys,
+                                                            num_buckets,
+                                                            num_groups,
+                                                            storage_type,
+                                                            max_io_parallelism,
+                                                            ignore_missing_manifest,
+                                                            deltacat_storage)
+    
+    
+    gc.collect()
     return hash_bucket_group_to_obj_id, object_refs
