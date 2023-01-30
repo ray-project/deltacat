@@ -1,45 +1,37 @@
+import ray
+import deltacat.aws.clients as aws_utils
 import logging
 import multiprocessing
+import s3fs
+import pyarrow as pa
+
 from functools import partial
-from typing import Any, Callable, Dict, Generator, List, Optional, Union
 from uuid import uuid4
 
-import pyarrow as pa
-import ray
-import s3fs
+from ray.types import ObjectRef
+from ray.data.datasource import BlockWritePathProvider
+from ray.data.block import Block, BlockAccessor, BlockMetadata
+
+from deltacat import logs
+from deltacat.storage import LocalTable, LocalDataset, DistributedDataset, \
+    Manifest, ManifestEntry, ManifestEntryList
+from deltacat.aws.constants import TIMEOUT_ERROR_CODES
+from deltacat.exceptions import RetryableError, NonRetryableError
+from deltacat.types.media import ContentType, ContentEncoding
+from deltacat.types.tables import TABLE_TYPE_TO_READER_FUNC, \
+    TABLE_CLASS_TO_SIZE_FUNC, get_table_length
+from deltacat.types.media import TableType
+from deltacat.utils.common import ReadKwargsProvider
+
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
-from ray.data.block import Block, BlockAccessor, BlockMetadata
-from ray.data.datasource import BlockWritePathProvider
-from ray.types import ObjectRef
-from tenacity import (
-    Retrying,
-    retry_if_exception_type,
-    retry_if_not_exception_type,
-    stop_after_delay,
-    wait_random_exponential,
-)
+from tenacity import Retrying
+from tenacity import wait_random_exponential
+from tenacity import stop_after_delay
+from tenacity import retry_if_exception_type, retry_if_not_exception_type
 
-import deltacat.aws.clients as aws_utils
-from deltacat import logs
-from deltacat.aws.constants import TIMEOUT_ERROR_CODES
-from deltacat.exceptions import NonRetryableError, RetryableError
-from deltacat.storage import (
-    DistributedDataset,
-    LocalDataset,
-    LocalTable,
-    Manifest,
-    ManifestEntry,
-    ManifestEntryList,
-)
-from deltacat.types.media import ContentEncoding, ContentType, TableType
-from deltacat.types.tables import (
-    TABLE_CLASS_TO_SIZE_FUNC,
-    TABLE_TYPE_TO_READER_FUNC,
-    get_table_length,
-)
-from deltacat.utils.common import ReadKwargsProvider
+from typing import Any, Callable, Dict, List, Optional, Generator, Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -50,7 +42,10 @@ class CapturedBlockWritePaths:
         self._write_paths: List[str] = []
         self._block_refs: List[ObjectRef[Block]] = []
 
-    def extend(self, write_paths: List[str], block_refs: List[ObjectRef[Block]]):
+    def extend(
+            self,
+            write_paths: List[str],
+            block_refs: List[ObjectRef[Block]]):
         try:
             iter(write_paths)
         except TypeError:
@@ -75,7 +70,6 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
     """Block write path provider implementation that writes each
     dataset block out to a file of the form: {base_path}/{uuid}
     """
-
     def __init__(self, capture_actor: CapturedBlockWritePaths):
         self.write_paths: List[str] = []
         self.block_refs: List[ObjectRef[Block]] = []
@@ -89,15 +83,14 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
             )
 
     def _get_write_path_for_block(
-        self,
-        base_path: str,
-        *,
-        filesystem: Optional[pa.filesystem.FileSystem] = None,
-        dataset_uuid: Optional[str] = None,
-        block: Optional[ObjectRef[Block]] = None,
-        block_index: Optional[int] = None,
-        file_format: Optional[str] = None,
-    ) -> str:
+            self,
+            base_path: str,
+            *,
+            filesystem: Optional[pa.filesystem.FileSystem] = None,
+            dataset_uuid: Optional[str] = None,
+            block: Optional[ObjectRef[Block]] = None,
+            block_index: Optional[int] = None,
+            file_format: Optional[str] = None) -> str:
         write_path = f"{base_path}/{str(uuid4())}"
         self.write_paths.append(write_path)
         if block:
@@ -106,18 +99,24 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
 
 
 class S3Url:
-    def __init__(self, url: str):
+    def __init__(
+            self,
+            url: str):
 
         from urllib.parse import urlparse
 
-        self._parsed = urlparse(url, allow_fragments=False)  # support '#' in path
+        self._parsed = urlparse(
+            url,
+            allow_fragments=False  # support '#' in path
+        )
         if not self._parsed.scheme:  # support paths w/o 's3://' scheme
             url = f"s3://{url}"
             self._parsed = urlparse(url, allow_fragments=False)
         if self._parsed.query:  # support '?' in path
-            self.key = f"{self._parsed.path.lstrip('/')}?{self._parsed.query}"
+            self.key = \
+                f"{self._parsed.path.lstrip('/')}?{self._parsed.query}"
         else:
-            self.key = self._parsed.path.lstrip("/")
+            self.key = self._parsed.path.lstrip('/')
         self.bucket = self._parsed.netloc
         self.url = self._parsed.geturl()
 
@@ -126,7 +125,9 @@ def parse_s3_url(url: str) -> S3Url:
     return S3Url(url)
 
 
-def s3_resource_cache(region: Optional[str], **kwargs) -> ServiceResource:
+def s3_resource_cache(
+        region: Optional[str],
+        **kwargs) -> ServiceResource:
 
     return aws_utils.resource_cache(
         "s3",
@@ -135,20 +136,36 @@ def s3_resource_cache(region: Optional[str], **kwargs) -> ServiceResource:
     )
 
 
-def s3_client_cache(region: Optional[str], **kwargs) -> BaseClient:
+def s3_client_cache(
+        region: Optional[str],
+        **kwargs) -> BaseClient:
 
-    return aws_utils.client_cache("s3", region, **kwargs)
+    return aws_utils.client_cache(
+        "s3",
+        region,
+        **kwargs
+    )
 
 
-def get_object_at_url(url: str, **s3_client_kwargs) -> Dict[str, Any]:
+def get_object_at_url(
+        url: str,
+        **s3_client_kwargs) -> Dict[str, Any]:
 
-    s3 = s3_client_cache(None, **s3_client_kwargs)
+    s3 = s3_client_cache(
+        None,
+        **s3_client_kwargs)
 
     parsed_s3_url = parse_s3_url(url)
-    return s3.get_object(Bucket=parsed_s3_url.bucket, Key=parsed_s3_url.key)
+    return s3.get_object(
+        Bucket=parsed_s3_url.bucket,
+        Key=parsed_s3_url.key
+    )
 
 
-def delete_files_by_prefix(bucket: str, prefix: str, **s3_client_kwargs) -> None:
+def delete_files_by_prefix(
+        bucket: str,
+        prefix: str,
+        **s3_client_kwargs) -> None:
 
     s3 = s3_resource_cache(None, **s3_client_kwargs)
     bucket = s3.Bucket(bucket)
@@ -172,10 +189,14 @@ def get_path_from_object(bucket, obj):
 
 
 def filter_objects_by_prefix(
-    bucket: str, prefix: str, **s3_client_kwargs
-) -> Generator[Dict[str, Any], None, None]:
+        bucket: str,
+        prefix: str,
+        **s3_client_kwargs) -> Generator[Dict[str, Any], None, None]:
 
-    s3 = s3_client_cache(None, **s3_client_kwargs)
+    s3 = s3_client_cache(
+        None,
+        **s3_client_kwargs
+    )
     params = {"Bucket": bucket, "Prefix": prefix}
     more_objects_to_list = True
     while more_objects_to_list:
@@ -188,15 +209,14 @@ def filter_objects_by_prefix(
 
 
 def read_file(
-    s3_url: str,
-    content_type: ContentType,
-    content_encoding: ContentEncoding = ContentEncoding.IDENTITY,
-    table_type: TableType = TableType.PYARROW,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs,
-) -> LocalTable:
+        s3_url: str,
+        content_type: ContentType,
+        content_encoding: ContentEncoding = ContentEncoding.IDENTITY,
+        table_type: TableType = TableType.PYARROW,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+        **s3_client_kwargs) -> LocalTable:
 
     reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
     try:
@@ -207,33 +227,34 @@ def read_file(
             column_names,
             include_columns,
             file_reader_kwargs_provider,
-            **s3_client_kwargs,
+            **s3_client_kwargs
         )
         return table
     except ClientError as e:
         if e.response["Error"]["Code"] in TIMEOUT_ERROR_CODES:
             # Timeout error not caught by botocore
-            raise RetryableError(f"Retry table download from: {s3_url}") from e
-        raise NonRetryableError(f"Failed table download from: {s3_url}") from e
+            raise RetryableError(f"Retry table download from: {s3_url}") \
+                from e
+        raise NonRetryableError(f"Failed table download from: {s3_url}") \
+            from e
 
 
 def upload_sliced_table(
-    table: Union[LocalTable, DistributedDataset],
-    s3_url_prefix: str,
-    s3_file_system: s3fs.S3FileSystem,
-    max_records_per_entry: Optional[int],
-    s3_table_writer_func: Callable,
-    table_slicer_func: Callable,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
-    content_type: ContentType = ContentType.PARQUET,
-    **s3_client_kwargs,
-) -> ManifestEntryList:
+        table: Union[LocalTable, DistributedDataset],
+        s3_url_prefix: str,
+        s3_file_system: s3fs.S3FileSystem,
+        max_records_per_entry: Optional[int],
+        s3_table_writer_func: Callable,
+        table_slicer_func: Callable,
+        s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+        content_type: ContentType = ContentType.PARQUET,
+        **s3_client_kwargs) -> ManifestEntryList:
 
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(30 * 60),
-        retry=retry_if_exception_type(RetryableError),
+        retry=retry_if_exception_type(RetryableError)
     )
 
     manifest_entries = ManifestEntryList()
@@ -249,11 +270,14 @@ def upload_sliced_table(
             s3_table_writer_func,
             s3_table_writer_kwargs,
             content_type,
-            **s3_client_kwargs,
+            **s3_client_kwargs
         )
     else:
         # iteratively write table slices
-        table_slices = table_slicer_func(table, max_records_per_entry)
+        table_slices = table_slicer_func(
+            table,
+            max_records_per_entry
+        )
         for table_slice in table_slices:
             slice_entries = retrying(
                 upload_table,
@@ -263,7 +287,7 @@ def upload_sliced_table(
                 s3_table_writer_func,
                 s3_table_writer_kwargs,
                 content_type,
-                **s3_client_kwargs,
+                **s3_client_kwargs
             )
             manifest_entries.extend(slice_entries)
 
@@ -279,17 +303,15 @@ def _block_metadata(block: Block) -> BlockMetadata:
 
 
 def _get_metadata(
-    table: Union[LocalTable, DistributedDataset],
-    write_paths: List[str],
-    block_refs: List[ObjectRef[Block]],
-) -> List[BlockMetadata]:
+        table: Union[LocalTable, DistributedDataset],
+        write_paths: List[str],
+        block_refs: List[ObjectRef[Block]])-> List[BlockMetadata]:
     metadata: List[BlockMetadata] = []
     if not block_refs:
         # this must be a local table - ensure it was written to only 1 file
-        assert len(write_paths) == 1, (
-            f"Expected table of type '{type(table)}' to be written to 1 "
+        assert len(write_paths) == 1, \
+            f"Expected table of type '{type(table)}' to be written to 1 " \
             f"file, but found {len(write_paths)} files."
-        )
         table_size = None
         table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
         if table_size_func:
@@ -311,27 +333,23 @@ def _get_metadata(
         # metadata = dataset._blocks.get_metadata()
         # ray 2.0.0dev
         metadata = table._plan.execute().get_metadata()
-        if (
-            not metadata
-            or metadata[0].size_bytes is None
-            or metadata[0].num_rows is None
-        ):
-            metadata_futures = [
-                _block_metadata.remote(block_ref) for block_ref in block_refs
-            ]
+        if not metadata or metadata[0].size_bytes is None or \
+                metadata[0].num_rows is None:
+            metadata_futures = [_block_metadata.remote(block_ref)
+                                for block_ref
+                                in block_refs]
             metadata = ray.get(metadata_futures)
     return metadata
 
 
 def upload_table(
-    table: Union[LocalTable, DistributedDataset],
-    s3_base_url: str,
-    s3_file_system: s3fs.S3FileSystem,
-    s3_table_writer_func: Callable,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]],
-    content_type: ContentType = ContentType.PARQUET,
-    **s3_client_kwargs,
-) -> ManifestEntryList:
+        table: Union[LocalTable, DistributedDataset],
+        s3_base_url: str,
+        s3_file_system: s3fs.S3FileSystem,
+        s3_table_writer_func: Callable,
+        s3_table_writer_kwargs: Optional[Dict[str, Any]],
+        content_type: ContentType = ContentType.PARQUET,
+        **s3_client_kwargs) -> ManifestEntryList:
     """
     Writes the given table to 1 or more S3 files and return Redshift
     manifest entries describing the uploaded files.
@@ -347,7 +365,7 @@ def upload_table(
         s3_file_system,
         block_write_path_provider,
         content_type.value,
-        **s3_table_writer_kwargs,
+        **s3_table_writer_kwargs
     )
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
@@ -367,42 +385,37 @@ def upload_table(
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # s3fs may swallow S3 errors - we were probably throttled
-                raise RetryableError(f"Retry table upload to: {s3_url}") from e
-            raise NonRetryableError(f"Failed table upload to: {s3_url}") from e
+                raise RetryableError(f"Retry table upload to: {s3_url}") \
+                    from e
+            raise NonRetryableError(f"Failed table upload to: {s3_url}") \
+                from e
     return manifest_entries
 
 
 def download_manifest_entry(
-    manifest_entry: ManifestEntry,
-    token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    content_type: Optional[ContentType] = None,
-    content_encoding: Optional[ContentEncoding] = None,
-) -> LocalTable:
+        manifest_entry: ManifestEntry,
+        token_holder: Optional[Dict[str, Any]] = None,
+        table_type: TableType = TableType.PYARROW,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+        content_type: Optional[ContentType] = None,
+        content_encoding: Optional[ContentEncoding] = None) -> LocalTable:
 
-    s3_client_kwargs = (
-        {
-            "aws_access_key_id": token_holder["accessKeyId"],
-            "aws_secret_access_key": token_holder["secretAccessKey"],
-            "aws_session_token": token_holder["sessionToken"],
-        }
-        if token_holder
-        else {}
-    )
+    s3_client_kwargs = {
+        "aws_access_key_id": token_holder["accessKeyId"],
+        "aws_secret_access_key": token_holder["secretAccessKey"],
+        "aws_session_token": token_holder["sessionToken"]
+    } if token_holder else {}
     if not content_type:
         content_type = manifest_entry.meta.content_type
-        assert (
-            content_type
-        ), f"Unknown content type for manifest entry: {manifest_entry}"
+        assert content_type, \
+            f"Unknown content type for manifest entry: {manifest_entry}"
         content_type = ContentType(content_type)
     if not content_encoding:
         content_encoding = manifest_entry.meta.content_encoding
-        assert (
-            content_encoding
-        ), f"Unknown content encoding for manifest entry: {manifest_entry}"
+        assert content_encoding, \
+            f"Unknown content encoding for manifest entry: {manifest_entry}"
         content_encoding = ContentEncoding(content_encoding)
     s3_url = manifest_entry.uri
     if s3_url is None:
@@ -411,7 +424,7 @@ def download_manifest_entry(
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(30 * 60),
-        retry=retry_if_not_exception_type(NonRetryableError),
+        retry=retry_if_not_exception_type(NonRetryableError)
     )
     table = retrying(
         read_file,
@@ -428,36 +441,30 @@ def download_manifest_entry(
 
 
 def _download_manifest_entries(
-    manifest: Manifest,
-    token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-) -> LocalDataset:
+        manifest: Manifest,
+        token_holder: Optional[Dict[str, Any]] = None,
+        table_type: TableType = TableType.PYARROW,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
+        -> LocalDataset:
 
     return [
-        download_manifest_entry(
-            e,
-            token_holder,
-            table_type,
-            column_names,
-            include_columns,
-            file_reader_kwargs_provider,
-        )
+        download_manifest_entry(e, token_holder, table_type, column_names,
+                                include_columns, file_reader_kwargs_provider)
         for e in manifest.entries
     ]
 
 
 def _download_manifest_entries_parallel(
-    manifest: Manifest,
-    token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
-    max_parallelism: Optional[int] = None,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-) -> LocalDataset:
+        manifest: Manifest,
+        token_holder: Optional[Dict[str, Any]] = None,
+        table_type: TableType = TableType.PYARROW,
+        max_parallelism: Optional[int] = None,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
+        -> LocalDataset:
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
@@ -475,14 +482,14 @@ def _download_manifest_entries_parallel(
 
 
 def download_manifest_entries(
-    manifest: Manifest,
-    token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
-    max_parallelism: Optional[int] = 1,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-) -> LocalDataset:
+        manifest: Manifest,
+        token_holder: Optional[Dict[str, Any]] = None,
+        table_type: TableType = TableType.PYARROW,
+        max_parallelism: Optional[int] = 1,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
+        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None) \
+        -> LocalDataset:
 
     if max_parallelism and max_parallelism <= 1:
         return _download_manifest_entries(
@@ -505,7 +512,10 @@ def download_manifest_entries(
         )
 
 
-def upload(s3_url: str, body, **s3_client_kwargs) -> Dict[str, Any]:
+def upload(
+        s3_url: str,
+        body,
+        **s3_client_kwargs) -> Dict[str, Any]:
 
     # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
@@ -518,8 +528,9 @@ def upload(s3_url: str, body, **s3_client_kwargs) -> Dict[str, Any]:
 
 
 def download(
-    s3_url: str, fail_if_not_found: bool = True, **s3_client_kwargs
-) -> Optional[Dict[str, Any]]:
+        s3_url: str,
+        fail_if_not_found: bool = True,
+        **s3_client_kwargs) -> Optional[Dict[str, Any]]:
 
     # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
@@ -533,13 +544,15 @@ def download(
         if fail_if_not_found:
             raise
         else:
-            if e.response["Error"]["Code"] != "404":
-                if e.response["Error"]["Code"] != "NoSuchKey":
+            if e.response['Error']['Code'] != "404":
+                if e.response['Error']['Code'] != 'NoSuchKey':
                     raise
-            logger.info(f"file not found: {s3_url}")
+            logger.info(
+                f"file not found: {s3_url}")
     except s3.exceptions.NoSuchKey:
         if fail_if_not_found:
             raise
         else:
-            logger.info(f"file not found: {s3_url}")
+            logger.info(
+                f"file not found: {s3_url}")
     return None

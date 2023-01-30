@@ -1,8 +1,8 @@
 import ray
 
-from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import StorageType
 from deltacat.utils.performance import timed_invocation
+from deltacat.storage import interface as unimplemented_deltacat_storage
 
 ray.init(address="auto")
 
@@ -40,5 +40,5 @@ def run_all(dc_storage_ray=unimplemented_deltacat_storage):
     print(f"Time to read, convert, sort, and dedupe delta: {latency}s")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     run_all()

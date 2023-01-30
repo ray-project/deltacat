@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import Dict, Set
+
+from typing import Set, Dict
 
 
 class ContentType(str, Enum):
@@ -56,7 +57,7 @@ DELIMITED_TEXT_CONTENT_TYPES: Set[str] = {
     ContentType.UNESCAPED_TSV.value,
     ContentType.TSV.value,
     ContentType.CSV.value,
-    ContentType.PSV.value,
+    ContentType.PSV.value
 }
 
 TABULAR_CONTENT_TYPES: Set[str] = {
@@ -74,7 +75,7 @@ EXPLICIT_COMPRESSION_CONTENT_TYPES: Set[str] = {
     ContentType.TSV.value,
     ContentType.CSV.value,
     ContentType.PSV.value,
-    ContentType.JSON.value,
+    ContentType.JSON.value
 }
 
 CONTENT_TYPE_TO_USER_KWARGS_KEY: Dict[str, str] = {

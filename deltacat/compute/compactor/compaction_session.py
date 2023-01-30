@@ -1,37 +1,30 @@
-import functools
 import logging
-from collections import defaultdict
-from typing import Any, Dict, List, Optional, Set, Tuple
-
-import pyarrow as pa
+import time
+import functools
 import ray
 
-from deltacat import logs
-from deltacat.compute.compactor import (
-    PrimaryKeyIndexLocator,
-    PrimaryKeyIndexMeta,
-    PrimaryKeyIndexVersionLocator,
-    PrimaryKeyIndexVersionMeta,
-    PyArrowWriteResult,
-    RoundCompletionInfo,
-    SortKey,
-)
-from deltacat.compute.compactor.steps import dedupe as dd
-from deltacat.compute.compactor.steps import hash_bucket as hb
-from deltacat.compute.compactor.steps import materialize as mat
-from deltacat.compute.compactor.utils import io
-from deltacat.compute.compactor.utils import primary_key_index as pki
-from deltacat.compute.compactor.utils import round_completion_file as rcf
-from deltacat.compute.stats.models.delta_stats import DeltaStats
-from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator
-from deltacat.storage import interface as unimplemented_deltacat_storage
-from deltacat.types.media import ContentType
-from deltacat.utils.ray_utils.concurrency import (
-    invoke_parallel,
-    round_robin_options_provider,
-)
-from deltacat.utils.ray_utils.runtime import live_node_resource_keys
+from collections import defaultdict
 
+from deltacat import logs
+from deltacat.compute.stats.models.delta_stats import DeltaStats
+from deltacat.storage import Delta, DeltaLocator, Partition, \
+    PartitionLocator, interface as unimplemented_deltacat_storage
+from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
+    round_robin_options_provider
+from deltacat.utils.ray_utils.runtime import live_node_resource_keys
+from deltacat.compute.compactor.steps import hash_bucket as hb, dedupe as dd, \
+    materialize as mat
+from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
+    PrimaryKeyIndexLocator, PrimaryKeyIndexVersionMeta, \
+    PrimaryKeyIndexVersionLocator, RoundCompletionInfo, \
+    PyArrowWriteResult
+from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
+    primary_key_index as pki
+from deltacat.types.media import ContentType
+
+from typing import List, Set, Optional, Tuple, Dict, Union, Any
+
+import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _SORT_KEY_NAME_INDEX: int = 0
@@ -40,28 +33,22 @@ _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
 
 
 def check_preconditions(
-    source_partition_locator: PartitionLocator,
-    compacted_partition_locator: PartitionLocator,
-    sort_keys: List[SortKey],
-    max_records_per_output_file: int,
-    new_hash_bucket_count: Optional[int],
-    deltacat_storage=unimplemented_deltacat_storage,
-) -> int:
+        source_partition_locator: PartitionLocator,
+        compacted_partition_locator: PartitionLocator,
+        sort_keys: List[SortKey],
+        max_records_per_output_file: int,
+        new_hash_bucket_count: Optional[int],
+        deltacat_storage=unimplemented_deltacat_storage) -> int:
 
-    assert (
-        source_partition_locator.partition_values
-        == compacted_partition_locator.partition_values
-    ), (
-        "In-place compaction must use the same partition values for the "
+    assert source_partition_locator.partition_values \
+           == compacted_partition_locator.partition_values, \
+        "In-place compaction must use the same partition values for the " \
         "source and destination."
-    )
-    assert (
-        max_records_per_output_file >= 1
-    ), "Max records per output file must be a positive value"
+    assert max_records_per_output_file >= 1, \
+        "Max records per output file must be a positive value"
     if new_hash_bucket_count is not None:
-        assert (
-            new_hash_bucket_count >= 1
-        ), "New hash bucket count must be a positive value"
+        assert new_hash_bucket_count >= 1, \
+            "New hash bucket count must be a positive value"
     return SortKey.validate_sort_keys(
         source_partition_locator,
         sort_keys,
@@ -70,60 +57,54 @@ def check_preconditions(
 
 
 def compact_partition(
-    source_partition_locator: PartitionLocator,
-    compacted_partition_locator: PartitionLocator,
-    primary_keys: Set[str],
-    compaction_artifact_s3_bucket: str,
-    last_stream_position_to_compact: int,
-    hash_bucket_count: Optional[int] = None,
-    sort_keys: List[SortKey] = None,
-    records_per_primary_key_index_file: int = 38_000_000,
-    records_per_compacted_file: int = 4_000_000,
-    input_deltas_stats: Dict[int, DeltaStats] = None,
-    min_pk_index_pa_bytes: int = 0,
-    min_hash_bucket_chunk_size: int = 0,
-    compacted_file_content_type: ContentType = ContentType.PARQUET,
-    delete_prev_primary_key_index: bool = False,
-    read_round_completion: bool = False,
-    pg_config: Optional[List[Dict[str, Any]]] = None,
-    schema_on_read: Optional[
-        pa.schema
-    ] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
-    deltacat_storage=unimplemented_deltacat_storage,
-):
+        source_partition_locator: PartitionLocator,
+        compacted_partition_locator: PartitionLocator,
+        primary_keys: Set[str],
+        compaction_artifact_s3_bucket: str,
+        last_stream_position_to_compact: int,
+        hash_bucket_count: Optional[int] = None,
+        sort_keys: List[SortKey] = None,
+        records_per_primary_key_index_file: int = 38_000_000,
+        records_per_compacted_file: int = 4_000_000,
+        input_deltas_stats: Dict[int, DeltaStats] = None,
+        min_pk_index_pa_bytes: int = 0,
+        min_hash_bucket_chunk_size: int = 0,
+        compacted_file_content_type: ContentType = ContentType.PARQUET,
+        delete_prev_primary_key_index: bool = False,
+        read_round_completion: bool = False,
+        pg_config: Optional[List[Dict[str, Any]]] = None,
+        schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
+        deltacat_storage=unimplemented_deltacat_storage):
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
     partition = None
     compaction_rounds_executed = 0
     has_next_compaction_round = True
-    opts = {}
+    opts={}
     if pg_config:
-        opts = pg_config[0]
+        opts=pg_config[0]
     while has_next_compaction_round:
-        (
-            has_next_compaction_round_obj,
-            new_partition_obj,
-            new_rci_obj,
-        ) = _execute_compaction_round.options(**opts).remote(
-            source_partition_locator,
-            compacted_partition_locator,
-            primary_keys,
-            compaction_artifact_s3_bucket,
-            last_stream_position_to_compact,
-            hash_bucket_count,
-            sort_keys,
-            records_per_primary_key_index_file,
-            records_per_compacted_file,
-            input_deltas_stats,
-            min_pk_index_pa_bytes,
-            min_hash_bucket_chunk_size,
-            compacted_file_content_type,
-            delete_prev_primary_key_index,
-            read_round_completion,
-            schema_on_read,
-            deltacat_storage=deltacat_storage,
-            pg_config=pg_config,
-        )
+        has_next_compaction_round_obj, new_partition_obj, new_rci_obj = \
+            _execute_compaction_round.options(**opts).remote(
+                source_partition_locator,
+                compacted_partition_locator,
+                primary_keys,
+                compaction_artifact_s3_bucket,
+                last_stream_position_to_compact,
+                hash_bucket_count,
+                sort_keys,
+                records_per_primary_key_index_file,
+                records_per_compacted_file,
+                input_deltas_stats,
+                min_pk_index_pa_bytes,
+                min_hash_bucket_chunk_size,
+                compacted_file_content_type,
+                delete_prev_primary_key_index,
+                read_round_completion,
+                schema_on_read,
+                deltacat_storage=deltacat_storage,
+                pg_config=pg_config
+            )
         has_next_compaction_round = ray.get(has_next_compaction_round_obj)
         new_partition = ray.get(new_partition_obj)
         new_rci = ray.get(new_rci_obj)
@@ -135,45 +116,42 @@ def compact_partition(
         if new_rci:
             min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
 
-    logger.info(
-        f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
-        f"{compaction_rounds_executed} rounds."
-    )
+    logger.info(f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
+                f"{compaction_rounds_executed} rounds.")
     if partition:
         logger.info(f"Committing compacted partition to: {partition.locator}")
         partition = deltacat_storage.commit_partition(partition)
         logger.info(f"Committed compacted partition: {partition}")
     logger.info(f"Completed compaction session for: {source_partition_locator}")
 
-
-@ray.remote(num_cpus=0.1, num_returns=3)
+@ray.remote(num_cpus=0.1,num_returns=3)
 def _execute_compaction_round(
-    source_partition_locator: PartitionLocator,
-    compacted_partition_locator: PartitionLocator,
-    primary_keys: Set[str],
-    compaction_artifact_s3_bucket: str,
-    last_stream_position_to_compact: int,
-    new_hash_bucket_count: Optional[int],
-    sort_keys: List[SortKey],
-    records_per_primary_key_index_file: int,
-    records_per_compacted_file: int,
-    input_deltas_stats: Dict[int, DeltaStats],
-    min_pk_index_pa_bytes: int,
-    min_hash_bucket_chunk_size: int,
-    compacted_file_content_type: ContentType,
-    delete_prev_primary_key_index: bool,
-    read_round_completion: bool,
-    schema_on_read: Optional[pa.schema],
-    deltacat_storage=unimplemented_deltacat_storage,
-    pg_config: Optional[List[Dict[str, Any]]] = None,
-) -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
+        source_partition_locator: PartitionLocator,
+        compacted_partition_locator: PartitionLocator,
+        primary_keys: Set[str],
+        compaction_artifact_s3_bucket: str,
+        last_stream_position_to_compact: int,
+        new_hash_bucket_count: Optional[int],
+        sort_keys: List[SortKey],
+        records_per_primary_key_index_file: int,
+        records_per_compacted_file: int,
+        input_deltas_stats: Dict[int, DeltaStats],
+        min_pk_index_pa_bytes: int,
+        min_hash_bucket_chunk_size: int,
+        compacted_file_content_type: ContentType,
+        delete_prev_primary_key_index: bool,
+        read_round_completion: bool,
+        schema_on_read: Optional[pa.schema],
+        deltacat_storage = unimplemented_deltacat_storage,
+        pg_config: Optional[List[Dict[str, Any]]] = None) \
+        -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
+
 
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
         #  with normalized manifest entry sizes
         raise NotImplementedError(
-            "Compaction only supports tables with 1 or more primary keys"
-        )
+            "Compaction only supports tables with 1 or more primary keys")
     if sort_keys is None:
         sort_keys = []
     # TODO (pdames): detect and handle schema evolution (at least ensure that
@@ -205,19 +183,17 @@ def _execute_compaction_round(
 
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
-    if pg_config:  # use resource in each placement group
-        node_resource_keys = None
+    if pg_config: # use resource in each placement group
+        node_resource_keys=None
         cluster_resources = pg_config[1]
-        cluster_cpus = cluster_resources["CPU"]
-    else:  # use all cluster resource
+        cluster_cpus = cluster_resources['CPU']   
+    else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
         logger.info(f"Total cluster CPUs: {cluster_cpus}")
         node_resource_keys = live_node_resource_keys()
-        logger.info(
-            f"Found {len(node_resource_keys)} live cluster nodes: "
-            f"{node_resource_keys}"
-        )
+        logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
+                   f"{node_resource_keys}") 
 
     if node_resource_keys:
         # create a remote options provider to round-robin tasks across all nodes
@@ -250,11 +226,9 @@ def _execute_compaction_round(
         _PRIMARY_KEY_INDEX_ALGORITHM_VERSION,
     )
     compatible_primary_key_index_locator = PrimaryKeyIndexLocator.of(
-        compatible_primary_key_index_meta
-    )
-    compatible_primary_key_index_root_path = (
+        compatible_primary_key_index_meta)
+    compatible_primary_key_index_root_path = \
         compatible_primary_key_index_locator.primary_key_index_root_path
-    )
 
     # read the results from any previously completed compaction round that used
     # a compatible primary key index
@@ -269,27 +243,21 @@ def _execute_compaction_round(
     # read the previous compaction round's hash bucket count, if any
     old_hash_bucket_count = None
     if round_completion_info:
-        old_pki_version_locator = (
-            round_completion_info.primary_key_index_version_locator
-        )
-        old_hash_bucket_count = (
-            old_pki_version_locator.primary_key_index_version_meta.hash_bucket_count
-        )
-        min_pk_index_pa_bytes = (
-            round_completion_info.pk_index_pyarrow_write_result.pyarrow_bytes
-        )
+        old_pki_version_locator = round_completion_info\
+            .primary_key_index_version_locator
+        old_hash_bucket_count = old_pki_version_locator\
+            .primary_key_index_version_meta \
+            .hash_bucket_count
+        min_pk_index_pa_bytes = round_completion_info.pk_index_pyarrow_write_result.pyarrow_bytes
 
     # use the new hash bucket count if provided, or fall back to old count
-    hash_bucket_count = (
-        new_hash_bucket_count
-        if new_hash_bucket_count is not None
+    hash_bucket_count = new_hash_bucket_count \
+        if new_hash_bucket_count is not None \
         else old_hash_bucket_count
-    )
 
     # discover input delta files
-    high_watermark = (
-        round_completion_info.high_watermark if round_completion_info else None
-    )
+    high_watermark = round_completion_info.high_watermark \
+        if round_completion_info else None
 
     input_deltas = io.discover_deltas(
         source_partition_locator,
@@ -305,24 +273,20 @@ def _execute_compaction_round(
     # limit the input deltas to fit on this cluster and convert them to
     # annotated deltas of equivalent size for easy parallel distribution
 
-    (
-        uniform_deltas,
-        hash_bucket_count,
-        last_stream_position_compacted,
-    ) = io.limit_input_deltas(
-        input_deltas,
-        cluster_resources,
-        hash_bucket_count,
-        min_pk_index_pa_bytes,
-        min_hash_bucket_chunk_size,
-        input_deltas_stats=input_deltas_stats,
-        deltacat_storage=deltacat_storage,
-    )
+    uniform_deltas, hash_bucket_count, last_stream_position_compacted = \
+        io.limit_input_deltas(
+            input_deltas,
+            cluster_resources,
+            hash_bucket_count,
+            min_pk_index_pa_bytes,
+            min_hash_bucket_chunk_size,
+            input_deltas_stats=input_deltas_stats,
+            deltacat_storage=deltacat_storage
+        )
 
-    assert hash_bucket_count is not None and hash_bucket_count > 0, (
-        f"Unexpected Error: Default hash bucket count ({hash_bucket_count}) "
+    assert hash_bucket_count is not None and hash_bucket_count > 0, \
+        f"Unexpected Error: Default hash bucket count ({hash_bucket_count}) " \
         f"is invalid."
-    )
 
     # rehash the primary key index if necessary
     round_completion_info = None
@@ -342,11 +306,9 @@ def _execute_compaction_round(
                 delete_prev_primary_key_index,
             )
     else:
-        logger.info(
-            f"No prior round completion file found. Source partition: "
-            f"{source_partition_locator}. Primary key index locator: "
-            f"{compatible_primary_key_index_locator}"
-        )
+        logger.info(f"No prior round completion file found. Source partition: "
+                    f"{source_partition_locator}. Primary key index locator: "
+                    f"{compatible_primary_key_index_locator}")
 
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
@@ -397,11 +359,9 @@ def _execute_compaction_round(
         _PRIMARY_KEY_INDEX_ALGORITHM_VERSION,
     )
     new_primary_key_index_locator = PrimaryKeyIndexLocator.of(
-        new_primary_key_index_meta
-    )
-    new_primary_key_index_root_path = (
-        new_primary_key_index_locator.primary_key_index_root_path
-    )
+        new_primary_key_index_meta)
+    new_primary_key_index_root_path = new_primary_key_index_locator\
+        .primary_key_index_root_path
 
     # generate a new primary key index version locator for this round
     new_primary_key_index_version_meta = PrimaryKeyIndexVersionMeta.of(
@@ -409,26 +369,23 @@ def _execute_compaction_round(
         hash_bucket_count,
     )
     new_pki_version_locator = PrimaryKeyIndexVersionLocator.generate(
-        new_primary_key_index_version_meta
-    )
+        new_primary_key_index_version_meta)
+
 
     # parallel step 2:
     # discover records with duplicate primary keys in each hash bucket, and
     # identify the index of records to keep or drop based on sort keys
     num_materialize_buckets = max_parallelism
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
-    record_counts_pending_materialize = dd.RecordCountsPendingMaterialize.remote(
-        dedupe_task_count
-    )
+    record_counts_pending_materialize = \
+        dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
         max_parallelism=max_parallelism,
         options_provider=round_robin_opt_provider,
-        kwargs_provider=lambda index, item: {
-            "dedupe_task_index": index,
-            "object_ids": item,
-        },
+        kwargs_provider=lambda index, item: {"dedupe_task_index": index,
+                                             "object_ids": item},
         compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
         round_completion_info=round_completion_info,
         new_primary_key_index_version_locator=new_pki_version_locator,
@@ -444,17 +401,15 @@ def _execute_compaction_round(
     logger.info(f"Got {len(dd_results)} dedupe results.")
     all_mat_buckets_to_obj_id = defaultdict(list)
     for mat_bucket_idx_to_obj_id in dd_results:
-        for (
-            bucket_idx,
-            dd_task_index_and_object_id_tuple,
-        ) in mat_bucket_idx_to_obj_id.items():
+        for bucket_idx, dd_task_index_and_object_id_tuple in \
+                mat_bucket_idx_to_obj_id.items():
             all_mat_buckets_to_obj_id[bucket_idx].append(
-                dd_task_index_and_object_id_tuple
-            )
+                dd_task_index_and_object_id_tuple)
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
     pki_stats = ray.get([t[2] for t in dd_tasks_pending])
     logger.info(f"Got {len(pki_stats)} dedupe result stat(s).")
-    logger.info(f"Materialize buckets created: " f"{len(all_mat_buckets_to_obj_id)}")
+    logger.info(f"Materialize buckets created: "
+                f"{len(all_mat_buckets_to_obj_id)}")
 
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
@@ -503,7 +458,8 @@ def _execute_compaction_round(
     round_completion_info = RoundCompletionInfo.of(
         last_stream_position_compacted,
         new_compacted_delta_locator,
-        PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
+        PyArrowWriteResult.union([m.pyarrow_write_result
+                                  for m in mat_results]),
         PyArrowWriteResult.union(pki_stats),
         bit_width_of_sort_keys,
         new_pki_version_locator,
@@ -514,11 +470,10 @@ def _execute_compaction_round(
         new_primary_key_index_root_path,
         round_completion_info,
     )
-    logger.info(
-        f"partition-{source_partition_locator.partition_values},compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}"
-    )
-    return (
-        (last_stream_position_compacted < last_stream_position_to_compact),
-        partition,
-        round_completion_info,
-    )
+    time_mat_e = time.time()
+    logger.info(f"partition-{source_partition_locator.partition_values},compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}")
+    return \
+        (last_stream_position_compacted < last_stream_position_to_compact), \
+        partition, \
+        round_completion_info
+

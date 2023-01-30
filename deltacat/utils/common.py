@@ -1,8 +1,9 @@
 import hashlib
-import os
-import time
-from typing import Any, Dict
 
+import time
+import os
+
+from typing import Any, Dict
 
 def env_bool(key: str, default: bool) -> int:
     if key in os.environ:
@@ -43,11 +44,16 @@ class ContentTypeKwargsProvider:
     as input, and returns finalized keyword args as output. Useful for merging
     content-type-specific keyword arguments into an existing fixed dictionary
     of keyword arguments."""
-
-    def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_kwargs(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
 
-    def __call__(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
         return self._get_kwargs(content_type, kwargs)
 
 
