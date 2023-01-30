@@ -364,7 +364,7 @@ def dedupe(
             dedupe_task_index,
             object_ref,
         )
-        del ray.put
+        del object_ref
     logger.info(f"Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
