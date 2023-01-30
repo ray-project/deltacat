@@ -13,13 +13,15 @@ from typing import Any, Dict, List, Optional, Union
 
 class TableVersion(dict):
     @staticmethod
-    def of(locator: Optional[TableVersionLocator],
-           schema: Optional[Union[pa.Schema, str, bytes]],
-           partition_keys: Optional[List[Dict[str, Any]]] = None,
-           primary_key_columns: Optional[List[str]] = None,
-           description: Optional[str] = None,
-           properties: Optional[Dict[str, str]] = None,
-           content_types: Optional[List[ContentType]] = None) -> TableVersion:
+    def of(
+        locator: Optional[TableVersionLocator],
+        schema: Optional[Union[pa.Schema, str, bytes]],
+        partition_keys: Optional[List[Dict[str, Any]]] = None,
+        primary_key_columns: Optional[List[str]] = None,
+        description: Optional[str] = None,
+        properties: Optional[Dict[str, str]] = None,
+        content_types: Optional[List[ContentType]] = None,
+    ) -> TableVersion:
         table_version = TableVersion()
         table_version.locator = locator
         table_version.schema = schema
@@ -38,9 +40,7 @@ class TableVersion(dict):
         return val
 
     @locator.setter
-    def locator(
-            self,
-            table_version_locator: Optional[TableVersionLocator]) -> None:
+    def locator(self, table_version_locator: Optional[TableVersionLocator]) -> None:
         self["tableVersionLocator"] = table_version_locator
 
     @property
@@ -56,9 +56,7 @@ class TableVersion(dict):
         return self.get("partitionKeys")
 
     @partition_keys.setter
-    def partition_keys(
-            self,
-            partition_keys: Optional[List[Dict[str, Any]]]) -> None:
+    def partition_keys(self, partition_keys: Optional[List[Dict[str, Any]]]) -> None:
         self["partitionKeys"] = partition_keys
 
     @property
@@ -88,13 +86,14 @@ class TableVersion(dict):
     @property
     def content_types(self) -> Optional[List[ContentType]]:
         content_types = self.get("contentTypes")
-        return None if content_types is None else \
-            [None if _ is None else ContentType(_) for _ in content_types]
+        return (
+            None
+            if content_types is None
+            else [None if _ is None else ContentType(_) for _ in content_types]
+        )
 
     @content_types.setter
-    def content_types(
-            self,
-            content_types: Optional[List[ContentType]]) -> None:
+    def content_types(self, content_types: Optional[List[ContentType]]) -> None:
         self["contentTypes"] = content_types
 
     @property
@@ -132,27 +131,29 @@ class TableVersion(dict):
             return table_version_locator.table_version
         return None
 
-    def is_supported_content_type(
-            self,
-            content_type: ContentType):
+    def is_supported_content_type(self, content_type: ContentType):
         supported_content_types = self.content_types
-        return (not supported_content_types) or \
-               (content_type in supported_content_types)
+        return (not supported_content_types) or (
+            content_type in supported_content_types
+        )
 
 
 class TableVersionLocator(Locator, dict):
     @staticmethod
-    def of(table_locator: Optional[TableLocator],
-           table_version: Optional[str]) -> TableVersionLocator:
+    def of(
+        table_locator: Optional[TableLocator], table_version: Optional[str]
+    ) -> TableVersionLocator:
         table_version_locator = TableVersionLocator()
         table_version_locator.table_locator = table_locator
         table_version_locator.table_version = table_version
         return table_version_locator
 
     @staticmethod
-    def at(namespace: Optional[str],
-           table_name: Optional[str],
-           table_version: Optional[str]) -> TableVersionLocator:
+    def at(
+        namespace: Optional[str],
+        table_name: Optional[str],
+        table_version: Optional[str],
+    ) -> TableVersionLocator:
         table_locator = TableLocator.at(namespace, table_name)
         return TableVersionLocator.of(table_locator, table_version)
 

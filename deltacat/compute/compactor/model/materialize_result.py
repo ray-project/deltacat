@@ -2,17 +2,16 @@
 from __future__ import annotations
 
 from deltacat.storage import Delta
-from deltacat.compute.compactor.model.pyarrow_write_result import \
-    PyArrowWriteResult
+from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
 
 from typing import Any, Dict
 
 
 class MaterializeResult(dict):
     @staticmethod
-    def of(delta: Delta,
-           task_index: int,
-           pyarrow_write_result: PyArrowWriteResult) -> MaterializeResult:
+    def of(
+        delta: Delta, task_index: int, pyarrow_write_result: PyArrowWriteResult
+    ) -> MaterializeResult:
         materialize_result = MaterializeResult()
         materialize_result["delta"] = delta
         materialize_result["taskIndex"] = task_index

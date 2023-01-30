@@ -14,27 +14,38 @@ from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
 from pyarrow.fs import FileType, FileSystem, S3FileSystem
 from pyarrow import parquet as pq
 
-from ray.data.datasource.file_based_datasource import \
-    _resolve_paths_and_filesystem
+from ray.data.datasource.file_based_datasource import _resolve_paths_and_filesystem
 from ray.data.datasource.file_meta_provider import FastFileMetadataProvider
-from ray.data.datasource.partitioning import PartitionStyle
 from ray.types import ObjectRef
-from ray.data.datasource import CSVDatasource, BlockWritePathProvider, \
-    DefaultBlockWritePathProvider, ParquetMetadataProvider, \
-    DefaultFileMetadataProvider, ParquetBaseDatasource, PathPartitionParser
-from ray.data.datasource.datasource import ReadTask, WriteResult, Datasource, \
-    ArrowRow
+from ray.data.datasource import (
+    CSVDatasource,
+    BlockWritePathProvider,
+    DefaultBlockWritePathProvider,
+    ParquetMetadataProvider,
+    DefaultFileMetadataProvider,
+    ParquetBaseDatasource,
+    PathPartitionParser,
+)
+from ray.data.datasource.datasource import ReadTask, WriteResult, Datasource, ArrowRow
 from ray.data.block import Block, BlockMetadata
 
 from deltacat import ContentType, ContentEncoding
 from deltacat import logs
-from deltacat.aws.redshift.model.manifest import Manifest, ManifestEntryList, \
-    ManifestEntry, ManifestMeta
+from deltacat.aws.redshift.model.manifest import (
+    Manifest,
+    ManifestEntryList,
+    ManifestEntry,
+    ManifestMeta,
+)
 
 from typing import Any, Callable, List, Optional, Union, Dict, Tuple
 
-from deltacat.aws.s3u import parse_s3_url, S3Url, filter_objects_by_prefix, \
-    objects_to_paths
+from deltacat.aws.s3u import (
+    parse_s3_url,
+    S3Url,
+    filter_objects_by_prefix,
+    objects_to_paths,
+)
 from deltacat.utils.common import ReadKwargsProvider
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -43,15 +54,12 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 class CapturingBlockWritePathProvider(BlockWritePathProvider):
     """Delegating block write path provider that saves an ordered dictionary of
     input keyword arguments for every block write path returned."""
+
     def __init__(self, block_write_path_provider: BlockWritePathProvider):
         self.block_write_path_provider = block_write_path_provider
         self.write_path_kwargs: Dict[str, Dict[str, Any]] = OrderedDict()
 
-    def _get_write_path_for_block(
-            self,
-            base_path: str,
-            *args,
-            **kwargs) -> str:
+    def _get_write_path_for_block(self, base_path: str, *args, **kwargs) -> str:
         write_path = self.block_write_path_provider(
             base_path,
             *args,
@@ -73,10 +81,10 @@ class CachedFileMetadataProvider(
         return self._meta_cache
 
     def _get_block_metadata(
-            self,
-            paths: List[str],
-            schema: Optional[Union[type, pa.Schema]],
-            **kwargs,
+        self,
+        paths: List[str],
+        schema: Optional[Union[type, pa.Schema]],
+        **kwargs,
     ) -> BlockMetadata:
         agg_block_metadata = BlockMetadata(
             num_rows=0,
@@ -103,9 +111,9 @@ class CachedFileMetadataProvider(
 
 class HivePartitionParser(PathPartitionParser):
     def __init__(
-            self,
-            base_dir: Optional[str] = None,
-            filter_fn: Optional[Callable[[Dict[str, str]], bool]] = None,
+        self,
+        base_dir: Optional[str] = None,
+        filter_fn: Optional[Callable[[Dict[str, str]], bool]] = None,
     ):
         super(HivePartitionParser, self).__init__(
             base_dir=base_dir,
@@ -115,17 +123,17 @@ class HivePartitionParser(PathPartitionParser):
 
 class RedshiftUnloadTextArgs:
     def __init__(
-            self,
-            csv: bool = False,
-            header: bool = False,
-            delimiter: Optional[str] = None,
-            bzip2: bool = False,
-            gzip: bool = False,
-            zstd: bool = False,
-            add_quotes: Optional[bool] = None,
-            null_as: str = "",
-            escape: bool = False,
-            fixed_width: bool = False,
+        self,
+        csv: bool = False,
+        header: bool = False,
+        delimiter: Optional[str] = None,
+        bzip2: bool = False,
+        gzip: bool = False,
+        zstd: bool = False,
+        add_quotes: Optional[bool] = None,
+        null_as: str = "",
+        escape: bool = False,
+        fixed_width: bool = False,
     ):
         self.header = header
         self.delimiter = delimiter if delimiter else "," if csv else "|"
@@ -149,20 +157,22 @@ class RedshiftUnloadTextArgs:
                 raise ValueError(
                     f"Multiple Redshift UNLOAD compression types specified "
                     f"({codecs_enabled}). Please ensure that only one "
-                    f"compression type is set and try again.")
+                    f"compression type is set and try again."
+                )
             if flag:
                 arrow_compression_codec_name = encoding
         return arrow_compression_codec_name
 
     def to_arrow_reader_kwargs(
-            self,
-            include_columns: Optional[List[str]],
-            schema: Optional[pa.Schema]) -> Dict[str, Any]:
+        self, include_columns: Optional[List[str]], schema: Optional[pa.Schema]
+    ) -> Dict[str, Any]:
         from pyarrow import csv
+
         if self.fixed_width:
             raise NotImplementedError(
                 "Redshift text files unloaded with FIXEDWIDTH are not "
-                "currently supported.")
+                "currently supported."
+            )
         open_stream_args = {}
         arrow_compression_codec_name = self._get_arrow_compression_codec_name()
         if arrow_compression_codec_name:
@@ -217,8 +227,8 @@ class RedshiftWriteResult:
 
 
 def _normalize_s3_paths_for_filesystem(
-        paths: Union[str, List[str]],
-        filesystem: Union[S3FileSystem, s3fs.S3FileSystem],
+    paths: Union[str, List[str]],
+    filesystem: Union[S3FileSystem, s3fs.S3FileSystem],
 ) -> Tuple[List[str], List[S3Url]]:
     if isinstance(paths, str):
         paths = [paths]
@@ -234,9 +244,9 @@ def _normalize_s3_paths_for_filesystem(
 
 
 def _read_manifest_entry_paths(
-        entries: ManifestEntryList,
-        manifest_content_type: Optional[str],
-        content_type_provider: Callable[[str], ContentType],
+    entries: ManifestEntryList,
+    manifest_content_type: Optional[str],
+    content_type_provider: Callable[[str], ContentType],
 ) -> Tuple[Dict[ContentType, List[str]], CachedFileMetadataProvider]:
     # support manifests with heterogenous content types
     content_type_to_paths = defaultdict(list)
@@ -261,9 +271,9 @@ def _read_manifest_entry_paths(
 
 
 def _expand_manifest_paths(
-        paths: List[str],
-        filesystem: Optional[Union[S3FileSystem, s3fs.S3FileSystem]],
-        content_type_provider: Callable[[str], ContentType],
+    paths: List[str],
+    filesystem: Optional[Union[S3FileSystem, s3fs.S3FileSystem]],
+    content_type_provider: Callable[[str], ContentType],
 ) -> Tuple[Dict[ContentType, List[str]], CachedFileMetadataProvider]:
     assert len(paths) == 1, f"Expected 1 manifest path, found {len(paths)}."
     path = paths[0]
@@ -286,8 +296,8 @@ def _expand_manifest_paths(
 
 
 def _infer_content_types_from_paths(
-        paths: List[str],
-        content_type_provider: Callable[[str], ContentType],
+    paths: List[str],
+    content_type_provider: Callable[[str], ContentType],
 ) -> Dict[ContentType, List[str]]:
     content_type_to_paths = defaultdict(list)
     for path in paths:
@@ -297,27 +307,30 @@ def _infer_content_types_from_paths(
 
 
 def _expand_prefix_paths(
-        urls: List[S3Url],
-        content_type_provider: Callable[[str], ContentType],
-        **s3_client_kwargs,
+    urls: List[S3Url],
+    content_type_provider: Callable[[str], ContentType],
+    **s3_client_kwargs,
 ) -> Tuple[Dict[ContentType, List[str]], CachedFileMetadataProvider]:
     assert len(urls) == 1, f"Expected 1 S3 prefix, found {len(urls)}."
-    objects = list(filter_objects_by_prefix(
-        urls[0].bucket,
-        urls[0].key,
-        **s3_client_kwargs
-    ))
-    paths = list(objects_to_paths(
-        urls[0].bucket,
-        objects,
-    ))
-    meta_cache: Dict[str, BlockMetadata] = {path: BlockMetadata(
-        num_rows=None,
-        size_bytes=objects[i]["ContentLength"],
-        schema=None,
-        input_files=[],
-        exec_stats=None,
-    ) for i, path in enumerate(paths)}
+    objects = list(
+        filter_objects_by_prefix(urls[0].bucket, urls[0].key, **s3_client_kwargs)
+    )
+    paths = list(
+        objects_to_paths(
+            urls[0].bucket,
+            objects,
+        )
+    )
+    meta_cache: Dict[str, BlockMetadata] = {
+        path: BlockMetadata(
+            num_rows=None,
+            size_bytes=objects[i]["ContentLength"],
+            schema=None,
+            input_files=[],
+            exec_stats=None,
+        )
+        for i, path in enumerate(paths)
+    }
     content_type_to_paths = _infer_content_types_from_paths(
         paths,
         content_type_provider,
@@ -326,13 +339,13 @@ def _expand_prefix_paths(
 
 
 def _expand_paths_by_content_type(
-        base_paths: Union[str, List[str]],
-        base_urls: List[S3Url],
-        content_type_provider: Callable[[str], ContentType],
-        path_type: S3PathType,
-        user_fs: Optional[Union[S3FileSystem, s3fs.S3FileSystem]],
-        resolved_fs: S3FileSystem,
-        **s3_client_kwargs,
+    base_paths: Union[str, List[str]],
+    base_urls: List[S3Url],
+    content_type_provider: Callable[[str], ContentType],
+    path_type: S3PathType,
+    user_fs: Optional[Union[S3FileSystem, s3fs.S3FileSystem]],
+    resolved_fs: S3FileSystem,
+    **s3_client_kwargs,
 ) -> Tuple[Dict[ContentType, List[str]], CachedFileMetadataProvider]:
     if path_type == S3PathType.MANIFEST:
         content_type_to_paths, meta_provider = _expand_manifest_paths(
@@ -348,16 +361,22 @@ def _expand_paths_by_content_type(
         )
     elif path_type == S3PathType.FILES_AND_FOLDERS:
         # TODO(pdames): Only allow files and call get_object(file_path)?
-        base_paths, file_infos = DefaultFileMetadataProvider()\
-            .expand_paths(base_paths, resolved_fs)
+        base_paths, file_infos = DefaultFileMetadataProvider().expand_paths(
+            base_paths, resolved_fs
+        )
         file_sizes = [file_info.size for file_info in file_infos]
-        meta_provider = CachedFileMetadataProvider({path: BlockMetadata(
-            num_rows=None,
-            size_bytes=file_sizes[i],
-            schema=None,
-            input_files=[],
-            exec_stats=None,
-        ) for i, path in enumerate(base_paths)})
+        meta_provider = CachedFileMetadataProvider(
+            {
+                path: BlockMetadata(
+                    num_rows=None,
+                    size_bytes=file_sizes[i],
+                    schema=None,
+                    input_files=[],
+                    exec_stats=None,
+                )
+                for i, path in enumerate(base_paths)
+            }
+        )
         content_type_to_paths = _infer_content_types_from_paths(
             base_paths,
             content_type_provider,
@@ -374,28 +393,30 @@ def _expand_paths_by_content_type(
         )
         content_type_to_paths[content_type] = paths
     # normalize block metadata provider S3 file paths based on the filesystem
-    meta_provider = CachedFileMetadataProvider({
-        _normalize_s3_paths_for_filesystem(path, user_fs)[0][0]: metadata
-        for path, metadata in meta_provider.get_meta_cache().items()
-    })
+    meta_provider = CachedFileMetadataProvider(
+        {
+            _normalize_s3_paths_for_filesystem(path, user_fs)[0][0]: metadata
+            for path, metadata in meta_provider.get_meta_cache().items()
+        }
+    )
     return content_type_to_paths, meta_provider
 
 
 class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
     def prepare_read(
-            self,
-            parallelism: int,
-            paths: Union[str, List[str]],
-            content_type_provider: Callable[[str], ContentType],
-            path_type: S3PathType = S3PathType.MANIFEST,
-            filesystem: Optional[Union[S3FileSystem, s3fs.S3FileSystem]] = None,
-            columns: Optional[List[str]] = None,
-            schema: Optional[pa.Schema] = None,
-            unload_args: RedshiftUnloadTextArgs = RedshiftUnloadTextArgs(),
-            partitioning: HivePartitionParser = None,
-            open_stream_args: Optional[Dict[str, Any]] = None,
-            read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-            **s3_client_kwargs,
+        self,
+        parallelism: int,
+        paths: Union[str, List[str]],
+        content_type_provider: Callable[[str], ContentType],
+        path_type: S3PathType = S3PathType.MANIFEST,
+        filesystem: Optional[Union[S3FileSystem, s3fs.S3FileSystem]] = None,
+        columns: Optional[List[str]] = None,
+        schema: Optional[pa.Schema] = None,
+        unload_args: RedshiftUnloadTextArgs = RedshiftUnloadTextArgs(),
+        partitioning: HivePartitionParser = None,
+        open_stream_args: Optional[Dict[str, Any]] = None,
+        read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+        **s3_client_kwargs,
     ) -> List[ReadTask]:
         # default to pyarrow.fs.S3FileSystem if no filesystem given
         if filesystem is None:
@@ -445,7 +466,8 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
                     prepare_read_kwargs["columns"] = columns
             elif content_type in DELIMITED_TEXT_CONTENT_TYPES:
                 prepare_read_kwargs.update(
-                    unload_args.to_arrow_reader_kwargs(columns, schema))
+                    unload_args.to_arrow_reader_kwargs(columns, schema)
+                )
             else:
                 raise NotImplementedError(f"Unsupported content type: {content_type}")
             # merge any provided reader kwargs for this content type with those
@@ -464,19 +486,18 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         return all_read_tasks
 
     def do_write(
-            self,
-            blocks: List[ObjectRef[Block]],
-            metadata: List[BlockMetadata],
-            path: str,
-            dataset_uuid: str,
-            filesystem: Optional[FileSystem] = None,
-            try_create_dir: bool = True,
-            open_stream_args: Optional[Dict[str, Any]] = None,
-            block_path_provider: BlockWritePathProvider =
-            DefaultBlockWritePathProvider(),
-            write_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
-            _block_udf: Optional[Callable[[Block], Block]] = None,
-            **write_args,
+        self,
+        blocks: List[ObjectRef[Block]],
+        metadata: List[BlockMetadata],
+        path: str,
+        dataset_uuid: str,
+        filesystem: Optional[FileSystem] = None,
+        try_create_dir: bool = True,
+        open_stream_args: Optional[Dict[str, Any]] = None,
+        block_path_provider: BlockWritePathProvider = DefaultBlockWritePathProvider(),
+        write_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
+        _block_udf: Optional[Callable[[Block], Block]] = None,
+        **write_args,
     ) -> List[ObjectRef[WriteResult]]:
         if filesystem is None:
             filesystem = S3FileSystem()
@@ -484,8 +505,7 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         paths, filesystem = _resolve_paths_and_filesystem(paths, filesystem)
         assert len(paths) == 1, f"Expected 1 write path, found {len(paths)}."
         path = paths[0]
-        block_path_provider = CapturingBlockWritePathProvider(
-            block_path_provider)
+        block_path_provider = CapturingBlockWritePathProvider(block_path_provider)
         writer = ParquetBaseDatasource()
         write_results = writer.do_write(
             blocks,
@@ -513,21 +533,21 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         write_results.append(rwr_obj_ref)
         return write_results
 
-    def on_write_complete(self, write_results: List[WriteResult], **kwargs) \
-            -> None:
+    def on_write_complete(self, write_results: List[WriteResult], **kwargs) -> None:
         # TODO (pdames): time latency of this operation - overall redshift write times
         #  are 2-3x pure read_parquet_fast() times
         # restore the write operation summary from the last write result
-        result: RedshiftWriteResult = write_results[len(write_results)-1]
+        result: RedshiftWriteResult = write_results[len(write_results) - 1]
         write_path_args = result.block_write_path_provider.write_path_kwargs
         blocks_written = len(write_path_args)
         expected_blocks_written = len(result.metadata)
         # TODO(pdames): Corner cases where mismatch is expected? Emply blocks?
         #  Blocks filtered/split/merged to more/less write paths?
-        assert blocks_written == expected_blocks_written, \
-            f"Dataset write result validation failed. Found " \
-            f"{blocks_written}/{expected_blocks_written} Dataset blocks " \
+        assert blocks_written == expected_blocks_written, (
+            f"Dataset write result validation failed. Found "
+            f"{blocks_written}/{expected_blocks_written} Dataset blocks "
             f"written. Refusing to commit Redshift Manifest."
+        )
         manifest_entries = ManifestEntryList()
         for block_idx, path in enumerate(write_path_args.keys()):
             file_info = result.filesystem.get_file_info(path)
@@ -554,11 +574,11 @@ class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
         manifest_path = f"{result.path}/manifest"
         logger.debug(f"Write succeeded for Dataset ID: {result.dataset_uuid}")
         with result.filesystem.open_output_stream(
-                manifest_path,
-                # Also See:
-                # docs.aws.amazon.com/AmazonS3/latest/API/RESTCommonRequestHeaders.html
-                # Arrow s3fs.cc: tinyurl.com/2axa6m9m
-                metadata={"Content-Type": ContentType.JSON.value},
+            manifest_path,
+            # Also See:
+            # docs.aws.amazon.com/AmazonS3/latest/API/RESTCommonRequestHeaders.html
+            # Arrow s3fs.cc: tinyurl.com/2axa6m9m
+            metadata={"Content-Type": ContentType.JSON.value},
         ) as f:
             f.write(json.dumps(manifest).encode("utf-8"))
         logger.debug(f"Manifest committed to: {manifest_path}")

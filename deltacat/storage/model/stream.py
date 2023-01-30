@@ -12,10 +12,12 @@ from typing import Any, Dict, List, Optional
 
 class Stream(dict):
     @staticmethod
-    def of(locator: Optional[StreamLocator],
-           partition_keys: Optional[List[Dict[str, Any]]],
-           state: Optional[CommitState] = None,
-           previous_stream_digest: Optional[bytes] = None) -> Stream:
+    def of(
+        locator: Optional[StreamLocator],
+        partition_keys: Optional[List[Dict[str, Any]]],
+        state: Optional[CommitState] = None,
+        previous_stream_digest: Optional[bytes] = None,
+    ) -> Stream:
         stream = Stream()
         stream.locator = locator
         stream.partition_keys = partition_keys
@@ -31,9 +33,7 @@ class Stream(dict):
         return val
 
     @locator.setter
-    def locator(
-            self,
-            stream_locator: Optional[StreamLocator]) -> None:
+    def locator(self, stream_locator: Optional[StreamLocator]) -> None:
         self["streamLocator"] = stream_locator
 
     @property
@@ -41,9 +41,7 @@ class Stream(dict):
         return self.get("partitionKeys")
 
     @partition_keys.setter
-    def partition_keys(
-            self,
-            partition_keys: Optional[List[Dict[str, Any]]]) -> None:
+    def partition_keys(self, partition_keys: Optional[List[Dict[str, Any]]]) -> None:
         self["partitionKeys"] = partition_keys
 
     @property
@@ -51,9 +49,7 @@ class Stream(dict):
         return self.get("previousStreamDigest")
 
     @previous_stream_digest.setter
-    def previous_stream_digest(
-            self,
-            previous_stream_digest: Optional[str]) -> None:
+    def previous_stream_digest(self, previous_stream_digest: Optional[str]) -> None:
         self["previousStreamDigest"] = previous_stream_digest
 
     @property
@@ -114,9 +110,7 @@ class Stream(dict):
             return stream_locator.table_version
         return None
 
-    def validate_partition_values(
-            self,
-            partition_values: Optional[List[Any]]):
+    def validate_partition_values(self, partition_values: Optional[List[Any]]):
         # TODO (pdames): ensure value data types match key data types
         partition_keys = self.partition_keys
         num_keys = len(partition_keys) if partition_keys else 0
@@ -124,14 +118,17 @@ class Stream(dict):
         if num_values != num_keys:
             raise ValueError(
                 f"Found {num_values} partition values but "
-                f"{num_keys} partition keys: {self}")
+                f"{num_keys} partition keys: {self}"
+            )
 
 
 class StreamLocator(Locator, dict):
     @staticmethod
-    def of(table_version_locator: Optional[TableVersionLocator],
-           stream_id: Optional[str],
-           storage_type: Optional[str]) -> StreamLocator:
+    def of(
+        table_version_locator: Optional[TableVersionLocator],
+        stream_id: Optional[str],
+        storage_type: Optional[str],
+    ) -> StreamLocator:
         """
         Creates a table version Stream Locator. All input parameters are
         case-sensitive.
@@ -143,11 +140,13 @@ class StreamLocator(Locator, dict):
         return stream_locator
 
     @staticmethod
-    def at(namespace: Optional[str],
-           table_name: Optional[str],
-           table_version: Optional[str],
-           stream_id: Optional[str],
-           storage_type: Optional[str]) -> StreamLocator:
+    def at(
+        namespace: Optional[str],
+        table_name: Optional[str],
+        table_version: Optional[str],
+        stream_id: Optional[str],
+        storage_type: Optional[str],
+    ) -> StreamLocator:
         table_version_locator = TableVersionLocator.at(
             namespace,
             table_name,
@@ -168,8 +167,8 @@ class StreamLocator(Locator, dict):
 
     @table_version_locator.setter
     def table_version_locator(
-            self,
-            table_version_locator: Optional[TableVersionLocator]) -> None:
+        self, table_version_locator: Optional[TableVersionLocator]
+    ) -> None:
         self["tableVersionLocator"] = table_version_locator
 
     @property

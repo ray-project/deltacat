@@ -13,14 +13,21 @@ from deltacat import logs
 from collections import defaultdict
 from itertools import repeat
 from deltacat.storage import DeltaType
-from deltacat.compute.compactor import SortKey, SortOrder, \
-    RoundCompletionInfo, PrimaryKeyIndexVersionLocator, DeltaFileEnvelope, \
-    DeltaFileLocator, PyArrowWriteResult
-from deltacat.compute.compactor.utils import system_columns as sc, \
-    primary_key_index as pki
+from deltacat.compute.compactor import (
+    SortKey,
+    SortOrder,
+    RoundCompletionInfo,
+    PrimaryKeyIndexVersionLocator,
+    DeltaFileEnvelope,
+    DeltaFileLocator,
+    PyArrowWriteResult,
+)
+from deltacat.compute.compactor.utils import (
+    system_columns as sc,
+    primary_key_index as pki,
+)
 
 from typing import Any, Dict, List, Optional, Tuple
-from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -32,18 +39,21 @@ DedupeTaskIndexWithObjectId = Tuple[DedupeTaskIndex, PickledObjectRef]
 DedupeResult = Tuple[
     Dict[MaterializeBucketIndex, DedupeTaskIndexWithObjectId],
     List[ObjectRef[DeltaFileLocatorToRecords]],
-    PyArrowWriteResult
+    PyArrowWriteResult,
 ]
 
 
 def union_primary_key_indices(
-        s3_bucket: str,
-        round_completion_info: RoundCompletionInfo,
-        hash_bucket_index: int,
-        df_envelopes_list: List[List[DeltaFileEnvelope]]) -> pa.Table:
+    s3_bucket: str,
+    round_completion_info: RoundCompletionInfo,
+    hash_bucket_index: int,
+    df_envelopes_list: List[List[DeltaFileEnvelope]],
+) -> pa.Table:
 
-    logger.info(f"Reading dedupe input for {len(df_envelopes_list)} "
-                f"delta file envelope lists...")
+    logger.info(
+        f"Reading dedupe input for {len(df_envelopes_list)} "
+        f"delta file envelope lists..."
+    )
     # read compacted input parquet files first
     # (which implicitly have older stream positions than deltas)
     hb_tables = []
@@ -53,16 +63,20 @@ def union_primary_key_indices(
             hash_bucket_index,
             round_completion_info.primary_key_index_version_locator,
             # Enforce consistent column ordering by reading from a schema, to prevent schema mismatch errors
-            file_reader_kwargs_provider=ReadKwargsProviderPyArrowSchemaOverride(schema=get_minimal_hb_schema())
+            file_reader_kwargs_provider=ReadKwargsProviderPyArrowSchemaOverride(
+                schema=get_minimal_hb_schema()
+            ),
         )
         if tables:
-            prev_compacted_delta_stream_pos = round_completion_info\
-                .compacted_delta_locator \
-                .stream_position
+            prev_compacted_delta_stream_pos = (
+                round_completion_info.compacted_delta_locator.stream_position
+            )
             if prev_compacted_delta_stream_pos is None:
-                raise ValueError(f"Unexpected Error: No previous compacted "
-                                 f"delta stream position found in round "
-                                 f"completion info: {round_completion_info}")
+                raise ValueError(
+                    f"Unexpected Error: No previous compacted "
+                    f"delta stream position found in round "
+                    f"completion info: {round_completion_info}"
+                )
             prior_pk_index_table = pa.concat_tables(tables)
             prior_pk_index_table = sc.append_stream_position_column(
                 prior_pk_index_table,
@@ -76,14 +90,14 @@ def union_primary_key_indices(
                 repeat(
                     sc.delta_type_to_field(DeltaType.UPSERT),
                     len(prior_pk_index_table),
-                )
+                ),
             )
             prior_pk_index_table = sc.append_is_source_col(
                 prior_pk_index_table,
                 repeat(
                     False,
                     len(prior_pk_index_table),
-                )
+                ),
             )
             hb_tables.append(prior_pk_index_table)
 
@@ -127,39 +141,34 @@ def drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
 
 
 def write_new_primary_key_index(
-        s3_bucket: str,
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        max_rows_per_index_file: int,
-        max_rows_per_mat_file: int,
-        num_materialize_buckets: int,
-        dedupe_task_index: int,
-        deduped_tables: List[Tuple[int, pa.Table]],
-        row_counts: Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32],
-                                   Dict[int, int]]]) -> PyArrowWriteResult:
+    s3_bucket: str,
+    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+    max_rows_per_index_file: int,
+    max_rows_per_mat_file: int,
+    num_materialize_buckets: int,
+    dedupe_task_index: int,
+    deduped_tables: List[Tuple[int, pa.Table]],
+    row_counts: Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], Dict[int, int]]],
+) -> PyArrowWriteResult:
 
-    logger.info(f"Writing new deduped primary key index: "
-                f"{new_primary_key_index_version_locator}")
+    logger.info(
+        f"Writing new deduped primary key index: "
+        f"{new_primary_key_index_version_locator}"
+    )
     # TODO (pdames): move to RecordCountsPendingMaterialize.finalize()?
     file_idx = 0
     prev_file_idx = 0
-    dest_file_indices = defaultdict(
-        lambda: defaultdict(
-            lambda: defaultdict(int)
-        )
-    )
-    dest_file_row_indices = defaultdict(
-        lambda: defaultdict(
-            lambda: defaultdict(int)
-        )
-    )
+    dest_file_indices = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    dest_file_row_indices = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     for mat_bucket in sorted(row_counts.keys()):
         mat_bucket_row_idx = 0
         sorted_src_dfls = sorted(row_counts[mat_bucket].keys())
         for src_dfl in sorted_src_dfls:
             sorted_dd_tasks = sorted(row_counts[mat_bucket][src_dfl].keys())
             for dd_task_idx in sorted_dd_tasks:
-                dest_file_row_indices[mat_bucket][src_dfl][dd_task_idx] = \
+                dest_file_row_indices[mat_bucket][src_dfl][dd_task_idx] = (
                     mat_bucket_row_idx % max_rows_per_mat_file
+                )
                 file_idx = prev_file_idx + int(
                     mat_bucket_row_idx / max_rows_per_mat_file
                 )
@@ -186,24 +195,27 @@ def write_new_primary_key_index(
                 src_dfl,
                 num_materialize_buckets,
             )
-            dest_file_start_idx = \
-                dest_file_indices[mat_bucket][src_dfl][dedupe_task_index]
-            dest_file_row_idx_offset = src_dfl_row_counts[src_dfl] + \
-                dest_file_row_indices[mat_bucket][src_dfl][dedupe_task_index]
-            dest_file_idx_offset = int(
-                dest_file_row_idx_offset / max_rows_per_mat_file
+            dest_file_start_idx = dest_file_indices[mat_bucket][src_dfl][
+                dedupe_task_index
+            ]
+            dest_file_row_idx_offset = (
+                src_dfl_row_counts[src_dfl]
+                + dest_file_row_indices[mat_bucket][src_dfl][dedupe_task_index]
             )
+            dest_file_idx_offset = int(dest_file_row_idx_offset / max_rows_per_mat_file)
             dest_file_idx = dest_file_start_idx + dest_file_idx_offset
             dest_file_idx_col.append(dest_file_idx)
             dest_file_row_idx = dest_file_row_idx_offset % max_rows_per_mat_file
             dest_file_row_idx_col.append(dest_file_row_idx)
             src_dfl_row_counts[src_dfl] += 1
-        table = table.drop([
-            sc._IS_SOURCE_COLUMN_NAME,
-            sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
-            sc._ORDERED_FILE_IDX_COLUMN_NAME,
-            sc._ORDERED_RECORD_IDX_COLUMN_NAME,
-        ])
+        table = table.drop(
+            [
+                sc._IS_SOURCE_COLUMN_NAME,
+                sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
+                sc._ORDERED_FILE_IDX_COLUMN_NAME,
+                sc._ORDERED_RECORD_IDX_COLUMN_NAME,
+            ]
+        )
         table = sc.append_file_idx_column(table, dest_file_idx_col)
         table = sc.append_record_idx_col(table, dest_file_row_idx_col)
 
@@ -217,14 +229,16 @@ def write_new_primary_key_index(
         pki_results.append(hb_pki_result)
 
     result = PyArrowWriteResult.union(pki_results)
-    logger.info(f"Wrote new deduped primary key index: "
-                f"{new_primary_key_index_version_locator}. Result: {result}")
+    logger.info(
+        f"Wrote new deduped primary key index: "
+        f"{new_primary_key_index_version_locator}. Result: {result}"
+    )
     return result
 
 
 def delta_file_locator_to_mat_bucket_index(
-        df_locator: DeltaFileLocator,
-        materialize_bucket_count: int) -> int:
+    df_locator: DeltaFileLocator, materialize_bucket_count: int
+) -> int:
     digest = df_locator.digest()
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
@@ -244,18 +258,18 @@ class RecordCountsPendingMaterialize:
         self.actual_result_count = 0
 
     def add_record_counts(
-            self,
-            result_idx: int,
-            record_counts:
-            Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], int]]) -> None:
+        self,
+        result_idx: int,
+        record_counts: Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], int]],
+    ) -> None:
         for mat_bucket, df_locator_rows in record_counts.items():
             for df_locator, rows in df_locator_rows.items():
                 self.record_counts[mat_bucket][df_locator][result_idx] += rows
         self.actual_result_count += 1
 
-    def get_record_counts(self) -> \
-            Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32],
-                           Dict[int, int]]]:
+    def get_record_counts(
+        self,
+    ) -> Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], Dict[int, int]]]:
         return self.record_counts
 
     def get_expected_result_count(self) -> int:
@@ -268,25 +282,27 @@ class RecordCountsPendingMaterialize:
         return self.actual_result_count == self.expected_result_count
 
 
-@ray.remote(num_cpus=0.5,num_returns=3)
+@ray.remote(num_cpus=0.5, num_returns=3)
 def dedupe(
-        compaction_artifact_s3_bucket: str,
-        round_completion_info: Optional[RoundCompletionInfo],
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        object_ids: List[Any],
-        sort_keys: List[SortKey],
-        max_records_per_index_file: int,
-        max_records_per_materialized_file: int,
-        num_materialize_buckets: int,
-        dedupe_task_index: int,
-        delete_old_primary_key_index: bool,
-        record_counts_pending_materialize: RecordCountsPendingMaterialize) -> DedupeResult:
+    compaction_artifact_s3_bucket: str,
+    round_completion_info: Optional[RoundCompletionInfo],
+    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+    object_ids: List[Any],
+    sort_keys: List[SortKey],
+    max_records_per_index_file: int,
+    max_records_per_materialized_file: int,
+    num_materialize_buckets: int,
+    dedupe_task_index: int,
+    delete_old_primary_key_index: bool,
+    record_counts_pending_materialize: RecordCountsPendingMaterialize,
+) -> DedupeResult:
 
     logger.info(f"Starting dedupe task...")
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
     src_file_records_obj_refs = [
-        cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]
+        cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids
+    ]
     logger.info(f"Getting delta file envelope groups object refs...")
     delta_file_envelope_groups_list = ray.get(src_file_records_obj_refs)
     hb_index_to_delta_file_envelopes_list = defaultdict(list)
@@ -296,8 +312,9 @@ def dedupe(
                 hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
     src_file_id_to_row_indices = defaultdict(list)
     deduped_tables = []
-    logger.info(f"Running {len(hb_index_to_delta_file_envelopes_list)} "
-                f"dedupe rounds...")
+    logger.info(
+        f"Running {len(hb_index_to_delta_file_envelopes_list)} " f"dedupe rounds..."
+    )
     for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
         table = union_primary_key_indices(
             compaction_artifact_s3_bucket,
@@ -310,16 +327,14 @@ def dedupe(
         # sort by sort keys
         if len(sort_keys):
             # TODO (pdames): convert to O(N) dedupe w/ sort keys
-            sort_keys.extend([
-                SortKey.of(
-                    sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
-                    SortOrder.ASCENDING
-                ),
-                SortKey.of(
-                    sc._ORDERED_FILE_IDX_COLUMN_NAME,
-                    SortOrder.ASCENDING
-                ),
-            ])
+            sort_keys.extend(
+                [
+                    SortKey.of(
+                        sc._PARTITION_STREAM_POSITION_COLUMN_NAME, SortOrder.ASCENDING
+                    ),
+                    SortKey.of(sc._ORDERED_FILE_IDX_COLUMN_NAME, SortOrder.ASCENDING),
+                ]
+            )
             table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
 
         # drop duplicates by primary key hash column
@@ -344,7 +359,9 @@ def dedupe(
 
     logger.info(f"Finished all dedupe rounds...")
     mat_bucket_to_src_file_record_count = defaultdict(dict)
-    mat_bucket_to_src_file_records: Dict[MaterializeBucketIndex, DeltaFileLocatorToRecords] = defaultdict(dict)
+    mat_bucket_to_src_file_records: Dict[
+        MaterializeBucketIndex, DeltaFileLocatorToRecords
+    ] = defaultdict(dict)
     for src_dfl, src_row_indices in src_file_id_to_row_indices.items():
         mat_bucket = delta_file_locator_to_mat_bucket_index(
             src_dfl,
@@ -353,10 +370,11 @@ def dedupe(
         mat_bucket_to_src_file_records[mat_bucket][src_dfl] = np.array(
             src_row_indices,
         )
-        mat_bucket_to_src_file_record_count[mat_bucket][src_dfl] = \
-            len(src_row_indices)
+        mat_bucket_to_src_file_record_count[mat_bucket][src_dfl] = len(src_row_indices)
 
-    mat_bucket_to_dd_idx_obj_id: Dict[MaterializeBucketIndex, DedupeTaskIndexWithObjectId] = {}
+    mat_bucket_to_dd_idx_obj_id: Dict[
+        MaterializeBucketIndex, DedupeTaskIndexWithObjectId
+    ] = {}
     src_file_records_obj_refs: List[ObjectRef[DeltaFileLocatorToRecords]] = []
     for mat_bucket, src_file_records in mat_bucket_to_src_file_records.items():
         object_ref = ray.put(src_file_records)
@@ -365,8 +383,10 @@ def dedupe(
             dedupe_task_index,
             cloudpickle.dumps(object_ref),
         )
-    logger.info(f"Count of materialize buckets with object refs: "
-                f"{len(mat_bucket_to_dd_idx_obj_id)}")
+    logger.info(
+        f"Count of materialize buckets with object refs: "
+        f"{len(mat_bucket_to_dd_idx_obj_id)}"
+    )
 
     record_counts_pending_materialize.add_record_counts.remote(
         dedupe_task_index,
@@ -374,13 +394,10 @@ def dedupe(
     )
 
     # wait for all dedupe tasks to reach this point before continuing
-    logger.info(
-        f"Waiting for all dedupe tasks to finish writing record counts...")
+    logger.info(f"Waiting for all dedupe tasks to finish writing record counts...")
     finalized = False
     while not finalized:
-        finalized = ray.get(
-            record_counts_pending_materialize.is_finalized.remote()
-        )
+        finalized = ray.get(record_counts_pending_materialize.is_finalized.remote())
         time.sleep(0.25)
     record_counts = ray.get(
         record_counts_pending_materialize.get_record_counts.remote()
@@ -403,6 +420,4 @@ def dedupe(
             round_completion_info.primary_key_index_version_locator,
         )
     logger.info(f"Finished dedupe task...")
-    return mat_bucket_to_dd_idx_obj_id, \
-        src_file_records_obj_refs, \
-        write_pki_result
+    return mat_bucket_to_dd_idx_obj_id, src_file_records_obj_refs, write_pki_result

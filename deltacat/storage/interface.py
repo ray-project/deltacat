@@ -1,19 +1,32 @@
 import pyarrow as pa
 
 from deltacat import SortKey
-from deltacat.storage import Delta, DeltaLocator, Partition, \
-    ListResult, Namespace, Table, TableVersion, Stream, \
-    StreamLocator, DeltaType, LifecycleState, SchemaConsistencyType, \
-    LocalTable, LocalDataset, DistributedDataset, Manifest, ManifestAuthor
+from deltacat.storage import (
+    Delta,
+    DeltaLocator,
+    Partition,
+    ListResult,
+    Namespace,
+    Table,
+    TableVersion,
+    Stream,
+    StreamLocator,
+    DeltaType,
+    LifecycleState,
+    SchemaConsistencyType,
+    LocalTable,
+    LocalDataset,
+    DistributedDataset,
+    Manifest,
+    ManifestAuthor,
+)
 from deltacat.types.media import ContentType, TableType, StorageType
 from deltacat.utils.common import ReadKwargsProvider
 
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 
-def list_namespaces(
-        *args,
-        **kwargs) -> ListResult[Namespace]:
+def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     """
     Lists a page of table namespaces. Namespaces are returned as list result
     items.
@@ -21,10 +34,7 @@ def list_namespaces(
     raise NotImplementedError("list_namespaces not implemented")
 
 
-def list_tables(
-        namespace: str,
-        *args,
-        **kwargs) -> ListResult[Table]:
+def list_tables(namespace: str, *args, **kwargs) -> ListResult[Table]:
     """
     Lists a page of tables for the given table namespace. Tables are returned as
     list result items. Raises an error if the given namespace does not exist.
@@ -33,10 +43,8 @@ def list_tables(
 
 
 def list_table_versions(
-        namespace: str,
-        table_name: str,
-        *args,
-        **kwargs) -> ListResult[TableVersion]:
+    namespace: str, table_name: str, *args, **kwargs
+) -> ListResult[TableVersion]:
     """
     Lists a page of table versions for the given table. Table versions are
     returned as list result items. Raises an error if the given table does not
@@ -46,11 +54,12 @@ def list_table_versions(
 
 
 def list_partitions(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        *args,
-        **kwargs) -> ListResult[Partition]:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    *args,
+    **kwargs
+) -> ListResult[Partition]:
     """
     Lists a page of partitions for the given table version. Partitions are
     returned as list result items. Table version resolves to the latest active
@@ -60,10 +69,7 @@ def list_partitions(
     raise NotImplementedError("list_partitions not implemented")
 
 
-def list_stream_partitions(
-        stream: Stream,
-        *args,
-        **kwargs) -> ListResult[Partition]:
+def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partition]:
     """
     Lists all partitions committed to the given stream.
     """
@@ -71,16 +77,17 @@ def list_stream_partitions(
 
 
 def list_deltas(
-        namespace: str,
-        table_name: str,
-        partition_values: Optional[List[Any]] = None,
-        table_version: Optional[str] = None,
-        first_stream_position: Optional[int] = None,
-        last_stream_position: Optional[int] = None,
-        ascending_order: Optional[bool] = None,
-        include_manifest: bool = False,
-        *args,
-        **kwargs) -> ListResult[Delta]:
+    namespace: str,
+    table_name: str,
+    partition_values: Optional[List[Any]] = None,
+    table_version: Optional[str] = None,
+    first_stream_position: Optional[int] = None,
+    last_stream_position: Optional[int] = None,
+    ascending_order: Optional[bool] = None,
+    include_manifest: bool = False,
+    *args,
+    **kwargs
+) -> ListResult[Delta]:
     """
     Lists a page of deltas for the given table version and committed partition.
     Deltas are returned as list result items. Deltas returned can optionally be
@@ -98,10 +105,8 @@ def list_deltas(
 
 
 def list_partition_deltas(
-        partition: Partition,
-        include_manifest: bool = False,
-        *args,
-        **kwargs) -> ListResult[Delta]:
+    partition: Partition, include_manifest: bool = False, *args, **kwargs
+) -> ListResult[Delta]:
     """
     Lists a page of deltas committed to the given partition.
 
@@ -113,14 +118,15 @@ def list_partition_deltas(
 
 
 def get_delta(
-        namespace: str,
-        table_name: str,
-        stream_position: int,
-        partition_values: Optional[List[Any]] = None,
-        table_version: Optional[str] = None,
-        include_manifest: bool = False,
-        *args,
-        **kwargs) -> Optional[Delta]:
+    namespace: str,
+    table_name: str,
+    stream_position: int,
+    partition_values: Optional[List[Any]] = None,
+    table_version: Optional[str] = None,
+    include_manifest: bool = False,
+    *args,
+    **kwargs
+) -> Optional[Delta]:
     """
     Gets the delta for the given table version, partition, and stream position.
     Table version resolves to the latest active table version if not specified.
@@ -135,13 +141,14 @@ def get_delta(
 
 
 def get_latest_delta(
-        namespace: str,
-        table_name: str,
-        partition_values: Optional[List[Any]] = None,
-        table_version: Optional[str] = None,
-        include_manifest: bool = False,
-        *args,
-        **kwargs) -> Optional[Delta]:
+    namespace: str,
+    table_name: str,
+    partition_values: Optional[List[Any]] = None,
+    table_version: Optional[str] = None,
+    include_manifest: bool = False,
+    *args,
+    **kwargs
+) -> Optional[Delta]:
     """
     Gets the latest delta (i.e. the delta with the greatest stream position) for
     the given table version and partition. Table version resolves to the latest
@@ -157,15 +164,16 @@ def get_latest_delta(
 
 
 def download_delta(
-        delta_like: Union[Delta, DeltaLocator],
-        table_type: TableType = TableType.PYARROW,
-        storage_type: StorageType = StorageType.DISTRIBUTED,
-        max_parallelism: Optional[int] = None,
-        columns: Optional[List[str]] = None,
-        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-        ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
-        *args,
-        **kwargs) -> Union[LocalDataset, DistributedDataset]:
+    delta_like: Union[Delta, DeltaLocator],
+    table_type: TableType = TableType.PYARROW,
+    storage_type: StorageType = StorageType.DISTRIBUTED,
+    max_parallelism: Optional[int] = None,
+    columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    *args,
+    **kwargs
+) -> Union[LocalDataset, DistributedDataset]:
     """
     Download the given delta or delta locator into either a list of
     tables resident in the local node's memory, or into a dataset distributed
@@ -177,13 +185,14 @@ def download_delta(
 
 
 def download_delta_manifest_entry(
-        delta_like: Union[Delta, DeltaLocator],
-        entry_index: int,
-        table_type: TableType = TableType.PYARROW,
-        columns: Optional[List[str]] = None,
-        file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-        *args,
-        **kwargs) -> LocalTable:
+    delta_like: Union[Delta, DeltaLocator],
+    entry_index: int,
+    table_type: TableType = TableType.PYARROW,
+    columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    *args,
+    **kwargs
+) -> LocalTable:
     """
     Downloads a single manifest entry into the specified table type for the
     given delta or delta locator. If a delta is provided with a non-empty
@@ -194,9 +203,8 @@ def download_delta_manifest_entry(
 
 
 def get_delta_manifest(
-        delta_like: Union[Delta, DeltaLocator],
-        *args,
-        **kwargs) -> Manifest:
+    delta_like: Union[Delta, DeltaLocator], *args, **kwargs
+) -> Manifest:
     """
     Get the manifest associated with the given delta or delta locator. This
     always retrieves the authoritative remote copy of the delta manifest, and
@@ -206,10 +214,8 @@ def get_delta_manifest(
 
 
 def create_namespace(
-        namespace: str,
-        permissions: Dict[str, Any],
-        *args,
-        **kwargs) -> Namespace:
+    namespace: str, permissions: Dict[str, Any], *args, **kwargs
+) -> Namespace:
     """
     Creates a table namespace with the given name and permissions. Returns
     the created namespace.
@@ -218,11 +224,12 @@ def create_namespace(
 
 
 def update_namespace(
-        namespace: str,
-        permissions: Optional[Dict[str, Any]] = None,
-        new_namespace: Optional[str] = None,
-        *args,
-        **kwargs) -> None:
+    namespace: str,
+    permissions: Optional[Dict[str, Any]] = None,
+    new_namespace: Optional[str] = None,
+    *args,
+    **kwargs
+) -> None:
     """
     Updates a table namespace's name and/or permissions. Raises an error if the
     given namespace does not exist.
@@ -231,22 +238,23 @@ def update_namespace(
 
 
 def create_table_version(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        schema: Optional[Union[pa.Schema, str, bytes]] = None,
-        schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-        partition_keys: Optional[List[Dict[str, Any]]] = None,
-        primary_key_column_names: Optional[Set[str]] = None,
-        sort_keys: Optional[List[SortKey]] = None,
-        table_version_description: Optional[str] = None,
-        table_version_properties: Optional[Dict[str, str]] = None,
-        table_permissions: Optional[Dict[str, Any]] = None,
-        table_description: Optional[str] = None,
-        table_properties: Optional[Dict[str, str]] = None,
-        supported_content_types: Optional[List[ContentType]] = None,
-        *args,
-        **kwargs) -> Stream:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    schema: Optional[Union[pa.Schema, str, bytes]] = None,
+    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
+    partition_keys: Optional[List[Dict[str, Any]]] = None,
+    primary_key_column_names: Optional[Set[str]] = None,
+    sort_keys: Optional[List[SortKey]] = None,
+    table_version_description: Optional[str] = None,
+    table_version_properties: Optional[Dict[str, str]] = None,
+    table_permissions: Optional[Dict[str, Any]] = None,
+    table_description: Optional[str] = None,
+    table_properties: Optional[Dict[str, str]] = None,
+    supported_content_types: Optional[List[ContentType]] = None,
+    *args,
+    **kwargs
+) -> Stream:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned, or partitioned
@@ -281,12 +289,13 @@ def create_table_version(
 
 
 def update_table(
-        namespace: str,
-        table_name: str,
-        permissions: Optional[Dict[str, Any]] = None,
-        description: Optional[str] = None,
-        properties: Optional[Dict[str, str]] = None,
-        new_table_name: Optional[str] = None) -> None:
+    namespace: str,
+    table_name: str,
+    permissions: Optional[Dict[str, Any]] = None,
+    description: Optional[str] = None,
+    properties: Optional[Dict[str, str]] = None,
+    new_table_name: Optional[str] = None,
+) -> None:
     """
     Update table metadata describing the table versions it contains. By default,
     a table's properties are empty, and its description and permissions are
@@ -297,16 +306,17 @@ def update_table(
 
 
 def update_table_version(
-        namespace: str,
-        table_name: str,
-        table_version: str,
-        lifecycle_state: Optional[LifecycleState] = None,
-        schema: Optional[Union[pa.Schema, str, bytes]] = None,
-        schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-        description: Optional[str] = None,
-        properties: Optional[Dict[str, str]] = None,
-        *args,
-        **kwargs) -> None:
+    namespace: str,
+    table_name: str,
+    table_version: str,
+    lifecycle_state: Optional[LifecycleState] = None,
+    schema: Optional[Union[pa.Schema, str, bytes]] = None,
+    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
+    description: Optional[str] = None,
+    properties: Optional[Dict[str, str]] = None,
+    *args,
+    **kwargs
+) -> None:
     """
     Update a table version. Notably, updating an unreleased table version's
     lifecycle state to 'active' telegraphs that it is ready for external
@@ -320,11 +330,12 @@ def update_table_version(
 
 
 def stage_stream(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        *args,
-        **kwargs) -> Stream:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    *args,
+    **kwargs
+) -> Stream:
     """
     Stages a new delta stream for the given table version. Resolves to the
     latest active table version if no table version is given. Returns the
@@ -333,10 +344,7 @@ def stage_stream(
     raise NotImplementedError("stage_stream not implemented")
 
 
-def commit_stream(
-        stream: Stream,
-        *args,
-        **kwargs) -> Stream:
+def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
     """
     Registers a delta stream with a target table version, replacing any
     previous stream registered for the same table version. Returns the
@@ -346,11 +354,12 @@ def commit_stream(
 
 
 def delete_stream(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        *args,
-        **kwargs) -> None:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    *args,
+    **kwargs
+) -> None:
     """
     Deletes the delta stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
@@ -360,11 +369,12 @@ def delete_stream(
 
 
 def get_stream(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        *args,
-        **kwargs) -> Optional[Stream]:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    *args,
+    **kwargs
+) -> Optional[Stream]:
     """
     Gets the most recently committed stream for the given table version and
     partition key values. Resolves to the latest active table version if no
@@ -374,10 +384,8 @@ def get_stream(
 
 
 def stage_partition(
-        stream: Stream,
-        partition_values: Optional[List[Any]] = None,
-        *args,
-        **kwargs) -> Partition:
+    stream: Stream, partition_values: Optional[List[Any]] = None, *args, **kwargs
+) -> Partition:
     """
     Stages a new partition for the given stream and partition values. Returns
     the staged partition. If this partition will replace another partition
@@ -388,10 +396,7 @@ def stage_partition(
     raise NotImplementedError("stage_partition not implemented")
 
 
-def commit_partition(
-        partition: Partition,
-        *args,
-        **kwargs) -> Partition:
+def commit_partition(partition: Partition, *args, **kwargs) -> Partition:
     """
     Commits the given partition to its associated table version stream,
     replacing any previous partition registered for the same stream and
@@ -406,12 +411,13 @@ def commit_partition(
 
 
 def delete_partition(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        partition_values: Optional[List[Any]] = None,
-        *args,
-        **kwargs) -> None:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    partition_values: Optional[List[Any]] = None,
+    *args,
+    **kwargs
+) -> None:
     """
     Deletes the given partition from the specified table version. Resolves to
     the latest active table version if no table version is given. Partition
@@ -422,10 +428,11 @@ def delete_partition(
 
 
 def get_partition(
-        stream_locator: StreamLocator,
-        partition_values: Optional[List[Any]] = None,
-        *args,
-        **kwargs) -> Optional[Partition]:
+    stream_locator: StreamLocator,
+    partition_values: Optional[List[Any]] = None,
+    *args,
+    **kwargs
+) -> Optional[Partition]:
     """
     Gets the most recently committed partition for the given stream locator and
     partition key values. Returns None if no partition has been committed for
@@ -436,16 +443,17 @@ def get_partition(
 
 
 def stage_delta(
-        data: Union[LocalTable, LocalDataset, DistributedDataset],
-        partition: Partition,
-        delta_type: DeltaType = DeltaType.UPSERT,
-        max_records_per_entry: Optional[int] = None,
-        author: Optional[ManifestAuthor] = None,
-        properties: Optional[Dict[str, str]] = None,
-        s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
-        content_type: ContentType = ContentType.PARQUET,
-        *args,
-        **kwargs) -> Delta:
+    data: Union[LocalTable, LocalDataset, DistributedDataset],
+    partition: Partition,
+    delta_type: DeltaType = DeltaType.UPSERT,
+    max_records_per_entry: Optional[int] = None,
+    author: Optional[ManifestAuthor] = None,
+    properties: Optional[Dict[str, str]] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    content_type: ContentType = ContentType.PARQUET,
+    *args,
+    **kwargs
+) -> Delta:
     """
     Writes the given table to 1 or more S3 files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
@@ -454,10 +462,7 @@ def stage_delta(
     raise NotImplementedError("stage_delta not implemented")
 
 
-def commit_delta(
-        delta: Delta,
-        *args,
-        **kwargs) -> Delta:
+def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     """
     Registers a new delta with its associated target table version and
     partition. Returns the registered delta. If the delta's previous stream
@@ -469,10 +474,7 @@ def commit_delta(
     raise NotImplementedError("commit_delta not implemented")
 
 
-def get_namespace(
-        namespace: str,
-        *args,
-        **kwargs) -> Optional[Namespace]:
+def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     """
     Gets table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist.
@@ -480,21 +482,14 @@ def get_namespace(
     raise NotImplementedError("get_namespace not implemented")
 
 
-def namespace_exists(
-        namespace: str,
-        *args,
-        **kwargs) -> bool:
+def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     """
     Returns True if the given table namespace exists, False if not.
     """
     raise NotImplementedError("namespace_exists not implemented")
 
 
-def get_table(
-        namespace: str,
-        table_name: str,
-        *args,
-        **kwargs) -> Optional[Table]:
+def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Table]:
     """
     Gets table metadata for the specified table. Returns None if the given
     table does not exist.
@@ -502,11 +497,7 @@ def get_table(
     raise NotImplementedError("get_table not implemented")
 
 
-def table_exists(
-        namespace: str,
-        table_name: str,
-        *args,
-        **kwargs) -> bool:
+def table_exists(namespace: str, table_name: str, *args, **kwargs) -> bool:
     """
     Returns True if the given table exists, False if not.
     """
@@ -514,11 +505,8 @@ def table_exists(
 
 
 def get_table_version(
-        namespace: str,
-        table_name: str,
-        table_version: str,
-        *args,
-        **kwargs) -> Optional[TableVersion]:
+    namespace: str, table_name: str, table_version: str, *args, **kwargs
+) -> Optional[TableVersion]:
     """
     Gets table version metadata for the specified table version. Returns None
     if the given table version does not exist.
@@ -527,10 +515,8 @@ def get_table_version(
 
 
 def get_latest_table_version(
-        namespace: str,
-        table_name: str,
-        *args,
-        **kwargs) -> Optional[TableVersion]:
+    namespace: str, table_name: str, *args, **kwargs
+) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest version of the specified table.
     Returns None if no table version exists for the given table.
@@ -539,10 +525,8 @@ def get_latest_table_version(
 
 
 def get_latest_active_table_version(
-        namespace: str,
-        table_name: str,
-        *args,
-        **kwargs) -> Optional[TableVersion]:
+    namespace: str, table_name: str, *args, **kwargs
+) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest active version of the specified
     table. Returns None if no active table version exists for the given table.
@@ -551,11 +535,12 @@ def get_latest_active_table_version(
 
 
 def get_table_version_column_names(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        *args,
-        **kwargs) -> Optional[List[str]]:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    *args,
+    **kwargs
+) -> Optional[List[str]]:
     """
     Gets a list of column names for the specified table version, or for the
     latest active table version if none is specified. The index of each
@@ -568,11 +553,12 @@ def get_table_version_column_names(
 
 
 def get_table_version_schema(
-        namespace: str,
-        table_name: str,
-        table_version: Optional[str] = None,
-        *args,
-        **kwargs) -> Optional[Union[pa.Schema, str, bytes]]:
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    *args,
+    **kwargs
+) -> Optional[Union[pa.Schema, str, bytes]]:
     """
     Gets the schema for the specified table version, or for the latest active
     table version if none is specified. Returns None if the table version is
@@ -582,11 +568,8 @@ def get_table_version_schema(
 
 
 def table_version_exists(
-        namespace: str,
-        table_name: str,
-        table_version: str,
-        *args,
-        **kwargs) -> bool:
+    namespace: str, table_name: str, table_version: str, *args, **kwargs
+) -> bool:
     """
     Returns True if the given table version exists, False if not.
     """

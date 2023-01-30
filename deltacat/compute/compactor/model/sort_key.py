@@ -23,8 +23,7 @@ class SortOrder(str, Enum):
 
 class SortKey(tuple):
     @staticmethod
-    def of(key_name: str, sort_order: SortOrder = SortOrder.ASCENDING) \
-            -> SortKey:
+    def of(key_name: str, sort_order: SortOrder = SortOrder.ASCENDING) -> SortKey:
         """
         Create a sort key from a field name to use as the sort key, and
         the sort order for this key. If no sort order is specified, then the
@@ -39,9 +38,10 @@ class SortKey(tuple):
 
     @staticmethod
     def validate_sort_keys(
-            source_partition_locator: PartitionLocator,
-            sort_keys: List[SortKey],
-            deltacat_storage) -> int:
+        source_partition_locator: PartitionLocator,
+        sort_keys: List[SortKey],
+        deltacat_storage,
+    ) -> int:
         """
         Validates the input sort keys to ensure that they are unique, are using
         a valid sort key model, are all fixed-width data types, and that the
@@ -51,8 +51,9 @@ class SortKey(tuple):
         total_sort_keys_bit_width = 0
         if sort_keys:
             sort_key_names = [key.key_name for key in sort_keys]
-            assert len(sort_key_names) == len(set(sort_key_names)), \
-                f"Sort key names must be unique: {sort_key_names}"
+            assert len(sort_key_names) == len(
+                set(sort_key_names)
+            ), f"Sort key names must be unique: {sort_key_names}"
             stream_locator = source_partition_locator.stream_locator
             table_version_schema = deltacat_storage.get_table_version_schema(
                 stream_locator.namespace,
@@ -70,19 +71,22 @@ class SortKey(tuple):
                                 f"Total length of sort keys "
                                 f"({total_sort_keys_bit_width}) is greater "
                                 f"than the max supported bit width for all "
-                                f"sort keys ({MAX_SORT_KEYS_BIT_WIDTH})")
+                                f"sort keys ({MAX_SORT_KEYS_BIT_WIDTH})"
+                            )
                     except ValueError as e:
                         raise ValueError(
                             f"Unable to get bit width of sort key: {pa_field}. "
                             f"Please ensure that all sort keys are fixed-size "
-                            f"PyArrow data types.") from e
+                            f"PyArrow data types."
+                        ) from e
             else:
                 logger.warning(
                     f"Unable to estimate sort key bit width for schema type "
                     f"{type(table_version_schema)}. This compaction job run "
                     f"may run out of memory, run more slowly, or underutilize "
                     f"available resources. To fix this, either remove the "
-                    f"sort keys or provide a PyArrow schema.")
+                    f"sort keys or provide a PyArrow schema."
+                )
                 total_sort_keys_bit_width = MAX_SORT_KEYS_BIT_WIDTH
         return total_sort_keys_bit_width
 

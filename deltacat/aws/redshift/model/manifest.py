@@ -14,10 +14,11 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 class Manifest(dict):
     @staticmethod
     def _build_manifest(
-            meta: Optional[ManifestMeta],
-            entries: Optional[ManifestEntryList],
-            author: Optional[ManifestAuthor] = None,
-            uuid: str = None) -> Manifest:
+        meta: Optional[ManifestMeta],
+        entries: Optional[ManifestEntryList],
+        author: Optional[ManifestAuthor] = None,
+        uuid: str = None,
+    ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
         manifest = Manifest()
@@ -31,9 +32,11 @@ class Manifest(dict):
         return manifest
 
     @staticmethod
-    def of(entries: ManifestEntryList,
-           author: Optional[ManifestAuthor] = None,
-           uuid: str = None) -> Manifest:
+    def of(
+        entries: ManifestEntryList,
+        author: Optional[ManifestAuthor] = None,
+        uuid: str = None,
+    ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
         total_record_count = 0
@@ -52,15 +55,19 @@ class Manifest(dict):
                     content_encoding = None
                 entry_content_type = meta.content_type
                 if entry_content_type != content_type:
-                    msg = f"Expected all manifest entries to have content " \
-                          f"type '{content_type}' but found " \
-                          f"'{entry_content_type}'"
+                    msg = (
+                        f"Expected all manifest entries to have content "
+                        f"type '{content_type}' but found "
+                        f"'{entry_content_type}'"
+                    )
                     raise ValueError(msg)
                 entry_content_encoding = meta["content_encoding"]
                 if entry_content_encoding != content_encoding:
-                    msg = f"Expected all manifest entries to have content " \
-                          f"encoding '{content_encoding}' but found " \
-                          f"'{entry_content_encoding}'"
+                    msg = (
+                        f"Expected all manifest entries to have content "
+                        f"encoding '{content_encoding}' but found "
+                        f"'{entry_content_encoding}'"
+                    )
                     raise ValueError(msg)
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
@@ -70,25 +77,19 @@ class Manifest(dict):
             total_content_length,
             content_type,
             content_encoding,
-            total_source_content_length
+            total_source_content_length,
         )
-        manifest = Manifest._build_manifest(
-            meta,
-            entries,
-            author,
-            uuid
-        )
+        manifest = Manifest._build_manifest(meta, entries, author, uuid)
         return manifest
 
     @staticmethod
     def merge_manifests(
-            manifests: List[Manifest],
-            author: Optional[ManifestAuthor] = None) -> Manifest:
+        manifests: List[Manifest], author: Optional[ManifestAuthor] = None
+    ) -> Manifest:
         all_entries = ManifestEntryList(
-            itertools.chain(*[m.entries for m in manifests]))
-        merged_manifest = Manifest.of(
-            all_entries,
-            author)
+            itertools.chain(*[m.entries for m in manifests])
+        )
+        merged_manifest = Manifest.of(all_entries, author)
         return merged_manifest
 
     @property
@@ -119,14 +120,15 @@ class Manifest(dict):
 
 class ManifestMeta(dict):
     @staticmethod
-    def of(record_count: Optional[int],
-           content_length: Optional[int],
-           content_type: Optional[str],
-           content_encoding: Optional[str],
-           source_content_length: Optional[int] = None,
-           credentials: Optional[Dict[str, str]] = None,
-           content_type_parameters: Optional[List[Dict[str, str]]] = None) \
-            -> ManifestMeta:
+    def of(
+        record_count: Optional[int],
+        content_length: Optional[int],
+        content_type: Optional[str],
+        content_encoding: Optional[str],
+        source_content_length: Optional[int] = None,
+        credentials: Optional[Dict[str, str]] = None,
+        content_type_parameters: Optional[List[Dict[str, str]]] = None,
+    ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
             manifest_meta["record_count"] = record_count
@@ -175,8 +177,7 @@ class ManifestMeta(dict):
 
 class ManifestAuthor(dict):
     @staticmethod
-    def of(name: Optional[str],
-           version: Optional[str]) -> ManifestAuthor:
+    def of(name: Optional[str], version: Optional[str]) -> ManifestAuthor:
         manifest_author = ManifestAuthor()
         if name is not None:
             manifest_author["name"] = name
@@ -195,15 +196,16 @@ class ManifestAuthor(dict):
 
 class ManifestEntry(dict):
     @staticmethod
-    def of(url: Optional[str],
-           meta: Optional[ManifestMeta],
-           mandatory: bool = True,
-           uri: Optional[str] = None,
-           uuid: Optional[str] = None) -> ManifestEntry:
+    def of(
+        url: Optional[str],
+        meta: Optional[ManifestMeta],
+        mandatory: bool = True,
+        uri: Optional[str] = None,
+        uuid: Optional[str] = None,
+    ) -> ManifestEntry:
         manifest_entry = ManifestEntry()
         if not (uri or url):
-            raise ValueError(
-                "No URI or URL specified for manifest entry contents.")
+            raise ValueError("No URI or URL specified for manifest entry contents.")
         if (uri and url) and (uri != url):
             raise ValueError(f"Manifest entry URI ({uri}) != URL ({url})")
         if url:
@@ -220,11 +222,13 @@ class ManifestEntry(dict):
 
     @staticmethod
     def from_s3_obj_url(
-            url: str,
-            record_count: int,
-            source_content_length: Optional[int] = None,
-            **s3_client_kwargs) -> ManifestEntry:
+        url: str,
+        record_count: int,
+        source_content_length: Optional[int] = None,
+        **s3_client_kwargs,
+    ) -> ManifestEntry:
         from deltacat.aws import s3u as s3_utils
+
         s3_obj = s3_utils.get_object_at_url(url, **s3_client_kwargs)
         logger.debug(f"Building manifest entry from {url}: {s3_obj}")
         manifest_entry_meta = ManifestMeta.of(

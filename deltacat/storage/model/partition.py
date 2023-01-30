@@ -16,14 +16,16 @@ from typing import Any, Dict, List, Optional, Union
 
 class Partition(dict):
     @staticmethod
-    def of(locator: Optional[PartitionLocator],
-           schema: Optional[Union[pa.Schema, str, bytes]],
-           content_types: Optional[List[ContentType]],
-           state: Optional[CommitState] = None,
-           previous_stream_position: Optional[int] = None,
-           previous_partition_id: Optional[str] = None,
-           stream_position: Optional[int] = None,
-           next_partition_id: Optional[str] = None) -> Partition:
+    def of(
+        locator: Optional[PartitionLocator],
+        schema: Optional[Union[pa.Schema, str, bytes]],
+        content_types: Optional[List[ContentType]],
+        state: Optional[CommitState] = None,
+        previous_stream_position: Optional[int] = None,
+        previous_partition_id: Optional[str] = None,
+        stream_position: Optional[int] = None,
+        next_partition_id: Optional[str] = None,
+    ) -> Partition:
         partition = Partition()
         partition.locator = locator
         partition.schema = schema
@@ -43,9 +45,7 @@ class Partition(dict):
         return val
 
     @locator.setter
-    def locator(
-            self,
-            partition_locator: Optional[PartitionLocator]) -> None:
+    def locator(self, partition_locator: Optional[PartitionLocator]) -> None:
         self["partitionLocator"] = partition_locator
 
     @property
@@ -59,13 +59,16 @@ class Partition(dict):
     @property
     def content_types(self) -> Optional[List[ContentType]]:
         content_types = self.get("contentTypes")
-        return None if content_types is None else \
-            [None if _ is None else ContentType(_) for _ in content_types]
+        return (
+            None
+            if content_types is None
+            else [None if _ is None else ContentType(_) for _ in content_types]
+        )
 
     @content_types.setter
     def content_types(
-            self,
-            supported_content_types: Optional[List[ContentType]]) -> None:
+        self, supported_content_types: Optional[List[ContentType]]
+    ) -> None:
         self["contentTypes"] = supported_content_types
 
     @property
@@ -82,9 +85,7 @@ class Partition(dict):
         return self.get("previousStreamPosition")
 
     @previous_stream_position.setter
-    def previous_stream_position(
-            self,
-            previous_stream_position: Optional[int]) -> None:
+    def previous_stream_position(self, previous_stream_position: Optional[int]) -> None:
         self["previousStreamPosition"] = previous_stream_position
 
     @property
@@ -92,9 +93,7 @@ class Partition(dict):
         return self.get("previousPartitionId")
 
     @previous_partition_id.setter
-    def previous_partition_id(
-            self,
-            previous_partition_id: Optional[str]) -> None:
+    def previous_partition_id(self, previous_partition_id: Optional[str]) -> None:
         self["previousPartitionId"] = previous_partition_id
 
     @property
@@ -191,15 +190,18 @@ class Partition(dict):
 
     def is_supported_content_type(self, content_type: ContentType) -> bool:
         supported_content_types = self.content_types
-        return (not supported_content_types) or \
-               (content_type in supported_content_types)
+        return (not supported_content_types) or (
+            content_type in supported_content_types
+        )
 
 
 class PartitionLocator(Locator, dict):
     @staticmethod
-    def of(stream_locator: Optional[StreamLocator],
-           partition_values: Optional[List[Any]],
-           partition_id: Optional[str]) -> PartitionLocator:
+    def of(
+        stream_locator: Optional[StreamLocator],
+        partition_values: Optional[List[Any]],
+        partition_id: Optional[str],
+    ) -> PartitionLocator:
         """
         Creates a stream partition locator. Partition ID is
         case-sensitive.
@@ -217,13 +219,15 @@ class PartitionLocator(Locator, dict):
         return partition_locator
 
     @staticmethod
-    def at(namespace: Optional[str],
-           table_name: Optional[str],
-           table_version: Optional[str],
-           stream_id: Optional[str],
-           storage_type: Optional[str],
-           partition_values: Optional[List[Any]],
-           partition_id: Optional[str]) -> PartitionLocator:
+    def at(
+        namespace: Optional[str],
+        table_name: Optional[str],
+        table_version: Optional[str],
+        stream_id: Optional[str],
+        storage_type: Optional[str],
+        partition_values: Optional[List[Any]],
+        partition_id: Optional[str],
+    ) -> PartitionLocator:
         stream_locator = StreamLocator.at(
             namespace,
             table_name,
@@ -245,9 +249,7 @@ class PartitionLocator(Locator, dict):
         return val
 
     @stream_locator.setter
-    def stream_locator(
-            self,
-            stream_locator: Optional[StreamLocator]) -> None:
+    def stream_locator(self, stream_locator: Optional[StreamLocator]) -> None:
         self["streamLocator"] = stream_locator
 
     @property
@@ -263,9 +265,7 @@ class PartitionLocator(Locator, dict):
         return self.get("partitionId")
 
     @partition_id.setter
-    def partition_id(
-            self,
-            partition_id: Optional[str]) -> None:
+    def partition_id(self, partition_id: Optional[str]) -> None:
         self["partitionId"] = partition_id
 
     @property

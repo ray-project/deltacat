@@ -13,9 +13,8 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def get_manifest_stats_s3_url(
-        bucket: str,
-        column_name: str,
-        delta_locator: DeltaLocator) -> str:
+    bucket: str, column_name: str, delta_locator: DeltaLocator
+) -> str:
     """Returns the S3 URL path to the column-oriented delta stats
 
     Args:
@@ -33,9 +32,8 @@ def get_manifest_stats_s3_url(
 
 
 def read_manifest_stats_by_columns(
-        bucket: str,
-        column_names: List[str],
-        delta_locator: DeltaLocator) -> List[DeltaColumnStats]:
+    bucket: str, column_names: List[str], delta_locator: DeltaLocator
+) -> List[DeltaColumnStats]:
     """Fetch a list of delta column stats by reading each column-oriented delta stats file from S3
 
     Args:
@@ -46,14 +44,17 @@ def read_manifest_stats_by_columns(
     Returns:
         A list of delta column stats
     """
-    return [DeltaColumnStats.of(column, read_manifest_stats_file(bucket, column, delta_locator))
-            for column in column_names]
+    return [
+        DeltaColumnStats.of(
+            column, read_manifest_stats_file(bucket, column, delta_locator)
+        )
+        for column in column_names
+    ]
 
 
 def read_manifest_stats_file(
-        bucket: str,
-        column_name: str,
-        delta_locator: DeltaLocator) -> ManifestEntryStats:
+    bucket: str, column_name: str, delta_locator: DeltaLocator
+) -> ManifestEntryStats:
     """Read a manifest entry stats from S3
 
     Args:
@@ -66,12 +67,9 @@ def read_manifest_stats_file(
     """
 
     stats_completion_file_url = get_manifest_stats_s3_url(
-        bucket,
-        column_name,
-        delta_locator
+        bucket, column_name, delta_locator
     )
-    logger.info(
-        f"reading stats completion file from: {stats_completion_file_url}")
+    logger.info(f"reading stats completion file from: {stats_completion_file_url}")
     stats_completion_info_file = None
     result = s3_utils.download(stats_completion_file_url, fail_if_not_found=False)
     if result:
@@ -82,9 +80,8 @@ def read_manifest_stats_file(
 
 
 def write_manifest_stats_file(
-        bucket: str,
-        column_name: str,
-        manifest_entry_stats: ManifestEntryStats) -> None:
+    bucket: str, column_name: str, manifest_entry_stats: ManifestEntryStats
+) -> None:
     """Write a manifest entry stats into S3
 
     Args:
@@ -92,18 +89,12 @@ def write_manifest_stats_file(
         column_name: The name of the column which represents this manifest entry stats
         manifest_entry_stats: The manifest entry stats to serialize and store into S3
     """
-    logger.info(
-        f"writing stats completion file contents: {manifest_entry_stats}")
+    logger.info(f"writing stats completion file contents: {manifest_entry_stats}")
     stats_completion_file_s3_url = get_manifest_stats_s3_url(
         bucket,
         column_name,
         manifest_entry_stats.delta_locator,
     )
-    logger.info(
-        f"writing stats completion file to: {stats_completion_file_s3_url}")
-    s3_utils.upload(
-        stats_completion_file_s3_url,
-        str(json.dumps(manifest_entry_stats))
-    )
-    logger.info(
-        f"stats completion file written to: {stats_completion_file_s3_url}")
+    logger.info(f"writing stats completion file to: {stats_completion_file_s3_url}")
+    s3_utils.upload(stats_completion_file_s3_url, str(json.dumps(manifest_entry_stats)))
+    logger.info(f"stats completion file written to: {stats_completion_file_s3_url}")

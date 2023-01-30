@@ -10,11 +10,10 @@ DeltaFileEnvelopeGroups = np.ndarray
 
 class DeltaFileEnvelope(dict):
     @staticmethod
-    def of(stream_position: int,
-           file_index: int,
-           delta_type: DeltaType,
-           table: LocalTable) -> DeltaFileEnvelope:
-        """ Static factory builder for a Delta File Envelope
+    def of(
+        stream_position: int, file_index: int, delta_type: DeltaType, table: LocalTable
+    ) -> DeltaFileEnvelope:
+        """Static factory builder for a Delta File Envelope
         `
         Args:
             stream_position: Stream position of a delta.

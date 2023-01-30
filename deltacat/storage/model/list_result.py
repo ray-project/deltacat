@@ -4,15 +4,16 @@ from __future__ import annotations
 import ray
 from typing import Callable, Generic, List, Optional, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ListResult(dict, Generic[T]):
     @staticmethod
-    def of(items: Optional[List[T]],
-           pagination_key: Optional[str],
-           next_page_provider: Optional[Callable[..., ListResult[T]]]) \
-            -> ListResult:
+    def of(
+        items: Optional[List[T]],
+        pagination_key: Optional[str],
+        next_page_provider: Optional[Callable[..., ListResult[T]]],
+    ) -> ListResult:
         list_result = ListResult()
         list_result["items"] = items
         list_result["paginationKey"] = pagination_key
@@ -35,8 +36,10 @@ class ListResult(dict, Generic[T]):
         if pagination_key:
             next_page_provider = self.next_page_provider
             if next_page_provider is None:
-                raise ValueError(f"Pagination key ('{pagination_key}') "
-                                 f"specified without a next page provider!")
+                raise ValueError(
+                    f"Pagination key ('{pagination_key}') "
+                    f"specified without a next page provider!"
+                )
             next_list_result = next_page_provider(pagination_key)
             if next_list_result.next_page_provider is None:
                 next_list_result["nextPageProvider"] = next_page_provider

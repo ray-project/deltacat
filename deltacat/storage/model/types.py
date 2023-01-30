@@ -49,6 +49,7 @@ class SchemaConsistencyType(str, Enum):
     VALIDATE: Raise an error for any fields that don't fit the schema. An
     explicit subset of column names to validate may optionally be specified.
     """
+
     NONE = "none"
     COERCE = "coerce"
     VALIDATE = "validate"

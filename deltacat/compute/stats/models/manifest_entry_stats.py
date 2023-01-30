@@ -14,9 +14,11 @@ class ManifestEntryStats(dict):
 
     To be stored/retrieved from a file system (ex: S3).
     """
+
     @staticmethod
-    def of(manifest_entries_stats: List[StatsResult],
-           delta_locator: DeltaLocator) -> ManifestEntryStats:
+    def of(
+        manifest_entries_stats: List[StatsResult], delta_locator: DeltaLocator
+    ) -> ManifestEntryStats:
         """
         Creates a stats container that represents a particular manifest.
 
@@ -35,8 +37,12 @@ class ManifestEntryStats(dict):
     def build_from_dict(manifest_entries_stats: dict) -> ManifestEntryStats:
         stats_res_list = []
         for stats_res in manifest_entries_stats["stats"]:
-            stats_res_list.append(StatsResult.of(stats_res["rowCount"], stats_res["pyarrowTableBytes"]))
-        return ManifestEntryStats.of(stats_res_list, manifest_entries_stats["deltaLocator"])
+            stats_res_list.append(
+                StatsResult.of(stats_res["rowCount"], stats_res["pyarrowTableBytes"])
+            )
+        return ManifestEntryStats.of(
+            stats_res_list, manifest_entries_stats["deltaLocator"]
+        )
 
     @property
     def delta_locator(self) -> DeltaLocator:
