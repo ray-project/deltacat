@@ -229,7 +229,7 @@ def delta_file_locator_to_mat_bucket_index(
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
-@ray.remote(num_cpus=0.1)
+@ray.remote 
 class RecordCountsPendingMaterialize:
     def __init__(self, expected_result_count: int):
         # materialize_bucket -> src_file_id
@@ -248,6 +248,7 @@ class RecordCountsPendingMaterialize:
             result_idx: int,
             record_counts:
             Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], int]]) -> None:
+        logger.info(f"adhoc actor received cmd from dedupe task {result_idx}")
         for mat_bucket, df_locator_rows in record_counts.items():
             for df_locator, rows in df_locator_rows.items():
                 self.record_counts[mat_bucket][df_locator][result_idx] += rows
@@ -268,6 +269,14 @@ class RecordCountsPendingMaterialize:
         return self.actual_result_count == self.expected_result_count
 
 
+def get_current_node_resource_key() -> str: 
+    current_node_id = ray.get_runtime_context().node_id.hex() 
+    for node in ray.nodes(): 
+        if node["NodeID"] == current_node_id: 
+            for key in node["Resources"].keys(): 
+                if key.startswith("node:"): 
+                    return key
+
 @ray.remote(num_returns=3)
 def dedupe(
         compaction_artifact_s3_bucket: str,
@@ -283,6 +292,7 @@ def dedupe(
         record_counts_pending_materialize: RecordCountsPendingMaterialize) -> DedupeResult:
 
     logger.info(f"Starting dedupe task...")
+    current_node_id = get_current_node_resource_key()
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
     src_file_records_obj_refs = [
@@ -368,10 +378,11 @@ def dedupe(
     logger.info(f"Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
-    record_counts_pending_materialize.add_record_counts.remote(
+    record_counts_pending_materialize[dedupe_task_index%].add_record_counts.remote(
         dedupe_task_index,
         mat_bucket_to_src_file_record_count,
     )
+    logger.info(f"adhoc dedupe task {dedupe_task_index} sent cmd to actor")
 
     # wait for all dedupe tasks to reach this point before continuing
     logger.info(
@@ -381,11 +392,12 @@ def dedupe(
         finalized = ray.get(
             record_counts_pending_materialize.is_finalized.remote()
         )
-        time.sleep(0.25)
+        logger.info(f"adhoc current node id:{current_node_id},expected result counts {ray.get(record_counts_pending_materialize.get_expected_result_count.remote())}, got {ray.get(record_counts_pending_materialize.get_actual_result_count.remote())}")
+        time.sleep(60) # This seems to fix the node crash during this step
     record_counts = ray.get(
         record_counts_pending_materialize.get_record_counts.remote()
     )
-
+    logger.info(f"adhoc record_counts: {record_counts}")
     write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
         compaction_artifact_s3_bucket,
         new_primary_key_index_version_locator,

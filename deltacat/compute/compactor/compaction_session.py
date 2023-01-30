@@ -182,7 +182,15 @@ def get_metadata(delta):
     manifest = sg.andes.get_delta_manifest(delta)
     return len(manifest.entries)
 
-@ray.remote(num_cpus=1,num_returns=3,max_retries=1)
+def get_current_node_resource_key() -> str: 
+    current_node_id = ray.get_runtime_context().node_id.hex() 
+    for node in ray.nodes(): 
+        if node["NodeID"] == current_node_id: 
+            for key in node["Resources"].keys(): 
+                if key.startswith("node:"): 
+                    return key
+
+@ray.remote(num_returns=3,max_retries=0)
 def _execute_compaction_round(
         source_partition_locator: PartitionLocator,
         compacted_partition_locator: PartitionLocator,
@@ -253,7 +261,18 @@ def _execute_compaction_round(
         #node_resource_keys=None
         cluster_resources = pg_config[1]
         cluster_cpus = cluster_resources['CPU']
-        node_resource_keys = cluster_resources['node_id']   
+        node_resource_keys = cluster_resources['node_id']
+        #remove parent task node id
+        current_node_id = get_current_node_resource_key()
+        cluster_resources['node_id'].remove(current_node_id)
+        #TODO: update cluster resource, now just hard code as r5.8xlarge
+        cluster_cpus -=32
+        cluster_resources['CPU']-=32
+        cluster_resources['memory']-=192414534860.0
+        cluster_resources['object_store_memory']-=160278591390.0
+        cluster_resources['bundle_length']-=1
+        #TODO: update bundle id list
+
     else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
@@ -492,7 +511,7 @@ def _execute_compaction_round(
     num_materialize_buckets = max_parallelism[1]
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
     record_counts_pending_materialize = \
-        dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
+        dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(dedupe_task_count)
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,

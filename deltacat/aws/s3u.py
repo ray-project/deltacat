@@ -36,7 +36,7 @@ from typing import Any, Callable, Dict, List, Optional, Generator, Union, Tuple
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote
+@ray.remote # we need a dedicated node, but it'll be too many, as each dedupe task will need one capture_actor
 class CapturedBlockWritePaths:
     def __init__(self):
         self._write_paths: List[str] = []
@@ -341,7 +341,13 @@ def _get_metadata(
             metadata = ray.get(metadata_futures)
     return metadata
 
-
+def get_current_node_resource_key() -> str: 
+    current_node_id = ray.get_runtime_context().node_id.hex() 
+    for node in ray.nodes(): 
+        if node["NodeID"] == current_node_id: 
+            for key in node["Resources"].keys(): 
+                if key.startswith("node:"): 
+                    return key
 def upload_table(
         table: Union[LocalTable, DistributedDataset],
         s3_base_url: str,
@@ -357,7 +363,9 @@ def upload_table(
     if s3_table_writer_kwargs is None:
         s3_table_writer_kwargs = {}
 
-    capture_actor = CapturedBlockWritePaths.remote()
+    #co-locate the shared state actor with the current task, to avoid too many cross-nodes communication
+    current_node_id = get_current_node_resource_key()
+    capture_actor = CapturedBlockWritePaths.options(resources={current_node_id:0.001}).remote()
     block_write_path_provider = UuidBlockWritePathProvider(capture_actor)
     s3_table_writer_func(
         table,
@@ -483,7 +491,8 @@ def _download_manifest_entries(
             else:
                 missings.append(ide)
                 total_missing += 1
-        logger.info(f"missing or error in accessing {total_missing} manifest_entries")
+        if total_missing>0:
+            logger.info(f"missing or error in accessing {total_missing} manifest_entries")
         return result, missings
     else:
         return [
