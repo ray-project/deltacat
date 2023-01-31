@@ -42,11 +42,13 @@ def materialize(
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
 
     def _materialize(
-            compacted_tables: List[pa.Table]) -> MaterializeResult:
+            compacted_tables: List[pa.Table],
+            compacted_tables_record_count: int) -> MaterializeResult:
         compacted_tables_size = sum([TABLE_CLASS_TO_SIZE_FUNC[type(tbl)](tbl)
                                      for tbl in compacted_tables])
         logger.debug(f"Uploading {len(compacted_tables)} compacted tables "
-                     f"with size: {compacted_tables_size} bytes")
+                     f"with size: {compacted_tables_size} bytes "
+                     f"and record count: {compacted_tables_record_count}")
         compacted_table = pa.concat_tables(compacted_tables)
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
             # convert to pandas since pyarrow doesn't support custom delimiters
@@ -182,7 +184,7 @@ def materialize(
         # Write manifests up to max_records_per_output_file
         if compacted_tables and \
                 total_record_count + record_count > max_records_per_output_file:
-            materialized_results.append(_materialize(compacted_tables))
+            materialized_results.append(_materialize(compacted_tables, total_record_count))
             # Free up written tables in memory
             compacted_tables.clear()
             total_record_count = 0
@@ -190,7 +192,7 @@ def materialize(
         total_record_count += record_count
         compacted_tables.append(pa_table)
 
-    materialized_results.append(_materialize(compacted_tables))
+    materialized_results.append(_materialize(compacted_tables, total_record_count))
     # Free up written tables in memory
     compacted_tables.clear()
 
