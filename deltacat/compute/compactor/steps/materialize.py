@@ -51,14 +51,13 @@ def materialize(
                      f"and record count: {compacted_tables_record_count}")
         compacted_table = pa.concat_tables(compacted_tables)
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
-            # convert to pandas since pyarrow doesn't support custom delimiters
-            # and doesn't support utf-8 conversion of all types (e.g. Decimal128)
+            # TODO (ricmiyam): Investigate if we still need to convert this table to pandas DataFrame
             # TODO (pdames): compare performance to pandas-native materialize path
             df = compacted_table.to_pandas(
                 split_blocks=True,
                 self_destruct=True,
+                zero_copy_only=True
             )
-            del compacted_table
             compacted_table = df
         delta = deltacat_storage.stage_delta(
             compacted_table,
@@ -85,7 +84,6 @@ def materialize(
                 len(compacted_table),
             ),
         )
-        del compacted_table
         logger.info(f"Materialize result: {materialize_result}")
         return materialize_result
 
@@ -201,10 +199,10 @@ def materialize(
         f"Expected at least one materialized result in materialize step."
 
     # Merge all new deltas into one for this materialize bucket index
-    merged_mr = MaterializeResult.of(merged_delta,
-                                     materialized_results[0].task_index,
-                                     PyArrowWriteResult.union([mr.pyarrow_write_result
-                                                               for mr in materialized_results]))
+    merged_materialize_result = MaterializeResult.of(merged_delta,
+                                                     materialized_results[0].task_index,
+                                                     PyArrowWriteResult.union([mr.pyarrow_write_result
+                                                                               for mr in materialized_results]))
 
     logger.info(f"Finished materialize task...")
-    return merged_mr
+    return merged_materialize_result
