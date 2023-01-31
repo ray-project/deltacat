@@ -266,11 +266,11 @@ def _execute_compaction_round(
         current_node_id = get_current_node_resource_key()
         cluster_resources['node_id'].remove(current_node_id)
         #TODO: update cluster resource, now just hard code as r5.8xlarge
-        cluster_cpus -=32
-        cluster_resources['CPU']-=32
-        cluster_resources['memory']-=192414534860.0
-        cluster_resources['object_store_memory']-=160278591390.0
-        cluster_resources['bundle_length']-=1
+        # cluster_cpus -=32
+        # cluster_resources['CPU']-=32
+        # cluster_resources['memory']-=192414534860.0
+        # cluster_resources['object_store_memory']-=160278591390.0
+        # cluster_resources['bundle_length']-=1
         #TODO: update bundle id list
 
     else: # use all cluster resource
@@ -511,7 +511,8 @@ def _execute_compaction_round(
     num_materialize_buckets = max_parallelism[1]
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
     record_counts_pending_materialize = \
-        dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(dedupe_task_count)
+        dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
+        # dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(dedupe_task_count)
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
