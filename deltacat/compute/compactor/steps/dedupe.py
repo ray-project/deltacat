@@ -336,7 +336,7 @@ def dedupe(
         table = drop_duplicates_by_primary_key_hash(table)
         table = table.drop([sc._DELTA_TYPE_COLUMN_NAME])
         logger.info(f"Dedupe round output record count: {len(table)}")
-
+        print(f"adhoc table schema {table.schema}")
         deduped_tables.append((hb_idx, table))
 
         stream_position_col = sc.stream_position_column_np(table)
@@ -378,7 +378,8 @@ def dedupe(
     logger.info(f"Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
-    record_counts_pending_materialize[dedupe_task_index%].add_record_counts.remote(
+    print(f"adhoc mat_bucket_to_src_file_record_count: {mat_bucket_to_src_file_record_count}")
+    record_counts_pending_materialize.add_record_counts.remote(
         dedupe_task_index,
         mat_bucket_to_src_file_record_count,
     )
