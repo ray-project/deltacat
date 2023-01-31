@@ -35,14 +35,14 @@ setuptools.setup(
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     install_requires=[
         # any changes here should also be reflected in requirements.txt
-        "boto3 == 1.20.24",
+        "boto3 == 1.20.40",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
         "pyarrow == 10.0.1",
         "pydantic == 1.10.4",
         "ray[default] == 2.0.0",
-        "s3fs == 2022.2.0",
-        "tenacity == 8.1.0",
+        "s3fs == 2022.1.0",
+        "tenacity == 8.0.1",
         "typing-extensions == 4.4.0",
     ],
     setup_requires=["wheel"],

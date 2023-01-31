@@ -166,21 +166,12 @@ def _execute_compaction_round(
     # sort primary keys to produce the same pk digest regardless of input order
     primary_keys = sorted(primary_keys)
 
-    # collect cluster resource stats
-    # cluster_resources = ray.cluster_resources()
-    # logger.info(f"Total cluster resources: {cluster_resources}")
-    # logger.info(f"Available cluster resources: {ray.available_resources()}")
-    # cluster_cpus = int(cluster_resources["CPU"])
-    # logger.info(f"Total cluster CPUs: {cluster_cpus}")
-
-    # collect node group resources
-
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
     if pg_config: # use resource in each placement group
-        node_resource_keys=None
         cluster_resources = pg_config[1]
         cluster_cpus = cluster_resources['CPU']   
+        node_resource_keys= cluster_resources['node_id'] # TODO: replace it with bundle id
     else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
@@ -188,13 +179,13 @@ def _execute_compaction_round(
         node_resource_keys = live_node_resource_keys()
         logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
                    f"{node_resource_keys}") 
-
     if node_resource_keys:
         # create a remote options provider to round-robin tasks across all nodes
         logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
         round_robin_opt_provider = functools.partial(
             round_robin_options_provider,
             resource_keys=node_resource_keys,
+            pg_config = pg_config[0] if pg_config else None
         )
     else:
         logger.info("Setting round robin scheduling to None")

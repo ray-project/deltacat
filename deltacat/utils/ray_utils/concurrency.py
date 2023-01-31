@@ -108,8 +108,10 @@ def round_robin_options_provider(
     resource_key_index = i % len(resource_keys)
     key = resource_keys[resource_key_index]
     if kwargs.get("pg_config"):
+        #use pg and bundle id for fault-tolerant round-robin
         opt = {"resources": {key: resource_amount_provider(resource_key_index)}}
-        opt.update(**(kwargs.get("pg_config")))
+        opt.update(**(kwargs.get("pg_config"))) # TODO, update PG strategy in-place
         return opt
     else:
+        # use node id for round-robin
         return {"resources": {key: resource_amount_provider(resource_key_index)}}
