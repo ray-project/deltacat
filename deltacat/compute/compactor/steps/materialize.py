@@ -99,7 +99,7 @@ def materialize(
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
-            file_reader_kwargs=read_kwargs_provider,
+            file_reader_kwargs_provider=read_kwargs_provider,
         )
         mask_pylist = list(repeat(False, len(pa_table)))
         record_numbers = chain.from_iterable(record_numbers_tpl)
