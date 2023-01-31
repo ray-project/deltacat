@@ -41,6 +41,52 @@ def materialize(
         schema: Optional[pa.Schema] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
 
+    def _materialize(
+            compacted_tables: List[pa.Table]) -> MaterializeResult:
+        compacted_tables_size = sum([TABLE_CLASS_TO_SIZE_FUNC[type(tbl)](tbl)
+                                     for tbl in compacted_tables])
+        logger.debug(f"Uploading {len(compacted_tables)} compacted tables "
+                     f"with size: {compacted_tables_size} bytes")
+        compacted_table = pa.concat_tables(compacted_tables)
+        if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+            # convert to pandas since pyarrow doesn't support custom delimiters
+            # and doesn't support utf-8 conversion of all types (e.g. Decimal128)
+            # TODO (pdames): compare performance to pandas-native materialize path
+            df = compacted_table.to_pandas(
+                split_blocks=True,
+                self_destruct=True,
+            )
+            del compacted_table
+            compacted_table = df
+        delta = deltacat_storage.stage_delta(
+            compacted_table,
+            partition,
+            max_records_per_entry=max_records_per_output_file,
+            content_type=compacted_file_content_type,
+        )
+        manifest = delta.manifest
+        manifest_records = manifest.meta.record_count
+        assert(manifest_records == len(compacted_table),
+               f"Unexpected Error: Materialized delta manifest record count "
+               f"({manifest_records}) does not equal compacted table record count "
+               f"({len(compacted_table)})")
+
+        materialize_result = MaterializeResult.of(
+            delta,
+            mat_bucket_index,
+            # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
+            #  and in-memory-table-bytes instead of tight coupling to paBytes
+            PyArrowWriteResult.of(
+                len(manifest.entries),
+                TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table),
+                manifest.meta.content_length,
+                len(compacted_table),
+            ),
+        )
+        del compacted_table
+        logger.info(f"Materialize result: {materialize_result}")
+        return materialize_result
+
     logger.info(f"Starting materialize task...")
     dedupe_task_idx_and_obj_ref_tuples = [
         (
@@ -64,7 +110,9 @@ def materialize(
             )
     manifest_cache = {}
     compacted_tables = []
-    for src_dfl in sorted(all_src_file_records.keys()):
+    materialized_results: List[MaterializeResult] = []
+    total_record_count = 0
+    for src_dfl in enumerate(sorted(all_src_file_records.keys())):
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
@@ -101,69 +149,60 @@ def materialize(
             src_file_idx_np.item(),
             file_reader_kwargs=read_kwargs_provider,
         )
-        mask_pylist = list(repeat(False, len(pa_table)))
+        record_count = len(pa_table)
+        if record_count > max_records_per_output_file:
+            raise ValueError(f"'max_records_per_output_file' is set to '{max_records_per_output_file}' "
+                             f"but record count of manifest entry id: {src_file_idx_np.item()}, "
+                             f"of delta locator: {delta_locator}, is '{record_count}'. "
+                             f"Please increase your 'max_records_per_output_file'")
+        mask_pylist = list(repeat(False, record_count))
         record_numbers = chain.from_iterable(record_numbers_tpl)
         for record_number in record_numbers:
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
-        compacted_table = pa_table.filter(mask)
+        pa_table = pa_table.filter(mask)
 
         # appending, sorting, taking, and dropping has 2-3X latency of a
         # single filter on average, and thus provides better average
         # performance than repeatedly filtering the table in dedupe task index
         # order
         dedupe_task_indices = chain.from_iterable(dedupe_task_idx_iter_tpl)
-        compacted_table = sc.append_dedupe_task_idx_col(
-            compacted_table,
+        pa_table = sc.append_dedupe_task_idx_col(
+            pa_table,
             dedupe_task_indices,
         )
         pa_sort_keys = [(sc._DEDUPE_TASK_IDX_COLUMN_NAME, "ascending")]
-        compacted_table = compacted_table.take(
-            pc.sort_indices(compacted_table, sort_keys=pa_sort_keys),
+        pa_table = pa_table.take(
+            pc.sort_indices(pa_table, sort_keys=pa_sort_keys),
         )
-        compacted_table = compacted_table.drop(
+        pa_table = pa_table.drop(
             [sc._DEDUPE_TASK_IDX_COLUMN_NAME]
         )
-        compacted_tables.append(compacted_table)
 
-    # TODO (pdames): save memory by writing output files eagerly whenever
-    #  len(compacted_table) >= max_records_per_output_file (but don't write
-    #  partial slices from the compacted_table remainder every time!)
-    compacted_table = pa.concat_tables(compacted_tables)
-    if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
-        # convert to pandas since pyarrow doesn't support custom delimiters
-        # and doesn't support utf-8 conversion of all types (e.g. Decimal128)
-        # TODO (pdames): compare performance to pandas-native materialize path
-        df = compacted_table.to_pandas(
-            split_blocks=True,
-            self_destruct=True,
-        )
-        del compacted_table
-        compacted_table = df
-    delta = deltacat_storage.stage_delta(
-        compacted_table,
-        partition,
-        max_records_per_entry=max_records_per_output_file,
-        content_type=compacted_file_content_type,
-    )
-    manifest = delta.manifest
-    manifest_records = manifest.meta.record_count
-    assert(manifest_records == len(compacted_table),
-           f"Unexpected Error: Materialized delta manifest record count "
-           f"({manifest_records}) does not equal compacted table record count "
-           f"({len(compacted_table)})")
-    materialize_result = MaterializeResult.of(
-        delta,
-        mat_bucket_index,
-        # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
-        #  and in-memory-table-bytes instead of tight coupling to paBytes
-        PyArrowWriteResult.of(
-            len(manifest.entries),
-            TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table),
-            manifest.meta.content_length,
-            len(compacted_table),
-        ),
-    )
-    logger.info(f"Materialize result: {materialize_result}")
+        # Write manifests up to max_records_per_output_file
+        if compacted_tables and \
+                total_record_count + record_count > max_records_per_output_file:
+            materialized_results.append(_materialize(compacted_tables))
+            # Free up written tables in memory
+            compacted_tables.clear()
+            total_record_count = 0
+
+        total_record_count += record_count
+        compacted_tables.append(pa_table)
+
+    materialized_results.append(_materialize(compacted_tables))
+    # Free up written tables in memory
+    compacted_tables.clear()
+
+    merged_delta = Delta.merge_deltas([mr.delta for mr in materialized_results])
+    assert materialized_results and len(materialized_results) > 0, \
+        f"Expected at least one materialized result in materialize step."
+
+    # Merge all new deltas into one for this materialize bucket index
+    merged_mr = MaterializeResult.of(merged_delta,
+                                     materialized_results[0].task_index,
+                                     PyArrowWriteResult.union([mr.pyarrow_write_result
+                                                               for mr in materialized_results]))
+
     logger.info(f"Finished materialize task...")
-    return materialize_result
+    return merged_mr
