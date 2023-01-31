@@ -107,4 +107,9 @@ def round_robin_options_provider(
     assert resource_keys, f"No resource keys given to round robin!"
     resource_key_index = i % len(resource_keys)
     key = resource_keys[resource_key_index]
-    return {"resources": {key: resource_amount_provider(resource_key_index)}}
+    if kwargs.get("pg_config"):
+        opt = {"resources": {key: resource_amount_provider(resource_key_index)}}
+        opt.update(**(kwargs.get("pg_config")))
+        return opt
+    else:
+        return {"resources": {key: resource_amount_provider(resource_key_index)}}

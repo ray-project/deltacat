@@ -80,12 +80,9 @@ def compact_partition(
     partition = None
     compaction_rounds_executed = 0
     has_next_compaction_round = True
-    opts={}
-    if pg_config:
-        opts=pg_config[0]
     while has_next_compaction_round:
-        has_next_compaction_round_obj, new_partition_obj, new_rci_obj = \
-            _execute_compaction_round.options(**opts).remote(
+        has_next_compaction_round, new_partition, new_rci = \
+            _execute_compaction_round(
                 source_partition_locator,
                 compacted_partition_locator,
                 primary_keys,
@@ -105,9 +102,6 @@ def compact_partition(
                 deltacat_storage=deltacat_storage,
                 pg_config=pg_config
             )
-        has_next_compaction_round = ray.get(has_next_compaction_round_obj)
-        new_partition = ray.get(new_partition_obj)
-        new_rci = ray.get(new_rci_obj)
         if new_partition:
             partition = new_partition
             compacted_partition_locator = new_partition.locator
@@ -124,7 +118,7 @@ def compact_partition(
         logger.info(f"Committed compacted partition: {partition}")
     logger.info(f"Completed compaction session for: {source_partition_locator}")
 
-@ray.remote(num_cpus=0.1,num_returns=3)
+
 def _execute_compaction_round(
         source_partition_locator: PartitionLocator,
         compacted_partition_locator: PartitionLocator,
