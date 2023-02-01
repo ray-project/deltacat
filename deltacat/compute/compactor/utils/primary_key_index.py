@@ -209,7 +209,6 @@ def group_hash_bucket_indices(
             obj_ref = ray.put(obj)
             object_refs.append(obj_ref)
             hash_bucket_group_to_obj_id[hb_group] = obj_ref
-            del obj_ref
 
     return hash_bucket_group_to_obj_id, object_refs
 
