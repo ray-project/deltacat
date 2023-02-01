@@ -324,7 +324,6 @@ def dedupe(
 
         # drop duplicates by primary key hash column
         table = drop_duplicates_by_primary_key_hash(table)
-        print(f"adhoc schema after drop duplicates: {table.schema}")
         table = table.drop([sc._DELTA_TYPE_COLUMN_NAME])
         logger.info(f"Dedupe round output record count: {len(table)}")
 
@@ -373,7 +372,6 @@ def dedupe(
         dedupe_task_index,
         mat_bucket_to_src_file_record_count,
     )
-    print(f"adhoc mat_bucket_to_src_file_record_count: {mat_bucket_to_src_file_record_count}")
     # wait for all dedupe tasks to reach this point before continuing
     logger.info(
         f"Waiting for all dedupe tasks to finish writing record counts...")
