@@ -160,6 +160,16 @@ class NodeGroupManager():
 			return None
 		return group_res
 
+class PlacementGroupResource():
+	def __init__(self, opts, resource):
+		self.opts = opts
+		self.resource = resource
+	@property
+	def opts(self):
+		return self.opts
+	@property
+	def resource(self):
+		return self.resource
 
 class PlacementGroupManager():
 	"""Placement Group Manager
@@ -234,7 +244,7 @@ def _config(instance_cpus: int, instance_type: int, node_res_keys: List[str], ti
 		cluster_resources['node_id'] = node_res_keys # bundle_id
 		cluster_resources['pg_handle'] = pg
 		cluster_resources['bundle_length'] = num_bundles
-		pg_config=[opts,cluster_resources] # opts is used in parent task, cluster_resources' pg handle and bundle length are used in child tasks for round-robin
+		pg_config = PlacementGroupResource(opts,cluster_resources) # opts is used in parent task, cluster_resources' pg handle and bundle length are used in child tasks for round-robin
 		logger.info(f"pg has resources:{cluster_resources}")
 
 	except Exception as e:
