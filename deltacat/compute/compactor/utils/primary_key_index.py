@@ -212,6 +212,7 @@ def group_hash_bucket_indices(
         pickled_obj_ref = cloudpickle.dumps(obj_ref)
         object_refs.append(pickled_obj_ref)
         hash_bucket_group_to_obj_id[hb_group] = pickled_obj_ref
+        del obj_ref
 
     return hash_bucket_group_to_obj_id, object_refs
 
