@@ -3,6 +3,7 @@ import ray
 import pyarrow as pa
 
 from collections import defaultdict
+from ray import cloudpickle
 
 from deltacat.compute.compactor.steps.dedupe import DedupeTaskIndexWithObjectId, \
     DeltaFileLocatorToRecords
@@ -88,9 +89,9 @@ def materialize(
     logger.info(f"Starting materialize task...")
     dedupe_task_idx_and_obj_ref_tuples = [
         (
-            t[0],
-            t[1],
-        ) for t in dedupe_task_idx_and_obj_id_tuples
+            t1,
+            cloudpickle.loads(t2),
+        ) for t1, t2 in dedupe_task_idx_and_obj_id_tuples
     ]
     logger.info(f"Resolved materialize task obj refs...")
     dedupe_task_indices, obj_refs = zip(

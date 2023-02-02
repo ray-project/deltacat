@@ -3,6 +3,7 @@ import json
 import ray
 import pyarrow as pa
 import numpy as np
+from ray import cloudpickle
 import s3fs
 from collections import defaultdict
 
@@ -205,10 +206,12 @@ def group_hash_bucket_indices(
             hb_group_to_object[hb_group][hb_index] = obj
 
     for hb_group, obj in enumerate(hb_group_to_object):
-        if obj is not None:
-            obj_ref = ray.put(obj)
-            object_refs.append(obj_ref)
-            hash_bucket_group_to_obj_id[hb_group] = obj_ref
+        if obj is None:
+            continue
+        obj_ref = ray.put(obj)
+        pickled_obj_ref = cloudpickle.dumps(obj_ref)
+        object_refs.append(pickled_obj_ref)
+        hash_bucket_group_to_obj_id[hb_group] = pickled_obj_ref
 
     return hash_bucket_group_to_obj_id, object_refs
 

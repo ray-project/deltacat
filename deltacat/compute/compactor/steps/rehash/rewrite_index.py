@@ -3,6 +3,7 @@ import logging
 import pyarrow as pa
 from collections import defaultdict
 from deltacat import logs
+from ray import cloudpickle
 
 from ray.types import ObjectRef
 
@@ -24,7 +25,7 @@ def rewrite_index(
         Tuple[PyArrowWriteResult, List[ObjectRef]]:
 
     logger.info(f"Starting rewrite primary key index task...")
-    object_refs = [obj_id_pkl for obj_id_pkl in object_ids]
+    object_refs = [cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]
     logger.info(f"Getting table groups object refs...")
     table_groups_list = ray.get(object_refs)
     logger.info(f"Got {len(table_groups_list)} table groups object refs...")
