@@ -260,7 +260,7 @@ class RecordCountsPendingMaterialize:
             self,
             record_counts:
             Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], Dict[int, int]]]) -> None:
-        logger.info(f"adhoc actor received cmd from dedupe task {result_idx}")
+        logger.info(f"adhoc reduce actor received cmd from dedupe task {result_idx}")
         for mat_bucket, df_locator_result_idx_rows in record_counts.items():
             for df_locator, result_idx_rows in df_locator_result_idx_rows.items():
                 for result_idx, rows in result_idx_rows.items():
@@ -410,10 +410,12 @@ def dedupe(
         finalized = ray.get(
             record_counts_pending_materialize[current_node_id].is_finalized.remote()
         )
-        time.sleep(0.5) # This is the initial call, each node' tasks call its own local actor
+        time.sleep(5) # This is the initial call, each node' tasks call its own local actor
+    logger.info(f"adhoc actor at {current_node_id} finished")
     record_counts = ray.get(
         record_counts_pending_materialize[current_node_id].get_record_counts.remote()
     )
+    logger.info(f"adhoc task on {current_node_id} got node-local record_counts")
     #local actor has all local results now
     #reduce into one actor 0
     #aggregator task id 
