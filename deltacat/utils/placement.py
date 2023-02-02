@@ -178,49 +178,53 @@ class PlacementGroupManager():
 		num_pgs: number of placement groups to be created
 		instance_cpus: number of cpus per instance
 	"""
-	def __init__(self, num_pgs: int, instance_cpus: int, instance_type: int = 8, time_out: Optional[float] = None):
-		head_res_key = self.get_current_node_resource_key()
-		all_node_res_key = live_node_resource_keys()
-		all_node_res_key.remove(head_res_key)
-		num_bundles = (int)(instance_cpus/instance_type)
-		self._pg_configs = ray.get([_config.options(resources={head_res_key:0.01}).remote(instance_cpus, instance_type, all_node_res_key[i*num_bundles:(i+1)*num_bundles]) for i in range(num_pgs)])
+	def __init__(self, num_pgs: int, total_cpus_per_pg: int, cpu_per_bundle: int, strategy="SPREAD",capture_child_tasks=True, time_out: Optional[float] = None):
+		head_res_key = get_current_node_resource_key()
+		#run the task on head and consume a fractional cpu, so that pg can be created on non-head node
+		#if cpu_per_bundle is less than the cpus per node, the pg can still be created on head
+		#curent assumption is that the cpu_per_bundle = cpus per node
+		#TODO: figure out how to create pg on non-head explicitly
+		self._pg_configs = ray.get([_config.options(resources={head_res_key:0.01}).remote(total_cpus_per_pg, cpu_per_bundle,strategy,capture_child_tasks) for i in range(num_pgs)])
+		#TODO: handle the cases where cpu_per_bundle is larger than max cpus per node, support it on ec2/flex/manta
 		
 	@property
 	def pgs(self):
 		return self._pg_configs
 
 	def get_current_node_resource_key(self) -> str: 
-	    current_node_id = ray.get_runtime_context().node_id.hex() 
+		#on ec2: address="172.31.34.51:6379"
+		#on manta: address = "2600:1f10:4674:6815:aadb:2dc8:de61:bc8e:6379"
+	    current_node_name = ray.experimental.internal_kv.global_gcs_client.address[:-5]
 	    for node in ray.nodes(): 
-	        if node["NodeID"] == current_node_id: 
+	        if node["NodeName"] == current_node_name: 
 	            # Found the node. 
 	            for key in node["Resources"].keys(): 
 	                if key.startswith("node:"): 
 	                    return key
+
 @ray.remote(num_cpus=0.01)
-def _config(instance_cpus: int, instance_type: int, node_res_keys: List[str], time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
+def _config(total_cpus_per_pg: int, cpu_per_node: int, strategy="SPREAD",capture_child_tasks=True,time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
 	pg_config = None
 	try:
 		opts ={}
 		cluster_resources={}
-		num_bundles = (int)(instance_cpus/instance_type)
-		bundles = [{'CPU':instance_type,node_res_keys[i]:1} for i in range(num_bundles)]
-		pg = placement_group(bundles, strategy="SPREAD")
+		num_bundles = (int)(total_cpus_per_pg/cpu_per_node)
+		bundles = [{'CPU':instance_type} for i in range(num_bundles)]
+		pg = placement_group(bundles, strategy=strategy)
 		ray.get(pg.ready(), timeout=time_out)
 		if not pg:
 			return None
 		opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
-			placement_group=pg, placement_group_capture_child_tasks=True)
+			placement_group=pg, placement_group_capture_child_tasks=capture_child_tasks)
 		}
 		pg_id = placement_group_table(pg)['placement_group_id']
 		pg_details = get_placement_group(pg_id)
 		bundles = pg_details['bundles']
-		node_ids =[]
 		for bd in bundles:
 			node_ids.append(bd['node_id'])
 		#query available resources given list of node id
 		all_nodes_available_res = ray._private.state.state._available_resources_per_node()
-		pg_res = {'CPU':0,'memory':0,'object_store_memory':0,'node_id':[]}
+		pg_res = {'CPU':0,'memory':0,'object_store_memory':0}
 		for node_id in node_ids:
 			if node_id in all_nodes_available_res:
 				v = all_nodes_available_res[node_id]
@@ -231,10 +235,7 @@ def _config(instance_cpus: int, instance_type: int, node_res_keys: List[str], ti
 		cluster_resources['CPU'] = int(pg_res['CPU'])
 		cluster_resources['memory'] = float(pg_res['memory'])
 		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-		cluster_resources['node_id'] = node_res_keys # bundle_id
-		cluster_resources['pg_handle'] = pg
-		cluster_resources['bundle_length'] = num_bundles
-		pg_config=[opts,cluster_resources] # opts is used in parent task, cluster_resources' pg handle and bundle length are used in child tasks for round-robin
+		pg_config=[opts,cluster_resources] 
 		logger.info(f"pg has resources:{cluster_resources}")
 
 	except Exception as e:
