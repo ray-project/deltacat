@@ -373,6 +373,7 @@ def dedupe(
             pickled_object_ref,
         )
         del object_ref
+        del pickled_object_ref
     logger.info(f"Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
