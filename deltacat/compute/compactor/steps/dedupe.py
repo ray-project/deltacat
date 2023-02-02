@@ -248,12 +248,14 @@ class RecordCountsPendingMaterialize:
     def add_record_counts(
             self,
             result_idx: int,
-            record_counts:
-            Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], int]]) -> None:
+            record_counts_obj ) -> None:
+            #Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], int]]) -> None:
         logger.info(f"adhoc actor received cmd from dedupe task {result_idx}")
+        record_counts = ray.get(record_counts_obj)
         for mat_bucket, df_locator_rows in record_counts.items():
             for df_locator, rows in df_locator_rows.items():
                 self.record_counts[mat_bucket][df_locator][result_idx] += rows
+        logger.info(f"adhoc actor done updating record counts for dedupe task {result_idx}")
         self.actual_result_count += 1
 
     def reduce_record_counts(
@@ -396,9 +398,10 @@ def dedupe(
 
     #print(f"adhoc mat_bucket_to_src_file_record_count: {mat_bucket_to_src_file_record_count}")
     #each task only talks to local actor, which is on the same node
+    mat_bucket_to_src_file_record_count_obj = ray.put(mat_bucket_to_src_file_record_count)
     record_counts_pending_materialize[current_node_id].add_record_counts.remote(
         dedupe_task_index,
-        mat_bucket_to_src_file_record_count,
+        mat_bucket_to_src_file_record_count_obj,
     )
     logger.info(f"adhoc dedupe task {dedupe_task_index} sent cmd to actor at {current_node_id}")
 
