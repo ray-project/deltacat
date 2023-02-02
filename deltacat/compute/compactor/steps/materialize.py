@@ -1,29 +1,32 @@
 import logging
-import ray
-import pyarrow as pa
-
 from collections import defaultdict
+from itertools import chain, repeat
+from typing import List, Optional, Tuple
+
+import pyarrow as pa
+import ray
+from pyarrow import compute as pc
 from ray import cloudpickle
 
-from deltacat.compute.compactor.steps.dedupe import DedupeTaskIndexWithObjectId, \
-    DeltaFileLocatorToRecords
-from itertools import chain, repeat
-
-from pyarrow import compute as pc
-
 from deltacat import logs
-from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator, \
-    interface as unimplemented_deltacat_storage
-from deltacat.compute.compactor import MaterializeResult, PyArrowWriteResult, \
-    RoundCompletionInfo
+from deltacat.compute.compactor import (
+    MaterializeResult,
+    PyArrowWriteResult,
+    RoundCompletionInfo,
+)
+from deltacat.compute.compactor.steps.dedupe import (
+    DedupeTaskIndexWithObjectId,
+    DeltaFileLocatorToRecords,
+)
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.types.media import ContentType, DELIMITED_TEXT_CONTENT_TYPES
-from typing import List, Tuple, Optional
-
-from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
-
+from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator
+from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
-from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowCsvPureUtf8
+from deltacat.utils.pyarrow import (
+    ReadKwargsProviderPyArrowCsvPureUtf8,
+    ReadKwargsProviderPyArrowSchemaOverride,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

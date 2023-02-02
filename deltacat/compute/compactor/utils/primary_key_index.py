@@ -1,32 +1,37 @@
-import logging
 import json
-import ray
-import pyarrow as pa
-import numpy as np
-from ray import cloudpickle
-import s3fs
+import logging
 from collections import defaultdict
-
-from deltacat.utils.common import ReadKwargsProvider
-
-from deltacat.storage import Manifest, PartitionLocator
-from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
-    round_robin_options_provider
-from deltacat.compute.compactor import PyArrowWriteResult, \
-    RoundCompletionInfo, PrimaryKeyIndexMeta, PrimaryKeyIndexLocator, \
-    PrimaryKeyIndexVersionMeta, PrimaryKeyIndexVersionLocator
-from deltacat.compute.compactor.utils import round_completion_file as rcf
-from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.compute.compactor.steps.rehash import rehash_bucket as rb, \
-    rewrite_index as ri
-from deltacat.types.tables import get_table_writer, get_table_slicer
-from deltacat.types.media import ContentType, ContentEncoding
-from deltacat.aws import s3u
-from deltacat import logs
-
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+import pyarrow as pa
+import ray
+import s3fs
+from ray import cloudpickle
 from ray.types import ObjectRef
+
+from deltacat import logs
+from deltacat.aws import s3u
+from deltacat.compute.compactor import (
+    PrimaryKeyIndexLocator,
+    PrimaryKeyIndexMeta,
+    PrimaryKeyIndexVersionLocator,
+    PrimaryKeyIndexVersionMeta,
+    PyArrowWriteResult,
+    RoundCompletionInfo,
+)
+from deltacat.compute.compactor.steps.rehash import rehash_bucket as rb
+from deltacat.compute.compactor.steps.rehash import rewrite_index as ri
+from deltacat.compute.compactor.utils import round_completion_file as rcf
+from deltacat.compute.compactor.utils import system_columns as sc
+from deltacat.storage import Manifest, PartitionLocator
+from deltacat.types.media import ContentEncoding, ContentType
+from deltacat.types.tables import get_table_slicer, get_table_writer
+from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.ray_utils.concurrency import (
+    invoke_parallel,
+    round_robin_options_provider,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

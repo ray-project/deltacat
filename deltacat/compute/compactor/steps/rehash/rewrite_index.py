@@ -1,17 +1,15 @@
-import ray
 import logging
-import pyarrow as pa
 from collections import defaultdict
-from deltacat import logs
-from ray import cloudpickle
+from typing import Any, List, Tuple
 
+import pyarrow as pa
+import ray
+from ray import cloudpickle
 from ray.types import ObjectRef
 
-from deltacat.compute.compactor import PrimaryKeyIndexVersionLocator, \
-    PyArrowWriteResult
+from deltacat import logs
+from deltacat.compute.compactor import PrimaryKeyIndexVersionLocator, PyArrowWriteResult
 from deltacat.compute.compactor.utils import primary_key_index as pki
-
-from typing import Any, List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

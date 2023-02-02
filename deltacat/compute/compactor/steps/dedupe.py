@@ -1,26 +1,32 @@
 import logging
-import pyarrow as pa
-import ray
 import time
-import pyarrow.compute as pc
-import numpy as np
-from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
-from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
-from ray.types import ObjectRef
-from ray import cloudpickle
-
-from deltacat import logs
 from collections import defaultdict
 from itertools import repeat
-from deltacat.storage import DeltaType
-from deltacat.compute.compactor import SortKey, SortOrder, \
-    RoundCompletionInfo, PrimaryKeyIndexVersionLocator, DeltaFileEnvelope, \
-    DeltaFileLocator, PyArrowWriteResult
-from deltacat.compute.compactor.utils import system_columns as sc, \
-    primary_key_index as pki
-
 from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.compute as pc
+import ray
+from ray import cloudpickle
+from ray.types import ObjectRef
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+
+from deltacat import logs
+from deltacat.compute.compactor import (
+    DeltaFileEnvelope,
+    DeltaFileLocator,
+    PrimaryKeyIndexVersionLocator,
+    PyArrowWriteResult,
+    RoundCompletionInfo,
+    SortKey,
+    SortOrder,
+)
+from deltacat.compute.compactor.utils import primary_key_index as pki
+from deltacat.compute.compactor.utils import system_columns as sc
+from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
+from deltacat.storage import DeltaType
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
