@@ -263,8 +263,8 @@ def _execute_compaction_round(
         cluster_cpus = cluster_resources['CPU']
         node_resource_keys = cluster_resources['node_id']
         #remove parent task node id
-        current_node_id = get_current_node_resource_key()
-        cluster_resources['node_id'].remove(current_node_id)
+        #current_node_id = get_current_node_resource_key()
+        #cluster_resources['node_id'].remove(current_node_id)
         #TODO: update cluster resource, now just hard code as r5.8xlarge
         # cluster_cpus -=32
         # cluster_resources['CPU']-=32
@@ -510,9 +510,18 @@ def _execute_compaction_round(
     # identify the index of records to keep or drop based on sort keys
     num_materialize_buckets = max_parallelism[1]
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
-    record_counts_pending_materialize = \
-        dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
+    #record_counts_pending_materialize = \
+    #    dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
         # dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(dedupe_task_count)
+    record_counts_pending_materialize = {}\
+#        [dd.RecordCountsPendingMaterialize.options(resources={node_resource_keys[i]:0.1}).remote(dedupe_task_count)\
+#            for i in range(len(node_resource_keys))]
+
+    for current_node_id in node_resource_keys:
+        record_counts_pending_materialize[current_node_id]= \
+        dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(max_parallelism[1], len(node_resource_keys)-1)
+
+
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
