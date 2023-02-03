@@ -21,7 +21,7 @@ from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
-
+from deltacat.utils.placement import PlacementGroupResource
 from typing import List, Set, Optional, Tuple, Dict, Union, Any
 
 import pyarrow as pa
@@ -72,7 +72,7 @@ def compact_partition(
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
         read_round_completion: bool = False,
-        pg_config: Optional[List[Dict[str, Any]]] = None,
+        pg_config: Optional[PlacementGroupResource] = None,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         deltacat_storage=unimplemented_deltacat_storage):
 
@@ -137,7 +137,7 @@ def _execute_compaction_round(
         read_round_completion: bool,
         schema_on_read: Optional[pa.schema],
         deltacat_storage = unimplemented_deltacat_storage,
-        pg_config: Optional[List[Dict[str, Any]]] = None) \
+        pg_config: Optional[PlacementGroupResource] = None) \
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
 
@@ -168,10 +168,10 @@ def _execute_compaction_round(
 
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
+    node_resource_keys = None
     if pg_config: # use resource in each placement group
-        cluster_resources = pg_config[1]
+        cluster_resources = pg_config.resource
         cluster_cpus = cluster_resources['CPU']   
-        node_resource_keys= cluster_resources['node_id'] # TODO: replace it with bundle id
     else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
@@ -179,17 +179,15 @@ def _execute_compaction_round(
         node_resource_keys = live_node_resource_keys()
         logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
                    f"{node_resource_keys}") 
-    if node_resource_keys:
-        # create a remote options provider to round-robin tasks across all nodes
-        logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
-        round_robin_opt_provider = functools.partial(
-            round_robin_options_provider,
-            resource_keys=node_resource_keys,
-            pg_config = pg_config[0] if pg_config else None
-        )
-    else:
-        logger.info("Setting round robin scheduling to None")
-        round_robin_opt_provider = None
+
+    # create a remote options provider to round-robin tasks across all nodes or allocated bundles
+    logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
+    round_robin_opt_provider = functools.partial(
+        round_robin_options_provider,
+        resource_keys=node_resource_keys,
+        pg_config = pg_config.opts if pg_config else None
+    )
+
     # assign a distinct index to each node in the cluster
     # head_node_ip = urllib.request.urlopen(
     #     "http://169.254.169.254/latest/meta-data/local-ipv4"

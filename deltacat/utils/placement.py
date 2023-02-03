@@ -159,7 +159,17 @@ class NodeGroupManager():
 			logger.info(f"There is no available resources for {gname}")
 			return None
 		return group_res
-
+		
+class PlacementGroupResource():
+	def __init__(self, opts, resource):
+		self.opts = opts
+		self.resource = resource
+	@property
+	def opts(self):
+		return self.opts
+	@property
+	def resource(self):
+		return self.resource
 
 class PlacementGroupManager():
 	"""Placement Group Manager
@@ -235,7 +245,7 @@ def _config(total_cpus_per_pg: int, cpu_per_node: int, strategy="SPREAD",capture
 		cluster_resources['CPU'] = int(pg_res['CPU'])
 		cluster_resources['memory'] = float(pg_res['memory'])
 		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-		pg_config=[opts,cluster_resources] 
+		pg_config=PlacementGroupResource(opts,cluster_resources) 
 		logger.info(f"pg has resources:{cluster_resources}")
 
 	except Exception as e:
