@@ -1,10 +1,10 @@
-import ray
 import logging
 import time
+from typing import Any, Callable, Dict, List
+
+import ray
 
 from deltacat import logs
-
-from typing import Any, Callable, Dict, List
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

@@ -1,16 +1,14 @@
+from typing import List, Optional
+
 import numpy as np
 import pyarrow as pa
-
 from fsspec import AbstractFileSystem
-
 from ray.data.datasource import BlockWritePathProvider
 
 from deltacat.types.media import ContentType
-from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils import pandas as pd_utils
+from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.common import ReadKwargsProvider
-
-from typing import List, Optional
 
 
 def slice_ndarray(np_array: np.ndarray, max_len: Optional[int]) -> List[np.ndarray]:

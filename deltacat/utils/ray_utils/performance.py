@@ -1,6 +1,7 @@
 import time
-from deltacat.utils.ray_utils.collections import DistributedCounter
 from typing import Any, Callable, Tuple
+
+from deltacat.utils.ray_utils.collections import DistributedCounter
 
 
 def invoke_with_perf_counter(

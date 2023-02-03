@@ -1,15 +1,13 @@
 import logging
+from typing import Callable, Dict, List, Optional
 
-from pyarrow import csv as pacsv
 from fsspec import AbstractFileSystem
-
+from pyarrow import csv as pacsv
 from ray.data import Dataset
 from ray.data.datasource import BlockWritePathProvider
 
 from deltacat import logs
-from deltacat.types.media import ContentType, ContentEncoding
-
-from typing import Callable, Dict, List, Optional
+from deltacat.types.media import ContentEncoding, ContentType
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

@@ -1,27 +1,27 @@
-import pyarrow as pa
-import gzip
 import bz2
+import gzip
 import io
 import logging
-
 from functools import partial
+from typing import Any, Callable, Dict, Iterable, List, Optional
+
+import pyarrow as pa
 from fsspec import AbstractFileSystem
-
-from pyarrow import feather as paf, parquet as papq, csv as pacsv, json as pajson
-
+from pyarrow import csv as pacsv
+from pyarrow import feather as paf
+from pyarrow import json as pajson
+from pyarrow import parquet as papq
 from ray.data.datasource import BlockWritePathProvider
 
 from deltacat import logs
 from deltacat.types.media import (
-    ContentType,
-    ContentEncoding,
     DELIMITED_TEXT_CONTENT_TYPES,
     TABULAR_CONTENT_TYPES,
+    ContentEncoding,
+    ContentType,
 )
-from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
+from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
-
-from typing import Any, Callable, Dict, List, Optional, Iterable
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

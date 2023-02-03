@@ -1,25 +1,24 @@
-import pandas as pd
 import csv
-import math
 import io
 import logging
+import math
+from typing import Any, Callable, Dict, Iterable, List, Optional
+
+import pandas as pd
 import pyarrow as pa
-
 from fsspec import AbstractFileSystem
-
 from ray.data.datasource import BlockWritePathProvider
 
-from deltacat.types.media import (
-    ContentType,
-    ContentEncoding,
-    EXPLICIT_COMPRESSION_CONTENT_TYPES,
-)
-from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
 from deltacat import logs
-from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
+from deltacat.types.media import (
+    DELIMITED_TEXT_CONTENT_TYPES,
+    EXPLICIT_COMPRESSION_CONTENT_TYPES,
+    TABULAR_CONTENT_TYPES,
+    ContentEncoding,
+    ContentType,
+)
+from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
-
-from typing import Any, Callable, Dict, Iterable, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

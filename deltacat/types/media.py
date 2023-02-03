@@ -1,6 +1,5 @@
 from enum import Enum
-
-from typing import Set, Dict
+from typing import Dict, Set
 
 
 class ContentType(str, Enum):

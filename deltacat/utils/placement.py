@@ -1,17 +1,13 @@
-import ray
+import logging
 import re
 import time
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import ray
 import yaml
-import logging
-from typing import Optional, Union, List, Dict, Any, Tuple
-from ray.util.placement_group import (
-    placement_group,
-    placement_group_table,
-)
-
-from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from ray.experimental.state.api import get_node, get_placement_group
-
+from ray.util.placement_group import placement_group, placement_group_table
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 from deltacat import logs
 

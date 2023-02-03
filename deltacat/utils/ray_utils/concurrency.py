@@ -1,12 +1,11 @@
-import ray
+import itertools
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
+import ray
 from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
-
-from typing import Any, Iterable, Callable, Dict, List, Tuple, Union, Optional
-import itertools
 
 
 def invoke_parallel(

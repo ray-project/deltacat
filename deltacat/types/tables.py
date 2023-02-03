@@ -1,22 +1,23 @@
 from enum import Enum
-from typing import Dict, Callable, Type, Union
+from typing import Callable, Dict, Type, Union
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-import deltacat.storage as dcs
-
 from ray.data.dataset import Dataset
 from ray.data.read_api import (
-    from_arrow_refs,
-    from_pandas_refs,
-    from_numpy,
     from_arrow,
+    from_arrow_refs,
+    from_numpy,
     from_pandas,
+    from_pandas_refs,
 )
 
+import deltacat.storage as dcs
 from deltacat.types.media import TableType
-from deltacat.utils import pyarrow as pa_utils, pandas as pd_utils, numpy as np_utils
+from deltacat.utils import numpy as np_utils
+from deltacat.utils import pandas as pd_utils
+from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
 
 TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {

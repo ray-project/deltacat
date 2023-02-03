@@ -38,4 +38,5 @@ ignore =
   F541
   F631
   E501
+  E731
 avoid-escape = no
