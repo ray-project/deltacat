@@ -1,33 +1,31 @@
 import logging
-import pyarrow as pa
-import ray
 import time
-import pyarrow.compute as pc
+from collections import defaultdict
+from itertools import repeat
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
-from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
+import pyarrow as pa
+import pyarrow.compute as pc
+import ray
 from ray import cloudpickle
 from ray.types import ObjectRef
 
 from deltacat import logs
-from collections import defaultdict
-from itertools import repeat
-from deltacat.storage import DeltaType
 from deltacat.compute.compactor import (
-    SortKey,
-    SortOrder,
-    RoundCompletionInfo,
-    PrimaryKeyIndexVersionLocator,
     DeltaFileEnvelope,
     DeltaFileLocator,
+    PrimaryKeyIndexVersionLocator,
     PyArrowWriteResult,
+    RoundCompletionInfo,
+    SortKey,
+    SortOrder,
 )
-from deltacat.compute.compactor.utils import (
-    system_columns as sc,
-    primary_key_index as pki,
-)
-
-from typing import Any, Dict, List, Optional, Tuple
+from deltacat.compute.compactor.utils import primary_key_index as pki
+from deltacat.compute.compactor.utils import system_columns as sc
+from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
+from deltacat.storage import DeltaType
+from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -378,11 +376,14 @@ def dedupe(
     src_file_records_obj_refs: List[ObjectRef[DeltaFileLocatorToRecords]] = []
     for mat_bucket, src_file_records in mat_bucket_to_src_file_records.items():
         object_ref = ray.put(src_file_records)
-        src_file_records_obj_refs.append(object_ref)
+        pickled_object_ref = cloudpickle.dumps(object_ref)
+        src_file_records_obj_refs.append(pickled_object_ref)
         mat_bucket_to_dd_idx_obj_id[mat_bucket] = (
             dedupe_task_index,
-            cloudpickle.dumps(object_ref),
+            pickled_object_ref,
         )
+        del object_ref
+        del pickled_object_ref
     logger.info(
         f"Count of materialize buckets with object refs: "
         f"{len(mat_bucket_to_dd_idx_obj_id)}"

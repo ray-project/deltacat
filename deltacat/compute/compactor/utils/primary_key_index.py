@@ -1,40 +1,34 @@
-import logging
 import json
-import ray
-import pyarrow as pa
-import numpy as np
-import s3fs
+import logging
 from collections import defaultdict
-
-from deltacat.utils.common import ReadKwargsProvider
-from ray import cloudpickle
-
-from deltacat.storage import Manifest, PartitionLocator
-from deltacat.utils.ray_utils.concurrency import (
-    invoke_parallel,
-)
-from deltacat.compute.compactor import (
-    PyArrowWriteResult,
-    RoundCompletionInfo,
-    PrimaryKeyIndexMeta,
-    PrimaryKeyIndexLocator,
-    PrimaryKeyIndexVersionMeta,
-    PrimaryKeyIndexVersionLocator,
-)
-from deltacat.compute.compactor.utils import round_completion_file as rcf
-from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.compute.compactor.steps.rehash import (
-    rehash_bucket as rb,
-    rewrite_index as ri,
-)
-from deltacat.types.tables import get_table_writer, get_table_slicer
-from deltacat.types.media import ContentType, ContentEncoding
-from deltacat.aws import s3u
-from deltacat import logs
-
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+import pyarrow as pa
+import ray
+import s3fs
+from ray import cloudpickle
 from ray.types import ObjectRef
+
+from deltacat import logs
+from deltacat.aws import s3u
+from deltacat.compute.compactor import (
+    PrimaryKeyIndexLocator,
+    PrimaryKeyIndexMeta,
+    PrimaryKeyIndexVersionLocator,
+    PrimaryKeyIndexVersionMeta,
+    PyArrowWriteResult,
+    RoundCompletionInfo,
+)
+from deltacat.compute.compactor.steps.rehash import rehash_bucket as rb
+from deltacat.compute.compactor.steps.rehash import rewrite_index as ri
+from deltacat.compute.compactor.utils import round_completion_file as rcf
+from deltacat.compute.compactor.utils import system_columns as sc
+from deltacat.storage import Manifest, PartitionLocator
+from deltacat.types.media import ContentEncoding, ContentType
+from deltacat.types.tables import get_table_slicer, get_table_writer
+from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.ray_utils.concurrency import invoke_parallel
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -225,11 +219,21 @@ def group_hash_bucket_indices(
             hb_group_to_object[hb_group][hb_index] = obj
 
     for hb_group, obj in enumerate(hb_group_to_object):
-        if obj is not None:
-            obj_ref = ray.put(obj)
-            object_refs.append(obj_ref)
-            hash_bucket_group_to_obj_id[hb_group] = cloudpickle.dumps(obj_ref)
-
+        if obj is None:
+            continue
+        obj_ref = ray.put(obj)
+        pickled_obj_ref = cloudpickle.dumps(obj_ref)
+        object_refs.append(pickled_obj_ref)
+        hash_bucket_group_to_obj_id[hb_group] = pickled_obj_ref
+        # NOTE: The cloudpickle.dumps API call creates an out of band object reference to the object_ref variable.
+        # After pickling, Ray cannot track the serialized copy of the object or determine when the ObjectRef has been deserialized
+        # (e.g., if the ObjectRef is deserialized by a non-Ray process).
+        # Thus the object_ref cannot be tracked by Ray's distributed reference counter, even if it goes out of scope.
+        # The object now has a permanent reference and the data can't be freed from Ray’s object store.
+        # Manually deleting the untrackable object references offsets these permanent references and
+        # helps to allow these objects to be garbage collected normally.
+        del obj_ref
+        del pickled_obj_ref
     return hash_bucket_group_to_obj_id, object_refs
 
 
