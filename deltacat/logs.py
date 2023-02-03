@@ -1,8 +1,9 @@
-import os
 import logging
+import os
 import pathlib
-from logging import handlers, Logger, Handler, FileHandler
-from deltacat.constants import DELTACAT_LOG_LEVEL, APPLICATION_LOG_LEVEL
+from logging import FileHandler, Handler, Logger, handlers
+
+from deltacat.constants import APPLICATION_LOG_LEVEL, DELTACAT_LOG_LEVEL
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "%(asctime)s\t%(levelname)s %(filename)s:%(lineno)s -- %(message)s"

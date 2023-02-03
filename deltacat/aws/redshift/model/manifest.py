@@ -1,12 +1,12 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import logging
 import itertools
+import logging
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from deltacat import logs
-from uuid import uuid4
-from typing import Any, Dict, List, Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

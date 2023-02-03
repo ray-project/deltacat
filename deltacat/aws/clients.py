@@ -1,14 +1,15 @@
-import boto3
 import logging
+from functools import lru_cache
+from typing import Optional
+
+import boto3
+from boto3.exceptions import ResourceNotExistsError
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.config import Config
-from boto3.exceptions import ResourceNotExistsError
-from functools import lru_cache
+
 from deltacat import logs
 from deltacat.aws.constants import BOTO_MAX_RETRIES
-
-from typing import Optional
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

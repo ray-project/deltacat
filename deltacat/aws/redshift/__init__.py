@@ -2,8 +2,8 @@ from deltacat.aws.redshift.model.manifest import (
     Manifest,
     ManifestAuthor,
     ManifestEntry,
-    ManifestMeta,
     ManifestEntryList,
+    ManifestMeta,
 )
 
 __all__ = [
