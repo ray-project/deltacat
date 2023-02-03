@@ -1,4 +1,5 @@
 import ray
+
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
 ray.init(address="auto")

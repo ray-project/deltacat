@@ -1,13 +1,13 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
+
+from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import CommitState
-from deltacat.storage.model.locator import Locator
-
-from typing import Any, Dict, List, Optional
 
 
 class Stream(dict):

@@ -1,51 +1,45 @@
 import json
 import logging
+from collections import OrderedDict, defaultdict
+from enum import Enum
+from errno import ENOENT
 from os import strerror
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pyarrow as pa
 import ray
 import s3fs
-
-from errno import ENOENT
-from enum import Enum
-from collections import OrderedDict, defaultdict
-
-from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
-from pyarrow.fs import FileType, FileSystem, S3FileSystem
 from pyarrow import parquet as pq
-
+from pyarrow.fs import FileSystem, FileType, S3FileSystem
+from ray.data.block import Block, BlockMetadata
+from ray.data.datasource import (
+    BlockWritePathProvider,
+    CSVDatasource,
+    DefaultBlockWritePathProvider,
+    DefaultFileMetadataProvider,
+    ParquetBaseDatasource,
+    ParquetMetadataProvider,
+    PathPartitionParser,
+)
+from ray.data.datasource.datasource import ArrowRow, Datasource, ReadTask, WriteResult
 from ray.data.datasource.file_based_datasource import _resolve_paths_and_filesystem
 from ray.data.datasource.file_meta_provider import FastFileMetadataProvider
 from ray.types import ObjectRef
-from ray.data.datasource import (
-    CSVDatasource,
-    BlockWritePathProvider,
-    DefaultBlockWritePathProvider,
-    ParquetMetadataProvider,
-    DefaultFileMetadataProvider,
-    ParquetBaseDatasource,
-    PathPartitionParser,
-)
-from ray.data.datasource.datasource import ReadTask, WriteResult, Datasource, ArrowRow
-from ray.data.block import Block, BlockMetadata
 
-from deltacat import ContentType, ContentEncoding
-from deltacat import logs
+from deltacat import ContentEncoding, ContentType, logs
 from deltacat.aws.redshift.model.manifest import (
     Manifest,
-    ManifestEntryList,
     ManifestEntry,
+    ManifestEntryList,
     ManifestMeta,
 )
-
-from typing import Any, Callable, List, Optional, Union, Dict, Tuple
-
 from deltacat.aws.s3u import (
-    parse_s3_url,
     S3Url,
     filter_objects_by_prefix,
     objects_to_paths,
+    parse_s3_url,
 )
+from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
 from deltacat.utils.common import ReadKwargsProvider
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))

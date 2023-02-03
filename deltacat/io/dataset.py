@@ -1,13 +1,12 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Any, Callable, Dict, Optional, TypeVar, Union, cast
+
 import pyarrow as pa
 import s3fs
-
-from typing import Optional, Union, Callable, Dict, Any, cast, TypeVar
-
 from ray.data import Dataset
-from ray.data.datasource import DefaultBlockWritePathProvider, BlockWritePathProvider
+from ray.data.datasource import BlockWritePathProvider, DefaultBlockWritePathProvider
 
 from deltacat.io.aws.redshift.redshift_datasource import RedshiftDatasource
 

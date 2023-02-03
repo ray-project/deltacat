@@ -1,10 +1,10 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.locator import Locator
-
 from typing import Any, Dict, Optional
+
+from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.namespace import NamespaceLocator
 
 
 class Table(dict):

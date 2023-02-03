@@ -1,8 +1,9 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import ray
 from typing import Callable, Generic, List, Optional, TypeVar
+
+import ray
 
 T = TypeVar("T")
 

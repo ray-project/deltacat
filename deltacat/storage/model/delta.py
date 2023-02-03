@@ -1,16 +1,16 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage.model.types import DeltaType
+from typing import Any, Dict, List, Optional
+
+from deltacat.aws.redshift import Manifest, ManifestAuthor, ManifestMeta
+from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
-from deltacat.storage.model.locator import Locator
-from deltacat.aws.redshift import Manifest, ManifestMeta, ManifestAuthor
-
-from typing import Any, Dict, List, Optional
+from deltacat.storage.model.types import DeltaType
 
 
 class Delta(dict):

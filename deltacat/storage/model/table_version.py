@@ -1,14 +1,14 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Union
+
 import pyarrow as pa
 
+from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
-from deltacat.storage.model.locator import Locator
 from deltacat.types.media import ContentType
-
-from typing import Any, Dict, List, Optional, Union
 
 
 class TableVersion(dict):

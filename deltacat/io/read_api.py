@@ -1,20 +1,19 @@
-import s3fs
-import pyarrow as pa
-from deltacat.utils.common import ReadKwargsProvider
+from typing import Any, Callable, Dict, List, Optional, Union
 
+import pyarrow as pa
+import s3fs
 from ray.data import read_datasource
 from ray.data._internal.arrow_block import ArrowRow
 
 from deltacat import ContentType
-from deltacat.io.dataset import DeltacatDataset
 from deltacat.io.aws.redshift.redshift_datasource import (
+    HivePartitionParser,
     RedshiftDatasource,
     RedshiftUnloadTextArgs,
     S3PathType,
-    HivePartitionParser,
 )
-
-from typing import Optional, Union, List, Dict, Any, Callable
+from deltacat.io.dataset import DeltacatDataset
+from deltacat.utils.common import ReadKwargsProvider
 
 
 def read_redshift(
