@@ -157,6 +157,8 @@ def materialize(
         record_count = len(pa_table)
         mask_pylist = list(repeat(False, record_count))
         record_numbers = chain.from_iterable(record_numbers_tpl)
+        # TODO(raghumdani): reference the same file URIs while writing the files
+        # instead of copying the data over and creating new files. 
         for record_number in record_numbers:
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
@@ -180,6 +182,8 @@ def materialize(
         )
 
         # Write manifests up to max_records_per_output_file
+        # TODO(raghumdani): Write exactly the same number of records into each file to
+        # produce a read-optimized view of the tables.
         if compacted_tables and \
                 total_record_count + record_count > max_records_per_output_file:
             materialized_results.append(_materialize(compacted_tables, total_record_count))

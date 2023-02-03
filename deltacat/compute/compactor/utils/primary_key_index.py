@@ -259,6 +259,8 @@ def write_primary_key_index_files(
     specified S3 bucket at the path identified by the given primary key index
     version locator. Output is written as 1 or more Parquet files with the
     given maximum number of records per file.
+
+    TODO(raghumdani): Support writing primary key index to any data catalog
     """
     logger.info(f"Writing primary key index files for hash bucket {hb_index}. "
                 f"Primary key index version locator: "

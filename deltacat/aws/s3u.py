@@ -35,6 +35,8 @@ from typing import Any, Callable, Dict, List, Optional, Generator, Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+# TODO(raghumdani): refactor redshift datasource to reuse the 
+# same module for writing output files.
 class CapturedBlockWritePaths:
     def __init__(self):
         self._write_paths: List[str] = []
