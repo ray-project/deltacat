@@ -28,7 +28,7 @@ HashBucketGroupToObjectId = np.ndarray
 HashBucketResult = Tuple[HashBucketGroupToObjectId, List[ObjectRef[DeltaFileEnvelopeGroups]]]
 
 
-def group_by_pk_hash_bucket(
+def _group_by_pk_hash_bucket(
         table: pa.Table,
         num_buckets: int,
         primary_keys: List[str]) -> np.ndarray:
@@ -39,7 +39,7 @@ def group_by_pk_hash_bucket(
         # casting a primary key column to numpy also ensures no nulls exist
         column_fields = table[pk_name].to_numpy()
         all_pk_column_fields.append(column_fields)
-    hash_column_generator = hash_pk_bytes_generator(all_pk_column_fields)
+    hash_column_generator = _hash_pk_bytes_generator(all_pk_column_fields)
     table = sc.append_pk_hash_column(table, hash_column_generator)
 
     # drop primary key columns to free up memory
@@ -62,7 +62,7 @@ def group_by_pk_hash_bucket(
     return hash_bucket_to_table
 
 
-def hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
+def _hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
     for field_index in range(len(all_column_fields[0])):
         bytes_to_join = []
         for column_fields in all_column_fields:
@@ -72,7 +72,7 @@ def hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
         yield sha1_digest(_PK_BYTES_DELIMITER.join(bytes_to_join))
 
 
-def group_file_records_by_pk_hash_bucket(
+def _group_file_records_by_pk_hash_bucket(
         annotated_delta: DeltaAnnotated,
         num_hash_buckets: int,
         primary_keys: List[str],
@@ -81,7 +81,7 @@ def group_file_records_by_pk_hash_bucket(
         -> Optional[DeltaFileEnvelopeGroups]:
 
     # read input parquet s3 objects into a list of delta file envelopes
-    delta_file_envelopes = read_delta_file_envelopes(
+    delta_file_envelopes = _read_delta_file_envelopes(
         annotated_delta,
         primary_keys,
         sort_key_names,
@@ -93,7 +93,7 @@ def group_file_records_by_pk_hash_bucket(
     # group the data by primary key hash value
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
-        hash_bucket_to_table = group_by_pk_hash_bucket(
+        hash_bucket_to_table = _group_by_pk_hash_bucket(
             dfe.table,
             num_hash_buckets,
             primary_keys,
@@ -110,8 +110,7 @@ def group_file_records_by_pk_hash_bucket(
                         table))
     return hb_to_delta_file_envelopes
 
-
-def read_delta_file_envelopes(
+def _read_delta_file_envelopes(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_key_names: List[str],
@@ -145,7 +144,7 @@ def read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_cpus=0.5, num_returns=2)
+@ray.remote(num_returns=2)
 def hash_bucket(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
@@ -156,7 +155,7 @@ def hash_bucket(
 
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [key.key_name for key in sort_keys]
-    delta_file_envelope_groups = group_file_records_by_pk_hash_bucket(
+    delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,
         primary_keys,
