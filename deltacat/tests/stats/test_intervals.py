@@ -1,7 +1,7 @@
 import unittest
 from typing import Tuple
 
-from deltacat.compute.stats.utils.intervals import merge_intervals, DeltaRange
+from deltacat.compute.stats.utils.intervals import DeltaRange, merge_intervals
 
 
 class TestMergeIntervals(unittest.TestCase):

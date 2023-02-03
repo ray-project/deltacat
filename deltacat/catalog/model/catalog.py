@@ -1,11 +1,11 @@
 # Allow self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
+
 import ray
 
 from deltacat.catalog import interface as catalog_interface
-from typing import Any, Dict, List, Optional
-
 
 all_catalogs: Optional[Catalogs] = None
 

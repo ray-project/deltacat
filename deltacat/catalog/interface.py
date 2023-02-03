@@ -1,18 +1,20 @@
-import pyarrow as pa
-from deltacat import (
-    SortKey,
-    TableWriteMode,
-    ContentType,
-    ListResult,
-    Namespace,
-    LifecycleState,
-    SchemaConsistencyType,
-    LocalTable,
-    LocalDataset,
-    DistributedDataset,
-    TableDefinition,
-)
 from typing import Any, Dict, List, Optional, Set, Union
+
+import pyarrow as pa
+
+from deltacat import (
+    ContentType,
+    DistributedDataset,
+    LifecycleState,
+    ListResult,
+    LocalDataset,
+    LocalTable,
+    Namespace,
+    SchemaConsistencyType,
+    SortKey,
+    TableDefinition,
+    TableWriteMode,
+)
 
 
 # table functions

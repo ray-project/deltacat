@@ -1,7 +1,7 @@
 # Allow self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import Table, TableVersion, Stream
+from deltacat.storage import Stream, Table, TableVersion
 
 
 class TableDefinition(dict):

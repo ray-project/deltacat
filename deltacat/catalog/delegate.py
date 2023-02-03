@@ -1,23 +1,23 @@
-import pyarrow as pa
+from typing import Any, Dict, List, Optional, Set, Union
 
+import pyarrow as pa
 import ray
 
 from deltacat import (
-    SortKey,
-    TableWriteMode,
-    ContentType,
-    all_catalogs,
-    ListResult,
-    Namespace,
-    LifecycleState,
-    SchemaConsistencyType,
-    LocalTable,
-    LocalDataset,
-    DistributedDataset,
     Catalog,
+    ContentType,
+    DistributedDataset,
+    LifecycleState,
+    ListResult,
+    LocalDataset,
+    LocalTable,
+    Namespace,
+    SchemaConsistencyType,
+    SortKey,
     TableDefinition,
+    TableWriteMode,
+    all_catalogs,
 )
-from typing import Any, Dict, List, Optional, Set, Union
 
 
 def _get_catalog(name: Optional[str] = None) -> Catalog:
