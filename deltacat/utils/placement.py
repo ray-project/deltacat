@@ -160,7 +160,7 @@ class NodeGroupManager():
 			return None
 		return group_res
 		
-class PlacementGroupResource():
+class PlacementGroupConfig():
 	def __init__(self, opts, resource):
 		self.opts = opts
 		self.resource = resource
@@ -188,13 +188,18 @@ class PlacementGroupManager():
 		num_pgs: number of placement groups to be created
 		instance_cpus: number of cpus per instance
 	"""
-	def __init__(self, num_pgs: int, total_cpus_per_pg: int, cpu_per_bundle: int, strategy="SPREAD",capture_child_tasks=True, time_out: Optional[float] = None):
-		head_res_key = get_current_node_resource_key()
+	def __init__(self, num_pgs: int, 
+				total_cpus_per_pg: int, 
+				cpu_per_bundle: int, 
+				strategy="SPREAD",
+				capture_child_tasks=True):
+		head_res_key = self.get_current_node_resource_key()
 		#run the task on head and consume a fractional cpu, so that pg can be created on non-head node
 		#if cpu_per_bundle is less than the cpus per node, the pg can still be created on head
 		#curent assumption is that the cpu_per_bundle = cpus per node
 		#TODO: figure out how to create pg on non-head explicitly
-		self._pg_configs = ray.get([_config.options(resources={head_res_key:0.01}).remote(total_cpus_per_pg, cpu_per_bundle,strategy,capture_child_tasks) for i in range(num_pgs)])
+		self._pg_configs = ray.get([_config.options(resources={head_res_key:0.01}).remote(total_cpus_per_pg, \
+			cpu_per_bundle, strategy, capture_child_tasks) for i in range(num_pgs)])
 		#TODO: handle the cases where cpu_per_bundle is larger than max cpus per node, support it on ec2/flex/manta
 		
 	@property
@@ -204,22 +209,26 @@ class PlacementGroupManager():
 	def get_current_node_resource_key(self) -> str: 
 		#on ec2: address="172.31.34.51:6379"
 		#on manta: address = "2600:1f10:4674:6815:aadb:2dc8:de61:bc8e:6379"
-	    current_node_name = ray.experimental.internal_kv.global_gcs_client.address[:-5]
-	    for node in ray.nodes(): 
-	        if node["NodeName"] == current_node_name: 
-	            # Found the node. 
-	            for key in node["Resources"].keys(): 
-	                if key.startswith("node:"): 
-	                    return key
+		current_node_name = ray.experimental.internal_kv.global_gcs_client.address[:-5]
+		for node in ray.nodes(): 
+			if node["NodeName"] == current_node_name: 
+				# Found the node. 
+				for key in node["Resources"].keys(): 
+					if key.startswith("node:"): 
+						return key
 
 @ray.remote(num_cpus=0.01)
-def _config(total_cpus_per_pg: int, cpu_per_node: int, strategy="SPREAD",capture_child_tasks=True,time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
+def _config(total_cpus_per_pg: int, 
+			cpu_per_node: int, 
+			strategy="SPREAD",
+			capture_child_tasks=True,
+			time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
 	pg_config = None
 	try:
 		opts ={}
 		cluster_resources={}
 		num_bundles = (int)(total_cpus_per_pg/cpu_per_node)
-		bundles = [{'CPU':instance_type} for i in range(num_bundles)]
+		bundles = [{'CPU':cpu_per_node} for i in range(num_bundles)]
 		pg = placement_group(bundles, strategy=strategy)
 		ray.get(pg.ready(), timeout=time_out)
 		if not pg:
@@ -230,6 +239,7 @@ def _config(total_cpus_per_pg: int, cpu_per_node: int, strategy="SPREAD",capture
 		pg_id = placement_group_table(pg)['placement_group_id']
 		pg_details = get_placement_group(pg_id)
 		bundles = pg_details['bundles']
+		node_ids = []
 		for bd in bundles:
 			node_ids.append(bd['node_id'])
 		#query available resources given list of node id
@@ -245,7 +255,7 @@ def _config(total_cpus_per_pg: int, cpu_per_node: int, strategy="SPREAD",capture
 		cluster_resources['CPU'] = int(pg_res['CPU'])
 		cluster_resources['memory'] = float(pg_res['memory'])
 		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-		pg_config=PlacementGroupResource(opts,cluster_resources) 
+		pg_config=PlacementGroupConfig(opts,cluster_resources) 
 		logger.info(f"pg has resources:{cluster_resources}")
 
 	except Exception as e:

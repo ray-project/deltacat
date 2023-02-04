@@ -20,7 +20,7 @@ from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
-from deltacat.utils.placement import PlacementGroupResource
+from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict
 
 import pyarrow as pa
@@ -69,7 +69,7 @@ def compact_partition(
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
         read_round_completion: bool = False,
-        pg_config: Optional[PlacementGroupResource] = None,
+        pg_config: Optional[PlacementGroupConfig] = None,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         deltacat_storage=unimplemented_deltacat_storage):
 
@@ -134,7 +134,7 @@ def _execute_compaction_round(
         read_round_completion: bool,
         schema_on_read: Optional[pa.schema],
         deltacat_storage = unimplemented_deltacat_storage,
-        pg_config: Optional[PlacementGroupResource] = None) \
+        pg_config: Optional[PlacementGroupConfig] = None) \
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
 
