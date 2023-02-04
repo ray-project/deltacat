@@ -247,16 +247,19 @@ class RecordCountsPendingMaterialize:
 
     def add_record_counts(
             self,
+            current_node_id: str,
             result_idx: int,
-            record_counts_obj ) -> None:
+            record_counts) -> None:
             #Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32], int]]) -> None:
-        logger.info(f"adhoc actor received cmd from dedupe task {result_idx}")
-        record_counts = ray.get(record_counts_obj)
+        start = time.time()
+        logger.info(f"adhoc actor {current_node_id} received cmd from dedupe task {result_idx}")
         for mat_bucket, df_locator_rows in record_counts.items():
             for df_locator, rows in df_locator_rows.items():
                 self.record_counts[mat_bucket][df_locator][result_idx] += rows
         logger.info(f"adhoc actor done updating record counts for dedupe task {result_idx}")
         self.actual_result_count += 1
+        end = time.time()
+        logger.info(f"adhoc added record counts by {current_node_id} in {end-start} seconds for dedupe task {result_idx}")
 
     def reduce_record_counts(
             self,
@@ -272,7 +275,7 @@ class RecordCountsPendingMaterialize:
     def get_record_counts(self) -> \
             Dict[int, Dict[Tuple[np.bool_, np.int64, np.int32],
                            Dict[int, int]]]:
-        return self.record_counts
+        return ray.put(self.record_counts)
 
     # def get_expected_result_count(self) -> int:
     #     return self.expected_result_count
@@ -280,7 +283,8 @@ class RecordCountsPendingMaterialize:
     # def get_actual_result_count(self) -> int:
     #     return self.actual_result_count
 
-    def is_finalized(self) -> bool:
+    def is_finalized(self, current_node_id) -> bool:
+        logger.info(f"adhoc current_node_id {current_node_id} progress:{self.actual_result_count}/{self.expected_result_count}")
         return self.actual_result_count == self.expected_result_count
 
     def is_reduce_finalized(self) -> bool:
@@ -400,6 +404,7 @@ def dedupe(
     #each task only talks to local actor, which is on the same node
     mat_bucket_to_src_file_record_count_obj = ray.put(mat_bucket_to_src_file_record_count)
     record_counts_pending_materialize[current_node_id].add_record_counts.remote(
+        current_node_id,
         dedupe_task_index,
         mat_bucket_to_src_file_record_count_obj,
     )
@@ -411,12 +416,12 @@ def dedupe(
     finalized = False
     while not finalized:
         finalized = ray.get(
-            record_counts_pending_materialize[current_node_id].is_finalized.remote()
+            record_counts_pending_materialize[current_node_id].is_finalized.remote(current_node_id)
         )
         time.sleep(5) # This is the initial call, each node' tasks call its own local actor
     logger.info(f"adhoc actor at {current_node_id} finished")
     record_counts = ray.get(
-        record_counts_pending_materialize[current_node_id].get_record_counts.remote()
+        ray.get(record_counts_pending_materialize[current_node_id].get_record_counts.remote())
     )
     logger.info(f"adhoc task on {current_node_id} got node-local record_counts")
     #local actor has all local results now
@@ -424,10 +429,12 @@ def dedupe(
     #aggregator task id 
     #hard code number of task per node as 16 for poc
     aggregator_task_ids = [i* 16 for i in range(len(record_counts_pending_materialize))][1:]
+    logger.info(f"adhoc number of aggregator_task_ids {len(aggregator_task_ids)}")
     aggregator_actor_id = list(record_counts_pending_materialize.keys())[0]
     if dedupe_task_index in aggregator_task_ids:
         logger.info(f"adhoc aggregator task{dedupe_task_index} call aggregator actor {aggregator_actor_id} to reduce final result")
-        record_counts_pending_materialize[aggregator_actor_id].reduce_record_counts.remote(record_counts)
+        record_counts_obj = ray.put(record_counts)
+        record_counts_pending_materialize[aggregator_actor_id].reduce_record_counts.remote(record_counts_obj)
 
     finalized = False
     while not finalized:
@@ -438,7 +445,7 @@ def dedupe(
 
     #all tasks sync here to get the final reduced record counts from aggregator actor
     record_counts = ray.get(
-        record_counts_pending_materialize[aggregator_actor_id].get_record_counts.remote()
+        ray.get(record_counts_pending_materialize[aggregator_actor_id].get_record_counts.remote())
     )
     logger.info(f"adhoc len of record_counts: {len(record_counts)}")
     write_pki_result: PyArrowWriteResult = write_new_primary_key_index(

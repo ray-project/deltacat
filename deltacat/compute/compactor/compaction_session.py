@@ -519,7 +519,7 @@ def _execute_compaction_round(
 
     for current_node_id in node_resource_keys:
         record_counts_pending_materialize[current_node_id]= \
-        dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(max_parallelism[1], len(node_resource_keys)-1)
+        dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(int(max_parallelism/len(node_resource_keys)), len(node_resource_keys)-1)
 
 
     dd_tasks_pending = invoke_parallel(
