@@ -20,8 +20,8 @@ from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
-
-from typing import List, Set, Optional, Tuple, Dict, Any
+from deltacat.utils.placement import PlacementGroupResource
+from typing import List, Set, Optional, Tuple, Dict
 
 import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -69,7 +69,7 @@ def compact_partition(
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         delete_prev_primary_key_index: bool = False,
         read_round_completion: bool = False,
-        pg_config: Optional[List[Dict[str, Any]]] = None,
+        pg_config: Optional[PlacementGroupResource] = None,
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         deltacat_storage=unimplemented_deltacat_storage):
 
@@ -77,12 +77,9 @@ def compact_partition(
     partition = None
     compaction_rounds_executed = 0
     has_next_compaction_round = True
-    opts={}
-    if pg_config:
-        opts=pg_config[0]
     while has_next_compaction_round:
-        has_next_compaction_round_obj, new_partition_obj, new_rci_obj = \
-            _execute_compaction_round.options(**opts).remote(
+        has_next_compaction_round, new_partition, new_rci = \
+            _execute_compaction_round(
                 source_partition_locator,
                 compacted_partition_locator,
                 primary_keys,
@@ -102,9 +99,6 @@ def compact_partition(
                 deltacat_storage=deltacat_storage,
                 pg_config=pg_config
             )
-        has_next_compaction_round = ray.get(has_next_compaction_round_obj)
-        new_partition = ray.get(new_partition_obj)
-        new_rci = ray.get(new_rci_obj)
         if new_partition:
             partition = new_partition
             compacted_partition_locator = new_partition.locator
@@ -121,7 +115,7 @@ def compact_partition(
         logger.info(f"Committed compacted partition: {partition}")
     logger.info(f"Completed compaction session for: {source_partition_locator}")
 
-@ray.remote(num_cpus=0.1,num_returns=3)
+
 def _execute_compaction_round(
         source_partition_locator: PartitionLocator,
         compacted_partition_locator: PartitionLocator,
@@ -140,7 +134,7 @@ def _execute_compaction_round(
         read_round_completion: bool,
         schema_on_read: Optional[pa.schema],
         deltacat_storage = unimplemented_deltacat_storage,
-        pg_config: Optional[List[Dict[str, Any]]] = None) \
+        pg_config: Optional[PlacementGroupResource] = None) \
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
 
@@ -169,13 +163,11 @@ def _execute_compaction_round(
     # sort primary keys to produce the same pk digest regardless of input order
     primary_keys = sorted(primary_keys)
 
-    # collect node group resources
-
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
+    node_resource_keys = None
     if pg_config: # use resource in each placement group
-        node_resource_keys=None
-        cluster_resources = pg_config[1]
+        cluster_resources = pg_config.resource
         cluster_cpus = cluster_resources['CPU']   
     else: # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
@@ -185,16 +177,14 @@ def _execute_compaction_round(
         logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
                    f"{node_resource_keys}") 
 
-    if node_resource_keys:
-        # create a remote options provider to round-robin tasks across all nodes
-        logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
-        round_robin_opt_provider = functools.partial(
-            round_robin_options_provider,
-            resource_keys=node_resource_keys,
-        )
-    else:
-        logger.info("Setting round robin scheduling to None")
-        round_robin_opt_provider = None
+    # create a remote options provider to round-robin tasks across all nodes or allocated bundles
+    logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
+    round_robin_opt_provider = functools.partial(
+        round_robin_options_provider,
+        resource_keys=node_resource_keys,
+        pg_config = pg_config.opts if pg_config else None
+    )
+
     # assign a distinct index to each node in the cluster
     # head_node_ip = urllib.request.urlopen(
     #     "http://169.254.169.254/latest/meta-data/local-ipv4"
