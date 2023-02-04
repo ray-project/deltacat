@@ -1,5 +1,4 @@
 import logging
-import time
 import functools
 import ray
 
@@ -22,13 +21,11 @@ from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupResource
-from typing import List, Set, Optional, Tuple, Dict, Union, Any
+from typing import List, Set, Optional, Tuple, Dict
 
 import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-_SORT_KEY_NAME_INDEX: int = 0
-_SORT_KEY_ORDER_INDEX: int = 1
 _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
 
 
@@ -217,11 +214,14 @@ def _execute_compaction_round(
     # a compatible primary key index
     round_completion_info = None
     if read_round_completion:
+        logger.info(f"Reading round completion file for compatible "
+                    f"primary key index root path {compatible_primary_key_index_root_path}")
         round_completion_info = rcf.read_round_completion_file(
             compaction_artifact_s3_bucket,
             source_partition_locator,
             compatible_primary_key_index_root_path,
         )
+        logger.info(f"Round completion file: {round_completion_info}")
 
     # read the previous compaction round's hash bucket count, if any
     old_hash_bucket_count = None
@@ -272,12 +272,13 @@ def _execute_compaction_round(
         f"is invalid."
 
     # rehash the primary key index if necessary
-    round_completion_info = None
     if round_completion_info:
         logger.info(f"Round completion file contents: {round_completion_info}")
         # the previous primary key index is compatible with the current, but
         # will need to be rehashed if the hash bucket count has changed
         if hash_bucket_count != old_hash_bucket_count:
+            # TODO(draghave): manually test the path after prior primary key 
+            # index was already built 
             round_completion_info = pki.rehash(
                 round_robin_opt_provider,
                 compaction_artifact_s3_bucket,
@@ -360,8 +361,6 @@ def _execute_compaction_round(
     # identify the index of records to keep or drop based on sort keys
     num_materialize_buckets = max_parallelism
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
-    record_counts_pending_materialize = \
-        dd.RecordCountsPendingMaterialize.remote(dedupe_task_count)
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
@@ -374,10 +373,8 @@ def _execute_compaction_round(
         new_primary_key_index_version_locator=new_pki_version_locator,
         sort_keys=sort_keys,
         max_records_per_index_file=records_per_primary_key_index_file,
-        max_records_per_materialized_file=records_per_compacted_file,
         num_materialize_buckets=num_materialize_buckets,
-        delete_old_primary_key_index=delete_prev_primary_key_index,
-        record_counts_pending_materialize=record_counts_pending_materialize,
+        delete_old_primary_key_index=delete_prev_primary_key_index
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
@@ -453,7 +450,6 @@ def _execute_compaction_round(
         new_primary_key_index_root_path,
         round_completion_info,
     )
-    time_mat_e = time.time()
     logger.info(f"partition-{source_partition_locator.partition_values},compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}")
     return \
         (last_stream_position_compacted < last_stream_position_to_compact), \

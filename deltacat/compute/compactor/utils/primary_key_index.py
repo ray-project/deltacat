@@ -1,32 +1,42 @@
-import logging
 import json
-import ray
-import pyarrow as pa
-import numpy as np
-import s3fs
+import logging
 from collections import defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from deltacat.utils.common import ReadKwargsProvider
+import numpy as np
+import pyarrow as pa
+import ray
+import s3fs
 from ray import cloudpickle
+from deltacat.constants import PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG
+from ray.types import ObjectRef
 
 from deltacat.storage import Manifest, PartitionLocator
-from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
-    round_robin_options_provider
+from deltacat.utils.ray_utils.concurrency import invoke_parallel
 from deltacat.compute.compactor import PyArrowWriteResult, \
     RoundCompletionInfo, PrimaryKeyIndexMeta, PrimaryKeyIndexLocator, \
     PrimaryKeyIndexVersionMeta, PrimaryKeyIndexVersionLocator
+from deltacat import logs
+from deltacat.aws import s3u
+from deltacat.compute.compactor import (
+    PrimaryKeyIndexLocator,
+    PrimaryKeyIndexMeta,
+    PrimaryKeyIndexVersionLocator,
+    PrimaryKeyIndexVersionMeta,
+    PyArrowWriteResult,
+    RoundCompletionInfo,
+)
+from deltacat.compute.compactor.steps.rehash import rehash_bucket as rb
+from deltacat.compute.compactor.steps.rehash import rewrite_index as ri
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.compute.compactor.steps.rehash import rehash_bucket as rb, \
-    rewrite_index as ri
-from deltacat.types.tables import get_table_writer, get_table_slicer
-from deltacat.types.media import ContentType, ContentEncoding
-from deltacat.aws import s3u
-from deltacat import logs
-
-from typing import Any, Callable, Dict, List, Optional, Tuple
-
-from ray.types import ObjectRef
+from deltacat.storage import Manifest, PartitionLocator
+from deltacat.types.media import ContentEncoding, ContentType
+from deltacat.types.tables import get_table_slicer, get_table_writer
+from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.ray_utils.concurrency import (
+    invoke_parallel
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -189,6 +199,9 @@ def group_hash_bucket_indices(
         hash_bucket_object_groups: np.ndarray,
         num_buckets: int,
         num_groups: int) -> Tuple[np.ndarray, List[ObjectRef]]:
+    """
+    Groups all the ObjectRef that belongs to a particular hash bucket group and hash bucket index. 
+    """
 
     object_refs = []
     hash_bucket_group_to_obj_id = np.empty([num_groups], dtype="object")
@@ -206,17 +219,31 @@ def group_hash_bucket_indices(
             hb_group_to_object[hb_group][hb_index] = obj
 
     for hb_group, obj in enumerate(hb_group_to_object):
-        if obj is not None:
-            obj_ref = ray.put(obj)
-            object_refs.append(obj_ref)
-            hash_bucket_group_to_obj_id[hb_group] = cloudpickle.dumps(obj_ref)
-
+        if obj is None:
+            continue
+        obj_ref = ray.put(obj)
+        pickled_obj_ref = cloudpickle.dumps(obj_ref)
+        object_refs.append(pickled_obj_ref)
+        hash_bucket_group_to_obj_id[hb_group] = pickled_obj_ref
+        # NOTE: The cloudpickle.dumps API call creates an out of band object reference to the object_ref variable. 
+        # After pickling, Ray cannot track the serialized copy of the object or determine when the ObjectRef has been deserialized 
+        # (e.g., if the ObjectRef is deserialized by a non-Ray process). 
+        # Thus the object_ref cannot be tracked by Ray's distributed reference counter, even if it goes out of scope. 
+        # The object now has a permanent reference and the data can't be freed from Ray’s object store. 
+        # Manually deleting the untrackable object references offsets these permanent references and 
+        # helps to allow these objects to be garbage collected normally. 
+        del obj_ref
+        del pickled_obj_ref
     return hash_bucket_group_to_obj_id, object_refs
 
 
 def pk_digest_to_hash_bucket_index(
         digest,
         num_buckets: int) -> int:
+    """
+    Deterministically get the hash bucket a particular digest belongs to
+    based on number of total hash buckets.
+    """
 
     return int.from_bytes(digest, "big") % num_buckets
 
@@ -232,6 +259,8 @@ def write_primary_key_index_files(
     specified S3 bucket at the path identified by the given primary key index
     version locator. Output is written as 1 or more Parquet files with the
     given maximum number of records per file.
+
+    TODO(raghumdani): Support writing primary key index to any data catalog
     """
     logger.info(f"Writing primary key index files for hash bucket {hb_index}. "
                 f"Primary key index version locator: "
@@ -241,7 +270,8 @@ def write_primary_key_index_files(
         s3_additional_kwargs={
             "ContentType": ContentType.PARQUET.value,
             "ContentEncoding": ContentEncoding.IDENTITY.value,
-        }
+        },
+        config_kwargs=PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG
     )
     pkiv_hb_index_s3_url_base = primary_key_index_version_locator\
         .get_pkiv_hb_index_s3_url_base(s3_bucket, hb_index)
