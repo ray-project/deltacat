@@ -105,7 +105,7 @@ def round_robin_options_provider(
     ```
     """
     opts = kwargs.get("pg_config")
-    if opts: #use pg and bundle id for fault-tolerant round-robin
+    if opts: # use pg and bundle id for fault-tolerant round-robin
         bundle_key_index = i % len(opts['scheduling_strategy'].placement_group.bundle_specs)
         opts['scheduling_strategy'].placement_group_bundle_index = bundle_key_index
         return opts
