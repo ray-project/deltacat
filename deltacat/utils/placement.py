@@ -3,6 +3,7 @@ import re
 import time
 import yaml
 import logging
+from dataclasses import dataclass
 from typing import Optional, Union, List, Dict, Any, Callable, Tuple
 from ray.util.placement_group import (
 	placement_group,
@@ -21,6 +22,12 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 #Limitation of current node group or placement group manager
 #Must run on driver or head node bc state.api needs to query dashboard api server at 127.0.0.1.
 #Issue: https://github.com/ray-project/ray/issues/29959
+
+@dataclass
+class PlacementGroupConfig():
+	def __init__(self, opts, resource):
+		self.opts = opts
+		self.resource = resource
 
 class NodeGroupManager():
 
@@ -159,17 +166,6 @@ class NodeGroupManager():
 			logger.info(f"There is no available resources for {gname}")
 			return None
 		return group_res
-		
-class PlacementGroupConfig():
-	def __init__(self, opts, resource):
-		self.opts = opts
-		self.resource = resource
-	@property
-	def opts(self):
-		return self.opts
-	@property
-	def resource(self):
-		return self.resource
 
 class PlacementGroupManager():
 	"""Placement Group Manager
@@ -224,42 +220,38 @@ def _config(total_cpus_per_pg: int,
 			capture_child_tasks=True,
 			time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
 	pg_config = None
-	try:
-		opts ={}
-		cluster_resources={}
-		num_bundles = (int)(total_cpus_per_pg/cpu_per_node)
-		bundles = [{'CPU':cpu_per_node} for i in range(num_bundles)]
-		pg = placement_group(bundles, strategy=strategy)
-		ray.get(pg.ready(), timeout=time_out)
-		if not pg:
-			return None
-		opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
-			placement_group=pg, placement_group_capture_child_tasks=capture_child_tasks)
-		}
-		pg_id = placement_group_table(pg)['placement_group_id']
-		pg_details = get_placement_group(pg_id)
-		bundles = pg_details['bundles']
-		node_ids = []
-		for bd in bundles:
-			node_ids.append(bd['node_id'])
-		#query available resources given list of node id
-		all_nodes_available_res = ray._private.state.state._available_resources_per_node()
-		pg_res = {'CPU':0,'memory':0,'object_store_memory':0}
-		for node_id in node_ids:
-			if node_id in all_nodes_available_res:
-				v = all_nodes_available_res[node_id]
-				node_detail = get_node(node_id)
-				pg_res['CPU']+=node_detail['resources_total']['CPU']
-				pg_res['memory']+=v['memory']
-				pg_res['object_store_memory']+=v['object_store_memory']
-		cluster_resources['CPU'] = int(pg_res['CPU'])
-		cluster_resources['memory'] = float(pg_res['memory'])
-		cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
-		pg_config=PlacementGroupConfig(opts,cluster_resources) 
-		logger.info(f"pg has resources:{cluster_resources}")
+	opts ={}
+	cluster_resources={}
+	num_bundles = (int)(total_cpus_per_pg/cpu_per_node)
+	bundles = [{'CPU':cpu_per_node} for i in range(num_bundles)]
+	pg = placement_group(bundles, strategy=strategy)
+	ray.get(pg.ready(), timeout=time_out)
+	if not pg:
+		return None
+	opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
+		placement_group=pg, placement_group_capture_child_tasks=capture_child_tasks)
+	}
+	pg_id = placement_group_table(pg)['placement_group_id']
+	pg_details = get_placement_group(pg_id)
+	bundles = pg_details['bundles']
+	node_ids = []
+	for bd in bundles:
+		node_ids.append(bd['node_id'])
+	#query available resources given list of node id
+	all_nodes_available_res = ray._private.state.state._available_resources_per_node()
+	pg_res = {'CPU':0,'memory':0,'object_store_memory':0}
+	for node_id in node_ids:
+		if node_id in all_nodes_available_res:
+			v = all_nodes_available_res[node_id]
+			node_detail = get_node(node_id)
+			pg_res['CPU']+=node_detail['resources_total']['CPU']
+			pg_res['memory']+=v['memory']
+			pg_res['object_store_memory']+=v['object_store_memory']
+	cluster_resources['CPU'] = int(pg_res['CPU'])
+	cluster_resources['memory'] = float(pg_res['memory'])
+	cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
+	pg_config=PlacementGroupConfig(opts,cluster_resources) 
+	logger.info(f"pg has resources:{cluster_resources}")
 
-	except Exception as e:
-		logger.error(f"placement group error:{e}")
-		pass
 	return pg_config
 

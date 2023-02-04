@@ -4,6 +4,7 @@ from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
+import copy
 
 from typing import Any, Iterable, Callable, Dict, List, Tuple, Union, Optional
 import itertools
@@ -105,11 +106,12 @@ def round_robin_options_provider(
     ```
     """
     opts = kwargs.get("pg_config")
-    if opts: # use pg and bundle id for fault-tolerant round-robin
-        bundle_key_index = i % len(opts['scheduling_strategy'].placement_group.bundle_specs)
-        opts['scheduling_strategy'].placement_group_bundle_index = bundle_key_index
-        return opts
-    else: # use node id for round-robin
+    if opts:
+        new_opts = copy.deepcopy(opts)
+        bundle_key_index = i % len(new_opts['scheduling_strategy'].placement_group.bundle_specs)
+        new_opts['scheduling_strategy'].placement_group_bundle_index = bundle_key_index
+        return new_opts
+    else:
         assert resource_keys, f"No resource keys given to round robin!"
         resource_key_index = i % len(resource_keys)
         key = resource_keys[resource_key_index]
