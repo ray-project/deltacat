@@ -1,8 +1,9 @@
 import logging
 import functools
 import ray
+from ray import cloudpickle
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 
 from deltacat import logs
 from deltacat.compute.stats.models.delta_stats import DeltaStats
@@ -12,22 +13,96 @@ from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
     round_robin_options_provider
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.steps import hash_bucket as hb, dedupe as dd, \
-    materialize as mat
+    materialize as mat, write_pk_index as wpk
 from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
     PrimaryKeyIndexLocator, PrimaryKeyIndexVersionMeta, \
     PrimaryKeyIndexVersionLocator, RoundCompletionInfo, \
-    PyArrowWriteResult
+    PyArrowWriteResult, DeltaFileLocator
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict
+from deltacat.compute.compactor.utils.materialize_utils import delta_file_locator_to_mat_bucket_index
 
 import pyarrow as pa
+import numpy as np
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
 
+def _aggregate_record_counts(record_counts: List[Dict[DeltaFileLocator, np.int32]],
+                                num_materialize_buckets: int,
+                                max_rows_per_mat_file: int) -> Tuple[Dict, Dict]:
+    all_record_counts = defaultdict(
+        lambda: defaultdict(int))
+
+    logger.info(f"Total record counts to aggregate: {len(record_counts)}")
+    tot = 0
+    mat_bucket_to_src_df_locator_np = defaultdict(list)
+    for dedupe_task_index, src_records_counts in enumerate(record_counts):
+        for df_locator, count in src_records_counts.items():
+            mat_bucket = delta_file_locator_to_mat_bucket_index(df_locator=df_locator, 
+                                                                materialize_bucket_count=num_materialize_buckets)
+            tot += 1
+            mat_bucket_to_src_df_locator_np[mat_bucket].append(df_locator)
+            all_record_counts[df_locator][dedupe_task_index] += count.item()
+
+    # free record counts in the favor of dicts
+    del record_counts
+
+    logger.info(f"Total records processed during aggregate: {tot}")
+    dest_file_indices = defaultdict(
+        lambda: defaultdict(np.int32)
+    )
+    dest_file_row_indices = defaultdict(
+        lambda: defaultdict(np.int32)
+    )
+    logger.info(f"Total dfls {len(all_record_counts)}")
+
+    file_idx = 0
+    prev_file_idx = 0
+
+    logger.info(f"Determining the destinaton file indices and row indices.")
+    for mat_bucket in range(num_materialize_buckets):
+        mat_bucket_row_idx = 0
+        logger.info(f"Aggregating for mat bucket: {mat_bucket}")
+        sorted_src_dfls = sorted(mat_bucket_to_src_df_locator_np[mat_bucket])
+        logger.info(f"Sorted dfls in {mat_bucket} are {len(sorted_src_dfls)}")
+        for src_dfl in sorted_src_dfls:
+            sorted_dd_tasks = sorted(all_record_counts[src_dfl].keys())
+            for dd_task_idx in sorted_dd_tasks:
+                dest_file_row_indices[dd_task_idx][src_dfl] = \
+                    np.int32(mat_bucket_row_idx % max_rows_per_mat_file)
+                file_idx = prev_file_idx + int(
+                    mat_bucket_row_idx / max_rows_per_mat_file
+                )
+                dest_file_indices[dd_task_idx][src_dfl] = np.int32(file_idx)
+                row_count = all_record_counts[src_dfl][dd_task_idx]
+                mat_bucket_row_idx += row_count
+        prev_file_idx = file_idx + 1
+
+    # clear in the favor of dest_file indices. 
+    del all_record_counts
+    del mat_bucket_to_src_df_locator_np
+
+    dest_file_indices_ref = defaultdict()
+    dest_file_row_indices_ref = defaultdict()
+
+    for dd_task_index, src_dfl_to_indices in dest_file_indices.items():
+        logger.info(f"Putting {len(src_dfl_to_indices)} src_dfl_indices in object store")
+        object_ref = ray.put(src_dfl_to_indices)
+        dest_file_indices_ref[dd_task_index] = cloudpickle.dumps(object_ref)
+        del object_ref
+
+    for dd_task_index, src_dfl_to_row_indices in dest_file_row_indices.items():
+        logger.info(f"Putting {len(src_dfl_to_row_indices)} src_dfl_row_indices in object store")
+        object_ref = ray.put(src_dfl_to_row_indices)
+        dest_file_row_indices_ref[dd_task_index] = cloudpickle.dumps(object_ref)
+        del object_ref
+
+    return dest_file_indices_ref, dest_file_row_indices_ref
 
 def check_preconditions(
         source_partition_locator: PartitionLocator,
@@ -379,6 +454,7 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
     logger.info(f"Got {len(dd_results)} dedupe results.")
+
     all_mat_buckets_to_obj_id = defaultdict(list)
     for mat_bucket_idx_to_obj_id in dd_results:
         for bucket_idx, dd_task_index_and_object_id_tuple in \
@@ -386,10 +462,53 @@ def _execute_compaction_round(
             all_mat_buckets_to_obj_id[bucket_idx].append(
                 dd_task_index_and_object_id_tuple)
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
-    pki_stats = ray.get([t[2] for t in dd_tasks_pending])
-    logger.info(f"Got {len(pki_stats)} dedupe result stat(s).")
+    logger.info(f"Got {len(dd_tasks_pending)} dedupe result stat(s).")
     logger.info(f"Materialize buckets created: "
                 f"{len(all_mat_buckets_to_obj_id)}")
+
+    # -----------
+    # Aggregate source file record counts to allow predicting 
+    # record indexes. 
+    # -----------
+    logger.info(f"Aggregating the record counts from dedupe step...")
+    source_file_record_counts = ray.get([t[2] for t in dd_tasks_pending])
+    logger.info(f"Retrieved the record counts from all dedupe tasks")
+    dest_file_indices_ref, dest_file_row_indices_ref = _aggregate_record_counts(
+        source_file_record_counts,
+        num_materialize_buckets,
+        records_per_compacted_file)
+    
+    logger.info(f"Completed aggregating record counts from dedupe step.")
+
+    deduped_tables_refs = ray.get([t[1] for t in dd_tasks_pending])
+    logger.info(f"Writing primary key indexes for {len(deduped_tables_refs)} deduped table groups...")
+    
+    pk_results_pending = invoke_parallel(
+        items=deduped_tables_refs,
+        ray_task=wpk.write_pk_index,
+        max_parallelism=max_parallelism,
+        options_provider=round_robin_opt_provider,
+        kwargs_provider=lambda index, item: {"dest_file_indices_ref": dest_file_indices_ref[index],
+                                             "dest_file_row_indices_ref": dest_file_row_indices_ref[index],
+                                             "dedupe_task_index": index,
+                                             "deduped_tables_ref": item},
+        compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
+        new_primary_key_index_version_locator=new_pki_version_locator,
+        max_rows_per_mat_file=records_per_compacted_file,
+        max_records_per_index_file=records_per_primary_key_index_file
+    )
+
+    logger.info(f"Wrote pki for {len(deduped_tables_refs)} dedupe table groups.")
+
+    if delete_prev_primary_key_index:
+        pki.delete_primary_key_index_version(
+            compaction_artifact_s3_bucket,
+            round_completion_info.primary_key_index_version_locator,
+        )
+
+    logger.info(f"Getting {len(pk_results_pending)} pki stats...")
+    pki_stats = ray.get(pk_results_pending)
+    logger.info(f"Got {len(pki_stats)} pki stats.")
 
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file

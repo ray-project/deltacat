@@ -254,7 +254,7 @@ def upload_sliced_table(
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(30 * 60),
-        retry=retry_if_exception_type(RetryableError)
+        retry=retry_if_not_exception_type(NonRetryableError)
     )
 
     manifest_entries = ManifestEntryList()

@@ -18,7 +18,7 @@ from deltacat.types.media import ContentType, ContentEncoding, \
 from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
 from deltacat.utils.performance import timed_invocation
 
-from typing import Any, Callable, Dict, List, Optional, Iterable, Union
+from typing import Any, Callable, Dict, List, Optional, Iterable, Union, Generator
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -131,6 +131,24 @@ def slice_table(
         records_remaining -= records_this_entry
         offset += records_this_entry
     return tables
+
+
+def slice_table_generator(
+        table: pa.Table,
+        max_len: int) -> Generator[pa.Table, None, None]:
+    """
+    Generator for creating 0-copy table slices.
+    """
+    offset = 0
+    records_remaining = len(table)
+    while records_remaining > 0:
+        records_this_entry = min(
+            max_len,
+            records_remaining
+        )
+        yield table.slice(offset, records_this_entry)
+        records_remaining -= records_this_entry
+        offset += records_this_entry
 
 
 class ReadKwargsProviderPyArrowCsvPureUtf8(ContentTypeKwargsProvider):

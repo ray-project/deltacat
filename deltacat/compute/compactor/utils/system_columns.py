@@ -270,8 +270,5 @@ def get_minimal_hb_schema() -> pa.schema:
     return pa.schema([
         _PK_HASH_COLUMN_FIELD,
         _ORDERED_RECORD_IDX_COLUMN_FIELD,
-        _ORDERED_FILE_IDX_COLUMN_FIELD,
-        _PARTITION_STREAM_POSITION_COLUMN_FIELD,
-        _DELTA_TYPE_COLUMN_FIELD,
-        _IS_SOURCE_COLUMN_FIELD
+        _ORDERED_FILE_IDX_COLUMN_FIELD
     ])
