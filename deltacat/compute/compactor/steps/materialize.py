@@ -28,7 +28,7 @@ from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowCsvPureUtf8,
-    ReadKwargsProviderPyArrowSchemaOverride,
+    ReadKwargsProviderPyArrowSchemaOverride, slice_table_generator,
 )
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -45,15 +45,12 @@ def materialize(
         compacted_file_content_type: ContentType,
         schema: Optional[pa.Schema] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
-
     def _materialize(
-            compacted_tables: List[pa.Table],
-            compacted_tables_record_count: int) -> MaterializeResult:
+            compacted_tables: List[pa.Table]) -> MaterializeResult:
         compacted_tables_size = sum([TABLE_CLASS_TO_SIZE_FUNC[type(tbl)](tbl)
                                      for tbl in compacted_tables])
-        logger.debug(f"Uploading {len(compacted_tables)} compacted tables "
-                     f"with size: {compacted_tables_size} bytes "
-                     f"and record count: {compacted_tables_record_count}")
+        logger.debug(f"Concatenating {len(compacted_tables)} compacted tables"
+                     f" with total size: {compacted_tables_size} bytes")
         compacted_table = pa.concat_tables(compacted_tables)
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
             # TODO (ricmiyam): Investigate if we still need to convert this table to pandas DataFrame
@@ -72,11 +69,10 @@ def materialize(
         )
         manifest = delta.manifest
         manifest_records = manifest.meta.record_count
-        assert(manifest_records == len(compacted_table),
-               f"Unexpected Error: Materialized delta manifest record count "
-               f"({manifest_records}) does not equal compacted table record count "
-               f"({len(compacted_table)})")
-
+        assert (manifest_records == len(compacted_table),
+                f"Unexpected Error: Materialized delta manifest record count "
+                f"({manifest_records}) does not equal compacted table record count "
+                f"({len(compacted_table)})")
         materialize_result = MaterializeResult.of(
             delta,
             mat_bucket_index,
@@ -114,9 +110,8 @@ def materialize(
                 (record_numbers, repeat(dedupe_task_idx, len(record_numbers)))
             )
     manifest_cache = {}
-    compacted_tables = []
+    remainder_tables = []
     materialized_results: List[MaterializeResult] = []
-    total_record_count = 0
     for src_dfl in sorted(all_src_file_records.keys()):
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
@@ -154,8 +149,7 @@ def materialize(
             src_file_idx_np.item(),
             file_reader_kwargs_provider=read_kwargs_provider,
         )
-        record_count = len(pa_table)
-        mask_pylist = list(repeat(False, record_count))
+        mask_pylist = list(repeat(False, len(pa_table)))
         record_numbers = chain.from_iterable(record_numbers_tpl)
         # TODO(raghumdani): reference the same file URIs while writing the files
         # instead of copying the data over and creating new files. 
@@ -181,27 +175,52 @@ def materialize(
             [sc._DEDUPE_TASK_IDX_COLUMN_NAME]
         )
 
-        # Write manifests up to max_records_per_output_file
-        # TODO(raghumdani): Write exactly the same number of records into each file to
-        # produce a read-optimized view of the tables.
-        if compacted_tables and \
-                total_record_count + record_count > max_records_per_output_file:
-            materialized_results.append(_materialize(compacted_tables, total_record_count))
+        if remainder_tables:
+            prev_remainder_record_count = sum([len(tbl) for tbl in remainder_tables])
+            assert prev_remainder_record_count < max_records_per_output_file, \
+                f"Total records in previous remainder should not exceed {max_records_per_output_file}."
+
+            # Skip materializing tables until we have reached 'max_records_per_output_file'
+            if prev_remainder_record_count + len(pa_table) < max_records_per_output_file:
+                remainder_tables.append(pa_table)
+                continue
+
+            # 'max_records_per_output_file' will be exceeded with the
+            #  current file's records + previous remainder records.
+            records_to_fit = new_file_record_offset = max_records_per_output_file - prev_remainder_record_count
+            fitted_table = pa_table.slice(length=records_to_fit)
+            remainder_tables.append(fitted_table)
+            remainder_records = sum([len(tbl) for tbl in remainder_tables])
+            assert max_records_per_output_file == remainder_records, \
+                f"Expected previous remainder records + partial records of current table" \
+                f" to be fitted to {max_records_per_output_file}, but got {remainder_records} instead."
+            materialized_results.append(_materialize(remainder_tables))
             # Free up written tables in memory
-            compacted_tables.clear()
-            total_record_count = 0
+            remainder_tables.clear()
 
-        total_record_count += record_count
-        compacted_tables.append(pa_table)
+            # Update the starting record offset of the current file
+            if new_file_record_offset < len(pa_table):
+                pa_table = pa_table.slice(offset=new_file_record_offset)
 
-    materialized_results.append(_materialize(compacted_tables, total_record_count))
-    # Free up written tables in memory
-    compacted_tables.clear()
+        # Slice the table into 'max_records_per_output_file' chunks.
+        for sliced_table in slice_table_generator(pa_table, max_records_per_output_file):
+            if len(sliced_table) == max_records_per_output_file:
+                materialized_results.append(_materialize([sliced_table]))
+            else:
+                remainder_tables.append(sliced_table)
+
+    if remainder_tables:
+        materialized_results.append(_materialize(remainder_tables))
+        # Free up written tables in memory
+        remainder_tables.clear()
 
     merged_delta = Delta.merge_deltas([mr.delta for mr in materialized_results])
     assert materialized_results and len(materialized_results) > 0, \
         f"Expected at least one materialized result in materialize step."
 
+    write_results = [mr.pyarrow_write_result for mr in materialized_results]
+    logger.debug(f"{len(write_results)} files written"
+                 f" with records: {[wr.records for wr in write_results]}")
     # Merge all new deltas into one for this materialize bucket index
     merged_materialize_result = MaterializeResult.of(merged_delta,
                                                      materialized_results[0].task_index,
