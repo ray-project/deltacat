@@ -6,6 +6,7 @@ from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
+import copy
 
 
 def invoke_parallel(
@@ -101,7 +102,14 @@ def round_robin_options_provider(
         foo.options(**opt).remote()
     ```
     """
-    assert resource_keys, f"No resource keys given to round robin!"
-    resource_key_index = i % len(resource_keys)
-    key = resource_keys[resource_key_index]
-    return {"resources": {key: resource_amount_provider(resource_key_index)}}
+    opts = kwargs.get("pg_config")
+    if opts:
+        new_opts = copy.deepcopy(opts)
+        bundle_key_index = i % len(new_opts['scheduling_strategy'].placement_group.bundle_specs)
+        new_opts['scheduling_strategy'].placement_group_bundle_index = bundle_key_index
+        return new_opts
+    else:
+        assert resource_keys, f"No resource keys given to round robin!"
+        resource_key_index = i % len(resource_keys)
+        key = resource_keys[resource_key_index]
+        return {"resources": {key: resource_amount_provider(resource_key_index)}}

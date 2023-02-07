@@ -38,7 +38,7 @@ from deltacat.catalog.delegate import (
 
 logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "0.1.6"
+__version__ = "0.1.9"
 
 
 __all__ = [

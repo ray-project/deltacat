@@ -19,7 +19,14 @@ BYTES_PER_PEBIBYTE = 2**50
 # a primary key SHA1 digest and sort key columns (which could be all columns
 # of the table in the worst case, but here we're assuming that they
 # represent no more than ~1/4th of the total table bytes)
-PYARROW_INFLATION_MULTIPLIER = 1.5
+PYARROW_INFLATION_MULTIPLIER = 2.5
 
 # Inflation multiplier from snappy-compressed parquet to pyarrow for all columns.
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
+
+PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG = {
+   "retries": {
+      'max_attempts': 25,
+      'mode': 'standard'
+   }
+}

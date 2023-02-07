@@ -8,8 +8,14 @@ import pyarrow as pa
 import ray
 import s3fs
 from ray import cloudpickle
+from deltacat.constants import PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG
 from ray.types import ObjectRef
 
+from deltacat.storage import Manifest, PartitionLocator
+from deltacat.utils.ray_utils.concurrency import invoke_parallel
+from deltacat.compute.compactor import PyArrowWriteResult, \
+    RoundCompletionInfo, PrimaryKeyIndexMeta, PrimaryKeyIndexLocator, \
+    PrimaryKeyIndexVersionMeta, PrimaryKeyIndexVersionLocator
 from deltacat import logs
 from deltacat.aws import s3u
 from deltacat.compute.compactor import (
@@ -28,7 +34,9 @@ from deltacat.storage import Manifest, PartitionLocator
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.tables import get_table_slicer, get_table_writer
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.ray_utils.concurrency import invoke_parallel
+from deltacat.utils.ray_utils.concurrency import (
+    invoke_parallel
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -201,8 +209,12 @@ def group_record_indices_by_hash_bucket(
 
 
 def group_hash_bucket_indices(
-    hash_bucket_object_groups: np.ndarray, num_buckets: int, num_groups: int
-) -> Tuple[np.ndarray, List[ObjectRef]]:
+        hash_bucket_object_groups: np.ndarray,
+        num_buckets: int,
+        num_groups: int) -> Tuple[np.ndarray, List[ObjectRef]]:
+    """
+    Groups all the ObjectRef that belongs to a particular hash bucket group and hash bucket index.
+    """
 
     object_refs = []
     hash_bucket_group_to_obj_id = np.empty([num_groups], dtype="object")
@@ -237,7 +249,13 @@ def group_hash_bucket_indices(
     return hash_bucket_group_to_obj_id, object_refs
 
 
-def pk_digest_to_hash_bucket_index(digest, num_buckets: int) -> int:
+def pk_digest_to_hash_bucket_index(
+        digest,
+        num_buckets: int) -> int:
+    """
+    Deterministically get the hash bucket a particular digest belongs to
+    based on number of total hash buckets.
+    """
 
     return int.from_bytes(digest, "big") % num_buckets
 
@@ -254,6 +272,8 @@ def write_primary_key_index_files(
     specified S3 bucket at the path identified by the given primary key index
     version locator. Output is written as 1 or more Parquet files with the
     given maximum number of records per file.
+
+    TODO(raghumdani): Support writing primary key index to any data catalog
     """
     logger.info(
         f"Writing primary key index files for hash bucket {hb_index}. "
@@ -266,11 +286,7 @@ def write_primary_key_index_files(
             "ContentType": ContentType.PARQUET.value,
             "ContentEncoding": ContentEncoding.IDENTITY.value,
         },
-    )
-    pkiv_hb_index_s3_url_base = (
-        primary_key_index_version_locator.get_pkiv_hb_index_s3_url_base(
-            s3_bucket, hb_index
-        )
+        config_kwargs=PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG
     )
     manifest_entries = s3u.upload_sliced_table(
         table,

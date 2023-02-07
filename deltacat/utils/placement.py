@@ -5,17 +5,65 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import ray
 import yaml
+import logging
+from dataclasses import dataclass
+from typing import Optional, Union, List, Dict, Any, Callable, Tuple
+from ray.util.placement_group import (
+	placement_group,
+	placement_group_table,
+	get_current_placement_group
+)
+
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from ray.experimental.state.api import get_node, get_placement_group
 from ray.util.placement_group import placement_group, placement_group_table
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 from deltacat import logs
-
+from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-# Limitation of current node group or placement group manager
-# Must run on driver or head node bc state.api needs to query dashboard api server at 127.0.0.1.
-# Issue: https://github.com/ray-project/ray/issues/29959
+#Limitation of current node group or placement group manager
+#Must run on driver or head node bc state.api needs to query dashboard api server at 127.0.0.1.
+#Issue: https://github.com/ray-project/ray/issues/29959
+
+@dataclass
+class PlacementGroupConfig():
+	def __init__(self, opts, resource):
+		self.opts = opts
+		self.resource = resource
+
+class NodeGroupManager():
+
+	def __init__(self,path: str, gname: str):
+		"""Node Group Manager
+		Args:
+			path: cluster yaml file
+			gname: node group prefix, e.g., 'partition'
+		"""
+		#cluster init status:
+		self.NODE_GROUP_PREFIX=gname
+		self.cluster_config=self._read_yaml(path)
+		self.init_groups = self._cluster_node_groups(self.cluster_config)
+		self.init_group_res = self._parse_node_resources()
+
+	def _cluster_node_groups(self, config: Dict[str, Any]) -> Dict[str, Any]:
+		"""Get Worker Groups
+		Args:
+			config: cluster yaml data
+		Returns:
+			worker groups: a dict of worker node group
+
+		"""
+		avail_node_types =  list(config['available_node_types'].items())
+		#exclude head node type
+		head_node_types = [nt for nt in avail_node_types if 'resources' in nt[1] and 'CPU' in nt[1]['resources'] and nt[1]['resources']['CPU']==0][0]
+		worker_node_types = [x for x in avail_node_types if x !=head_node_types]
+		#assuming homogenous cluster
+		#in future, update with fleet resource
+		if len(worker_node_types)>0:
+			self.INSTANCE_TYPE = worker_node_types[0][1]['node_config']['InstanceType']
+		return worker_node_types
 
 
 class NodeGroupManager:
@@ -173,101 +221,90 @@ class NodeGroupManager:
             return None
         return group_res
 
+class PlacementGroupManager():
+	"""Placement Group Manager
+	Create a list of placement group with the desired number of cpus
+	e.g., create a pg with 32 cpus, then this class will look for a node that has 32 cpus, and collect all
+	resources, including cpu, memory, and object store;
+	How to use:
+		```
+			from deltacat.utils.placement import PlacementGroupManager as pgm
+			pgm = pgm(10, 32)
+			pg_configs = pgm.pgs
+			opts = pg_configs[0][0]
+			fun.options(**opts).remote()
+		```
+	Args:
+		num_pgs: number of placement groups to be created
+		instance_cpus: number of cpus per instance
+	"""
+	def __init__(self, num_pgs: int,
+				total_cpus_per_pg: int,
+				cpu_per_bundle: int,
+				strategy="SPREAD",
+				capture_child_tasks=True):
+		head_res_key = self.get_current_node_resource_key()
+		#run the task on head and consume a fractional cpu, so that pg can be created on non-head node
+		#if cpu_per_bundle is less than the cpus per node, the pg can still be created on head
+		#curent assumption is that the cpu_per_bundle = cpus per node
+		#TODO: figure out how to create pg on non-head explicitly
+		self._pg_configs = ray.get([_config.options(resources={head_res_key:0.01}).remote(total_cpus_per_pg, \
+			cpu_per_bundle, strategy, capture_child_tasks) for i in range(num_pgs)])
+		#TODO: handle the cases where cpu_per_bundle is larger than max cpus per node, support it on ec2/flex/manta
 
-class PlacementGroupManager:
-    """Placement Group Manager
-    Create a list of placement group with the desired number of cpus
-    e.g., create a pg with 32 cpus, then this class will look for a node that has 32 cpus, and collect all
-    resources, including cpu, memory, and object store;
-    How to use:
-            ```
-                    from deltacat.utils.placement import PlacementGroupManager as pgm
-                    pgm = pgm(10, 32)
-                    pg_configs = pgm.pgs
-                    opts = pg_configs[0][0]
-                    fun.options(**opts).remote()
-            ```
-    Args:
-            num_pgs: number of placement groups to be created
-            instance_cpus: number of cpus per instance
-    """
+	@property
+	def pgs(self):
+		return self._pg_configs
 
-    def __init__(
-        self,
-        num_pgs: int,
-        instance_cpus: int,
-        instance_type: int = 8,
-        time_out: Optional[float] = None,
-    ):
-        head_res_key = self.get_current_node_resource_key()
-        self._pg_configs = ray.get(
-            [
-                _config.options(resources={head_res_key: 0.01}).remote(
-                    instance_cpus, instance_type
-                )
-                for _ in range(num_pgs)
-            ]
-        )
-
-    @property
-    def pgs(self):
-        return self._pg_configs
-
-    def get_current_node_resource_key(self) -> str:
-        current_node_id = ray.get_runtime_context().node_id.hex()
-        for node in ray.nodes():
-            if node["NodeID"] == current_node_id:
-                # Found the node.
-                for key in node["Resources"].keys():
-                    if key.startswith("node:"):
-                        return key
-
+	def get_current_node_resource_key(self) -> str:
+		#on ec2: address="172.31.34.51:6379"
+		#on manta: address = "2600:1f10:4674:6815:aadb:2dc8:de61:bc8e:6379"
+		current_node_name = ray.experimental.internal_kv.global_gcs_client.address[:-5]
+		for node in ray.nodes():
+			if node["NodeName"] == current_node_name:
+				# Found the node.
+				for key in node["Resources"].keys():
+					if key.startswith("node:"):
+						return key
 
 @ray.remote(num_cpus=0.01)
-def _config(
-    instance_cpus: int, instance_type: int, time_out: Optional[float] = None
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    pg_config = None
-    try:
-        opts = {}
-        cluster_resources = {}
-        num_bundles = (int)(instance_cpus / instance_type)
-        bundles = [{"CPU": instance_type} for _ in range(num_bundles)]
-        pg = placement_group(bundles, strategy="SPREAD")
-        ray.get(pg.ready(), timeout=time_out)
-        if not pg:
-            return None
-        opts = {
-            "scheduling_strategy": PlacementGroupSchedulingStrategy(
-                placement_group=pg, placement_group_capture_child_tasks=True
-            )
-        }
-        pg_id = placement_group_table(pg)["placement_group_id"]
-        pg_details = get_placement_group(pg_id)
-        bundles = pg_details["bundles"]
-        node_ids = []
-        for bd in bundles:
-            node_ids.append(bd["node_id"])
-        # query available resources given list of node id
-        all_nodes_available_res = (
-            ray._private.state.state._available_resources_per_node()
-        )
-        pg_res = {"CPU": 0, "memory": 0, "object_store_memory": 0, "node_id": []}
-        for node_id in node_ids:
-            if node_id in all_nodes_available_res:
-                v = all_nodes_available_res[node_id]
-                node_detail = get_node(node_id)
-                pg_res["CPU"] += node_detail["resources_total"]["CPU"]
-                pg_res["memory"] += v["memory"]
-                pg_res["object_store_memory"] += v["object_store_memory"]
-                pg_res["node_id"].append(node_id)
-        cluster_resources["CPU"] = int(pg_res["CPU"])
-        cluster_resources["memory"] = float(pg_res["memory"])
-        cluster_resources["object_store_memory"] = float(pg_res["object_store_memory"])
-        cluster_resources["node_id"] = pg_res["node_id"]
-        pg_config = [opts, cluster_resources]
-        logger.info(f"pg has resources:{cluster_resources}")
+def _config(total_cpus_per_pg: int,
+			cpu_per_node: int,
+			strategy="SPREAD",
+			capture_child_tasks=True,
+			time_out: Optional[float] = None) -> Tuple[Dict[str,Any], Dict[str,Any]]:
+	pg_config = None
+	opts ={}
+	cluster_resources={}
+	num_bundles = (int)(total_cpus_per_pg/cpu_per_node)
+	bundles = [{'CPU':cpu_per_node} for i in range(num_bundles)]
+	pg = placement_group(bundles, strategy=strategy)
+	ray.get(pg.ready(), timeout=time_out)
+	if not pg:
+		return None
+	opts = {"scheduling_strategy":PlacementGroupSchedulingStrategy(
+		placement_group=pg, placement_group_capture_child_tasks=capture_child_tasks)
+	}
+	pg_id = placement_group_table(pg)['placement_group_id']
+	pg_details = get_placement_group(pg_id)
+	bundles = pg_details['bundles']
+	node_ids = []
+	for bd in bundles:
+		node_ids.append(bd['node_id'])
+	#query available resources given list of node id
+	all_nodes_available_res = ray._private.state.state._available_resources_per_node()
+	pg_res = {'CPU':0,'memory':0,'object_store_memory':0}
+	for node_id in node_ids:
+		if node_id in all_nodes_available_res:
+			v = all_nodes_available_res[node_id]
+			node_detail = get_node(node_id)
+			pg_res['CPU']+=node_detail['resources_total']['CPU']
+			pg_res['memory']+=v['memory']
+			pg_res['object_store_memory']+=v['object_store_memory']
+	cluster_resources['CPU'] = int(pg_res['CPU'])
+	cluster_resources['memory'] = float(pg_res['memory'])
+	cluster_resources['object_store_memory'] = float(pg_res['object_store_memory'])
+	pg_config=PlacementGroupConfig(opts,cluster_resources)
+	logger.info(f"pg has resources:{cluster_resources}")
 
-    except Exception as e:
-        logger.error(f"placement group error:{e}")
-    return pg_config
+	return pg_config
