@@ -112,6 +112,7 @@ def materialize(
     manifest_cache = {}
     remainder_tables = []
     materialized_results: List[MaterializeResult] = []
+    prev_remainder_record_count = 0
     for src_dfl in sorted(all_src_file_records.keys()):
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
@@ -176,13 +177,13 @@ def materialize(
         )
 
         if remainder_tables:
-            prev_remainder_record_count = sum([len(tbl) for tbl in remainder_tables])
             assert prev_remainder_record_count < max_records_per_output_file, \
                 f"Total records in previous remainder should not exceed {max_records_per_output_file}."
 
             # Skip materializing tables until we have reached 'max_records_per_output_file'
             if prev_remainder_record_count + len(pa_table) < max_records_per_output_file:
                 remainder_tables.append(pa_table)
+                prev_remainder_record_count += len(pa_table)
                 continue
 
             # 'max_records_per_output_file' will be exceeded with the
@@ -197,10 +198,12 @@ def materialize(
             materialized_results.append(_materialize(remainder_tables))
             # Free up written tables in memory
             remainder_tables.clear()
+            prev_remainder_record_count = 0
 
             # Update the starting record offset of the current file
             if new_file_record_offset < len(pa_table):
                 pa_table = pa_table.slice(offset=new_file_record_offset)
+                assert len(pa_table), f"Expected non-empty table after slicing by {max_records_per_output_file}"
 
         # Slice the table into 'max_records_per_output_file' chunks.
         for sliced_table in slice_table_generator(pa_table, max_records_per_output_file):
@@ -208,6 +211,7 @@ def materialize(
                 materialized_results.append(_materialize([sliced_table]))
             else:
                 remainder_tables.append(sliced_table)
+                prev_remainder_record_count += len(sliced_table)
 
     if remainder_tables:
         materialized_results.append(_materialize(remainder_tables))
