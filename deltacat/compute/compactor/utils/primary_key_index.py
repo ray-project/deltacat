@@ -198,16 +198,15 @@ def group_record_indices_by_hash_bucket(
 def group_hash_bucket_indices(
         hash_bucket_object_groups: np.ndarray,
         num_buckets: int,
-        num_groups: int) -> Tuple[np.ndarray, List[ObjectRef]]:
+        num_groups: int) -> Tuple[np.ndarray]:
     """
     Groups all the ObjectRef that belongs to a particular hash bucket group and hash bucket index. 
     """
 
-    object_refs = []
     hash_bucket_group_to_obj_id = np.empty([num_groups], dtype="object")
 
     if hash_bucket_object_groups is None:
-        return hash_bucket_group_to_obj_id, object_refs
+        return hash_bucket_group_to_obj_id
 
     hb_group_to_object = np.empty([num_groups], dtype="object")
     for hb_index, obj in enumerate(hash_bucket_object_groups):
@@ -217,13 +216,14 @@ def group_hash_bucket_indices(
                 hb_group_to_object[hb_group] = np.empty(
                     [num_buckets], dtype="object")
             hb_group_to_object[hb_group][hb_index] = obj
+            # FIXME(raghumdani): hb_index is lost and we will never dedupe
+            #  data from this even if pk index contains this hash bucket.
 
     for hb_group, obj in enumerate(hb_group_to_object):
         if obj is None:
             continue
         obj_ref = ray.put(obj)
         pickled_obj_ref = cloudpickle.dumps(obj_ref)
-        object_refs.append(pickled_obj_ref)
         hash_bucket_group_to_obj_id[hb_group] = pickled_obj_ref
         # NOTE: The cloudpickle.dumps API call creates an out of band object reference to the object_ref variable. 
         # After pickling, Ray cannot track the serialized copy of the object or determine when the ObjectRef has been deserialized 
@@ -234,7 +234,7 @@ def group_hash_bucket_indices(
         # helps to allow these objects to be garbage collected normally. 
         del obj_ref
         del pickled_obj_ref
-    return hash_bucket_group_to_obj_id, object_refs
+    return hash_bucket_group_to_obj_id
 
 
 def pk_digest_to_hash_bucket_index(

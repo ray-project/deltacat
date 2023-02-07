@@ -144,7 +144,7 @@ def _read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_returns=2)
+@ray.remote
 def hash_bucket(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
@@ -162,10 +162,10 @@ def hash_bucket(
         sort_key_names,
         deltacat_storage,
     )
-    hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(
+    hash_bucket_group_to_obj_id = group_hash_bucket_indices(
         delta_file_envelope_groups,
         num_buckets,
         num_groups,
     )
     logger.info(f"Finished hash bucket task...")
-    return hash_bucket_group_to_obj_id, object_refs
+    return hash_bucket_group_to_obj_id

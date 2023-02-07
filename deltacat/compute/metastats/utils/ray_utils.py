@@ -5,11 +5,10 @@ import errno
 import logging
 
 from deltacat import logs
-from tenacity import retry, stop_after_attempt
 from typing import Any
 from deltacat.compute.metastats.utils.constants import WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO, MAX_WORKER_MULTIPLIER
 from tenacity import Retrying, stop_after_attempt, wait_fixed, RetryError
-from subprocess import run, PIPE
+from subprocess import run
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

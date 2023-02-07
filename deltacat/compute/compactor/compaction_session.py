@@ -1,8 +1,9 @@
 import logging
 import functools
 import ray
+from ray import cloudpickle
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 
 from deltacat import logs
 from deltacat.compute.stats.models.delta_stats import DeltaStats
@@ -12,18 +13,21 @@ from deltacat.utils.ray_utils.concurrency import invoke_parallel, \
     round_robin_options_provider
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.steps import hash_bucket as hb, dedupe as dd, \
-    materialize as mat
+    materialize as mat, write_pk_index as wpk
 from deltacat.compute.compactor import SortKey, PrimaryKeyIndexMeta, \
     PrimaryKeyIndexLocator, PrimaryKeyIndexVersionMeta, \
     PrimaryKeyIndexVersionLocator, RoundCompletionInfo, \
-    PyArrowWriteResult
+    PyArrowWriteResult, DeltaFileLocator
 from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
     primary_key_index as pki
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict
+from deltacat.compute.compactor.utils.materialize_utils import delta_file_locator_to_mat_bucket_index
 
 import pyarrow as pa
+import numpy as np
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
@@ -308,7 +312,7 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
-    hb_results = ray.get([t[0] for t in hb_tasks_pending])
+    hb_results = ray.get(hb_tasks_pending)
     logger.info(f"Got {len(hb_results)} hash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hash_group_idx_to_obj_id in hb_results:
@@ -377,17 +381,17 @@ def _execute_compaction_round(
         delete_old_primary_key_index=delete_prev_primary_key_index
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
-    dd_results = ray.get([t[0] for t in dd_tasks_pending])
+    dd_results = ray.get(dd_tasks_pending)
     logger.info(f"Got {len(dd_results)} dedupe results.")
+
     all_mat_buckets_to_obj_id = defaultdict(list)
     for mat_bucket_idx_to_obj_id in dd_results:
-        for bucket_idx, dd_task_index_and_object_id_tuple in \
+        for bucket_idx, row_idx_object_id in \
                 mat_bucket_idx_to_obj_id.items():
             all_mat_buckets_to_obj_id[bucket_idx].append(
-                dd_task_index_and_object_id_tuple)
+                row_idx_object_id)
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
-    pki_stats = ray.get([t[2] for t in dd_tasks_pending])
-    logger.info(f"Got {len(pki_stats)} dedupe result stat(s).")
+    logger.info(f"Got {len(dd_tasks_pending)} dedupe result stat(s).")
     logger.info(f"Materialize buckets created: "
                 f"{len(all_mat_buckets_to_obj_id)}")
 
@@ -410,8 +414,9 @@ def _execute_compaction_round(
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, mat_bucket_idx_to_obj_id: {
             "mat_bucket_index": mat_bucket_idx_to_obj_id[0],
-            "dedupe_task_idx_and_obj_id_tuples": mat_bucket_idx_to_obj_id[1],
+            "src_dfl_to_hb_idx_record_indices": mat_bucket_idx_to_obj_id[1],
         },
+        num_hash_groups=max_parallelism,
         schema=schema_on_read,
         round_completion_info=round_completion_info,
         source_partition_locator=source_partition_locator,
@@ -421,10 +426,45 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
-    mat_results = ray.get(mat_tasks_pending)
+    mat_results = ray.get([t[0] for t in mat_tasks_pending])
     logger.info(f"Got {len(mat_results)} materialize result(s).")
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
+    mat_index_to_file_id_offset = defaultdict(int)
+    file_id_offset = 0
+
+    for mat_result in mat_results:
+        mat_index_to_file_id_offset[mat_result.task_index] = file_id_offset
+        file_id_offset += mat_result.pyarrow_write_result.files
+
+    all_hb_group_to_object_id = defaultdict(list)
+    hb_group_to_pk_tables_refs = ray.get([t[1] for t in mat_tasks_pending])
+    # TODO(raghumdani): Get materialize buckets and send file offsets to be accurate. 
+    for hb_group_to_pk_tables_ref in hb_group_to_pk_tables_refs:
+        for hb_group in hb_group_to_pk_tables_ref.keys():
+            all_hb_group_to_object_id[hb_group].extend(hb_group_to_pk_tables_ref[hb_group])
+    
+    pk_results_pending = invoke_parallel(
+        items=all_hb_group_to_object_id.items(),
+        ray_task=wpk.write_pk_index,
+        max_parallelism=max_parallelism,
+        options_provider=round_robin_opt_provider,
+        kwargs_provider=lambda index, item: {"all_hb_idx_to_tables_refs": item[1]},
+        compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
+        new_primary_key_index_version_locator=new_pki_version_locator,
+        max_records_per_index_file=records_per_primary_key_index_file
+    )
+
+    if delete_prev_primary_key_index:
+        pki.delete_primary_key_index_version(
+            compaction_artifact_s3_bucket,
+            round_completion_info.primary_key_index_version_locator,
+        )
+
+    logger.info(f"Getting {len(pk_results_pending)} pki stats...")
+    pki_stats = ray.get(pk_results_pending)
+    logger.info(f"Got {len(pki_stats)} pki stats.")
+
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
     compacted_delta = deltacat_storage.commit_delta(merged_delta)

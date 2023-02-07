@@ -28,6 +28,13 @@ _DEDUPE_TASK_IDX_COLUMN_FIELD = pa.field(
     _DEDUPE_TASK_IDX_COLUMN_TYPE,
 )
 
+_HASH_BUCKET_IDX_COLUMN_NAME = _get_sys_col_name("hash_bucket_idx")
+_HASH_BUCKET_IDX_COLUMN_TYPE = pa.int32()
+_HASH_BUCKET_IDX_COLUMN_FIELD = pa.field(
+    _HASH_BUCKET_IDX_COLUMN_NAME,
+    _HASH_BUCKET_IDX_COLUMN_TYPE
+)
+
 _PARTITION_STREAM_POSITION_COLUMN_NAME = _get_sys_col_name("stream_position")
 _PARTITION_STREAM_POSITION_COLUMN_TYPE = pa.int64()
 _PARTITION_STREAM_POSITION_COLUMN_FIELD = pa.field(
@@ -128,6 +135,9 @@ def record_index_column_np(table: pa.Table) -> np.ndarray:
 def is_source_column_np(table: pa.Table) -> np.ndarray:
     return table[_IS_SOURCE_COLUMN_NAME].to_numpy()
 
+def hash_bucket_idx_column_np(table: pa.Table) -> np.ndarray:
+    return table[_HASH_BUCKET_IDX_COLUMN_NAME].to_numpy()
+
 
 def get_delta_type_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
@@ -142,6 +152,11 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
         _IS_SOURCE_COLUMN_TYPE,
     )
 
+def get_hash_bucket_idx_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+    return pa.array(
+        obj,
+        _HASH_BUCKET_IDX_COLUMN_TYPE
+    )
 
 def project_delta_file_metadata_on_table(
         delta_file_envelope: DeltaFileEnvelope) -> pa.Table:
@@ -191,7 +206,6 @@ def append_stream_position_column(
     )
     return table
 
-
 def append_file_idx_column(
         table: pa.Table,
         ordered_file_indices):
@@ -224,6 +238,16 @@ def append_record_idx_col(
     )
     return table
 
+def append_hash_bucket_idx_col(
+        table: pa.Table,
+        hash_bucket_indexes) -> pa.Table:
+
+    table = table.append_column(
+        _HASH_BUCKET_IDX_COLUMN_FIELD,
+        get_hash_bucket_idx_column_array(hash_bucket_indexes),
+    )
+
+    return table
 
 def append_dedupe_task_idx_col(
         table: pa.Table,
@@ -265,13 +289,9 @@ def append_is_source_col(
     )
     return table
 
-
 def get_minimal_hb_schema() -> pa.schema:
     return pa.schema([
         _PK_HASH_COLUMN_FIELD,
         _ORDERED_RECORD_IDX_COLUMN_FIELD,
-        _ORDERED_FILE_IDX_COLUMN_FIELD,
-        _PARTITION_STREAM_POSITION_COLUMN_FIELD,
-        _DELTA_TYPE_COLUMN_FIELD,
-        _IS_SOURCE_COLUMN_FIELD
+        _ORDERED_FILE_IDX_COLUMN_FIELD
     ])
