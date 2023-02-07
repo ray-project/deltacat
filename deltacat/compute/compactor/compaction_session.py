@@ -263,14 +263,15 @@ def _execute_compaction_round(
         cluster_cpus = cluster_resources['CPU']
         node_resource_keys = cluster_resources['node_id']
         #remove parent task node id
-        #current_node_id = get_current_node_resource_key()
-        #cluster_resources['node_id'].remove(current_node_id)
+        current_node_id = get_current_node_resource_key()
+        cluster_resources['node_id'].remove(current_node_id)
+        node_resource_keys = cluster_resources['node_id']
         #TODO: update cluster resource, now just hard code as r5.8xlarge
-        # cluster_cpus -=32
-        # cluster_resources['CPU']-=32
-        # cluster_resources['memory']-=192414534860.0
-        # cluster_resources['object_store_memory']-=160278591390.0
-        # cluster_resources['bundle_length']-=1
+        cluster_cpus -=32
+        cluster_resources['CPU']-=32
+        cluster_resources['memory']-=192414534860.0
+        cluster_resources['object_store_memory']-=160278591390.0
+        #cluster_resources['bundle_length']-=1
         #TODO: update bundle id list
 
     else: # use all cluster resource
@@ -517,9 +518,15 @@ def _execute_compaction_round(
 #        [dd.RecordCountsPendingMaterialize.options(resources={node_resource_keys[i]:0.1}).remote(dedupe_task_count)\
 #            for i in range(len(node_resource_keys))]
 
-    for current_node_id in node_resource_keys:
-        record_counts_pending_materialize[current_node_id]= \
-        dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(int(max_parallelism/len(node_resource_keys)), len(node_resource_keys)-1)
+    #master actor, 1
+    record_counts_pending_materialize[current_node_id]= \
+        dd.RecordCountsPendingMaterialize.options(resources={current_node_id:0.1}).remote(int(max_parallelism[1]/len(node_resource_keys)), len(node_resource_keys))
+
+    #child actors, 125
+    for node_id in node_resource_keys:
+        record_counts_pending_materialize[node_id]= \
+        dd.RecordCountsPendingMaterialize.options(resources={node_id:0.1}).remote(int(max_parallelism[1]/len(node_resource_keys)), len(node_resource_keys))
+
 
 
     dd_tasks_pending = invoke_parallel(
