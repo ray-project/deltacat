@@ -138,6 +138,13 @@ def slice_table_generator(
         max_len: int) -> Generator[pa.Table, None, None]:
     """
     Generator for creating 0-copy table slices.
+
+    Args:
+        table: PyArrow table to slice. If the table is empty, no values are yielded
+        max_len: The size of each sliced table.
+
+    Returns: a generator of PyArrow tables
+
     """
     offset = 0
     records_remaining = len(table)
