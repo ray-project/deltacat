@@ -278,6 +278,11 @@ def write_primary_key_index_files(
         },
         config_kwargs=PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG,
     )
+    pkiv_hb_index_s3_url_base = (
+        primary_key_index_version_locator.get_pkiv_hb_index_s3_url_base(
+            s3_bucket, hb_index
+        )
+    )
     manifest_entries = s3u.upload_sliced_table(
         table,
         pkiv_hb_index_s3_url_base,

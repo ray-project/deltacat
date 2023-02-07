@@ -21,7 +21,6 @@ from deltacat.compute.metastats.utils.constants import (
     DEFAULT_JOB_RUN_TRACE_ID,
     HEAD_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
     MANIFEST_FILE_COUNT_PER_CPU,
-    R5_MEMORY_PER_CPU,
     STATS_CLUSTER_R5_INSTANCE_TYPE,
     WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
 )
@@ -222,7 +221,6 @@ def _start_all_stats_collection_from_deltas(
                 )
 
             if cached_result.misses:
-                missed_column_names: List[str] = cached_result.misses.column_names
                 delta_locator: DeltaLocator = cached_result.misses.delta_locator
                 delta_stats_compute_list.append(delta_locator)
                 meta_stats_list_to_compute.append(delta_locator)
@@ -315,14 +313,6 @@ def _start_metadata_stats_collection(
         for entry in delta.manifest.entries:
             delta_meta_count += entry.meta.content_length
         meta_stats_to_compute[delta.stream_position] = delta_meta_count
-
-    min_cpus = _estimate_cpus_needed(
-        meta_stats_to_compute,
-        R5_MEMORY_PER_CPU,
-        file_count_per_cpu,
-        manifest_file_count_to_compute,
-        partition_value_string,
-    )
 
     batched_delta_stats_compute_list = _batch_deltas(
         delta_stats_compute_list,

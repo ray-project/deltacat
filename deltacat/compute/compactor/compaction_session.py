@@ -354,7 +354,9 @@ def _execute_compaction_round(
             if object_id:
                 all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
     hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
-    logger.info(f"Hash bucket groups created: {hash_group_count}")
+    logger.info(
+        f"Hash bucket groups created: {hash_group_count}. Dedupe task count: {dedupe_task_count}"
+    )
 
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
