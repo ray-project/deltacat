@@ -34,6 +34,8 @@ from deltacat.utils.pyarrow import (
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+PA_SORT_KEYS = [(sc._DEDUPE_TASK_IDX_COLUMN_NAME, "ascending")]
+
 @ray.remote
 def materialize(
         source_partition_locator: PartitionLocator,
@@ -52,6 +54,13 @@ def materialize(
         logger.debug(f"Concatenating {len(compacted_tables)} compacted tables"
                      f" with total size: {compacted_tables_size} bytes")
         compacted_table = pa.concat_tables(compacted_tables)
+        compacted_table = compacted_table.take(
+            pc.sort_indices(compacted_table, sort_keys=PA_SORT_KEYS),
+        )
+        compacted_table = compacted_table.drop(
+            [sc._DEDUPE_TASK_IDX_COLUMN_NAME]
+        )
+
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
             # TODO (ricmiyam): Investigate if we still need to convert this table to pandas DataFrame
             # TODO (pdames): compare performance to pandas-native materialize path
@@ -167,13 +176,6 @@ def materialize(
         pa_table = sc.append_dedupe_task_idx_col(
             pa_table,
             dedupe_task_indices,
-        )
-        pa_sort_keys = [(sc._DEDUPE_TASK_IDX_COLUMN_NAME, "ascending")]
-        pa_table = pa_table.take(
-            pc.sort_indices(pa_table, sort_keys=pa_sort_keys),
-        )
-        pa_table = pa_table.drop(
-            [sc._DEDUPE_TASK_IDX_COLUMN_NAME]
         )
 
         if remainder_tables:
