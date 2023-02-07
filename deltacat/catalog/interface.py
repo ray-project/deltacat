@@ -2,19 +2,19 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 import pyarrow as pa
 
-from deltacat import (
-    ContentType,
+from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.compute.compactor.model.sort_key import SortKey
+from deltacat.storage.model.list_result import ListResult
+from deltacat.storage.model.namespace import Namespace
+from deltacat.storage.model.types import (
     DistributedDataset,
     LifecycleState,
-    ListResult,
     LocalDataset,
     LocalTable,
-    Namespace,
     SchemaConsistencyType,
-    SortKey,
-    TableDefinition,
-    TableWriteMode,
 )
+from deltacat.types.media import ContentType
+from deltacat.types.tables import TableWriteMode
 
 
 # table functions

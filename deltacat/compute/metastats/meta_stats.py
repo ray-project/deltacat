@@ -1,51 +1,45 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import ray
-import os
 import functools
 import logging
-
+import os
 import pathlib
+from typing import Dict, List, Optional, Set
 
-from typing import Dict, Set, List, Optional
-
-from deltacat.compute.stats.models.delta_stats import DeltaStats
+import ray
 from ray.types import ObjectRef
 
 from deltacat import logs
-from deltacat.constants import BYTES_PER_GIBIBYTE
-from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
-from deltacat.compute.metastats.utils.io import read_cached_partition_stats
-from deltacat.compute.stats.utils.io import get_deltas_from_range
-from deltacat.compute.stats.utils.intervals import merge_intervals, DeltaRange
-
-from deltacat.compute.metastats.utils.ray_utils import (
-    replace_cluster_cfg_vars,
-)
-from deltacat.compute.metastats.utils.constants import (
-    MANIFEST_FILE_COUNT_PER_CPU,
-    R5_MEMORY_PER_CPU,
-    HEAD_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
-    WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
-    STATS_CLUSTER_R5_INSTANCE_TYPE,
-    DEFAULT_JOB_RUN_TRACE_ID,
-    DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE,
-)
+from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.metastats.model.stats_cluster_size_estimator import (
     StatsClusterSizeEstimator,
 )
+from deltacat.compute.metastats.stats import start_stats_collection
+from deltacat.compute.metastats.utils.constants import (
+    DEFAULT_CPUS_PER_INSTANCE_R5_8XLARGE,
+    DEFAULT_JOB_RUN_TRACE_ID,
+    HEAD_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
+    MANIFEST_FILE_COUNT_PER_CPU,
+    R5_MEMORY_PER_CPU,
+    STATS_CLUSTER_R5_INSTANCE_TYPE,
+    WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
+)
+from deltacat.compute.metastats.utils.io import read_cached_partition_stats
 from deltacat.compute.metastats.utils.pyarrow_memory_estimation_function import (
     estimation_function,
 )
-
-from deltacat.storage import PartitionLocator, DeltaLocator, Delta
+from deltacat.compute.metastats.utils.ray_utils import replace_cluster_cfg_vars
+from deltacat.compute.stats.models.delta_stats import DeltaStats
+from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
+from deltacat.compute.stats.utils.intervals import DeltaRange, merge_intervals
+from deltacat.compute.stats.utils.io import get_deltas_from_range
+from deltacat.constants import (
+    BYTES_PER_GIBIBYTE,
+    PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS,
+)
+from deltacat.storage import Delta, DeltaLocator, PartitionLocator
 from deltacat.storage import interface as unimplemented_deltacat_storage
-
-from deltacat.constants import PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS
-from deltacat.compute.compactor import DeltaAnnotated
-from deltacat.compute.metastats.stats import start_stats_collection
-
 from deltacat.utils.performance import timed_invocation
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))

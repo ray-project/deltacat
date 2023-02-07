@@ -1,12 +1,12 @@
-import logging
 import json
+import logging
 from typing import List
 
-from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
-from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
-from deltacat.storage import DeltaLocator
 from deltacat import logs
 from deltacat.aws import s3u as s3_utils
+from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
+from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
+from deltacat.storage import DeltaLocator
 from deltacat.utils.common import sha1_hexdigest
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))

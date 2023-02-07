@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import logging
-from deltacat import logs
-from deltacat.storage import DeltaType, Manifest, ManifestEntry, ManifestEntryList
-from typing import List, Optional, Callable, Union
 from types import FunctionType
-from deltacat.storage import Delta
+from typing import Callable, List, Optional, Union
+
+from deltacat import logs
+from deltacat.storage import (
+    Delta,
+    DeltaType,
+    Manifest,
+    ManifestEntry,
+    ManifestEntryList,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

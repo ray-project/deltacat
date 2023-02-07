@@ -25,8 +25,5 @@ PYARROW_INFLATION_MULTIPLIER = 2.5
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
 
 PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG = {
-   "retries": {
-      'max_attempts': 25,
-      'mode': 'standard'
-   }
+    "retries": {"max_attempts": 25, "mode": "standard"}
 }

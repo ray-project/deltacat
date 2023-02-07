@@ -1,17 +1,18 @@
-import os
-import subprocess
-import ray
 import errno
 import logging
+import os
+import subprocess
+from subprocess import run
+from typing import Any
+
+import ray
+from tenacity import RetryError, Retrying, stop_after_attempt, wait_fixed
 
 from deltacat import logs
-from typing import Any
 from deltacat.compute.metastats.utils.constants import (
-    WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
     MAX_WORKER_MULTIPLIER,
+    WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
 )
-from tenacity import Retrying, stop_after_attempt, wait_fixed, RetryError
-from subprocess import run
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

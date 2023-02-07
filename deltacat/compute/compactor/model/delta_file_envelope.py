@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import numpy as np
-from deltacat.storage import DeltaType, LocalTable
 
+from deltacat.storage import DeltaType, LocalTable
 
 DeltaFileEnvelopeGroups = np.ndarray
 

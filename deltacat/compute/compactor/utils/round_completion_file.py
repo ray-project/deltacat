@@ -1,9 +1,9 @@
-import logging
 import json
+import logging
 
-from deltacat.storage import PartitionLocator
-from deltacat.compute.compactor import RoundCompletionInfo
 from deltacat import logs
+from deltacat.compute.compactor import RoundCompletionInfo
+from deltacat.storage import PartitionLocator
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

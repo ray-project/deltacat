@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import List, Dict, Optional, Set, Any, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Optional, Set
 
 from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats

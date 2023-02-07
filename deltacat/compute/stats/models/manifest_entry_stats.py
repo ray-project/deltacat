@@ -1,12 +1,12 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Any, Dict, List
+
 import pyarrow as pa
 
 from deltacat.compute.stats.models.stats_result import StatsResult
 from deltacat.storage import DeltaLocator
-
-from typing import Any, Dict, List
 
 
 class ManifestEntryStats(dict):

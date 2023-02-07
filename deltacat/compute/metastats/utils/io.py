@@ -1,23 +1,22 @@
-import logging
 import json
+import logging
+from collections import defaultdict
+from typing import Any, Dict, List, Optional
+
 import pyarrow
 import ray
 
-from deltacat import LocalTable, TableType
-from deltacat.storage import Delta
-from deltacat.compute.compactor import DeltaAnnotated
+from deltacat import LocalTable, TableType, logs
 from deltacat.aws import s3u as s3_utils
-from deltacat.utils.common import sha1_hexdigest
-from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.metastats.model.partition_stats_dict import PartitionStats
-from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
 from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
 from deltacat.compute.stats.models.delta_stats import DeltaStats, DeltaStatsCacheMiss
+from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
 from deltacat.compute.stats.models.stats_result import StatsResult
-
-from typing import Dict, List, Optional, Any
-from collections import defaultdict
-from deltacat import logs
+from deltacat.storage import Delta
+from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.utils.common import sha1_hexdigest
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

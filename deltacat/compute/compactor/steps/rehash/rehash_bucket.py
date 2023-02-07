@@ -1,15 +1,14 @@
 import logging
-import ray
-import pyarrow as pa
-import numpy as np
+from typing import List, Tuple
 
+import numpy as np
+import pyarrow as pa
+import ray
 from ray.types import ObjectRef
 
 from deltacat import logs
 from deltacat.compute.compactor import PrimaryKeyIndexVersionLocator
 from deltacat.compute.compactor.utils import primary_key_index as pki
-
-from typing import List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

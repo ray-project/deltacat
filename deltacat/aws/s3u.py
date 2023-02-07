@@ -45,6 +45,8 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 # TODO(raghumdani): refactor redshift datasource to reuse the
 # same module for writing output files.
+
+
 class CapturedBlockWritePaths:
     def __init__(self):
         self._write_paths: List[str] = []
@@ -75,6 +77,7 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
     """Block write path provider implementation that writes each
     dataset block out to a file of the form: {base_path}/{uuid}
     """
+
     def __init__(self, capture_object: CapturedBlockWritePaths):
         self.write_paths: List[str] = []
         self.block_refs: List[ObjectRef[Block]] = []

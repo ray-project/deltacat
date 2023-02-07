@@ -1,17 +1,13 @@
 import logging
 import math
-from deltacat.compute.stats.models.delta_stats import DeltaStats
-from deltacat.constants import PYARROW_INFLATION_MULTIPLIER, BYTES_PER_MEBIBYTE
+from typing import Dict, List, Optional, Tuple
 
-from deltacat.storage import (
-    PartitionLocator,
-    Delta,
-    interface as unimplemented_deltacat_storage,
-)
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
-
-from typing import Dict, List, Optional, Tuple
+from deltacat.compute.stats.models.delta_stats import DeltaStats
+from deltacat.constants import BYTES_PER_MEBIBYTE, PYARROW_INFLATION_MULTIPLIER
+from deltacat.storage import Delta, PartitionLocator
+from deltacat.storage import interface as unimplemented_deltacat_storage
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

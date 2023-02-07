@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.stats_result import StatsResult

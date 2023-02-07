@@ -1,4 +1,4 @@
-from typing import Set, Tuple, List, Iterable, Union, Optional
+from typing import Iterable, List, Optional, Set, Tuple, Union
 
 DeltaPosition = Optional[int]
 NumericDeltaPosition = Union[int, float]  # float is added here to support math.inf

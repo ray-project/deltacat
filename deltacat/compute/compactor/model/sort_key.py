@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
+from typing import List
+
 import pyarrow as pa
 
-from enum import Enum
-
-from deltacat.storage import PartitionLocator
 from deltacat import logs
-
-from typing import List
+from deltacat.storage import PartitionLocator
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

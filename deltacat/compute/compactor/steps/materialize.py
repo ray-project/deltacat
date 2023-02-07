@@ -1,7 +1,4 @@
 import logging
-import ray
-import pyarrow as pa
-
 from collections import defaultdict
 from itertools import chain, repeat
 from typing import List, Optional, Tuple
@@ -120,8 +117,9 @@ def materialize(
     materialized_results: List[MaterializeResult] = []
     total_record_count = 0
     for src_dfl in sorted(all_src_file_records.keys()):
-        record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
-            all_src_file_records[src_dfl]
+        record_numbers_dd_task_idx_tpl_list: List[
+            Tuple[DeltaFileLocatorToRecords, repeat]
+        ] = all_src_file_records[src_dfl]
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
             *record_numbers_dd_task_idx_tpl_list
         )
@@ -187,9 +185,13 @@ def materialize(
         # Write manifests up to max_records_per_output_file
         # TODO(raghumdani): Write exactly the same number of records into each file to
         # produce a read-optimized view of the tables.
-        if compacted_tables and \
-                total_record_count + record_count > max_records_per_output_file:
-            materialized_results.append(_materialize(compacted_tables, total_record_count))
+        if (
+            compacted_tables
+            and total_record_count + record_count > max_records_per_output_file
+        ):
+            materialized_results.append(
+                _materialize(compacted_tables, total_record_count)
+            )
             # Free up written tables in memory
             compacted_tables.clear()
             total_record_count = 0

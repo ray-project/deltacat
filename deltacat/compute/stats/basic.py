@@ -1,23 +1,21 @@
-import ray
-from typing import Dict, Set, Tuple, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
-from deltacat.compute.stats.models.delta_stats import DeltaStats
+import ray
 from ray.types import ObjectRef
 
+from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.compute.stats.models.delta_stats_cache_result import DeltaStatsCacheResult
 from deltacat.compute.stats.models.stats_result import StatsResult
 from deltacat.compute.stats.types import StatsType
+from deltacat.compute.stats.utils.intervals import DeltaRange, merge_intervals
 from deltacat.compute.stats.utils.io import (
-    read_cached_delta_stats,
     cache_delta_column_stats,
     get_delta_stats,
     get_deltas_from_range,
+    read_cached_delta_stats,
 )
-from deltacat.compute.stats.utils.intervals import merge_intervals, DeltaRange
-
-from deltacat.storage import PartitionLocator, DeltaLocator, Delta
+from deltacat.storage import Delta, DeltaLocator, PartitionLocator
 from deltacat.storage import interface as unimplemented_deltacat_storage
-
 
 # TODO (ricmiyam): Decouple DeltaCAT from S3-based paths
 # TODO (ricmiyam): Determine cache eviction policy

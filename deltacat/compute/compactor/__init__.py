@@ -12,7 +12,6 @@ from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteRe
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 from deltacat.compute.compactor.model.sort_key import SortKey, SortOrder
 
-
 __all__ = [
     "DeltaAnnotated",
     "DeltaFileEnvelope",

@@ -1,6 +1,5 @@
 import logging
 from collections import defaultdict
-from itertools import repeat
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -23,15 +22,7 @@ from deltacat.compute.compactor import (
 from deltacat.compute.compactor.utils import primary_key_index as pki
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
-from deltacat.storage import DeltaType
-from deltacat.compute.compactor import SortKey, SortOrder, \
-    RoundCompletionInfo, PrimaryKeyIndexVersionLocator, DeltaFileEnvelope, \
-    DeltaFileLocator, PyArrowWriteResult
-from deltacat.compute.compactor.utils import system_columns as sc, \
-    primary_key_index as pki
 from deltacat.utils.performance import timed_invocation
-
-from typing import Any, Dict, List, Optional, Tuple
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -49,13 +40,16 @@ DedupeResult = Tuple[
 
 
 def _union_primary_key_indices(
-        s3_bucket: str,
-        round_completion_info: RoundCompletionInfo,
-        hash_bucket_index: int,
-        df_envelopes_list: List[List[DeltaFileEnvelope]]) -> pa.Table:
+    s3_bucket: str,
+    round_completion_info: RoundCompletionInfo,
+    hash_bucket_index: int,
+    df_envelopes_list: List[List[DeltaFileEnvelope]],
+) -> pa.Table:
 
-    logger.info(f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
-                f"{len(df_envelopes_list)} delta file envelope lists...")
+    logger.info(
+        f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
+        f"{len(df_envelopes_list)} delta file envelope lists..."
+    )
     # read compacted input parquet files first
     # (which implicitly have older stream positions than deltas)
     hb_tables = []
@@ -71,8 +65,10 @@ def _union_primary_key_indices(
         )
         if tables:
             prior_pk_index_table = pa.concat_tables(tables)
-            logger.info(f"Number of records in prior primary index for hash bucket"
-                        f" {hash_bucket_index}: {prior_pk_index_table.num_rows}")
+            logger.info(
+                f"Number of records in prior primary index for hash bucket"
+                f" {hash_bucket_index}: {prior_pk_index_table.num_rows}"
+            )
             hb_tables.append(prior_pk_index_table)
 
     # sort by delta file stream position now instead of sorting every row later
@@ -87,7 +83,9 @@ def _union_primary_key_indices(
 
     hb_table = pa.concat_tables(hb_tables)
 
-    logger.info(f"Total records in hash bucket {hash_bucket_index} is {hb_table.num_rows}")
+    logger.info(
+        f"Total records in hash bucket {hash_bucket_index} is {hb_table.num_rows}"
+    )
     return hb_table
 
 
@@ -116,14 +114,17 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
 
 
 def _write_new_primary_key_index(
-        s3_bucket: str,
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        max_rows_per_index_file: int,
-        dedupe_task_index: int,
-        deduped_tables: List[Tuple[int, pa.Table]]) -> PyArrowWriteResult:
+    s3_bucket: str,
+    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+    max_rows_per_index_file: int,
+    dedupe_task_index: int,
+    deduped_tables: List[Tuple[int, pa.Table]],
+) -> PyArrowWriteResult:
 
-    logger.info(f"[Dedupe task index {dedupe_task_index}] Writing new deduped primary key index: "
-                f"{new_primary_key_index_version_locator}")
+    logger.info(
+        f"[Dedupe task index {dedupe_task_index}] Writing new deduped primary key index: "
+        f"{new_primary_key_index_version_locator}"
+    )
 
     pki_results = []
     for hb_index, table in deduped_tables:
@@ -137,8 +138,10 @@ def _write_new_primary_key_index(
         pki_results.append(hb_pki_result)
 
     result = PyArrowWriteResult.union(pki_results)
-    logger.info(f"[Dedupe task index {dedupe_task_index}] Wrote new deduped primary key index: "
-                f"{new_primary_key_index_version_locator}. Result: {result}")
+    logger.info(
+        f"[Dedupe task index {dedupe_task_index}] Wrote new deduped primary key index: "
+        f"{new_primary_key_index_version_locator}. Result: {result}"
+    )
     return result
 
 
@@ -148,25 +151,30 @@ def delta_file_locator_to_mat_bucket_index(
     digest = df_locator.digest()
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
+
 @ray.remote(num_returns=3)
 def dedupe(
-        compaction_artifact_s3_bucket: str,
-        round_completion_info: Optional[RoundCompletionInfo],
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        object_ids: List[Any],
-        sort_keys: List[SortKey],
-        max_records_per_index_file: int,
-        num_materialize_buckets: int,
-        dedupe_task_index: int,
-        delete_old_primary_key_index: bool) -> DedupeResult:
+    compaction_artifact_s3_bucket: str,
+    round_completion_info: Optional[RoundCompletionInfo],
+    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+    object_ids: List[Any],
+    sort_keys: List[SortKey],
+    max_records_per_index_file: int,
+    num_materialize_buckets: int,
+    dedupe_task_index: int,
+    delete_old_primary_key_index: bool,
+) -> DedupeResult:
 
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
     src_file_records_obj_refs = [
-        cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]
-    logger.info(f"[Dedupe task {dedupe_task_index}] Getting delta file envelope "
-                f"groups for {len(src_file_records_obj_refs)} object refs...")
+        cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids
+    ]
+    logger.info(
+        f"[Dedupe task {dedupe_task_index}] Getting delta file envelope "
+        f"groups for {len(src_file_records_obj_refs)} object refs..."
+    )
 
     delta_file_envelope_groups_list = ray.get(src_file_records_obj_refs)
     hb_index_to_delta_file_envelopes_list = defaultdict(list)
@@ -176,8 +184,10 @@ def dedupe(
                 hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
     src_file_id_to_row_indices = defaultdict(list)
     deduped_tables = []
-    logger.info(f"[Dedupe task {dedupe_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
-                f"dedupe rounds...")
+    logger.info(
+        f"[Dedupe task {dedupe_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
+        f"dedupe rounds..."
+    )
     for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
         logger.info(f"{dedupe_task_index}: union primary keys for hb_index: {hb_idx}")
 
@@ -186,9 +196,12 @@ def dedupe(
             s3_bucket=compaction_artifact_s3_bucket,
             round_completion_info=round_completion_info,
             hash_bucket_index=hb_idx,
-            df_envelopes_list=dfe_list)
-        logger.info(f"[Dedupe {dedupe_task_index}] Dedupe round input "
-                    f"record count: {len(table)}, took {union_time}s")
+            df_envelopes_list=dfe_list,
+        )
+        logger.info(
+            f"[Dedupe {dedupe_task_index}] Dedupe round input "
+            f"record count: {len(table)}, took {union_time}s"
+        )
 
         # sort by sort keys
         if len(sort_keys):
@@ -204,12 +217,18 @@ def dedupe(
             table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
 
         # drop duplicates by primary key hash column
-        logger.info(f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}")
+        logger.info(
+            f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
+        )
 
-        table, drop_time = timed_invocation(func=_drop_duplicates_by_primary_key_hash, table=table)
+        table, drop_time = timed_invocation(
+            func=_drop_duplicates_by_primary_key_hash, table=table
+        )
 
-        logger.info(f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
-                    f"record count: {len(table)}, took: {drop_time}s")
+        logger.info(
+            f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
+            f"record count: {len(table)}, took: {drop_time}s"
+        )
 
         deduped_tables.append((hb_idx, table))
 
@@ -265,7 +284,7 @@ def dedupe(
         new_primary_key_index_version_locator,
         max_records_per_index_file,
         dedupe_task_index,
-        deduped_tables
+        deduped_tables,
     )
 
     if delete_old_primary_key_index:
@@ -274,6 +293,4 @@ def dedupe(
             round_completion_info.primary_key_index_version_locator,
         )
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
-    return mat_bucket_to_dd_idx_obj_id, \
-        src_file_records_obj_refs, \
-        write_pki_result
+    return mat_bucket_to_dd_idx_obj_id, src_file_records_obj_refs, write_pki_result

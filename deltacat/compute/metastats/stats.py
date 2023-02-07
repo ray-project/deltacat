@@ -1,31 +1,25 @@
-import ray
 import logging
-from typing import Dict, List, Optional
 from collections import defaultdict
+from typing import Dict, List, Optional
 
-from deltacat.compute.stats.models.delta_stats import DeltaStats
-from deltacat.compute.stats.models.stats_result import StatsResult
+import ray
 from ray.types import ObjectRef
 
 from deltacat import logs
-
+from deltacat.aws import s3u as s3_utils
+from deltacat.aws.clients import client_cache
+from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.metastats.utils.io import (
-    collect_stats_by_columns,
     cache_inflation_rate_data_for_delta_stats_ready,
     cache_partition_stats_to_s3,
+    collect_stats_by_columns,
 )
-
-from deltacat.storage import PartitionLocator, DeltaLocator
-from deltacat.storage import interface as unimplemented_deltacat_storage
-
-from deltacat.aws.clients import client_cache
-from deltacat.aws import s3u as s3_utils
-
-
-from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
-
-from deltacat.compute.compactor import DeltaAnnotated
+from deltacat.compute.stats.models.delta_stats import DeltaStats
+from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
+from deltacat.compute.stats.models.stats_result import StatsResult
+from deltacat.storage import DeltaLocator, PartitionLocator
+from deltacat.storage import interface as unimplemented_deltacat_storage
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

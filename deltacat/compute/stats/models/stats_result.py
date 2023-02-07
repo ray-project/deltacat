@@ -1,10 +1,10 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Optional, List, Set, Dict, Any
-
 from collections import defaultdict
-from deltacat.compute.stats.types import StatsType, ALL_STATS_TYPES
+from typing import Any, Dict, List, Optional, Set
+
+from deltacat.compute.stats.types import ALL_STATS_TYPES, StatsType
 
 
 class StatsResult(dict):

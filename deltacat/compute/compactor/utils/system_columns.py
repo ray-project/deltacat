@@ -1,10 +1,11 @@
-import pyarrow as pa
-import numpy as np
 from itertools import repeat
 from typing import Union
 
-from deltacat.storage import DeltaType
+import numpy as np
+import pyarrow as pa
+
 from deltacat.compute.compactor import DeltaFileEnvelope
+from deltacat.storage import DeltaType
 
 _SYS_COL_UUID = "4000f124-dfbd-48c6-885b-7b22621a6d41"
 
@@ -248,11 +249,13 @@ def append_is_source_col(table: pa.Table, booleans) -> pa.Table:
 
 
 def get_minimal_hb_schema() -> pa.schema:
-    return pa.schema([
-        _PK_HASH_COLUMN_FIELD,
-        _ORDERED_RECORD_IDX_COLUMN_FIELD,
-        _ORDERED_FILE_IDX_COLUMN_FIELD,
-        _PARTITION_STREAM_POSITION_COLUMN_FIELD,
-        _DELTA_TYPE_COLUMN_FIELD,
-        _IS_SOURCE_COLUMN_FIELD
-    ])
+    return pa.schema(
+        [
+            _PK_HASH_COLUMN_FIELD,
+            _ORDERED_RECORD_IDX_COLUMN_FIELD,
+            _ORDERED_FILE_IDX_COLUMN_FIELD,
+            _PARTITION_STREAM_POSITION_COLUMN_FIELD,
+            _DELTA_TYPE_COLUMN_FIELD,
+            _IS_SOURCE_COLUMN_FIELD,
+        ]
+    )

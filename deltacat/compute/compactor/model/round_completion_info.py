@@ -1,13 +1,13 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import DeltaLocator
-from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
+from typing import Any, Dict
+
 from deltacat.compute.compactor.model.primary_key_index import (
     PrimaryKeyIndexVersionLocator,
 )
-
-from typing import Any, Dict
+from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
+from deltacat.storage import DeltaLocator
 
 
 class RoundCompletionInfo(dict):
