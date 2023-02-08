@@ -34,8 +34,6 @@ from deltacat.utils.pyarrow import (
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-PA_SORT_KEYS = [(sc._DEDUPE_TASK_IDX_COLUMN_NAME, "ascending")]
-
 @ray.remote
 def materialize(
         source_partition_locator: PartitionLocator,
@@ -54,12 +52,6 @@ def materialize(
         logger.debug(f"Concatenating {len(compacted_tables)} compacted tables"
                      f" with total size: {compacted_tables_size} bytes")
         compacted_table = pa.concat_tables(compacted_tables)
-        compacted_table = compacted_table.take(
-            pc.sort_indices(compacted_table, sort_keys=PA_SORT_KEYS),
-        )
-        compacted_table = compacted_table.drop(
-            [sc._DEDUPE_TASK_IDX_COLUMN_NAME]
-        )
 
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
             # TODO (ricmiyam): Investigate if we still need to convert this table to pandas DataFrame
@@ -167,16 +159,6 @@ def materialize(
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
         pa_table = pa_table.filter(mask)
-
-        # appending, sorting, taking, and dropping has 2-3X latency of a
-        # single filter on average, and thus provides better average
-        # performance than repeatedly filtering the table in dedupe task index
-        # order
-        dedupe_task_indices = chain.from_iterable(dedupe_task_idx_iter_tpl)
-        pa_table = sc.append_dedupe_task_idx_col(
-            pa_table,
-            dedupe_task_indices,
-        )
 
         if remainder_tables:
             assert prev_remainder_record_count < max_records_per_output_file, \
