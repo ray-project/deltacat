@@ -1,7 +1,7 @@
 import logging
 import functools
 import ray
-
+import time
 from collections import defaultdict
 
 from deltacat import logs
@@ -138,6 +138,7 @@ def _execute_compaction_round(
         -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
 
 
+    pre_hb_start = time.time()
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
         #  with normalized manifest entry sizes
@@ -294,6 +295,8 @@ def _execute_compaction_round(
                     f"{source_partition_locator}. Primary key index locator: "
                     f"{compatible_primary_key_index_locator}")
 
+    hb_start = time.time()
+    print(f"pre hb took {hb_start - pre_hb_start}")
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
     hb_tasks_pending = invoke_parallel(
@@ -315,7 +318,7 @@ def _execute_compaction_round(
         for hash_group_index, object_id in enumerate(hash_group_idx_to_obj_id):
             if object_id:
                 all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
-    hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
+    hash_group_count = len(all_hash_group_idx_to_obj_id)
     logger.info(f"Hash bucket groups created: {hash_group_count}")
 
     # TODO (pdames): when resources are freed during the last round of hash
@@ -356,6 +359,8 @@ def _execute_compaction_round(
         new_primary_key_index_version_meta)
 
 
+    dd_start = time.time()
+    print(f"hb took {dd_start - hb_start}")
     # parallel step 2:
     # discover records with duplicate primary keys in each hash bucket, and
     # identify the index of records to keep or drop based on sort keys
@@ -401,6 +406,8 @@ def _execute_compaction_round(
     # TODO(pdames): garbage collect hash bucket output since it's no longer
     #  needed
 
+    mat_start = time.time()
+    print(f"dd took {mat_start - dd_start}")
     # parallel step 3:
     # materialize records to keep by index
     mat_tasks_pending = invoke_parallel(
@@ -429,27 +436,28 @@ def _execute_compaction_round(
     merged_delta = Delta.merge_deltas(deltas)
     compacted_delta = deltacat_storage.commit_delta(merged_delta)
     logger.info(f"Committed compacted delta: {compacted_delta}")
-
+    mat_end = time.time()
+    print(f"mat took {mat_end - mat_start}")
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
     )
 
-    round_completion_info = RoundCompletionInfo.of(
-        last_stream_position_compacted,
-        new_compacted_delta_locator,
-        PyArrowWriteResult.union([m.pyarrow_write_result
-                                  for m in mat_results]),
-        PyArrowWriteResult.union(pki_stats),
-        bit_width_of_sort_keys,
-        new_pki_version_locator,
-    )
-    rcf.write_round_completion_file(
-        compaction_artifact_s3_bucket,
-        source_partition_locator,
-        new_primary_key_index_root_path,
-        round_completion_info,
-    )
+    # round_completion_info = RoundCompletionInfo.of(
+    #     last_stream_position_compacted,
+    #     new_compacted_delta_locator,
+    #     PyArrowWriteResult.union([m.pyarrow_write_result
+    #                               for m in mat_results]),
+    #     PyArrowWriteResult.union(pki_stats),
+    #     bit_width_of_sort_keys,
+    #     new_pki_version_locator,
+    # )
+    # rcf.write_round_completion_file(
+    #     compaction_artifact_s3_bucket,
+    #     source_partition_locator,
+    #     new_primary_key_index_root_path,
+    #     round_completion_info,
+    # )
     logger.info(f"partition-{source_partition_locator.partition_values},compacted at:{last_stream_position_compacted}, last position:{last_stream_position_to_compact}")
     return \
         (last_stream_position_compacted < last_stream_position_to_compact), \

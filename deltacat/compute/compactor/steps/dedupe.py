@@ -257,19 +257,20 @@ def dedupe(
     logger.info(f"Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
-    write_pki_result: PyArrowWriteResult = _write_new_primary_key_index(
-        compaction_artifact_s3_bucket,
-        new_primary_key_index_version_locator,
-        max_records_per_index_file,
-        dedupe_task_index,
-        deduped_tables
-    )
+    # write_pki_result: PyArrowWriteResult = _write_new_primary_key_index(
+    #     compaction_artifact_s3_bucket,
+    #     new_primary_key_index_version_locator,
+    #     max_records_per_index_file,
+    #     dedupe_task_index,
+    #     deduped_tables
+    # )
+    write_pki_result = None
 
-    if delete_old_primary_key_index:
-        pki.delete_primary_key_index_version(
-            compaction_artifact_s3_bucket,
-            round_completion_info.primary_key_index_version_locator,
-        )
+    # if delete_old_primary_key_index:
+    #     pki.delete_primary_key_index_version(
+    #         compaction_artifact_s3_bucket,
+    #         round_completion_info.primary_key_index_version_locator,
+    #     )
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
     return mat_bucket_to_dd_idx_obj_id, \
         src_file_records_obj_refs, \
