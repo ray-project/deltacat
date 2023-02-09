@@ -1,6 +1,4 @@
-import logging
-import ray
-import pyarrow as pa
+import logging,time
 
 from collections import defaultdict
 from itertools import chain, repeat
@@ -91,7 +89,7 @@ def materialize(
         )
         logger.info(f"Materialize result: {materialize_result}")
         return materialize_result
-
+    mat_step1_start = time.time()
     logger.info(f"Starting materialize task...")
     dedupe_task_idx_and_obj_ref_tuples = [
         (
@@ -117,9 +115,16 @@ def materialize(
     compacted_tables = []
     materialized_results: List[MaterializeResult] = []
     total_record_count = 0
+    mat_step1_end = time.time()
+    logger.info(f"adhoc mat step 1 {mat_step1_end - mat_step1_start}")
+    mat_step2_download_total = 0
+    mat_step2_filter_total = 0
+    mat_step2_materialize_total = 0
+    mat_step2_start = time.time()
     for src_dfl in sorted(all_src_file_records.keys()):
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
+
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
             *record_numbers_dd_task_idx_tpl_list
         )
@@ -149,11 +154,13 @@ def materialize(
         elif schema is not None:
             read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
                 schema=schema)
+        mat_step2_download_start = time.time()
         pa_table = deltacat_storage.download_delta_manifest_entry(
             Delta.of(delta_locator, None, None, None, manifest),
             src_file_idx_np.item(),
             file_reader_kwargs_provider=read_kwargs_provider,
         )
+        mat_step2_download_total += time.time() - mat_step2_download_start
         record_count = len(pa_table)
         mask_pylist = list(repeat(False, record_count))
         record_numbers = chain.from_iterable(record_numbers_tpl)
@@ -162,7 +169,9 @@ def materialize(
         for record_number in record_numbers:
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
+        mat_step2_filter_start = time.time()
         pa_table = pa_table.filter(mask)
+        mat_step2_filter_total += time.time() - mat_step2_filter_start
 
         # appending, sorting, taking, and dropping has 2-3X latency of a
         # single filter on average, and thus provides better average
@@ -184,16 +193,18 @@ def materialize(
         # Write manifests up to max_records_per_output_file
         # TODO(raghumdani): Write exactly the same number of records into each file to
         # produce a read-optimized view of the tables.
+        mat_step2_materialize_start = time.time()
         if compacted_tables and \
                 total_record_count + record_count > max_records_per_output_file:
             materialized_results.append(_materialize(compacted_tables, total_record_count))
             # Free up written tables in memory
             compacted_tables.clear()
             total_record_count = 0
-
+        mat_step2_materialize_total += time.time() - mat_step2_materialize_start
         total_record_count += record_count
         compacted_tables.append(pa_table)
-
+    mat_step2_end = time.time()
+    logger.info(f"adhoc mat step 2 total {mat_step2_end - mat_step2_start}, download {mat_step2_download_total}, filter {mat_step2_filter_total}, mat {mat_step2_materialize_total}")
     materialized_results.append(_materialize(compacted_tables, total_record_count))
     # Free up written tables in memory
     compacted_tables.clear()

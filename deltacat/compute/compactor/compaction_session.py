@@ -438,10 +438,10 @@ def _execute_compaction_round(
     logger.info(f"Committed compacted delta: {compacted_delta}")
     mat_end = time.time()
     print(f"mat took {mat_end - mat_start}")
-    new_compacted_delta_locator = DeltaLocator.of(
-        new_compacted_partition_locator,
-        compacted_delta.stream_position,
-    )
+    # new_compacted_delta_locator = DeltaLocator.of(
+    #     new_compacted_partition_locator,
+    #     compacted_delta.stream_position,
+    # )
 
     # round_completion_info = RoundCompletionInfo.of(
     #     last_stream_position_compacted,

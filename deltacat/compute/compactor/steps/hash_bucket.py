@@ -2,6 +2,7 @@ import ray
 import pyarrow as pa
 import numpy as np
 import logging
+import time
 
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from itertools import chain
@@ -81,12 +82,15 @@ def _group_file_records_by_pk_hash_bucket(
         -> Optional[DeltaFileEnvelopeGroups]:
 
     # read input parquet s3 objects into a list of delta file envelopes
+    _read_delta_file_envelopes_start = time.time()
     delta_file_envelopes = _read_delta_file_envelopes(
         annotated_delta,
         primary_keys,
         sort_key_names,
         deltacat_storage,
     )
+    _read_delta_file_envelopes_end = time.time()
+    logger.info(f"adhoc hb_step 1_1 _read_delta_file_envelopes {_read_delta_file_envelopes_end-_read_delta_file_envelopes_start}")
     if delta_file_envelopes is None:
         return None
 
@@ -108,6 +112,8 @@ def _group_file_records_by_pk_hash_bucket(
                         dfe.file_index,
                         dfe.delta_type,
                         table))
+    logger.info(f"adhoc hb_step 1_2 hb_to_delta_file_envelopes {time.time()-_read_delta_file_envelopes_end}")
+
     return hb_to_delta_file_envelopes
 
 def _read_delta_file_envelopes(
@@ -155,6 +161,7 @@ def hash_bucket(
 
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [key.key_name for key in sort_keys]
+    group_file_records_start = time.time()
     delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,
@@ -162,10 +169,14 @@ def hash_bucket(
         sort_key_names,
         deltacat_storage,
     )
+    group_file_records_end = time.time()
+    logger.info(f"adhoc hb_step 1 group_file_record by pk hash bucket {group_file_records_end - group_file_records_start}")
     hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(
         delta_file_envelope_groups,
         num_buckets,
         num_groups,
     )
+    group_hash_bucket_indices_end = time.time()
+    logger.info(f"adhoc hb_step 2 group hash bucket indices {group_hash_bucket_indices_end - group_file_records_end}")
     logger.info(f"Finished hash bucket task...")
     return hash_bucket_group_to_obj_id, object_refs
