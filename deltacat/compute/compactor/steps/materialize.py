@@ -32,7 +32,7 @@ from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowCsvPureUtf8,
-    ReadKwargsProviderPyArrowSchemaOverride, slice_table_generator,
+    ReadKwargsProviderPyArrowSchemaOverride
 )
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -62,12 +62,13 @@ def materialize(
                 zero_copy_only=True
             )
             compacted_table = df
-        delta, stage_delta_time = timed_invocation(deltacat_storage.stage_delta,
-                                                   compacted_table,
-                                                   partition,
-                                                   max_records_per_entry=max_records_per_output_file,
-                                                   content_type=compacted_file_content_type,
-                                                   )
+        delta, stage_delta_time = timed_invocation(
+            deltacat_storage.stage_delta,
+            compacted_table,
+            partition,
+            max_records_per_entry=max_records_per_output_file,
+            content_type=compacted_file_content_type,
+        )
         compacted_tables_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table)
         logger.debug(f"Time taken for materialize task {materialize_task_id}"
                      f" to upload {len(compacted_table)} records"
@@ -93,7 +94,7 @@ def materialize(
         logger.info(f"Materialize result: {materialize_result}")
         return materialize_result
 
-    # TODO (ricmiyam): Remove this for proper impl. of https://github.com/ray-project/deltacat/issues/62
+    # TODO (ricmiyam): Update this for full implementation of https://github.com/ray-project/deltacat/issues/62
     materialize_task_id = get_runtime_context().get_task_id()
     logger.info(f"Starting materialize task {materialize_task_id}...")
     start = time.time()
@@ -120,7 +121,7 @@ def materialize(
     manifest_cache = {}
     remainder_tables = []
     materialized_results: List[MaterializeResult] = []
-    prev_remainder_record_count = 0
+    remainder_record_count = 0
     for src_dfl in sorted(all_src_file_records.keys()):
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
@@ -172,41 +173,46 @@ def materialize(
         pa_table = pa_table.filter(mask)
 
         if remainder_tables:
-            assert prev_remainder_record_count < max_records_per_output_file, \
+            assert remainder_record_count < max_records_per_output_file, \
                 f"Total records in previous remainder should not exceed {max_records_per_output_file}."
 
             # Skip materializing tables until we have reached 'max_records_per_output_file'
-            if prev_remainder_record_count + len(pa_table) < max_records_per_output_file:
+            if remainder_record_count + len(pa_table) < max_records_per_output_file:
                 remainder_tables.append(pa_table)
-                prev_remainder_record_count += len(pa_table)
+                remainder_record_count += len(pa_table)
                 continue
 
             # 'max_records_per_output_file' will be exceeded with the
             #  current file's records + previous remainder records.
-            records_to_fit = new_file_record_offset = max_records_per_output_file - prev_remainder_record_count
+            records_to_fit = max_records_per_output_file - remainder_record_count
             fitted_table = pa_table.slice(length=records_to_fit)
             remainder_tables.append(fitted_table)
-            remainder_records = sum([len(tbl) for tbl in remainder_tables])
-            assert max_records_per_output_file == remainder_records, \
-                f"Expected previous remainder records + partial records of current table" \
-                f" to be fitted to {max_records_per_output_file}, but got {remainder_records} instead."
+
+            # Chop off records that are already written to disk
+            pa_table = pa_table.slice(offset=records_to_fit)
+
+        record_count = len(pa_table)
+        assert record_count > 0, f"Expected non-empty compacted PyArrow table"
+        record_multiplier, leftover = \
+            record_count // max_records_per_output_file, record_count % max_records_per_output_file
+
+        # Pack as many records divisible by max_records_per_output_file into one stage delta call
+        if record_multiplier > 0:
+            fitted_remainder_table = pa_table.slice(length=record_multiplier * max_records_per_output_file)
+            remainder_tables.append(fitted_remainder_table)
+
+        if remainder_tables:
+            # Materialize tables up to this point which are divisible by max_records_per_output_file
             materialized_results.append(_materialize(remainder_tables))
             # Free up written tables in memory
             remainder_tables.clear()
-            prev_remainder_record_count = 0
+            remainder_record_count = 0
 
-            # Update the starting record offset of the current file
-            if new_file_record_offset < len(pa_table):
-                pa_table = pa_table.slice(offset=new_file_record_offset)
-                assert len(pa_table), f"Expected non-empty table after slicing by {max_records_per_output_file}"
-
-        # Slice the table into 'max_records_per_output_file' chunks.
-        for sliced_table in slice_table_generator(pa_table, max_records_per_output_file):
-            if len(sliced_table) == max_records_per_output_file:
-                materialized_results.append(_materialize([sliced_table]))
-            else:
-                remainder_tables.append(sliced_table)
-                prev_remainder_record_count += len(sliced_table)
+        # Add any leftovers (less than max_records_per_output_file) to the remainder list after packing
+        if leftover > 0:
+            leftover_table = pa_table.slice(offset=record_multiplier * max_records_per_output_file)
+            remainder_tables.append(leftover_table)
+            remainder_record_count += len(leftover_table)
 
     if remainder_tables:
         materialized_results.append(_materialize(remainder_tables))

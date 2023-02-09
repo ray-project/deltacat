@@ -133,31 +133,6 @@ def slice_table(
     return tables
 
 
-def slice_table_generator(
-        table: pa.Table,
-        max_len: int) -> Generator[pa.Table, None, None]:
-    """
-    Generator for creating 0-copy table slices.
-
-    Args:
-        table: PyArrow table to slice. If the table is empty, no values are yielded
-        max_len: The size of each sliced table.
-
-    Returns: a generator of PyArrow tables
-
-    """
-    offset = 0
-    records_remaining = len(table)
-    while records_remaining > 0:
-        records_this_entry = min(
-            max_len,
-            records_remaining
-        )
-        yield table.slice(offset, records_this_entry)
-        records_remaining -= records_this_entry
-        offset += records_this_entry
-
-
 class ReadKwargsProviderPyArrowCsvPureUtf8(ContentTypeKwargsProvider):
     """ReadKwargsProvider impl that reads columns of delimited text files
     as UTF-8 strings (i.e. disables type inference). Useful for ensuring
