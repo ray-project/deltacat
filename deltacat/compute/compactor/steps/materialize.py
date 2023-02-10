@@ -121,10 +121,12 @@ def materialize(
     mat_step2_filter_total = 0
     mat_step2_materialize_total = 0
     mat_step2_start = time.time()
+    current_mat_file_processed=0
+    current_mat_file_untouched=0
     for src_dfl in sorted(all_src_file_records.keys()):
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
-
+        current_mat_file_processed+=1
         record_numbers_tpl, dedupe_task_idx_iter_tpl = zip(
             *record_numbers_dd_task_idx_tpl_list
         )
@@ -164,6 +166,9 @@ def materialize(
         record_count = len(pa_table)
         mask_pylist = list(repeat(False, record_count))
         record_numbers = chain.from_iterable(record_numbers_tpl)
+        if record_count == len(record_numbers):
+            current_mat_file_untouched+=1
+        logger.info(f"adhoc record to keep {len(record_numbers)}, original table has {record_count}")
         # TODO(raghumdani): reference the same file URIs while writing the files
         # instead of copying the data over and creating new files. 
         for record_number in record_numbers:
@@ -204,7 +209,7 @@ def materialize(
         total_record_count += record_count
         compacted_tables.append(pa_table)
     mat_step2_end = time.time()
-    logger.info(f"adhoc mat step 2 total {mat_step2_end - mat_step2_start}, download {mat_step2_download_total}, filter {mat_step2_filter_total}, mat {mat_step2_materialize_total}")
+    logger.info(f"adhoc mat step 2 total {mat_step2_end - mat_step2_start}, total file {current_mat_file_processed},un-touched {current_mat_file_untouched} download {mat_step2_download_total}, filter {mat_step2_filter_total}, mat {mat_step2_materialize_total}")
     materialized_results.append(_materialize(compacted_tables, total_record_count))
     # Free up written tables in memory
     compacted_tables.clear()

@@ -17,7 +17,7 @@ from deltacat.types.media import StorageType
 from deltacat.utils.common import sha1_digest
 from deltacat.compute.compactor.utils import system_columns as sc
 
-from typing import List, Optional, Generator, Tuple
+from typing import List, Optional, Generator, Tuple, Union
 
 from ray.types import ObjectRef
 
@@ -82,15 +82,15 @@ def _group_file_records_by_pk_hash_bucket(
         -> Optional[DeltaFileEnvelopeGroups]:
 
     # read input parquet s3 objects into a list of delta file envelopes
-    _read_delta_file_envelopes_start = time.time()
-    delta_file_envelopes = _read_delta_file_envelopes(
+    start = time.time()
+    delta_file_envelopes, total_unique_files = _read_delta_file_envelopes(
         annotated_delta,
         primary_keys,
         sort_key_names,
         deltacat_storage,
     )
-    _read_delta_file_envelopes_end = time.time()
-    logger.info(f"adhoc hb_step 1_1 _read_delta_file_envelopes {_read_delta_file_envelopes_end-_read_delta_file_envelopes_start}")
+    end = time.time()
+    logger.info(f"adhoc hb inside group_file_records read {total_unique_files} files in {end - start}")
     if delta_file_envelopes is None:
         return None
 
@@ -112,7 +112,7 @@ def _group_file_records_by_pk_hash_bucket(
                         dfe.file_index,
                         dfe.delta_type,
                         table))
-    logger.info(f"adhoc hb_step 1_2 hb_to_delta_file_envelopes {time.time()-_read_delta_file_envelopes_end}")
+    logger.info(f"adhoc hb inside group_file_records hb_to_delta_file_envelopes {time.time()-end}")
 
     return hb_to_delta_file_envelopes
 
@@ -121,7 +121,7 @@ def _read_delta_file_envelopes(
         primary_keys: List[str],
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
-        -> Optional[List[DeltaFileEnvelope]]:
+        -> Optional[Union[List[DeltaFileEnvelope],int]]:
 
     columns_to_read = list(chain(primary_keys, sort_key_names))
     tables = deltacat_storage.download_delta(
@@ -131,14 +131,21 @@ def _read_delta_file_envelopes(
         storage_type=StorageType.LOCAL,
     )
     annotations = annotated_delta.annotations
-    assert(len(tables) == len(annotations),
-           f"Unexpected Error: Length of downloaded delta manifest tables "
-           f"({len(tables)}) doesn't match the length of delta manifest "
-           f"annotations ({len(annotations)}).")
+    if isinstance(tables,ray.data.Dataset):
+        assert(tables.count() == len(annotations),
+               f"Unexpected Error: Length of downloaded delta manifest tables "
+               f"({tables.count()}) doesn't match the length of delta manifest "
+               f"annotations ({len(annotations)}).")
+    else:
+        assert(len(tables) == len(annotations),
+               f"Unexpected Error: Length of downloaded delta manifest tables "
+               f"({len(tables)}) doesn't match the length of delta manifest "
+               f"annotations ({len(annotations)}).")
     if not tables:
         return None
 
     delta_file_envelopes = []
+    files_index = []
     for i, table in enumerate(tables):
         delta_file = DeltaFileEnvelope.of(
             annotations[i].annotation_stream_position,
@@ -146,8 +153,10 @@ def _read_delta_file_envelopes(
             annotations[i].annotation_delta_type,
             table,
         )
+        files_index.append(annotations[i].annotation_file_index)
         delta_file_envelopes.append(delta_file)
-    return delta_file_envelopes
+    total_unique_files = len(set(files_index))
+    return delta_file_envelopes, total_unique_files
 
 
 @ray.remote(num_returns=2)
@@ -161,7 +170,7 @@ def hash_bucket(
 
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [key.key_name for key in sort_keys]
-    group_file_records_start = time.time()
+    start = time.time()
     delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,
@@ -169,14 +178,13 @@ def hash_bucket(
         sort_key_names,
         deltacat_storage,
     )
-    group_file_records_end = time.time()
-    logger.info(f"adhoc hb_step 1 group_file_record by pk hash bucket {group_file_records_end - group_file_records_start}")
+    end = time.time()
+    logger.info(f"adhoc hash bucket profiling group_file_record {end - start}, "
+                f"number of tables {len(annotated_delta.annotations)}")
     hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(
         delta_file_envelope_groups,
         num_buckets,
         num_groups,
     )
-    group_hash_bucket_indices_end = time.time()
-    logger.info(f"adhoc hb_step 2 group hash bucket indices {group_hash_bucket_indices_end - group_file_records_end}")
     logger.info(f"Finished hash bucket task...")
     return hash_bucket_group_to_obj_id, object_refs

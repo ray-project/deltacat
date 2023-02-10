@@ -242,9 +242,17 @@ def _execute_compaction_round(
     # discover input delta files
     high_watermark = round_completion_info.high_watermark \
         if round_completion_info else None
-
+    #source table deltas, with high_watermark
     input_deltas = io.discover_deltas(
         source_partition_locator,
+        high_watermark,
+        last_stream_position_to_compact,
+        deltacat_storage,
+    )
+
+    #spark or ray compacted table
+    input_deltas_compacted = io.discover_deltas(
+        compacted_partition_locator,
         high_watermark,
         last_stream_position_to_compact,
         deltacat_storage,
@@ -361,6 +369,7 @@ def _execute_compaction_round(
 
     dd_start = time.time()
     print(f"hb took {dd_start - hb_start}")
+    return False, None, None
     # parallel step 2:
     # discover records with duplicate primary keys in each hash bucket, and
     # identify the index of records to keep or drop based on sort keys
