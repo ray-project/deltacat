@@ -1,13 +1,13 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import DeltaLocator
+from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import \
     PyArrowWriteResult
 from deltacat.compute.compactor.model.primary_key_index import \
     PrimaryKeyIndexVersionLocator
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class RoundCompletionInfo(dict):
@@ -17,7 +17,8 @@ class RoundCompletionInfo(dict):
            compacted_pyarrow_write_result: PyArrowWriteResult,
            pk_index_pyarrow_write_result: PyArrowWriteResult,
            sort_keys_bit_width: int,
-           primary_key_index_version_locator: PrimaryKeyIndexVersionLocator) \
+           primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+           rebase_source_partition_locator: Optional[PartitionLocator]) \
             -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -27,6 +28,7 @@ class RoundCompletionInfo(dict):
         rci["pkIndexPyarrowWriteResult"] = pk_index_pyarrow_write_result
         rci["sortKeysBitWidth"] = sort_keys_bit_width
         rci["primaryKeyIndexVersionLocator"] = primary_key_index_version_locator
+        rci["rebaseSourcePartitionLocator"] = rebase_source_partition_locator
         return rci
 
     @property
@@ -67,3 +69,7 @@ class RoundCompletionInfo(dict):
             self["primaryKeyIndexVersionLocator"] = val = \
                 PrimaryKeyIndexVersionLocator(val)
         return val
+
+    @property
+    def rebase_source_partition_locator(self) -> Optional[PartitionLocator]:
+        return self.get("rebaseSourcePartitionLocator")

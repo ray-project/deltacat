@@ -124,6 +124,7 @@ def rehash(
         PyArrowWriteResult.union(pki_stats),
         old_rci.sort_keys_bit_width,
         rehashed_pki_version_locator,
+        old_rci.rebase_source_partition_locator,
     )
     rcf.write_round_completion_file(
         s3_bucket,
