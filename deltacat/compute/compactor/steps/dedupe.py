@@ -95,7 +95,7 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
     op_type_np = sc.delta_type_column_np(table)
 
     assert len(pk_hash_np) == len(op_type_np), \
-            "Both pk hash and delta type should have equal length"
+            f"Primary key digest column length ({len(pk_hash_np)}) doesn't match delta type column length ({len(op_type_np)})."
 
     for row_idx in range(len(pk_hash_np)):
         pk_val = pk_hash_np[row_idx]
