@@ -98,6 +98,7 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
             f"Primary key digest column length ({len(pk_hash_np)}) doesn't " \
             f"match delta type column length ({len(op_type_np)})."
 
+    # TODO(raghumdani): move the dedupe to C++ using arrow methods or similar. 
     row_idx = 0
     pk_op_val_iter = zip(pk_hash_np, op_type_np)
     for (pk_val, op_val) in pk_op_val_iter:
