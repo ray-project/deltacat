@@ -95,11 +95,12 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
     op_type_np = sc.delta_type_column_np(table)
 
     assert len(pk_hash_np) == len(op_type_np), \
-            f"Primary key digest column length ({len(pk_hash_np)}) doesn't match delta type column length ({len(op_type_np)})."
+            f"Primary key digest column length ({len(pk_hash_np)}) doesn't " \
+            f"match delta type column length ({len(op_type_np)})."
 
-    for row_idx in range(len(pk_hash_np)):
-        pk_val = pk_hash_np[row_idx]
-        op_val = op_type_np[row_idx]
+    row_idx = 0
+    pk_op_val_iter = zip(pk_hash_np, op_type_np)
+    for (pk_val, op_val) in pk_op_val_iter:
 
         # operation type is True for `UPSERT` and False for `DELETE`
         if op_val:
