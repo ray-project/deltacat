@@ -49,12 +49,14 @@ def materialize(
         compacted_file_content_type: ContentType,
         schema: Optional[pa.Schema] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
+    # TODO (rkenmi): Add docstrings for the steps in the compaction workflow
+    #  https://github.com/ray-project/deltacat/issues/79
     def _materialize(
             compacted_tables: List[pa.Table]) -> MaterializeResult:
         compacted_table = pa.concat_tables(compacted_tables)
 
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
-            # TODO (ricmiyam): Investigate if we still need to convert this table to pandas DataFrame
+            # TODO (rkenmi): Investigate if we still need to convert this table to pandas DataFrame
             # TODO (pdames): compare performance to pandas-native materialize path
             df = compacted_table.to_pandas(
                 split_blocks=True,
