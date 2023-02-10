@@ -74,10 +74,11 @@ def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
 def pk_hash_column_np(table: pa.Table) -> np.ndarray:
     return table[_PK_HASH_COLUMN_NAME].to_numpy()
 
-
 def pk_hash_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_PK_HASH_COLUMN_NAME]
 
+def delta_type_column_np(table: pa.Table) -> np.ndarray:
+    return table[_DELTA_TYPE_COLUMN_NAME].to_numpy()
 
 def delta_type_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_DELTA_TYPE_COLUMN_NAME]
