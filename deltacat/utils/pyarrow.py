@@ -18,7 +18,7 @@ from deltacat.types.media import ContentType, ContentEncoding, \
 from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
 from deltacat.utils.performance import timed_invocation
 
-from typing import Any, Callable, Dict, List, Optional, Iterable, Union, Generator
+from typing import Any, Callable, Dict, List, Optional, Iterable, Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
