@@ -39,8 +39,8 @@ def check_preconditions(
 
     assert source_partition_locator.partition_values \
            == compacted_partition_locator.partition_values, \
-        "In-place compaction must use the same partition values for the " \
-        "source and destination."
+           "In-place compaction must use the same partition values for the " \
+           "source and destination."
     assert max_records_per_output_file >= 1, \
         "Max records per output file must be a positive value"
     if new_hash_bucket_count is not None:
@@ -55,7 +55,7 @@ def check_preconditions(
 
 def compact_partition(
         source_partition_locator: PartitionLocator,
-        compacted_partition_locator: PartitionLocator,
+        destination_partition_locator: PartitionLocator,
         primary_keys: Set[str],
         compaction_artifact_s3_bucket: str,
         last_stream_position_to_compact: int,
@@ -73,17 +73,18 @@ def compact_partition(
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         rebase_source_partition_locator: Optional[PartitionLocator] = None,
         rebase_source_partition_high_watermark: Optional[int] = None,
-        deltacat_storage=unimplemented_deltacat_storage):
+        deltacat_storage=unimplemented_deltacat_storage) -> Optional[str]:
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
     partition = None
     compaction_rounds_executed = 0
     has_next_compaction_round = True
+    new_rcf_s3_url = None
     while has_next_compaction_round:
-        has_next_compaction_round, new_partition, new_rci = \
+        has_next_compaction_round, new_partition, new_rci, new_rcf_s3_url = \
             _execute_compaction_round(
                 source_partition_locator,
-                compacted_partition_locator,
+                destination_partition_locator,
                 primary_keys,
                 compaction_artifact_s3_bucket,
                 last_stream_position_to_compact,
@@ -104,7 +105,7 @@ def compact_partition(
             )
         if new_partition:
             partition = new_partition
-            compacted_partition_locator = new_partition.locator
+            destination_partition_locator = new_partition.locator
             compaction_rounds_executed += 1
         # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
         if new_rci:
@@ -117,6 +118,7 @@ def compact_partition(
         partition = deltacat_storage.commit_partition(partition)
         logger.info(f"Committed compacted partition: {partition}")
     logger.info(f"Completed compaction session for: {source_partition_locator}")
+    return new_rcf_s3_url
 
 
 def _execute_compaction_round(
@@ -139,7 +141,11 @@ def _execute_compaction_round(
         rebase_source_partition_locator: Optional[PartitionLocator],
         rebase_source_partition_high_watermark: Optional[int],
         deltacat_storage=unimplemented_deltacat_storage) \
-        -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo]]:
+        -> Tuple[
+            bool,
+            Optional[Partition],
+            Optional[RoundCompletionInfo],
+            Optional[str]]:
 
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
@@ -169,23 +175,23 @@ def _execute_compaction_round(
     cluster_resources = ray.cluster_resources()
     logger.info(f"Total cluster resources: {cluster_resources}")
     node_resource_keys = None
-    if pg_config: # use resource in each placement group
+    if pg_config:  # use resource in each placement group
         cluster_resources = pg_config.resource
         cluster_cpus = cluster_resources['CPU']   
-    else: # use all cluster resource
+    else:  # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
         logger.info(f"Total cluster CPUs: {cluster_cpus}")
         node_resource_keys = live_node_resource_keys()
         logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
-                   f"{node_resource_keys}") 
+                    f"{node_resource_keys}")
 
     # create a remote options provider to round-robin tasks across all nodes or allocated bundles
     logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
     round_robin_opt_provider = functools.partial(
         round_robin_options_provider,
         resource_keys=node_resource_keys,
-        pg_config = pg_config.opts if pg_config else None
+        pg_config=pg_config.opts if pg_config else None
     )
 
     # assign a distinct index to each node in the cluster
@@ -260,7 +266,7 @@ def _execute_compaction_round(
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
-        return False, None, None
+        return False, None, None, None
 
     # limit the input deltas to fit on this cluster and convert them to
     # annotated deltas of equivalent size for easy parallel distribution
@@ -412,9 +418,9 @@ def _execute_compaction_round(
         ray_task=mat.materialize,
         max_parallelism=max_parallelism,
         options_provider=round_robin_opt_provider,
-        kwargs_provider=lambda index, mat_bucket_idx_to_obj_id: {
-            "mat_bucket_index": mat_bucket_idx_to_obj_id[0],
-            "dedupe_task_idx_and_obj_id_tuples": mat_bucket_idx_to_obj_id[1],
+        kwargs_provider=lambda index, mat_bucket_index_to_obj_id: {
+            "mat_bucket_index": mat_bucket_index_to_obj_id[0],
+            "dedupe_task_idx_and_obj_id_tuples": mat_bucket_index_to_obj_id[1],
         },
         schema=schema_on_read,
         round_completion_info=round_completion_info,
@@ -455,7 +461,7 @@ def _execute_compaction_round(
     rcf_source_partition_locator = rebase_source_partition_locator \
         if rebase_source_partition_locator \
         else source_partition_locator
-    rcf.write_round_completion_file(
+    round_completion_file_s3_url = rcf.write_round_completion_file(
         compaction_artifact_s3_bucket,
         rcf_source_partition_locator,
         new_primary_key_index_root_path,
@@ -468,5 +474,5 @@ def _execute_compaction_round(
     return \
         (last_stream_position_compacted < last_stream_position_to_compact), \
         partition, \
-        new_round_completion_info
-
+        new_round_completion_info, \
+        round_completion_file_s3_url

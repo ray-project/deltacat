@@ -11,11 +11,11 @@ Migration from your old copy-on-write CDC framework to DeltaCAT is typically
 done by first running a rebase on top of your old copy-on-write compacted
 results.
 
-A rebase allows you to run compaction from source S1 to destination D on behalf
-of source S2, where S1 and S2 can either be the same or different tables.
-More specifically, it:
-1. Discards (does not read) any prior compatible round completion info and primary key indices associated with S1/S2 and D.
-2. Writes a round completion file associated with S2 and D (including a primary key index for D and an optional rebased high watermark stream position for S1).
+A _rebase_ allows you to run compaction from source **S1** to destination **D**
+on behalf of source **S2**, where **S1** and **S2** can either be the same or
+different tables. More specifically, it:
+1. Discards (does not read) any prior compatible round completion info and primary key indices associated with **S1**/**S2** and **D**.
+2. Writes a round completion file associated with **S2** and **D** (including a primary key index for **D** and an optional rebased high watermark stream position for **S1**).
 3. Saves and propagates the last-used rebase source across all subsequent round completion files.
 
 As part of a rebase from an alternate source or as an independent operation,
@@ -28,16 +28,17 @@ copy-on-write compactor to the DeltaCAT compactor by rebasing on top of the
 results of the old copy-on-write compactor.
 
 If we assume `delta_source` refers to the table that both the old compactor and
-the new compactor will read and compact deltas from, then your first call to
+the new compactor will read and merge deltas from, then your first call to
 `compact_partition` should look something like this:
 ```python
+from deltacat.compute.compactor.compaction_session import compact_partition
 compact_partition(
-  source_partition_locator=old_compacted_partition,
-  compacted_partition_locator=deltacat_compacted_partition,
+  source_partition_locator=old_compacted_partition,  # S1
+  destination_partition_locator=deltacat_compacted_partition,  # D
   primary_keys=delta_source_primary_keys,
   compaction_artifact_s3_bucket=deltacat_s3_bucket,
   last_stream_position_to_compact=delta_source_last_stream_position,
-  rebase_source_partition_locator=delta_source_partition,
+  rebase_source_partition_locator=delta_source_partition,  # S2
   rebase_source_partition_high_watermark=delta_source_last_compacted_stream_position,
 )
 ```
@@ -49,9 +50,10 @@ Then, to compact subsequent incremental deltas from `delta_source` on top of
 `deltacat_compacted_partition`, you simply set `source_partition_locator` to
 the last rebase source:
 ```python
+from deltacat.compute.compactor.compaction_session import compact_partition
 compact_partition(
-  source_partition_locator=delta_source_partition,
-  compacted_partition_locator=deltacat_compacted_partition,
+  source_partition_locator=delta_source_partition,  # S2
+  destination_partition_locator=deltacat_compacted_partition,  # D
   primary_keys=delta_source_primary_keys,
   compaction_artifact_s3_bucket=deltacat_s3_bucket,
   last_stream_position_to_compact=delta_source_last_stream_position,
@@ -74,9 +76,10 @@ cached files were corrupted, or for testing purposes. In this case, simply set
 `source_partition_locator` and `rebase_source_partition_locator` to the same
 value:
 ```python
+from deltacat.compute.compactor.compaction_session import compact_partition
 compact_partition(
   source_partition_locator=source_partition_to_compact,
-  compacted_partition_locator=deltacat_compacted_partition,
+  destination_partition_locator=deltacat_compacted_partition,
   primary_keys=delta_source_primary_keys,
   compaction_artifact_s3_bucket=deltacat_s3_bucket,
   last_stream_position_to_compact=delta_source_last_stream_position,
@@ -92,9 +95,10 @@ up to `last_stream_position_to_compact` (inclusive).
 All subsequent incremental compactions can now run as usual by simply omitting
 `rebase_source_partition_locator`:
 ```python
+from deltacat.compute.compactor.compaction_session import compact_partition
 compact_partition(
     source_partition_locator=source_partition_to_compact,
-    compacted_partition_locator=deltacat_compacted_partition,
+    destination_partition_locator=deltacat_compacted_partition,
     primary_keys=delta_source_primary_keys,
     compaction_artifact_s3_bucket=deltacat_s3_bucket,
     last_stream_position_to_compact=delta_source_last_stream_position,
