@@ -192,7 +192,6 @@ def materialize(
             pa_table = pa_table.slice(offset=records_to_fit)
 
         record_count = len(pa_table)
-        assert record_count > 0, f"Expected non-empty compacted PyArrow table"
         record_multiplier, leftover = \
             record_count // max_records_per_output_file, record_count % max_records_per_output_file
 
