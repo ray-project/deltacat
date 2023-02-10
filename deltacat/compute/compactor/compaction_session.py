@@ -300,6 +300,7 @@ def _execute_compaction_round(
 
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
+    num_groups = max_parallelism
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
@@ -319,6 +320,11 @@ def _execute_compaction_round(
         for hash_group_index, object_id in enumerate(hash_group_idx_to_obj_id):
             if object_id:
                 all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
+
+    for hash_group_idx in range(num_groups):
+        if not all_hash_group_idx_to_obj_id[hash_group_idx]:
+            all_hash_group_idx_to_obj_id[hash_group_idx] = []
+
     hash_group_count = dedupe_task_count = len(all_hash_group_idx_to_obj_id)
     logger.info(f"Hash bucket groups created: {hash_group_count}")
 
@@ -372,8 +378,10 @@ def _execute_compaction_round(
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, item: {"dedupe_task_index": index,
                                              "object_ids": item},
+        hash_bucket_count=hash_bucket_count,
         compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
         round_completion_info=round_completion_info,
+        num_hash_groups=max_parallelism,
         new_primary_key_index_version_locator=new_pki_version_locator,
         sort_keys=sort_keys,
         max_records_per_index_file=records_per_primary_key_index_file,
@@ -450,6 +458,7 @@ def _execute_compaction_round(
         max_parallelism=max_parallelism,
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, item: {"all_hb_idx_to_tables_refs": item[1]},
+        mat_index_to_file_id_offset=mat_index_to_file_id_offset,
         compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
         new_primary_key_index_version_locator=new_pki_version_locator,
         max_records_per_index_file=records_per_primary_key_index_file

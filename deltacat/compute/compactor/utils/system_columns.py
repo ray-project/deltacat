@@ -35,6 +35,13 @@ _HASH_BUCKET_IDX_COLUMN_FIELD = pa.field(
     _HASH_BUCKET_IDX_COLUMN_TYPE
 )
 
+_MAT_BUCKET_IDX_COLUMN_NAME = _get_sys_col_name("mat_bucket_idx")
+_MAT_BUCKET_IDX_COLUMN_TYPE = pa.int32()
+_MAT_BUCKET_IDX_COLUMN_FIELD = pa.field(
+    _MAT_BUCKET_IDX_COLUMN_NAME,
+    _MAT_BUCKET_IDX_COLUMN_TYPE
+)
+
 _PARTITION_STREAM_POSITION_COLUMN_NAME = _get_sys_col_name("stream_position")
 _PARTITION_STREAM_POSITION_COLUMN_TYPE = pa.int64()
 _PARTITION_STREAM_POSITION_COLUMN_FIELD = pa.field(
@@ -115,6 +122,15 @@ def get_file_index_column_array(obj) \
         _ORDERED_FILE_IDX_COLUMN_TYPE,
     )
 
+def mat_bucket_index_column_np(table: pa.Table) -> np.ndarray:
+    return table[_MAT_BUCKET_IDX_COLUMN_NAME].to_numpy()
+
+def get_mat_bucket_index_column_array(obj) \
+        -> Union[pa.Array, pa.ChunkedArray]:
+    return pa.array(
+        obj,
+        _MAT_BUCKET_IDX_COLUMN_TYPE,
+    )
 
 def file_index_column_np(table: pa.Table) -> np.ndarray:
     return table[_ORDERED_FILE_IDX_COLUMN_NAME].to_numpy()
@@ -138,6 +154,9 @@ def is_source_column_np(table: pa.Table) -> np.ndarray:
 def hash_bucket_idx_column_np(table: pa.Table) -> np.ndarray:
     return table[_HASH_BUCKET_IDX_COLUMN_NAME].to_numpy()
 
+
+def delta_type_column_np(table: pa.Table) -> np.ndarray:
+    return table[_DELTA_TYPE_COLUMN_NAME].to_numpy()
 
 def get_delta_type_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
@@ -216,6 +235,15 @@ def append_file_idx_column(
     )
     return table
 
+def append_mat_bucket_idx_column(
+        table: pa.Table,
+        mat_bucket_indices):
+
+    table = table.append_column(
+        _MAT_BUCKET_IDX_COLUMN_FIELD,
+        get_mat_bucket_index_column_array(mat_bucket_indices)
+    )
+    return table
 
 def append_pk_hash_column(
         table: pa.Table,

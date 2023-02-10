@@ -77,6 +77,9 @@ def materialize(
         )
         manifest = delta.manifest
         manifest_records = manifest.meta.record_count
+
+        # FIXME: what if single table writes multiple files?
+        assert len(delta.manifest.entries) == 1, "This method should have written only one entry"
         assert (manifest_records == len(compacted_table),
                 f"Unexpected Error: Materialized delta manifest record count "
                 f"({manifest_records}) does not equal compacted table record count "
@@ -170,7 +173,7 @@ def materialize(
         pa_table = pa_table.filter(mask)
         record_count = len(pa_table)
 
-        assert record_count == len(record_numbers_pk_table), "Selected records must match the record numbers"
+        assert record_count == len(record_numbers_pk_table), f"Selected records must match the record numbers for {delta_locator}"
 
         logger.info(f"[Mat bucket index {mat_bucket_index}] Took total records in pa_table: {record_count}")
 
@@ -181,7 +184,9 @@ def materialize(
             pk_table = pk_table.drop([sc._ORDERED_RECORD_IDX_COLUMN_NAME])
             pk_table = sc.append_record_idx_col(pk_table, range(0, total_record_count))
             pk_table = sc.append_file_idx_column(pk_table, repeat(dest_file_idx, total_record_count))
-            # By this time table would have hash, record_index, hash_bucket_idx, file_index columns
+
+            pk_table = sc.append_mat_bucket_idx_column(pk_table, repeat(mat_bucket_index, total_record_count))
+            # By this time table would have hash, record_index, hash_bucket_idx, mat_bucket_index, file_index columns
             logger.info(f"[Mat bucket index {mat_bucket_index}] Pk table with {len(pk_table)} prepared.")
 
             result_pk_hash_tables.append(pk_table)
@@ -204,6 +209,7 @@ def materialize(
         pk_table = pk_table.drop([sc._ORDERED_RECORD_IDX_COLUMN_NAME])
         pk_table = sc.append_record_idx_col(pk_table, range(0, total_record_count))
         pk_table = sc.append_file_idx_column(pk_table, repeat(dest_file_idx, total_record_count))
+        pk_table = sc.append_mat_bucket_idx_column(pk_table, repeat(mat_bucket_index, total_record_count))
         result_pk_hash_tables.append(pk_table)
 
         logger.info(f"[Mat bucket index {mat_bucket_index}] Pk table with {len(pk_table)} prepared.")
@@ -265,6 +271,7 @@ def materialize(
     for i, group_count in enumerate(group_count_array):
         hb_idx = hb_group_array[i].as_py()
         pyarrow_table = hb_pk_table.slice(offset=prev_count, length=group_count.as_py())
+        pyarrow_table = pyarrow_table.drop([sc._HASH_BUCKET_IDX_COLUMN_NAME])
         hb_group = hb_idx % num_hash_groups
         object_ref = ray.put((hb_idx, pyarrow_table))
         pickled_object_ref = cloudpickle.dumps(object_ref)

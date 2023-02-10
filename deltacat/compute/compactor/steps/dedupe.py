@@ -112,33 +112,37 @@ def _union_primary_key_indices(
     for df_envelope in df_envelopes:
         hb_tables.append(sc.project_delta_file_metadata_on_table(df_envelope))
 
-    hb_table = pa.concat_tables(hb_tables)
-
-    logger.info(f"Total records in hash bucket {hash_bucket_index} is {hb_table.num_rows}")
-    return hb_table
+    if hb_tables:
+        hb_table = pa.concat_tables(hb_tables)
+        logger.info(f"Total records in hash bucket {hash_bucket_index} is {hb_table.num_rows}")
+        return hb_table
+    else:
+        return None
 
 
 def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
     value_to_last_row_idx = {}
-    row_idx = 0
-    pk_op_chunk_iter = zip(
-        sc.pk_hash_column(table).iterchunks(),
-        sc.delta_type_column(table).iterchunks(),
-    )
-    for (pk_chunk, op_chunk) in pk_op_chunk_iter:
-        pk_op_val_iter = zip(
-            pk_chunk.to_numpy(zero_copy_only=False),
-            op_chunk.to_numpy(zero_copy_only=False),
-        )
-        for (pk_val, op_val) in pk_op_val_iter:
-            # operation type is True for `UPSERT` and False for `DELETE`
-            if op_val:
-                # UPSERT this row
-                value_to_last_row_idx[pk_val] = row_idx
-            else:
-                # DELETE this row
-                value_to_last_row_idx.pop(pk_val, None)
-            row_idx += 1
+
+    pk_hash_np = sc.pk_hash_column_np(table)
+    op_type_np = sc.delta_type_column_np(table)
+
+    assert len(pk_hash_np) == len(op_type_np), "both pk hash and delta type should have same length"
+
+    for row_idx in range(len(pk_hash_np)):
+        pk_val = pk_hash_np[row_idx]
+        op_val = op_type_np[row_idx].item()
+
+        # operation type is True for `UPSERT` and False for `DELETE`
+        if op_val:
+            # UPSERT this row
+            value_to_last_row_idx[pk_val] = row_idx
+        else:
+            logger.info(f"Found DELETE delta type {pk_val}...")
+            # DELETE this row
+            value_to_last_row_idx.pop(pk_val, None)
+
+        row_idx += 1
+
     return table.take(list(value_to_last_row_idx.values()))
 
 @ray.remote
@@ -151,6 +155,8 @@ def dedupe(
         max_records_per_index_file: int,
         num_materialize_buckets: int,
         dedupe_task_index: int,
+        hash_bucket_count: int,
+        num_hash_groups: int,
         delete_old_primary_key_index: bool) -> DedupeResult:
 
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
@@ -169,10 +175,25 @@ def dedupe(
                 hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
     src_file_id_to_row_indices = defaultdict(list)
 
-    logger.info(f"[Dedupe task {dedupe_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
+    list_size = len(hb_index_to_delta_file_envelopes_list)
+    logger.info(f"[Dedupe task {dedupe_task_index}] Running {list_size} "
                 f"dedupe rounds...")
-    for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
-        logger.info(f"{dedupe_task_index}: union primary keys for hb_index: {hb_idx}")
+
+    logger.info(f"[Dedupe task {dedupe_task_index}] hash_bucket_count={hash_bucket_count}"
+                f" and dedupe_task_id={dedupe_task_index}")
+    for hb_idx in range(hash_bucket_count):
+        hash_group_idx = hb_idx % num_hash_groups
+
+        dfe_list = hb_index_to_delta_file_envelopes_list[hb_idx]
+
+        if (list_size == 0 and dedupe_task_index < hash_bucket_count):
+            print(f"[Dedupe task {dedupe_task_index}] hb_group_idx={hash_group_idx} num_hash_groups={num_hash_groups}, HB_idx={hb_idx} result = {hash_group_idx != dedupe_task_index}")
+
+        if hash_group_idx != dedupe_task_index:
+            assert not dfe_list, f"{hb_idx} cannot be present in {dedupe_task_index}" 
+            continue
+
+        logger.info(f"[Dedupe task {dedupe_task_index}] union primary keys for hb_index: {hb_idx} with {len(dfe_list)} dfe size")
 
         table, union_time = timed_invocation(
             func=_union_primary_key_indices,
@@ -182,6 +203,9 @@ def dedupe(
             df_envelopes_list=dfe_list)
         logger.info(f"[Dedupe {dedupe_task_index}] Dedupe round input "
                     f"record count: {len(table)}, took {union_time}s")
+
+        if table is None:
+            continue
 
         # sort by sort keys
         if len(sort_keys):
@@ -199,18 +223,24 @@ def dedupe(
             table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
 
         # drop duplicates by primary key hash column
-        logger.info(f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}")
+        if len(dfe_list):
+            logger.info(f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}")
+            #logger.info(f"[Dedupe task index {dedupe_task_index}] The non deduplicated table is {table}")
 
-        table, drop_time = timed_invocation(func=_drop_duplicates_by_primary_key_hash, table=table)
+            table, drop_time = timed_invocation(func=_drop_duplicates_by_primary_key_hash, table=table)
 
-        logger.info(f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
-                    f"record count: {len(table)}, took: {drop_time}s")
+            logger.info(f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
+                        f"record count: {len(table)}, took: {drop_time}s")
+            #logger.info(f"[Dedupe task index {dedupe_task_index}] The deduplicated table is {table}")
+        else:
+            logger.info(f"[Dedupe task index {dedupe_task_index}] dfe is empty but take has {len(table)} records..")
 
         stream_position_col = sc.stream_position_column_np(table)
         file_idx_col = sc.file_index_column_np(table)
         row_idx_col = sc.record_index_column_np(table)
         is_source_col = sc.is_source_column_np(table)
         pk_hash_col = sc.pk_hash_column_np(table)
+
         for row_idx in range(len(table)):
             src_dfl = DeltaFileLocator.of(
                 is_source_col[row_idx],
