@@ -118,7 +118,6 @@ def materialize(
     mat_step1_end = time.time()
     logger.info(f"adhoc mat step 1 {mat_step1_end - mat_step1_start}")
     mat_step2_download_total = 0
-    mat_step2_filter_total = 0
     mat_step2_materialize_total = 0
     mat_step2_start = time.time()
     current_mat_file_processed=0
@@ -166,18 +165,15 @@ def materialize(
         record_count = len(pa_table)
         mask_pylist = list(repeat(False, record_count))
         record_numbers = chain.from_iterable(record_numbers_tpl)
-        if record_count == len(record_numbers):
+        if record_count == len(list(record_numbers)):
             current_mat_file_untouched+=1
-        logger.info(f"adhoc record to keep {len(record_numbers)}, original table has {record_count}")
+        logger.info(f"adhoc record to keep {len(list(record_numbers))}, original table has {record_count}")
         # TODO(raghumdani): reference the same file URIs while writing the files
         # instead of copying the data over and creating new files. 
         for record_number in record_numbers:
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
-        mat_step2_filter_start = time.time()
         pa_table = pa_table.filter(mask)
-        mat_step2_filter_total += time.time() - mat_step2_filter_start
-
         # appending, sorting, taking, and dropping has 2-3X latency of a
         # single filter on average, and thus provides better average
         # performance than repeatedly filtering the table in dedupe task index
@@ -209,7 +205,7 @@ def materialize(
         total_record_count += record_count
         compacted_tables.append(pa_table)
     mat_step2_end = time.time()
-    logger.info(f"adhoc mat step 2 total {mat_step2_end - mat_step2_start}, total file {current_mat_file_processed},un-touched {current_mat_file_untouched} download {mat_step2_download_total}, filter {mat_step2_filter_total}, mat {mat_step2_materialize_total}")
+    logger.info(f"adhoc mat step 2 total {mat_step2_end - mat_step2_start}, total file {current_mat_file_processed},un-touched {current_mat_file_untouched} download {mat_step2_download_total}, mat {mat_step2_materialize_total}")
     materialized_results.append(_materialize(compacted_tables, total_record_count))
     # Free up written tables in memory
     compacted_tables.clear()

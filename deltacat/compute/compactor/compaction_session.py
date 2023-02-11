@@ -182,11 +182,10 @@ def _execute_compaction_round(
     else:  # use all cluster resource
         logger.info(f"Available cluster resources: {ray.available_resources()}")
         cluster_cpus = int(cluster_resources["CPU"])
-        logger.info(f"Total cluster CPUs: {cluster_cpus}")
         node_resource_keys = live_node_resource_keys()
         logger.info(f"Found {len(node_resource_keys)} live cluster nodes: "
                     f"{node_resource_keys}")
-
+    logger.info(f"Total cluster CPUs: {cluster_cpus}")
     # create a remote options provider to round-robin tasks across all nodes or allocated bundles
     logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
     round_robin_opt_provider = functools.partial(
@@ -194,12 +193,6 @@ def _execute_compaction_round(
         resource_keys=node_resource_keys,
         pg_config=pg_config.opts if pg_config else None
     )
-
-    # assign a distinct index to each node in the cluster
-    # head_node_ip = urllib.request.urlopen(
-    #     "http://169.254.169.254/latest/meta-data/local-ipv4"
-    # ).read().decode("utf-8")
-    # print(f"head node ip: {head_node_ip}")
 
     # set max task parallelism equal to total cluster CPUs...
     # we assume here that we're running on a fixed-size cluster - this
@@ -257,22 +250,22 @@ def _execute_compaction_round(
     # discover input delta files
     high_watermark = round_completion_info.high_watermark \
         if round_completion_info else None
-    #source table deltas, with high_watermark
+
     input_deltas = io.discover_deltas(
         source_partition_locator,
-        high_watermark,
-        last_stream_position_to_compact,
+        high_watermark if not rebase_source_partition_locator else None,
+        last_stream_position_to_compact if not rebase_source_partition_locator else rebase_source_partition_high_watermark,
         deltacat_storage,
     )
-
-    #spark or ray compacted table
-    input_deltas_compacted = io.discover_deltas(
-        compacted_partition_locator,
-        high_watermark,
-        last_stream_position_to_compact,
-        deltacat_storage,
-    )
-
+    if rebase_source_partition_locator:
+        input_deltas_new = io.discover_deltas(
+            rebase_source_partition_locator,
+            rebase_source_partition_high_watermark,
+            last_stream_position_to_compact,
+            deltacat_storage,
+        )
+        input_deltas += input_deltas_new
+        logger.info(f"Length of input deltas {len(input_deltas)}, len of new deltas {len(input_deltas_new)}")
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return False, None, None, None
@@ -380,7 +373,6 @@ def _execute_compaction_round(
 
     dd_start = time.time()
     print(f"hb took {dd_start - hb_start}")
-    return False, None, None
 
     # parallel step 2:
     # discover records with duplicate primary keys in each hash bucket, and
@@ -465,28 +457,30 @@ def _execute_compaction_round(
         compacted_delta.stream_position,
     )
 
-    rci_high_watermark = rebase_source_partition_high_watermark \
-        if rebase_source_partition_high_watermark \
-        else last_stream_position_compacted
-    new_round_completion_info = RoundCompletionInfo.of(
-        rci_high_watermark,
-        new_compacted_delta_locator,
-        PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
-        PyArrowWriteResult.union(pki_stats),
-        bit_width_of_sort_keys,
-        new_pki_version_locator,
-        rebase_source_partition_locator
-        or round_completion_info.rebase_source_partition_locator,
-    )
-    rcf_source_partition_locator = rebase_source_partition_locator \
-        if rebase_source_partition_locator \
-        else source_partition_locator
-    round_completion_file_s3_url = rcf.write_round_completion_file(
-        compaction_artifact_s3_bucket,
-        rcf_source_partition_locator,
-        new_primary_key_index_root_path,
-        new_round_completion_info,
-    )
+    # rci_high_watermark = rebase_source_partition_high_watermark \
+    #     if rebase_source_partition_high_watermark \
+    #     else last_stream_position_compacted
+    # new_round_completion_info = RoundCompletionInfo.of(
+    #     rci_high_watermark,
+    #     new_compacted_delta_locator,
+    #     PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
+    #     PyArrowWriteResult.union(pki_stats),
+    #     bit_width_of_sort_keys,
+    #     new_pki_version_locator,
+    #     rebase_source_partition_locator
+    #     or round_completion_info.rebase_source_partition_locator,
+    # )
+    # rcf_source_partition_locator = rebase_source_partition_locator \
+    #     if rebase_source_partition_locator \
+    #     else source_partition_locator
+    # round_completion_file_s3_url = rcf.write_round_completion_file(
+    #     compaction_artifact_s3_bucket,
+    #     rcf_source_partition_locator,
+    #     new_primary_key_index_root_path,
+    #     new_round_completion_info,
+    # )
+    new_round_completion_info=None
+    round_completion_file_s3_url=None
     logger.info(
         f"partition-{source_partition_locator.partition_values},"
         f"compacted at: {last_stream_position_compacted},"
