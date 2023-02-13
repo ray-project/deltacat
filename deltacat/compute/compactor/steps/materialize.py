@@ -32,7 +32,7 @@ from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowCsvPureUtf8,
-    ReadKwargsProviderPyArrowSchemaOverride
+    ReadKwargsProviderPyArrowSchemaOverride, RecordBatchTables
 )
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -98,7 +98,8 @@ def materialize(
 
     # TODO (ricmiyam): Update this for full implementation of https://github.com/ray-project/deltacat/issues/62
     materialize_task_id = get_runtime_context().get_task_id()
-    logger.info(f"Starting materialize task {materialize_task_id}...")
+    logger.info(f"Starting materialize task {materialize_task_id} with"
+                f" materialize bucket index: {mat_bucket_index}...")
     start = time.time()
     dedupe_task_idx_and_obj_ref_tuples = [
         (
@@ -121,9 +122,8 @@ def materialize(
                 (record_numbers, repeat(dedupe_task_idx, len(record_numbers)))
             )
     manifest_cache = {}
-    remainder_tables = []
     materialized_results: List[MaterializeResult] = []
-    remainder_record_count = 0
+    record_batch_tables = RecordBatchTables(max_records_per_output_file)
     for src_dfl in sorted(all_src_file_records.keys()):
         record_numbers_dd_task_idx_tpl_list: List[Tuple[DeltaFileLocatorToRecords, repeat]] = \
             all_src_file_records[src_dfl]
@@ -173,52 +173,13 @@ def materialize(
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
         pa_table = pa_table.filter(mask)
+        record_batch_tables.append(pa_table)
+        if record_batch_tables.has_batches():
+            batched_tables = record_batch_tables.evict()
+            materialized_results.append(_materialize(batched_tables))
 
-        if remainder_tables:
-            assert remainder_record_count < max_records_per_output_file, \
-                f"Total records in previous remainder should not exceed {max_records_per_output_file}."
-
-            # Skip materializing tables until we have reached 'max_records_per_output_file'
-            if remainder_record_count + len(pa_table) < max_records_per_output_file:
-                remainder_tables.append(pa_table)
-                remainder_record_count += len(pa_table)
-                continue
-
-            # 'max_records_per_output_file' will be exceeded with the
-            #  current file's records + previous remainder records.
-            records_to_fit = max_records_per_output_file - remainder_record_count
-            fitted_table = pa_table.slice(length=records_to_fit)
-            remainder_tables.append(fitted_table)
-
-            # Chop off records that are already written to disk
-            pa_table = pa_table.slice(offset=records_to_fit)
-
-        record_count = len(pa_table)
-        record_multiplier, leftover = \
-            record_count // max_records_per_output_file, record_count % max_records_per_output_file
-
-        # Pack as many records divisible by max_records_per_output_file into one stage delta call
-        if record_multiplier > 0:
-            fitted_remainder_table = pa_table.slice(length=record_multiplier * max_records_per_output_file)
-            remainder_tables.append(fitted_remainder_table)
-
-        if remainder_tables:
-            # Materialize tables up to this point which are divisible by max_records_per_output_file
-            materialized_results.append(_materialize(remainder_tables))
-            # Free up written tables in memory
-            remainder_tables.clear()
-            remainder_record_count = 0
-
-        # Add any leftovers (less than max_records_per_output_file) to the remainder list after packing
-        if leftover > 0:
-            leftover_table = pa_table.slice(offset=record_multiplier * max_records_per_output_file)
-            remainder_tables.append(leftover_table)
-            remainder_record_count += len(leftover_table)
-
-    if remainder_tables:
-        materialized_results.append(_materialize(remainder_tables))
-        # Free up written tables in memory
-        remainder_tables.clear()
+    if record_batch_tables.has_remaining():
+        materialized_results.append(_materialize(record_batch_tables.remaining))
 
     merged_delta = Delta.merge_deltas([mr.delta for mr in materialized_results])
     assert materialized_results and len(materialized_results) > 0, \
