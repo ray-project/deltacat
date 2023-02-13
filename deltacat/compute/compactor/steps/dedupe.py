@@ -180,7 +180,7 @@ def dedupe(
     logger.info(f"[Dedupe task {dedupe_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
                 f"dedupe rounds...")
     dedupe_step1_end = time.time()
-    logger.info(f"adhoc dedupe step 1 before union pki {dedupe_step1_end - dedupe_step1_start}")
+    logger.info(f"adhoc dedupe step1 before union pki {dedupe_step1_end - dedupe_step1_start}")
     union_time_total = 0
     drop_time_total = 0
     for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
@@ -235,7 +235,7 @@ def dedupe(
 
     logger.info(f"Finished all dedupe rounds...")
     dedupe_step2_end = time.time()
-    logger.info(f"adhoc dedupe step 2, total {dedupe_step2_end - dedupe_step1_end} union time {union_time_total}, drop duplicates time {drop_time_total}")
+    logger.info(f"adhoc dedupe step2 total {dedupe_step2_end - dedupe_step1_end} union time {union_time_total}, drop duplicates time {drop_time_total}")
     mat_bucket_to_src_file_record_count = defaultdict(dict)
     mat_bucket_to_src_file_records: Dict[MaterializeBucketIndex, DeltaFileLocatorToRecords] = defaultdict(dict)
     for src_dfl, src_row_indices in src_file_id_to_row_indices.items():
@@ -279,7 +279,7 @@ def dedupe(
     #         round_completion_info.primary_key_index_version_locator,
     #     )
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
-    logger.info(f"adhoc dedupe step 3 {time.time() - dedupe_step2_end}")
+    logger.info(f"adhoc dedupe step3 {time.time() - dedupe_step2_end}")
     return mat_bucket_to_dd_idx_obj_id, \
         src_file_records_obj_refs, \
         write_pki_result

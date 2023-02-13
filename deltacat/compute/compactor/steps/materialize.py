@@ -165,13 +165,16 @@ def materialize(
         record_count = len(pa_table)
         mask_pylist = list(repeat(False, record_count))
         record_numbers = chain.from_iterable(record_numbers_tpl)
-        if record_count == len(list(record_numbers)):
-            current_mat_file_untouched+=1
-        logger.info(f"adhoc record to keep {len(list(record_numbers))}, original table has {record_count}")
         # TODO(raghumdani): reference the same file URIs while writing the files
-        # instead of copying the data over and creating new files. 
+        # instead of copying the data over and creating new files.
+        total_record_numbers = 0
         for record_number in record_numbers:
             mask_pylist[record_number] = True
+            total_record_numbers +=1
+        if total_record_numbers == record_count:
+            current_mat_file_untouched += 1
+        else:
+            logger.info(f"adhoc record to keep {total_record_numbers}, original table has {record_count}")
         mask = pa.array(mask_pylist)
         pa_table = pa_table.filter(mask)
         # appending, sorting, taking, and dropping has 2-3X latency of a

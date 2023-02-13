@@ -265,7 +265,8 @@ def _execute_compaction_round(
             deltacat_storage,
         )
         input_deltas += input_deltas_new
-        logger.info(f"Length of input deltas {len(input_deltas)}, len of new deltas {len(input_deltas_new)}")
+        logger.info(f'Length of input deltas {len(input_deltas)} up to {rebase_source_partition_high_watermark},'
+                    f'len of new deltas {len(input_deltas_new)} up to {last_stream_position_to_compact}')
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return False, None, None, None
