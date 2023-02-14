@@ -302,7 +302,7 @@ class RecordBatchTables:
 
         Args:
             batch_size: Minimum record count per table to batch by. Batched tables are
-             guaranteed to be this size or greater.
+             guaranteed to have a record count multiple of the batch_size.
         """
         self._batched_tables: List[pa.Table] = []
         self._batched_records: int = 0
@@ -385,7 +385,7 @@ class RecordBatchTables:
         Args:
             tables: A list of input tables with various record counts
             batch_size: Minimum record count per table to batch by. Batched tables are
-             guaranteed to be this size or greater.
+             guaranteed to have a record count multiple of the batch_size.
 
         Returns: A batched tables object
 
