@@ -57,8 +57,8 @@ class DeltaAnnotated(Delta):
     def rebatch(
             annotated_deltas: List[DeltaAnnotated],
             min_delta_bytes,
-            min_file_counts: Optional[Union[int, float]]=float("inf"),
-            estimation_function: Optional[Callable]=None) -> List[DeltaAnnotated]:
+            min_file_counts: Optional[Union[int, float]] = float("inf"),
+            estimation_function: Optional[Callable] = None) -> List[DeltaAnnotated]:
         """
         Simple greedy algorithm to split/merge 1 or more annotated deltas into
         size-limited annotated deltas. All ordered manifest entries in the input
@@ -75,11 +75,22 @@ class DeltaAnnotated(Delta):
         for src_da in annotated_deltas:
             src_da_annotations = src_da.annotations
             src_da_entries = src_da.manifest.entries
-            assert(len(src_da_annotations) == len(src_da_entries),
-                   f"Unexpected Error: Length of delta annotations "
-                   f"({len(src_da_annotations)}) doesn't mach the length of "
-                   f"delta manifest entries ({len(src_da_entries)}).")
+            assert (len(src_da_annotations) == len(src_da_entries),
+                    f"Unexpected Error: Length of delta annotations "
+                    f"({len(src_da_annotations)}) doesn't mach the length of "
+                    f"delta manifest entries ({len(src_da_entries)}).")
             for i, src_entry in enumerate(src_da_entries):
+                # create a new da group if src and des has different delta locator
+                if new_da and src_da.locator != new_da.locator:  # new_da has kept some previous delta's entry
+                    print(f"adhoc different locator detected src:{src_da.locator}, des:{new_da.locator}"
+                          f"entries:{len(new_da.manifest.entries)}")
+                    groups.append(new_da)
+                    logger.info(
+                        f"Due to different delta locator, Appending group of {da_group_entry_count} elements "
+                        f"and {new_da_bytes} bytes")
+                    new_da = DeltaAnnotated()
+                    new_da_bytes = 0
+                    da_group_entry_count = 0
                 DeltaAnnotated._append_annotated_entry(
                     src_da,
                     new_da,

@@ -134,6 +134,7 @@ def limit_input_deltas(
             break
         delta_annotated = DeltaAnnotated.of(delta)
         limited_input_da_list.append(delta_annotated)
+        logger.info(f"adhoc delta at {delta.stream_position} Input delta files to compact: {delta_manifest_entries}")
 
     logger.info(f"Input deltas to compact this round: "
                 f"{len(limited_input_da_list)}")

@@ -141,10 +141,20 @@ def materialize(
         )
         dl_digest = delta_locator.digest()
 
-        manifest = manifest_cache.setdefault(
-            dl_digest,
-            deltacat_storage.get_delta_manifest(delta_locator),
-        )
+        try:
+            manifest = manifest_cache.setdefault(
+                dl_digest,
+                deltacat_storage.get_delta_manifest(delta_locator),
+            )
+        except Exception as e:
+            logger.info(f"adhoc mat get delta manifest failed {e}, delta_locator:{delta_locator}, is src:{is_src_partition_file_np}"
+                        f",source partition locator:{source_partition_locator}, "
+                        f"rcf:{round_completion_info}")
+            print(
+                f"adhoc mat get delta manifest failed {e}, delta_locator:{delta_locator}, is src:{is_src_partition_file_np}"
+                f",source partition locator:{source_partition_locator}, "
+                f"rcf:{round_completion_info}")
+            pass
 
         read_kwargs_provider = None
         # for delimited text output, disable type inference to prevent
@@ -156,11 +166,16 @@ def materialize(
             read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
                 schema=schema)
         mat_step2_download_start = time.time()
-        pa_table = deltacat_storage.download_delta_manifest_entry(
-            Delta.of(delta_locator, None, None, None, manifest),
-            src_file_idx_np.item(),
-            file_reader_kwargs_provider=read_kwargs_provider,
-        )
+        try:
+            pa_table = deltacat_storage.download_delta_manifest_entry(
+                Delta.of(delta_locator, None, None, None, manifest),
+                src_file_idx_np.item(),
+                file_reader_kwargs_provider=read_kwargs_provider,
+            )
+        except Exception as e:
+            logger.info(f"adhoc mat download entry failed {e}, {delta_locator}")
+            print(f"adhoc mat download entry failed {e}, {delta_locator}")
+            pass
         mat_step2_download_total += time.time() - mat_step2_download_start
         record_count = len(pa_table)
         mask_pylist = list(repeat(False, record_count))

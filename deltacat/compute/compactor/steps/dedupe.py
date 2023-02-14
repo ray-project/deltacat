@@ -223,7 +223,7 @@ def dedupe(
         stream_position_col = sc.stream_position_column_np(table)
         file_idx_col = sc.file_index_column_np(table)
         row_idx_col = sc.record_index_column_np(table)
-        is_source_col = sc.is_source_column_np(table)
+        is_source_col = sc.is_source_column_np(table) # ?? this will just be true for every row,
         for row_idx in range(len(table)):
             src_dfl = DeltaFileLocator.of(
                 is_source_col[row_idx],

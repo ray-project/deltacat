@@ -59,6 +59,7 @@ def compact_partition(
         primary_keys: Set[str],
         compaction_artifact_s3_bucket: str,
         last_stream_position_to_compact: int,
+        last_stream_position_to_compact_compacted: int,
         *,
         hash_bucket_count: Optional[int] = None,
         sort_keys: List[SortKey] = None,
@@ -88,6 +89,7 @@ def compact_partition(
                 primary_keys,
                 compaction_artifact_s3_bucket,
                 last_stream_position_to_compact,
+                last_stream_position_to_compact_compacted,
                 hash_bucket_count,
                 sort_keys,
                 records_per_primary_key_index_file,
@@ -127,6 +129,7 @@ def _execute_compaction_round(
         primary_keys: Set[str],
         compaction_artifact_s3_bucket: str,
         last_stream_position_to_compact: int,
+        last_stream_position_to_compact_compacted: int,
         new_hash_bucket_count: Optional[int],
         sort_keys: List[SortKey],
         records_per_primary_key_index_file: int,
@@ -254,7 +257,9 @@ def _execute_compaction_round(
     input_deltas = io.discover_deltas(
         source_partition_locator,
         high_watermark if not rebase_source_partition_locator else None,
-        last_stream_position_to_compact if not rebase_source_partition_locator else rebase_source_partition_high_watermark,
+        last_stream_position_to_compact_compacted,
+        #source_partition_locator.stream_position,
+        #last_stream_position_to_compact if not rebase_source_partition_locator else rebase_source_partition_high_watermark,
         deltacat_storage,
     )
     if rebase_source_partition_locator:
@@ -265,7 +270,7 @@ def _execute_compaction_round(
             deltacat_storage,
         )
         input_deltas += input_deltas_new
-        logger.info(f'Length of input deltas {len(input_deltas)} up to {rebase_source_partition_high_watermark},'
+        logger.info(f'Length of input deltas {len(input_deltas)} up to {rebase_source_partition_high_watermark} (ray special position:{last_stream_position_to_compact_compacted}),'
                     f'len of new deltas {len(input_deltas_new)} up to {last_stream_position_to_compact}')
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -273,7 +278,7 @@ def _execute_compaction_round(
 
     # limit the input deltas to fit on this cluster and convert them to
     # annotated deltas of equivalent size for easy parallel distribution
-
+    logger.info(f"adhoc before uniform, hash_bucket_count {hash_bucket_count}")
     uniform_deltas, hash_bucket_count, last_stream_position_compacted = \
         io.limit_input_deltas(
             input_deltas,

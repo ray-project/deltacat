@@ -83,12 +83,19 @@ def _group_file_records_by_pk_hash_bucket(
 
     # read input parquet s3 objects into a list of delta file envelopes
     start = time.time()
-    delta_file_envelopes, total_unique_files = _read_delta_file_envelopes(
-        annotated_delta,
-        primary_keys,
-        sort_key_names,
-        deltacat_storage,
-    )
+    try:
+        total_unique_files = 0
+        delta_file_envelopes = None
+        delta_file_envelopes, total_unique_files = _read_delta_file_envelopes(
+            annotated_delta,
+            primary_keys,
+            sort_key_names,
+            deltacat_storage,
+        )
+    except Exception as e:
+        logger.info(f"access issue in {annotated_delta}, error {e}")
+        print(f"acess issue in {annotated_delta}, error {e}")
+        pass
     end = time.time()
     logger.info(f"adhoc hb inside group_file_records read {total_unique_files} files in {end - start}")
     if delta_file_envelopes is None:
