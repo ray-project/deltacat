@@ -1,12 +1,17 @@
 import os
 import logging
 import pathlib
-from logging import handlers, Logger, Handler, FileHandler
+from logging import handlers, Logger, Handler, FileHandler, LoggerAdapter
+from typing import Union
+
+import ray
+from ray.runtime_context import RuntimeContext
+
 from deltacat.constants import DELTACAT_LOG_LEVEL, APPLICATION_LOG_LEVEL
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = \
-    "%(asctime)s\t%(levelname)s %(filename)s:%(lineno)s -- %(message)s"
+    "%(asctime)s\t%(levelname)s pid=%(process)d %(filename)s:%(lineno)s -- %(message)s"
 DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 256  # 256 MiB
 DEFAULT_BACKUP_COUNT = 0
 
@@ -17,6 +22,45 @@ DEFAULT_DEBUG_APPLICATION_LOG_BASE_FILE_NAME = "application.debug.log"
 DEFAULT_DELTACAT_LOG_DIR = "/tmp/deltacat/var/output/logs/"
 DEFAULT_DELTACAT_LOG_BASE_FILE_NAME = "deltacat-python.info.log"
 DEFAULT_DEBUG_DELTACAT_LOG_BASE_FILE_NAME = "deltacat-python.debug.log"
+
+
+class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
+    """
+    Logger Adapter for injecting Ray Runtime Context into logging messages.
+    """
+    def __init__(self, logger: Logger, runtime_context: RuntimeContext):
+        super().__init__(logger, {})
+        self.runtime_context = runtime_context
+
+    def process(self, msg, kwargs):
+        """
+        Injects Ray Runtime Context details into each log message.
+
+        This may include information such as the raylet node ID, task/actor ID, job ID,
+        placement group ID of the worker, and assigned resources to the task/actor.
+
+        Args:
+            msg: The original log message
+            kwargs: Keyword arguments for the log message
+
+        Returns: A log message with Ray Runtime Context details
+
+        """
+        runtime_context_dict = self.runtime_context.get()
+        if self.runtime_context.get_task_id() or self.runtime_context.get_actor_id():
+            runtime_context_dict["pg_id"] = self.runtime_context.get_placement_group_id()
+            runtime_context_dict["assigned_resources"] = self.runtime_context.get_assigned_resources()
+
+        return "(ray_runtime_context=%s) -- %s" % (runtime_context_dict, msg), kwargs
+
+    def __reduce__(self):
+        """
+        Used to unpickle the class during Ray object store transfer.
+        """
+        def deserializer(*args):
+            return RayRuntimeContextLoggerAdapter(args[0], ray.get_runtime_context())
+
+        return deserializer, (self.logger,)
 
 
 def _add_logger_handler(
@@ -40,7 +84,6 @@ def _create_rotating_file_handler(
         logging_level = logging.getLevelName(logging_level.upper())
     assert log_base_file_name, "log file name is required"
     assert log_directory, "log directory is required"
-
     log_dir_path = pathlib.Path(log_directory)
     log_dir_path.mkdir(parents=True, exist_ok=True)
     handler = logging.handlers.RotatingFileHandler(
@@ -74,8 +117,7 @@ def _configure_logger(
         log_level: str,
         log_dir: str,
         log_base_file_name: str,
-        debug_log_base_file_name: str) -> Logger:
-
+        debug_log_base_file_name: str) -> Union[Logger, LoggerAdapter]:
     primary_log_level = log_level
     logger.propagate = False
     if log_level.upper() == "DEBUG":
@@ -83,7 +125,7 @@ def _configure_logger(
             handler = _create_rotating_file_handler(
                 log_dir,
                 debug_log_base_file_name,
-                "DEBUG",
+                "DEBUG"
             )
             _add_logger_handler(logger, handler)
             primary_log_level = "INFO"
@@ -91,13 +133,17 @@ def _configure_logger(
         handler = _create_rotating_file_handler(
             log_dir,
             log_base_file_name,
-            primary_log_level,
+            primary_log_level
         )
         _add_logger_handler(logger, handler)
+    ray_runtime_ctx = ray.get_runtime_context()
+    if ray_runtime_ctx.worker.connected:
+        logger = RayRuntimeContextLoggerAdapter(logger, ray_runtime_ctx)
+
     return logger
 
 
-def configure_deltacat_logger(logger: Logger) -> Logger:
+def configure_deltacat_logger(logger: Logger) -> Union[Logger, LoggerAdapter]:
     return _configure_logger(
         logger,
         DELTACAT_LOG_LEVEL,
@@ -107,7 +153,7 @@ def configure_deltacat_logger(logger: Logger) -> Logger:
     )
 
 
-def configure_application_logger(logger: Logger) -> Logger:
+def configure_application_logger(logger: Logger) -> Union[Logger, LoggerAdapter]:
     return _configure_logger(
         logger,
         APPLICATION_LOG_LEVEL,
