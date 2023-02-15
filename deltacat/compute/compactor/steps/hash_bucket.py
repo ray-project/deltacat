@@ -9,7 +9,7 @@ from itertools import chain
 
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated, DeltaFileEnvelope, \
-    SortKey
+    SortKey, RoundCompletionInfo
 from deltacat.compute.compactor.utils.primary_key_index import \
     group_hash_bucket_indices, group_record_indices_by_hash_bucket
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -78,6 +78,7 @@ def _group_file_records_by_pk_hash_bucket(
         num_hash_buckets: int,
         primary_keys: List[str],
         sort_key_names: List[str],
+        is_src_delta: np.bool_ = True,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[DeltaFileEnvelopeGroups]:
 
@@ -90,6 +91,7 @@ def _group_file_records_by_pk_hash_bucket(
             annotated_delta,
             primary_keys,
             sort_key_names,
+            is_src_delta,
             deltacat_storage,
         )
     except Exception as e:
@@ -127,6 +129,7 @@ def _read_delta_file_envelopes(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_key_names: List[str],
+        is_src_delta: np.bool_ = True,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[Union[List[DeltaFileEnvelope],int]]:
 
@@ -159,6 +162,7 @@ def _read_delta_file_envelopes(
             annotations[i].annotation_file_index,
             annotations[i].annotation_delta_type,
             table,
+            is_src_delta
         )
         files_index.append(annotations[i].annotation_file_index)
         delta_file_envelopes.append(delta_file)
@@ -169,6 +173,7 @@ def _read_delta_file_envelopes(
 @ray.remote(num_returns=2)
 def hash_bucket(
         annotated_delta: DeltaAnnotated,
+        round_completion_info: Optional[RoundCompletionInfo],
         primary_keys: List[str],
         sort_keys: List[SortKey],
         num_buckets: int,
@@ -178,11 +183,13 @@ def hash_bucket(
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [key.key_name for key in sort_keys]
     start = time.time()
+    is_src_delta = False if annotated_delta.locator == round_completion_info.compacted_delta_locator else True
     delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,
         primary_keys,
         sort_key_names,
+        is_src_delta,
         deltacat_storage,
     )
     end = time.time()

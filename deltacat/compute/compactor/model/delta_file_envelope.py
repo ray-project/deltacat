@@ -4,7 +4,6 @@ from __future__ import annotations
 import numpy as np
 from deltacat.storage import DeltaType, LocalTable
 
-
 DeltaFileEnvelopeGroups = np.ndarray
 
 
@@ -13,7 +12,8 @@ class DeltaFileEnvelope(dict):
     def of(stream_position: int,
            file_index: int,
            delta_type: DeltaType,
-           table: LocalTable) -> DeltaFileEnvelope:
+           table: LocalTable,
+           is_src_delta: np.bool_=True) -> DeltaFileEnvelope:
         """ Static factory builder for a Delta File Envelope
         `
         Args:
@@ -21,6 +21,10 @@ class DeltaFileEnvelope(dict):
             file_index: Manifest file index number of a delta.
             delta_type: A delta type.
             table: The table object that represents the delta file.
+            is_src_delta: True if this Delta File Locator is
+                pointing to a file from the uncompacted source table, False if
+                this Locator is pointing to a file in the compacted destination
+                table.
 
         Returns:
             A delta file envelope.
@@ -39,6 +43,7 @@ class DeltaFileEnvelope(dict):
         delta_file_envelope["fileIndex"] = file_index
         delta_file_envelope["deltaType"] = delta_type.value
         delta_file_envelope["table"] = table
+        delta_file_envelope["is_src_delta"] = is_src_delta
         return delta_file_envelope
 
     @property

@@ -45,8 +45,7 @@ DedupeTaskIndex, PickledObjectRef = int, str
 DedupeTaskIndexWithObjectId = Tuple[DedupeTaskIndex, PickledObjectRef]
 DedupeResult = Tuple[
     Dict[MaterializeBucketIndex, DedupeTaskIndexWithObjectId],
-    List[ObjectRef[DeltaFileLocatorToRecords]],
-    PyArrowWriteResult
+    List[ObjectRef[DeltaFileLocatorToRecords]]
 ]
 
 
@@ -83,6 +82,7 @@ def _union_primary_key_indices(
         reverse=False,  # ascending
     )
     for df_envelope in df_envelopes:
+        print(f"adhoc df envelope {df_envelope}") #TOBEREMOVED
         hb_tables.append(sc.project_delta_file_metadata_on_table(df_envelope))
 
     hb_table = pa.concat_tables(hb_tables)
@@ -115,33 +115,6 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
     return table.take(list(value_to_last_row_idx.values()))
 
 
-def _write_new_primary_key_index(
-        s3_bucket: str,
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        max_rows_per_index_file: int,
-        dedupe_task_index: int,
-        deduped_tables: List[Tuple[int, pa.Table]]) -> PyArrowWriteResult:
-
-    logger.info(f"[Dedupe task index {dedupe_task_index}] Writing new deduped primary key index: "
-                f"{new_primary_key_index_version_locator}")
-
-    pki_results = []
-    for hb_index, table in deduped_tables:
-        hb_pki_result = pki.write_primary_key_index_files(
-            table,
-            new_primary_key_index_version_locator,
-            s3_bucket,
-            hb_index,
-            max_rows_per_index_file,
-        )
-        pki_results.append(hb_pki_result)
-
-    result = PyArrowWriteResult.union(pki_results)
-    logger.info(f"[Dedupe task index {dedupe_task_index}] Wrote new deduped primary key index: "
-                f"{new_primary_key_index_version_locator}. Result: {result}")
-    return result
-
-
 def delta_file_locator_to_mat_bucket_index(
         df_locator: DeltaFileLocator,
         materialize_bucket_count: int) -> int:
@@ -152,13 +125,11 @@ def delta_file_locator_to_mat_bucket_index(
 def dedupe(
         compaction_artifact_s3_bucket: str,
         round_completion_info: Optional[RoundCompletionInfo],
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
         object_ids: List[Any],
         sort_keys: List[SortKey],
         max_records_per_index_file: int,
         num_materialize_buckets: int,
-        dedupe_task_index: int,
-        delete_old_primary_key_index: bool) -> DedupeResult:
+        dedupe_task_index: int) -> DedupeResult:
 
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     dedupe_step1_start = time.time()
@@ -264,22 +235,7 @@ def dedupe(
     logger.info(f"Count of materialize buckets with object refs: "
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
-    # write_pki_result: PyArrowWriteResult = _write_new_primary_key_index(
-    #     compaction_artifact_s3_bucket,
-    #     new_primary_key_index_version_locator,
-    #     max_records_per_index_file,
-    #     dedupe_task_index,
-    #     deduped_tables
-    # )
-    write_pki_result = None
-
-    # if delete_old_primary_key_index:
-    #     pki.delete_primary_key_index_version(
-    #         compaction_artifact_s3_bucket,
-    #         round_completion_info.primary_key_index_version_locator,
-    #     )
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
     logger.info(f"adhoc dedupe step3 {time.time() - dedupe_step2_end}")
     return mat_bucket_to_dd_idx_obj_id, \
-        src_file_records_obj_refs, \
-        write_pki_result
+        src_file_records_obj_refs
