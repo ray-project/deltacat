@@ -80,6 +80,16 @@ class DeltaAnnotated(Delta):
                    f"({len(src_da_annotations)}) doesn't mach the length of "
                    f"delta manifest entries ({len(src_da_entries)}).")
             for i, src_entry in enumerate(src_da_entries):
+                # create a new da group if src and dest has different delta locator
+                # (i.e. the previous compaction round ran a rebase)
+                if new_da and src_da.locator != new_da.locator:
+                    groups.append(new_da)
+                    logger.info(
+                        f"Due to different delta locator, Appending group of {da_group_entry_count} elements "
+                        f"and {new_da_bytes} bytes")
+                    new_da = DeltaAnnotated()
+                    new_da_bytes = 0
+                    da_group_entry_count = 0
                 DeltaAnnotated._append_annotated_entry(
                     src_da,
                     new_da,

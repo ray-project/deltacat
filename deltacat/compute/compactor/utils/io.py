@@ -8,7 +8,7 @@ from deltacat.storage import PartitionLocator, Delta, \
     interface as unimplemented_deltacat_storage
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
-
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -19,7 +19,6 @@ def discover_deltas(
         start_position_exclusive: Optional[int],
         end_position_inclusive: int,
         deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
-
     stream_locator = source_partition_locator.stream_locator
     namespace = stream_locator.namespace
     table_name = stream_locator.table_name
@@ -57,12 +56,10 @@ def limit_input_deltas(
         input_deltas: List[Delta],
         cluster_resources: Dict[str, float],
         hash_bucket_count: int,
-        min_pk_index_pa_bytes: int,
         user_hash_bucket_chunk_size: int,
         input_deltas_stats: Dict[int, DeltaStats],
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Tuple[List[DeltaAnnotated], int, int]:
-
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
     #  input delta records than bytes.
@@ -73,19 +70,6 @@ def limit_input_deltas(
     # available per CPU should remain fixed across the cluster.
     worker_cpus = int(cluster_resources["CPU"])
     worker_obj_store_mem = float(cluster_resources["object_store_memory"])
-    # worker_obj_store_mem = ray_constants.from_memory_units(
-    #     cluster_resources["object_store_memory"]
-    # )
-    if min_pk_index_pa_bytes > 0:
-        required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_index_pa_bytes
-        assert required_heap_mem_for_dedupe > 0, \
-            f"Not enough required memory available to re-batch input deltas" \
-            f"and initiate the dedupe step."
-        # Size of batched deltas must also be reduced to have enough space for primary
-        # key index files (from earlier compaction rounds) in the dedupe step, since
-        # they will be loaded into worker heap memory.
-        worker_obj_store_mem = required_heap_mem_for_dedupe
-
     logger.info(f"Total worker object store memory: {worker_obj_store_mem}")
     worker_obj_store_mem_per_task = worker_obj_store_mem / worker_cpus
     logger.info(f"Worker object store memory/task: "
@@ -99,7 +83,7 @@ def limit_input_deltas(
     delta_bytes = 0
     delta_bytes_pyarrow = 0
     delta_manifest_entries = 0
-    latest_stream_position = -1
+    latest_stream_position = defaultdict(lambda: -1)  # tracks the lastest stream position for each different locator
     limited_input_da_list = []
 
     if input_deltas_stats is None:
@@ -125,7 +109,8 @@ def limit_input_deltas(
             delta_bytes += entry.meta.content_length
             if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
-        latest_stream_position = max(position, latest_stream_position)
+        latest_stream_position[delta.locator.canonical_string()] = max(position, latest_stream_position[
+            delta.locator.canonical_string()])
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
                 f"Input deltas limited to "

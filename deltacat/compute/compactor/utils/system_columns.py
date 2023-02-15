@@ -175,7 +175,7 @@ def project_delta_file_metadata_on_table(
 
     # append is source column
     is_source_iterator = repeat(
-        True,
+        True if delta_file_envelope.is_src_delta else False,
         len(table),
     )
     table = append_is_source_col(table, is_source_iterator)
