@@ -47,6 +47,7 @@ class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
 
         """
         runtime_context_dict = self.runtime_context.get()
+        runtime_context_dict["worker_id"] = self.runtime_context.worker.core_worker.get_worker_id()
         if self.runtime_context.get_task_id() or self.runtime_context.get_actor_id():
             runtime_context_dict["pg_id"] = self.runtime_context.get_placement_group_id()
             runtime_context_dict["assigned_resources"] = self.runtime_context.get_assigned_resources()
