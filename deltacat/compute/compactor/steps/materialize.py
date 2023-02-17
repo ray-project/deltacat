@@ -71,10 +71,10 @@ def materialize(
             max_records_per_entry=max_records_per_output_file,
             content_type=compacted_file_content_type,
         )
-        compacted_tables_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table)
-        logger.debug(f"Time taken for materialize task {materialize_task_id}"
+        compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table)
+        logger.debug(f"Time taken for materialize task"
                      f" to upload {len(compacted_table)} records"
-                     f" of size {compacted_tables_size} is: {stage_delta_time}s")
+                     f" of size {compacted_table_size} is: {stage_delta_time}s")
         manifest = delta.manifest
         manifest_records = manifest.meta.record_count
         assert (manifest_records == len(compacted_table),
@@ -96,9 +96,7 @@ def materialize(
         logger.info(f"Materialize result: {materialize_result}")
         return materialize_result
 
-    # TODO (ricmiyam): Update this for full implementation of https://github.com/ray-project/deltacat/issues/62
-    materialize_task_id = get_runtime_context().get_task_id()
-    logger.info(f"Starting materialize task {materialize_task_id} with"
+    logger.info(f"Starting materialize task with"
                 f" materialize bucket index: {mat_bucket_index}...")
     start = time.time()
     dedupe_task_idx_and_obj_ref_tuples = [
@@ -162,7 +160,7 @@ def materialize(
             src_file_idx_np.item(),
             file_reader_kwargs_provider=read_kwargs_provider,
         )
-        logger.debug(f"Time taken for materialize task {materialize_task_id}"
+        logger.debug(f"Time taken for materialize task"
                      f" to download delta locator {delta_locator} with entry ID {src_file_idx_np.item()}"
                      f" is: {download_delta_manifest_entry_time}s")
         mask_pylist = list(repeat(False, len(pa_table)))
@@ -193,7 +191,7 @@ def materialize(
                                                      materialized_results[0].task_index,
                                                      PyArrowWriteResult.union([mr.pyarrow_write_result
                                                                                for mr in materialized_results]))
-    logger.info(f"Finished materialize task...{materialize_task_id}")
+    logger.info(f"Finished materialize task...")
     end = time.time()
-    logger.info(f"Materialize task {materialize_task_id} ended in {end - start}s")
+    logger.info(f"Materialize task ended in {end - start}s")
     return merged_materialize_result

@@ -322,9 +322,9 @@ class RecordBatchTables:
              guaranteed to have a record count multiple of the batch_size.
         """
         self._batched_tables: List[pa.Table] = []
-        self._batched_records: int = 0
+        self._batched_record_count: int = 0
         self._remaining_tables: List[pa.Table] = []
-        self._remaining_records: int = 0
+        self._remaining_record_count: int = 0
         self._batch_size: int = batch_size
 
     def append(self, table: pa.Table) -> None:
@@ -344,8 +344,7 @@ class RecordBatchTables:
         Ex:
             bt = RecordBatchTables(8)
             col1 = pa.array([i for i in range(10)])
-            col2 = pa.array(["foo"] * 10)
-            test_table = pa.Table.from_arrays([col1, col2], names=["col1", "col2"])
+            test_table = pa.Table.from_arrays([col1], names=["col1"])
             bt.append(test_table)
 
             print(bt.batched_records)  # 8
@@ -358,15 +357,15 @@ class RecordBatchTables:
 
         """
         if self._remaining_tables:
-            if self._remaining_records + len(table) < self._batch_size:
+            if self._remaining_record_count + len(table) < self._batch_size:
                 self._remaining_tables.append(table)
-                self._remaining_records += len(table)
+                self._remaining_record_count += len(table)
                 return
 
-            records_to_fit = self._batch_size - self._remaining_records
+            records_to_fit = self._batch_size - self._remaining_record_count
             fitted_table = table.slice(length=records_to_fit)
             self._remaining_tables.append(fitted_table)
-            self._remaining_records += len(fitted_table)
+            self._remaining_record_count += len(fitted_table)
             table = table.slice(offset=records_to_fit)
 
         record_count = len(table)
@@ -377,7 +376,7 @@ class RecordBatchTables:
             batched_table = table.slice(length=record_multiplier * self._batch_size)
             # Add to remainder tables to preserve record ordering
             self._remaining_tables.append(batched_table)
-            self._remaining_records += len(batched_table)
+            self._remaining_record_count += len(batched_table)
 
         if self._remaining_tables:
             self._shift_remaining_to_new_batch()
@@ -385,12 +384,12 @@ class RecordBatchTables:
         if records_leftover > 0:
             leftover_table = table.slice(offset=record_multiplier * self._batch_size)
             self._remaining_tables.append(leftover_table)
-            self._remaining_records += len(leftover_table)
+            self._remaining_record_count += len(leftover_table)
 
     def _shift_remaining_to_new_batch(self) -> None:
         new_batch = pa.concat_tables(self._remaining_tables)
         self._batched_tables.append(new_batch)
-        self._batched_records += self._remaining_records
+        self._batched_record_count += self._remaining_record_count
         self.clear_remaining()
 
     @staticmethod
@@ -427,14 +426,14 @@ class RecordBatchTables:
         return self._batched_tables
 
     @property
-    def batched_records(self) -> int:
+    def batched_record_count(self) -> int:
         """
         The number of total records from the batched list.
 
         Returns: batched record count
 
         """
-        return self._batched_records
+        return self._batched_record_count
 
     @property
     def remaining(self) -> List[pa.Table]:
@@ -448,14 +447,14 @@ class RecordBatchTables:
         return self._remaining_tables
 
     @property
-    def remaining_records(self) -> int:
+    def remaining_record_count(self) -> int:
         """
         The number of total records from the remaining tables list.
 
         Returns: remaining record count
 
         """
-        return self._remaining_records
+        return self._remaining_record_count
 
     @property
     def batch_size(self) -> int:
@@ -474,7 +473,7 @@ class RecordBatchTables:
         Returns: true if batched records exist, otherwise false
 
         """
-        return self._batched_records > 0
+        return self._batched_record_count > 0
 
     def has_remaining(self) -> bool:
         """
@@ -483,7 +482,7 @@ class RecordBatchTables:
         Returns: true if remaining records exist, otherwise false
 
         """
-        return self._remaining_records > 0
+        return self._remaining_record_count > 0
 
     def evict(self) -> List[pa.Table]:
         """
@@ -502,7 +501,7 @@ class RecordBatchTables:
 
         """
         self._batched_tables.clear()
-        self._batched_records = 0
+        self._batched_record_count = 0
 
     def clear_remaining(self) -> None:
         """
@@ -510,4 +509,4 @@ class RecordBatchTables:
 
         """
         self._remaining_tables.clear()
-        self._remaining_records = 0
+        self._remaining_record_count = 0

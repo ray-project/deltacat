@@ -16,10 +16,10 @@ class TestRecordBatchTables(unittest.TestCase):
         test_table = pa.Table.from_arrays([col1, col2], names=self.column_names)
         bt.append(test_table)
         self.assertTrue(bt.has_batches())
-        self.assertEqual(bt.batched_records, 8)
+        self.assertEqual(bt.batched_record_count, 8)
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.remaining_records, 2)
+        self.assertEqual(bt.remaining_record_count, 2)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
     def test_single_table_with_no_remainder(self):
@@ -42,8 +42,8 @@ class TestRecordBatchTables(unittest.TestCase):
         self.assertTrue(bt.has_batches())
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
         self.assertFalse(bt.has_remaining())
-        self.assertEqual(bt.batched_records, 10)
-        self.assertEqual(bt.remaining_records, 0)
+        self.assertEqual(bt.batched_record_count, 10)
+        self.assertEqual(bt.remaining_record_count, 0)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
     def test_single_table_with_only_remainder(self):
@@ -55,8 +55,8 @@ class TestRecordBatchTables(unittest.TestCase):
         bt.append(test_table)
         self.assertFalse(bt.has_batches())
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.batched_records, 0)
-        self.assertEqual(bt.remaining_records, 10)
+        self.assertEqual(bt.batched_record_count, 0)
+        self.assertEqual(bt.remaining_record_count, 10)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
     def test_grouped_tables_with_only_remainder(self):
@@ -77,8 +77,8 @@ class TestRecordBatchTables(unittest.TestCase):
             bt.append(table)
         self.assertFalse(bt.has_batches())
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.remaining_records, 500)
-        self.assertLess(bt.remaining_records, min_records_batch)
+        self.assertEqual(bt.remaining_record_count, 500)
+        self.assertLess(bt.remaining_record_count, min_records_batch)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
     def test_grouped_tables_with_batches_and_remainder(self):
@@ -100,10 +100,10 @@ class TestRecordBatchTables(unittest.TestCase):
         self.assertTrue(bt.has_batches())
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.batched_records, 450)
-        self.assertEqual(bt.remaining_records, 50)
-        self.assertTrue(bt.batched_records % min_records_batch == 0)
-        self.assertLess(bt.remaining_records, min_records_batch)
+        self.assertEqual(bt.batched_record_count, 450)
+        self.assertEqual(bt.remaining_record_count, 50)
+        self.assertTrue(bt.batched_record_count % min_records_batch == 0)
+        self.assertLess(bt.remaining_record_count, min_records_batch)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
     def test_grouped_tables_with_smaller_batch_size_than_table_records(self):
@@ -126,11 +126,11 @@ class TestRecordBatchTables(unittest.TestCase):
 
         self.assertTrue(bt.has_batches())
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
-        self.assertEqual(bt.batched_records, 115)
-        self.assertTrue(bt.batched_records % min_records_batch == 0)
+        self.assertEqual(bt.batched_record_count, 115)
+        self.assertTrue(bt.batched_record_count % min_records_batch == 0)
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.remaining_records, 2)
-        self.assertLess(bt.remaining_records, min_records_batch)
+        self.assertEqual(bt.remaining_record_count, 2)
+        self.assertLess(bt.remaining_record_count, min_records_batch)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
     def test_batched_tables_factory_from_input_tables(self):
@@ -149,11 +149,11 @@ class TestRecordBatchTables(unittest.TestCase):
         self.assertTrue(type(bt), RecordBatchTables)
         self.assertTrue(bt.has_batches())
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
-        self.assertEqual(bt.batched_records, 115)
-        self.assertTrue(bt.batched_records % min_records_batch == 0)
+        self.assertEqual(bt.batched_record_count, 115)
+        self.assertTrue(bt.batched_record_count % min_records_batch == 0)
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.remaining_records, 2)
-        self.assertLess(bt.remaining_records, min_records_batch)
+        self.assertEqual(bt.remaining_record_count, 2)
+        self.assertLess(bt.remaining_record_count, min_records_batch)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
     def test_clear(self):
@@ -165,11 +165,11 @@ class TestRecordBatchTables(unittest.TestCase):
         bt.append(test_table)
         self.assertTrue(bt.has_batches())
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
-        self.assertEqual(bt.batched_records, 8)
+        self.assertEqual(bt.batched_record_count, 8)
 
         bt.clear_batches()
         self.assertFalse(bt.has_batches())
-        self.assertEqual(bt.batched_records, 0)
+        self.assertEqual(bt.batched_record_count, 0)
 
     def test_append_after_clear(self):
         min_records_batch = 8
@@ -180,27 +180,27 @@ class TestRecordBatchTables(unittest.TestCase):
         bt.append(test_table)
         self.assertTrue(bt.has_batches())
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
-        self.assertEqual(bt.batched_records, 8)
-        prev_remainder_records = bt.remaining_records
-        self.assertEqual(bt.remaining_records, 2)
+        self.assertEqual(bt.batched_record_count, 8)
+        prev_remainder_records = bt.remaining_record_count
+        self.assertEqual(bt.remaining_record_count, 2)
 
         bt.clear_batches()
         self.assertFalse(bt.has_batches())
-        self.assertEqual(bt.batched_records, 0)
+        self.assertEqual(bt.batched_record_count, 0)
 
         col1 = pa.array([i for i in range(10, 20)])
         col2 = pa.array(["test"] * 10)
         test_table = pa.Table.from_arrays([col1, col2], names=self.column_names)
         bt.append(test_table)
 
-        self.assertEqual(bt.batched_records, 8)
-        self.assertEqual(bt.remaining_records, 4)
-        self.assertNotEquals(prev_remainder_records, bt.remaining_records)
+        self.assertEqual(bt.batched_record_count, 8)
+        self.assertEqual(bt.remaining_record_count, 4)
+        self.assertNotEquals(prev_remainder_records, bt.remaining_record_count)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
         bt.clear_remaining()
         self.assertFalse(bt.has_remaining())
-        self.assertTrue(bt.remaining_records == 0)
+        self.assertTrue(bt.remaining_record_count == 0)
 
     def test_evict(self):
         min_records_batch = 8
@@ -212,15 +212,15 @@ class TestRecordBatchTables(unittest.TestCase):
         self.assertTrue(bt.has_batches())
         self.assertTrue(_is_gte_batch_size_and_divisible(bt, min_records_batch))
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.batched_records, 8)
-        self.assertEqual(bt.remaining_records, 2)
-        prev_batched_records = bt.batched_records
+        self.assertEqual(bt.batched_record_count, 8)
+        self.assertEqual(bt.remaining_record_count, 2)
+        prev_batched_records = bt.batched_record_count
 
         evicted_tables = bt.evict()
         self.assertFalse(bt.has_batches())
         self.assertTrue(bt.has_remaining())
-        self.assertEqual(bt.batched_records, 0)
-        self.assertEqual(bt.remaining_records, 2)
+        self.assertEqual(bt.batched_record_count, 0)
+        self.assertEqual(bt.remaining_record_count, 2)
         self.assertEqual(sum([len(t) for t in evicted_tables]), prev_batched_records)
 
 
