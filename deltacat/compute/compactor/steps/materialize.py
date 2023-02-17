@@ -134,8 +134,6 @@ def materialize(
             src_stream_position_np.item(),
         )
         dl_digest = delta_locator.digest()
-        import time
-        time.sleep(10)
         manifest = manifest_cache.setdefault(
             dl_digest,
             deltacat_storage.get_delta_manifest(delta_locator),
