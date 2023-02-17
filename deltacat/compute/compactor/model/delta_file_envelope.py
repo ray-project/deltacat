@@ -61,3 +61,7 @@ class DeltaFileEnvelope(dict):
     @property
     def table(self) -> LocalTable:
         return self["table"]
+
+    @property
+    def is_src_delta(self) -> np.bool_:
+        return self["is_src_delta"]

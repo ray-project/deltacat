@@ -32,7 +32,6 @@ def _group_by_pk_hash_bucket(
         table: pa.Table,
         num_buckets: int,
         primary_keys: List[str]) -> np.ndarray:
-
     # generate the primary key digest column
     all_pk_column_fields = []
     for pk_name in primary_keys:
@@ -80,13 +79,11 @@ def _group_file_records_by_pk_hash_bucket(
         is_src_delta: np.bool_ = True,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[DeltaFileEnvelopeGroups]:
-
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes = _read_delta_file_envelopes(
         annotated_delta,
         primary_keys,
         sort_key_names,
-        is_src_delta,
         deltacat_storage,
     )
     if delta_file_envelopes is None:
@@ -109,19 +106,19 @@ def _group_file_records_by_pk_hash_bucket(
                         dfe.stream_position,
                         dfe.file_index,
                         dfe.delta_type,
-                        table))
+                        table,
+                        is_src_delta))
     return hb_to_delta_file_envelopes
+
 
 def _read_delta_file_envelopes(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_key_names: List[str],
-        is_src_delta: np.bool_ = True,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[List[DeltaFileEnvelope]]:
-
     columns_to_read = list(chain(primary_keys, sort_key_names))
-    # TODO (rootliu) compare performance of column read from unpartitioned and partitioned file
+    # TODO (rootliu) compare performance of column read from unpartitioned vs partitioned file
     # https://arrow.apache.org/docs/python/parquet.html#writing-to-partitioned-datasets
     tables = deltacat_storage.download_delta(
         annotated_delta,
@@ -130,10 +127,10 @@ def _read_delta_file_envelopes(
         storage_type=StorageType.LOCAL,
     )
     annotations = annotated_delta.annotations
-    assert(len(tables) == len(annotations),
-           f"Unexpected Error: Length of downloaded delta manifest tables "
-           f"({len(tables)}) doesn't match the length of delta manifest "
-           f"annotations ({len(annotations)}).")
+    assert (len(tables) == len(annotations),
+            f"Unexpected Error: Length of downloaded delta manifest tables "
+            f"({len(tables)}) doesn't match the length of delta manifest "
+            f"annotations ({len(annotations)}).")
     if not tables:
         return None
 
@@ -143,8 +140,7 @@ def _read_delta_file_envelopes(
             annotations[i].annotation_stream_position,
             annotations[i].annotation_file_index,
             annotations[i].annotation_delta_type,
-            table,
-            is_src_delta
+            table
         )
         delta_file_envelopes.append(delta_file)
     return delta_file_envelopes
@@ -159,10 +155,12 @@ def hash_bucket(
         num_buckets: int,
         num_groups: int,
         deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
-
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [key.key_name for key in sort_keys]
-    is_src_delta = False if annotated_delta.locator == round_completion_info.compacted_delta_locator else True
+    if not round_completion_info:
+        is_src_delta = True  # rebase compaction, where source_partition is from the compacted delta
+    else:  # incremental compaction, where source_partition is uncompacted, and delta can be from both uncompacted and compacted
+        is_src_delta = False if annotated_delta.locator.partition_locator == round_completion_info.compacted_delta_locator.partition_locator else True
     delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,

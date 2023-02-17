@@ -9,16 +9,14 @@ from ray.types import ObjectRef
 
 from deltacat import logs
 from deltacat.compute.compactor import SortKey, SortOrder, \
-    RoundCompletionInfo, DeltaFileEnvelope, \
+    DeltaFileEnvelope, \
     DeltaFileLocator
-from deltacat.compute.compactor.utils import system_columns as sc, \
-    primary_key_index as pki
+from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.utils.performance import timed_invocation
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
 
 MaterializeBucketIndex = int
 DeltaFileLocatorToRecords = Dict[DeltaFileLocator, np.ndarray]
@@ -33,7 +31,6 @@ DedupeResult = Tuple[
 def _union_primary_key_indices(
         hash_bucket_index: int,
         df_envelopes_list: List[List[DeltaFileEnvelope]]) -> pa.Table:
-
     logger.info(f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
                 f"{len(df_envelopes_list)} delta file envelope lists...")
     hb_tables = []
@@ -60,8 +57,8 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
     op_type_np = sc.delta_type_column_np(table)
 
     assert len(pk_hash_np) == len(op_type_np), \
-            f"Primary key digest column length ({len(pk_hash_np)}) doesn't " \
-            f"match delta type column length ({len(op_type_np)})."
+        f"Primary key digest column length ({len(pk_hash_np)}) doesn't " \
+        f"match delta type column length ({len(op_type_np)})."
 
     # TODO(raghumdani): move the dedupe to C++ using arrow methods or similar. 
     row_idx = 0
@@ -87,15 +84,13 @@ def delta_file_locator_to_mat_bucket_index(
     digest = df_locator.digest()
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
-@ray.remote(num_returns=3)
+
+@ray.remote(num_returns=2)
 def dedupe(
-        compaction_artifact_s3_bucket: str,
-        round_completion_info: Optional[RoundCompletionInfo],
         object_ids: List[Any],
         sort_keys: List[SortKey],
         num_materialize_buckets: int,
         dedupe_task_index: int) -> DedupeResult:
-
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
@@ -119,8 +114,6 @@ def dedupe(
 
         table, union_time = timed_invocation(
             func=_union_primary_key_indices,
-            s3_bucket=compaction_artifact_s3_bucket,
-            round_completion_info=round_completion_info,
             hash_bucket_index=hb_idx,
             df_envelopes_list=dfe_list)
         logger.info(f"[Dedupe {dedupe_task_index}] Dedupe round input "

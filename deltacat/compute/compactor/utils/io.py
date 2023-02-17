@@ -1,5 +1,4 @@
 import logging
-import time
 import math
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER, BYTES_PER_MEBIBYTE
@@ -109,8 +108,8 @@ def limit_input_deltas(
             delta_bytes += entry.meta.content_length
             if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
-        latest_stream_position[delta.locator.canonical_string()] = max(position, latest_stream_position[
-            delta.locator.canonical_string()])
+        latest_stream_position[delta.locator.partition_locator.canonical_string()] = max(position, latest_stream_position[
+            delta.locator.partition_locator.canonical_string()])
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
                 f"Input deltas limited to "

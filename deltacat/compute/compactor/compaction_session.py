@@ -2,8 +2,6 @@ import logging
 import functools
 import ray
 
-from collections import defaultdict
-
 from deltacat import logs
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import Delta, DeltaLocator, Partition, \
@@ -15,11 +13,11 @@ from deltacat.compute.compactor.steps import hash_bucket as hb, dedupe as dd, \
     materialize as mat
 from deltacat.compute.compactor import SortKey, RoundCompletionInfo, \
     PyArrowWriteResult
-from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
-    primary_key_index as pki
+from deltacat.compute.compactor.utils import round_completion_file as rcf, io
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict
+from collections import defaultdict
 
 import pyarrow as pa
 
@@ -60,7 +58,6 @@ def compact_partition(
         sort_keys: List[SortKey] = None,
         records_per_compacted_file: int = 4_000_000,
         input_deltas_stats: Dict[int, DeltaStats] = None,
-        min_pk_index_pa_bytes: int = 0,
         min_hash_bucket_chunk_size: int = 0,
         compacted_file_content_type: ContentType = ContentType.PARQUET,
         pg_config: Optional[PlacementGroupConfig] = None,
@@ -82,7 +79,6 @@ def compact_partition(
             sort_keys,
             records_per_compacted_file,
             input_deltas_stats,
-            min_pk_index_pa_bytes,
             min_hash_bucket_chunk_size,
             compacted_file_content_type,
             pg_config,
@@ -112,10 +108,8 @@ def _execute_compaction_round(
         sort_keys: List[SortKey],
         records_per_compacted_file: int,
         input_deltas_stats: Dict[int, DeltaStats],
-        min_pk_index_pa_bytes: int,
         min_hash_bucket_chunk_size: int,
         compacted_file_content_type: ContentType,
-        delete_prev_primary_key_index: bool,
         pg_config: Optional[PlacementGroupConfig],
         schema_on_read: Optional[pa.schema],
         rebase_source_partition_locator: Optional[PartitionLocator],
@@ -179,14 +173,17 @@ def _execute_compaction_round(
     max_parallelism = int(cluster_cpus)
     logger.info(f"Max parallelism: {max_parallelism}")
 
-    # read the results from any previously completed compaction round that used
-    # a compatible primary key index
+    # read the results from any previously completed compaction round
     round_completion_info = None
     if not rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
             compaction_artifact_s3_bucket,
             source_partition_locator
         )
+        if not round_completion_info:
+            logger.info(
+                f" need rebase source to run initial rebase, otherwise provide round completion file for incremental compaction")
+            return None, None, None
         logger.info(f"Round completion file: {round_completion_info}")
 
     # discover input delta files
@@ -196,14 +193,14 @@ def _execute_compaction_round(
     # Source One: new deltas from uncompacted table
     input_deltas = io.discover_deltas(
         source_partition_locator,
-        high_watermark[source_partition_locator.canonical_string()] if isinstance(high_watermark, dict) else high_watermark,
+        high_watermark[source_partition_locator.canonical_string()] if isinstance(high_watermark,
+                                                                                  dict) else high_watermark,
         last_stream_position_to_compact,
         deltacat_storage,
     )
     if not rebase_source_partition_locator:
         compacted_last_stream_position = deltacat_storage.get_partition(compacted_partition_locator.stream_locator,
-                                                                        compacted_partition_locator.partition_values).stream_position,
-
+                                                                        compacted_partition_locator.partition_values).stream_position
         input_deltas_compacted = io.discover_deltas(
             compacted_partition_locator,
             None,
@@ -217,7 +214,7 @@ def _execute_compaction_round(
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
-        return False, None, None, None
+        return None, None, None
 
     # limit the input deltas to fit on this cluster and convert them to
     # annotated deltas of equivalent size for easy parallel distribution
@@ -243,6 +240,7 @@ def _execute_compaction_round(
         ray_task=hb.hash_bucket,
         max_parallelism=max_parallelism,
         options_provider=round_robin_opt_provider,
+        round_completion_info=round_completion_info,
         primary_keys=primary_keys,
         sort_keys=sort_keys,
         num_buckets=hash_bucket_count,
@@ -289,8 +287,6 @@ def _execute_compaction_round(
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, item: {"dedupe_task_index": index,
                                              "object_ids": item},
-        compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
-        round_completion_info=round_completion_info,
         sort_keys=sort_keys,
         num_materialize_buckets=num_materialize_buckets,
     )
@@ -370,9 +366,10 @@ def _execute_compaction_round(
         rcf_source_partition_locator,
         new_round_completion_info,
     )
-    if last_stream_position_compacted[source_partition_locator.canonical_string()] < last_stream_position_to_compact\
+    if last_stream_position_compacted[source_partition_locator.canonical_string()] < last_stream_position_to_compact \
             or (not rebase_source_partition_locator and \
-                last_stream_position_compacted[compacted_partition_locator.canonical_string()] < compacted_last_stream_position):
+                last_stream_position_compacted[
+                    compacted_partition_locator.canonical_string()] < compacted_last_stream_position):
         logger.info(
             f"Compaction can not be completed in one round. Either increase cluster size or decrease input")
     logger.info(
@@ -380,6 +377,6 @@ def _execute_compaction_round(
         f"compacted at: {last_stream_position_compacted},"
         f"last position: {last_stream_position_to_compact}")
     return \
-            partition, \
+        partition, \
             new_round_completion_info, \
             round_completion_file_s3_url
