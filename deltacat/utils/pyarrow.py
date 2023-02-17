@@ -174,8 +174,21 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
     """ReadKwargsProvider impl that explicitly maps column names to column types when
     loading dataset files into a PyArrow table. Disables the default type inference
     behavior on the defined columns."""
-    def __init__(self, schema: Optional[pa.Schema] = None):
+    def __init__(self,
+                 schema: Optional[pa.Schema] = None,
+                 pq_coerce_int96_timestamp_unit: Optional[str] = None):
+        """
+
+        Args:
+            schema: The schema to use for reading the dataset.
+                If unspecified, the schema will be inferred from the source.
+            pq_coerce_int96_timestamp_unit: When reading from parquet files, cast timestamps that are stored in INT96
+                format to a particular resolution (e.g. 'ms'). Setting to None is equivalent to 'ms'
+                and therefore INT96 timestamps will be inferred as timestamps in milliseconds.
+
+        """
         self.schema = schema
+        self.pq_coerce_int96_timestamp_unit = pq_coerce_int96_timestamp_unit
 
     def _get_kwargs(
             self,
@@ -191,6 +204,10 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
             # Only supported in PyArrow 8.0.0+
             if self.schema:
                 kwargs["schema"] = self.schema
+
+            # Coerce deprecated int96 timestamp to millisecond if unspecified
+            kwargs["coerce_int96_timestamp_unit"] = self.pq_coerce_int96_timestamp_unit or "ms"
+
         return kwargs
 
 
