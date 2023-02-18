@@ -1,7 +1,7 @@
 import logging
 import functools
 import ray
-
+import time
 from deltacat import logs
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import Delta, DeltaLocator, Partition, \
@@ -119,6 +119,7 @@ def _execute_compaction_round(
             Optional[Partition],
             Optional[RoundCompletionInfo],
             Optional[str]]:
+    hb_pre_start = time.time()
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
         #  with normalized manifest entry sizes
@@ -232,7 +233,8 @@ def _execute_compaction_round(
     assert hash_bucket_count is not None and hash_bucket_count > 0, \
         f"Expected hash bucket count to be a positive integer, but found " \
         f"`{hash_bucket_count}`"
-
+    hb_pre_end = time.time()
+    hb_start = time.time()
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
     hb_tasks_pending = invoke_parallel(
@@ -280,6 +282,8 @@ def _execute_compaction_round(
     # identify the index of records to keep or drop based on sort keys
     num_materialize_buckets = max_parallelism
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
+    hb_end = time.time()
+    dd_start = time.time()
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
@@ -315,6 +319,8 @@ def _execute_compaction_round(
 
     # parallel step 3:
     # materialize records to keep by index
+    dd_end=time.time()
+    mat_start = time.time()
     mat_tasks_pending = invoke_parallel(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,
@@ -341,6 +347,7 @@ def _execute_compaction_round(
     merged_delta = Delta.merge_deltas(deltas)
     compacted_delta = deltacat_storage.commit_delta(merged_delta)
     logger.info(f"Committed compacted delta: {compacted_delta}")
+    mat_end = time.time()
 
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
@@ -376,6 +383,7 @@ def _execute_compaction_round(
         f"partition-{source_partition_locator.partition_values},"
         f"compacted at: {last_stream_position_compacted},"
         f"last position: {last_stream_position_to_compact}")
+    logger.info(f"Compaction Metrics pre_hb {(hb_pre_end-hb_pre_start):.2f},hb {(hb_end-hb_start):.2f}, dd {(dd_end-dd_start):.2f}, mat {(mat_end-mat_start):.2f}")
     return \
         partition, \
             new_round_completion_info, \
