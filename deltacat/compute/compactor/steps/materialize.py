@@ -1,19 +1,11 @@
 import logging
 import time
-
-import ray
-import pyarrow as pa
-
 from collections import defaultdict
 from itertools import chain, repeat
 from typing import List, Optional, Tuple
-
 import pyarrow as pa
 import ray
-from pyarrow import compute as pc
 from ray import cloudpickle
-from ray.runtime_context import get_runtime_context
-
 from deltacat import logs
 from deltacat.compute.compactor import (
     MaterializeResult,
