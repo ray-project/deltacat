@@ -22,6 +22,7 @@ from deltacat.compute.compactor.utils import round_completion_file as rcf, io, \
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict
+from deltacat.utils.metrics import MetricsConfig
 
 import pyarrow as pa
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -73,6 +74,7 @@ def compact_partition(
         schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
         rebase_source_partition_locator: Optional[PartitionLocator] = None,
         rebase_source_partition_high_watermark: Optional[int] = None,
+        metrics_config: Optional[MetricsConfig] = None,
         deltacat_storage=unimplemented_deltacat_storage) -> Optional[str]:
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
@@ -101,6 +103,7 @@ def compact_partition(
                 schema_on_read,
                 rebase_source_partition_locator,
                 rebase_source_partition_high_watermark,
+                metrics_config,
                 deltacat_storage,
             )
         if new_partition:
@@ -140,6 +143,7 @@ def _execute_compaction_round(
         schema_on_read: Optional[pa.schema],
         rebase_source_partition_locator: Optional[PartitionLocator],
         rebase_source_partition_high_watermark: Optional[int],
+        metrics_config: MetricsConfig,
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Tuple[
             bool,
@@ -316,6 +320,7 @@ def _execute_compaction_round(
         sort_keys=sort_keys,
         num_buckets=hash_bucket_count,
         num_groups=max_parallelism,
+        metrics_config=metrics_config,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -384,7 +389,8 @@ def _execute_compaction_round(
         sort_keys=sort_keys,
         max_records_per_index_file=records_per_primary_key_index_file,
         num_materialize_buckets=num_materialize_buckets,
-        delete_old_primary_key_index=delete_prev_primary_key_index
+        delete_old_primary_key_index=delete_prev_primary_key_index,
+        metrics_config=metrics_config
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
@@ -428,6 +434,7 @@ def _execute_compaction_round(
         partition=partition,
         max_records_per_output_file=records_per_compacted_file,
         compacted_file_content_type=compacted_file_content_type,
+        metrics_config=metrics_config,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")

@@ -2,6 +2,8 @@ import ray
 import pyarrow as pa
 import numpy as np
 import logging
+import time
+import datetime
 
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from itertools import chain
@@ -15,6 +17,8 @@ from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import StorageType
 from deltacat.utils.common import sha1_digest
 from deltacat.compute.compactor.utils import system_columns as sc
+from deltacat.utils.performance import timed_invocation
+from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
 from typing import List, Optional, Generator, Tuple
 
@@ -32,7 +36,6 @@ def _group_by_pk_hash_bucket(
         table: pa.Table,
         num_buckets: int,
         primary_keys: List[str]) -> np.ndarray:
-
     # generate the primary key digest column
     all_pk_column_fields = []
     for pk_name in primary_keys:
@@ -79,7 +82,6 @@ def _group_file_records_by_pk_hash_bucket(
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[DeltaFileEnvelopeGroups]:
-
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes = _read_delta_file_envelopes(
         annotated_delta,
@@ -110,13 +112,13 @@ def _group_file_records_by_pk_hash_bucket(
                         table))
     return hb_to_delta_file_envelopes
 
+
 def _read_delta_file_envelopes(
         annotated_delta: DeltaAnnotated,
         primary_keys: List[str],
         sort_key_names: List[str],
         deltacat_storage=unimplemented_deltacat_storage) \
         -> Optional[List[DeltaFileEnvelope]]:
-
     columns_to_read = list(chain(primary_keys, sort_key_names))
     tables = deltacat_storage.download_delta(
         annotated_delta,
@@ -125,10 +127,10 @@ def _read_delta_file_envelopes(
         storage_type=StorageType.LOCAL,
     )
     annotations = annotated_delta.annotations
-    assert(len(tables) == len(annotations),
-           f"Unexpected Error: Length of downloaded delta manifest tables "
-           f"({len(tables)}) doesn't match the length of delta manifest "
-           f"annotations ({len(annotations)}).")
+    assert (len(tables) == len(annotations),
+            f"Unexpected Error: Length of downloaded delta manifest tables "
+            f"({len(tables)}) doesn't match the length of delta manifest "
+            f"annotations ({len(annotations)}).")
     if not tables:
         return None
 
@@ -144,16 +146,12 @@ def _read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_returns=2)
-def hash_bucket(
-        annotated_delta: DeltaAnnotated,
-        primary_keys: List[str],
-        sort_keys: List[SortKey],
-        num_buckets: int,
-        num_groups: int,
-        deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
-
-    logger.info(f"Starting hash bucket task...")
+def timed_hash_bucket(annotated_delta: DeltaAnnotated,
+                      primary_keys: List[str],
+                      sort_keys: List[SortKey],
+                      num_buckets: int,
+                      num_groups: int,
+                      deltacat_storage=unimplemented_deltacat_storage):
     sort_key_names = [key.key_name for key in sort_keys]
     delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
         annotated_delta,
@@ -167,5 +165,30 @@ def hash_bucket(
         num_buckets,
         num_groups,
     )
+    return hash_bucket_group_to_obj_id, object_refs
+
+
+@ray.remote(num_returns=2)
+def hash_bucket(
+        annotated_delta: DeltaAnnotated,
+        primary_keys: List[str],
+        sort_keys: List[SortKey],
+        num_buckets: int,
+        num_groups: int,
+        metrics_config: MetricsConfig,
+        deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
+    logger.info(f"Starting hash bucket task...")
+    duration, hash_bucket_group_to_obj_id, object_refs = timed_invocation(
+        func=timed_hash_bucket,
+        annotated_delta=annotated_delta,
+        primary_keys=primary_keys,
+        sort_keys=sort_keys,
+        num_buckets=num_buckets,
+        num_groups=num_groups,
+        deltacat_storage=deltacat_storage
+    )
+    emit_timer_metrics(metrics_name="hash_bucket",
+                       value=duration,
+                       metrics_config=metrics_config)
     logger.info(f"Finished hash bucket task...")
     return hash_bucket_group_to_obj_id, object_refs

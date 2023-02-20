@@ -8,6 +8,8 @@ from typing import List, Optional, Tuple
 
 import pyarrow as pa
 import ray
+import time
+import datetime
 from pyarrow import compute as pc
 from ray import cloudpickle
 
@@ -30,13 +32,14 @@ from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowCsvPureUtf8,
     ReadKwargsProviderPyArrowSchemaOverride,
 )
+from deltacat.utils.performance import timed_invocation
+from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote
-def materialize(
-        source_partition_locator: PartitionLocator,
+
+def _timed_materialize(source_partition_locator: PartitionLocator,
         round_completion_info: Optional[RoundCompletionInfo],
         partition: Partition,
         mat_bucket_index: int,
@@ -44,7 +47,7 @@ def materialize(
         max_records_per_output_file: int,
         compacted_file_content_type: ContentType,
         schema: Optional[pa.Schema] = None,
-        deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
+        deltacat_storage=unimplemented_deltacat_storage):
 
     def _materialize(
             compacted_tables: List[pa.Table],
@@ -92,7 +95,6 @@ def materialize(
         logger.info(f"Materialize result: {materialize_result}")
         return materialize_result
 
-    logger.info(f"Starting materialize task...")
     dedupe_task_idx_and_obj_ref_tuples = [
         (
             t1,
@@ -158,7 +160,7 @@ def materialize(
         mask_pylist = list(repeat(False, record_count))
         record_numbers = chain.from_iterable(record_numbers_tpl)
         # TODO(raghumdani): reference the same file URIs while writing the files
-        # instead of copying the data over and creating new files. 
+        # instead of copying the data over and creating new files.
         for record_number in record_numbers:
             mask_pylist[record_number] = True
         mask = pa.array(mask_pylist)
@@ -210,3 +212,33 @@ def materialize(
 
     logger.info(f"Finished materialize task...")
     return merged_materialize_result
+
+@ray.remote
+def materialize(
+        source_partition_locator: PartitionLocator,
+        round_completion_info: Optional[RoundCompletionInfo],
+        partition: Partition,
+        mat_bucket_index: int,
+        dedupe_task_idx_and_obj_id_tuples: List[DedupeTaskIndexWithObjectId],
+        max_records_per_output_file: int,
+        compacted_file_content_type: ContentType,
+        metrics_config: MetricsConfig,
+        schema: Optional[pa.Schema] = None,
+        deltacat_storage=unimplemented_deltacat_storage) -> MaterializeResult:
+
+    duration, merged_materialize_result = timed_invocation(
+        func=_timed_materialize,
+        source_partition_locator=source_partition_locator,
+        round_completion_info=round_completion_info,
+        partition=partition,
+        mat_bucket_index=mat_bucket_index,
+        dedupe_task_idx_and_obj_id_tuples=dedupe_task_idx_and_obj_id_tuples,
+        max_records_per_output_file=max_records_per_output_file,
+        compacted_file_content_type=compacted_file_content_type,
+        schema=schema,
+        deltacat_storage=deltacat_storage)
+
+    emit_timer_metrics(metrics_name="materialize",
+                       value=duration,
+                       metrics_config=metrics_config)
+    logger.info(f"Starting materialize task...")

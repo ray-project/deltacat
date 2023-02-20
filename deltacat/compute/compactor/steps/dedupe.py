@@ -6,6 +6,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import ray
+import time
+import datetime
 from ray import cloudpickle
 from ray.types import ObjectRef
 
@@ -29,12 +31,12 @@ from deltacat.compute.compactor import SortKey, SortOrder, \
 from deltacat.compute.compactor.utils import system_columns as sc, \
     primary_key_index as pki
 from deltacat.utils.performance import timed_invocation
+from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
 from typing import Any, Dict, List, Optional, Tuple
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
 
 MaterializeBucketIndex = int
 DeltaFileLocatorToRecords = Dict[DeltaFileLocator, np.ndarray]
@@ -52,7 +54,6 @@ def _union_primary_key_indices(
         round_completion_info: RoundCompletionInfo,
         hash_bucket_index: int,
         df_envelopes_list: List[List[DeltaFileEnvelope]]) -> pa.Table:
-
     logger.info(f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
                 f"{len(df_envelopes_list)} delta file envelope lists...")
     # read compacted input parquet files first
@@ -95,8 +96,8 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
     op_type_np = sc.delta_type_column_np(table)
 
     assert len(pk_hash_np) == len(op_type_np), \
-            f"Primary key digest column length ({len(pk_hash_np)}) doesn't " \
-            f"match delta type column length ({len(op_type_np)})."
+        f"Primary key digest column length ({len(pk_hash_np)}) doesn't " \
+        f"match delta type column length ({len(op_type_np)})."
 
     # TODO(raghumdani): move the dedupe to C++ using arrow methods or similar. 
     row_idx = 0
@@ -122,7 +123,6 @@ def _write_new_primary_key_index(
         max_rows_per_index_file: int,
         dedupe_task_index: int,
         deduped_tables: List[Tuple[int, pa.Table]]) -> PyArrowWriteResult:
-
     logger.info(f"[Dedupe task index {dedupe_task_index}] Writing new deduped primary key index: "
                 f"{new_primary_key_index_version_locator}")
 
@@ -149,19 +149,16 @@ def delta_file_locator_to_mat_bucket_index(
     digest = df_locator.digest()
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
-@ray.remote(num_returns=3)
-def dedupe(
-        compaction_artifact_s3_bucket: str,
-        round_completion_info: Optional[RoundCompletionInfo],
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        object_ids: List[Any],
-        sort_keys: List[SortKey],
-        max_records_per_index_file: int,
-        num_materialize_buckets: int,
-        dedupe_task_index: int,
-        delete_old_primary_key_index: bool) -> DedupeResult:
 
-    logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
+def _timed_dedupe(compaction_artifact_s3_bucket: str,
+                  round_completion_info: Optional[RoundCompletionInfo],
+                  new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+                  object_ids: List[Any],
+                  sort_keys: List[SortKey],
+                  max_records_per_index_file: int,
+                  num_materialize_buckets: int,
+                  dedupe_task_index: int,
+                  delete_old_primary_key_index: bool):
     # TODO (pdames): mitigate risk of running out of memory here in cases of
     #  severe skew of primary key updates in deltas
     src_file_records_obj_refs = [
@@ -271,7 +268,41 @@ def dedupe(
             compaction_artifact_s3_bucket,
             round_completion_info.primary_key_index_version_locator,
         )
+    return mat_bucket_to_dd_idx_obj_id, \
+           src_file_records_obj_refs, \
+           write_pki_result
+
+
+@ray.remote(num_returns=3)
+def dedupe(
+        compaction_artifact_s3_bucket: str,
+        round_completion_info: Optional[RoundCompletionInfo],
+        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        object_ids: List[Any],
+        sort_keys: List[SortKey],
+        max_records_per_index_file: int,
+        num_materialize_buckets: int,
+        dedupe_task_index: int,
+        delete_old_primary_key_index: bool,
+        metrics_config: MetricsConfig) -> DedupeResult:
+    logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
+    duration, mat_bucket_to_dd_idx_obj_id, src_file_records_obj_refs, \
+    write_pki_result = timed_invocation(
+        func=_timed_dedupe,
+        compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
+        round_completion_info=round_completion_info,
+        new_primary_key_index_version_locator=new_primary_key_index_version_locator,
+        object_ids=object_ids,
+        sort_keys=sort_keys,
+        max_records_per_index_file=max_records_per_index_file,
+        num_materialize_buckets=num_materialize_buckets,
+        dedupe_task_index=dedupe_task_index,
+        delete_old_primary_key_index=delete_old_primary_key_index
+    )
+    emit_timer_metrics(metrics_name="dedupe",
+                       value=duration,
+                       metrics_config=metrics_config)
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
     return mat_bucket_to_dd_idx_obj_id, \
-        src_file_records_obj_refs, \
-        write_pki_result
+           src_file_records_obj_refs, \
+           write_pki_result
