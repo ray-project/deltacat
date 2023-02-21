@@ -1,26 +1,25 @@
 import logging
+from typing import Callable, Dict, List, Optional
 
-from pyarrow import csv as pacsv
 from fsspec import AbstractFileSystem
-
+from pyarrow import csv as pacsv
 from ray.data import Dataset
 from ray.data.datasource import BlockWritePathProvider
 
 from deltacat import logs
-from deltacat.types.media import ContentType, ContentEncoding
-
-from typing import Callable, Dict, List, Optional
+from deltacat.types.media import ContentEncoding, ContentType
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def write_parquet(
-        dataset: Dataset,
-        base_path: str,
-        *,
-        filesystem: AbstractFileSystem,
-        block_path_provider: BlockWritePathProvider,
-        **kwargs) -> None:
+    dataset: Dataset,
+    base_path: str,
+    *,
+    filesystem: AbstractFileSystem,
+    block_path_provider: BlockWritePathProvider,
+    **kwargs,
+) -> None:
 
     dataset.write_parquet(
         base_path,
@@ -32,12 +31,13 @@ def write_parquet(
 
 
 def write_csv(
-        dataset: Dataset,
-        base_path: str,
-        *,
-        filesystem: AbstractFileSystem,
-        block_path_provider: BlockWritePathProvider,
-        **kwargs) -> None:
+    dataset: Dataset,
+    base_path: str,
+    *,
+    filesystem: AbstractFileSystem,
+    block_path_provider: BlockWritePathProvider,
+    **kwargs,
+) -> None:
 
     # column names are kept in table metadata, so omit header
     arrow_csv_args_fn = lambda: {
@@ -61,9 +61,7 @@ CONTENT_TYPE_TO_DATASET_WRITE_FUNC: Dict[str, Callable] = {
 }
 
 
-def slice_dataset(
-        dataset: Dataset,
-        max_len: Optional[int]) -> List[Dataset]:
+def slice_dataset(dataset: Dataset, max_len: Optional[int]) -> List[Dataset]:
     """
     Returns equally-sized dataset slices of up to `max_len` records each.
     """
@@ -88,12 +86,13 @@ def dataset_size(dataset: Dataset) -> int:
 
 
 def dataset_to_file(
-        table: Dataset,
-        base_path: str,
-        file_system: AbstractFileSystem,
-        block_path_provider: BlockWritePathProvider,
-        content_type: str = ContentType.PARQUET.value,
-        **kwargs) -> None:
+    table: Dataset,
+    base_path: str,
+    file_system: AbstractFileSystem,
+    block_path_provider: BlockWritePathProvider,
+    content_type: str = ContentType.PARQUET.value,
+    **kwargs,
+) -> None:
     """
     Writes the given Distributed Dataset to one or more files.
     """
@@ -102,11 +101,12 @@ def dataset_to_file(
         raise NotImplementedError(
             f"Distributed Dataset writer for content type '{content_type}' not"
             f" implemented. Known content types: "
-            f"{CONTENT_TYPE_TO_DATASET_WRITE_FUNC.keys}")
+            f"{CONTENT_TYPE_TO_DATASET_WRITE_FUNC.keys}"
+        )
     writer(
         table,
         base_path,
         filesystem=file_system,
         block_path_provider=block_path_provider,
-        **kwargs
+        **kwargs,
     )

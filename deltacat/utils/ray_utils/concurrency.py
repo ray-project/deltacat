@@ -1,22 +1,23 @@
-import ray
+import copy
+import itertools
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
+import ray
 from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
-import copy
 
-from typing import Any, Iterable, Callable, Dict, List, Tuple, Union, Optional
-import itertools
 
 def invoke_parallel(
-        items: Iterable,
-        ray_task: Callable,
-        *args,
-        max_parallelism: Optional[int] = 1000,
-        options_provider: Callable[[int, Any], Dict[str, Any]] = None,
-        kwargs_provider: Callable[[int, Any], Dict[str, Any]] = None,
-        **kwargs) -> List[Union[ObjectRef, Tuple[ObjectRef, ...]]]:
+    items: Iterable,
+    ray_task: Callable,
+    *args,
+    max_parallelism: Optional[int] = 1000,
+    options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    kwargs_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    **kwargs,
+) -> List[Union[ObjectRef, Tuple[ObjectRef, ...]]]:
     """
     Creates a limited number of parallel remote invocations of the given ray
     task. By default each task is provided an ordered item from the input
@@ -57,11 +58,11 @@ def invoke_parallel(
                 ray.wait(
                     list(itertools.chain(*pending_ids)),
                     num_returns=int(
-                        len(pending_ids[0])*(len(pending_ids) - max_parallelism)
-                    )
+                        len(pending_ids[0]) * (len(pending_ids) - max_parallelism)
+                    ),
                 )
             else:
-                ray.wait(pending_ids, num_returns=len(pending_ids)-max_parallelism)
+                ray.wait(pending_ids, num_returns=len(pending_ids) - max_parallelism)
         opt = {}
         if options_provider:
             opt = options_provider(i, item)
@@ -79,21 +80,17 @@ def current_node_options_provider(*args, **kwargs) -> Dict[str, Any]:
     """Returns a resource dictionary that can be included with ray remote
     options to pin the task or actor on the current node via:
     `foo.options(current_node_options_provider()).remote()`"""
-    return {
-        "resources": {
-            current_node_resource_key(): MIN_RESOURCE_GRANULARITY
-        }
-    }
+    return {"resources": {current_node_resource_key(): MIN_RESOURCE_GRANULARITY}}
 
 
 def round_robin_options_provider(
-        i: int,
-        item: Any,
-        resource_keys: List[str],
-        *args,
-        resource_amount_provider: Callable[[int], int] =
-        lambda i: MIN_RESOURCE_GRANULARITY,
-        **kwargs) -> Dict[str, Any]:
+    i: int,
+    item: Any,
+    resource_keys: List[str],
+    *args,
+    resource_amount_provider: Callable[[int], int] = lambda i: MIN_RESOURCE_GRANULARITY,
+    **kwargs,
+) -> Dict[str, Any]:
     """Returns a resource dictionary that can be included with ray remote
     options to round robin indexed tasks or actors across a list of resource
     keys. For example, the following code round-robins 100 tasks across all
@@ -108,8 +105,10 @@ def round_robin_options_provider(
     opts = kwargs.get("pg_config")
     if opts:
         new_opts = copy.deepcopy(opts)
-        bundle_key_index = i % len(new_opts['scheduling_strategy'].placement_group.bundle_specs)
-        new_opts['scheduling_strategy'].placement_group_bundle_index = bundle_key_index
+        bundle_key_index = i % len(
+            new_opts["scheduling_strategy"].placement_group.bundle_specs
+        )
+        new_opts["scheduling_strategy"].placement_group_bundle_index = bundle_key_index
         return new_opts
     else:
         assert resource_keys, f"No resource keys given to round robin!"

@@ -1,4 +1,4 @@
-from typing import Set, Tuple, List, Iterable, Union, Optional
+from typing import Iterable, List, Optional, Set, Tuple, Union
 
 DeltaPosition = Optional[int]
 NumericDeltaPosition = Union[int, float]  # float is added here to support math.inf
@@ -38,7 +38,9 @@ def merge_intervals(intervals: Set[DeltaRange]) -> Set[DeltaRange]:
     for interval in intervals_list:
         start, end = interval
         if start > end:
-            raise ValueError(f"Invalid stream position range interval: ({start}, {end})")
+            raise ValueError(
+                f"Invalid stream position range interval: ({start}, {end})"
+            )
 
         if merge_start is None and merge_end is None:
             merge_start, merge_end = start, end
@@ -57,7 +59,9 @@ def merge_intervals(intervals: Set[DeltaRange]) -> Set[DeltaRange]:
     return merged
 
 
-def _add_merged_interval(result_set: set, start: NumericDeltaPosition, end: NumericDeltaPosition):
+def _add_merged_interval(
+    result_set: set, start: NumericDeltaPosition, end: NumericDeltaPosition
+):
     start_pos: DeltaPosition = start if isinstance(start, int) else None
     end_pos: DeltaPosition = end if isinstance(end, int) else None
     result_set.add((start_pos, end_pos))
@@ -67,9 +71,9 @@ def _to_numeric_values(intervals_list: List[DeltaRange]):
     for i, interval in enumerate(intervals_list):
         start, end = _get_validated_interval(interval)
         if start is None:
-            start = float('-inf')
+            start = float("-inf")
         if end is None:
-            end = float('inf')
+            end = float("inf")
 
         intervals_list[i] = (start, end)
 
@@ -79,9 +83,12 @@ def _get_validated_interval(interval: DeltaRange) -> DeltaRange:
         raise ValueError(f"Interval {interval} must be a tuple of size 2")
 
     start, end = interval
-    if not (isinstance(start, int) or start is None) \
-            or not (isinstance(end, int) or end is None):
-        raise ValueError(f"Invalid stream position value types: "
-                         f"({start}, {end}) - ({type(start), type(end)})")
+    if not (isinstance(start, int) or start is None) or not (
+        isinstance(end, int) or end is None
+    ):
+        raise ValueError(
+            f"Invalid stream position value types: "
+            f"({start}, {end}) - ({type(start), type(end)})"
+        )
 
     return start, end

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import List, Dict, Optional, Set, Any, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Optional, Set
 
 from deltacat.compute.stats.models.delta_column_stats import DeltaColumnStats
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
@@ -76,8 +76,7 @@ class DeltaStats(dict):
 
     @property
     def stats(self) -> Optional[StatsResult]:
-        """Returns a StatsResult object that represents this delta, aggregated by the column stats of this delta.
-        """
+        """Returns a StatsResult object that represents this delta, aggregated by the column stats of this delta."""
         val: Dict[str, Any] = self.get("stats")
         if val is not None and not isinstance(val, StatsResult):
             self["stats"] = val = StatsResult(val)
@@ -104,8 +103,12 @@ class DeltaStats(dict):
         Returns:
             Stats for the manifest entry.
         """
-        return StatsResult.merge(DeltaStats.get_manifest_entry_column_stats(self.column_stats, manifest_entry_idx),
-                                 record_row_count_once=True)
+        return StatsResult.merge(
+            DeltaStats.get_manifest_entry_column_stats(
+                self.column_stats, manifest_entry_idx
+            ),
+            record_row_count_once=True,
+        )
 
     def manifest_entry_column_stats(self, manifest_entry_idx: int) -> List[StatsResult]:
         """Fetch a list of stats for each column in a manifest entry.
@@ -116,23 +119,34 @@ class DeltaStats(dict):
         Returns:
             A list of columnar stats for the manifest entry
         """
-        return DeltaStats.get_manifest_entry_column_stats(self.column_stats, manifest_entry_idx)
+        return DeltaStats.get_manifest_entry_column_stats(
+            self.column_stats, manifest_entry_idx
+        )
 
     @staticmethod
-    def get_manifest_entry_column_stats(columns: List[DeltaColumnStats], manifest_entry_idx: int) -> List[StatsResult]:
+    def get_manifest_entry_column_stats(
+        columns: List[DeltaColumnStats], manifest_entry_idx: int
+    ) -> List[StatsResult]:
         """Helper method to provide a list of columnar stats for a specific manifest entry.
 
         Returns:
             A list of columnar stats for the manifest entry
         """
-        dataset_columnar_stats_list: List[ManifestEntryStats] = [column.manifest_stats for column in columns
-                                                                 if column.manifest_stats is not None]
+        dataset_columnar_stats_list: List[ManifestEntryStats] = [
+            column.manifest_stats
+            for column in columns
+            if column.manifest_stats is not None
+        ]
         try:
-            return [stats.stats[manifest_entry_idx] for stats in dataset_columnar_stats_list]
+            return [
+                stats.stats[manifest_entry_idx] for stats in dataset_columnar_stats_list
+            ]
         except IndexError:
             sci: ManifestEntryStats = dataset_columnar_stats_list[0]
-            raise ValueError(f"Table index {manifest_entry_idx} is not present in this dataset of {sci.delta_locator} "
-                             f"with manifest table count of {len(sci.stats)}")
+            raise ValueError(
+                f"Table index {manifest_entry_idx} is not present in this dataset of {sci.delta_locator} "
+                f"with manifest table count of {len(sci.stats)}"
+            )
 
     @staticmethod
     def get_column_names(columns: List[DeltaColumnStats]) -> List[str]:
@@ -147,8 +161,9 @@ class DeltaStats(dict):
         return [column_stats.column for column_stats in columns] if columns else []
 
     @staticmethod
-    def get_delta_stats(columns: List[DeltaColumnStats],
-                        stat_types: Optional[Set[StatsType]] = None) -> Optional[StatsResult]:
+    def get_delta_stats(
+        columns: List[DeltaColumnStats], stat_types: Optional[Set[StatsType]] = None
+    ) -> Optional[StatsResult]:
         """Calculate the sum of provided column stats and return it
 
         Args:
@@ -157,41 +172,52 @@ class DeltaStats(dict):
         Returns:
             Stats for the calculated sum
         """
-        assert columns and len(columns) > 0, \
-            f"Expected columns `{columns}` of type `{type(columns)}` " \
+        assert columns and len(columns) > 0, (
+            f"Expected columns `{columns}` of type `{type(columns)}` "
             f"to be a non-empty list of DeltaColumnStats"
+        )
 
-        assert all([col.manifest_stats for col in columns]), \
-            f"Expected stats completion info to be present in each item of {columns} "
+        assert all(
+            [col.manifest_stats for col in columns]
+        ), f"Expected stats completion info to be present in each item of {columns} "
 
         manifest_entry_count = len(columns[0].manifest_stats.stats)
-        column_stats_map: Dict[str, List[Optional[StatsResult]]] = \
-            defaultdict(lambda: [None] * manifest_entry_count)
+        column_stats_map: Dict[str, List[Optional[StatsResult]]] = defaultdict(
+            lambda: [None] * manifest_entry_count
+        )
 
         for column_stats in columns:
             for file_idx, entry_stats in enumerate(column_stats.manifest_stats.stats):
                 column_stats_map[column_stats.column][file_idx] = entry_stats
 
-        return DeltaStats._merge_stats_from_columns_to_dataset(DeltaStats.get_column_names(columns),
-                                                               column_stats_map,
-                                                               manifest_entry_count,
-                                                               stat_types)
+        return DeltaStats._merge_stats_from_columns_to_dataset(
+            DeltaStats.get_column_names(columns),
+            column_stats_map,
+            manifest_entry_count,
+            stat_types,
+        )
 
     @staticmethod
-    def _merge_stats_from_columns_to_dataset(column_names: List[str],
-                                             column_stats: Dict[str, List[Optional[StatsResult]]],
-                                             manifest_entries_size: int,
-                                             stat_types: Optional[Set[StatsType]] = None) -> StatsResult:
+    def _merge_stats_from_columns_to_dataset(
+        column_names: List[str],
+        column_stats: Dict[str, List[Optional[StatsResult]]],
+        manifest_entries_size: int,
+        stat_types: Optional[Set[StatsType]] = None,
+    ) -> StatsResult:
         manifest_entry_stats_summary_list: List[StatsResult] = []
         for manifest_entry_idx in range(manifest_entries_size):
             curr_manifest_entry_column_stats_list: List[StatsResult] = []
             for column_name in column_names:
-                current_table_column_stats: StatsResult = column_stats[column_name][manifest_entry_idx]
+                current_table_column_stats: StatsResult = column_stats[column_name][
+                    manifest_entry_idx
+                ]
                 curr_manifest_entry_column_stats_list.append(current_table_column_stats)
 
-            curr_manifest_entry_stats_summary = StatsResult.merge(curr_manifest_entry_column_stats_list,
-                                                                  stat_types,
-                                                                  record_row_count_once=True)
+            curr_manifest_entry_stats_summary = StatsResult.merge(
+                curr_manifest_entry_column_stats_list,
+                stat_types,
+                record_row_count_once=True,
+            )
             manifest_entry_stats_summary_list.append(curr_manifest_entry_stats_summary)
         return StatsResult.merge(manifest_entry_stats_summary_list, stat_types)
 
@@ -202,5 +228,6 @@ class DeltaStatsCacheMiss(NamedTuple):
     `column_names` represents missing dataset column names from the file system (ex: S3).
     delta_locator` is tied to the missing dataset columns and provided for future calculations.
     """
+
     column_names: List[str]
     delta_locator: DeltaLocator
