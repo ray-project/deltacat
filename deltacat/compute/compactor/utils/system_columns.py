@@ -77,6 +77,10 @@ def pk_hash_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_PK_HASH_COLUMN_NAME]
 
 
+def delta_type_column_np(table: pa.Table) -> np.ndarray:
+    return table[_DELTA_TYPE_COLUMN_NAME].to_numpy()
+
+
 def delta_type_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_DELTA_TYPE_COLUMN_NAME]
 

@@ -5,10 +5,12 @@ repos:
     rev: v4.4.0
     hooks:
     -   id: check-added-large-files
+        exclude: "deltacat/compute/compactor/TheFlashCompactorDesign.pdf"
     -   id: check-case-conflict
     -   id: check-json
     -   id: check-yaml
     -   id: end-of-file-fixer
+        exclude: "deltacat/compute/compactor/TheFlashCompactorDesign.pdf"
     -   id: requirements-txt-fixer
     -   id: trailing-whitespace
 -   repo: https://github.com/hadialqattan/pycln

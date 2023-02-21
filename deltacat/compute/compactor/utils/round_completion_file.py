@@ -44,7 +44,7 @@ def write_round_completion_file(
     source_partition_locator: PartitionLocator,
     primary_key_index_root_path: str,
     round_completion_info: RoundCompletionInfo,
-):
+) -> str:
 
     from deltacat.aws import s3u as s3_utils
 
@@ -59,3 +59,4 @@ def write_round_completion_file(
         round_completion_file_s3_url, str(json.dumps(round_completion_info))
     )
     logger.info(f"round completion file written to: {round_completion_file_s3_url}")
+    return round_completion_file_s3_url

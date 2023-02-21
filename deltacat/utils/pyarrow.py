@@ -1,3 +1,6 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 import bz2
 import gzip
 import io
@@ -163,8 +166,23 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
     loading dataset files into a PyArrow table. Disables the default type inference
     behavior on the defined columns."""
 
-    def __init__(self, schema: Optional[pa.Schema] = None):
+    def __init__(
+        self,
+        schema: Optional[pa.Schema] = None,
+        pq_coerce_int96_timestamp_unit: Optional[str] = None,
+    ):
+        """
+
+        Args:
+            schema: The schema to use for reading the dataset.
+                If unspecified, the schema will be inferred from the source.
+            pq_coerce_int96_timestamp_unit: When reading from parquet files, cast timestamps that are stored in INT96
+                format to a particular resolution (e.g. 'ms'). Setting to None is equivalent to 'ms'
+                and therefore INT96 timestamps will be inferred as timestamps in milliseconds.
+
+        """
         self.schema = schema
+        self.pq_coerce_int96_timestamp_unit = pq_coerce_int96_timestamp_unit
 
     def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if content_type in DELIMITED_TEXT_CONTENT_TYPES:
@@ -177,6 +195,12 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
             # Only supported in PyArrow 8.0.0+
             if self.schema:
                 kwargs["schema"] = self.schema
+
+            # Coerce deprecated int96 timestamp to millisecond if unspecified
+            kwargs["coerce_int96_timestamp_unit"] = (
+                self.pq_coerce_int96_timestamp_unit or "ms"
+            )
+
         return kwargs
 
 
@@ -272,3 +296,207 @@ def table_to_file(
         )
     path = block_path_provider(base_path)
     writer(table, path, filesystem=file_system, **kwargs)
+
+
+class RecordBatchTables:
+    def __init__(self, batch_size: int):
+        """
+        Data structure for maintaining a batched list of tables, where each batched table has
+        a record count of some multiple of the specified record batch size.
+
+        Remaining records are stored in a separate list of tables.
+
+        Args:
+            batch_size: Minimum record count per table to batch by. Batched tables are
+             guaranteed to have a record count multiple of the batch_size.
+        """
+        self._batched_tables: List[pa.Table] = []
+        self._batched_record_count: int = 0
+        self._remaining_tables: List[pa.Table] = []
+        self._remaining_record_count: int = 0
+        self._batch_size: int = batch_size
+
+    def append(self, table: pa.Table) -> None:
+        """
+        Appends a table for batching.
+
+        Table record counts are added to any previous remaining record count.
+        If the new remainder record count meets or exceeds the configured batch size record count,
+        the remainder will be shifted over to the list of batched tables in FIFO order via table slicing.
+        Batched tables will always have a record count of some multiple of the configured batch size.
+
+        Record ordering is preserved from input tables whenever tables are shifted from the remainder
+        over to the batched list. Records from Table A will always precede records from Table B,
+        if Table A was appended before Table B. Records from the batched list will always precede records
+        from the remainders.
+
+        Ex:
+            bt = RecordBatchTables(8)
+            col1 = pa.array([i for i in range(10)])
+            test_table = pa.Table.from_arrays([col1], names=["col1"])
+            bt.append(test_table)
+
+            print(bt.batched_records)  # 8
+            print(bt.batched)  # [0, 1, 2, 3, 4, 5, 6, 7]
+            print(bt.remaining_records)  # 2
+            print(bt.remaining)  # [8, 9]
+
+        Args:
+            table: Input table to add
+
+        """
+        if self._remaining_tables:
+            if self._remaining_record_count + len(table) < self._batch_size:
+                self._remaining_tables.append(table)
+                self._remaining_record_count += len(table)
+                return
+
+            records_to_fit = self._batch_size - self._remaining_record_count
+            fitted_table = table.slice(length=records_to_fit)
+            self._remaining_tables.append(fitted_table)
+            self._remaining_record_count += len(fitted_table)
+            table = table.slice(offset=records_to_fit)
+
+        record_count = len(table)
+        record_multiplier, records_leftover = (
+            record_count // self._batch_size,
+            record_count % self._batch_size,
+        )
+
+        if record_multiplier > 0:
+            batched_table = table.slice(length=record_multiplier * self._batch_size)
+            # Add to remainder tables to preserve record ordering
+            self._remaining_tables.append(batched_table)
+            self._remaining_record_count += len(batched_table)
+
+        if self._remaining_tables:
+            self._shift_remaining_to_new_batch()
+
+        if records_leftover > 0:
+            leftover_table = table.slice(offset=record_multiplier * self._batch_size)
+            self._remaining_tables.append(leftover_table)
+            self._remaining_record_count += len(leftover_table)
+
+    def _shift_remaining_to_new_batch(self) -> None:
+        new_batch = pa.concat_tables(self._remaining_tables)
+        self._batched_tables.append(new_batch)
+        self._batched_record_count += self._remaining_record_count
+        self.clear_remaining()
+
+    @staticmethod
+    def from_tables(tables: List[pa.Table], batch_size: int) -> RecordBatchTables:
+        """
+        Static factory for generating batched tables and remainders given a list of input tables.
+
+        Args:
+            tables: A list of input tables with various record counts
+            batch_size: Minimum record count per table to batch by. Batched tables are
+             guaranteed to have a record count multiple of the batch_size.
+
+        Returns: A batched tables object
+
+        """
+        rbt = RecordBatchTables(batch_size)
+        for table in tables:
+            rbt.append(table)
+        return rbt
+
+    @property
+    def batched(self) -> List[pa.Table]:
+        """
+        List of tables batched and ready for processing.
+        Each table has N records, where N records are some multiple of the configured records batch size.
+
+        For example, if the configured batch size is 5, then a list of batched tables
+        could have the following record counts: [60, 5, 30, 10]
+
+        Returns: a list of batched tables
+
+        """
+        return self._batched_tables
+
+    @property
+    def batched_record_count(self) -> int:
+        """
+        The number of total records from the batched list.
+
+        Returns: batched record count
+
+        """
+        return self._batched_record_count
+
+    @property
+    def remaining(self) -> List[pa.Table]:
+        """
+        List of tables carried over from table slicing during the batching operation.
+        The sum of all record counts in the remaining tables is guaranteed to be less than the configured batch size.
+
+        Returns: a list of remaining tables
+
+        """
+        return self._remaining_tables
+
+    @property
+    def remaining_record_count(self) -> int:
+        """
+        The number of total records from the remaining tables list.
+
+        Returns: remaining record count
+
+        """
+        return self._remaining_record_count
+
+    @property
+    def batch_size(self) -> int:
+        """
+        The configured batch size.
+
+        Returns: batch size
+
+        """
+        return self._batch_size
+
+    def has_batches(self) -> bool:
+        """
+        Checks if there are any currently batched tables ready for processing.
+
+        Returns: true if batched records exist, otherwise false
+
+        """
+        return self._batched_record_count > 0
+
+    def has_remaining(self) -> bool:
+        """
+        Checks if any remaining tables exist after batching.
+
+        Returns: true if remaining records exist, otherwise false
+
+        """
+        return self._remaining_record_count > 0
+
+    def evict(self) -> List[pa.Table]:
+        """
+        Evicts all batched tables from this object and returns them.
+
+        Returns: a list of batched tables
+
+        """
+        evicted_tables = [*self.batched]
+        self.clear_batches()
+        return evicted_tables
+
+    def clear_batches(self) -> None:
+        """
+        Removes all batched tables and resets batched records.
+
+        """
+        self._batched_tables.clear()
+        self._batched_record_count = 0
+
+    def clear_remaining(self) -> None:
+        """
+        Removes all remaining tables and resets remaining records.
+
+        """
+        self._remaining_tables.clear()
+        self._remaining_record_count = 0

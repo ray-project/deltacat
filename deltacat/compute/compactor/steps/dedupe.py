@@ -91,25 +91,30 @@ def _union_primary_key_indices(
 
 def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
     value_to_last_row_idx = {}
-    row_idx = 0
-    pk_op_chunk_iter = zip(
-        sc.pk_hash_column(table).iterchunks(),
-        sc.delta_type_column(table).iterchunks(),
+
+    pk_hash_np = sc.pk_hash_column_np(table)
+    op_type_np = sc.delta_type_column_np(table)
+
+    assert len(pk_hash_np) == len(op_type_np), (
+        f"Primary key digest column length ({len(pk_hash_np)}) doesn't "
+        f"match delta type column length ({len(op_type_np)})."
     )
-    for (pk_chunk, op_chunk) in pk_op_chunk_iter:
-        pk_op_val_iter = zip(
-            pk_chunk.to_numpy(zero_copy_only=False),
-            op_chunk.to_numpy(zero_copy_only=False),
-        )
-        for (pk_val, op_val) in pk_op_val_iter:
-            # operation type is True for `UPSERT` and False for `DELETE`
-            if op_val:
-                # UPSERT this row
-                value_to_last_row_idx[pk_val] = row_idx
-            else:
-                # DELETE this row
-                value_to_last_row_idx.pop(pk_val, None)
-            row_idx += 1
+
+    # TODO(raghumdani): move the dedupe to C++ using arrow methods or similar.
+    row_idx = 0
+    pk_op_val_iter = zip(pk_hash_np, op_type_np)
+    for (pk_val, op_val) in pk_op_val_iter:
+
+        # operation type is True for `UPSERT` and False for `DELETE`
+        if op_val:
+            # UPSERT this row
+            value_to_last_row_idx[pk_val] = row_idx
+        else:
+            # DELETE this row
+            value_to_last_row_idx.pop(pk_val, None)
+
+        row_idx += 1
+
     return table.take(list(value_to_last_row_idx.values()))
 
 
