@@ -190,7 +190,7 @@ def _execute_compaction_round(
 
     # discover input delta files
     # For rebase:
-    # Copy the old compacted table to a new destination, plus any new deltas are all from this old table
+    # Copy the old compacted table to a new destination, plus any new deltas from rebased source
 
     # For incremental compaction:
     # Input deltas from two sources: One: new delta; Two: compacted table
