@@ -265,6 +265,10 @@ def _execute_compaction_round(
     hb_start = time.time()
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
+    if not round_completion_info and rebase_source_partition_locator:
+        # generate a rc_info for hb and materialize to tell whether a delta is src or destination in case of rebase
+        dest_delta_locator = DeltaLocator.of(partition_locator=rebase_source_partition_locator, stream_position=None)
+        round_completion_info = RoundCompletionInfo.of(None, dest_delta_locator, None, 0, None)
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
@@ -349,10 +353,6 @@ def _execute_compaction_round(
     # materialize records to keep by index
     dd_end = time.time()
     mat_start = time.time()
-    if not round_completion_info and rebase_source_partition_locator:
-        # generate a rc_info for materialize to tell whether a delta is src or destination in case of rebase
-        dest_delta_locator = DeltaLocator.of(partition_locator=rebase_source_partition_locator, stream_position=None)
-        round_completion_info = RoundCompletionInfo.of(None, dest_delta_locator, None, 0, None)
     mat_tasks_pending = invoke_parallel(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,

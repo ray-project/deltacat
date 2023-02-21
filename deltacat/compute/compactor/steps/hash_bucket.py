@@ -158,9 +158,9 @@ def hash_bucket(
     logger.info(f"Starting hash bucket task...")
     sort_key_names = [key.key_name for key in sort_keys]
     if not round_completion_info:
-        is_src_delta = True  # rebase compaction, where source_partition is from the compacted delta
-    else:  # incremental compaction, where source_partition is uncompacted, and delta can be from both uncompacted and compacted
-        is_src_delta = False if annotated_delta.locator.partition_locator == round_completion_info.compacted_delta_locator.partition_locator else True
+        is_src_delta = True
+    else:
+        is_src_delta = annotated_delta.locator.partition_locator != round_completion_info.compacted_delta_locator.partition_locator
     delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
         annotated_delta,
         num_buckets,
