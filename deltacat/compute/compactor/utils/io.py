@@ -108,8 +108,9 @@ def limit_input_deltas(
             delta_bytes += entry.meta.content_length
             if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
-        latest_stream_position[delta.locator.partition_locator.canonical_string()] = max(position, latest_stream_position[
-            delta.locator.partition_locator.canonical_string()])
+        latest_stream_position[delta.locator.partition_locator.canonical_string()] = max(position,
+                                                                                         latest_stream_position[
+                                                                                             delta.locator.partition_locator.canonical_string()])
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
                 f"Input deltas limited to "
@@ -191,3 +192,25 @@ def limit_input_deltas(
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
     return rebatched_da_list, hash_bucket_count, latest_stream_position
+
+
+def getLastCompactedDeltaStreamPosition(
+        source_partition_locator: PartitionLocator,
+        deltacat_storage=unimplemented_deltacat_storage) -> int:
+    stream_locator = source_partition_locator.stream_locator
+    namespace = stream_locator.namespace
+    table_name = stream_locator.table_name
+    table_version = stream_locator.table_version
+    partition_values = source_partition_locator.partition_values
+    end_position_inclusive = deltacat_storage.get_partition(stream_locator, partition_values).stream_position
+    deltas_list_result = deltacat_storage.list_deltas(
+        namespace,
+        table_name,
+        partition_values,
+        table_version,
+        None,
+        end_position_inclusive,
+        True,
+    )
+    deltas_list_result = deltas_list_result.all_items()
+    return int(deltas_list_result[-1]['properties']['parent_stream_position'])

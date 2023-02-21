@@ -126,6 +126,7 @@ def materialize(
         src_file_partition_locator = source_partition_locator \
             if is_src_partition_file_np \
             else round_completion_info.compacted_delta_locator.partition_locator
+
         delta_locator = DeltaLocator.of(
             src_file_partition_locator,
             src_stream_position_np.item(),
@@ -184,5 +185,5 @@ def materialize(
                                                                                for mr in materialized_results]))
     logger.info(f"Finished materialize task...")
     end = time.time()
-    logger.info(f"Materialize task ended in {end - start}s")
+    logger.info(f"Materialize task ended in {(end - start):.2f}s with {} files written")
     return merged_materialize_result

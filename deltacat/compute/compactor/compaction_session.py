@@ -188,18 +188,28 @@ def _execute_compaction_round(
         logger.info(f"Round completion file: {round_completion_info}")
 
     # discover input delta files
+    # For rebase:
+    # Copy the old compacted table to a new destination, plus any new deltas are all from this old table
+
+    # For incremental compaction:
+    # Input deltas from two sources: One: new delta; Two: compacted table
+
     high_watermark = round_completion_info.high_watermark \
         if round_completion_info else None
 
-    # Source One: new deltas from uncompacted table
+    # Source One: new deltas from uncompacted table for incremental compaction, or deltas from compacted table for rebase
     input_deltas = io.discover_deltas(
         source_partition_locator,
         high_watermark[source_partition_locator.canonical_string()] if isinstance(high_watermark,
                                                                                   dict) else high_watermark,
-        last_stream_position_to_compact,
+        last_stream_position_to_compact if not rebase_source_partition_locator else deltacat_storage.get_partition(
+            source_partition_locator.stream_locator,
+            source_partition_locator.partition_values).stream_position,
         deltacat_storage,
     )
-    if not rebase_source_partition_locator:
+
+    # Source Two: compacted table in case of incremental compaction or new deltas from uncompacted table
+    if not rebase_source_partition_locator:  # compacted table
         compacted_last_stream_position = deltacat_storage.get_partition(compacted_partition_locator.stream_locator,
                                                                         compacted_partition_locator.partition_values).stream_position
         input_deltas_compacted = io.discover_deltas(
@@ -212,6 +222,20 @@ def _execute_compaction_round(
             f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
             f"Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}")
         input_deltas += input_deltas_compacted
+    else:  # new deltas from uncompacted table based on inferred last stream position to last position to compact
+        input_deltas_new = io.discover_deltas(
+            rebase_source_partition_locator,
+            rebase_source_partition_high_watermark if rebase_source_partition_high_watermark else io.getLastCompactedDeltaStreamPosition(
+                source_partition_locator,
+                deltacat_storage
+            ),
+            last_stream_position_to_compact,
+            deltacat_storage
+        )
+        logger.info(
+            f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
+            f"Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}")
+        input_deltas += input_deltas_new
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -319,8 +343,12 @@ def _execute_compaction_round(
 
     # parallel step 3:
     # materialize records to keep by index
-    dd_end=time.time()
+    dd_end = time.time()
     mat_start = time.time()
+    if not round_completion_info and rebase_source_partition_locator:
+        # generate a rc_info for materialize to tell whether a delta is src or destination in case of rebase
+        dest_delta_locator = DeltaLocator.of(partition_locator=rebase_source_partition_locator, stream_position=None)
+        round_completion_info = RoundCompletionInfo.of(None, dest_delta_locator, None, 0, None)
     mat_tasks_pending = invoke_parallel(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,
@@ -383,7 +411,8 @@ def _execute_compaction_round(
         f"partition-{source_partition_locator.partition_values},"
         f"compacted at: {last_stream_position_compacted},"
         f"last position: {last_stream_position_to_compact}")
-    logger.info(f"Compaction Metrics pre_hb {(hb_pre_end-hb_pre_start):.2f},hb {(hb_end-hb_start):.2f}, dd {(dd_end-dd_start):.2f}, mat {(mat_end-mat_start):.2f}")
+    logger.info(
+        f"Compaction Metrics pre_hb {(hb_pre_end - hb_pre_start):.2f},hb {(hb_end - hb_start):.2f}, dd {(dd_end - dd_start):.2f}, mat {(mat_end - mat_start):.2f}")
     return \
         partition, \
             new_round_completion_info, \
