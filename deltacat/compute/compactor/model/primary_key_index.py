@@ -1,19 +1,17 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Any, Dict, List
 from uuid import uuid4
 
 from deltacat.compute.compactor.model.sort_key import SortKey
 from deltacat.storage import Locator, PartitionLocator
 from deltacat.utils.common import sha1_hexdigest
 
-from typing import Any, Dict, List
-
 
 class PrimaryKeyIndexLocator(Locator, dict):
     @staticmethod
-    def of(primary_key_index_meta: PrimaryKeyIndexMeta) \
-            -> PrimaryKeyIndexLocator:
+    def of(primary_key_index_meta: PrimaryKeyIndexMeta) -> PrimaryKeyIndexLocator:
         """
         Creates a Primary Key Index Locator from the given Primary Key
         Index Metadata. A Primary Key Index Locator consists of a Primary Key
@@ -33,13 +31,16 @@ class PrimaryKeyIndexLocator(Locator, dict):
 
     @staticmethod
     def _root_path(
-            compacted_partition_locator: PartitionLocator,
-            primary_keys: List[str],
-            sort_keys: List[SortKey],
-            primary_key_index_algorithm_version: str) -> str:
+        compacted_partition_locator: PartitionLocator,
+        primary_keys: List[str],
+        sort_keys: List[SortKey],
+        primary_key_index_algorithm_version: str,
+    ) -> str:
         pl_hexdigest = compacted_partition_locator.hexdigest()
-        pki_version_str = f"{pl_hexdigest}|{primary_keys}|{sort_keys}|" \
-                          f"{primary_key_index_algorithm_version}"
+        pki_version_str = (
+            f"{pl_hexdigest}|{primary_keys}|{sort_keys}|"
+            f"{primary_key_index_algorithm_version}"
+        )
         return sha1_hexdigest(pki_version_str.encode("utf-8"))
 
     @property
@@ -76,10 +77,12 @@ class PrimaryKeyIndexLocator(Locator, dict):
 
 class PrimaryKeyIndexMeta(dict):
     @staticmethod
-    def of(compacted_partition_locator: PartitionLocator,
-           primary_keys: List[str],
-           sort_keys: List[SortKey],
-           primary_key_index_algo_version: str) -> PrimaryKeyIndexMeta:
+    def of(
+        compacted_partition_locator: PartitionLocator,
+        primary_keys: List[str],
+        sort_keys: List[SortKey],
+        primary_key_index_algo_version: str,
+    ) -> PrimaryKeyIndexMeta:
         """
         Creates Primary Key Index Metadata from the given compacted
         Partition Locator, primary keys, sort keys, and primary key index
@@ -114,8 +117,10 @@ class PrimaryKeyIndexMeta(dict):
 
 class PrimaryKeyIndexVersionLocator(Locator, dict):
     @staticmethod
-    def of(primary_key_index_version_meta: PrimaryKeyIndexVersionMeta,
-           pki_version_root_path: str) -> PrimaryKeyIndexVersionLocator:
+    def of(
+        primary_key_index_version_meta: PrimaryKeyIndexVersionMeta,
+        pki_version_root_path: str,
+    ) -> PrimaryKeyIndexVersionLocator:
         """
         Creates a primary key index version locator from the given primary key
         index version metadata and version root path. Note that, while this is
@@ -129,8 +134,9 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
         return pkivl
 
     @staticmethod
-    def generate(pki_version_meta: PrimaryKeyIndexVersionMeta) \
-            -> PrimaryKeyIndexVersionLocator:
+    def generate(
+        pki_version_meta: PrimaryKeyIndexVersionMeta,
+    ) -> PrimaryKeyIndexVersionLocator:
         """
         Creates a new primary key index version locator from the given primary
         key index version metadata. A primary key index version locator
@@ -142,11 +148,12 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
         deterministically from the compacted partition locator, primary keys,
         sort keys, and primary key index algorithm version.
         """
-        pki_version_root_path = PrimaryKeyIndexVersionLocator.\
-            _generate_version_root_path(
+        pki_version_root_path = (
+            PrimaryKeyIndexVersionLocator._generate_version_root_path(
                 PrimaryKeyIndexVersionLocator._pki_root_path(pki_version_meta),
                 pki_version_meta.hash_bucket_count,
             )
+        )
         pkivl = PrimaryKeyIndexVersionLocator()
         pkivl["primaryKeyIndexVersionMeta"] = pki_version_meta
         pkivl["primaryKeyIndexVersionRootPath"] = pki_version_root_path
@@ -159,17 +166,14 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
         return pki_locator.primary_key_index_root_path
 
     @staticmethod
-    def _generate_version_root_path(
-            pki_root_path: str,
-            hash_bucket_count: int) -> str:
+    def _generate_version_root_path(pki_root_path: str, hash_bucket_count: int) -> str:
         return f"{pki_root_path}/{hash_bucket_count}/{str(uuid4())}"
 
     @property
     def primary_key_index_version_meta(self) -> PrimaryKeyIndexVersionMeta:
         val: Dict[str, Any] = self.get("primaryKeyIndexVersionMeta")
         if val is not None and not isinstance(val, PrimaryKeyIndexVersionMeta):
-            self["primaryKeyIndexVersionMeta"] = val = \
-                PrimaryKeyIndexVersionMeta(val)
+            self["primaryKeyIndexVersionMeta"] = val = PrimaryKeyIndexVersionMeta(val)
         return val
 
     @property
@@ -179,7 +183,8 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
         index version locator.
         """
         return PrimaryKeyIndexVersionLocator._pki_root_path(
-            self.primary_key_index_version_meta)
+            self.primary_key_index_version_meta
+        )
 
     @property
     def primary_key_index_version_root_path(self) -> str:
@@ -206,9 +211,8 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
         return f"{pkiv_root_path}/{hb_index}"
 
     def get_pkiv_hb_index_s3_url_base(
-            self,
-            s3_bucket: str,
-            hash_bucket_index: int) -> str:
+        self, s3_bucket: str, hash_bucket_index: int
+    ) -> str:
         """
         Gets the base S3 URL of a single hash bucket of the given primary key
         index version locator.
@@ -217,9 +221,8 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
         return f"s3://{s3_bucket}/{hbi_root_path}"
 
     def get_pkiv_hb_index_manifest_s3_url(
-            self,
-            s3_bucket: str,
-            hash_bucket_index: int) -> str:
+        self, s3_bucket: str, hash_bucket_index: int
+    ) -> str:
         """
         Gets the S3 URL of the manifest for a single primary key index version
         hash bucket.
@@ -241,8 +244,9 @@ class PrimaryKeyIndexVersionLocator(Locator, dict):
 
 class PrimaryKeyIndexVersionMeta(dict):
     @staticmethod
-    def of(primary_key_index_meta: PrimaryKeyIndexMeta,
-           hash_bucket_count: int) -> PrimaryKeyIndexVersionMeta:
+    def of(
+        primary_key_index_meta: PrimaryKeyIndexMeta, hash_bucket_count: int
+    ) -> PrimaryKeyIndexVersionMeta:
         """
         Creates Primary Key Index Version Metadata from the given Primary Key
         Index Metadata and hash bucket count.

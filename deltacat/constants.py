@@ -1,14 +1,8 @@
 from deltacat.utils.common import env_string
 
 # Environment variables
-DELTACAT_LOG_LEVEL = env_string(
-    "DELTACAT_LOG_LEVEL",
-    "DEBUG"
-)
-APPLICATION_LOG_LEVEL = env_string(
-    "APPLICATION_LOG_LEVEL",
-    "DEBUG"
-)
+DELTACAT_LOG_LEVEL = env_string("DELTACAT_LOG_LEVEL", "DEBUG")
+APPLICATION_LOG_LEVEL = env_string("APPLICATION_LOG_LEVEL", "DEBUG")
 
 # Byte Units
 BYTES_PER_KIBIBYTE = 2**10
@@ -31,8 +25,5 @@ PYARROW_INFLATION_MULTIPLIER = 2.5
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
 
 PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG = {
-   "retries": {
-      'max_attempts': 25,
-      'mode': 'standard'
-   }
+    "retries": {"max_attempts": 25, "mode": "standard"}
 }
