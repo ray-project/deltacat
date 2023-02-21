@@ -9,11 +9,17 @@ repos:
     -   id: check-case-conflict
     -   id: check-json
     -   id: check-yaml
+    -   id: check-executables-have-shebangs
     -   id: end-of-file-fixer
-        exclude: "deltacat/compute/compactor/TheFlashCompactorDesign.pdf"
+        exclude_types: [pdf]
     -   id: requirements-txt-fixer
     -   id: check-merge-conflict
     -   id: trailing-whitespace
+-   repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.16.0
+    hooks:
+    - id: check-github-actions
+    - id: check-github-workflows
 -   repo: https://github.com/hadialqattan/pycln
     rev: v2.1.2
     hooks:
