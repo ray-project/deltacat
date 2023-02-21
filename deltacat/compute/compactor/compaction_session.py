@@ -183,7 +183,8 @@ def _execute_compaction_round(
         )
         if not round_completion_info:
             logger.info(
-                f" need rebase source to run initial rebase, otherwise provide round completion file for incremental compaction")
+                f"Need rebase source to run initial rebase, otherwise provide round completion file for incremental "
+                f"compaction")
             return None, None, None
         logger.info(f"Round completion file: {round_completion_info}")
 
@@ -210,14 +211,17 @@ def _execute_compaction_round(
 
     # Source Two: compacted table in case of incremental compaction or new deltas from uncompacted table
     if not rebase_source_partition_locator:  # compacted table
-        compacted_last_stream_position = deltacat_storage.get_partition(compacted_partition_locator.stream_locator,
-                                                                        compacted_partition_locator.partition_values).stream_position
-        input_deltas_compacted = io.discover_deltas(
-            compacted_partition_locator,
-            None,
-            compacted_last_stream_position,
-            deltacat_storage
-        )
+        compacted_partition = deltacat_storage.get_partition(compacted_partition_locator.stream_locator,
+                                                                        compacted_partition_locator.partition_values)
+        compacted_last_stream_position = compacted_partition.stream_position if compacted_partition else None
+        input_deltas_compacted = []
+        if compacted_last_stream_position:
+            input_deltas_compacted = io.discover_deltas(
+                compacted_partition_locator,
+                None,
+                compacted_last_stream_position,
+                deltacat_storage
+            )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
             f"Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}")

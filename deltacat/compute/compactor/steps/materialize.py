@@ -16,7 +16,6 @@ from deltacat.compute.compactor.steps.dedupe import (
     DedupeTaskIndexWithObjectId,
     DeltaFileLocatorToRecords,
 )
-from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
@@ -183,7 +182,6 @@ def materialize(
                                                      materialized_results[0].task_index,
                                                      PyArrowWriteResult.union([mr.pyarrow_write_result
                                                                                for mr in materialized_results]))
-    logger.info(f"Finished materialize task...")
     end = time.time()
-    logger.info(f"Materialize task ended in {(end - start):.2f}s with {} files written")
+    logger.info(f"Finished materialize task in {(end - start):.2f}s")
     return merged_materialize_result
