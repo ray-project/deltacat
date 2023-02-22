@@ -1,12 +1,13 @@
 import logging
 from collections import defaultdict
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Tuple
 
+import memray
 import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import ray
-import memray
 from ray import cloudpickle
 from ray.types import ObjectRef
 
@@ -24,11 +25,11 @@ from deltacat.compute.compactor.utils import primary_key_index as pki
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
 from deltacat.utils.performance import timed_invocation
-from contextlib import nullcontext
-
-from typing import Any, Dict, List, Optional, Tuple
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
-from deltacat.utils.ray_utils.runtime import get_current_ray_worker_id, get_current_ray_task_id
+from deltacat.utils.ray_utils.runtime import (
+    get_current_ray_task_id,
+    get_current_ray_worker_id,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -173,14 +174,15 @@ def dedupe(
     num_materialize_buckets: int,
     dedupe_task_index: int,
     delete_old_primary_key_index: bool,
-    enable_profiler: bool
+    enable_profiler: bool,
 ) -> DedupeResult:
 
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
-    with memray.Tracker(f"dedupe_{worker_id}_{task_id}.bin") \
-            if enable_profiler else nullcontext():
+    with memray.Tracker(
+        f"dedupe_{worker_id}_{task_id}.bin"
+    ) if enable_profiler else nullcontext():
         # TODO (pdames): mitigate risk of running out of memory here in cases of
         #  severe skew of primary key updates in deltas
         src_file_records_obj_refs = [
@@ -204,7 +206,9 @@ def dedupe(
             f"dedupe rounds..."
         )
         for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
-            logger.info(f"{dedupe_task_index}: union primary keys for hb_index: {hb_idx}")
+            logger.info(
+                f"{dedupe_task_index}: union primary keys for hb_index: {hb_idx}"
+            )
 
             table, union_time = timed_invocation(
                 func=_union_primary_key_indices,
@@ -224,9 +228,12 @@ def dedupe(
                 sort_keys.extend(
                     [
                         SortKey.of(
-                            sc._PARTITION_STREAM_POSITION_COLUMN_NAME, SortOrder.ASCENDING
+                            sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
+                            SortOrder.ASCENDING,
                         ),
-                        SortKey.of(sc._ORDERED_FILE_IDX_COLUMN_NAME, SortOrder.ASCENDING),
+                        SortKey.of(
+                            sc._ORDERED_FILE_IDX_COLUMN_NAME, SortOrder.ASCENDING
+                        ),
                     ]
                 )
                 table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
@@ -273,7 +280,9 @@ def dedupe(
             mat_bucket_to_src_file_records[mat_bucket][src_dfl] = np.array(
                 src_row_indices,
             )
-            mat_bucket_to_src_file_record_count[mat_bucket][src_dfl] = len(src_row_indices)
+            mat_bucket_to_src_file_record_count[mat_bucket][src_dfl] = len(
+                src_row_indices
+            )
 
         mat_bucket_to_dd_idx_obj_id: Dict[
             MaterializeBucketIndex, DedupeTaskIndexWithObjectId

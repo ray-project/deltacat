@@ -1,18 +1,13 @@
 import logging
-import ray
-import pyarrow as pa
-import memray
-
 import time
-
 from collections import defaultdict
+from contextlib import nullcontext
 from itertools import chain, repeat
 from typing import List, Optional, Tuple
 
+import memray
 import pyarrow as pa
 import ray
-import memray
-from pyarrow import compute as pc
 from ray import cloudpickle
 
 from deltacat import logs
@@ -35,8 +30,10 @@ from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowSchemaOverride,
     RecordBatchTables,
 )
-from contextlib import nullcontext
-from deltacat.utils.ray_utils.runtime import get_current_ray_worker_id, get_current_ray_task_id
+from deltacat.utils.ray_utils.runtime import (
+    get_current_ray_task_id,
+    get_current_ray_worker_id,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -110,8 +107,9 @@ def materialize(
     )
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
-    with memray.Tracker(f"dedupe_{worker_id}_{task_id}.bin") \
-            if enable_profiler else nullcontext():
+    with memray.Tracker(
+        f"dedupe_{worker_id}_{task_id}.bin"
+    ) if enable_profiler else nullcontext():
         start = time.time()
         dedupe_task_idx_and_obj_ref_tuples = [
             (

@@ -1,10 +1,9 @@
 import logging
-import memray
-
-from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
+from contextlib import nullcontext
 from itertools import chain
 from typing import Generator, List, Optional, Tuple
 
+import memray
 import numpy as np
 import pyarrow as pa
 import ray
@@ -21,13 +20,10 @@ from deltacat.compute.compactor.utils.primary_key_index import (
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import StorageType
 from deltacat.utils.common import sha1_digest
-from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.utils.ray_utils.runtime import get_current_ray_worker_id, get_current_ray_task_id
-
-from typing import List, Optional, Generator, Tuple
-
-from ray.types import ObjectRef
-from contextlib import nullcontext
+from deltacat.utils.ray_utils.runtime import (
+    get_current_ray_task_id,
+    get_current_ray_worker_id,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -156,19 +152,21 @@ def _read_delta_file_envelopes(
 
 @ray.remote(num_returns=2)
 def hash_bucket(
-        annotated_delta: DeltaAnnotated,
-        primary_keys: List[str],
-        sort_keys: List[SortKey],
-        num_buckets: int,
-        num_groups: int,
-        enable_profiler: bool,
-        deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
+    annotated_delta: DeltaAnnotated,
+    primary_keys: List[str],
+    sort_keys: List[SortKey],
+    num_buckets: int,
+    num_groups: int,
+    enable_profiler: bool,
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> HashBucketResult:
 
     logger.info(f"Starting hash bucket task...")
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
-    with memray.Tracker(f"hash_bucket_{worker_id}_{task_id}.bin") \
-            if enable_profiler else nullcontext():
+    with memray.Tracker(
+        f"hash_bucket_{worker_id}_{task_id}.bin"
+    ) if enable_profiler else nullcontext():
         sort_key_names = [key.key_name for key in sort_keys]
         delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
             annotated_delta,

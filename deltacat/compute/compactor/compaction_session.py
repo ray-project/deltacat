@@ -69,27 +69,30 @@ def check_preconditions(
 
 
 def compact_partition(
-        source_partition_locator: PartitionLocator,
-        destination_partition_locator: PartitionLocator,
-        primary_keys: Set[str],
-        compaction_artifact_s3_bucket: str,
-        last_stream_position_to_compact: int,
-        *,
-        hash_bucket_count: Optional[int] = None,
-        sort_keys: List[SortKey] = None,
-        records_per_primary_key_index_file: int = 38_000_000,
-        records_per_compacted_file: int = 4_000_000,
-        input_deltas_stats: Dict[int, DeltaStats] = None,
-        min_pk_index_pa_bytes: int = 0,
-        min_hash_bucket_chunk_size: int = 0,
-        compacted_file_content_type: ContentType = ContentType.PARQUET,
-        delete_prev_primary_key_index: bool = False,
-        pg_config: Optional[PlacementGroupConfig] = None,
-        schema_on_read: Optional[pa.schema] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
-        rebase_source_partition_locator: Optional[PartitionLocator] = None,
-        rebase_source_partition_high_watermark: Optional[int] = None,
-        enable_profiler: Optional[bool] = False,
-        deltacat_storage=unimplemented_deltacat_storage) -> Optional[str]:
+    source_partition_locator: PartitionLocator,
+    destination_partition_locator: PartitionLocator,
+    primary_keys: Set[str],
+    compaction_artifact_s3_bucket: str,
+    last_stream_position_to_compact: int,
+    *,
+    hash_bucket_count: Optional[int] = None,
+    sort_keys: List[SortKey] = None,
+    records_per_primary_key_index_file: int = 38_000_000,
+    records_per_compacted_file: int = 4_000_000,
+    input_deltas_stats: Dict[int, DeltaStats] = None,
+    min_pk_index_pa_bytes: int = 0,
+    min_hash_bucket_chunk_size: int = 0,
+    compacted_file_content_type: ContentType = ContentType.PARQUET,
+    delete_prev_primary_key_index: bool = False,
+    pg_config: Optional[PlacementGroupConfig] = None,
+    schema_on_read: Optional[
+        pa.schema
+    ] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
+    rebase_source_partition_locator: Optional[PartitionLocator] = None,
+    rebase_source_partition_high_watermark: Optional[int] = None,
+    enable_profiler: Optional[bool] = False,
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> Optional[str]:
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
     partition = None
@@ -97,29 +100,33 @@ def compact_partition(
     has_next_compaction_round = True
     new_rcf_s3_url = None
     while has_next_compaction_round:
-        has_next_compaction_round, new_partition, new_rci, new_rcf_s3_url = \
-            _execute_compaction_round(
-                source_partition_locator,
-                destination_partition_locator,
-                primary_keys,
-                compaction_artifact_s3_bucket,
-                last_stream_position_to_compact,
-                hash_bucket_count,
-                sort_keys,
-                records_per_primary_key_index_file,
-                records_per_compacted_file,
-                input_deltas_stats,
-                min_pk_index_pa_bytes,
-                min_hash_bucket_chunk_size,
-                compacted_file_content_type,
-                delete_prev_primary_key_index,
-                pg_config,
-                schema_on_read,
-                rebase_source_partition_locator,
-                rebase_source_partition_high_watermark,
-                enable_profiler,
-                deltacat_storage,
-            )
+        (
+            has_next_compaction_round,
+            new_partition,
+            new_rci,
+            new_rcf_s3_url,
+        ) = _execute_compaction_round(
+            source_partition_locator,
+            destination_partition_locator,
+            primary_keys,
+            compaction_artifact_s3_bucket,
+            last_stream_position_to_compact,
+            hash_bucket_count,
+            sort_keys,
+            records_per_primary_key_index_file,
+            records_per_compacted_file,
+            input_deltas_stats,
+            min_pk_index_pa_bytes,
+            min_hash_bucket_chunk_size,
+            compacted_file_content_type,
+            delete_prev_primary_key_index,
+            pg_config,
+            schema_on_read,
+            rebase_source_partition_locator,
+            rebase_source_partition_high_watermark,
+            enable_profiler,
+            deltacat_storage,
+        )
         if new_partition:
             partition = new_partition
             destination_partition_locator = new_partition.locator
@@ -142,31 +149,27 @@ def compact_partition(
 
 @ray.remote(num_cpus=0.1, num_returns=3)
 def _execute_compaction_round(
-        source_partition_locator: PartitionLocator,
-        compacted_partition_locator: PartitionLocator,
-        primary_keys: Set[str],
-        compaction_artifact_s3_bucket: str,
-        last_stream_position_to_compact: int,
-        new_hash_bucket_count: Optional[int],
-        sort_keys: List[SortKey],
-        records_per_primary_key_index_file: int,
-        records_per_compacted_file: int,
-        input_deltas_stats: Dict[int, DeltaStats],
-        min_pk_index_pa_bytes: int,
-        min_hash_bucket_chunk_size: int,
-        compacted_file_content_type: ContentType,
-        delete_prev_primary_key_index: bool,
-        pg_config: Optional[PlacementGroupConfig],
-        schema_on_read: Optional[pa.schema],
-        rebase_source_partition_locator: Optional[PartitionLocator],
-        rebase_source_partition_high_watermark: Optional[int],
-        enable_profiler: Optional[bool],
-        deltacat_storage=unimplemented_deltacat_storage) \
-        -> Tuple[
-            bool,
-            Optional[Partition],
-            Optional[RoundCompletionInfo],
-            Optional[str]]:
+    source_partition_locator: PartitionLocator,
+    compacted_partition_locator: PartitionLocator,
+    primary_keys: Set[str],
+    compaction_artifact_s3_bucket: str,
+    last_stream_position_to_compact: int,
+    new_hash_bucket_count: Optional[int],
+    sort_keys: List[SortKey],
+    records_per_primary_key_index_file: int,
+    records_per_compacted_file: int,
+    input_deltas_stats: Dict[int, DeltaStats],
+    min_pk_index_pa_bytes: int,
+    min_hash_bucket_chunk_size: int,
+    compacted_file_content_type: ContentType,
+    delete_prev_primary_key_index: bool,
+    pg_config: Optional[PlacementGroupConfig],
+    schema_on_read: Optional[pa.schema],
+    rebase_source_partition_locator: Optional[PartitionLocator],
+    rebase_source_partition_high_watermark: Optional[int],
+    enable_profiler: Optional[bool],
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
 
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
@@ -430,7 +433,7 @@ def _execute_compaction_round(
         max_records_per_index_file=records_per_primary_key_index_file,
         num_materialize_buckets=num_materialize_buckets,
         delete_old_primary_key_index=delete_prev_primary_key_index,
-        enable_profiler=enable_profiler
+        enable_profiler=enable_profiler,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
