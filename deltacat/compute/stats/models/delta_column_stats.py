@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from deltacat.compute.stats.models.manifest_entry_stats import ManifestEntryStats
 from deltacat.compute.stats.models.stats_result import StatsResult
@@ -42,6 +42,7 @@ class DeltaColumnStats(dict):
                 StatsResult([I, L]),     #  Manifest Entry 2
             ]))
     """
+
     @staticmethod
     def of(column: str, manifest_stats: ManifestEntryStats) -> DeltaColumnStats:
         """
@@ -59,13 +60,14 @@ class DeltaColumnStats(dict):
 
     @staticmethod
     def build_from_dict(delta_column_stats: List[str, Any]) -> List[DeltaColumnStats]:
-        return DeltaColumnStats.of(delta_column_stats["column"],
-                                   ManifestEntryStats.build_from_dict(delta_column_stats["manifestStats"]))
+        return DeltaColumnStats.of(
+            delta_column_stats["column"],
+            ManifestEntryStats.build_from_dict(delta_column_stats["manifestStats"]),
+        )
 
     @property
     def column(self) -> str:
-        """Returns the column name.
-        """
+        """Returns the column name."""
         return self.get("column")
 
     @property
@@ -81,8 +83,7 @@ class DeltaColumnStats(dict):
 
     @property
     def stats(self) -> Optional[StatsResult]:
-        """ Combines the numerical stats for every manifest entry and returns it.
-        """
+        """Combines the numerical stats for every manifest entry and returns it."""
         val: Dict[str, Any] = self.get("stats")
         if val is not None and not isinstance(val, StatsResult):
             self["stats"] = val = StatsResult(val)
@@ -92,4 +93,6 @@ class DeltaColumnStats(dict):
         return val
 
     def _merge_manifest_stats(self) -> StatsResult:
-        return StatsResult.merge(self.manifest_stats.stats, {StatsType.PYARROW_TABLE_BYTES})
+        return StatsResult.merge(
+            self.manifest_stats.stats, {StatsType.PYARROW_TABLE_BYTES}
+        )

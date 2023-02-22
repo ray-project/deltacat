@@ -7,7 +7,7 @@ provider:
   cache_stopped_nodes: false
   use_internal_ips: true
 
-max_workers: {{max-workers}}
+max_workers: '{{max-workers}}'
 
 auth:
   ssh_user: ubuntu
@@ -18,7 +18,7 @@ available_node_types:
     max_workers: 0
     resources: {}
     node_config:
-      InstanceType: {{head-instance-type}}
+      InstanceType: '{{head-instance-type}}'
       ImageId: ami-0343983f3bcafa976 # andes-amzn-ray, us-east-1, ray 1.9.2
       KeyName: metastats-test
       LaunchTemplate:
@@ -26,11 +26,11 @@ available_node_types:
         LaunchTemplateName: AlphaRayClusterLaunchTemplateCDK
         Version: "$Latest"
   ray.worker.default:
-    min_workers: {{min-workers}}
-    max_workers: {{max-workers}}
+    min_workers: '{{min-workers}}'
+    max_workers: '{{max-workers}}'
     resources: {}
     node_config:
-      InstanceType: {{worker-instance-type}}
+      InstanceType: '{{worker-instance-type}}'
       ImageId: ami-0343983f3bcafa976 # andes-amzn-ray, us-east-1, ray 1.9.2
       KeyName: metastats-test
       LaunchTemplate:
@@ -51,5 +51,3 @@ setup_commands:
   - pip uninstall -y ray
   - pip install ray[all]==1.13.0
   - chmod 400 /tmp/.ssh/metastats-test.pem
-
-

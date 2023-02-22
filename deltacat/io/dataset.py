@@ -1,18 +1,16 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Any, Callable, Dict, Optional, TypeVar, Union, cast
+
 import pyarrow as pa
 import s3fs
-
-from typing import Optional, Union, Callable, Dict, Any, cast, TypeVar
-
 from ray.data import Dataset
-from ray.data.datasource import DefaultBlockWritePathProvider, \
-    BlockWritePathProvider
+from ray.data.datasource import BlockWritePathProvider, DefaultBlockWritePathProvider
 
 from deltacat.io.aws.redshift.redshift_datasource import RedshiftDatasource
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class DeltacatDataset(Dataset[T]):
@@ -23,17 +21,16 @@ class DeltacatDataset(Dataset[T]):
         return cast(DeltacatDataset[T], dataset)
 
     def write_redshift(
-            self,
-            path: str,
-            *,
-            filesystem: Optional[
-                Union[pa.fs.FileSystem, s3fs.S3FileSystem]] = None,
-            try_create_dir: bool = True,
-            arrow_open_stream_args: Optional[Dict[str, Any]] = None,
-            block_path_provider: BlockWritePathProvider =
-            DefaultBlockWritePathProvider(),
-            arrow_parquet_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
-            **arrow_parquet_args) -> None:
+        self,
+        path: str,
+        *,
+        filesystem: Optional[Union[pa.fs.FileSystem, s3fs.S3FileSystem]] = None,
+        try_create_dir: bool = True,
+        arrow_open_stream_args: Optional[Dict[str, Any]] = None,
+        block_path_provider: BlockWritePathProvider = DefaultBlockWritePathProvider(),
+        arrow_parquet_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
+        **arrow_parquet_args,
+    ) -> None:
         """Writes the dataset to Parquet files and commits a Redshift manifest
         back to S3 indexing the files written. The output can be loaded into
         Redshift by providing it to the Redshift COPY command, or via AWS Data

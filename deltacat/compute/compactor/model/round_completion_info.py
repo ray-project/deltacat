@@ -1,25 +1,26 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import DeltaLocator, PartitionLocator
-from deltacat.compute.compactor.model.pyarrow_write_result import \
-    PyArrowWriteResult
-from deltacat.compute.compactor.model.primary_key_index import \
-    PrimaryKeyIndexVersionLocator
-
 from typing import Any, Dict, Optional
+
+from deltacat.compute.compactor.model.primary_key_index import (
+    PrimaryKeyIndexVersionLocator,
+)
+from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
+from deltacat.storage import DeltaLocator, PartitionLocator
 
 
 class RoundCompletionInfo(dict):
     @staticmethod
-    def of(high_watermark: int,
-           compacted_delta_locator: DeltaLocator,
-           compacted_pyarrow_write_result: PyArrowWriteResult,
-           pk_index_pyarrow_write_result: PyArrowWriteResult,
-           sort_keys_bit_width: int,
-           primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-           rebase_source_partition_locator: Optional[PartitionLocator]) \
-            -> RoundCompletionInfo:
+    def of(
+        high_watermark: int,
+        compacted_delta_locator: DeltaLocator,
+        compacted_pyarrow_write_result: PyArrowWriteResult,
+        pk_index_pyarrow_write_result: PyArrowWriteResult,
+        sort_keys_bit_width: int,
+        primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        rebase_source_partition_locator: Optional[PartitionLocator],
+    ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
         rci["highWatermark"] = high_watermark
@@ -61,13 +62,12 @@ class RoundCompletionInfo(dict):
         return self["sortKeysBitWidth"]
 
     @property
-    def primary_key_index_version_locator(self) \
-            -> PrimaryKeyIndexVersionLocator:
+    def primary_key_index_version_locator(self) -> PrimaryKeyIndexVersionLocator:
         val: Dict[str, Any] = self.get("primaryKeyIndexVersionLocator")
-        if val is not None \
-                and not isinstance(val, PrimaryKeyIndexVersionLocator):
-            self["primaryKeyIndexVersionLocator"] = val = \
-                PrimaryKeyIndexVersionLocator(val)
+        if val is not None and not isinstance(val, PrimaryKeyIndexVersionLocator):
+            self["primaryKeyIndexVersionLocator"] = val = PrimaryKeyIndexVersionLocator(
+                val
+            )
         return val
 
     @property

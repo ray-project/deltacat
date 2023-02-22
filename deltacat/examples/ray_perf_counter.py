@@ -1,21 +1,23 @@
 import ray
+
 from deltacat import ListResult
+from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.utils.ray_utils.collections import DistributedCounter
 from deltacat.utils.ray_utils.performance import invoke_with_perf_counter
-from deltacat.storage import interface as unimplemented_deltacat_storage
 
 ray.init(address="auto")
 
 
 def list_all_tables_for_namespaces(
-        namespaces,
-        dc_storage=unimplemented_deltacat_storage):
+    namespaces, dc_storage=unimplemented_deltacat_storage
+):
 
     namespace_tables_promises = {}
     for namespace in namespaces:
         namespace = namespace["namespace"]
         tables_list_result_promise = ListResult.all_items_ray.remote(
-            dc_storage.list_tables(namespace))
+            dc_storage.list_tables(namespace)
+        )
         namespace_tables_promises[namespace] = tables_list_result_promise
 
     namespace_table_counts = {}
@@ -56,5 +58,5 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
     print(f"List tables latency: {latency}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_all()
