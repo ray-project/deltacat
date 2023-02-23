@@ -40,7 +40,7 @@ logs.configure_deltacat_logger(  # noqa: F821 - logs imported from deltacat.logs
     logging.getLogger(__name__)
 )
 
-__version__ = "0.1.13"
+__version__ = "0.1.9"
 
 
 __all__ = [
