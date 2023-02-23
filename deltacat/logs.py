@@ -95,7 +95,7 @@ def _create_rotating_file_handler(
     assert log_directory, "log directory is required"
     log_dir_path = pathlib.Path(log_directory)
     log_dir_path.mkdir(parents=True, exist_ok=True)
-    handler = logging.handlers.RotatingFileHandler(
+    handler = handlers.RotatingFileHandler(
         os.path.join(log_directory, log_base_file_name),
         maxBytes=max_bytes_per_log_file,
         backupCount=backup_count,

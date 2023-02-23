@@ -145,6 +145,7 @@ def compact_partition(
     return new_rcf_s3_url
 
 
+@ray.remote(num_cpus=0.1, num_returns=3)
 def _execute_compaction_round(
     source_partition_locator: PartitionLocator,
     compacted_partition_locator: PartitionLocator,
