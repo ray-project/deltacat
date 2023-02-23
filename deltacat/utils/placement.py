@@ -157,7 +157,7 @@ class NodeGroupManager:
             try:
                 group_res["group_res"] = ray.available_resources()[gname]
             except Exception as e:  # noqa: F841
-                logger.info(f"There is no available resources for {gname}")
+                logger.info(f"Error:{e}. There is no available resources for {gname}")
                 return None
             return group_res
         else:
@@ -177,7 +177,7 @@ class NodeGroupManager:
         try:
             group_res["group_res"] = ray.available_resources()[gname]
         except Exception as e:  # noqa: F841
-            logger.info(f"There is no available resources for {gname}")
+            logger.info(f"Error:{e}. There is no available resources for {gname}")
             return None
         return group_res
 
