@@ -104,16 +104,16 @@ def replace_cluster_cfg_vars(
         contents = contents.replace(
             "{{partition_canonical_string}}", partition_canonical_string
         )
-        contents = contents.replace("{{trace_id}}", trace_id)
-        contents = contents.replace("{{min-workers}}", str(min_workers))
-        contents = contents.replace("{{max-workers}}", str(max_workers))
-        contents = contents.replace("{{head-instance-type}}", head_type)
-        contents = contents.replace("{{worker-instance-type}}", worker_type)
+        contents = contents.replace("'{{trace_id}}'", trace_id)
+        contents = contents.replace("'{{min-workers}}'", str(min_workers))
+        contents = contents.replace("'{{max-workers}}'", str(max_workers))
+        contents = contents.replace("'{{head-instance-type}}'", head_type)
+        contents = contents.replace("'{{worker-instance-type}}'", worker_type)
         contents = contents.replace(
-            "{{head-object-store-memory-pct}}", str(head_object_store_memory_pct)
+            "'{{head-object-store-memory-pct}}'", str(head_object_store_memory_pct)
         )
         contents = contents.replace(
-            "{{worker-object-store-memory-pct}}", str(worker_object_store_memory_pct)
+            "'{{worker-object-store-memory-pct}}'", str(worker_object_store_memory_pct)
         )
     partition_id = partition_canonical_string.split("|")[-1]
     out_file_name = f"{trace_id}-{partition_id}.{os.path.basename(file_path)}"
