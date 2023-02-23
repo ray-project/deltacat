@@ -1,8 +1,10 @@
 import functools
 import logging
+from contextlib import nullcontext
 from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
+import memray
 import pyarrow as pa
 import ray
 
@@ -95,59 +97,62 @@ def compact_partition(
 ) -> Optional[str]:
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
-    partition = None
-    compaction_rounds_executed = 0
-    has_next_compaction_round = True
-    new_rcf_s3_url = None
-    while has_next_compaction_round:
-        (
-            has_next_compaction_round,
-            new_partition,
-            new_rci,
-            new_rcf_s3_url,
-        ) = _execute_compaction_round(
-            source_partition_locator,
-            destination_partition_locator,
-            primary_keys,
-            compaction_artifact_s3_bucket,
-            last_stream_position_to_compact,
-            hash_bucket_count,
-            sort_keys,
-            records_per_primary_key_index_file,
-            records_per_compacted_file,
-            input_deltas_stats,
-            min_pk_index_pa_bytes,
-            min_hash_bucket_chunk_size,
-            compacted_file_content_type,
-            delete_prev_primary_key_index,
-            pg_config,
-            schema_on_read,
-            rebase_source_partition_locator,
-            rebase_source_partition_high_watermark,
-            enable_profiler,
-            deltacat_storage,
+    # memray official documentation link: https://bloomberg.github.io/memray/getting_started.html
+    with memray.Tracker(
+            f"compaction_partition.bin"
+    ) if enable_profiler else nullcontext():
+        partition = None
+        compaction_rounds_executed = 0
+        has_next_compaction_round = True
+        new_rcf_s3_url = None
+        while has_next_compaction_round:
+            (
+                has_next_compaction_round,
+                new_partition,
+                new_rci,
+                new_rcf_s3_url,
+            ) = _execute_compaction_round(
+                source_partition_locator,
+                destination_partition_locator,
+                primary_keys,
+                compaction_artifact_s3_bucket,
+                last_stream_position_to_compact,
+                hash_bucket_count,
+                sort_keys,
+                records_per_primary_key_index_file,
+                records_per_compacted_file,
+                input_deltas_stats,
+                min_pk_index_pa_bytes,
+                min_hash_bucket_chunk_size,
+                compacted_file_content_type,
+                delete_prev_primary_key_index,
+                pg_config,
+                schema_on_read,
+                rebase_source_partition_locator,
+                rebase_source_partition_high_watermark,
+                enable_profiler,
+                deltacat_storage,
+            )
+            if new_partition:
+                partition = new_partition
+                destination_partition_locator = new_partition.locator
+                compaction_rounds_executed += 1
+            # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
+            if new_rci:
+                min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
+
+        logger.info(
+            f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
+            f"{compaction_rounds_executed} rounds."
         )
-        if new_partition:
-            partition = new_partition
-            destination_partition_locator = new_partition.locator
-            compaction_rounds_executed += 1
-        # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
-        if new_rci:
-            min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
-
-    logger.info(
-        f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
-        f"{compaction_rounds_executed} rounds."
-    )
-    if partition:
-        logger.info(f"Committing compacted partition to: {partition.locator}")
-        partition = deltacat_storage.commit_partition(partition)
-        logger.info(f"Committed compacted partition: {partition}")
-    logger.info(f"Completed compaction session for: {source_partition_locator}")
-    return new_rcf_s3_url
+        if partition:
+            logger.info(f"Committing compacted partition to: {partition.locator}")
+            partition = deltacat_storage.commit_partition(partition)
+            logger.info(f"Committed compacted partition: {partition}")
+        logger.info(f"Completed compaction session for: {source_partition_locator}")
+        return new_rcf_s3_url
 
 
-@ray.remote(num_cpus=0.1, num_returns=3)
 def _execute_compaction_round(
     source_partition_locator: PartitionLocator,
     compacted_partition_locator: PartitionLocator,
@@ -346,7 +351,6 @@ def _execute_compaction_round(
                 records_per_primary_key_index_file,
                 delete_prev_primary_key_index,
             )
-
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
     hb_tasks_pending = invoke_parallel(
