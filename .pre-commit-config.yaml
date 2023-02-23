@@ -1,29 +1,34 @@
 fail_fast: true
-minimum_pre_commit_version: '0'
+minimum_pre_commit_version: "0"
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
-    hooks:
-    -   id: check-added-large-files
-    -   id: check-case-conflict
-    -   id: check-json
-    -   id: check-yaml
-    -   id: end-of-file-fixer
-    -   id: requirements-txt-fixer
-    -   id: trailing-whitespace
--   repo: https://github.com/hadialqattan/pycln
-    rev: v2.1.2
-    hooks:
-    -   id: pycln
--   repo: https://github.com/PyCQA/isort
-    rev: 5.11.4
-    hooks:
-    -   id: isort
--   repo: https://github.com/psf/black
-    rev: 22.12.0
-    hooks:
-      - id: black
--   repo: https://github.com/pycqa/flake8
-    rev: 6.0.0
-    hooks:
-    -   id: flake8
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v4.4.0
+      hooks:
+          - id: check-added-large-files
+            exclude: "deltacat/compute/compactor/TheFlashCompactorDesign.pdf"
+          - id: check-case-conflict
+          - id: check-json
+          - id: check-yaml
+          - id: check-executables-have-shebangs
+          - id: end-of-file-fixer
+            exclude_types: [pdf]
+          - id: requirements-txt-fixer
+          - id: check-merge-conflict
+          - id: trailing-whitespace
+    - repo: https://github.com/python-jsonschema/check-jsonschema
+      rev: 0.16.0
+      hooks:
+          - id: check-github-actions
+          - id: check-github-workflows
+    - repo: https://github.com/hadialqattan/pycln
+      rev: v2.1.2
+      hooks:
+          - id: pycln
+    - repo: https://github.com/psf/black
+      rev: 22.12.0
+      hooks:
+          - id: black
+    - repo: https://github.com/pycqa/flake8
+      rev: 5.0.0
+      hooks:
+          - id: flake8

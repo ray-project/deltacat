@@ -1,17 +1,19 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Optional, List, Set, Dict, Any
-
 from collections import defaultdict
-from deltacat.compute.stats.types import StatsType, ALL_STATS_TYPES
+from typing import Any, Dict, List, Optional, Set
+
+from deltacat.compute.stats.types import ALL_STATS_TYPES, StatsType
+
 
 class StatsResult(dict):
-    """A generic container that holds stats for a single manifest entry file.
-    """
+    """A generic container that holds stats for a single manifest entry file."""
+
     @staticmethod
-    def of(row_count: Optional[int] = 0,
-           pyarrow_table_bytes: Optional[int] = 0) -> StatsResult:
+    def of(
+        row_count: Optional[int] = 0, pyarrow_table_bytes: Optional[int] = 0
+    ) -> StatsResult:
         """Static factory for building a stats result object
 
         Args:
@@ -54,13 +56,20 @@ class StatsResult(dict):
         Returns:
             A stats result object
         """
-        return StatsResult({k: v for k, v in stats_types.items()
-                            if k in [StatsType.ROW_COUNT, StatsType.PYARROW_TABLE_BYTES]})
+        return StatsResult(
+            {
+                k: v
+                for k, v in stats_types.items()
+                if k in [StatsType.ROW_COUNT, StatsType.PYARROW_TABLE_BYTES]
+            }
+        )
 
     @staticmethod
-    def merge(stats_list: List[StatsResult],
-              stat_types: Optional[Set[StatsType]] = None,
-              record_row_count_once: bool = False) -> StatsResult:
+    def merge(
+        stats_list: List[StatsResult],
+        stat_types: Optional[Set[StatsType]] = None,
+        record_row_count_once: bool = False,
+    ) -> StatsResult:
         """Helper method to merge any list of StatsResult objects into one.
 
         StatsResult objects are merged by adding up their numerical stats.
@@ -75,9 +84,10 @@ class StatsResult(dict):
         Returns:
             A stats result object
         """
-        assert isinstance(stats_list, list) and len(stats_list) > 0, \
-            f"Expected stats list: {stats_list} of type {type(stats_list)} to be a " \
+        assert isinstance(stats_list, list) and len(stats_list) > 0, (
+            f"Expected stats list: {stats_list} of type {type(stats_list)} to be a "
             f"non-empty list of StatsResult objects."
+        )
 
         # Fallback to all stat types if not provided
         stats_to_collect: Set = stat_types or ALL_STATS_TYPES
