@@ -1,11 +1,10 @@
+import pyarrow as pa
+import numpy as np
 from itertools import repeat
 from typing import Union
 
-import numpy as np
-import pyarrow as pa
-
-from deltacat.compute.compactor import DeltaFileEnvelope
 from deltacat.storage import DeltaType
+from deltacat.compute.compactor import DeltaFileEnvelope
 
 _SYS_COL_UUID = "4000f124-dfbd-48c6-885b-7b22621a6d41"
 
@@ -66,20 +65,20 @@ _IS_SOURCE_COLUMN_FIELD = pa.field(
 
 
 def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
-    return pa.array(obj, _PK_HASH_COLUMN_TYPE)
+    return pa.array(
+        obj,
+        _PK_HASH_COLUMN_TYPE
+    )
 
 
 def pk_hash_column_np(table: pa.Table) -> np.ndarray:
     return table[_PK_HASH_COLUMN_NAME].to_numpy()
 
-
 def pk_hash_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_PK_HASH_COLUMN_NAME]
 
-
 def delta_type_column_np(table: pa.Table) -> np.ndarray:
     return table[_DELTA_TYPE_COLUMN_NAME].to_numpy()
-
 
 def delta_type_column(table: pa.Table) -> pa.ChunkedArray:
     return table[_DELTA_TYPE_COLUMN_NAME]
@@ -103,7 +102,8 @@ def stream_position_column_np(table: pa.Table) -> np.ndarray:
     return table[_PARTITION_STREAM_POSITION_COLUMN_NAME].to_numpy()
 
 
-def get_file_index_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+def get_file_index_column_array(obj) \
+        -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
         obj,
         _ORDERED_FILE_IDX_COLUMN_TYPE,
@@ -114,7 +114,8 @@ def file_index_column_np(table: pa.Table) -> np.ndarray:
     return table[_ORDERED_FILE_IDX_COLUMN_NAME].to_numpy()
 
 
-def get_record_index_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+def get_record_index_column_array(obj) -> \
+        Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
         obj,
         _ORDERED_RECORD_IDX_COLUMN_TYPE,
@@ -144,8 +145,7 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
 
 
 def project_delta_file_metadata_on_table(
-    delta_file_envelope: DeltaFileEnvelope,
-) -> pa.Table:
+        delta_file_envelope: DeltaFileEnvelope) -> pa.Table:
 
     table = delta_file_envelope.table
 
@@ -182,33 +182,42 @@ def project_delta_file_metadata_on_table(
     return table
 
 
-def append_stream_position_column(table: pa.Table, stream_positions):
+def append_stream_position_column(
+        table: pa.Table,
+        stream_positions):
 
     table = table.append_column(
         _PARTITION_STREAM_POSITION_COLUMN_FIELD,
-        get_stream_position_column_array(stream_positions),
+        get_stream_position_column_array(stream_positions)
     )
     return table
 
 
-def append_file_idx_column(table: pa.Table, ordered_file_indices):
+def append_file_idx_column(
+        table: pa.Table,
+        ordered_file_indices):
 
     table = table.append_column(
         _ORDERED_FILE_IDX_COLUMN_FIELD,
-        get_file_index_column_array(ordered_file_indices),
+        get_file_index_column_array(ordered_file_indices)
     )
     return table
 
 
-def append_pk_hash_column(table: pa.Table, pk_hashes) -> pa.Table:
+def append_pk_hash_column(
+        table: pa.Table,
+        pk_hashes) -> pa.Table:
 
     table = table.append_column(
-        _PK_HASH_COLUMN_FIELD, get_pk_hash_column_array(pk_hashes)
+        _PK_HASH_COLUMN_FIELD,
+        get_pk_hash_column_array(pk_hashes)
     )
     return table
 
 
-def append_record_idx_col(table: pa.Table, ordered_record_indices) -> pa.Table:
+def append_record_idx_col(
+        table: pa.Table,
+        ordered_record_indices) -> pa.Table:
 
     table = table.append_column(
         _ORDERED_RECORD_IDX_COLUMN_FIELD,
@@ -217,7 +226,9 @@ def append_record_idx_col(table: pa.Table, ordered_record_indices) -> pa.Table:
     return table
 
 
-def append_dedupe_task_idx_col(table: pa.Table, dedupe_task_indices) -> pa.Table:
+def append_dedupe_task_idx_col(
+        table: pa.Table,
+        dedupe_task_indices) -> pa.Table:
 
     table = table.append_column(
         _DEDUPE_TASK_IDX_COLUMN_FIELD,
@@ -234,7 +245,9 @@ def delta_type_from_field(delta_type_field: bool) -> DeltaType:
     return DeltaType.UPSERT if delta_type_field else DeltaType.DELETE
 
 
-def append_delta_type_col(table: pa.Table, delta_types) -> pa.Table:
+def append_delta_type_col(
+        table: pa.Table,
+        delta_types) -> pa.Table:
 
     table = table.append_column(
         _DELTA_TYPE_COLUMN_FIELD,
@@ -243,7 +256,9 @@ def append_delta_type_col(table: pa.Table, delta_types) -> pa.Table:
     return table
 
 
-def append_is_source_col(table: pa.Table, booleans) -> pa.Table:
+def append_is_source_col(
+        table: pa.Table,
+        booleans) -> pa.Table:
 
     table = table.append_column(
         _IS_SOURCE_COLUMN_FIELD,
@@ -253,13 +268,11 @@ def append_is_source_col(table: pa.Table, booleans) -> pa.Table:
 
 
 def get_minimal_hb_schema() -> pa.schema:
-    return pa.schema(
-        [
-            _PK_HASH_COLUMN_FIELD,
-            _ORDERED_RECORD_IDX_COLUMN_FIELD,
-            _ORDERED_FILE_IDX_COLUMN_FIELD,
-            _PARTITION_STREAM_POSITION_COLUMN_FIELD,
-            _DELTA_TYPE_COLUMN_FIELD,
-            _IS_SOURCE_COLUMN_FIELD,
-        ]
-    )
+    return pa.schema([
+        _PK_HASH_COLUMN_FIELD,
+        _ORDERED_RECORD_IDX_COLUMN_FIELD,
+        _ORDERED_FILE_IDX_COLUMN_FIELD,
+        _PARTITION_STREAM_POSITION_COLUMN_FIELD,
+        _DELTA_TYPE_COLUMN_FIELD,
+        _IS_SOURCE_COLUMN_FIELD
+    ])

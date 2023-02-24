@@ -35,8 +35,4 @@ ignore =
   B015
   B016
   B017
-  F541
-  F631
-  E501
-  E731
 avoid-escape = no

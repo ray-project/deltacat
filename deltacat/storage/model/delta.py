@@ -1,28 +1,26 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
-from deltacat.aws.redshift import Manifest, ManifestAuthor, ManifestMeta
-from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.types import DeltaType
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
-from deltacat.storage.model.types import DeltaType
+from deltacat.storage.model.locator import Locator
+from deltacat.aws.redshift import Manifest, ManifestMeta, ManifestAuthor
+
+from typing import Any, Dict, List, Optional
 
 
 class Delta(dict):
     @staticmethod
-    def of(
-        locator: Optional[DeltaLocator],
-        delta_type: Optional[DeltaType],
-        meta: Optional[ManifestMeta],
-        properties: Optional[Dict[str, str]],
-        manifest: Optional[Manifest],
-        previous_stream_position: Optional[int] = None,
-    ) -> Delta:
+    def of(locator: Optional[DeltaLocator],
+           delta_type: Optional[DeltaType],
+           meta: Optional[ManifestMeta],
+           properties: Optional[Dict[str, str]],
+           manifest: Optional[Manifest],
+           previous_stream_position: Optional[int] = None) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
         manifest metadata, properties, manifest, and previous delta stream
@@ -39,11 +37,10 @@ class Delta(dict):
 
     @staticmethod
     def merge_deltas(
-        deltas: List[Delta],
-        manifest_author: Optional[ManifestAuthor] = None,
-        stream_position: Optional[int] = None,
-        properties: Optional[Dict[str, str]] = None,
-    ) -> Delta:
+            deltas: List[Delta],
+            manifest_author: Optional[ManifestAuthor] = None,
+            stream_position: Optional[int] = None,
+            properties: Optional[Dict[str, str]] = None) -> Delta:
         """
         Merges the input list of deltas into a single delta. All input deltas to
         merge must belong to the same partition, share the same delta type, and
@@ -73,20 +70,18 @@ class Delta(dict):
         if len(distinct_storage_types) > 1:
             raise NotImplementedError(
                 f"Deltas to merge must all share the same storage type "
-                f"(found {len(distinct_storage_types)} storage types."
-            )
-        pl_digest_set = set([d.partition_locator.digest() for d in deltas])
+                f"(found {len(distinct_storage_types)} storage types.")
+        pl_digest_set = set([d.partition_locator.digest()
+                             for d in deltas])
         if len(pl_digest_set) > 1:
             raise ValueError(
                 f"Deltas to merge must all belong to the same partition "
-                f"(found {len(pl_digest_set)} partitions)."
-            )
+                f"(found {len(pl_digest_set)} partitions).")
         distinct_delta_types = set([d.type for d in deltas])
         if len(distinct_delta_types) > 1:
             raise ValueError(
                 f"Deltas to merge must all share the same delta type "
-                f"(found {len(distinct_delta_types)} delta types)."
-            )
+                f"(found {len(distinct_delta_types)} delta types).")
         merged_manifest = Manifest.merge_manifests(
             manifests,
             manifest_author,
@@ -111,7 +106,9 @@ class Delta(dict):
         return val
 
     @manifest.setter
-    def manifest(self, manifest: Optional[Manifest]) -> None:
+    def manifest(
+            self,
+            manifest: Optional[Manifest]) -> None:
         self["manifest"] = manifest
 
     @property
@@ -122,7 +119,9 @@ class Delta(dict):
         return val
 
     @meta.setter
-    def meta(self, meta: Optional[ManifestMeta]) -> None:
+    def meta(
+            self,
+            meta: Optional[ManifestMeta]) -> None:
         self["meta"] = meta
 
     @property
@@ -130,7 +129,9 @@ class Delta(dict):
         return self.get("properties")
 
     @properties.setter
-    def properties(self, properties: Optional[Dict[str, str]]) -> None:
+    def properties(
+            self,
+            properties: Optional[Dict[str, str]]) -> None:
         self["properties"] = properties
 
     @property
@@ -139,7 +140,9 @@ class Delta(dict):
         return None if delta_type is None else DeltaType(delta_type)
 
     @type.setter
-    def type(self, delta_type: Optional[DeltaType]) -> None:
+    def type(
+            self,
+            delta_type: Optional[DeltaType]) -> None:
         self["type"] = delta_type
 
     @property
@@ -150,7 +153,9 @@ class Delta(dict):
         return val
 
     @locator.setter
-    def locator(self, delta_locator: Optional[DeltaLocator]) -> None:
+    def locator(
+            self,
+            delta_locator: Optional[DeltaLocator]) -> None:
         self["deltaLocator"] = delta_locator
 
     @property
@@ -158,7 +163,9 @@ class Delta(dict):
         return self.get("previousStreamPosition")
 
     @previous_stream_position.setter
-    def previous_stream_position(self, previous_stream_position: Optional[int]) -> None:
+    def previous_stream_position(
+            self,
+            previous_stream_position: Optional[int]) -> None:
         self["previousStreamPosition"] = previous_stream_position
 
     @property
@@ -255,9 +262,8 @@ class Delta(dict):
 
 class DeltaLocator(Locator, dict):
     @staticmethod
-    def of(
-        partition_locator: Optional[PartitionLocator], stream_position: Optional[int]
-    ) -> DeltaLocator:
+    def of(partition_locator: Optional[PartitionLocator],
+           stream_position: Optional[int]) -> DeltaLocator:
         """
         Creates a partition delta locator. Stream Position, if provided, should
         be greater than that of any prior delta in the partition.
@@ -268,16 +274,14 @@ class DeltaLocator(Locator, dict):
         return delta_locator
 
     @staticmethod
-    def at(
-        namespace: Optional[str],
-        table_name: Optional[str],
-        table_version: Optional[str],
-        stream_id: Optional[str],
-        storage_type: Optional[str],
-        partition_values: Optional[List[Any]],
-        partition_id: Optional[str],
-        stream_position: Optional[int],
-    ) -> DeltaLocator:
+    def at(namespace: Optional[str],
+           table_name: Optional[str],
+           table_version: Optional[str],
+           stream_id: Optional[str],
+           storage_type: Optional[str],
+           partition_values: Optional[List[Any]],
+           partition_id: Optional[str],
+           stream_position: Optional[int]) -> DeltaLocator:
         partition_locator = PartitionLocator.at(
             namespace,
             table_name,
@@ -300,7 +304,9 @@ class DeltaLocator(Locator, dict):
         return val
 
     @partition_locator.setter
-    def partition_locator(self, partition_locator: Optional[PartitionLocator]) -> None:
+    def partition_locator(
+            self,
+            partition_locator: Optional[PartitionLocator]) -> None:
         self["partitionLocator"] = partition_locator
 
     @property

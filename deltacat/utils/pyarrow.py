@@ -1,30 +1,27 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import bz2
+import pyarrow as pa
 import gzip
+import bz2
 import io
 import logging
-from functools import partial
-from typing import Any, Callable, Dict, Iterable, List, Optional
 
-import pyarrow as pa
+from functools import partial
 from fsspec import AbstractFileSystem
-from pyarrow import csv as pacsv
-from pyarrow import feather as paf
-from pyarrow import json as pajson
-from pyarrow import parquet as papq
+
+from pyarrow import feather as paf, parquet as papq, csv as pacsv, \
+    json as pajson
+
 from ray.data.datasource import BlockWritePathProvider
 
 from deltacat import logs
-from deltacat.types.media import (
-    DELIMITED_TEXT_CONTENT_TYPES,
-    TABULAR_CONTENT_TYPES,
-    ContentEncoding,
-    ContentType,
-)
-from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
+from deltacat.types.media import ContentType, ContentEncoding, \
+    DELIMITED_TEXT_CONTENT_TYPES, TABULAR_CONTENT_TYPES
+from deltacat.utils.common import ReadKwargsProvider, ContentTypeKwargsProvider
 from deltacat.utils.performance import timed_invocation
+
+from typing import Any, Callable, Dict, List, Optional, Iterable, Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -39,28 +36,35 @@ CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
     # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
     # https://issues.apache.org/jira/browse/ARROW-7811
     # ContentType.ORC.value: paorc.ContentType.ORCFile,
-    ContentType.JSON.value: pajson.read_json,
+    ContentType.JSON.value: pajson.read_json
 }
 
 
 def write_feather(
-    table: pa.Table, path: str, *, filesystem: AbstractFileSystem, **kwargs
-) -> None:
+        table: pa.Table,
+        path: str,
+        *,
+        filesystem: AbstractFileSystem,
+        **kwargs) -> None:
 
     with filesystem.open(path, "wb") as f:
         paf.write_feather(table, f, **kwargs)
 
 
 def write_csv(
-    table: pa.Table, path: str, *, filesystem: AbstractFileSystem, **kwargs
-) -> None:
+        table: pa.Table,
+        path: str,
+        *,
+        filesystem: AbstractFileSystem,
+        **kwargs) -> None:
 
     with filesystem.open(path, "wb") as f:
         # TODO (pdames): Add support for client-specified compression types.
         with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
             if kwargs.get("write_options") is None:
                 # column names are kept in table metadata, so omit header
-                kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
+                kwargs["write_options"] = pacsv.WriteOptions(
+                    include_header=False)
             pacsv.write_csv(table, out, **kwargs)
 
 
@@ -77,11 +81,13 @@ CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
 def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
     if content_type == ContentType.UNESCAPED_TSV.value:
         return {
-            "parse_options": pacsv.ParseOptions(delimiter="\t", quote_char=False),
+            "parse_options": pacsv.ParseOptions(
+                delimiter="\t",
+                quote_char=False),
             "convert_options": pacsv.ConvertOptions(
                 null_values=[""],  # pyarrow defaults are ["", "NULL", "null"]
                 strings_can_be_null=True,
-            ),
+            )
         }
     if content_type == ContentType.TSV.value:
         return {"parse_options": pacsv.ParseOptions(delimiter="\t")}
@@ -89,11 +95,9 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
         return {"parse_options": pacsv.ParseOptions(delimiter=",")}
     if content_type == ContentType.PSV.value:
         return {"parse_options": pacsv.ParseOptions(delimiter="|")}
-    if content_type in {
-        ContentType.PARQUET.value,
-        ContentType.FEATHER.value,
-        ContentType.JSON.value,
-    }:
+    if content_type in {ContentType.PARQUET.value,
+                        ContentType.FEATHER.value,
+                        ContentType.JSON.value}:
         return {}
     # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
     # https://issues.apache.org/jira/browse/ARROW-7811
@@ -104,13 +108,15 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
 
 # TODO (pdames): add deflate and snappy
 ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
-    ContentEncoding.GZIP.value: partial(gzip.GzipFile, mode="rb"),
-    ContentEncoding.BZIP2.value: partial(bz2.BZ2File, mode="rb"),
+    ContentEncoding.GZIP.value: partial(gzip.GzipFile, mode='rb'),
+    ContentEncoding.BZIP2.value: partial(bz2.BZ2File, mode='rb'),
     ContentEncoding.IDENTITY.value: lambda fileobj: fileobj,
 }
 
 
-def slice_table(table: pa.Table, max_len: Optional[int]) -> List[pa.Table]:
+def slice_table(
+        table: pa.Table,
+        max_len: Optional[int]) -> List[pa.Table]:
     """
     Iteratively create 0-copy table slices.
     """
@@ -120,7 +126,10 @@ def slice_table(table: pa.Table, max_len: Optional[int]) -> List[pa.Table]:
     offset = 0
     records_remaining = len(table)
     while records_remaining > 0:
-        records_this_entry = min(max_len, records_remaining)
+        records_this_entry = min(
+            max_len,
+            records_remaining
+        )
         tables.append(table.slice(offset, records_this_entry))
         records_remaining -= records_this_entry
         offset += records_this_entry
@@ -132,21 +141,21 @@ class ReadKwargsProviderPyArrowCsvPureUtf8(ContentTypeKwargsProvider):
     as UTF-8 strings (i.e. disables type inference). Useful for ensuring
     lossless reads of UTF-8 delimited text datasets and improving read
     performance in cases where type casting is not required."""
-
     def __init__(self, include_columns: Optional[Iterable[str]] = None):
         self.include_columns = include_columns
 
-    def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_kwargs(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if content_type in DELIMITED_TEXT_CONTENT_TYPES:
-            convert_options: pacsv.ConvertOptions = kwargs.get("convert_options")
+            convert_options: pacsv.ConvertOptions = \
+                kwargs.get("convert_options")
             if convert_options is None:
                 convert_options = pacsv.ConvertOptions()
             # read only the included columns as strings?
-            column_names = (
-                self.include_columns
-                if self.include_columns
-                else convert_options.include_columns
-            )
+            column_names = self.include_columns \
+                if self.include_columns else convert_options.include_columns
             if not column_names:
                 # read all columns as strings?
                 read_options: pacsv.ReadOptions = kwargs.get("read_options")
@@ -165,12 +174,9 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
     """ReadKwargsProvider impl that explicitly maps column names to column types when
     loading dataset files into a PyArrow table. Disables the default type inference
     behavior on the defined columns."""
-
-    def __init__(
-        self,
-        schema: Optional[pa.Schema] = None,
-        pq_coerce_int96_timestamp_unit: Optional[str] = None,
-    ):
+    def __init__(self,
+                 schema: Optional[pa.Schema] = None,
+                 pq_coerce_int96_timestamp_unit: Optional[str] = None):
         """
 
         Args:
@@ -184,7 +190,10 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         self.schema = schema
         self.pq_coerce_int96_timestamp_unit = pq_coerce_int96_timestamp_unit
 
-    def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_kwargs(
+            self,
+            content_type: str,
+            kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if content_type in DELIMITED_TEXT_CONTENT_TYPES:
             convert_options = kwargs.get("convert_options", pacsv.ConvertOptions())
             if self.schema:
@@ -197,19 +206,16 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
                 kwargs["schema"] = self.schema
 
             # Coerce deprecated int96 timestamp to millisecond if unspecified
-            kwargs["coerce_int96_timestamp_unit"] = (
-                self.pq_coerce_int96_timestamp_unit or "ms"
-            )
+            kwargs["coerce_int96_timestamp_unit"] = self.pq_coerce_int96_timestamp_unit or "ms"
 
         return kwargs
 
 
 def _add_column_kwargs(
-    content_type: str,
-    column_names: Optional[List[str]],
-    include_columns: Optional[List[str]],
-    kwargs: Dict[str, Any],
-):
+        content_type: str,
+        column_names: Optional[List[str]],
+        include_columns: Optional[List[str]],
+        kwargs: Dict[str, Any]):
 
     if content_type in DELIMITED_TEXT_CONTENT_TYPES:
         read_options: pacsv.ReadOptions = kwargs.get("read_options")
@@ -233,27 +239,25 @@ def _add_column_kwargs(
             if include_columns:
                 logger.warning(
                     f"Ignoring request to include columns {include_columns} "
-                    f"for non-tabular content type {content_type}"
-                )
+                    f"for non-tabular content type {content_type}")
 
 
 def s3_file_to_table(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs,
-) -> pa.Table:
+        s3_url: str,
+        content_type: str,
+        content_encoding: str,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
+        pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+        **s3_client_kwargs) -> pa.Table:
 
     from deltacat.aws import s3u as s3_utils
-
-    logger.debug(
-        f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
-        f"Encoding: {content_encoding}"
+    logger.debug(f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
+                 f"Encoding: {content_encoding}")
+    s3_obj = s3_utils.get_object_at_url(
+        s3_url,
+        **s3_client_kwargs
     )
-    s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
     pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]
     input_file_init = ENCODING_TO_FILE_INIT[content_encoding]
@@ -267,7 +271,11 @@ def s3_file_to_table(
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
     logger.debug(f"Reading {s3_url} via {pa_read_func} with kwargs: {kwargs}")
-    table, latency = timed_invocation(pa_read_func, *args, **kwargs)
+    table, latency = timed_invocation(
+        pa_read_func,
+        *args,
+        **kwargs
+    )
     logger.debug(f"Time to read {s3_url} into PyArrow table: {latency}s")
     return table
 
@@ -277,13 +285,12 @@ def table_size(table: pa.Table) -> int:
 
 
 def table_to_file(
-    table: pa.Table,
-    base_path: str,
-    file_system: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
-    content_type: str = ContentType.PARQUET.value,
-    **kwargs,
-) -> None:
+        table: pa.Table,
+        base_path: str,
+        file_system: AbstractFileSystem,
+        block_path_provider: BlockWritePathProvider,
+        content_type: str = ContentType.PARQUET.value,
+        **kwargs) -> None:
     """
     Writes the given Pyarrow Table to a file.
     """
@@ -292,10 +299,14 @@ def table_to_file(
         raise NotImplementedError(
             f"Pyarrow writer for content type '{content_type}' not "
             f"implemented. Known content types: "
-            f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}"
-        )
+            f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}")
     path = block_path_provider(base_path)
-    writer(table, path, filesystem=file_system, **kwargs)
+    writer(
+        table,
+        path,
+        filesystem=file_system,
+        **kwargs
+    )
 
 
 class RecordBatchTables:
@@ -358,10 +369,8 @@ class RecordBatchTables:
             table = table.slice(offset=records_to_fit)
 
         record_count = len(table)
-        record_multiplier, records_leftover = (
-            record_count // self._batch_size,
-            record_count % self._batch_size,
-        )
+        record_multiplier, records_leftover = \
+            record_count // self._batch_size, record_count % self._batch_size
 
         if record_multiplier > 0:
             batched_table = table.slice(length=record_multiplier * self._batch_size)
@@ -384,7 +393,8 @@ class RecordBatchTables:
         self.clear_remaining()
 
     @staticmethod
-    def from_tables(tables: List[pa.Table], batch_size: int) -> RecordBatchTables:
+    def from_tables(tables: List[pa.Table],
+                    batch_size: int) -> RecordBatchTables:
         """
         Static factory for generating batched tables and remainders given a list of input tables.
 

@@ -8,9 +8,8 @@ from deltacat.storage.model.locator import Locator
 
 class Namespace(dict):
     @staticmethod
-    def of(
-        locator: Optional[NamespaceLocator], permissions: Optional[Dict[str, Any]]
-    ) -> Namespace:
+    def of(locator: Optional[NamespaceLocator],
+           permissions: Optional[Dict[str, Any]]) -> Namespace:
         namespace = Namespace()
         namespace.locator = locator
         namespace.permissions = permissions
@@ -24,7 +23,9 @@ class Namespace(dict):
         return val
 
     @locator.setter
-    def locator(self, namespace_locator: Optional[NamespaceLocator]) -> None:
+    def locator(
+            self,
+            namespace_locator: Optional[NamespaceLocator]) -> None:
         self["namespaceLocator"] = namespace_locator
 
     @property

@@ -1,6 +1,5 @@
-from collections import Counter
-
 import ray
+from collections import Counter
 
 
 @ray.remote

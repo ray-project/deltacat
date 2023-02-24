@@ -1,18 +1,15 @@
-import errno
-import logging
 import os
 import subprocess
-from subprocess import run
-from typing import Any
-
 import ray
-from tenacity import RetryError, Retrying, stop_after_attempt, wait_fixed
+import errno
+import logging
 
 from deltacat import logs
-from deltacat.compute.metastats.utils.constants import (
-    MAX_WORKER_MULTIPLIER,
-    WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO,
-)
+from tenacity import retry, stop_after_attempt
+from typing import Any
+from deltacat.compute.metastats.utils.constants import WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO, MAX_WORKER_MULTIPLIER
+from tenacity import Retrying, stop_after_attempt, wait_fixed, RetryError
+from subprocess import run, PIPE
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -27,10 +24,13 @@ def run_cmd_exit_code(cmd: str) -> int:
 
 def run_cmd_with_retry(cmd: str) -> None:
     retrying = Retrying(
-        wait=wait_fixed(2), stop=stop_after_attempt(RAY_DOWN_DEFAULT_RETRY_ATTEMPTS)
+        wait=wait_fixed(2),
+        stop=stop_after_attempt(RAY_DOWN_DEFAULT_RETRY_ATTEMPTS)
     )
     try:
-        retrying(run_cmd_exit_code(cmd))
+        retrying(
+           run_cmd_exit_code(cmd)
+        )
     except RetryError:
         logger.info(f"{cmd} failed after {RAY_DOWN_DEFAULT_RETRY_ATTEMPTS} retries.")
 
@@ -38,9 +38,8 @@ def run_cmd_with_retry(cmd: str) -> None:
 def run_cmd(cmd: str) -> None:
     result = run(cmd, shell=True, capture_output=True)
     exit_code = int(result.returncode)
-    assert exit_code == 0, (
-        f"`{cmd}` failed. Exit code: {exit_code} " f"Error Trace: {result.stderr}"
-    )
+    assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code} " \
+                           f"Error Trace: {result.stderr}"
 
 
 def ray_up(cluster_cfg: str) -> None:
@@ -68,8 +67,7 @@ def get_head_node_ip(cluster_cfg: str) -> str:
         shell=True,
         capture_output=True,
         text=True,
-        check=True,
-    )
+        check=True)
     # the head node IP should be the last line printed to stdout
     head_node_ip = proc.stdout.splitlines()[-1]
     logger.info(f"Ray cluster head node IP for '{cluster_cfg}': {head_node_ip}")
@@ -85,15 +83,14 @@ def ray_init(host, port) -> Any:
 
 
 def replace_cluster_cfg_vars(
-    partition_canonical_string: str,
-    trace_id: str,
-    file_path: str,
-    min_workers: int,
-    head_type: str,
-    worker_type: str,
-    head_object_store_memory_pct: int,
-    worker_object_store_memory_pct: int,
-) -> str:
+        partition_canonical_string: str,
+        trace_id: str,
+        file_path: str,
+        min_workers: int,
+        head_type: str,
+        worker_type: str,
+        head_object_store_memory_pct: int,
+        worker_object_store_memory_pct: int) -> str:
 
     head_object_store_memory_pct = head_object_store_memory_pct if not None else 30
     worker_object_store_memory_pct = WORKER_NODE_OBJECT_STORE_MEMORY_RESERVE_RATIO * 100
@@ -101,20 +98,18 @@ def replace_cluster_cfg_vars(
     max_workers = int(min_workers * MAX_WORKER_MULTIPLIER)
     with open(file_path, "r+") as file:
         contents = file.read().replace("{{use-internal-ips}}", "True")
+        contents = contents.replace("{{partition_canonical_string}}", partition_canonical_string)
+        contents = contents.replace("{{trace_id}}", trace_id)
+        contents = contents.replace("{{min-workers}}", str(min_workers))
+        contents = contents.replace("{{max-workers}}", str(max_workers))
+        contents = contents.replace("{{head-instance-type}}", head_type)
+        contents = contents.replace("{{worker-instance-type}}", worker_type)
         contents = contents.replace(
-            "{{partition_canonical_string}}", partition_canonical_string
-        )
-        contents = contents.replace("'{{trace_id}}'", trace_id)
-        contents = contents.replace("'{{min-workers}}'", str(min_workers))
-        contents = contents.replace("'{{max-workers}}'", str(max_workers))
-        contents = contents.replace("'{{head-instance-type}}'", head_type)
-        contents = contents.replace("'{{worker-instance-type}}'", worker_type)
+            "{{head-object-store-memory-pct}}",
+            str(head_object_store_memory_pct))
         contents = contents.replace(
-            "'{{head-object-store-memory-pct}}'", str(head_object_store_memory_pct)
-        )
-        contents = contents.replace(
-            "'{{worker-object-store-memory-pct}}'", str(worker_object_store_memory_pct)
-        )
+            "{{worker-object-store-memory-pct}}",
+            str(worker_object_store_memory_pct))
     partition_id = partition_canonical_string.split("|")[-1]
     out_file_name = f"{trace_id}-{partition_id}.{os.path.basename(file_path)}"
     out_file_dir = os.path.join(os.path.dirname(file_path), "tmp")

@@ -16,11 +16,11 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 @ray.remote(num_cpus=1, num_returns=2)
 def rewrite_index(
-    object_ids: List[Any],
-    s3_bucket: str,
-    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-    max_records_per_index_file: int,
-) -> Tuple[PyArrowWriteResult, List[ObjectRef]]:
+        object_ids: List[Any],
+        s3_bucket: str,
+        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+        max_records_per_index_file: int) -> \
+        Tuple[PyArrowWriteResult, List[ObjectRef]]:
 
     logger.info(f"Starting rewrite primary key index task...")
     object_refs = [cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids]

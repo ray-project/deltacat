@@ -1,5 +1,4 @@
 import unittest
-
 import pyarrow as pa
 
 from deltacat.utils.pyarrow import RecordBatchTables
@@ -66,19 +65,10 @@ class TestRecordBatchTables(unittest.TestCase):
         grouped_tables = [
             pa.Table.from_arrays(
                 [
-                    pa.array(
-                        [
-                            i
-                            for i in range(
-                                i * test_table_num_records,
-                                (i + 1) * test_table_num_records,
-                            )
-                        ]
-                    ),
-                    pa.array(["foo"] * test_table_num_records),
+                    pa.array([i for i in range(i*test_table_num_records, (i+1)*test_table_num_records)]),
+                    pa.array(["foo"] * test_table_num_records)
                 ],
-                names=self.column_names,
-            )
+                names=self.column_names)
             for i in range(5)
         ]
 
@@ -97,19 +87,10 @@ class TestRecordBatchTables(unittest.TestCase):
         grouped_tables = [
             pa.Table.from_arrays(
                 [
-                    pa.array(
-                        [
-                            i
-                            for i in range(
-                                i * test_table_num_records,
-                                (i + 1) * test_table_num_records,
-                            )
-                        ]
-                    ),
-                    pa.array(["foo"] * 100),
+                    pa.array([i for i in range(i*test_table_num_records, (i+1)*test_table_num_records)]),
+                    pa.array(["foo"] * 100)
                 ],
-                names=self.column_names,
-            )
+                names=self.column_names)
             for i in range(5)
         ]
 
@@ -131,19 +112,10 @@ class TestRecordBatchTables(unittest.TestCase):
         grouped_tables = [
             pa.Table.from_arrays(
                 [
-                    pa.array(
-                        [
-                            i
-                            for i in range(
-                                i * test_table_num_records,
-                                (i + 1) * test_table_num_records,
-                            )
-                        ]
-                    ),
-                    pa.array(["foo"] * test_table_num_records),
+                    pa.array([i for i in range(i*test_table_num_records, (i+1)*test_table_num_records)]),
+                    pa.array(["foo"] * test_table_num_records)
                 ],
-                names=self.column_names,
-            )
+                names=self.column_names)
             for i in range(3)
         ]
 
@@ -167,19 +139,10 @@ class TestRecordBatchTables(unittest.TestCase):
         grouped_tables = [
             pa.Table.from_arrays(
                 [
-                    pa.array(
-                        [
-                            i
-                            for i in range(
-                                i * test_table_num_records,
-                                (i + 1) * test_table_num_records,
-                            )
-                        ]
-                    ),
-                    pa.array(["foo"] * test_table_num_records),
+                    pa.array([i for i in range(i*test_table_num_records, (i+1)*test_table_num_records)]),
+                    pa.array(["foo"] * test_table_num_records)
                 ],
-                names=self.column_names,
-            )
+                names=self.column_names)
             for i in range(3)
         ]
         bt = RecordBatchTables.from_tables(grouped_tables, min_records_batch)
@@ -261,24 +224,18 @@ class TestRecordBatchTables(unittest.TestCase):
         self.assertEqual(sum([len(t) for t in evicted_tables]), prev_batched_records)
 
 
-def _is_sorted(batched_tables: RecordBatchTables, sort_key: str):
-    merged_table = pa.concat_tables(
-        [*batched_tables.batched, *batched_tables.remaining]
-    )
+def _is_sorted(batched_tables: RecordBatchTables,
+               sort_key: str):
+    merged_table = pa.concat_tables([*batched_tables.batched, *batched_tables.remaining])
     explicitly_sorted_merged_table = merged_table.sort_by([(sort_key, "ascending")])
     return explicitly_sorted_merged_table == merged_table
 
 
-def _is_gte_batch_size_and_divisible(
-    batched_tables: RecordBatchTables, min_records_batch: int
-):
-    return all(
-        [
-            len(table) // min_records_batch > 0 and len(table) % min_records_batch == 0
-            for table in batched_tables.batched
-        ]
-    )
+def _is_gte_batch_size_and_divisible(batched_tables: RecordBatchTables,
+                                     min_records_batch: int):
+    return all([len(table) // min_records_batch > 0 and len(table) % min_records_batch == 0
+                for table in batched_tables.batched])
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

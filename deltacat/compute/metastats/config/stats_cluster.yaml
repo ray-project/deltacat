@@ -7,25 +7,25 @@ provider:
   cache_stopped_nodes: false
   use_internal_ips: true
 
-max_workers: '{{max-workers}}'
+max_workers: {{max-workers}}
 
 available_node_types:
   ray.head.default:
     max_workers: 0
     resources: {}
     node_config:
-      InstanceType: '{{head-instance-type}}'
+      InstanceType: {{head-instance-type}}
       ImageId: latest_dlami
       LaunchTemplate:
         # TODO: replace this with your launch template name!
         LaunchTemplateName:
         Version: "$Latest"
   ray.worker.default:
-    min_workers: '{{min-workers}}'
-    max_workers: '{{max-workers}}'
+    min_workers: {{min-workers}}
+    max_workers: {{max-workers}}
     resources: {}
     node_config:
-      InstanceType: '{{worker-instance-type}}'
+      InstanceType: {{worker-instance-type}}
       ImageId: latest_dlami
       LaunchTemplate:
         # TODO: replace this with your launch template name!

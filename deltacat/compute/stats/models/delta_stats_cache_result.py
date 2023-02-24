@@ -12,11 +12,8 @@ class DeltaStatsCacheResult(dict):
     Stats are fetched and cached at the column level, and each column may represent one
     or more manifest entries.
     """
-
     @staticmethod
-    def of(
-        hits: Optional[DeltaStats], misses: Optional[DeltaStatsCacheMiss]
-    ) -> DeltaStatsCacheResult:
+    def of(hits: Optional[DeltaStats], misses: Optional[DeltaStatsCacheMiss]) -> DeltaStatsCacheResult:
         cds = DeltaStatsCacheResult()
         cds["hits"] = hits
         cds["misses"] = misses

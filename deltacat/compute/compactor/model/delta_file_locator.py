@@ -8,9 +8,9 @@ from deltacat.storage import Locator
 
 class DeltaFileLocator(Locator, tuple):
     @staticmethod
-    def of(
-        is_src_delta: np.bool_, stream_position: np.int64, file_index: np.int32
-    ) -> DeltaFileLocator:
+    def of(is_src_delta: np.bool_,
+           stream_position: np.int64,
+           file_index: np.int32) -> DeltaFileLocator:
         """
         Create a Delta File Locator tuple that can be used to uniquely identify
         and retrieve a file from any compaction job run input Delta.
@@ -30,13 +30,11 @@ class DeltaFileLocator(Locator, tuple):
             delta_file_locator: The Delta File Locator Tuple as
             (is_source_delta, stream_position, file_index).
         """
-        return DeltaFileLocator(
-            (
-                is_src_delta,
-                stream_position,
-                file_index,
-            )
-        )
+        return DeltaFileLocator((
+            is_src_delta,
+            stream_position,
+            file_index,
+        ))
 
     @property
     def is_source_delta(self) -> np.bool_:

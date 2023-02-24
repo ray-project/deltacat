@@ -1,5 +1,4 @@
 import ray
-
 from deltacat.storage import interface as unimplemented_deltacat_storage
 
 ray.init(address="auto")
@@ -29,5 +28,5 @@ def run_all(dc_storage_ray=unimplemented_deltacat_storage):
         print(f"Received one page of tables: {tables}")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     run_all()

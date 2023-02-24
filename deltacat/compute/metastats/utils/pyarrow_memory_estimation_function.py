@@ -1,9 +1,6 @@
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS
 
-
-def estimation_function(
-    content_length, content_type, content_encoding, *args, **kwargs
-):
+def estimation_function(content_length, content_type, content_encoding, *args, **kwargs):
     # TODO(zyiqin): update the estimation here to be consistent with number of required worker nodes estimate.
     #  Current implementation is only a rough guess using the PYARROW_INFLATION_MULTIPLIER(content_length to pyarrow butes(all columns).
     #  The full implementation logic should be:

@@ -1,17 +1,21 @@
-from typing import List, Optional
-
 import numpy as np
 import pyarrow as pa
+
 from fsspec import AbstractFileSystem
+
 from ray.data.datasource import BlockWritePathProvider
 
 from deltacat.types.media import ContentType
-from deltacat.utils import pandas as pd_utils
 from deltacat.utils import pyarrow as pa_utils
+from deltacat.utils import pandas as pd_utils
 from deltacat.utils.common import ReadKwargsProvider
 
+from typing import List, Optional
 
-def slice_ndarray(np_array: np.ndarray, max_len: Optional[int]) -> List[np.ndarray]:
+
+def slice_ndarray(
+        np_array: np.ndarray,
+        max_len: Optional[int]) -> List[np.ndarray]:
     """
     Iteratively creates max_len slices from the first dimension of an ndarray.
     """
@@ -19,18 +23,17 @@ def slice_ndarray(np_array: np.ndarray, max_len: Optional[int]) -> List[np.ndarr
         return [np_array]
 
     # Slice along the first dimension of the ndarray.
-    return [np_array[i : i + max_len] for i in range(0, len(np_array), max_len)]
+    return [np_array[i:i + max_len] for i in range(0, len(np_array), max_len)]
 
 
 def s3_file_to_ndarray(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs
-) -> np.ndarray:
+        s3_url: str,
+        content_type: str,
+        content_encoding: str,
+        column_names: Optional[List[str]] = None,
+        include_columns: Optional[List[str]] = None,
+        pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+        **s3_client_kwargs) -> np.ndarray:
     # TODO: Compare perf to s3 -> pyarrow -> pandas [Series/DataFrame] -> numpy
     dataframe = pd_utils.s3_file_to_dataframe(
         s3_url,
@@ -49,13 +52,12 @@ def ndarray_size(np_array: np.ndarray) -> int:
 
 
 def ndarray_to_file(
-    np_array: np.ndarray,
-    path: str,
-    file_system: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
-    content_type: str = ContentType.PARQUET.value,
-    **kwargs
-) -> None:
+        np_array: np.ndarray,
+        path: str,
+        file_system: AbstractFileSystem,
+        block_path_provider: BlockWritePathProvider,
+        content_type: str = ContentType.PARQUET.value,
+        **kwargs) -> None:
     """
     Writes the given Numpy ndarray to a file.
     """
