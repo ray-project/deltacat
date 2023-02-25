@@ -53,7 +53,7 @@ def materialize(
             # TODO (rkenmi): Investigate if we still need to convert this table to pandas DataFrame
             # TODO (pdames): compare performance to pandas-native materialize path
             df = compacted_table.to_pandas(
-                split_blocks=True, self_destruct=True, zero_copy_only=True
+                split_blocks=True, self_destruct=True
             )
             compacted_table = df
         delta, stage_delta_time = timed_invocation(
