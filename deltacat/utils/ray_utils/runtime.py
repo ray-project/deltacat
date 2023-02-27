@@ -118,3 +118,11 @@ def log_cluster_resources() -> None:
     logger.info(f"Available Resources: {ray.available_resources()}")
     logger.info(f"Cluster Resources: {ray.cluster_resources()}")
     logger.info(f"Cluster Nodes: {ray.nodes()}")
+
+
+def get_current_ray_task_id() -> str:
+    return ray.get_runtime_context().get_task_id()
+
+
+def get_current_ray_worker_id() -> str:
+    return ray.get_runtime_context().worker.core_worker.get_worker_id()
