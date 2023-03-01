@@ -445,7 +445,7 @@ def _execute_compaction_round(
         num_materialize_buckets=num_materialize_buckets,
         delete_old_primary_key_index=delete_prev_primary_key_index,
         enable_profiler=enable_profiler,
-        metrics_config=metrics_config
+        metrics_config=metrics_config,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])

@@ -24,7 +24,7 @@ from deltacat.compute.compactor import (
 from deltacat.compute.compactor.utils import primary_key_index as pki
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
-from deltacat.utils.performance import timed_invocation
+
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
@@ -47,10 +47,10 @@ DedupeResult = Tuple[
 
 
 def _union_primary_key_indices(
-        s3_bucket: str,
-        round_completion_info: RoundCompletionInfo,
-        hash_bucket_index: int,
-        df_envelopes_list: List[List[DeltaFileEnvelope]],
+    s3_bucket: str,
+    round_completion_info: RoundCompletionInfo,
+    hash_bucket_index: int,
+    df_envelopes_list: List[List[DeltaFileEnvelope]],
 ) -> pa.Table:
     logger.info(
         f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
@@ -125,11 +125,11 @@ def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
 
 
 def _write_new_primary_key_index(
-        s3_bucket: str,
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        max_rows_per_index_file: int,
-        dedupe_task_index: int,
-        deduped_tables: List[Tuple[int, pa.Table]],
+    s3_bucket: str,
+    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+    max_rows_per_index_file: int,
+    dedupe_task_index: int,
+    deduped_tables: List[Tuple[int, pa.Table]],
 ) -> PyArrowWriteResult:
     logger.info(
         f"[Dedupe task index {dedupe_task_index}] Writing new deduped primary key index: "
@@ -156,26 +156,28 @@ def _write_new_primary_key_index(
 
 
 def delta_file_locator_to_mat_bucket_index(
-        df_locator: DeltaFileLocator, materialize_bucket_count: int
+    df_locator: DeltaFileLocator, materialize_bucket_count: int
 ) -> int:
     digest = df_locator.digest()
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
-def _timed_dedupe(compaction_artifact_s3_bucket: str,
-                  round_completion_info: Optional[RoundCompletionInfo],
-                  new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-                  object_ids: List[Any],
-                  sort_keys: List[SortKey],
-                  max_records_per_index_file: int,
-                  num_materialize_buckets: int,
-                  dedupe_task_index: int,
-                  delete_old_primary_key_index: bool,
-                  enable_profiler: bool, ):
+def _timed_dedupe(
+    compaction_artifact_s3_bucket: str,
+    round_completion_info: Optional[RoundCompletionInfo],
+    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+    object_ids: List[Any],
+    sort_keys: List[SortKey],
+    max_records_per_index_file: int,
+    num_materialize_buckets: int,
+    dedupe_task_index: int,
+    delete_old_primary_key_index: bool,
+    enable_profiler: bool,
+):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
-            f"dedupe_{worker_id}_{task_id}.bin"
+        f"dedupe_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
         # TODO (pdames): mitigate risk of running out of memory here in cases of
         #  severe skew of primary key updates in deltas
@@ -315,20 +317,20 @@ def _timed_dedupe(compaction_artifact_s3_bucket: str,
 
 @ray.remote(num_returns=3)
 def dedupe(
-        compaction_artifact_s3_bucket: str,
-        round_completion_info: Optional[RoundCompletionInfo],
-        new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
-        object_ids: List[Any],
-        sort_keys: List[SortKey],
-        max_records_per_index_file: int,
-        num_materialize_buckets: int,
-        dedupe_task_index: int,
-        delete_old_primary_key_index: bool,
-        enable_profiler: bool,
-        metrics_config: MetricsConfig,
+    compaction_artifact_s3_bucket: str,
+    round_completion_info: Optional[RoundCompletionInfo],
+    new_primary_key_index_version_locator: PrimaryKeyIndexVersionLocator,
+    object_ids: List[Any],
+    sort_keys: List[SortKey],
+    max_records_per_index_file: int,
+    num_materialize_buckets: int,
+    dedupe_task_index: int,
+    delete_old_primary_key_index: bool,
+    enable_profiler: bool,
+    metrics_config: MetricsConfig,
 ) -> DedupeResult:
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
-    res, duration = timed_invocation(
+    dedupe_res, duration = timed_invocation(
         func=_timed_dedupe,
         compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
         round_completion_info=round_completion_info,
@@ -342,11 +344,14 @@ def dedupe(
         enable_profiler=enable_profiler,
     )
     if metrics_config:
-        emit_timer_metrics(metrics_name="dedupe",
-                           value=duration,
-                           metrics_config=metrics_config)
-    mat_bucket_to_dd_idx_obj_id, src_file_records_obj_refs, \
-    write_pki_result = res
+        emit_timer_metrics(
+            metrics_name="dedupe", value=duration, metrics_config=metrics_config
+        )
+
+    (
+        mat_bucket_to_dd_idx_obj_id,
+        src_file_records_obj_refs,
+        write_pki_result,
+    ) = dedupe_res
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
-    return mat_bucket_to_dd_idx_obj_id, \
-           src_file_records_obj_refs, write_pki_result
+    return mat_bucket_to_dd_idx_obj_id, src_file_records_obj_refs, write_pki_result

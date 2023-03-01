@@ -152,17 +152,19 @@ def _read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-def timed_hash_bucket(annotated_delta: DeltaAnnotated,
+def _timed_hash_bucket(
+    annotated_delta: DeltaAnnotated,
     primary_keys: List[str],
     sort_keys: List[SortKey],
     num_buckets: int,
     num_groups: int,
     enable_profiler: bool,
-    deltacat_storage=unimplemented_deltacat_storage,):
+    deltacat_storage=unimplemented_deltacat_storage,
+):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
-            f"hash_bucket_{worker_id}_{task_id}.bin"
+        f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
         sort_key_names = [key.key_name for key in sort_keys]
         delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
@@ -193,8 +195,8 @@ def hash_bucket(
 ) -> HashBucketResult:
 
     logger.info(f"Starting hash bucket task...")
-    res, duration = timed_invocation(
-        func=timed_hash_bucket,
+    hash_bucket_result, duration = timed_invocation(
+        func=_timed_hash_bucket,
         annotated_delta=annotated_delta,
         primary_keys=primary_keys,
         sort_keys=sort_keys,
@@ -204,11 +206,9 @@ def hash_bucket(
         deltacat_storage=deltacat_storage,
     )
     if metrics_config:
-        emit_timer_metrics(metrics_name="hash_bucket",
-                           value=duration,
-                           metrics_config=metrics_config)
-    hash_bucket_group_to_obj_id, object_refs = res
+        emit_timer_metrics(
+            metrics_name="hash_bucket", value=duration, metrics_config=metrics_config
+        )
+    hash_bucket_group_to_obj_id, object_refs = hash_bucket_result
     logger.info(f"Finished hash bucket task...")
     return hash_bucket_group_to_obj_id, object_refs
-
-

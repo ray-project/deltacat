@@ -214,12 +214,15 @@ def materialize(
                 [mr.pyarrow_write_result for mr in materialized_results]
             ),
         )
+
         logger.info(f"Finished materialize task...")
         end = time.time()
         duration = end - start
         if metrics_config:
-            emit_timer_metrics(metrics_name="materialize",
-                               value=duration,
-                               metrics_config=metrics_config)
+            emit_timer_metrics(
+                metrics_name="materialize",
+                value=duration,
+                metrics_config=metrics_config,
+            )
         logger.info(f"Materialize task ended in {end - start}s")
         return merged_materialize_result
