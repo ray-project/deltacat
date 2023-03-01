@@ -34,6 +34,7 @@ from deltacat.utils.ray_utils.concurrency import (
     round_robin_options_provider,
 )
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
+from deltacat.utils.metrics import MetricsConfig
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -93,6 +94,7 @@ def compact_partition(
     rebase_source_partition_locator: Optional[PartitionLocator] = None,
     rebase_source_partition_high_watermark: Optional[int] = None,
     enable_profiler: Optional[bool] = False,
+    metrics_config: Optional[MetricsConfig] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Optional[str]:
 
@@ -131,6 +133,7 @@ def compact_partition(
                 rebase_source_partition_locator,
                 rebase_source_partition_high_watermark,
                 enable_profiler,
+                metrics_config,
                 deltacat_storage,
             )
             if new_partition:
@@ -175,6 +178,7 @@ def _execute_compaction_round(
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
     enable_profiler: Optional[bool],
+    metrics_config: Optional[MetricsConfig],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
 
@@ -365,6 +369,7 @@ def _execute_compaction_round(
         num_buckets=hash_bucket_count,
         num_groups=max_parallelism,
         enable_profiler=enable_profiler,
+        metrics_config=metrics_config,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -440,6 +445,7 @@ def _execute_compaction_round(
         num_materialize_buckets=num_materialize_buckets,
         delete_old_primary_key_index=delete_prev_primary_key_index,
         enable_profiler=enable_profiler,
+        metrics_config=metrics_config,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
@@ -486,6 +492,7 @@ def _execute_compaction_round(
         max_records_per_output_file=records_per_compacted_file,
         compacted_file_content_type=compacted_file_content_type,
         enable_profiler=enable_profiler,
+        metrics_config=metrics_config,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")

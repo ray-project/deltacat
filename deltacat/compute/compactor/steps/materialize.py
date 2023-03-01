@@ -34,6 +34,7 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
 )
+from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -48,6 +49,7 @@ def materialize(
     max_records_per_output_file: int,
     compacted_file_content_type: ContentType,
     enable_profiler: bool,
+    metrics_config: MetricsConfig,
     schema: Optional[pa.Schema] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> MaterializeResult:
@@ -212,7 +214,15 @@ def materialize(
                 [mr.pyarrow_write_result for mr in materialized_results]
             ),
         )
+
         logger.info(f"Finished materialize task...")
         end = time.time()
+        duration = end - start
+        if metrics_config:
+            emit_timer_metrics(
+                metrics_name="materialize",
+                value=duration,
+                metrics_config=metrics_config,
+            )
         logger.info(f"Materialize task ended in {end - start}s")
         return merged_materialize_result

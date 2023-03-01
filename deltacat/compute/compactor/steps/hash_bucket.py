@@ -24,6 +24,8 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
 )
+from deltacat.utils.performance import timed_invocation
+from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -150,8 +152,7 @@ def _read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_returns=2)
-def hash_bucket(
+def _timed_hash_bucket(
     annotated_delta: DeltaAnnotated,
     primary_keys: List[str],
     sort_keys: List[SortKey],
@@ -159,9 +160,7 @@ def hash_bucket(
     num_groups: int,
     enable_profiler: bool,
     deltacat_storage=unimplemented_deltacat_storage,
-) -> HashBucketResult:
-
-    logger.info(f"Starting hash bucket task...")
+):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -180,5 +179,36 @@ def hash_bucket(
             num_buckets,
             num_groups,
         )
-        logger.info(f"Finished hash bucket task...")
         return hash_bucket_group_to_obj_id, object_refs
+
+
+@ray.remote(num_returns=2)
+def hash_bucket(
+    annotated_delta: DeltaAnnotated,
+    primary_keys: List[str],
+    sort_keys: List[SortKey],
+    num_buckets: int,
+    num_groups: int,
+    enable_profiler: bool,
+    metrics_config: MetricsConfig,
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> HashBucketResult:
+
+    logger.info(f"Starting hash bucket task...")
+    hash_bucket_result, duration = timed_invocation(
+        func=_timed_hash_bucket,
+        annotated_delta=annotated_delta,
+        primary_keys=primary_keys,
+        sort_keys=sort_keys,
+        num_buckets=num_buckets,
+        num_groups=num_groups,
+        enable_profiler=enable_profiler,
+        deltacat_storage=deltacat_storage,
+    )
+    if metrics_config:
+        emit_timer_metrics(
+            metrics_name="hash_bucket", value=duration, metrics_config=metrics_config
+        )
+    hash_bucket_group_to_obj_id, object_refs = hash_bucket_result
+    logger.info(f"Finished hash bucket task...")
+    return hash_bucket_group_to_obj_id, object_refs
