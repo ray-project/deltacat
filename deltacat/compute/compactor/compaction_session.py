@@ -1,8 +1,10 @@
 import functools
 import logging
 from collections import defaultdict
+from contextlib import nullcontext
 from typing import Dict, List, Optional, Set, Tuple
 
+import memray
 import pyarrow as pa
 import ray
 
@@ -32,6 +34,7 @@ from deltacat.utils.ray_utils.concurrency import (
     round_robin_options_provider,
 )
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
+from deltacat.utils.metrics import MetricsConfig
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -90,62 +93,71 @@ def compact_partition(
     ] = None,  # TODO (ricmiyam): Remove this and retrieve schema from storage API
     rebase_source_partition_locator: Optional[PartitionLocator] = None,
     rebase_source_partition_high_watermark: Optional[int] = None,
+    enable_profiler: Optional[bool] = False,
+    metrics_config: Optional[MetricsConfig] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Optional[str]:
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
-    partition = None
-    compaction_rounds_executed = 0
-    has_next_compaction_round = True
-    new_rcf_s3_url = None
-    while has_next_compaction_round:
-        (
-            has_next_compaction_round,
-            new_partition,
-            new_rci,
-            new_rcf_s3_url,
-        ) = _execute_compaction_round(
-            source_partition_locator,
-            destination_partition_locator,
-            primary_keys,
-            compaction_artifact_s3_bucket,
-            last_stream_position_to_compact,
-            hash_bucket_count,
-            sort_keys,
-            records_per_primary_key_index_file,
-            records_per_compacted_file,
-            input_deltas_stats,
-            min_pk_index_pa_bytes,
-            min_hash_bucket_chunk_size,
-            compacted_file_content_type,
-            delete_prev_primary_key_index,
-            pg_config,
-            schema_on_read,
-            rebase_source_partition_locator,
-            rebase_source_partition_high_watermark,
-            deltacat_storage,
+    # memray official documentation link: https://bloomberg.github.io/memray/getting_started.html
+    with memray.Tracker(
+        f"compaction_partition.bin"
+    ) if enable_profiler else nullcontext():
+        partition = None
+        compaction_rounds_executed = 0
+        has_next_compaction_round = True
+        new_rcf_s3_url = None
+        while has_next_compaction_round:
+            (
+                has_next_compaction_round,
+                new_partition,
+                new_rci,
+                new_rcf_s3_url,
+            ) = _execute_compaction_round(
+                source_partition_locator,
+                destination_partition_locator,
+                primary_keys,
+                compaction_artifact_s3_bucket,
+                last_stream_position_to_compact,
+                hash_bucket_count,
+                sort_keys,
+                records_per_primary_key_index_file,
+                records_per_compacted_file,
+                input_deltas_stats,
+                min_pk_index_pa_bytes,
+                min_hash_bucket_chunk_size,
+                compacted_file_content_type,
+                delete_prev_primary_key_index,
+                pg_config,
+                schema_on_read,
+                rebase_source_partition_locator,
+                rebase_source_partition_high_watermark,
+                enable_profiler,
+                metrics_config,
+                deltacat_storage,
+            )
+            if new_partition:
+                partition = new_partition
+                destination_partition_locator = new_partition.locator
+                compaction_rounds_executed += 1
+            # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
+            if new_rci:
+                min_pk_index_pa_bytes = (
+                    new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
+                )
+
+        logger.info(
+            f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
+            f"{compaction_rounds_executed} rounds."
         )
-        if new_partition:
-            partition = new_partition
-            destination_partition_locator = new_partition.locator
-            compaction_rounds_executed += 1
-        # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
-        if new_rci:
-            min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
-
-    logger.info(
-        f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
-        f"{compaction_rounds_executed} rounds."
-    )
-    if partition:
-        logger.info(f"Committing compacted partition to: {partition.locator}")
-        partition = deltacat_storage.commit_partition(partition)
-        logger.info(f"Committed compacted partition: {partition}")
-    logger.info(f"Completed compaction session for: {source_partition_locator}")
-    return new_rcf_s3_url
+        if partition:
+            logger.info(f"Committing compacted partition to: {partition.locator}")
+            partition = deltacat_storage.commit_partition(partition)
+            logger.info(f"Committed compacted partition: {partition}")
+        logger.info(f"Completed compaction session for: {source_partition_locator}")
+        return new_rcf_s3_url
 
 
-@ray.remote(num_cpus=0.1, num_returns=3)
 def _execute_compaction_round(
     source_partition_locator: PartitionLocator,
     compacted_partition_locator: PartitionLocator,
@@ -165,6 +177,8 @@ def _execute_compaction_round(
     schema_on_read: Optional[pa.schema],
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
+    enable_profiler: Optional[bool],
+    metrics_config: Optional[MetricsConfig],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
 
@@ -343,7 +357,6 @@ def _execute_compaction_round(
                 records_per_primary_key_index_file,
                 delete_prev_primary_key_index,
             )
-
     # parallel step 1:
     # group like primary keys together by hashing them into buckets
     hb_tasks_pending = invoke_parallel(
@@ -355,6 +368,8 @@ def _execute_compaction_round(
         sort_keys=sort_keys,
         num_buckets=hash_bucket_count,
         num_groups=max_parallelism,
+        enable_profiler=enable_profiler,
+        metrics_config=metrics_config,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -429,6 +444,8 @@ def _execute_compaction_round(
         max_records_per_index_file=records_per_primary_key_index_file,
         num_materialize_buckets=num_materialize_buckets,
         delete_old_primary_key_index=delete_prev_primary_key_index,
+        enable_profiler=enable_profiler,
+        metrics_config=metrics_config,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results = ray.get([t[0] for t in dd_tasks_pending])
@@ -474,6 +491,8 @@ def _execute_compaction_round(
         partition=partition,
         max_records_per_output_file=records_per_compacted_file,
         compacted_file_content_type=compacted_file_content_type,
+        enable_profiler=enable_profiler,
+        metrics_config=metrics_config,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
@@ -496,6 +515,12 @@ def _execute_compaction_round(
         if rebase_source_partition_high_watermark
         else last_stream_position_compacted
     )
+
+    last_rebase_source_partition_locator = rebase_source_partition_locator or (
+        round_completion_info.rebase_source_partition_locator
+        if round_completion_info
+        else None
+    )
     new_round_completion_info = RoundCompletionInfo.of(
         rci_high_watermark,
         new_compacted_delta_locator,
@@ -503,8 +528,7 @@ def _execute_compaction_round(
         PyArrowWriteResult.union(pki_stats),
         bit_width_of_sort_keys,
         new_pki_version_locator,
-        rebase_source_partition_locator
-        or round_completion_info.rebase_source_partition_locator,
+        last_rebase_source_partition_locator,
     )
     rcf_source_partition_locator = (
         rebase_source_partition_locator
