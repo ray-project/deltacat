@@ -99,7 +99,7 @@ def compact_partition(
     logger.info(f"Starting compaction session for: {source_partition_locator}")
     # memray official documentation link: https://bloomberg.github.io/memray/getting_started.html
     with memray.Tracker(
-            f"compaction_partition.bin"
+        f"compaction_partition.bin"
     ) if enable_profiler else nullcontext():
         partition = None
         compaction_rounds_executed = 0
@@ -139,7 +139,9 @@ def compact_partition(
                 compaction_rounds_executed += 1
             # Take new primary key index sizes into account for subsequent compaction rounds and their dedupe steps
             if new_rci:
-                min_pk_index_pa_bytes = new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
+                min_pk_index_pa_bytes = (
+                    new_rci.pk_index_pyarrow_write_result.pyarrow_bytes
+                )
 
         logger.info(
             f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed in "
