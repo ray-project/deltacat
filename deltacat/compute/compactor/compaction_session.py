@@ -509,9 +509,8 @@ def _execute_compaction_round(
         else last_stream_position_compacted
     )
 
-    last_rebase_source_partition_locator = (
-        rebase_source_partition_locator
-        or round_completion_info.rebase_source_partition_locator
+    last_rebase_source_partition_locator = rebase_source_partition_locator or (
+        round_completion_info.rebase_source_partition_locator
         if round_completion_info
         else None
     )
