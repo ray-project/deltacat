@@ -19,7 +19,7 @@ def discover_deltas(
         last_stream_position_to_compact: int,
         compacted_partition_locator: Optional[PartitionLocator],
         rebase_source_partition_locator: Optional[PartitionLocator],
-        rebase_source_partition_high_watermark: Optional[dict, int],
+        rebase_source_partition_high_watermark: Optional[int],
         deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
 
         # Source One: new deltas from uncompacted table for incremental compaction, or deltas from compacted table for rebase
@@ -53,10 +53,7 @@ def discover_deltas(
         else:  # new deltas from uncompacted table based on inferred last stream position to last position to compact
             input_deltas_new = _discover_deltas(
                 rebase_source_partition_locator,
-                rebase_source_partition_high_watermark if rebase_source_partition_high_watermark else get_last_compacted_delta_stream_position(
-                    source_partition_locator,
-                    deltacat_storage
-                ),
+                rebase_source_partition_high_watermark,
                 last_stream_position_to_compact,
                 deltacat_storage
             )
@@ -245,25 +242,3 @@ def limit_input_deltas(
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
     return rebatched_da_list, hash_bucket_count, latest_stream_position
-
-
-def get_last_compacted_delta_stream_position(
-        source_partition_locator: PartitionLocator,
-        deltacat_storage=unimplemented_deltacat_storage) -> int:
-    stream_locator = source_partition_locator.stream_locator
-    namespace = stream_locator.namespace
-    table_name = stream_locator.table_name
-    table_version = stream_locator.table_version
-    partition_values = source_partition_locator.partition_values
-    end_position_inclusive = deltacat_storage.get_partition(stream_locator, partition_values).stream_position
-    deltas_list_result = deltacat_storage.list_deltas(
-        namespace,
-        table_name,
-        partition_values,
-        table_version,
-        None,
-        end_position_inclusive,
-        True,
-    )
-    deltas_list_result = deltas_list_result.all_items()
-    return int(deltas_list_result[-1]['properties']['parent_stream_position'])
