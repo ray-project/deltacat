@@ -4,13 +4,16 @@ from __future__ import annotations
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import \
     PyArrowWriteResult
-from deltacat.compute.compactor.model.primary_key_index import \
-    PrimaryKeyIndexVersionLocator
 
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 
 class RoundCompletionInfo(dict):
+    """
+    In case of compacting deltas from multi-sources, the high_watermark dict records the high watermark for each source
+    e.g., high_watermark = {"src1":100,"src2":200}
+    src1 or src2 is the canonical_string of partition_locator
+    """
     @staticmethod
     def of(high_watermark: Optional[Dict[str, int], int],
            compacted_delta_locator: DeltaLocator,

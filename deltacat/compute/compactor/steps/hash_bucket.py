@@ -146,7 +146,7 @@ def _read_delta_file_envelopes(
     return delta_file_envelopes
 
 
-@ray.remote(num_returns=2)
+@ray.remote
 def hash_bucket(
         annotated_delta: DeltaAnnotated,
         round_completion_info: Optional[RoundCompletionInfo],
@@ -175,4 +175,4 @@ def hash_bucket(
         num_groups,
     )
     logger.info(f"Finished hash bucket task...")
-    return hash_bucket_group_to_obj_id, object_refs
+    return hash_bucket_group_to_obj_id

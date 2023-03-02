@@ -13,7 +13,7 @@ def get_round_completion_file_s3_url(
         source_partition_locator: PartitionLocator) -> str:
 
     base_url = source_partition_locator.path(f"s3://{bucket}")
-    return f"{base_url}.json" # TODO (rootliu) is this unique globally?
+    return f"{base_url}.json"
 
 
 def read_round_completion_file(

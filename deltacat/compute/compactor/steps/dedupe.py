@@ -85,7 +85,7 @@ def delta_file_locator_to_mat_bucket_index(
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
-@ray.remote(num_returns=2)
+@ray.remote
 def dedupe(
         object_ids: List[Any],
         sort_keys: List[SortKey],
@@ -187,5 +187,4 @@ def dedupe(
                 f"{len(mat_bucket_to_dd_idx_obj_id)}")
 
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
-    return mat_bucket_to_dd_idx_obj_id, \
-        src_file_records_obj_refs
+    return mat_bucket_to_dd_idx_obj_id

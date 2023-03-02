@@ -181,10 +181,9 @@ class DeltaAnnotated(Delta):
             entries = dst_da.manifest.entries
             src_dl = src_da.locator
             dst_dl = dst_da.locator
-            # remove delta type and stream position if there is a conflict
+            assert src_dl == dst_dl, f"Delta locator should be same when grouping entries"
+            # remove delta type if there is a conflict
             if src_da.type != dst_da.type:
                 dst_da.type = None
-            if src_dl.stream_position != dst_dl.stream_position:
-                dst_dl.stream_position = None
             entries.append(src_entry)
             dst_da.annotations.append(src_annotation)

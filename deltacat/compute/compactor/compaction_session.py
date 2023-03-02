@@ -68,7 +68,7 @@ def compact_partition(
     logger.info(f"Starting compaction session for: {source_partition_locator}")
     partition = None
     new_rcf_s3_url = None
-    new_partition, new_rci, new_rcf_s3_url = \
+    partition, new_rci, new_rcf_s3_url = \
         _execute_compaction_round(
             source_partition_locator,
             destination_partition_locator,
@@ -87,8 +87,6 @@ def compact_partition(
             rebase_source_partition_high_watermark,
             deltacat_storage,
         )
-    if new_partition:
-        partition = new_partition
     logger.info(f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed")
     if partition:
         logger.info(f"Committing compacted partition to: {partition.locator}")
@@ -198,48 +196,15 @@ def _execute_compaction_round(
     high_watermark = round_completion_info.high_watermark \
         if round_completion_info else None
 
-    # Source One: new deltas from uncompacted table for incremental compaction, or deltas from compacted table for rebase
     input_deltas = io.discover_deltas(
         source_partition_locator,
-        high_watermark[source_partition_locator.canonical_string()] if isinstance(high_watermark,
-                                                                                  dict) else high_watermark,
-        last_stream_position_to_compact if not rebase_source_partition_locator else deltacat_storage.get_partition(
-            source_partition_locator.stream_locator,
-            source_partition_locator.partition_values).stream_position,
-        deltacat_storage,
+        high_watermark,
+        last_stream_position_to_compact,
+        compacted_partition_locator,
+        rebase_source_partition_locator,
+        rebase_source_partition_high_watermark,
+        deltacat_storage
     )
-
-    # Source Two: compacted table in case of incremental compaction or new deltas from uncompacted table
-    if not rebase_source_partition_locator:  # compacted table
-        compacted_partition = deltacat_storage.get_partition(compacted_partition_locator.stream_locator,
-                                                                        compacted_partition_locator.partition_values)
-        compacted_last_stream_position = compacted_partition.stream_position if compacted_partition else None
-        input_deltas_compacted = []
-        if compacted_last_stream_position:
-            input_deltas_compacted = io.discover_deltas(
-                compacted_partition_locator,
-                None,
-                compacted_last_stream_position,
-                deltacat_storage
-            )
-        logger.info(
-            f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
-            f"Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}")
-        input_deltas += input_deltas_compacted
-    else:  # new deltas from uncompacted table based on inferred last stream position to last position to compact
-        input_deltas_new = io.discover_deltas(
-            rebase_source_partition_locator,
-            rebase_source_partition_high_watermark if rebase_source_partition_high_watermark else io.getLastCompactedDeltaStreamPosition(
-                source_partition_locator,
-                deltacat_storage
-            ),
-            last_stream_position_to_compact,
-            deltacat_storage
-        )
-        logger.info(
-            f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
-            f"Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}")
-        input_deltas += input_deltas_new
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -282,7 +247,7 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
-    hb_results = ray.get([t[0] for t in hb_tasks_pending])
+    hb_results = ray.get(hb_tasks_pending)
     logger.info(f"Got {len(hb_results)} hash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hash_group_idx_to_obj_id in hb_results:
@@ -327,7 +292,7 @@ def _execute_compaction_round(
         num_materialize_buckets=num_materialize_buckets,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
-    dd_results = ray.get([t[0] for t in dd_tasks_pending])
+    dd_results = ray.get(dd_tasks_pending)
     logger.info(f"Got {len(dd_results)} dedupe results.")
     all_mat_buckets_to_obj_id = defaultdict(list)
     for mat_bucket_idx_to_obj_id in dd_results:

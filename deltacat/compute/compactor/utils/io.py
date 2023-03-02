@@ -15,6 +15,60 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 def discover_deltas(
         source_partition_locator: PartitionLocator,
+        high_watermark: Optional[dict, int],
+        last_stream_position_to_compact: int,
+        compacted_partition_locator: Optional[PartitionLocator],
+        rebase_source_partition_locator: Optional[PartitionLocator],
+        rebase_source_partition_high_watermark: Optional[dict, int],
+        deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
+
+        # Source One: new deltas from uncompacted table for incremental compaction, or deltas from compacted table for rebase
+        input_deltas = _discover_deltas(
+            source_partition_locator,
+            high_watermark[source_partition_locator.canonical_string()] if isinstance(high_watermark,
+                                                                                      dict) else high_watermark,
+            last_stream_position_to_compact if not rebase_source_partition_locator else deltacat_storage.get_partition(
+                source_partition_locator.stream_locator,
+                source_partition_locator.partition_values).stream_position,
+            deltacat_storage,
+        )
+
+        # Source Two: compacted table in case of incremental compaction or new deltas from uncompacted table
+        if not rebase_source_partition_locator:  # compacted table
+            compacted_partition = deltacat_storage.get_partition(compacted_partition_locator.stream_locator,
+                                                                            compacted_partition_locator.partition_values)
+            compacted_last_stream_position = compacted_partition.stream_position if compacted_partition else None
+            input_deltas_compacted = []
+            if compacted_last_stream_position:
+                input_deltas_compacted = _discover_deltas(
+                    compacted_partition_locator,
+                    None,
+                    compacted_last_stream_position,
+                    deltacat_storage
+                )
+            logger.info(
+                f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
+                f"Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}")
+            input_deltas += input_deltas_compacted
+        else:  # new deltas from uncompacted table based on inferred last stream position to last position to compact
+            input_deltas_new = _discover_deltas(
+                rebase_source_partition_locator,
+                rebase_source_partition_high_watermark if rebase_source_partition_high_watermark else get_last_compacted_delta_stream_position(
+                    source_partition_locator,
+                    deltacat_storage
+                ),
+                last_stream_position_to_compact,
+                deltacat_storage
+            )
+            logger.info(
+                f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
+                f"Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}")
+            input_deltas += input_deltas_new
+
+        return input_deltas
+
+def _discover_deltas(
+        source_partition_locator: PartitionLocator,
         start_position_exclusive: Optional[int],
         end_position_inclusive: int,
         deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
@@ -49,7 +103,6 @@ def discover_deltas(
                 f"'{end_position_inclusive}']: {len(deltas)}. Source "
                 f"partition: '{source_partition_locator}'")
     return deltas
-
 
 def limit_input_deltas(
         input_deltas: List[Delta],
@@ -194,7 +247,7 @@ def limit_input_deltas(
     return rebatched_da_list, hash_bucket_count, latest_stream_position
 
 
-def getLastCompactedDeltaStreamPosition(
+def get_last_compacted_delta_stream_position(
         source_partition_locator: PartitionLocator,
         deltacat_storage=unimplemented_deltacat_storage) -> int:
     stream_locator = source_partition_locator.stream_locator
