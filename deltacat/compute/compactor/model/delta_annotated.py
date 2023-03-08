@@ -70,10 +70,11 @@ class DeltaAnnotated(Delta):
         Simple greedy algorithm to split/merge 1 or more annotated deltas into
         size-limited annotated deltas. All ordered manifest entries in the input
         annotated deltas are appended to an annotated delta until
-        delta_size_bytes >= min_delta_bytes, then a new delta is started. Note
-        that byte size is measured in terms of manifest entry content length,
-        which is expected to be equal to the number of bytes at rest for the
-        associated object. Returns the list of annotated delta groups.
+        delta_size_bytes >= min_delta_bytes OR delta_file_count >= min_file_counts,
+        then a new delta is started. Note that byte size is measured in terms of
+        manifest entry content length, which is expected to be equal to the number
+        of bytes at rest for the associated object. Returns the list of annotated
+        delta groups.
         """
         groups = []
         new_da = DeltaAnnotated()

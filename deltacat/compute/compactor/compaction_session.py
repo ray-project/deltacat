@@ -43,7 +43,7 @@ _PRIMARY_KEY_INDEX_ALGORITHM_VERSION: str = "1.0"
 
 def check_preconditions(
     source_partition_locator: PartitionLocator,
-    compacted_partition_locator: PartitionLocator,
+    destination_partition_locator: PartitionLocator,
     sort_keys: List[SortKey],
     max_records_per_output_file: int,
     new_hash_bucket_count: Optional[int],
@@ -52,7 +52,7 @@ def check_preconditions(
 
     assert (
         source_partition_locator.partition_values
-        == compacted_partition_locator.partition_values
+        == destination_partition_locator.partition_values
     ), (
         "In-place compaction must use the same partition values for the "
         "source and destination."
@@ -160,7 +160,7 @@ def compact_partition(
 
 def _execute_compaction_round(
     source_partition_locator: PartitionLocator,
-    compacted_partition_locator: PartitionLocator,
+    destination_partition_locator: PartitionLocator,
     primary_keys: Set[str],
     compaction_artifact_s3_bucket: str,
     last_stream_position_to_compact: int,
@@ -198,7 +198,7 @@ def _execute_compaction_round(
     # check preconditions before doing any computationally expensive work
     bit_width_of_sort_keys = check_preconditions(
         source_partition_locator,
-        compacted_partition_locator,
+        destination_partition_locator,
         sort_keys,
         records_per_compacted_file,
         new_hash_bucket_count,
@@ -247,7 +247,7 @@ def _execute_compaction_round(
 
     # get the root path of a compatible primary key index for this round
     compatible_primary_key_index_meta = PrimaryKeyIndexMeta.of(
-        compacted_partition_locator,
+        destination_partition_locator,
         primary_keys,
         sort_keys,
         _PRIMARY_KEY_INDEX_ALGORITHM_VERSION,
@@ -388,7 +388,7 @@ def _execute_compaction_round(
     #  output from S3 then wait for hash bucketing to finish before continuing
 
     # create a new stream for this round
-    compacted_stream_locator = compacted_partition_locator.stream_locator
+    compacted_stream_locator = destination_partition_locator.stream_locator
     stream = deltacat_storage.get_stream(
         compacted_stream_locator.namespace,
         compacted_stream_locator.table_name,
@@ -396,7 +396,7 @@ def _execute_compaction_round(
     )
     partition = deltacat_storage.stage_partition(
         stream,
-        compacted_partition_locator.partition_values,
+        destination_partition_locator.partition_values,
     )
     new_compacted_partition_locator = partition.locator
 

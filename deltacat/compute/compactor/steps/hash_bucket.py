@@ -45,6 +45,7 @@ def _group_by_pk_hash_bucket(
     all_pk_column_fields = []
     for pk_name in primary_keys:
         # casting a primary key column to numpy also ensures no nulls exist
+        # TODO (pdames): catch error in cast to numpy and print user-friendly err msg.
         column_fields = table[pk_name].to_numpy()
         all_pk_column_fields.append(column_fields)
     hash_column_generator = _hash_pk_bytes_generator(all_pk_column_fields)
