@@ -96,6 +96,7 @@ def compact_partition(
     enable_profiler: Optional[bool] = False,
     metrics_config: Optional[MetricsConfig] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> Optional[str]:
 
     logger.info(f"Starting compaction session for: {source_partition_locator}")
@@ -135,6 +136,7 @@ def compact_partition(
                 enable_profiler,
                 metrics_config,
                 deltacat_storage,
+                **kwargs,
             )
             if new_partition:
                 partition = new_partition
@@ -180,6 +182,7 @@ def _execute_compaction_round(
     enable_profiler: Optional[bool],
     metrics_config: Optional[MetricsConfig],
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> Tuple[bool, Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
 
     if not primary_keys:
@@ -502,7 +505,7 @@ def _execute_compaction_round(
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
-    compacted_delta = deltacat_storage.commit_delta(merged_delta)
+    compacted_delta = deltacat_storage.commit_delta(merged_delta, properties=kwargs.get("properties", {}))
     logger.info(f"Committed compacted delta: {compacted_delta}")
 
     new_compacted_delta_locator = DeltaLocator.of(
