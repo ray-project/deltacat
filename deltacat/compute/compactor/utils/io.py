@@ -61,10 +61,10 @@ def discover_deltas(
 def limit_input_deltas(
     input_deltas: List[Delta],
     cluster_resources: Dict[str, float],
-    hash_bucket_count: int,
+    hash_bucket_count: Optional[int],
     min_pk_index_pa_bytes: int,
     user_hash_bucket_chunk_size: int,
-    input_deltas_stats: Dict[int, DeltaStats],
+    input_deltas_stats: Optional[Dict[int, DeltaStats]],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[List[DeltaAnnotated], int, int]:
 
@@ -120,6 +120,7 @@ def limit_input_deltas(
         position = delta.stream_position
         delta_stats = input_deltas_stats.get(delta.stream_position, DeltaStats())
         if delta_stats:
+            # TODO (pdames): derive from row count instead of table bytes
             delta_bytes_pyarrow += delta_stats.stats.pyarrow_table_bytes
         else:
             # TODO (pdames): ensure pyarrow object fits in per-task obj store mem
@@ -212,6 +213,7 @@ def limit_input_deltas(
     rebatched_da_list = DeltaAnnotated.rebatch(
         limited_input_da_list,
         hash_bucket_chunk_size,
+        # TODO (pdames): Test and add value for min_file_counts
     )
 
     logger.info(f"Hash bucket chunk size: {hash_bucket_chunk_size}")

@@ -1,9 +1,9 @@
+import importlib
 import logging
 from contextlib import nullcontext
 from itertools import chain
 from typing import Generator, List, Optional, Tuple
 
-import memray
 import numpy as np
 import pyarrow as pa
 import ray
@@ -27,6 +27,9 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
+if importlib.util.find_spec("memray"):
+    import memray
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _PK_BYTES_DELIMITER = b"L6kl7u5f"
@@ -45,6 +48,7 @@ def _group_by_pk_hash_bucket(
     all_pk_column_fields = []
     for pk_name in primary_keys:
         # casting a primary key column to numpy also ensures no nulls exist
+        # TODO (pdames): catch error in cast to numpy and print user-friendly err msg.
         column_fields = table[pk_name].to_numpy()
         all_pk_column_fields.append(column_fields)
     hash_column_generator = _hash_pk_bytes_generator(all_pk_column_fields)

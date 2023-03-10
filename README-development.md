@@ -5,7 +5,7 @@
 
 ## Running pre-commit locally
 ```
-pip install dev-requirements
+pip install -r ./dev-requirements.txt
 pre-commit install
 pre-commit run --all-files // optionally run against all files
 ```
