@@ -1,10 +1,10 @@
+import importlib
 import functools
 import logging
 from collections import defaultdict
 from contextlib import nullcontext
 from typing import Dict, List, Optional, Set, Tuple
 
-import memray
 import pyarrow as pa
 import ray
 
@@ -35,6 +35,9 @@ from deltacat.utils.ray_utils.concurrency import (
 )
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.utils.metrics import MetricsConfig
+
+if importlib.util.find_spec("memray"):
+    import memray
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -98,8 +101,12 @@ def compact_partition(
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Optional[str]:
 
-    logger.info(f"Starting compaction session for: {source_partition_locator}")
-    # memray official documentation link: https://bloomberg.github.io/memray/getting_started.html
+    if not importlib.util.find_spec("memray"):
+        logger.info(f"memray profiler not available, disabling all profiling")
+        enable_profiler = False
+
+    # memray official documentation link:
+    # https://bloomberg.github.io/memray/getting_started.html
     with memray.Tracker(
         f"compaction_partition.bin"
     ) if enable_profiler else nullcontext():

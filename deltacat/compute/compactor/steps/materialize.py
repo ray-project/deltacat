@@ -1,3 +1,4 @@
+import importlib
 import logging
 import time
 from collections import defaultdict
@@ -5,7 +6,6 @@ from contextlib import nullcontext
 from itertools import chain, repeat
 from typing import List, Optional, Tuple
 
-import memray
 import pyarrow as pa
 import ray
 from ray import cloudpickle
@@ -35,6 +35,9 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+
+if importlib.util.find_spec("memray"):
+    import memray
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

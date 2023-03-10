@@ -1,9 +1,9 @@
+import importlib
 import logging
 from contextlib import nullcontext
 from itertools import chain
 from typing import Generator, List, Optional, Tuple
 
-import memray
 import numpy as np
 import pyarrow as pa
 import ray
@@ -26,6 +26,9 @@ from deltacat.utils.ray_utils.runtime import (
 )
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+
+if importlib.util.find_spec("memray"):
+    import memray
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
