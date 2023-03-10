@@ -20,7 +20,7 @@ def discover_deltas(
         compacted_partition_locator: Optional[PartitionLocator],
         rebase_source_partition_locator: Optional[PartitionLocator],
         rebase_source_partition_high_watermark: Optional[int],
-        deltacat_storage=unimplemented_deltacat_storage) -> List[Delta]:
+        deltacat_storage=unimplemented_deltacat_storage) -> Tuple[List[Delta], int]:
 
         # Source One: new deltas from uncompacted table for incremental compaction, or deltas from compacted table for rebase
         input_deltas = _discover_deltas(
@@ -34,6 +34,7 @@ def discover_deltas(
         )
 
         # Source Two: compacted table in case of incremental compaction or new deltas from uncompacted table
+        compacted_last_stream_position = None
         if not rebase_source_partition_locator:  # compacted table
             compacted_partition = deltacat_storage.get_partition(compacted_partition_locator.stream_locator,
                                                                             compacted_partition_locator.partition_values)
@@ -62,7 +63,7 @@ def discover_deltas(
                 f"Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}")
             input_deltas += input_deltas_new
 
-        return input_deltas
+        return input_deltas, compacted_last_stream_position
 
 def _discover_deltas(
         source_partition_locator: PartitionLocator,
@@ -108,7 +109,7 @@ def limit_input_deltas(
         user_hash_bucket_chunk_size: int,
         input_deltas_stats: Dict[int, DeltaStats],
         deltacat_storage=unimplemented_deltacat_storage) \
-        -> Tuple[List[DeltaAnnotated], int, int]:
+        -> Tuple[List[DeltaAnnotated], int, dict]:
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
     #  input delta records than bytes.
@@ -132,7 +133,7 @@ def limit_input_deltas(
     delta_bytes = 0
     delta_bytes_pyarrow = 0
     delta_manifest_entries = 0
-    latest_stream_position = defaultdict(lambda: -1)  # tracks the lastest stream position for each different locator
+    latest_stream_position = defaultdict(lambda: -1)  # tracks the latest stream position for each partition locator
     limited_input_da_list = []
 
     if input_deltas_stats is None:
@@ -158,9 +159,9 @@ def limit_input_deltas(
             delta_bytes += entry.meta.content_length
             if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
-        latest_stream_position[delta.locator.partition_locator.canonical_string()] = max(position,
+        latest_stream_position[delta.locator.partition_locator] = max(position,
                                                                                          latest_stream_position[
-                                                                                             delta.locator.partition_locator.canonical_string()])
+                                                                                             delta.locator.partition_locator])
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
                 f"Input deltas limited to "

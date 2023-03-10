@@ -196,7 +196,7 @@ def _execute_compaction_round(
     high_watermark = round_completion_info.high_watermark \
         if round_completion_info else None
 
-    input_deltas = io.discover_deltas(
+    input_deltas, compacted_last_stream_position = io.discover_deltas(
         source_partition_locator,
         high_watermark,
         last_stream_position_to_compact,
@@ -370,10 +370,10 @@ def _execute_compaction_round(
         rcf_source_partition_locator,
         new_round_completion_info,
     )
-    if last_stream_position_compacted[source_partition_locator.canonical_string()] < last_stream_position_to_compact \
+    if last_stream_position_compacted[source_partition_locator] < last_stream_position_to_compact \
             or (not rebase_source_partition_locator and \
                 last_stream_position_compacted[
-                    compacted_partition_locator.canonical_string()] < compacted_last_stream_position):
+                    compacted_partition_locator] < compacted_last_stream_position):
         logger.info(
             f"Compaction can not be completed in one round. Either increase cluster size or decrease input")
     logger.info(

@@ -15,7 +15,7 @@ class RoundCompletionInfo(dict):
     src1 or src2 is the canonical_string of partition_locator
     """
     @staticmethod
-    def of(high_watermark: Optional[Dict[str, int], int],
+    def of(high_watermark: Optional[Dict[PartitionLocator, int], int],
            compacted_delta_locator: DeltaLocator,
            compacted_pyarrow_write_result: PyArrowWriteResult,
            sort_keys_bit_width: int,
@@ -31,7 +31,7 @@ class RoundCompletionInfo(dict):
         return rci
 
     @property
-    def high_watermark(self) -> Optional[Dict[str, int], int]:
+    def high_watermark(self) -> Optional[Dict[PartitionLocator, int], int]:
         return self["highWatermark"]
 
     @property
