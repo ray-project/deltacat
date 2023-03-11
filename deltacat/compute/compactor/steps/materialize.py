@@ -5,11 +5,9 @@ from collections import defaultdict
 from contextlib import nullcontext
 from itertools import chain, repeat
 from typing import List, Optional, Tuple
-
 import pyarrow as pa
 import ray
 from ray import cloudpickle
-
 from deltacat import logs
 from deltacat.compute.compactor import (
     MaterializeResult,
