@@ -5,9 +5,13 @@ from deltacat.compute.stats.models.delta_stats import DeltaStats
 
 
 class StatsClusterSizeEstimator(dict):
-
     @staticmethod
-    def of(memory_per_cpu: int, file_count_per_cpu: int, total_memory_needed: int, total_file_count: int) -> DeltaStats:
+    def of(
+        memory_per_cpu: int,
+        file_count_per_cpu: int,
+        total_memory_needed: int,
+        total_file_count: int,
+    ) -> DeltaStats:
         estimator = StatsClusterSizeEstimator()
         estimator["memory_per_cpu"] = memory_per_cpu
         estimator["file_count_per_cpu"] = file_count_per_cpu
@@ -55,6 +59,10 @@ class StatsClusterSizeEstimator(dict):
         #  4. If not enough stats for this content_type and content_encoding combination: use the basic PYARROW_INFLATION_MULTIPLIER instead.
         # So, only option 4 is implemented here since this pre-requirement for first 3 options are not met for first round of metastats&stats collection.
 
-        min_cpus_based_on_memory = (estimator.total_memory_needed // estimator.memory_per_cpu) + 1
-        min_cpus_based_on_file_count = (estimator.total_file_count // estimator.file_count_per_cpu) + 1
+        min_cpus_based_on_memory = (
+            estimator.total_memory_needed // estimator.memory_per_cpu
+        ) + 1
+        min_cpus_based_on_file_count = (
+            estimator.total_file_count // estimator.file_count_per_cpu
+        ) + 1
         return max(min_cpus_based_on_memory, min_cpus_based_on_file_count)

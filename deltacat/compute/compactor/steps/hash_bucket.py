@@ -1,41 +1,52 @@
-import ray
-import pyarrow as pa
-import numpy as np
+import importlib
 import logging
-
-from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
+from contextlib import nullcontext
 from itertools import chain
-
+from typing import Generator, List, Optional
+import numpy as np
+import pyarrow as pa
+import ray
 from deltacat import logs
-from deltacat.compute.compactor import DeltaAnnotated, DeltaFileEnvelope, \
-    SortKey, RoundCompletionInfo
-from deltacat.compute.compactor.utils.primary_key_index import \
-    group_hash_bucket_indices, group_record_indices_by_hash_bucket
+from deltacat.compute.compactor import (
+    DeltaAnnotated,
+    DeltaFileEnvelope,
+    SortKey,
+    RoundCompletionInfo,
+)
+from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
+from deltacat.compute.compactor.utils import system_columns as sc
+from deltacat.compute.compactor.utils.primary_key_index import (
+    group_hash_bucket_indices,
+    group_record_indices_by_hash_bucket,
+)
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import StorageType
 from deltacat.utils.common import sha1_digest
-from deltacat.compute.compactor.utils import system_columns as sc
+from deltacat.utils.ray_utils.runtime import (
+    get_current_ray_task_id,
+    get_current_ray_worker_id,
+)
+from deltacat.utils.performance import timed_invocation
+from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
-from typing import List, Optional, Generator, Tuple
-
-from ray.types import ObjectRef
+if importlib.util.find_spec("memray"):
+    import memray
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-_PK_BYTES_DELIMITER = b'L6kl7u5f'
+_PK_BYTES_DELIMITER = b"L6kl7u5f"
 
-HashBucketGroupToObjectId = np.ndarray
-HashBucketResult = Tuple[HashBucketGroupToObjectId, List[ObjectRef[DeltaFileEnvelopeGroups]]]
+HashBucketResult = np.ndarray
 
 
 def _group_by_pk_hash_bucket(
-        table: pa.Table,
-        num_buckets: int,
-        primary_keys: List[str]) -> np.ndarray:
+    table: pa.Table, num_buckets: int, primary_keys: List[str]
+) -> np.ndarray:
     # generate the primary key digest column
     all_pk_column_fields = []
     for pk_name in primary_keys:
         # casting a primary key column to numpy also ensures no nulls exist
+        # TODO (pdames): catch error in cast to numpy and print user-friendly err msg.
         column_fields = table[pk_name].to_numpy()
         all_pk_column_fields.append(column_fields)
     hash_column_generator = _hash_pk_bytes_generator(all_pk_column_fields)
@@ -65,20 +76,18 @@ def _hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
     for field_index in range(len(all_column_fields[0])):
         bytes_to_join = []
         for column_fields in all_column_fields:
-            bytes_to_join.append(
-                bytes(str(column_fields[field_index]), "utf-8")
-            )
+            bytes_to_join.append(bytes(str(column_fields[field_index]), "utf-8"))
         yield sha1_digest(_PK_BYTES_DELIMITER.join(bytes_to_join))
 
 
 def _group_file_records_by_pk_hash_bucket(
-        annotated_delta: DeltaAnnotated,
-        num_hash_buckets: int,
-        primary_keys: List[str],
-        sort_key_names: List[str],
-        is_src_delta: np.bool_ = True,
-        deltacat_storage=unimplemented_deltacat_storage) \
-        -> Optional[DeltaFileEnvelopeGroups]:
+    annotated_delta: DeltaAnnotated,
+    num_hash_buckets: int,
+    primary_keys: List[str],
+    sort_key_names: List[str],
+    is_src_delta: np.bool_ = True,
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> Optional[DeltaFileEnvelopeGroups]:
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes = _read_delta_file_envelopes(
         annotated_delta,
@@ -107,16 +116,19 @@ def _group_file_records_by_pk_hash_bucket(
                         dfe.file_index,
                         dfe.delta_type,
                         table,
-                        is_src_delta))
+                        is_src_delta,
+                    )
+                )
     return hb_to_delta_file_envelopes
 
 
 def _read_delta_file_envelopes(
-        annotated_delta: DeltaAnnotated,
-        primary_keys: List[str],
-        sort_key_names: List[str],
-        deltacat_storage=unimplemented_deltacat_storage) \
-        -> Optional[List[DeltaFileEnvelope]]:
+    annotated_delta: DeltaAnnotated,
+    primary_keys: List[str],
+    sort_key_names: List[str],
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> Optional[List[DeltaFileEnvelope]]:
+
     columns_to_read = list(chain(primary_keys, sort_key_names))
     # TODO (rootliu) compare performance of column read from unpartitioned vs partitioned file
     # https://arrow.apache.org/docs/python/parquet.html#writing-to-partitioned-datasets
@@ -127,10 +139,12 @@ def _read_delta_file_envelopes(
         storage_type=StorageType.LOCAL,
     )
     annotations = annotated_delta.annotations
-    assert (len(tables) == len(annotations),
-            f"Unexpected Error: Length of downloaded delta manifest tables "
-            f"({len(tables)}) doesn't match the length of delta manifest "
-            f"annotations ({len(annotations)}).")
+    assert (
+        len(tables) == len(annotations),
+        f"Unexpected Error: Length of downloaded delta manifest tables "
+        f"({len(tables)}) doesn't match the length of delta manifest "
+        f"annotations ({len(annotations)}).",
+    )
     if not tables:
         return None
 
@@ -140,39 +154,79 @@ def _read_delta_file_envelopes(
             annotations[i].annotation_stream_position,
             annotations[i].annotation_file_index,
             annotations[i].annotation_delta_type,
-            table
+            table,
         )
         delta_file_envelopes.append(delta_file)
     return delta_file_envelopes
 
 
+def _timed_hash_bucket(
+    annotated_delta: DeltaAnnotated,
+    round_completion_info: Optional[RoundCompletionInfo],
+    primary_keys: List[str],
+    sort_keys: List[SortKey],
+    num_buckets: int,
+    num_groups: int,
+    enable_profiler: bool,
+    deltacat_storage=unimplemented_deltacat_storage,
+):
+    task_id = get_current_ray_task_id()
+    worker_id = get_current_ray_worker_id()
+    with memray.Tracker(
+        f"hash_bucket_{worker_id}_{task_id}.bin"
+    ) if enable_profiler else nullcontext():
+        sort_key_names = [key.key_name for key in sort_keys]
+        if not round_completion_info:
+            is_src_delta = True
+        else:
+            is_src_delta = (
+                annotated_delta.locator.partition_locator
+                != round_completion_info.compacted_delta_locator.partition_locator
+            )
+        delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
+            annotated_delta,
+            num_buckets,
+            primary_keys,
+            sort_key_names,
+            is_src_delta,
+            deltacat_storage,
+        )
+        hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
+            delta_file_envelope_groups,
+            num_buckets,
+            num_groups,
+        )
+        return hash_bucket_group_to_obj_id
+
+
 @ray.remote
 def hash_bucket(
-        annotated_delta: DeltaAnnotated,
-        round_completion_info: Optional[RoundCompletionInfo],
-        primary_keys: List[str],
-        sort_keys: List[SortKey],
-        num_buckets: int,
-        num_groups: int,
-        deltacat_storage=unimplemented_deltacat_storage) -> HashBucketResult:
+    annotated_delta: DeltaAnnotated,
+    round_completion_info: Optional[RoundCompletionInfo],
+    primary_keys: List[str],
+    sort_keys: List[SortKey],
+    num_buckets: int,
+    num_groups: int,
+    enable_profiler: bool,
+    metrics_config: MetricsConfig,
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> HashBucketResult:
+
     logger.info(f"Starting hash bucket task...")
-    sort_key_names = [key.key_name for key in sort_keys]
-    if not round_completion_info:
-        is_src_delta = True
-    else:
-        is_src_delta = annotated_delta.locator.partition_locator != round_completion_info.compacted_delta_locator.partition_locator
-    delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
-        annotated_delta,
-        num_buckets,
-        primary_keys,
-        sort_key_names,
-        is_src_delta,
-        deltacat_storage,
+    hash_bucket_group_to_obj_id, duration = timed_invocation(
+        func=_timed_hash_bucket,
+        annotated_delta=annotated_delta,
+        round_completion_info=round_completion_info,
+        primary_keys=primary_keys,
+        sort_keys=sort_keys,
+        num_buckets=num_buckets,
+        num_groups=num_groups,
+        enable_profiler=enable_profiler,
+        deltacat_storage=deltacat_storage,
     )
-    hash_bucket_group_to_obj_id, object_refs = group_hash_bucket_indices(
-        delta_file_envelope_groups,
-        num_buckets,
-        num_groups,
-    )
+    if metrics_config:
+        emit_timer_metrics(
+            metrics_name="hash_bucket", value=duration, metrics_config=metrics_config
+        )
     logger.info(f"Finished hash bucket task...")
     return hash_bucket_group_to_obj_id

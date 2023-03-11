@@ -1,18 +1,20 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.locator import Locator
-
 from typing import Any, Dict, Optional
+
+from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.namespace import NamespaceLocator
 
 
 class Table(dict):
     @staticmethod
-    def of(locator: Optional[TableLocator],
-           permissions: Optional[Dict[str, Any]] = None,
-           description: Optional[str] = None,
-           properties: Optional[Dict[str, str]] = None) -> Table:
+    def of(
+        locator: Optional[TableLocator],
+        permissions: Optional[Dict[str, Any]] = None,
+        description: Optional[str] = None,
+        properties: Optional[Dict[str, str]] = None,
+    ) -> Table:
         table = Table()
         table.locator = locator
         table.permissions = permissions
@@ -79,16 +81,16 @@ class Table(dict):
 
 class TableLocator(Locator, dict):
     @staticmethod
-    def of(namespace_locator: Optional[NamespaceLocator],
-           table_name: Optional[str]) -> TableLocator:
+    def of(
+        namespace_locator: Optional[NamespaceLocator], table_name: Optional[str]
+    ) -> TableLocator:
         table_locator = TableLocator()
         table_locator.namespace_locator = namespace_locator
         table_locator.table_name = table_name
         return table_locator
 
     @staticmethod
-    def at(namespace: Optional[str],
-           table_name: Optional[str]) -> TableLocator:
+    def at(namespace: Optional[str], table_name: Optional[str]) -> TableLocator:
         namespace_locator = NamespaceLocator.of(namespace)
         return TableLocator.of(namespace_locator, table_name)
 
@@ -100,9 +102,7 @@ class TableLocator(Locator, dict):
         return val
 
     @namespace_locator.setter
-    def namespace_locator(
-            self,
-            namespace_locator: Optional[NamespaceLocator]) -> None:
+    def namespace_locator(self, namespace_locator: Optional[NamespaceLocator]) -> None:
         self["namespaceLocator"] = namespace_locator
 
     @property
