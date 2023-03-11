@@ -90,17 +90,6 @@ class DeltaAnnotated(Delta):
                 f"delta manifest entries ({len(src_da_entries)}).",
             )
             for i, src_entry in enumerate(src_da_entries):
-                # create a new da group if src and dest has different delta locator
-                # (i.e. the previous compaction round ran a rebase)
-                if new_da and src_da.locator != new_da.locator:
-                    groups.append(new_da)
-                    logger.info(
-                        f"Due to different delta locator, Appending group of {da_group_entry_count} elements "
-                        f"and {new_da_bytes} bytes"
-                    )
-                    new_da = DeltaAnnotated()
-                    new_da_bytes = 0
-                    da_group_entry_count = 0
                 DeltaAnnotated._append_annotated_entry(
                     src_da, new_da, src_entry, src_da_annotations[i]
                 )
@@ -199,11 +188,10 @@ class DeltaAnnotated(Delta):
             entries = dst_da.manifest.entries
             src_dl = src_da.locator
             dst_dl = dst_da.locator
-            assert (
-                src_dl == dst_dl
-            ), f"Delta locator should be same when grouping entries"
-            # remove delta type if there is a conflict
+            # remove delta type and stream position if there is a conflict
             if src_da.type != dst_da.type:
                 dst_da.type = None
+            if src_dl.stream_position != dst_dl.stream_position:
+                dst_dl.stream_position = None
             entries.append(src_entry)
             dst_da.annotations.append(src_annotation)
