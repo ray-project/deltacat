@@ -505,7 +505,9 @@ def _execute_compaction_round(
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
-    compacted_delta = deltacat_storage.commit_delta(merged_delta, properties=kwargs.get("properties", {}))
+    compacted_delta = deltacat_storage.commit_delta(
+        merged_delta, properties=kwargs.get("properties", {})
+    )
     logger.info(f"Committed compacted delta: {compacted_delta}")
 
     new_compacted_delta_locator = DeltaLocator.of(
