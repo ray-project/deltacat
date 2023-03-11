@@ -2,20 +2,22 @@
 from __future__ import annotations
 
 import numpy as np
-from deltacat.storage import DeltaType, LocalTable
 
+from deltacat.storage import DeltaType, LocalTable
 
 DeltaFileEnvelopeGroups = np.ndarray
 
 
 class DeltaFileEnvelope(dict):
     @staticmethod
-    def of(stream_position: int,
-           file_index: int,
-           delta_type: DeltaType,
-           table: LocalTable,
-           is_src_delta: np.bool_=True) -> DeltaFileEnvelope:
-        """ Static factory builder for a Delta File Envelope
+    def of(
+        stream_position: int,
+        file_index: int,
+        delta_type: DeltaType,
+        table: LocalTable,
+        is_src_delta: np.bool_ = True,
+    ) -> DeltaFileEnvelope:
+        """Static factory builder for a Delta File Envelope
         `
         Args:
             stream_position: Stream position of a delta.

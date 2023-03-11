@@ -118,5 +118,5 @@ def run_all(dc_storage=unimplemented_deltacat_storage):
     print(f"All Partition Deltas: {all_partition_deltas}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_all()

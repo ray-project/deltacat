@@ -1,13 +1,32 @@
 from deltacat.utils.common import env_string
 
 # Environment variables
-DELTACAT_LOG_LEVEL = env_string(
-    "DELTACAT_LOG_LEVEL",
-    "DEBUG"
+DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
+DELTACAT_SYS_LOG_DIR = env_string(
+    "DELTACAT_SYS_LOG_DIR",
+    "/tmp/deltacat/var/output/logs/",
 )
-APPLICATION_LOG_LEVEL = env_string(
-    "APPLICATION_LOG_LEVEL",
-    "DEBUG"
+DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME = env_string(
+    "DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME",
+    "deltacat-python.info.log",
+)
+DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME = env_string(
+    "DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME",
+    "deltacat-python.debug.log",
+)
+
+DELTACAT_APP_LOG_LEVEL = env_string("DELTACAT_APP_LOG_LEVEL", "DEBUG")
+DELTACAT_APP_LOG_DIR = env_string(
+    "DELTACAT_APP_LOG_DIR",
+    "/tmp/deltacat/var/output/logs/",
+)
+DELTACAT_APP_INFO_LOG_BASE_FILE_NAME = env_string(
+    "DELTACAT_APP_INFO_LOG_BASE_FILE_NAME",
+    "application.info.log",
+)
+DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME = env_string(
+    "DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME",
+    "application.debug.log",
 )
 
 # Byte Units
@@ -31,8 +50,5 @@ PYARROW_INFLATION_MULTIPLIER = 2.5
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
 
 PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG = {
-   "retries": {
-      'max_attempts': 25,
-      'mode': 'standard'
-   }
+    "retries": {"max_attempts": 25, "mode": "standard"}
 }

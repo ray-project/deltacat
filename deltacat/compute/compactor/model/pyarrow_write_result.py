@@ -6,10 +6,9 @@ from typing import List
 
 class PyArrowWriteResult(dict):
     @staticmethod
-    def of(file_count: int,
-           pyarrow_bytes: int,
-           file_bytes: int,
-           record_count: int) -> PyArrowWriteResult:
+    def of(
+        file_count: int, pyarrow_bytes: int, file_bytes: int, record_count: int
+    ) -> PyArrowWriteResult:
         pawr = PyArrowWriteResult()
         pawr["files"] = file_count
         pawr["paBytes"] = pyarrow_bytes

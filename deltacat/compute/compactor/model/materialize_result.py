@@ -1,18 +1,17 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from deltacat.storage import Delta
-from deltacat.compute.compactor.model.pyarrow_write_result import \
-    PyArrowWriteResult
-
 from typing import Any, Dict
+
+from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
+from deltacat.storage import Delta
 
 
 class MaterializeResult(dict):
     @staticmethod
-    def of(delta: Delta,
-           task_index: int,
-           pyarrow_write_result: PyArrowWriteResult) -> MaterializeResult:
+    def of(
+        delta: Delta, task_index: int, pyarrow_write_result: PyArrowWriteResult
+    ) -> MaterializeResult:
         materialize_result = MaterializeResult()
         materialize_result["delta"] = delta
         materialize_result["taskIndex"] = task_index

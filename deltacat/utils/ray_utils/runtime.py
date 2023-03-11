@@ -1,17 +1,17 @@
-import ray
 import logging
 import time
+from typing import Any, Callable, Dict, List
+
+import ray
 
 from deltacat import logs
-
-from typing import Any, Callable, Dict, List
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def node_resource_keys(
-        filter_fn: Callable[[Dict[str, Any]], bool] = lambda n: True) \
-        -> List[str]:
+    filter_fn: Callable[[Dict[str, Any]], bool] = lambda n: True
+) -> List[str]:
     """Get all Ray resource keys for cluster nodes that pass the given filter
     as a list of strings of the form: "node:{node_resource_name}". The returned
     keys can be used to place tasks or actors on that node via:
@@ -39,8 +39,9 @@ def current_node_resource_key() -> str:
     """
     current_node_id = ray.get_runtime_context().node_id.hex()
     keys = node_resource_keys(lambda n: n["NodeID"] == current_node_id)
-    assert len(keys) <= 1, \
-        f"Expected <= 1 keys for the current node, but found {len(keys)}"
+    assert (
+        len(keys) <= 1
+    ), f"Expected <= 1 keys for the current node, but found {len(keys)}"
     return keys[0] if len(keys) == 1 else None
 
 
@@ -55,9 +56,7 @@ def live_node_count() -> int:
     return sum(1 for n in ray.nodes() if is_node_alive(n))
 
 
-def live_node_waiter(
-        min_live_nodes: int,
-        poll_interval_seconds: float = 0.5) -> None:
+def live_node_waiter(min_live_nodes: int, poll_interval_seconds: float = 0.5) -> None:
     """Waits until the given minimum number of live nodes are present in the
     cluster. Checks the current number of live nodes every
     `poll_interval_seconds`."""
@@ -119,3 +118,11 @@ def log_cluster_resources() -> None:
     logger.info(f"Available Resources: {ray.available_resources()}")
     logger.info(f"Cluster Resources: {ray.cluster_resources()}")
     logger.info(f"Cluster Nodes: {ray.nodes()}")
+
+
+def get_current_ray_task_id() -> str:
+    return ray.get_runtime_context().get_task_id()
+
+
+def get_current_ray_worker_id() -> str:
+    return ray.get_runtime_context().worker.core_worker.get_worker_id()
