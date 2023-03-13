@@ -187,8 +187,11 @@ def limit_input_deltas(
             delta_bytes += entry.meta.content_length
             if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
-        latest_stream_position[delta.locator.partition_locator] = max(
-            position, latest_stream_position[delta.locator.partition_locator]
+        latest_stream_position[
+            delta.locator.partition_locator.canonical_string()
+        ] = max(
+            position,
+            latest_stream_position[delta.locator.partition_locator.canonical_string()],
         )
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(

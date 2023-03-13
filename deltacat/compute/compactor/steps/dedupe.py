@@ -100,7 +100,6 @@ def delta_file_locator_to_mat_bucket_index(
 
 
 def _timed_dedupe(
-    compaction_artifact_s3_bucket: str,
     object_ids: List[Any],
     sort_keys: List[SortKey],
     num_materialize_buckets: int,
@@ -141,7 +140,6 @@ def _timed_dedupe(
 
             table, union_time = timed_invocation(
                 func=_union_primary_key_indices,
-                s3_bucket=compaction_artifact_s3_bucket,
                 hash_bucket_index=hb_idx,
                 df_envelopes_list=dfe_list,
             )
@@ -234,10 +232,8 @@ def _timed_dedupe(
 
 @ray.remote
 def dedupe(
-    compaction_artifact_s3_bucket: str,
     object_ids: List[Any],
     sort_keys: List[SortKey],
-    max_records_per_index_file: int,
     num_materialize_buckets: int,
     dedupe_task_index: int,
     enable_profiler: bool,
@@ -246,10 +242,8 @@ def dedupe(
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     mat_bucket_to_dd_idx_obj_id, duration = timed_invocation(
         func=_timed_dedupe,
-        compaction_artifact_s3_bucket=compaction_artifact_s3_bucket,
         object_ids=object_ids,
         sort_keys=sort_keys,
-        max_records_per_index_file=max_records_per_index_file,
         num_materialize_buckets=num_materialize_buckets,
         dedupe_task_index=dedupe_task_index,
         enable_profiler=enable_profiler,

@@ -442,10 +442,12 @@ def _execute_compaction_round(
         new_round_completion_info,
     )
     if last_stream_position_compacted[
-        source_partition_locator
+        source_partition_locator.canonical_string()
     ] < last_stream_position_to_compact or (
         not rebase_source_partition_locator
-        and last_stream_position_compacted[destination_partition_locator]
+        and last_stream_position_compacted[
+            destination_partition_locator.canonical_string()
+        ]
         < previous_last_stream_position_compacted_on_destination_table
     ):
         logger.info(
