@@ -7,7 +7,16 @@ from typing import Union
 import ray
 from ray.runtime_context import RuntimeContext
 
-from deltacat.constants import APPLICATION_LOG_LEVEL, DELTACAT_LOG_LEVEL
+from deltacat.constants import (
+    DELTACAT_APP_LOG_LEVEL,
+    DELTACAT_SYS_LOG_LEVEL,
+    DELTACAT_APP_LOG_DIR,
+    DELTACAT_SYS_LOG_DIR,
+    DELTACAT_APP_INFO_LOG_BASE_FILE_NAME,
+    DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME,
+    DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME,
+    DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME,
+)
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = (
@@ -15,14 +24,6 @@ DEFAULT_LOG_FORMAT = (
 )
 DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 256  # 256 MiB
 DEFAULT_BACKUP_COUNT = 0
-
-DEFAULT_APPLICATION_LOG_DIR = "/tmp/deltacat/var/output/logs/"
-DEFAULT_APPLICATION_LOG_BASE_FILE_NAME = "application.info.log"
-DEFAULT_DEBUG_APPLICATION_LOG_BASE_FILE_NAME = "application.debug.log"
-
-DEFAULT_DELTACAT_LOG_DIR = "/tmp/deltacat/var/output/logs/"
-DEFAULT_DELTACAT_LOG_BASE_FILE_NAME = "deltacat-python.info.log"
-DEFAULT_DEBUG_DELTACAT_LOG_BASE_FILE_NAME = "deltacat-python.debug.log"
 
 
 class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
@@ -152,18 +153,18 @@ def _configure_logger(
 def configure_deltacat_logger(logger: Logger) -> Union[Logger, LoggerAdapter]:
     return _configure_logger(
         logger,
-        DELTACAT_LOG_LEVEL,
-        DEFAULT_DELTACAT_LOG_DIR,
-        DEFAULT_DELTACAT_LOG_BASE_FILE_NAME,
-        DEFAULT_DEBUG_DELTACAT_LOG_BASE_FILE_NAME,
+        DELTACAT_SYS_LOG_LEVEL,
+        DELTACAT_SYS_LOG_DIR,
+        DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME,
+        DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME,
     )
 
 
 def configure_application_logger(logger: Logger) -> Union[Logger, LoggerAdapter]:
     return _configure_logger(
         logger,
-        APPLICATION_LOG_LEVEL,
-        DEFAULT_APPLICATION_LOG_DIR,
-        DEFAULT_APPLICATION_LOG_BASE_FILE_NAME,
-        DEFAULT_DEBUG_APPLICATION_LOG_BASE_FILE_NAME,
+        DELTACAT_APP_LOG_LEVEL,
+        DELTACAT_APP_LOG_DIR,
+        DELTACAT_APP_INFO_LOG_BASE_FILE_NAME,
+        DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME,
     )

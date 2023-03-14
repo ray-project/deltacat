@@ -70,10 +70,11 @@ class DeltaAnnotated(Delta):
         Simple greedy algorithm to split/merge 1 or more annotated deltas into
         size-limited annotated deltas. All ordered manifest entries in the input
         annotated deltas are appended to an annotated delta until
-        delta_size_bytes >= min_delta_bytes, then a new delta is started. Note
-        that byte size is measured in terms of manifest entry content length,
-        which is expected to be equal to the number of bytes at rest for the
-        associated object. Returns the list of annotated delta groups.
+        delta_size_bytes >= min_delta_bytes OR delta_file_count >= min_file_counts,
+        then a new delta is started. Note that byte size is measured in terms of
+        manifest entry content length, which is expected to be equal to the number
+        of bytes at rest for the associated object. Returns the list of annotated
+        delta groups.
         """
         groups = []
         new_da = DeltaAnnotated()
@@ -89,6 +90,17 @@ class DeltaAnnotated(Delta):
                 f"delta manifest entries ({len(src_da_entries)}).",
             )
             for i, src_entry in enumerate(src_da_entries):
+                # create a new da group if src and dest has different delta locator
+                # (i.e. the previous compaction round ran a rebase)
+                if new_da and src_da.locator != new_da.locator:
+                    groups.append(new_da)
+                    logger.info(
+                        f"Due to different delta locator, Appending group of {da_group_entry_count} elements "
+                        f"and {new_da_bytes} bytes"
+                    )
+                    new_da = DeltaAnnotated()
+                    new_da_bytes = 0
+                    da_group_entry_count = 0
                 DeltaAnnotated._append_annotated_entry(
                     src_da, new_da, src_entry, src_da_annotations[i]
                 )
@@ -187,10 +199,11 @@ class DeltaAnnotated(Delta):
             entries = dst_da.manifest.entries
             src_dl = src_da.locator
             dst_dl = dst_da.locator
-            # remove delta type and stream position if there is a conflict
+            assert (
+                src_dl == dst_dl
+            ), f"Delta locator should be same when grouping entries"
+            # remove delta type if there is a conflict
             if src_da.type != dst_da.type:
                 dst_da.type = None
-            if src_dl.stream_position != dst_dl.stream_position:
-                dst_dl.stream_position = None
             entries.append(src_entry)
             dst_da.annotations.append(src_annotation)
