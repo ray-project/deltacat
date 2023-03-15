@@ -19,9 +19,8 @@ class HighWatermark(dict):
         )
 
     def get(self, partition_locator: PartitionLocator) -> int:
-        val = self.get(partition_locator.canonical_string())
-        if val is not None:
-            return val[1]
+        if partition_locator.canonical_string() in self:
+            return self[partition_locator.canonical_string()][1]
         return 0
 
 
