@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 
 class HighWatermark(dict):
@@ -13,7 +13,10 @@ class HighWatermark(dict):
     """
 
     def set(self, partition_locator: PartitionLocator, delta_stream_position: int):
-        self[partition_locator.canonical_string()] = (partition_locator, delta_stream_position)
+        self[partition_locator.canonical_string()] = (
+            partition_locator,
+            delta_stream_position,
+        )
 
     def get(self, partition_locator: PartitionLocator) -> int:
         val = self.get(partition_locator.canonical_string())
@@ -31,7 +34,7 @@ class RoundCompletionInfo(dict):
 
     @staticmethod
     def of(
-        high_watermark: Union[HighWatermark, int],
+        high_watermark: HighWatermark,
         compacted_delta_locator: DeltaLocator,
         compacted_pyarrow_write_result: PyArrowWriteResult,
         sort_keys_bit_width: int,
