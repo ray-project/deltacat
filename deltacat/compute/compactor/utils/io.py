@@ -16,9 +16,6 @@ from deltacat.compute.compactor import HighWatermark
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-
 def discover_deltas(
     source_partition_locator: PartitionLocator,
     high_watermark: Union[HighWatermark, int],
