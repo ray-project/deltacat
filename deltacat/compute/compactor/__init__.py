@@ -9,7 +9,10 @@ from deltacat.compute.compactor.model.primary_key_index import (
     PrimaryKeyIndexVersionMeta,
 )
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
-from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
+from deltacat.compute.compactor.model.round_completion_info import (
+    RoundCompletionInfo,
+    HighWatermark,
+)
 from deltacat.compute.compactor.model.sort_key import SortKey, SortOrder
 
 __all__ = [
@@ -23,6 +26,7 @@ __all__ = [
     "PrimaryKeyIndexVersionMeta",
     "PyArrowWriteResult",
     "RoundCompletionInfo",
+    "HighWatermark",
     "SortKey",
     "SortOrder",
 ]
