@@ -446,11 +446,11 @@ def _execute_compaction_round(
         rcf_source_partition_locator,
         new_round_completion_info,
     )
-    if last_stream_position_compacted[
+    if last_stream_position_compacted.get(
         source_partition_locator
-    ] < last_stream_position_to_compact or (
+    ) < last_stream_position_to_compact or (
         not rebase_source_partition_locator
-        and last_stream_position_compacted[destination_partition_locator]
+        and last_stream_position_compacted.get(destination_partition_locator)
         < previous_last_stream_position_compacted_on_destination_table
     ):
         logger.info(

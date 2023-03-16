@@ -10,15 +10,15 @@ from deltacat.storage import (
 )
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
-from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Union
+from deltacat.compute.compactor import HighWatermark
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def discover_deltas(
     source_partition_locator: PartitionLocator,
-    high_watermark: Union[dict, int],
+    high_watermark: Union[HighWatermark, int],
     last_stream_position_to_compact: int,
     compacted_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_locator: Optional[PartitionLocator],
@@ -29,7 +29,7 @@ def discover_deltas(
     # Source One: new deltas from uncompacted table for incremental compaction or deltas from compacted table for rebase
     input_deltas = _discover_deltas(
         source_partition_locator,
-        high_watermark[source_partition_locator.canonical_string()]
+        high_watermark.get(source_partition_locator)
         if isinstance(high_watermark, dict)
         else high_watermark,
         last_stream_position_to_compact
@@ -132,7 +132,7 @@ def limit_input_deltas(
     user_hash_bucket_chunk_size: int,
     input_deltas_stats: Dict[int, DeltaStats],
     deltacat_storage=unimplemented_deltacat_storage,
-) -> Tuple[List[DeltaAnnotated], int, dict]:
+) -> Tuple[List[DeltaAnnotated], int, HighWatermark]:
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
     #  input delta records than bytes.
@@ -155,9 +155,8 @@ def limit_input_deltas(
     delta_bytes = 0
     delta_bytes_pyarrow = 0
     delta_manifest_entries = 0
-    latest_stream_position = defaultdict(
-        lambda: -1
-    )  # tracks the latest stream position for each partition locator
+    # tracks the latest stream position for each partition locator
+    high_watermark = HighWatermark()
     limited_input_da_list = []
 
     if input_deltas_stats is None:
@@ -187,8 +186,9 @@ def limit_input_deltas(
             delta_bytes += entry.meta.content_length
             if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
-        latest_stream_position[delta.locator.partition_locator] = max(
-            position, latest_stream_position[delta.locator.partition_locator]
+        high_watermark.set(
+            delta.locator.partition_locator,
+            max(position, high_watermark.get(delta.locator.partition_locator)),
         )
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
@@ -203,7 +203,7 @@ def limit_input_deltas(
     logger.info(f"Input deltas to compact this round: " f"{len(limited_input_da_list)}")
     logger.info(f"Input delta bytes to compact: {delta_bytes}")
     logger.info(f"Input delta files to compact: {delta_manifest_entries}")
-    logger.info(f"Latest input delta stream position: {latest_stream_position}")
+    logger.info(f"Latest input delta stream position: {high_watermark}")
 
     if not limited_input_da_list:
         raise RuntimeError("No input deltas to compact!")
@@ -275,4 +275,4 @@ def limit_input_deltas(
     logger.info(f"Hash bucket count: {hash_bucket_count}")
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
-    return rebatched_da_list, hash_bucket_count, latest_stream_position
+    return rebatched_da_list, hash_bucket_count, high_watermark

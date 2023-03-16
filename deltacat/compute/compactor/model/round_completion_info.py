@@ -3,7 +3,25 @@ from __future__ import annotations
 
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
+
+
+class HighWatermark(dict):
+    """
+    Inherit from dict to make it easy for serialization/deserialization.
+    Keep both partition locator and high watermark as a tuple to be persisted in the rcf
+    """
+
+    def set(self, partition_locator: PartitionLocator, delta_stream_position: int):
+        self[partition_locator.canonical_string()] = (
+            partition_locator,
+            delta_stream_position,
+        )
+
+    def get(self, partition_locator: PartitionLocator) -> int:
+        if partition_locator.canonical_string() in self:
+            return self[partition_locator.canonical_string()][1]
+        return 0
 
 
 class RoundCompletionInfo(dict):
@@ -15,7 +33,7 @@ class RoundCompletionInfo(dict):
 
     @staticmethod
     def of(
-        high_watermark: Union[Dict[PartitionLocator, int], int],
+        high_watermark: HighWatermark,
         compacted_delta_locator: DeltaLocator,
         compacted_pyarrow_write_result: PyArrowWriteResult,
         sort_keys_bit_width: int,
@@ -31,7 +49,7 @@ class RoundCompletionInfo(dict):
         return rci
 
     @property
-    def high_watermark(self) -> Union[Dict[PartitionLocator, int], int]:
+    def high_watermark(self) -> HighWatermark:
         return self["highWatermark"]
 
     @property
