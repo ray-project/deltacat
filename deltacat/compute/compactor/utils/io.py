@@ -24,7 +24,7 @@ def discover_deltas(
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs
+    **kwargs,
 ) -> Tuple[List[Delta], int]:
 
     # Source One: new deltas from uncompacted table for incremental compaction or deltas from compacted table for rebase
@@ -40,7 +40,7 @@ def discover_deltas(
             source_partition_locator.partition_values,
         ).stream_position,
         deltacat_storage,
-        **kwargs
+        **kwargs,
     )
 
     # Source Two: delta from compacted table for incremental compaction or new deltas from uncompacted table for rebase
@@ -87,7 +87,7 @@ def _discover_deltas(
     start_position_exclusive: Optional[int],
     end_position_inclusive: int,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs
+    **kwargs,
 ) -> List[Delta]:
     stream_locator = source_partition_locator.stream_locator
     namespace = stream_locator.namespace
@@ -102,7 +102,7 @@ def _discover_deltas(
         first_stream_position=start_position_exclusive,
         last_stream_position=end_position_inclusive,
         include_manifest=True,
-        **kwargs
+        **kwargs,
     )
     deltas = deltas_list_result.all_items()
     if not deltas:

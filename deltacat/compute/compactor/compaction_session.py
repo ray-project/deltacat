@@ -259,7 +259,7 @@ def _execute_compaction_round(
         rebase_source_partition_locator,
         rebase_source_partition_high_watermark,
         deltacat_storage,
-        **list_deltas_kwargs
+        **list_deltas_kwargs,
     )
 
     if not input_deltas:
