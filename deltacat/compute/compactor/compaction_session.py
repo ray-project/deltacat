@@ -233,10 +233,8 @@ def _execute_compaction_round(
         )
         if not round_completion_info:
             logger.info(
-                f"Need rebase source to run initial rebase, otherwise provide round completion file for incremental "
-                f"compaction"
+                f"Both rebase partition and round completion file not found. Performing a entire backfill on source."
             )
-            return None, None, None
         logger.info(f"Round completion file: {round_completion_info}")
 
     # discover input delta files
