@@ -60,6 +60,7 @@ def discover_deltas(
                 None,
                 previous_last_stream_position_compacted,
                 deltacat_storage,
+                **kwargs,
             )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
@@ -72,6 +73,7 @@ def discover_deltas(
             rebase_source_partition_high_watermark,
             last_stream_position_to_compact,
             deltacat_storage,
+            **kwargs,
         )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
