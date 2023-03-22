@@ -233,7 +233,7 @@ def _execute_compaction_round(
         )
         if not round_completion_info:
             logger.info(
-                f"Both rebase partition and round completion file not found. Performing a entire backfill on source."
+                f"Both rebase partition and round completion file not found. Performing an entire backfill on source."
             )
         logger.info(f"Round completion file: {round_completion_info}")
 
