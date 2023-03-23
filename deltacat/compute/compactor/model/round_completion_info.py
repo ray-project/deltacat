@@ -50,7 +50,14 @@ class RoundCompletionInfo(dict):
 
     @property
     def high_watermark(self) -> HighWatermark:
-        return self["highWatermark"]
+        val: Dict[str, Any] = self.get("highWatermark")
+        if (
+            val is not None
+            and isinstance(val, dict)
+            and not isinstance(val, HighWatermark)
+        ):
+            self["highWatermark"] = val = HighWatermark(val)
+        return val
 
     @property
     def compacted_delta_locator(self) -> DeltaLocator:
