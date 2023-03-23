@@ -51,7 +51,7 @@ def discover_deltas(
             compacted_partition_locator.partition_values,
         )
         previous_last_stream_position_compacted = (
-            compacted_partition.stream_position if compacted_partition else None
+            compacted_partition.stream_position if compacted_partition else -1
         )
         input_deltas_compacted = []
         if previous_last_stream_position_compacted > 0:
