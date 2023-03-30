@@ -308,7 +308,7 @@ def _execute_compaction_round(
             f"Compaction can not be completed in one round. Either increase cluster size or decrease input"
         )
         raise AssertionError(
-            "Multiple rounds is not supported. Please increase the cluster size and run again."
+            "Multiple rounds are not supported. Please increase the cluster size and run again."
         )
 
     hb_tasks_pending = invoke_parallel(
@@ -463,16 +463,7 @@ def _execute_compaction_round(
         rcf_source_partition_locator,
         new_round_completion_info,
     )
-    if last_stream_position_compacted.get(
-        source_partition_locator
-    ) < last_stream_position_to_compact or (
-        not rebase_source_partition_locator
-        and last_stream_position_compacted.get(destination_partition_locator)
-        < previous_last_stream_position_compacted_on_destination_table
-    ):
-        logger.info(
-            f"Compaction can not be completed in one round. Either increase cluster size or decrease input"
-        )
+
     logger.info(
         f"partition-{source_partition_locator.partition_values},"
         f"compacted at: {last_stream_position_compacted},"
