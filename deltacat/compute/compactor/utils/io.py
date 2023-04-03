@@ -103,6 +103,7 @@ def _discover_deltas(
         table_version=table_version,
         first_stream_position=start_position_exclusive,
         last_stream_position=end_position_inclusive,
+        ascending_order=True,
         include_manifest=True,
         **kwargs,
     )
@@ -115,7 +116,7 @@ def _discover_deltas(
             f"'{end_position_inclusive}']. Source partition: "
             f"{source_partition_locator}"
         )
-    if start_position_exclusive:
+    if start_position_exclusive == deltas[0].stream_position:
         first_delta = deltas.pop(0)
         logger.info(
             f"Removed exclusive start delta w/ expected stream "
