@@ -295,6 +295,7 @@ def table_to_file(
             f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}"
         )
     path = block_path_provider(base_path)
+    logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
     writer(table, path, filesystem=file_system, **kwargs)
 
 

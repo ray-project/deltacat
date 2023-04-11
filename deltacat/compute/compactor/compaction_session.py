@@ -96,6 +96,7 @@ def compact_partition(
     metrics_config: Optional[MetricsConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -131,6 +132,7 @@ def compact_partition(
             metrics_config,
             list_deltas_kwargs,
             read_kwargs_provider,
+            s3_table_writer_kwargs,
             deltacat_storage,
             **kwargs,
         )
@@ -168,6 +170,7 @@ def _execute_compaction_round(
     metrics_config: Optional[MetricsConfig],
     list_deltas_kwargs: Optional[Dict[str, Any]],
     read_kwargs_provider: Optional[ReadKwargsProvider],
+    s3_table_writer_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -422,6 +425,7 @@ def _execute_compaction_round(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
