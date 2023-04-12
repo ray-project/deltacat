@@ -440,14 +440,18 @@ def _execute_compaction_round(
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
+    record_info_msg = (
+        f"Hash bucket records: {total_hb_record_count},"
+        f" Deduped records: {total_dd_record_count}, "
+        f" Materialized records: {merged_delta.meta.record_count}"
+    )
+    logger.info(record_info_msg)
     assert (
         total_hb_record_count - total_dd_record_count == merged_delta.meta.record_count
     ), (
         f"Number of hash bucket records minus the number of deduped records"
         f" does not match number of materialized records.\n"
-        f" Hash bucket records: {total_hb_record_count},"
-        f" Deduped records: {total_dd_record_count}, "
-        f" Materialized records: {merged_delta.meta.record_count}"
+        f" {record_info_msg}"
     )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta, properties=kwargs.get("properties", {})
