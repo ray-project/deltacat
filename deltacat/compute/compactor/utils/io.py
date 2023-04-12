@@ -162,6 +162,7 @@ def limit_input_deltas(
     delta_bytes = 0
     delta_bytes_pyarrow = 0
     delta_manifest_entries = 0
+    require_multiple_rounds = False
     # tracks the latest stream position for each partition locator
     high_watermark = HighWatermark()
     limited_input_da_list = []
@@ -203,6 +204,7 @@ def limit_input_deltas(
                 f"{len(limited_input_da_list)} by object store mem "
                 f"({delta_bytes_pyarrow} > {worker_obj_store_mem})"
             )
+            require_multiple_rounds = True
             break
         delta_annotated = DeltaAnnotated.of(delta)
         limited_input_da_list.append(delta_annotated)
@@ -282,4 +284,4 @@ def limit_input_deltas(
     logger.info(f"Hash bucket count: {hash_bucket_count}")
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
-    return rebatched_da_list, hash_bucket_count, high_watermark
+    return rebatched_da_list, hash_bucket_count, high_watermark, require_multiple_rounds

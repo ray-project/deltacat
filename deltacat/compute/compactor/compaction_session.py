@@ -280,6 +280,7 @@ def _execute_compaction_round(
         uniform_deltas,
         hash_bucket_count,
         last_stream_position_compacted,
+        require_multiple_rounds,
     ) = io.limit_input_deltas(
         input_deltas,
         cluster_resources,
@@ -304,13 +305,7 @@ def _execute_compaction_round(
             None, dest_delta_locator, None, 0, None
         )
 
-    if last_stream_position_compacted.get(
-        source_partition_locator
-    ) < last_stream_position_to_compact or (
-        not rebase_source_partition_locator
-        and last_stream_position_compacted.get(destination_partition_locator)
-        < previous_last_stream_position_compacted_on_destination_table
-    ):
+    if require_multiple_rounds:
         logger.info(
             f"Compaction can not be completed in one round. Either increase cluster size or decrease input"
         )
