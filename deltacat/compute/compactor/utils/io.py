@@ -24,6 +24,7 @@ def discover_deltas(
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> Tuple[List[Delta], int]:
 
     # Source One: new deltas from uncompacted table for incremental compaction or deltas from compacted table for rebase
@@ -39,6 +40,7 @@ def discover_deltas(
             source_partition_locator.partition_values,
         ).stream_position,
         deltacat_storage,
+        **kwargs,
     )
 
     # Source Two: delta from compacted table for incremental compaction or new deltas from uncompacted table for rebase
@@ -49,7 +51,7 @@ def discover_deltas(
             compacted_partition_locator.partition_values,
         )
         previous_last_stream_position_compacted = (
-            compacted_partition.stream_position if compacted_partition else None
+            compacted_partition.stream_position if compacted_partition else -1
         )
         input_deltas_compacted = []
         if previous_last_stream_position_compacted > 0:
@@ -58,6 +60,7 @@ def discover_deltas(
                 None,
                 previous_last_stream_position_compacted,
                 deltacat_storage,
+                **kwargs,
             )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
@@ -70,6 +73,7 @@ def discover_deltas(
             rebase_source_partition_high_watermark,
             last_stream_position_to_compact,
             deltacat_storage,
+            **kwargs,
         )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
@@ -85,6 +89,7 @@ def _discover_deltas(
     start_position_exclusive: Optional[int],
     end_position_inclusive: int,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> List[Delta]:
     stream_locator = source_partition_locator.stream_locator
     namespace = stream_locator.namespace
@@ -92,13 +97,15 @@ def _discover_deltas(
     table_version = stream_locator.table_version
     partition_values = source_partition_locator.partition_values
     deltas_list_result = deltacat_storage.list_deltas(
-        namespace,
-        table_name,
-        partition_values,
-        table_version,
-        start_position_exclusive,
-        end_position_inclusive,
-        True,
+        namespace=namespace,
+        table_name=table_name,
+        partition_values=partition_values,
+        table_version=table_version,
+        first_stream_position=start_position_exclusive,
+        last_stream_position=end_position_inclusive,
+        ascending_order=True,
+        include_manifest=True,
+        **kwargs,
     )
     deltas = deltas_list_result.all_items()
     if not deltas:
@@ -109,7 +116,7 @@ def _discover_deltas(
             f"'{end_position_inclusive}']. Source partition: "
             f"{source_partition_locator}"
         )
-    if start_position_exclusive:
+    if start_position_exclusive == deltas[0].stream_position:
         first_delta = deltas.pop(0)
         logger.info(
             f"Removed exclusive start delta w/ expected stream "

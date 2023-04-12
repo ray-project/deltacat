@@ -31,7 +31,7 @@ from deltacat.compute.compactor.utils import round_completion_file as rcf
 
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
-from typing import List, Set, Optional, Tuple, Dict
+from typing import List, Set, Optional, Tuple, Dict, Any
 from collections import defaultdict
 from deltacat.utils.metrics import MetricsConfig
 
@@ -93,6 +93,7 @@ def compact_partition(
     rebase_source_partition_high_watermark: Optional[int] = None,
     enable_profiler: Optional[bool] = False,
     metrics_config: Optional[MetricsConfig] = None,
+    list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -126,6 +127,7 @@ def compact_partition(
             rebase_source_partition_high_watermark,
             enable_profiler,
             metrics_config,
+            list_deltas_kwargs,
             deltacat_storage,
             **kwargs,
         )
@@ -161,6 +163,7 @@ def _execute_compaction_round(
     rebase_source_partition_high_watermark: Optional[int],
     enable_profiler: Optional[bool],
     metrics_config: Optional[MetricsConfig],
+    list_deltas_kwargs=Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -230,10 +233,8 @@ def _execute_compaction_round(
         )
         if not round_completion_info:
             logger.info(
-                f"Need rebase source to run initial rebase, otherwise provide round completion file for incremental "
-                f"compaction"
+                f"Both rebase partition and round completion file not found. Performing an entire backfill on source."
             )
-            return None, None, None
         logger.info(f"Round completion file: {round_completion_info}")
 
     # discover input delta files
@@ -258,6 +259,7 @@ def _execute_compaction_round(
         rebase_source_partition_locator,
         rebase_source_partition_high_watermark,
         deltacat_storage,
+        **list_deltas_kwargs,
     )
 
     if not input_deltas:
@@ -294,6 +296,21 @@ def _execute_compaction_round(
         round_completion_info = RoundCompletionInfo.of(
             None, dest_delta_locator, None, 0, None
         )
+
+    if last_stream_position_compacted.get(
+        source_partition_locator
+    ) < last_stream_position_to_compact or (
+        not rebase_source_partition_locator
+        and last_stream_position_compacted.get(destination_partition_locator)
+        < previous_last_stream_position_compacted_on_destination_table
+    ):
+        logger.info(
+            f"Compaction can not be completed in one round. Either increase cluster size or decrease input"
+        )
+        raise AssertionError(
+            "Multiple rounds are not supported. Please increase the cluster size and run again."
+        )
+
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
@@ -446,16 +463,7 @@ def _execute_compaction_round(
         rcf_source_partition_locator,
         new_round_completion_info,
     )
-    if last_stream_position_compacted.get(
-        source_partition_locator
-    ) < last_stream_position_to_compact or (
-        not rebase_source_partition_locator
-        and last_stream_position_compacted.get(destination_partition_locator)
-        < previous_last_stream_position_compacted_on_destination_table
-    ):
-        logger.info(
-            f"Compaction can not be completed in one round. Either increase cluster size or decrease input"
-        )
+
     logger.info(
         f"partition-{source_partition_locator.partition_values},"
         f"compacted at: {last_stream_position_compacted},"
