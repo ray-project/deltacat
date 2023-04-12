@@ -139,7 +139,7 @@ def limit_input_deltas(
     user_hash_bucket_chunk_size: int,
     input_deltas_stats: Dict[int, DeltaStats],
     deltacat_storage=unimplemented_deltacat_storage,
-) -> Tuple[List[DeltaAnnotated], int, HighWatermark]:
+) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
     #  input delta records than bytes.
