@@ -177,8 +177,7 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
             schema: The schema to use for reading the dataset.
                 If unspecified, the schema will be inferred from the source.
             pq_coerce_int96_timestamp_unit: When reading from parquet files, cast timestamps that are stored in INT96
-                format to a particular resolution (e.g. 'ms'). Setting to None is equivalent to 'ms'
-                and therefore INT96 timestamps will be inferred as timestamps in milliseconds.
+                format to a particular resolution (e.g. 'ms').
 
         """
         self.schema = schema
@@ -197,9 +196,10 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
                 kwargs["schema"] = self.schema
 
             # Coerce deprecated int96 timestamp to millisecond if unspecified
-            kwargs["coerce_int96_timestamp_unit"] = (
-                self.pq_coerce_int96_timestamp_unit or "ms"
-            )
+            if self.pq_coerce_int96_timestamp_unit is not None:
+                kwargs[
+                    "coerce_int96_timestamp_unit"
+                ] = self.pq_coerce_int96_timestamp_unit
 
         return kwargs
 
@@ -295,6 +295,7 @@ def table_to_file(
             f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}"
         )
     path = block_path_provider(base_path)
+    logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
     writer(table, path, filesystem=file_system, **kwargs)
 
 

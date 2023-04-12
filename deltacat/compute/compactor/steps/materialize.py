@@ -4,7 +4,7 @@ import time
 from collections import defaultdict
 from contextlib import nullcontext
 from itertools import chain, repeat
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 import pyarrow as pa
 import ray
 from ray import cloudpickle
@@ -20,6 +20,7 @@ from deltacat.compute.compactor.steps.dedupe import (
 )
 from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator
 from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.performance import timed_invocation
@@ -52,6 +53,8 @@ def materialize(
     enable_profiler: bool,
     metrics_config: MetricsConfig,
     schema: Optional[pa.Schema] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> MaterializeResult:
     # TODO (rkenmi): Add docstrings for the steps in the compaction workflow
@@ -70,6 +73,7 @@ def materialize(
             partition,
             max_records_per_entry=max_records_per_output_file,
             content_type=compacted_file_content_type,
+            s3_table_writer_kwargs=s3_table_writer_kwargs,
         )
         compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](
             compacted_table
@@ -160,16 +164,16 @@ def materialize(
                 deltacat_storage.get_delta_manifest(delta_locator),
             )
 
-            read_kwargs_provider = None
-            # for delimited text output, disable type inference to prevent
-            # unintentional type-casting side-effects and improve performance
-            if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
-                read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
-            # enforce a consistent schema if provided, when reading files into PyArrow tables
-            elif schema is not None:
-                read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
-                    schema=schema
-                )
+            if read_kwargs_provider is None:
+                # for delimited text output, disable type inference to prevent
+                # unintentional type-casting side-effects and improve performance
+                if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+                    read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
+                # enforce a consistent schema if provided, when reading files into PyArrow tables
+                elif schema is not None:
+                    read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
+                        schema=schema
+                    )
             pa_table, download_delta_manifest_entry_time = timed_invocation(
                 deltacat_storage.download_delta_manifest_entry,
                 Delta.of(delta_locator, None, None, None, manifest),

@@ -22,6 +22,7 @@ from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
     round_robin_options_provider,
 )
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.steps import dedupe as dd
 from deltacat.compute.compactor.steps import hash_bucket as hb
@@ -94,6 +95,8 @@ def compact_partition(
     enable_profiler: Optional[bool] = False,
     metrics_config: Optional[MetricsConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -128,6 +131,8 @@ def compact_partition(
             enable_profiler,
             metrics_config,
             list_deltas_kwargs,
+            read_kwargs_provider,
+            s3_table_writer_kwargs,
             deltacat_storage,
             **kwargs,
         )
@@ -163,7 +168,9 @@ def _execute_compaction_round(
     rebase_source_partition_high_watermark: Optional[int],
     enable_profiler: Optional[bool],
     metrics_config: Optional[MetricsConfig],
-    list_deltas_kwargs=Optional[Dict[str, Any]],
+    list_deltas_kwargs: Optional[Dict[str, Any]],
+    read_kwargs_provider: Optional[ReadKwargsProvider],
+    s3_table_writer_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -273,6 +280,7 @@ def _execute_compaction_round(
         uniform_deltas,
         hash_bucket_count,
         last_stream_position_compacted,
+        require_multiple_rounds,
     ) = io.limit_input_deltas(
         input_deltas,
         cluster_resources,
@@ -297,13 +305,7 @@ def _execute_compaction_round(
             None, dest_delta_locator, None, 0, None
         )
 
-    if last_stream_position_compacted.get(
-        source_partition_locator
-    ) < last_stream_position_to_compact or (
-        not rebase_source_partition_locator
-        and last_stream_position_compacted.get(destination_partition_locator)
-        < previous_last_stream_position_compacted_on_destination_table
-    ):
+    if require_multiple_rounds:
         logger.info(
             f"Compaction can not be completed in one round. Either increase cluster size or decrease input"
         )
@@ -323,6 +325,7 @@ def _execute_compaction_round(
         num_groups=max_parallelism,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        read_kwargs_provider=read_kwargs_provider,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -416,6 +419,8 @@ def _execute_compaction_round(
         compacted_file_content_type=compacted_file_content_type,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        read_kwargs_provider=read_kwargs_provider,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
