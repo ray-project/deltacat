@@ -27,6 +27,7 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
 )
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
@@ -85,6 +86,7 @@ def _group_file_records_by_pk_hash_bucket(
     primary_keys: List[str],
     sort_key_names: List[str],
     is_src_delta: np.bool_ = True,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
     # read input parquet s3 objects into a list of delta file envelopes
@@ -92,6 +94,7 @@ def _group_file_records_by_pk_hash_bucket(
         annotated_delta,
         primary_keys,
         sort_key_names,
+        read_kwargs_provider,
         deltacat_storage,
     )
     if delta_file_envelopes is None:
@@ -125,6 +128,7 @@ def _read_delta_file_envelopes(
     annotated_delta: DeltaAnnotated,
     primary_keys: List[str],
     sort_key_names: List[str],
+    read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
 
@@ -135,6 +139,7 @@ def _read_delta_file_envelopes(
         annotated_delta,
         max_parallelism=1,
         columns=columns_to_read,
+        file_reader_kwargs_provider=read_kwargs_provider,
         storage_type=StorageType.LOCAL,
     )
     annotations = annotated_delta.annotations
@@ -169,6 +174,7 @@ def _timed_hash_bucket(
     num_buckets: int,
     num_groups: int,
     enable_profiler: bool,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ):
     task_id = get_current_ray_task_id()
@@ -193,6 +199,7 @@ def _timed_hash_bucket(
             primary_keys,
             sort_key_names,
             is_src_delta,
+            read_kwargs_provider,
             deltacat_storage,
         )
         hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
@@ -213,6 +220,7 @@ def hash_bucket(
     num_groups: int,
     enable_profiler: bool,
     metrics_config: MetricsConfig,
+    read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> HashBucketResult:
 
@@ -226,6 +234,7 @@ def hash_bucket(
         num_buckets=num_buckets,
         num_groups=num_groups,
         enable_profiler=enable_profiler,
+        read_kwargs_provider=read_kwargs_provider,
         deltacat_storage=deltacat_storage,
     )
     if metrics_config:

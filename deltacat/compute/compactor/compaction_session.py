@@ -24,6 +24,7 @@ from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
     round_robin_options_provider,
 )
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.steps import dedupe as dd
 from deltacat.compute.compactor.steps import hash_bucket as hb
@@ -96,6 +97,8 @@ def compact_partition(
     enable_profiler: Optional[bool] = False,
     metrics_config: Optional[MetricsConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -130,6 +133,8 @@ def compact_partition(
             enable_profiler,
             metrics_config,
             list_deltas_kwargs,
+            read_kwargs_provider,
+            s3_table_writer_kwargs,
             deltacat_storage,
             **kwargs,
         )
@@ -165,7 +170,9 @@ def _execute_compaction_round(
     rebase_source_partition_high_watermark: Optional[int],
     enable_profiler: Optional[bool],
     metrics_config: Optional[MetricsConfig],
-    list_deltas_kwargs=Optional[Dict[str, Any]],
+    list_deltas_kwargs: Optional[Dict[str, Any]],
+    read_kwargs_provider: Optional[ReadKwargsProvider],
+    s3_table_writer_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -320,6 +327,7 @@ def _execute_compaction_round(
         num_groups=max_parallelism,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        read_kwargs_provider=read_kwargs_provider,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -421,6 +429,8 @@ def _execute_compaction_round(
         compacted_file_content_type=compacted_file_content_type,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        read_kwargs_provider=read_kwargs_provider,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
