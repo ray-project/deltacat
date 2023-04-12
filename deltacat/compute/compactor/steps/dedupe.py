@@ -17,6 +17,7 @@ from deltacat.compute.compactor import (
     DeltaFileEnvelope,
     DeltaFileLocator,
 )
+from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
@@ -34,7 +35,6 @@ MaterializeBucketIndex = int
 DeltaFileLocatorToRecords = Dict[DeltaFileLocator, np.ndarray]
 DedupeTaskIndex, PickledObjectRef = int, str
 DedupeTaskIndexWithObjectId = Tuple[DedupeTaskIndex, PickledObjectRef]
-DedupeResult = Dict[MaterializeBucketIndex, DedupeTaskIndexWithObjectId]
 
 
 def _union_primary_key_indices(
@@ -133,6 +133,7 @@ def _timed_dedupe(
             f"[Dedupe task {dedupe_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
             f"dedupe rounds..."
         )
+        total_deduped_records = 0
         for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
             logger.info(
                 f"{dedupe_task_index}: union primary keys for hb_index: {hb_idx}"
@@ -169,9 +170,12 @@ def _timed_dedupe(
                 f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
             )
 
+            hb_table_record_count = len(table)
             table, drop_time = timed_invocation(
                 func=_drop_duplicates_by_primary_key_hash, table=table
             )
+            deduped_record_count = hb_table_record_count - len(table)
+            total_deduped_records += deduped_record_count
 
             logger.info(
                 f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
@@ -227,7 +231,7 @@ def _timed_dedupe(
             f"{len(mat_bucket_to_dd_idx_obj_id)}"
         )
 
-        return mat_bucket_to_dd_idx_obj_id
+        return DedupeResult(mat_bucket_to_dd_idx_obj_id, total_deduped_records)
 
 
 @ray.remote
@@ -240,7 +244,7 @@ def dedupe(
     metrics_config: MetricsConfig,
 ) -> DedupeResult:
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
-    mat_bucket_to_dd_idx_obj_id, duration = timed_invocation(
+    dedupe_result, duration = timed_invocation(
         func=_timed_dedupe,
         object_ids=object_ids,
         sort_keys=sort_keys,
@@ -254,4 +258,4 @@ def dedupe(
         )
 
     logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
-    return mat_bucket_to_dd_idx_obj_id
+    return dedupe_result

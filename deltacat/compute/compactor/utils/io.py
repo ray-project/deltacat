@@ -103,6 +103,7 @@ def _discover_deltas(
         table_version=table_version,
         first_stream_position=start_position_exclusive,
         last_stream_position=end_position_inclusive,
+        ascending_order=True,
         include_manifest=True,
         **kwargs,
     )
@@ -115,7 +116,7 @@ def _discover_deltas(
             f"'{end_position_inclusive}']. Source partition: "
             f"{source_partition_locator}"
         )
-    if start_position_exclusive:
+    if start_position_exclusive == deltas[0].stream_position:
         first_delta = deltas.pop(0)
         logger.info(
             f"Removed exclusive start delta w/ expected stream "
@@ -138,7 +139,7 @@ def limit_input_deltas(
     user_hash_bucket_chunk_size: int,
     input_deltas_stats: Dict[int, DeltaStats],
     deltacat_storage=unimplemented_deltacat_storage,
-) -> Tuple[List[DeltaAnnotated], int, HighWatermark]:
+) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
     #  input delta records than bytes.
@@ -161,6 +162,7 @@ def limit_input_deltas(
     delta_bytes = 0
     delta_bytes_pyarrow = 0
     delta_manifest_entries = 0
+    require_multiple_rounds = False
     # tracks the latest stream position for each partition locator
     high_watermark = HighWatermark()
     limited_input_da_list = []
@@ -202,6 +204,7 @@ def limit_input_deltas(
                 f"{len(limited_input_da_list)} by object store mem "
                 f"({delta_bytes_pyarrow} > {worker_obj_store_mem})"
             )
+            require_multiple_rounds = True
             break
         delta_annotated = DeltaAnnotated.of(delta)
         limited_input_da_list.append(delta_annotated)
@@ -281,4 +284,4 @@ def limit_input_deltas(
     logger.info(f"Hash bucket count: {hash_bucket_count}")
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
-    return rebatched_da_list, hash_bucket_count, high_watermark
+    return rebatched_da_list, hash_bucket_count, high_watermark, require_multiple_rounds
