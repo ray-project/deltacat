@@ -231,7 +231,9 @@ def _timed_dedupe(
             f"{len(mat_bucket_to_dd_idx_obj_id)}"
         )
 
-        return DedupeResult(mat_bucket_to_dd_idx_obj_id, total_deduped_records)
+        return DedupeResult(
+            mat_bucket_to_dd_idx_obj_id, np.int64(total_deduped_records)
+        )
 
 
 @ray.remote

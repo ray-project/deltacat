@@ -207,7 +207,9 @@ def _timed_hash_bucket(
             num_buckets,
             num_groups,
         )
-        return HashBucketResult(hash_bucket_group_to_obj_id, total_record_count)
+        return HashBucketResult(
+            hash_bucket_group_to_obj_id, np.int64(total_record_count)
+        )
 
 
 @ray.remote
