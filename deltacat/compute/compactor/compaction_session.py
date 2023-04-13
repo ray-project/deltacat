@@ -10,6 +10,8 @@ from deltacat.compute.compactor import (
     RoundCompletionInfo,
     SortKey,
 )
+from deltacat.compute.compactor.model.dedupe_result import DedupeResult
+from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
     Delta,
@@ -329,15 +331,21 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
-    hb_results = ray.get(hb_tasks_pending)
+    hb_results: List[HashBucketResult] = ray.get(hb_tasks_pending)
     logger.info(f"Got {len(hb_results)} hash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
-    for hash_group_idx_to_obj_id in hb_results:
-        for hash_group_index, object_id in enumerate(hash_group_idx_to_obj_id):
+    for hb_result in hb_results:
+        for hash_group_index, object_id in enumerate(
+            hb_result.hash_bucket_group_to_obj_id
+        ):
             if object_id:
                 all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
     hash_group_count = len(all_hash_group_idx_to_obj_id)
     logger.info(f"Hash bucket groups created: {hash_group_count}")
+    total_hb_record_count = sum([hb_result.hb_record_count for hb_result in hb_results])
+    logger.info(
+        f"Got {total_hb_record_count} hash bucket records from hash bucketing step..."
+    )
 
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
@@ -376,14 +384,16 @@ def _execute_compaction_round(
         metrics_config=metrics_config,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
-    dd_results = ray.get(dd_tasks_pending)
+    dd_results: List[DedupeResult] = ray.get(dd_tasks_pending)
     logger.info(f"Got {len(dd_results)} dedupe results.")
+    total_dd_record_count = sum([ddr.deduped_record_count for ddr in dd_results])
+    logger.info(f"Deduped {total_dd_record_count} records...")
     all_mat_buckets_to_obj_id = defaultdict(list)
-    for mat_bucket_idx_to_obj_id in dd_results:
+    for dd_result in dd_results:
         for (
             bucket_idx,
             dd_task_index_and_object_id_tuple,
-        ) in mat_bucket_idx_to_obj_id.items():
+        ) in dd_result.mat_bucket_idx_to_obj_id.items():
             all_mat_buckets_to_obj_id[bucket_idx].append(
                 dd_task_index_and_object_id_tuple
             )
@@ -430,6 +440,19 @@ def _execute_compaction_round(
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
     merged_delta = Delta.merge_deltas(deltas)
+    record_info_msg = (
+        f"Hash bucket records: {total_hb_record_count},"
+        f" Deduped records: {total_dd_record_count}, "
+        f" Materialized records: {merged_delta.meta.record_count}"
+    )
+    logger.info(record_info_msg)
+    assert (
+        total_hb_record_count - total_dd_record_count == merged_delta.meta.record_count
+    ), (
+        f"Number of hash bucket records minus the number of deduped records"
+        f" does not match number of materialized records.\n"
+        f" {record_info_msg}"
+    )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta, properties=kwargs.get("properties", {})
     )
