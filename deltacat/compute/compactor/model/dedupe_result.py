@@ -1,8 +1,8 @@
-from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Tuple, NamedTuple
+
+import numpy as np
 
 
-@dataclass
-class DedupeResult:
+class DedupeResult(NamedTuple):
     mat_bucket_idx_to_obj_id: Dict[int, Tuple]
-    deduped_record_count: int
+    deduped_record_count: np.int64

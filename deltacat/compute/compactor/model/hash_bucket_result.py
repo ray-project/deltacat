@@ -1,9 +1,8 @@
-from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
 
-@dataclass
-class HashBucketResult:
+class HashBucketResult(NamedTuple):
     hash_bucket_group_to_obj_id: np.ndarray
-    hb_record_count: int
+    hb_record_count: np.int64
