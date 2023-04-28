@@ -480,19 +480,13 @@ def _execute_compaction_round(
         compacted_delta.stream_position,
     )
 
-    rci_high_watermark = (
-        rebase_source_partition_high_watermark
-        if rebase_source_partition_high_watermark
-        else last_stream_position_compacted
-    )
-
     last_rebase_source_partition_locator = rebase_source_partition_locator or (
         round_completion_info.rebase_source_partition_locator
         if round_completion_info
         else None
     )
     new_round_completion_info = RoundCompletionInfo.of(
-        rci_high_watermark,
+        last_stream_position_compacted,
         new_compacted_delta_locator,
         PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
         bit_width_of_sort_keys,
