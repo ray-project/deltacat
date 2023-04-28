@@ -113,8 +113,11 @@ def compact_partition(
         f"compaction_partition.bin"
     ) if enable_profiler else nullcontext():
         partition = None
-        new_rcf_s3_url = None
-        (new_partition, new_rci, new_rcf_s3_url,) = _execute_compaction_round(
+        (
+            new_partition,
+            new_rci,
+            new_rcf_partition_locator,
+        ) = _execute_compaction_round(
             source_partition_locator,
             destination_partition_locator,
             primary_keys,
@@ -144,12 +147,19 @@ def compact_partition(
         logger.info(
             f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed"
         )
+        round_completion_file_s3_url = None
         if partition:
             logger.info(f"Committing compacted partition to: {partition.locator}")
             partition = deltacat_storage.commit_partition(partition)
             logger.info(f"Committed compacted partition: {partition}")
+
+            round_completion_file_s3_url = rcf.write_round_completion_file(
+                compaction_artifact_s3_bucket,
+                new_rcf_partition_locator,
+                new_rci,
+            )
         logger.info(f"Completed compaction session for: {source_partition_locator}")
-        return new_rcf_s3_url
+        return round_completion_file_s3_url
 
 
 def _execute_compaction_round(
@@ -439,7 +449,14 @@ def _execute_compaction_round(
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
-    merged_delta = Delta.merge_deltas(deltas)
+
+    # Note: An appropriate last stream position must be set
+    # to avoid correctness issue.
+    merged_delta = Delta.merge_deltas(
+        deltas,
+        stream_position=last_stream_position_to_compact,
+    )
+
     record_info_msg = (
         f"Hash bucket records: {total_hb_record_count},"
         f" Deduped records: {total_dd_record_count}, "
@@ -463,19 +480,13 @@ def _execute_compaction_round(
         compacted_delta.stream_position,
     )
 
-    rci_high_watermark = (
-        rebase_source_partition_high_watermark
-        if rebase_source_partition_high_watermark
-        else last_stream_position_compacted
-    )
-
     last_rebase_source_partition_locator = rebase_source_partition_locator or (
         round_completion_info.rebase_source_partition_locator
         if round_completion_info
         else None
     )
     new_round_completion_info = RoundCompletionInfo.of(
-        rci_high_watermark,
+        last_stream_position_compacted,
         new_compacted_delta_locator,
         PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
         bit_width_of_sort_keys,
@@ -486,11 +497,6 @@ def _execute_compaction_round(
         if rebase_source_partition_locator
         else source_partition_locator
     )
-    round_completion_file_s3_url = rcf.write_round_completion_file(
-        compaction_artifact_s3_bucket,
-        rcf_source_partition_locator,
-        new_round_completion_info,
-    )
 
     logger.info(
         f"partition-{source_partition_locator.partition_values},"
@@ -500,5 +506,5 @@ def _execute_compaction_round(
     return (
         partition,
         new_round_completion_info,
-        round_completion_file_s3_url,
+        rcf_source_partition_locator,
     )
