@@ -193,7 +193,7 @@ def read_iceberg(
            arrow_parquet_args: Other parquet read options to pass to pyarrow, see
                https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html#pyarrow.dataset.Scanner.from_fragment
        Returns:
-           Datastream producing Arrow records read from the specified paths.
+           Dataset holding Arrow records read from the specified paths.
        """
     from pyiceberg.catalog import load_catalog
     from pyiceberg.schema import Schema
