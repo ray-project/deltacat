@@ -41,7 +41,7 @@ setuptools.setup(
         "pyarrow == 10.0.1",
         "pydantic == 1.10.4",
         "ray[default] ~= 2.0",
-        "s3fs == 2022.2.0",
+        "s3fs == 2023.1.0",
         "tenacity == 8.1.0",
         "typing-extensions == 4.4.0",
     ],
