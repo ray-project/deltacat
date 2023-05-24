@@ -200,8 +200,6 @@ def read_iceberg(
     from pyiceberg.io.pyarrow import schema_to_pyarrow
 
     catalog_properties = catalog_properties or {}
-    # in pyiceberg0.4.0, we can have a default-catalog option:
-    # https://github.com/apache/iceberg/pull/6864
     catalog = load_catalog(catalog_name, **catalog_properties)
     table = catalog.load_table(table_identifier)
     partition_spec = table.spec()
@@ -219,8 +217,6 @@ def read_iceberg(
                 for field in partition_spec.fields
             ]
         )
-        # timestamp casting issue fixed in pyiceberg0.4.0:
-        # https://github.com/apache/iceberg/pull/6946
         partitioning = pa.dataset.partitioning(
             schema=schema_to_pyarrow(iceberg_partition_schema),
             flavor="hive",
@@ -236,7 +232,7 @@ def read_iceberg(
         meta_provider=meta_provider,
         dataset_kwargs=dict(
             partitioning=partitioning
-        ),  # required since https://github.com/ray-project/ray/issues/21957
+        ),
         **arrow_parquet_args,
     )
 
