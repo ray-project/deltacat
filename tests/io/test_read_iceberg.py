@@ -45,3 +45,22 @@ def test_read_all_types(catalog_properties: Dict[str, str], mock_s3_file_system:
                                 'arrayCol',
                                 'structCol']
 
+
+def test_read_null_nan(catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem) -> None:
+    table_name = "default.test_null_nan"
+    catalog_name = "local"
+    ray_dataset = read_iceberg(table_name, catalog_name=catalog_name, catalog_properties=catalog_properties,
+                               filesystem=mock_s3_file_system)
+    df = ray_dataset.limit(100).to_pandas(limit=100)
+    assert len(df) == 3
+    assert list(df.columns) == ['idx', 'col_numeric']
+
+
+def test_read_deletes(catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem) -> None:
+    table_name = "default.test_deletes"
+    catalog_name = "local"
+    ray_dataset = read_iceberg(table_name, catalog_name=catalog_name, catalog_properties=catalog_properties,
+                               filesystem=mock_s3_file_system)
+    df = ray_dataset.limit(100).to_pandas(limit=100)
+    assert len(df) == 1
+    assert list(df.columns) == ['idx', 'deleted']
