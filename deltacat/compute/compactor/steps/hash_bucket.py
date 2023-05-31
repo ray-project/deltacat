@@ -6,6 +6,7 @@ from typing import Generator, List, Optional, Tuple
 import numpy as np
 import pyarrow as pa
 import ray
+import time
 from deltacat import logs
 from deltacat.compute.compactor import (
     DeltaAnnotated,
@@ -88,8 +89,9 @@ def _group_file_records_by_pk_hash_bucket(
     is_src_delta: np.bool_ = True,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
+) -> Tuple[Optional[DeltaFileEnvelopeGroups], int, float]:
     # read input parquet s3 objects into a list of delta file envelopes
+    read_start = time.time()
     delta_file_envelopes, total_record_count = _read_delta_file_envelopes(
         annotated_delta,
         primary_keys,
@@ -97,6 +99,7 @@ def _group_file_records_by_pk_hash_bucket(
         read_kwargs_provider,
         deltacat_storage,
     )
+    read_end = time.time()
     if delta_file_envelopes is None:
         return None, 0
 
@@ -121,7 +124,7 @@ def _group_file_records_by_pk_hash_bucket(
                         is_src_delta,
                     )
                 )
-    return hb_to_delta_file_envelopes, total_record_count
+    return hb_to_delta_file_envelopes, total_record_count, read_end - read_start
 
 
 def _read_delta_file_envelopes(
@@ -193,6 +196,7 @@ def _timed_hash_bucket(
         (
             delta_file_envelope_groups,
             total_record_count,
+            read_time,
         ) = _group_file_records_by_pk_hash_bucket(
             annotated_delta,
             num_buckets,
@@ -208,7 +212,10 @@ def _timed_hash_bucket(
             num_groups,
         )
         return HashBucketResult(
-            hash_bucket_group_to_obj_id, np.int64(total_record_count)
+            hash_bucket_group_to_obj_id,
+            np.int64(total_record_count),
+            read_time,
+            len(annotated_delta.annotations),
         )
 
 
@@ -244,4 +251,5 @@ def hash_bucket(
             metrics_name="hash_bucket", value=duration, metrics_config=metrics_config
         )
     logger.info(f"Finished hash bucket task...")
-    return hash_bucket_result
+
+    return hash_bucket_result, duration

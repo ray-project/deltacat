@@ -12,6 +12,7 @@ from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
 from typing import Dict, List, Optional, Tuple, Union
 from deltacat.compute.compactor import HighWatermark
+from deltacat.compute.compactor import RoundCompletionInfo
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -23,6 +24,7 @@ def discover_deltas(
     compacted_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
+    round_completion_info: Optional[RoundCompletionInfo],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[List[Delta], int]:
@@ -42,31 +44,66 @@ def discover_deltas(
         deltacat_storage,
         **kwargs,
     )
+    print(f" source_partition_locator: {source_partition_locator}")
+    print(f" high_watermark: {high_watermark}")
+    if high_watermark:
+        print(
+            f" high_watermark.get(source_partition_locator): {high_watermark.get(source_partition_locator)}"
+        )
+    # save the high watermark to local file
+    import json
+
+    with open("high_watermark.json", "w") as f:
+        json.dump(high_watermark, f)
+    # save source_partition_locator to local file
+    with open("source_partition_locator.json", "w") as f:
+        json.dump(source_partition_locator, f)
 
     # Source Two: delta from compacted table for incremental compaction or new deltas from uncompacted table for rebase
     previous_last_stream_position_compacted = -1
+    # Incremental compaction
     if not rebase_source_partition_locator:  # compacted table
-        compacted_partition = deltacat_storage.get_partition(
-            compacted_partition_locator.stream_locator,
-            compacted_partition_locator.partition_values,
-        )
-        previous_last_stream_position_compacted = (
-            compacted_partition.stream_position if compacted_partition else -1
-        )
-        input_deltas_compacted = []
-        if previous_last_stream_position_compacted > 0:
-            input_deltas_compacted = _discover_deltas(
-                compacted_partition_locator,
-                None,
-                previous_last_stream_position_compacted,
-                deltacat_storage,
-                **kwargs,
+        # with PKI, we can skip reading the delta from compacted table
+        # rcf_info exists, check the pki
+        if (
+            round_completion_info
+            and round_completion_info.primary_key_index_version_locator is not None
+        ):
+            logger.info(
+                f"(Incremental) Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact}"
             )
-        logger.info(
-            f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
-            f"Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}"
-        )
-        input_deltas += input_deltas_compacted
+            print(
+                f"(Incremental) Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact}"
+            )
+        else:
+            compacted_partition = deltacat_storage.get_partition(
+                compacted_partition_locator.stream_locator,
+                compacted_partition_locator.partition_values,
+            )
+            previous_last_stream_position_compacted = (
+                compacted_partition.stream_position if compacted_partition else -1
+            )
+            input_deltas_compacted = []
+            if previous_last_stream_position_compacted > 0:
+                input_deltas_compacted = _discover_deltas(
+                    compacted_partition_locator,
+                    None,
+                    previous_last_stream_position_compacted,
+                    deltacat_storage,
+                    **kwargs,
+                )
+            logger.info(
+                f"(Incremental) Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
+                f"(Incremental) No PKI found, Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}"
+            )
+            print(
+                f"(Incremental) Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
+            )
+            print(
+                f"(Incremental) No PKI found, Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}"
+            )
+            input_deltas += input_deltas_compacted
+    # Rebase compaction
     else:  # new deltas from uncompacted table between previous_last_stream_position_compacted and current last_position_to_compact
         input_deltas_new = _discover_deltas(
             rebase_source_partition_locator,
@@ -76,9 +113,16 @@ def discover_deltas(
             **kwargs,
         )
         logger.info(
-            f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
-            f"Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}"
+            f"(Rebase) Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
+            f"(Rebase) Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}"
         )
+        print(
+            f"(Rebase) Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
+        )
+        print(
+            f"(Rebase) Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}"
+        )
+
         input_deltas += input_deltas_new
 
     return input_deltas, previous_last_stream_position_compacted
@@ -91,6 +135,9 @@ def _discover_deltas(
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> List[Delta]:
+    print(
+        f"in _discover_deltas, start position exclusive {start_position_exclusive}, end position inclusive {end_position_inclusive}"
+    )
     stream_locator = source_partition_locator.stream_locator
     namespace = stream_locator.namespace
     table_name = stream_locator.table_name
@@ -136,6 +183,7 @@ def limit_input_deltas(
     input_deltas: List[Delta],
     cluster_resources: Dict[str, float],
     hash_bucket_count: int,
+    min_pk_index_pa_bytes: int,
     user_hash_bucket_chunk_size: int,
     input_deltas_stats: Dict[int, DeltaStats],
     deltacat_storage=unimplemented_deltacat_storage,
@@ -150,6 +198,17 @@ def limit_input_deltas(
     # available per CPU should remain fixed across the cluster.
     worker_cpus = int(cluster_resources["CPU"])
     worker_obj_store_mem = float(cluster_resources["object_store_memory"])
+    if min_pk_index_pa_bytes > 0:
+        required_heap_mem_for_dedupe = worker_obj_store_mem - min_pk_index_pa_bytes
+        assert required_heap_mem_for_dedupe > 0, (
+            f"Not enough required memory available to re-batch input deltas"
+            f"and initiate the dedupe step."
+        )
+        # Size of batched deltas must also be reduced to have enough space for primary
+        # key index files (from earlier compaction rounds) in the dedupe step, since
+        # they will be loaded into worker heap memory.
+        worker_obj_store_mem = required_heap_mem_for_dedupe
+
     logger.info(f"Total worker object store memory: {worker_obj_store_mem}")
     worker_obj_store_mem_per_task = worker_obj_store_mem / worker_cpus
     logger.info(f"Worker object store memory/task: " f"{worker_obj_store_mem_per_task}")
@@ -204,8 +263,11 @@ def limit_input_deltas(
                 f"{len(limited_input_da_list)} by object store mem "
                 f"({delta_bytes_pyarrow} > {worker_obj_store_mem})"
             )
-            require_multiple_rounds = True
-            break
+            # require_multiple_rounds = True
+            # break
+            print(
+                f"Input deltas is too large, {delta_bytes_pyarrow} > {worker_obj_store_mem}, ratio = {delta_bytes_pyarrow/worker_obj_store_mem}, multiplier   = {PYARROW_INFLATION_MULTIPLIER}"
+            )
         delta_annotated = DeltaAnnotated.of(delta)
         limited_input_da_list.append(delta_annotated)
 
@@ -213,6 +275,10 @@ def limit_input_deltas(
     logger.info(f"Input delta bytes to compact: {delta_bytes}")
     logger.info(f"Input delta files to compact: {delta_manifest_entries}")
     logger.info(f"Latest input delta stream position: {high_watermark}")
+    print(f"Input deltas to compact this round: " f"{len(limited_input_da_list)}")
+    print(f"Input delta bytes to compact: {delta_bytes}")
+    print(f"Input delta files to compact: {delta_manifest_entries}")
+    print(f"Latest input delta stream position: {high_watermark}")
 
     if not limited_input_da_list:
         raise RuntimeError("No input deltas to compact!")
@@ -236,6 +302,9 @@ def limit_input_deltas(
         logger.info(f"Using default hash bucket count: {hash_bucket_count}")
 
     if hash_bucket_count < min_hash_bucket_count:
+        print(
+            f"Provided hash bucket count ({hash_bucket_count}) is less than the min recommended ({min_hash_bucket_count}). This compaction job run may run out of memory, or run slowly. To resolve this problem either specify a larger number of hash buckets when running compaction, omit a custom hash bucket count when running compaction, or provision workers with more task memory"
+        )
         logger.warning(
             f"Provided hash bucket count ({hash_bucket_count}) "
             f"is less than the min recommended ({min_hash_bucket_count}). "

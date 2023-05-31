@@ -138,6 +138,7 @@ def materialize(
         manifest_cache = {}
         materialized_results: List[MaterializeResult] = []
         record_batch_tables = RecordBatchTables(max_records_per_output_file)
+        total_download_time = 0
         for src_dfl in sorted(all_src_file_records.keys()):
             record_numbers_dd_task_idx_tpl_list: List[
                 Tuple[DeltaFileLocatorToRecords, repeat]
@@ -180,6 +181,7 @@ def materialize(
                 src_file_idx_np.item(),
                 file_reader_kwargs_provider=read_kwargs_provider,
             )
+            total_download_time += download_delta_manifest_entry_time
             logger.debug(
                 f"Time taken for materialize task"
                 f" to download delta locator {delta_locator} with entry ID {src_file_idx_np.item()}"
@@ -230,4 +232,9 @@ def materialize(
                 metrics_config=metrics_config,
             )
         logger.info(f"Materialize task ended in {end - start}s")
-        return merged_materialize_result
+        return (
+            merged_materialize_result,
+            duration,
+            len(write_results),
+            total_download_time,
+        )

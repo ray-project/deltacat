@@ -4,6 +4,9 @@ from __future__ import annotations
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
 from typing import Any, Dict, Optional
+from deltacat.compute.compactor.model.primary_key_index import (
+    PrimaryKeyIndexVersionLocator,
+)
 
 
 class HighWatermark(dict):
@@ -36,16 +39,20 @@ class RoundCompletionInfo(dict):
         high_watermark: HighWatermark,
         compacted_delta_locator: DeltaLocator,
         compacted_pyarrow_write_result: PyArrowWriteResult,
+        pk_index_pyarrow_write_result: PyArrowWriteResult,
         sort_keys_bit_width: int,
         rebase_source_partition_locator: Optional[PartitionLocator],
+        primary_key_index_version_locator: Optional[PrimaryKeyIndexVersionLocator],
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
         rci["highWatermark"] = high_watermark
         rci["compactedDeltaLocator"] = compacted_delta_locator
         rci["compactedPyarrowWriteResult"] = compacted_pyarrow_write_result
+        rci["pkIndexPyarrowWriteResult"] = pk_index_pyarrow_write_result
         rci["sortKeysBitWidth"] = sort_keys_bit_width
         rci["rebaseSourcePartitionLocator"] = rebase_source_partition_locator
+        rci["primaryKeyIndexVersionLocator"] = primary_key_index_version_locator
         return rci
 
     @property
@@ -80,3 +87,19 @@ class RoundCompletionInfo(dict):
     @property
     def rebase_source_partition_locator(self) -> Optional[PartitionLocator]:
         return self.get("rebaseSourcePartitionLocator")
+
+    @property
+    def primary_key_index_version_locator(self) -> PrimaryKeyIndexVersionLocator:
+        val: Dict[str, Any] = self.get("primaryKeyIndexVersionLocator")
+        if val is not None and not isinstance(val, PrimaryKeyIndexVersionLocator):
+            self["primaryKeyIndexVersionLocator"] = val = PrimaryKeyIndexVersionLocator(
+                val
+            )
+        return val
+
+    @property
+    def pk_index_pyarrow_write_result(self) -> PyArrowWriteResult:
+        val: Dict[str, Any] = self.get("pkIndexPyarrowWriteResult")
+        if val is not None and not isinstance(val, PyArrowWriteResult):
+            self["pkIndexPyarrowWriteResult"] = val = PyArrowWriteResult(val)
+        return val

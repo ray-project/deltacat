@@ -162,6 +162,7 @@ def download_hash_bucket_entries(
         f"{pk_index_manifest_s3_url}. Primary key index version "
         f"locator: {primary_key_index_version_locator}"
     )
+    # print(f"Downloading primary key index hash bucket manifest entries: {pk_index_manifest_s3_url}")
     pk_index_manifest = Manifest(json.loads(result["Body"].read().decode("utf-8")))
     tables = s3u.download_manifest_entries(
         pk_index_manifest, file_reader_kwargs_provider=file_reader_kwargs_provider
