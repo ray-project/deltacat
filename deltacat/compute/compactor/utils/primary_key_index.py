@@ -293,6 +293,7 @@ def write_primary_key_index_files(
         get_table_writer(table),
         get_table_slicer(table),
     )
+    # print("before uploading, table schema is ", table.schema)
     manifest = Manifest.of(manifest_entries)
     pkiv_hb_index_s3_manifest_s3_url = (
         primary_key_index_version_locator.get_pkiv_hb_index_manifest_s3_url(
@@ -311,4 +312,5 @@ def write_primary_key_index_files(
         f"Primary key index version locator: "
         f"{primary_key_index_version_locator}. Result: {result}"
     )
+    # print(f"uploaded to {pkiv_hb_index_s3_manifest_s3_url}, {pkiv_hb_index_s3_url_base}")
     return result

@@ -351,6 +351,7 @@ def upload_table(
         content_type.value,
         **s3_table_writer_kwargs,
     )
+    # print(f"s3 table schema: {table.schema()}, table size {table.nbytes}")
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
     block_refs = capture_object.block_refs()

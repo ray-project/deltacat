@@ -75,6 +75,7 @@ def discover_deltas(
             print(
                 f"(Incremental) Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact}"
             )
+            print("PKI found, skip reading the delta from compacted table")
         else:
             compacted_partition = deltacat_storage.get_partition(
                 compacted_partition_locator.stream_locator,

@@ -13,6 +13,7 @@ from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from deltacat.compute.compactor.utils.system_columns import get_minimal_hb_schema
 import asyncio
 import pickle
+from itertools import repeat
 from deltacat import logs
 from deltacat.compute.compactor import (
     SortKey,
@@ -21,7 +22,7 @@ from deltacat.compute.compactor import (
     DeltaFileLocator,
 )
 from deltacat.aws.clients import resource_cache
-
+from deltacat.storage.model.types import DeltaType
 from deltacat.compute.compactor import (
     RoundCompletionInfo,
     PrimaryKeyIndexVersionLocator,
@@ -72,6 +73,10 @@ def _union_primary_key_indices(
                 schema=get_minimal_hb_schema()
             ),
         )
+        if hash_bucket_index == 0:
+            print(
+                f"before concating and appending cols. len(tables): {len(tables)}, table schema: {tables[0].schema}"
+            )
         pki_download_end_time = time.time()
         if tables:
             # prior_pk_index_table = pa.concat_tables(tables)
@@ -90,33 +95,29 @@ def _union_primary_key_indices(
                 f" {hash_bucket_index}: {prior_pk_index_table.num_rows}"
             )
             # print(f"Number of records in prior primary index for hash bucket"
-            #           f" {hash_bucket_index}: {prior_pk_index_table.num_rows}")
+            #          f" {hash_bucket_index}: {prior_pk_index_table.num_rows}")
             # print(f"before appending, prior pk index table schema\n{prior_pk_index_table.schema}")
-            # prior_pk_index_table = sc.append_stream_position_column(
-            #     prior_pk_index_table,
-            #     repeat(
-            #         prev_compacted_delta_stream_pos,
-            #         len(prior_pk_index_table),
-            #     ),
-            # )
-            # prior_pk_index_table = sc.append_delta_type_col(
-            #     prior_pk_index_table,
-            #     repeat(
-            #         sc.delta_type_to_field(DeltaType.UPSERT),
-            #         len(prior_pk_index_table),
-            #     )
-            # )
-            # prior_pk_index_table = sc.append_is_source_col(
-            #     prior_pk_index_table,
-            #     repeat(
-            #         False,
-            #         len(prior_pk_index_table),
-            #     )
-            # )
-            print(
-                f"after appending, prior pk index tabl schema:\n{prior_pk_index_table.schema}"
+            prior_pk_index_table = sc.append_stream_position_column(
+                prior_pk_index_table,
+                repeat(
+                    prev_compacted_delta_stream_pos,
+                    len(prior_pk_index_table),
+                ),
             )
-            # print(f"hb table schema: {hb_tables[0].schema}")
+            prior_pk_index_table = sc.append_delta_type_col(
+                prior_pk_index_table,
+                repeat(
+                    sc.delta_type_to_field(DeltaType.UPSERT),
+                    len(prior_pk_index_table),
+                ),
+            )
+            prior_pk_index_table = sc.append_is_source_col(
+                prior_pk_index_table,
+                repeat(
+                    False,
+                    len(prior_pk_index_table),
+                ),
+            )
             hb_tables.append(prior_pk_index_table)
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes = [d for dfe_list in df_envelopes_list for d in dfe_list]
@@ -185,14 +186,17 @@ def write_new_primary_key_index(
         f"{new_primary_key_index_version_locator}"
     )
     # TODO (pdames): move to RecordCountsPendingMaterialize.finalize()?
+    row_counts_get_start_time = time.time()
     row_counts: Dict[
         int, Dict[Tuple[np.bool_, np.int64, np.int32], Dict[int, int]]
     ] = ray.get(row_counts_ref)
+    row_counts_get_end_time = time.time()
     # print(f"dedupe_task_index: {dedupe_task_index}, length of row_counts: {len(row_counts)}")
     file_idx = 0
     prev_file_idx = 0
     dest_file_indices = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     dest_file_row_indices = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    total_pki_write = 0
     for mat_bucket in sorted(row_counts.keys()):
         mat_bucket_row_idx = 0
         sorted_src_dfls = sorted(row_counts[mat_bucket].keys())
@@ -251,7 +255,8 @@ def write_new_primary_key_index(
         )
         table = sc.append_file_idx_column(table, dest_file_idx_col)
         table = sc.append_record_idx_col(table, dest_file_row_idx_col)
-
+        # print(f"during write, table schema is {table.schema}")
+        before_write_pki = time.time()
         hb_pki_result = pki.write_primary_key_index_files(
             table,
             new_primary_key_index_version_locator,
@@ -260,14 +265,19 @@ def write_new_primary_key_index(
             max_rows_per_index_file,
         )
         pki_results.append(hb_pki_result)
-
+        after_write_pki = time.time()
+        total_pki_write += after_write_pki - before_write_pki
+    predict_end = time.time()
     result = PyArrowWriteResult.union(pki_results)
     logger.info(
         f"Wrote new deduped primary key index: "
         f"{new_primary_key_index_version_locator}. Result: {result}"
     )
+    print(
+        f"get row counts {row_counts_get_end_time-row_counts_get_start_time}, predicting pki {predict_end-row_counts_get_end_time-total_pki_write} total time spent writing pki: {total_pki_write}"
+    )
     # print(f"Wrote new deduped primary key index: "
-    #        f"{new_primary_key_index_version_locator}. Result: {result}")
+    #       f"{new_primary_key_index_version_locator}. Result: {result}")
     return result
 
 
@@ -446,10 +456,10 @@ def _timed_dedupe(
                 f"[Dedupe {dedupe_task_index}] Dedupe round input "
                 f"record count: {len(table)}, took {union_time}s"
             )
-            print(
-                f"[Dedupe {dedupe_task_index}] Dedupe round input "
-                f"record count: {len(table)}, took {union_time}s"
-            )
+            # print(
+            #     f"[Dedupe {dedupe_task_index}] Dedupe round input "
+            #     f"record count: {len(table)}, took {union_time}s"
+            # )
 
             # sort by sort keys
             if len(sort_keys):
@@ -471,9 +481,9 @@ def _timed_dedupe(
             logger.info(
                 f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
             )
-            print(
-                f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
-            )
+            # print(
+            #     f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
+            # )
             hb_table_record_count = len(table)
             table, drop_time = timed_invocation(
                 func=_drop_duplicates_by_primary_key_hash, table=table
@@ -485,47 +495,41 @@ def _timed_dedupe(
                 f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
                 f"record count: {len(table)}, took: {drop_time}s"
             )
-            print(
-                f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
-                f"record count: {len(table)}, took: {drop_time}s"
-            )
+            # print(
+            #     f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
+            #     f"record count: {len(table)}, took: {drop_time}s"
+            # )
 
             deduped_tables.append((hb_idx, table))
-            append_time = time.time()
+            # append_time = time.time()
             stream_position_col = sc.stream_position_column_np(table)
             file_idx_col = sc.file_index_column_np(table)
             row_idx_col = sc.record_index_column_np(table)
             is_source_col = sc.is_source_column_np(table)
-            append_before = time.time()
-            print(
-                f"[Dedupe task index {dedupe_task_index}] append before: {append_before-append_time}"
-            )
-            construct = 0
-            min_loop = 100000
-            max_loop = 0
+
             for row_idx in range(len(table)):
-                construct_start = time.time()
+                # construct_start = time.time()
                 src_dfl = DeltaFileLocator.of(
                     is_source_col[row_idx],
                     stream_position_col[row_idx],
                     file_idx_col[row_idx],
                 )
-                construct_end = time.time()
-                construct += construct_end - construct_start
+                # construct_end = time.time()
+                # construct += construct_end - construct_start
                 # TODO(pdames): merge contiguous record number ranges
                 src_file_id_to_row_indices[src_dfl].append(row_idx_col[row_idx])
-                append_row_end = time.time()
-                max_loop = max(max_loop, append_row_end - construct_start)
-                min_loop = min(min_loop, append_row_end - construct_start)
+                # append_row_end = time.time()
+                # max_loop = max(max_loop, append_row_end - construct_start)
+                # min_loop = min(min_loop, append_row_end - construct_start)
 
-            append_time_end = time.time()
+            # append_time_end = time.time()
             # print(f"[Dedupe task index {dedupe_task_index}] construct time: {construct}, min loop: {min_loop}, max loop: {max_loop}")
-            print(
-                f"[Dedupe task index {dedupe_task_index}] total append time: {append_time_end - append_time}, dflocator total construct time: {construct}, min loop: {min_loop}, max loop: {max_loop}"
-            )
+            # print(
+            #     f"[Dedupe task index {dedupe_task_index}] total append time: {append_time_end - append_time}, dflocator total construct time: {construct}, min loop: {min_loop}, max loop: {max_loop}"
+            # )
 
         logger.info(f"Finished all dedupe rounds...")
-        print(f"finished all dedupe rounds...")
+        # print(f"finished all dedupe rounds...")
         mat_bucket_to_src_file_record_count = defaultdict(dict)
         mat_bucket_to_src_file_records: Dict[
             MaterializeBucketIndex, DeltaFileLocatorToRecords
@@ -559,7 +563,7 @@ def _timed_dedupe(
             f"{len(mat_bucket_to_dd_idx_obj_id)}"
         )
         # Collective Reduce Operation
-        print(f"Collective Reduce Operation Started on {dedupe_task_index}")
+        # print(f"Collective Reduce Operation Started on {dedupe_task_index}")
         collective_op_start_time = time.time()
         # send partial record counts on this dedupe task to global actor
         # get a subset of the dictionary
@@ -677,7 +681,7 @@ def _timed_dedupe(
         )
 
 
-@ray.remote(num_cpus=0.5)
+@ray.remote(num_cpus=1)
 def dedupe(
     compaction_artifact_s3_bucket: str,
     round_completion_info: Optional[RoundCompletionInfo],
