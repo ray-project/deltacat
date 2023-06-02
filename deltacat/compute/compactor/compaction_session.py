@@ -214,6 +214,8 @@ def _execute_compaction_round(
     Optional[Partition], Optional[RoundCompletionInfo], Optional[str], Optional[str]
 ]:
 
+    using_pki = kwargs.get("using_pki", False)
+    print(f"using_pki: {using_pki}")
     print(f" rebase_source_partition_locator: {rebase_source_partition_locator}")
     print(f" source_partition_locator: {source_partition_locator}")
     print(f"destination_partition_locator: {destination_partition_locator}")
@@ -564,6 +566,7 @@ def _execute_compaction_round(
         signalactor=signal_handle,
         record_counts_pending_materialize=record_counts_pending_materialize,
         enable_profiler=enable_profiler,
+        using_pki=using_pki,
         metrics_config=metrics_config,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
@@ -712,15 +715,26 @@ def _execute_compaction_round(
         if round_completion_info
         else None
     )
-    new_round_completion_info = RoundCompletionInfo.of(
-        last_stream_position_compacted,
-        new_compacted_delta_locator,
-        PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
-        PyArrowWriteResult.union(pki_stats),
-        bit_width_of_sort_keys,
-        last_rebase_source_partition_locator,
-        new_pki_version_locator,
-    )
+    if using_pki:
+        new_round_completion_info = RoundCompletionInfo.of(
+            last_stream_position_compacted,
+            new_compacted_delta_locator,
+            PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
+            PyArrowWriteResult.union(pki_stats),
+            bit_width_of_sort_keys,
+            last_rebase_source_partition_locator,
+            new_pki_version_locator,
+        )
+    else:
+        new_round_completion_info = RoundCompletionInfo.of(
+            last_stream_position_compacted,
+            new_compacted_delta_locator,
+            PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
+            None,
+            bit_width_of_sort_keys,
+            last_rebase_source_partition_locator,
+            new_pki_version_locator,
+        )
     rcf_source_partition_locator = (
         rebase_source_partition_locator
         if rebase_source_partition_locator

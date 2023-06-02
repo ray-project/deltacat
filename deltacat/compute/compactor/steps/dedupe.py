@@ -62,6 +62,7 @@ def _union_primary_key_indices(
         f"{len(df_envelopes_list)} delta file envelope lists..."
     )
     hb_tables = []
+    pki_download_end_time = pki_download_start_time = 0
     if round_completion_info:
         pki_download_start_time = time.time()
         tables = pki.download_hash_bucket_entries(
@@ -410,6 +411,7 @@ def _timed_dedupe(
     record_counts_pending_materialize: List[RecordCountsPendingMaterialize],
     signalactor: SignalActor,
     enable_profiler: bool,
+    using_pki: bool,
 ):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
@@ -456,10 +458,6 @@ def _timed_dedupe(
                 f"[Dedupe {dedupe_task_index}] Dedupe round input "
                 f"record count: {len(table)}, took {union_time}s"
             )
-            # print(
-            #     f"[Dedupe {dedupe_task_index}] Dedupe round input "
-            #     f"record count: {len(table)}, took {union_time}s"
-            # )
 
             # sort by sort keys
             if len(sort_keys):
@@ -481,9 +479,7 @@ def _timed_dedupe(
             logger.info(
                 f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
             )
-            # print(
-            #     f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
-            # )
+
             hb_table_record_count = len(table)
             table, drop_time = timed_invocation(
                 func=_drop_duplicates_by_primary_key_hash, table=table
@@ -495,10 +491,6 @@ def _timed_dedupe(
                 f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
                 f"record count: {len(table)}, took: {drop_time}s"
             )
-            # print(
-            #     f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
-            #     f"record count: {len(table)}, took: {drop_time}s"
-            # )
 
             deduped_tables.append((hb_idx, table))
             # append_time = time.time()
@@ -508,25 +500,13 @@ def _timed_dedupe(
             is_source_col = sc.is_source_column_np(table)
 
             for row_idx in range(len(table)):
-                # construct_start = time.time()
                 src_dfl = DeltaFileLocator.of(
                     is_source_col[row_idx],
                     stream_position_col[row_idx],
                     file_idx_col[row_idx],
                 )
-                # construct_end = time.time()
-                # construct += construct_end - construct_start
                 # TODO(pdames): merge contiguous record number ranges
                 src_file_id_to_row_indices[src_dfl].append(row_idx_col[row_idx])
-                # append_row_end = time.time()
-                # max_loop = max(max_loop, append_row_end - construct_start)
-                # min_loop = min(min_loop, append_row_end - construct_start)
-
-            # append_time_end = time.time()
-            # print(f"[Dedupe task index {dedupe_task_index}] construct time: {construct}, min loop: {min_loop}, max loop: {max_loop}")
-            # print(
-            #     f"[Dedupe task index {dedupe_task_index}] total append time: {append_time_end - append_time}, dflocator total construct time: {construct}, min loop: {min_loop}, max loop: {max_loop}"
-            # )
 
         logger.info(f"Finished all dedupe rounds...")
         # print(f"finished all dedupe rounds...")
@@ -562,115 +542,123 @@ def _timed_dedupe(
             f"Count of materialize buckets with object refs: "
             f"{len(mat_bucket_to_dd_idx_obj_id)}"
         )
-        # Collective Reduce Operation
-        # print(f"Collective Reduce Operation Started on {dedupe_task_index}")
-        collective_op_start_time = time.time()
-        # send partial record counts on this dedupe task to global actor
-        # get a subset of the dictionary
-        number_of_nodes = len(record_counts_pending_materialize)
-        node_data = [{} for _ in range(number_of_nodes)]
-        for mat_bucket, mat_record_count in mat_bucket_to_src_file_record_count.items():
-            node_id = mat_bucket % number_of_nodes
-            node_data[node_id][mat_bucket] = mat_record_count
-        # Compare to single actor mode. This version is using number_nodes actors to merge the record counts
-        # Each actor is handle 1/number_nodes of total data from all tasks.
-        # Assuming total data is 40 GB, now the actor only needs to handle 40/128=300 MB of data assuming number_nodes = 128
-        # But the penalty is instead of launching a broadcast once, we need to conduct number_nodes broadcasts
-        # The merging is also faster now, as we essentially removed the outer loop, i.e., 'mat_bucket'
-        [
-            record_counts_pending_materialize[i].add_record_counts.remote(
-                dedupe_task_index,
-                node_data[i],
-            )
-            for i in range(number_of_nodes)
-        ]
+        get_pki_time_end = get_pki_time_start = 0
+        collective_op_end_time = collective_op_start_time = 0
+        write_pki_result_end_time = 0
+        write_pki_result = None
+        if using_pki is True:
+            # Collective Reduce Operation
+            # print(f"Collective Reduce Operation Started on {dedupe_task_index}")
+            collective_op_start_time = time.time()
+            # send partial record counts on this dedupe task to global actor
+            # get a subset of the dictionary
+            number_of_nodes = len(record_counts_pending_materialize)
+            node_data = [{} for _ in range(number_of_nodes)]
+            for (
+                mat_bucket,
+                mat_record_count,
+            ) in mat_bucket_to_src_file_record_count.items():
+                node_id = mat_bucket % number_of_nodes
+                node_data[node_id][mat_bucket] = mat_record_count
+            # Compare to single actor mode. This version is using number_nodes actors to merge the record counts
+            # Each actor is handle 1/number_nodes of total data from all tasks.
+            # Assuming total data is 40 GB, now the actor only needs to handle 40/128=300 MB of data assuming number_nodes = 128
+            # But the penalty is instead of launching a broadcast once, we need to conduct number_nodes broadcasts
+            # The merging is also faster now, as we essentially removed the outer loop, i.e., 'mat_bucket'
+            [
+                record_counts_pending_materialize[i].add_record_counts.remote(
+                    dedupe_task_index,
+                    node_data[i],
+                )
+                for i in range(number_of_nodes)
+            ]
 
-        # reduce all record counts and pull the final record_counts
-        record_start = time.time()
-        finalized = False
-        while not finalized:
-            finalized = all(
-                ray.get(
+            # reduce all record counts and pull the final record_counts
+            record_start = time.time()
+            finalized = False
+            while not finalized:
+                finalized = all(
+                    ray.get(
+                        [
+                            record_counts_pending_materialize[i].is_finalized.remote()
+                            for i in range(number_of_nodes)
+                        ]
+                    )
+                )
+                time.sleep(5)
+            # Now each node has a complete version of the record_counts, that belongs to a specific mat bucket or buckets
+            # e.g., node 0 has all the record counts for mat buckets 0, 4, 8, 12, etc.
+            # node 1 has all the record counts for mat buckets 1, 5, 9, 13, etc.
+            record_end = time.time()
+            # delegate one task to control actor group activies: upload to s3 and download from s3 (or all to all via network)
+            # all other tasks should wait for the final record_counts to be local on each node
+            if dedupe_task_index == 0:
+                print(f"add_record_counts: {(record_end-record_start):.2f} seconds")
+                # ask one task to trigger the parallel upload
+                upload_start = time.time()
+                part_record_length_on_actor = ray.get(
                     [
-                        record_counts_pending_materialize[i].is_finalized.remote()
+                        record_counts_pending_materialize[i].to_s3.remote(
+                            "benchmark-recordcounts", f"record_counts_{i}", "us-east-1"
+                        )
                         for i in range(number_of_nodes)
                     ]
                 )
-            )
-            time.sleep(5)
-        # Now each node has a complete version of the record_counts, that belongs to a specific mat bucket or buckets
-        # e.g., node 0 has all the record counts for mat buckets 0, 4, 8, 12, etc.
-        # node 1 has all the record counts for mat buckets 1, 5, 9, 13, etc.
-        record_end = time.time()
-        # delegate one task to control actor group activies: upload to s3 and download from s3 (or all to all via network)
-        # all other tasks should wait for the final record_counts to be local on each node
-        if dedupe_task_index == 0:
-            print(f"add_record_counts: {(record_end-record_start):.2f} seconds")
-            # ask one task to trigger the parallel upload
-            upload_start = time.time()
-            part_record_length_on_actor = ray.get(
-                [
-                    record_counts_pending_materialize[i].to_s3.remote(
-                        "benchmark-recordcounts", f"record_counts_{i}", "us-east-1"
-                    )
-                    for i in range(number_of_nodes)
-                ]
-            )
-            upload_end = time.time()
-            print(f"upload to s3: {(upload_end-upload_start):.2f} seconds")
-            # print(f"part record length on each actor {part_record_length_on_actor}")
-            rc_keys = ["record_counts_" + str(i) for i in range(number_of_nodes)]
-            record_length_on_actor = ray.get(
-                [
-                    record_counts_pending_materialize[i].from_s3.remote(
-                        "benchmark-recordcounts", rc_keys, "us-east-1"
-                    )
-                    for i in range(number_of_nodes)
-                ]
-            )
-            download_end = time.time()
-            print(f"download from s3: {(download_end-upload_end):.2f} seconds")
-            # print(f"final record length on each actor should be same {record_length_on_actor}")
-            assert all(
-                element == record_length_on_actor[0]
-                for element in record_length_on_actor
-            ), "Not all elements are the same."
-            assert (
-                sum(part_record_length_on_actor) == record_length_on_actor[0]
-            ), "sum of record counts on all actors not equal to final merged record counts"
-            # broadcast the complete signal to all tasks
-            print("broadcast complete signal to all tasks")
-            ray.get(signalactor.send.remote())
+                upload_end = time.time()
+                print(f"upload to s3: {(upload_end-upload_start):.2f} seconds")
+                # print(f"part record length on each actor {part_record_length_on_actor}")
+                rc_keys = ["record_counts_" + str(i) for i in range(number_of_nodes)]
+                record_length_on_actor = ray.get(
+                    [
+                        record_counts_pending_materialize[i].from_s3.remote(
+                            "benchmark-recordcounts", rc_keys, "us-east-1"
+                        )
+                        for i in range(number_of_nodes)
+                    ]
+                )
+                download_end = time.time()
+                print(f"download from s3: {(download_end-upload_end):.2f} seconds")
+                # print(f"final record length on each actor should be same {record_length_on_actor}")
+                assert all(
+                    element == record_length_on_actor[0]
+                    for element in record_length_on_actor
+                ), "Not all elements are the same."
+                assert (
+                    sum(part_record_length_on_actor) == record_length_on_actor[0]
+                ), "sum of record counts on all actors not equal to final merged record counts"
+                # broadcast the complete signal to all tasks
+                print("broadcast complete signal to all tasks")
+                ray.get(signalactor.send.remote())
 
-        # sync all tasks by waiting for delegated task completion signal
-        ray.get(signalactor.wait.remote())
-        # get record_counts ref in node-local actor
-        record_count_ref = ray.get(
-            record_counts_pending_materialize[
-                dedupe_task_index % number_of_nodes
-            ].get_record_counts.remote()
-        )
-        # get record_counts from node-local object_store
-        # record_counts = ray.get(record_count_ref)
-        collective_op_end_time = time.time()
+            # sync all tasks by waiting for delegated task completion signal
+            ray.get(signalactor.wait.remote())
+            # get record_counts ref in node-local actor
+            record_count_ref = ray.get(
+                record_counts_pending_materialize[
+                    dedupe_task_index % number_of_nodes
+                ].get_record_counts.remote()
+            )
+            # get record_counts from node-local object_store
+            # record_counts = ray.get(record_count_ref)
+            collective_op_end_time = time.time()
 
-        write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
-            compaction_artifact_s3_bucket,
-            new_primary_key_index_version_locator,
-            max_records_per_index_file,
-            max_records_per_materialized_file,
-            num_materialize_buckets,
-            dedupe_task_index,
-            deduped_tables,
-            record_count_ref,
-        )
-        write_pki_result_end_time = time.time()
-
-        if delete_old_primary_key_index:
-            pki.delete_primary_key_index_version(
+            write_pki_result: PyArrowWriteResult = write_new_primary_key_index(
                 compaction_artifact_s3_bucket,
-                round_completion_info.primary_key_index_version_locator,
+                new_primary_key_index_version_locator,
+                max_records_per_index_file,
+                max_records_per_materialized_file,
+                num_materialize_buckets,
+                dedupe_task_index,
+                deduped_tables,
+                record_count_ref,
             )
+            write_pki_result_end_time = time.time()
+
+            if delete_old_primary_key_index:
+                pki.delete_primary_key_index_version(
+                    compaction_artifact_s3_bucket,
+                    round_completion_info.primary_key_index_version_locator,
+                )
         return DedupeResult(
             mat_bucket_to_dd_idx_obj_id,
             write_pki_result,
@@ -696,6 +684,7 @@ def dedupe(
     record_counts_pending_materialize: List[RecordCountsPendingMaterialize],
     signalactor: SignalActor,
     enable_profiler: bool,
+    using_pki: bool,
     metrics_config: MetricsConfig,
 ) -> DedupeResult:
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
@@ -714,6 +703,7 @@ def dedupe(
         record_counts_pending_materialize=record_counts_pending_materialize,
         signalactor=signalactor,
         enable_profiler=enable_profiler,
+        using_pki=using_pki,
     )
     if metrics_config:
         emit_timer_metrics(
