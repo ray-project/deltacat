@@ -29,7 +29,7 @@ def _timed_repartition(
     annotated_delta: DeltaAnnotated,
     column: str,
     filter_value: Any,
-    detination_partition: Partition,
+    destination_partition: Partition,
     enable_profiler: bool,
     read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
@@ -63,12 +63,12 @@ def _timed_repartition(
         hot_table = pa.concat_tables(hot_tables)
         cold_delta = deltacat_storage.stage_delta(
             cold_table,
-            detination_partition,
+            destination_partition,
             content_type=ContentType.PARQUET,
         )
         hot_delta = deltacat_storage.stage_delta(
             hot_table,
-            detination_partition,
+            destination_partition,
             content_type=ContentType.PARQUET,
         )
         assert (
@@ -85,7 +85,7 @@ def repartition(
     annotated_delta: DeltaAnnotated,
     column: str,
     filter_value: Any,
-    detination_partition: Partition,
+    destination_partition: Partition,
     enable_profiler: bool,
     metrics_config: MetricsConfig,
     read_kwargs_provider: Optional[ReadKwargsProvider],
@@ -97,7 +97,7 @@ def repartition(
         annotated_delta=annotated_delta,
         column=column,
         filter_value=filter_value,
-        detination_partition=detination_partition,
+        destination_partition=destination_partition,
         enable_profiler=enable_profiler,
         read_kwargs_provider=read_kwargs_provider,
         deltacat_storage=deltacat_storage,
