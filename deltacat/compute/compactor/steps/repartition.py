@@ -99,6 +99,7 @@ def _timed_repartition(
                 range_deltas=range_deltas,
             )
     else:
+        # Other repartition types, e.g., hash, key, list, column, etc are not supported yet
         raise NotImplementedError(
             f"Repartition type {repartition_type} is not supported."
         )
