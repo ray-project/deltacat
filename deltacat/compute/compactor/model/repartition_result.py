@@ -1,6 +1,6 @@
 from typing import NamedTuple, List
-from deltacat.compute.compactor import DeltaAnnotated
+from deltacat.storage import Delta
 
 
 class RePartitionResult(NamedTuple):
-    range_deltas: List[DeltaAnnotated]
+    range_deltas: List[Delta]

@@ -18,6 +18,7 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.storage import Delta
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -78,7 +79,7 @@ def _timed_repartition(
             # iterate the items in partitioned_tables, concat all tables for the same key
             # and then write the result to the storage
             range_table_length = 0
-            range_deltas: List[DeltaAnnotated] = []
+            range_deltas: List[Delta] = []
             for _, value in partitioned_tables.items():
                 if len(value) > 0:
                     range_table = pa.concat_tables(value)
@@ -93,7 +94,7 @@ def _timed_repartition(
 
             assert (
                 range_table_length == total_record_count
-            ), "Repartitioned table should have the same number of records as the original table"
+            ), f"Repartitioned table should have the same number of records {range_table_length} as the original table {total_record_count}"
             return RePartitionResult(
                 range_deltas=range_deltas,
             )

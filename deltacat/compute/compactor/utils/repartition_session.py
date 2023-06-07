@@ -125,14 +125,15 @@ def repartition(
     )
     logger.info(f"Getting {len(repar_tasks_pending)} task results...")
     repar_results: List[RePartitionResult] = ray.get(repar_tasks_pending)
+    repar_results: List[Delta] = [rp.range_deltas for rp in repar_results]
     # Transpose the list, filling in with None for shorter lists
     transposed = list(itertools.zip_longest(*repar_results, fillvalue=None))
     # Flatten the list and remove None values
-    ordered_deltas: List[DeltaAnnotated] = [
+    ordered_deltas: List[Delta] = [
         i for sublist in transposed for i in sublist if i is not None
     ]
     repar_end = time.time()
-    print(f"repartition {repar_end - repar_start} seconds")
+    logger.info(f"repartition {repar_end - repar_start} seconds")
 
     logger.info(f"Got {len(ordered_deltas)} task results.")
     # ordered_deltas are ordered as [cold1, cold2, coldN, hot1, hot2, hotN]
@@ -142,7 +143,6 @@ def repartition(
     )
     deltacat_storage.commit_partition(partition)
     logger.info(f"Committed final delta: {compacted_delta}")
-    print(f"Job run completed successfully!")
     logger.info(f"Job run completed successfully!")
 
     new_compacted_delta_locator = DeltaLocator.of(
