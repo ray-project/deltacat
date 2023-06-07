@@ -3,7 +3,6 @@ import time
 import logging
 from deltacat import logs
 from deltacat.utils.common import ReadKwargsProvider
-import sungate as sg
 import functools
 import itertools
 from deltacat.compute.compactor import (
@@ -26,10 +25,10 @@ from deltacat.storage import (
     Delta,
     DeltaLocator,
     PartitionLocator,
+    interface as unimplemented_deltacat_storage,
 )
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-deltacat_storage = sg.andes
 
 
 def repartition(
@@ -45,6 +44,7 @@ def repartition(
     pg_config: Optional[PlacementGroupConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
 
@@ -126,9 +126,7 @@ def repartition(
     logger.info(f"Getting {len(repar_tasks_pending)} task results...")
     repar_results: List[RePartitionResult] = ray.get(repar_tasks_pending)
     repar_results: List[Delta] = [rp.range_deltas for rp in repar_results]
-    # Transpose the list, filling in with None for shorter lists
     transposed = list(itertools.zip_longest(*repar_results, fillvalue=None))
-    # Flatten the list and remove None values
     ordered_deltas: List[Delta] = [
         i for sublist in transposed for i in sublist if i is not None
     ]
@@ -144,7 +142,6 @@ def repartition(
     deltacat_storage.commit_partition(partition)
     logger.info(f"Committed final delta: {compacted_delta}")
     logger.info(f"Job run completed successfully!")
-
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
