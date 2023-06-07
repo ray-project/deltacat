@@ -92,7 +92,7 @@ def _timed_repartition(
                         range_deltas.append(range_delta)
 
             assert (
-                range == total_record_count
+                range_table_length == total_record_count
             ), "Repartitioned table should have the same number of records as the original table"
             return RePartitionResult(
                 range_deltas=range_deltas,
