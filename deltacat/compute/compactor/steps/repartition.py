@@ -76,8 +76,6 @@ def _timed_repartition(
                             )
                         )
             # TODO(rootliu) set optimal or max number of records per file to defer the performance degradation due to too many small files
-            # iterate the items in partitioned_tables, concat all tables for the same key
-            # and then write the result to the storage
             range_table_length = 0
             range_deltas: List[Delta] = []
             for _, value in partitioned_tables.items():
