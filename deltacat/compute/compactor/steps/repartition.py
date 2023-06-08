@@ -26,11 +26,19 @@ if importlib.util.find_spec("memray"):
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+# Similar to Spark (https://sparkbyexamples.com/spark/spark-partitioning-understanding/), where
+# partition helps in localizing the data and reduce the data shuffling across the network nodes reducing network latency
+# which is a major component of the transformation operation thereby reducing the time of completion.
+# Deltacat with Ray can support different partitioning strategies to reduce the data movement either across network or between compute and storage
+# Note that the term partition here is different from the term used in catalog
+# Type of Partition:
+# Range Partition: It assigns rows to partitions based on column values falling within a given range, e.g., repartition(column="last_updated", ranges=['2023-01-01', '2023-02-01', '2023-03-01']), data will be split into 4 files
+# Hash Partition: Hash Partitioning attempts to spread the data evenly across various partitions based on the key, e.g., repartition(column="last_updated", num_partitions=10), data will be split into 10 files evenly
+
 
 class RepartitionType(str, Enum):
     RANGE = "range"
     HASH = "hash"
-    COLUMN = "none"
 
 
 def _timed_repartition(
@@ -45,10 +53,6 @@ def _timed_repartition(
 ) -> RepartitionResult:
 
     if repartition_type == RepartitionType.RANGE:
-        # A delta that is partitioned by range is partitioned in such a way
-        # that each partition contains rows for which the partitioning expression value lies within a given range for a specified column.
-        # For example, if the partitioning column is "date", the partition ranges are "2020-01-01" to "2020-01-10" and "2020-01-11" to "2020-01-20".
-        # The partitioned delta will have two partitions, one for each range.
         column: str = repartition_args["column"]
         partition_ranges: List = repartition_args["ranges"]
         task_id = get_current_ray_task_id()
@@ -64,8 +68,8 @@ def _timed_repartition(
             # check if the column exists in the table
             if not all(column in table.column_names for table in tables):
                 raise ValueError(f"Column {column} does not exist in the table")
-
-            partitioned_tables = [[] for _ in range(len(partition_ranges) + 1)]
+            # given a range [x, y, z], we need to split the table into 4 files, i.e., (-inf, x], (x, y], (y, z], (z, inf)
+            partitioned_tables_list = [[] for _ in range(len(partition_ranges) + 1)]
             total_record_count = 0
             col_name_int64 = f"{column}_int64"
             for table in tables:
@@ -76,7 +80,7 @@ def _timed_repartition(
                     pc.cast(table[column], pa.int64()),
                 )
                 # handle the partition for values less than or equal to the smallest value
-                partitioned_tables[0].append(
+                partitioned_tables_list[0].append(
                     table_new.filter(
                         pc.field(col_name_int64) <= pc.scalar(partition_ranges[0])
                     )
@@ -86,43 +90,42 @@ def _timed_repartition(
                     zip(partition_ranges[:-1], partition_ranges[1:]), start=1
                 ):
                     # Add the table filtered by the lower and upper limits to partitioned_tables
-                    partitioned_tables[i].append(
+                    partitioned_tables_list[i].append(
                         table_new.filter(
                             (pc.field(col_name_int64) > pc.scalar(lower_limit))
                             & (pc.field(col_name_int64) <= pc.scalar(upper_limit))
                         )
                     )
                 # handle the partition for values greater than the largest value
-                partitioned_tables[-1].append(
+                partitioned_tables_list[-1].append(
                     table_new.filter(
                         pc.field(col_name_int64) > pc.scalar(partition_ranges[-1])
                     )
                 )
 
             # TODO(rootliu) set optimal or max number of records per file to defer the performance degradation due to too many small files
-            range_table_length = 0
+            partition_table_length = 0
             # After re-grouping the tables by specified ranges, for each group, we need concat and stage the tables
-            range_deltas: List[Delta] = []
-            for _, value in partitioned_tables.items():
-                if len(value) > 0:
-                    range_table = pa.concat_tables(value)
-                    if len(range_table) > 0:
-                        range_table_length += len(range_table)
-                        range_delta = deltacat_storage.stage_delta(
-                            range_table,
+            partition_deltas: List[Delta] = []
+            for partition_tables in partitioned_tables_list:
+                if len(partition_tables) > 0:
+                    partition_table = pa.concat_tables(partition_tables)
+                    if len(partition_table) > 0:
+                        partition_table_length += len(partition_table)
+                        partition_delta = deltacat_storage.stage_delta(
+                            partition_table,
                             destination_partition,
                             content_type=repartitioned_file_content_type,
                         )
-                        range_deltas.append(range_delta)
+                        partition_deltas.append(partition_delta)
 
             assert (
-                range_table_length == total_record_count
-            ), f"Repartitioned table should have the same number of records {range_table_length} as the original table {total_record_count}"
+                partition_table_length == total_record_count
+            ), f"Repartitioned table should have the same number of records {partition_table_length} as the original table {total_record_count}"
             return RepartitionResult(
-                range_deltas=range_deltas,
+                range_deltas=partition_deltas,
             )
     else:
-        # Other repartition types, e.g., hash, key, list, column, etc are not supported yet
         raise NotImplementedError(
             f"Repartition type {repartition_type} is not supported."
         )
