@@ -2,5 +2,5 @@ from typing import NamedTuple, List
 from deltacat.storage import Delta
 
 
-class RePartitionResult(NamedTuple):
+class RepartitionResult(NamedTuple):
     range_deltas: List[Delta]
