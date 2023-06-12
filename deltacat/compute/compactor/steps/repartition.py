@@ -26,14 +26,16 @@ if importlib.util.find_spec("memray"):
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-# Similar to Spark (https://sparkbyexamples.com/spark/spark-partitioning-understanding/), where
-# partition helps in localizing the data and reduce the data shuffling across the network nodes reducing network latency
-# which is a major component of the transformation operation thereby reducing the time of completion.
-# Deltacat with Ray can support different partitioning strategies to reduce the data movement either across network or between compute and storage
-# Note that the term partition here is different from the term used in catalog
-# Type of Partition:
-# Range Partition: It assigns rows to partitions based on column values falling within a given range, e.g., repartition(column="last_updated", ranges=['2023-01-01', '2023-02-01', '2023-03-01']), data will be split into 4 files
-# Hash Partition: Hash Partitioning attempts to spread the data evenly across various partitions based on the key, e.g., repartition(column="last_updated", num_partitions=10), data will be split into 10 files evenly
+"""
+Similar to Spark (https://sparkbyexamples.com/spark/spark-partitioning-understanding/), where
+partition helps in localizing the data and reduce the data shuffling across the network nodes reducing network latency
+which is a major component of the transformation operation thereby reducing the time of completion.
+Deltacat with Ray can support different partitioning strategies to reduce the data movement either across network or between compute and storage
+Note that the term partition here is different from the term used in catalog
+Type of Partition:
+Range Partition: It assigns rows to partitions based on column values falling within a given range, e.g., repartition(column="last_updated", ranges=['2023-01-01', '2023-02-01', '2023-03-01']), data will be split into 4 files
+Hash Partition: Hash Partitioning attempts to spread the data evenly across various partitions based on the key, e.g., repartition(column="last_updated", num_partitions=10), data will be split into 10 files evenly
+"""
 
 
 class RepartitionType(str, Enum):
@@ -41,11 +43,19 @@ class RepartitionType(str, Enum):
     HASH = "hash"
 
 
+def generate_unique_name(base_name, existing_names):
+    counter = 1
+    while base_name + str(counter) in existing_names:
+        counter += 1
+    return base_name + str(counter)
+
+
 def _timed_repartition(
     annotated_delta: DeltaAnnotated,
+    destination_partition: Partition,
     repartition_type: RepartitionType,
     repartition_args: dict,
-    destination_partition: Partition,
+    max_records_per_output_file: int,
     enable_profiler: bool,
     read_kwargs_provider: Optional[ReadKwargsProvider],
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
@@ -69,9 +79,13 @@ def _timed_repartition(
             if not all(column in table.column_names for table in tables):
                 raise ValueError(f"Column {column} does not exist in the table")
             # given a range [x, y, z], we need to split the table into 4 files, i.e., (-inf, x], (x, y], (y, z], (z, inf)
+            partition_ranges.sort()
             partitioned_tables_list = [[] for _ in range(len(partition_ranges) + 1)]
             total_record_count = 0
             col_name_int64 = f"{column}_int64"
+            col_name_int64 = generate_unique_name(
+                col_name_int64, tables[0].schema.names
+            )
             for table in tables:
                 total_record_count += len(table)
                 table_new = table.add_column(
@@ -79,31 +93,20 @@ def _timed_repartition(
                     pa.field(col_name_int64, pa.int64()),
                     pc.cast(table[column], pa.int64()),
                 )
-                # handle the partition for values less than or equal to the smallest value
-                partitioned_tables_list[0].append(
-                    table_new.filter(
-                        pc.field(col_name_int64) <= pc.scalar(partition_ranges[0])
-                    )
-                )
+                # Adjust the partition ranges to include -Inf and +Inf
+                partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
+
                 # Iterate over pairs of values in partition_ranges
                 for i, (lower_limit, upper_limit) in enumerate(
-                    zip(partition_ranges[:-1], partition_ranges[1:]), start=1
+                    zip(partition_ranges[:-1], partition_ranges[1:]), start=0
                 ):
-                    # Add the table filtered by the lower and upper limits to partitioned_tables
+                    # Add the table filtered by the lower and upper limits to partitioned_tables_list
                     partitioned_tables_list[i].append(
                         table_new.filter(
                             (pc.field(col_name_int64) > pc.scalar(lower_limit))
                             & (pc.field(col_name_int64) <= pc.scalar(upper_limit))
                         )
                     )
-                # handle the partition for values greater than the largest value
-                partitioned_tables_list[-1].append(
-                    table_new.filter(
-                        pc.field(col_name_int64) > pc.scalar(partition_ranges[-1])
-                    )
-                )
-
-            # TODO(rootliu) set optimal or max number of records per file to defer the performance degradation due to too many small files
             partition_table_length = 0
             # After re-grouping the tables by specified ranges, for each group, we need concat and stage the tables
             partition_deltas: List[Delta] = []
@@ -115,6 +118,7 @@ def _timed_repartition(
                         partition_delta = deltacat_storage.stage_delta(
                             partition_table,
                             destination_partition,
+                            max_records_per_entry=max_records_per_output_file,
                             content_type=repartitioned_file_content_type,
                         )
                         partition_deltas.append(partition_delta)
@@ -137,6 +141,7 @@ def repartition(
     destination_partition: Partition,
     repartition_type: RepartitionType,
     repartition_args: dict,
+    max_records_per_output_file: int,
     enable_profiler: bool,
     metrics_config: Optional[MetricsConfig],
     read_kwargs_provider: Optional[ReadKwargsProvider],
@@ -147,9 +152,10 @@ def repartition(
     repartition_result, duration = timed_invocation(
         func=_timed_repartition,
         annotated_delta=annotated_delta,
+        destination_partition=destination_partition,
         repartition_type=repartition_type,
         repartition_args=repartition_args,
-        destination_partition=destination_partition,
+        max_records_per_output_file=max_records_per_output_file,
         enable_profiler=enable_profiler,
         read_kwargs_provider=read_kwargs_provider,
         repartitioned_file_content_type=repartitioned_file_content_type,
