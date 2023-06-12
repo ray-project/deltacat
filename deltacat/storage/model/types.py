@@ -9,7 +9,8 @@ from ray.data.dataset import Dataset
 
 LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray]
 LocalDataset = List[LocalTable]
-DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
+# DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
+DistributedDataset = Union[Dataset[ArrowRow], Dataset[np.ndarray], Dataset[Any]]
 
 
 class DeltaType(str, Enum):
