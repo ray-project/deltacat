@@ -75,6 +75,7 @@ def _timed_repartition(
                 storage_type=StorageType.LOCAL,
                 file_reader_kwargs_provider=read_kwargs_provider,
             )
+            # TODO: (rootliu) design a better way to handle the case when the column does not exist in the table, e.g., backfill + repartition by stream position
             # check if the column exists in the table
             if not all(column in table.column_names for table in tables):
                 raise ValueError(f"Column {column} does not exist in the table")

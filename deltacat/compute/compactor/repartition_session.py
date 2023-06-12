@@ -35,6 +35,7 @@ from deltacat.utils.metrics import MetricsConfig
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+# TODO:(rootliu) move this repartition function to a separate module under compute
 def repartition(
     source_partition_locator: PartitionLocator,
     destination_partition_locator: PartitionLocator,
@@ -49,6 +50,7 @@ def repartition(
     min_file_count: int = 1000,
     min_delta_bytes: int = 200 * 2**20,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
+    enable_profiler: bool = False,
     metrics_config: Optional[MetricsConfig] = None,
     pg_config: Optional[PlacementGroupConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
@@ -126,7 +128,7 @@ def repartition(
         repartition_args=repartition_args,
         max_records_per_output_file=records_per_repartitioned_file,
         destination_partition=partition,
-        enable_profiler=False,
+        enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
         repartitioned_file_content_type=repartitioned_file_content_type,
