@@ -16,8 +16,8 @@ ray_version = pkg_resources.parse_version(pkg_resources.get_distribution("ray").
 change_version = pkg_resources.parse_version("2.5.0")
 if ray_version < change_version:
     DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
-else:  # This is the new definition
-    DistributedDataset = Dataset  # Adjust this based on how you want to use Dataset
+else:
+    DistributedDataset = Dataset
 
 
 class DeltaType(str, Enum):
