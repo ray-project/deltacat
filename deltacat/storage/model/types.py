@@ -1,16 +1,17 @@
 from enum import Enum
-from typing import Any, List, Union
+from typing import List, Union
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from ray.data._internal.arrow_block import ArrowRow
+
+# from ray.data._internal.arrow_block import ArrowRow
 from ray.data.dataset import Dataset
 
 LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray]
 LocalDataset = List[LocalTable]
 # DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
-DistributedDataset = Union[Dataset[ArrowRow], Dataset[np.ndarray], Dataset[Any]]
+DistributedDataset = Dataset
 
 
 class DeltaType(str, Enum):
