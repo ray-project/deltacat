@@ -81,7 +81,8 @@ def _timed_repartition(
                 raise ValueError(f"Column {column} does not exist in the table")
             # given a range [x, y, z], we need to split the table into 4 files, i.e., (-inf, x], (x, y], (y, z], (z, inf)
             partition_ranges.sort()
-            partitioned_tables_list = [[] for _ in range(len(partition_ranges) + 1)]
+            partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
+            partitioned_tables_list = [[] for _ in range(len(partition_ranges) - 1)]
             total_record_count = 0
             col_name_int64 = f"{column}_int64"
             col_name_int64 = generate_unique_name(
@@ -94,9 +95,6 @@ def _timed_repartition(
                     pa.field(col_name_int64, pa.int64()),
                     pc.cast(table[column], pa.int64()),
                 )
-                # Adjust the partition ranges to include -Inf and +Inf
-                partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
-
                 # Iterate over pairs of values in partition_ranges
                 for i, (lower_limit, upper_limit) in enumerate(
                     zip(partition_ranges[:-1], partition_ranges[1:]), start=0
