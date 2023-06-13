@@ -38,6 +38,7 @@ class RoundCompletionInfo(dict):
         compacted_pyarrow_write_result: PyArrowWriteResult,
         sort_keys_bit_width: int,
         rebase_source_partition_locator: Optional[PartitionLocator],
+        manifest_entry_copied_by_reference_ratio: Optional[float] = None,
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -46,6 +47,9 @@ class RoundCompletionInfo(dict):
         rci["compactedPyarrowWriteResult"] = compacted_pyarrow_write_result
         rci["sortKeysBitWidth"] = sort_keys_bit_width
         rci["rebaseSourcePartitionLocator"] = rebase_source_partition_locator
+        rci[
+            "manifestEntryCopiedByReferenceRatio"
+        ] = manifest_entry_copied_by_reference_ratio
         return rci
 
     @property
@@ -80,3 +84,7 @@ class RoundCompletionInfo(dict):
     @property
     def rebase_source_partition_locator(self) -> Optional[PartitionLocator]:
         return self.get("rebaseSourcePartitionLocator")
+
+    @property
+    def manifest_entry_copied_by_reference_ratio(self) -> Optional[float]:
+        return self["manifestEntryCopiedByReferenceRatio"]
