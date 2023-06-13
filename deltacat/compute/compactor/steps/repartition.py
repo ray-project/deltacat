@@ -61,12 +61,14 @@ def repartition_range(
     column: str = repartition_args["column"]
     partition_ranges: List = repartition_args["ranges"]
     # check if the column exists in the table
-    # TODO: (rootliu) design a better way to handle the case when the column does not exist in the table, e.g., backfill + repartition by stream position
+    # TODO: (rootliu) design a better way to handle the case when the column does not exist in the table, e.g., backfill + repartition by stream position + file id
     if not all(column in table.column_names for table in tables):
         raise ValueError(f"Column {column} does not exist in the table")
     # given a range [x, y, z], we need to split the table into 4 files, i.e., (-inf, x], (x, y], (y, z], (z, inf)
     partition_ranges.sort()
-    partitioned_tables_list = [[] for _ in range(len(partition_ranges) + 1)]
+    partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
+    partitioned_tables_list = [[] for _ in range(len(partition_ranges) - 1)]
+
     total_record_count = 0
     col_name_int64 = f"{column}_int64"
     col_name_int64 = generate_unique_name(col_name_int64, tables[0].schema.names)
@@ -77,9 +79,6 @@ def repartition_range(
             pa.field(col_name_int64, pa.int64()),
             pc.cast(table[column], pa.int64()),
         )
-        # Adjust the partition ranges to include -Inf and +Inf
-        partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
-
         # Iterate over pairs of values in partition_ranges
         for i, (lower_limit, upper_limit) in enumerate(
             zip(partition_ranges[:-1], partition_ranges[1:]), start=0
