@@ -60,6 +60,8 @@ def repartition_range(
 ):
     column: str = repartition_args["column"]
     partition_ranges: List = repartition_args["ranges"]
+    if len(partition_ranges) == 0:
+        raise ValueError("No partition ranges specified")
     # check if the column exists in the table
     # TODO: (rootliu) design a better way to handle the case when the column does not exist in the table, e.g., backfill + repartition by stream position + file id
     if not all(column in table.column_names for table in tables):
