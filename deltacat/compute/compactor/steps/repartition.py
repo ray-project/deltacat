@@ -76,6 +76,8 @@ def repartition_range(
 
     Returns:
         RepartitionResult: Contains a list of the stored deltas for each partition range.
+    Examples:
+        repartition_args['ranges']= [x, y, z], The tables will be repartitioned into 4 files, i.e., (-inf, x], (x, y], (y, z], (z, inf)
 
     Note:
         The function assumes that the tables all share the same schema. If the column to partition on does not exist
@@ -90,7 +92,6 @@ def repartition_range(
     # TODO: design a better way to handle the case when the column does not exist in the table, e.g., backfill + repartition by stream position + file id
     if not all(column in table.column_names for table in tables):
         raise ValueError(f"Column {column} does not exist in the table")
-    # given a range [x, y, z], we need to split the table into 4 files, i.e., (-inf, x], (x, y], (y, z], (z, inf)
     partition_ranges.sort()
     partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
     partitioned_tables_list = [[] for _ in range(len(partition_ranges) - 1)]
