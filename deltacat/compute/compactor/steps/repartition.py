@@ -58,12 +58,36 @@ def repartition_range(
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
 ):
+    """
+    Repartitions a list of Arrow tables based on specified ranges and stores the repartitioned tables.
+
+    Args:
+        tables (List[pa.Table]): List of tables to be repartitioned.
+        destination_partition (Partition): The partition to store the repartitioned tables.
+        repartition_args (dict): Arguments for repartitioning. Must include a "column" key for the column to partition
+                                 on and a "ranges" key for a list of partition range values.
+        max_records_per_output_file (int): Maximum number of records per output file.
+        repartitioned_file_content_type (ContentType, optional): The content type of the repartitioned files.
+                                Defaults to ContentType.PARQUET.
+        deltacat_storage (unimplemented): Storage where to put the repartitioned data.
+
+    Raises:
+        ValueError: If no partition ranges are specified or if the column to partition on does not exist in the tables.
+
+    Returns:
+        RepartitionResult: Contains a list of the stored deltas for each partition range.
+
+    Note:
+        The function assumes that the tables all share the same schema. If the column to partition on does not exist
+        in the tables, an error will be raised. For each partition range, a new file is created. This could result in
+        more output files than input files.
+    """
     column: str = repartition_args["column"]
     partition_ranges: List = repartition_args["ranges"]
     if len(partition_ranges) == 0:
         raise ValueError("No partition ranges specified")
     # check if the column exists in the table
-    # TODO: (rootliu) design a better way to handle the case when the column does not exist in the table, e.g., backfill + repartition by stream position + file id
+    # TODO: design a better way to handle the case when the column does not exist in the table, e.g., backfill + repartition by stream position + file id
     if not all(column in table.column_names for table in tables):
         raise ValueError(f"Column {column} does not exist in the table")
     # given a range [x, y, z], we need to split the table into 4 files, i.e., (-inf, x], (x, y], (y, z], (z, inf)
@@ -97,10 +121,10 @@ def repartition_range(
     partition_deltas: List[Delta] = []
     for partition_tables in partitioned_tables_list:
         if len(partition_tables) > 0:
-            partition_table = pa.concat_tables(partition_tables)
+            partition_table: pa.Table = pa.concat_tables(partition_tables)
             if len(partition_table) > 0:
                 partition_table_length += len(partition_table)
-                partition_delta = deltacat_storage.stage_delta(
+                partition_delta: Delta = deltacat_storage.stage_delta(
                     partition_table,
                     destination_partition,
                     max_records_per_entry=max_records_per_output_file,
