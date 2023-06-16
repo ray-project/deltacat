@@ -1,7 +1,11 @@
 import logging
 import math
 from deltacat.compute.stats.models.delta_stats import DeltaStats
-from deltacat.constants import PYARROW_INFLATION_MULTIPLIER, BYTES_PER_MEBIBYTE
+from deltacat.constants import (
+    PYARROW_INFLATION_MULTIPLIER,
+    BYTES_PER_MEBIBYTE,
+    MEMORY_TO_HASH_BUCKET_COUNT_RATIO,
+)
 
 from deltacat.storage import (
     PartitionLocator,
@@ -82,54 +86,6 @@ def discover_deltas(
         input_deltas += input_deltas_new
 
     return input_deltas, previous_last_stream_position_compacted
-
-
-def _discover_deltas(
-    source_partition_locator: PartitionLocator,
-    start_position_exclusive: Optional[int],
-    end_position_inclusive: int,
-    deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
-) -> List[Delta]:
-    stream_locator = source_partition_locator.stream_locator
-    namespace = stream_locator.namespace
-    table_name = stream_locator.table_name
-    table_version = stream_locator.table_version
-    partition_values = source_partition_locator.partition_values
-    deltas_list_result = deltacat_storage.list_deltas(
-        namespace=namespace,
-        table_name=table_name,
-        partition_values=partition_values,
-        table_version=table_version,
-        first_stream_position=start_position_exclusive,
-        last_stream_position=end_position_inclusive,
-        ascending_order=True,
-        include_manifest=True,
-        **kwargs,
-    )
-    deltas = deltas_list_result.all_items()
-    if not deltas:
-        raise RuntimeError(
-            f"Unexpected Error: Couldn't find any deltas to "
-            f"compact in delta stream position range "
-            f"('{start_position_exclusive}', "
-            f"'{end_position_inclusive}']. Source partition: "
-            f"{source_partition_locator}"
-        )
-    if start_position_exclusive == deltas[0].stream_position:
-        first_delta = deltas.pop(0)
-        logger.info(
-            f"Removed exclusive start delta w/ expected stream "
-            f"position '{start_position_exclusive}' from deltas to "
-            f"compact: {first_delta}"
-        )
-    logger.info(
-        f"Count of deltas to compact in delta stream "
-        f"position range ('{start_position_exclusive}', "
-        f"'{end_position_inclusive}']: {len(deltas)}. Source "
-        f"partition: '{source_partition_locator}'"
-    )
-    return deltas
 
 
 def limit_input_deltas(
@@ -285,3 +241,125 @@ def limit_input_deltas(
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
 
     return rebatched_da_list, hash_bucket_count, high_watermark, require_multiple_rounds
+
+
+def fit_input_deltas(
+    input_deltas: List[Delta],
+    cluster_resources: Dict[str, float],
+    hash_bucket_count: Optional[int],
+    deltacat_storage=unimplemented_deltacat_storage,
+) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
+    """
+    This method tries to fit all the input deltas to run into the existing cluster. Contrary to
+    'limit_input_deltas', it will not fail if the current cluster cannot run the compaction reliably.
+    It is the responsibility of the caller to ensure that they pass enough resources for the job to execute.
+
+    Note: There is a possibility that individual file could be very large, which makes the deltas non uniform.
+    In such scenarios, it is advisable to allocate multiple vCPUs to the tasks to ensure parallelism.
+
+    Args:
+        input_deltas: The input deltas to be normalized.
+        cluster_resources: Total available resources in the cluster.
+        hash_bucket_count: The hash bucket count.
+        deltacat_storage: An implementation of the DeltaCAT storage interface.
+
+    Returns:
+        Tuple of list of annotated deltas, recommended hash bucket count, high watermark,
+            and whether multiple rounds are required (which is always False)
+    """
+    worker_cpus = int(cluster_resources["CPU"])
+    total_memory = float(cluster_resources["memory"])
+    high_watermark = HighWatermark()
+    annotated_input_da_list = []
+    delta_bytes = 0
+    total_files = 0
+
+    if not input_deltas:
+        raise AssertionError("No input deltas found!")
+
+    for delta in input_deltas:
+        manifest_entries = delta.manifest.entries
+        position = delta.stream_position
+
+        for entry in manifest_entries:
+            delta_bytes += entry.meta.content_length
+
+        total_files += len(manifest_entries)
+
+        high_watermark.set(
+            delta.locator.partition_locator,
+            max(position, high_watermark.get(delta.locator.partition_locator)),
+        )
+        delta_annotated = DeltaAnnotated.of(delta)
+        annotated_input_da_list.append(delta_annotated)
+
+    def estimate_size(content_length):
+        return (content_length * 1.0 / delta_bytes) * total_memory
+
+    # Assuming each CPU consumes equal amount of memory
+    min_delta_bytes = total_memory / worker_cpus
+    rebatched_da_list = DeltaAnnotated.rebatch(
+        annotated_deltas=annotated_input_da_list,
+        min_delta_bytes=min_delta_bytes,
+        estimation_function=estimate_size,
+    )
+
+    # Recommended hash buckets based on the POC results
+    if hash_bucket_count is None:
+        hash_bucket_count = int(
+            math.ceil(total_memory / MEMORY_TO_HASH_BUCKET_COUNT_RATIO)
+        )
+
+    logger.info(
+        f"Input delta bytes: {delta_bytes}, Total files: {total_files}, The worker_cpus: {worker_cpus}, "
+        f" total_memory: {total_memory}, and hash_bucket_count: {hash_bucket_count}"
+    )
+    return rebatched_da_list, hash_bucket_count, high_watermark, False
+
+
+def _discover_deltas(
+    source_partition_locator: PartitionLocator,
+    start_position_exclusive: Optional[int],
+    end_position_inclusive: int,
+    deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
+) -> List[Delta]:
+    stream_locator = source_partition_locator.stream_locator
+    namespace = stream_locator.namespace
+    table_name = stream_locator.table_name
+    table_version = stream_locator.table_version
+    partition_values = source_partition_locator.partition_values
+    deltas_list_result = deltacat_storage.list_deltas(
+        namespace=namespace,
+        table_name=table_name,
+        partition_values=partition_values,
+        table_version=table_version,
+        first_stream_position=start_position_exclusive,
+        last_stream_position=end_position_inclusive,
+        ascending_order=True,
+        include_manifest=True,
+        **kwargs,
+    )
+    deltas = deltas_list_result.all_items()
+    if not deltas:
+        raise RuntimeError(
+            f"Unexpected Error: Couldn't find any deltas to "
+            f"compact in delta stream position range "
+            f"('{start_position_exclusive}', "
+            f"'{end_position_inclusive}']. Source partition: "
+            f"{source_partition_locator}"
+        )
+    if start_position_exclusive == deltas[0].stream_position:
+        first_delta = deltas.pop(0)
+        logger.info(
+            f"Removed exclusive start delta w/ expected stream "
+            f"position '{start_position_exclusive}' from deltas to "
+            f"compact: {first_delta}"
+        )
+    logger.info(
+        f"Count of deltas to compact in delta stream "
+        f"position range ('{start_position_exclusive}', "
+        f"'{end_position_inclusive}']: {len(deltas)}. Source "
+        f"partition: '{source_partition_locator}'"
+    )
+    return deltas

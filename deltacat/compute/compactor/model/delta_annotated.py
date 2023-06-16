@@ -62,7 +62,7 @@ class DeltaAnnotated(Delta):
     @staticmethod
     def rebatch(
         annotated_deltas: List[DeltaAnnotated],
-        min_delta_bytes,
+        min_delta_bytes: float,
         min_file_counts: Optional[Union[int, float]] = float("inf"),
         estimation_function: Optional[Callable] = None,
     ) -> List[DeltaAnnotated]:
