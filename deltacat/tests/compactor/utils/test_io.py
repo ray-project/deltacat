@@ -1,6 +1,6 @@
 import unittest
 from unittest import mock
-from tests.test_utils.constants import TEST_DELTA
+from deltacat.tests.test_utils.constants import TEST_DELTA
 
 
 class TestFitInputDeltas(unittest.TestCase):
