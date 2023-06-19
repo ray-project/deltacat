@@ -293,6 +293,9 @@ def fit_input_deltas(
         delta_annotated = DeltaAnnotated.of(delta)
         annotated_input_da_list.append(delta_annotated)
 
+    # We assume that the cluster is capable of distributing all tasks
+    # correctly. Hence, the correct in-memory size will be in the ratio of
+    # in-disk size.
     def estimate_size(content_length):
         return (content_length * 1.0 / delta_bytes) * total_memory
 
@@ -304,7 +307,8 @@ def fit_input_deltas(
         estimation_function=estimate_size,
     )
 
-    # Recommended hash buckets based on the POC results
+    # Recommended hash buckets based on the experiments performed
+    # using S3 input for optimal throughput.
     if hash_bucket_count is None:
         hash_bucket_count = int(
             math.ceil(total_memory / MEMORY_TO_HASH_BUCKET_COUNT_RATIO)
