@@ -1,0 +1,64 @@
+{
+    "type": "upsert",
+    "meta": {
+        "record_count": 0,
+        "content_length": 10000000,
+        "source_content_length": 0
+    },
+    "deltaLocator": {
+        "partitionLocator": {
+            "streamLocator": {
+                "tableVersionLocator": {
+                    "tableLocator": {
+                        "namespaceLocator": {
+                            "namespace": "test-namespace"
+                        },
+                        "tableName": "test-table"
+                    },
+                    "tableVersion": "2"
+                },
+                "streamId": "stream-id",
+                "storageType": "test-storage-type"
+            },
+            "partitionValues": [],
+            "partitionId": "test-partition-id"
+        },
+        "streamPosition": 1686861916368
+    },
+    "properties": {},
+    "manifest": {
+        "entries": [
+            {
+                "uri": "s3://test",
+                "mandatory": true,
+                "meta": {
+                    "record_count": 0,
+                    "content_length": 10000000,
+                    "source_content_length": 0,
+                    "content_type": "application/parquet",
+                    "content_encoding": "identity"
+                }
+            },
+            {
+                "uri": "s3://test",
+                "mandatory": true,
+                "meta": {
+                    "record_count": 0,
+                    "content_length": 10000000,
+                    "source_content_length": 0,
+                    "content_type": "application/parquet",
+                    "content_encoding": "identity"
+                }
+            }
+        ],
+        "meta": {
+            "record_count": 0,
+            "content_length": 10000000,
+            "source_content_length": 0,
+            "content_type": "application/parquet",
+            "content_encoding": "identity"
+        },
+        "id": "test-id",
+        "author": { "name": "DeltaCAT", "version": "1.0" }
+    }
+}
