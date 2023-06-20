@@ -20,7 +20,6 @@ class TestGetCurrentClusterResourcesUsage(unittest.TestCase):
         cls.module_patcher = mock.patch.dict("sys.modules", {"ray": cls.ray_mock})
         cls.module_patcher.start()
 
-        cls.addClassCleanup(cls.module_patcher.stop)
         super().setUpClass()
 
     def test_sanity(self):
