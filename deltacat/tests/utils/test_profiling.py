@@ -17,21 +17,20 @@ class TestGetCurrentClusterResourcesUsage(unittest.TestCase):
             "object_store_memory": 5,
         }
 
-        cls.module_patcher = mock.patch.dict("sys.modules", {"ray": mock.MagicMock()})
+        cls.module_patcher = mock.patch.dict("sys.modules", {"ray": cls.ray_mock})
         cls.module_patcher.start()
 
         cls.addClassCleanup(cls.module_patcher.stop)
         super().setUpClass()
 
     def test_sanity(self):
-
         from deltacat.utils.profiling import get_current_cluster_resources_usage
 
         result = get_current_cluster_resources_usage()
 
-        self.assertEquals(10, result.total_cpu)
-        self.assertEquals(4, result.used_cpu)
-        self.assertEquals(10, result.total_memory_bytes)
-        self.assertEquals(5, result.total_object_store_memory_bytes)
-        self.assertEquals(0, result.used_object_store_memory_bytes)
-        self.assertEquals(6, result.used_memory_bytes)
+        self.assertEqual(10, result.total_cpu)
+        self.assertEqual(4, result.used_cpu)
+        self.assertEqual(10, result.total_memory_bytes)
+        self.assertEqual(5, result.total_object_store_memory_bytes)
+        self.assertEqual(0, result.used_object_store_memory_bytes)
+        self.assertEqual(6, result.used_memory_bytes)
