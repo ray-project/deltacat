@@ -35,7 +35,7 @@ from deltacat.utils.metrics import MetricsConfig
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-# TODO:(rootliu) move this repartition function to a separate module under compute
+# TODO: move this repartition function to a separate module under compute
 def repartition(
     source_partition_locator: PartitionLocator,
     destination_partition_locator: PartitionLocator,
@@ -43,8 +43,7 @@ def repartition(
     compaction_artifact_s3_bucket: str,
     last_stream_position_to_compact: int,
     repartition_type: RepartitionType = RepartitionType.RANGE,
-    rebase_source_partition_locator: Optional[PartitionLocator] = None,
-    rebase_source_partition_high_watermark: Optional[int] = None,
+    repartition_during_rebase: bool = True,
     sort_keys: List[SortKey] = None,
     records_per_repartitioned_file: int = 4_000_000,
     min_file_count: int = 1000,
@@ -82,14 +81,18 @@ def repartition(
         resource_keys=node_resource_keys,
         pg_config=pg_config.opts if pg_config else None,
     )
-
-    (deltas, _,) = io.discover_deltas(
-        source_partition_locator,
+    repartition_partition_locator = (
+        source_partition_locator
+        if repartition_during_rebase
+        else destination_partition_locator
+    )
+    deltas = io._discover_deltas(
+        repartition_partition_locator,
         None,
-        last_stream_position_to_compact,
-        destination_partition_locator,
-        rebase_source_partition_locator,
-        rebase_source_partition_high_watermark,
+        deltacat_storage.get_partition(
+            repartition_partition_locator.stream_locator,
+            repartition_partition_locator.partition_values,
+        ).stream_position,
         deltacat_storage,
         **list_deltas_kwargs,
     )
@@ -168,7 +171,11 @@ def repartition(
         bit_width_of_sort_keys,
         None,
     )
-    rcf_source_partition_locator = source_partition_locator
+    rcf_source_partition_locator = (
+        destination_partition_locator
+        if repartition_during_rebase
+        else source_partition_locator
+    )
     round_completion_file_s3_url = None
     round_completion_file_s3_url = rcf.write_round_completion_file(
         compaction_artifact_s3_bucket,
