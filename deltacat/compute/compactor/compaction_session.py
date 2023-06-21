@@ -37,7 +37,7 @@ from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict, Any
 from collections import defaultdict
 from deltacat.utils.metrics import MetricsConfig
-from deltacat.utils.profiling import get_current_cluster_resources_usage
+from deltacat.utils.resources import log_current_cluster_utlization
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -335,14 +335,6 @@ def _execute_compaction_round(
             "Multiple rounds are not supported. Please increase the cluster size and run again."
         )
 
-    cluster_resources_usage = get_current_cluster_resources_usage()
-    logger.info(
-        f"Object store memory used before hash bucketing: {cluster_resources_usage.used_object_store_memory_bytes}"
-    )
-    logger.info(
-        f"Memory used before hash bucketing: {cluster_resources_usage.used_memory_bytes}"
-    )
-
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
@@ -373,14 +365,6 @@ def _execute_compaction_round(
     total_hb_record_count = sum([hb_result.hb_record_count for hb_result in hb_results])
     logger.info(
         f"Got {total_hb_record_count} hash bucket records from hash bucketing step..."
-    )
-
-    cluster_resources_usage = get_current_cluster_resources_usage()
-    logger.info(
-        f"Object store memory used before dedupe: {cluster_resources_usage.used_object_store_memory_bytes}"
-    )
-    logger.info(
-        f"Memory used before dedupe: {cluster_resources_usage.used_memory_bytes}"
     )
 
     # TODO (pdames): when resources are freed during the last round of hash
@@ -436,14 +420,6 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
     logger.info(f"Materialize buckets created: " f"{len(all_mat_buckets_to_obj_id)}")
 
-    cluster_resources_usage = get_current_cluster_resources_usage()
-    logger.info(
-        f"Object store memory used before materialize: {cluster_resources_usage.used_object_store_memory_bytes}"
-    )
-    logger.info(
-        f"Memory used before materialize: {cluster_resources_usage.used_memory_bytes}"
-    )
-
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
     #  tables from S3 then wait for deduping to finish before continuing
@@ -481,13 +457,7 @@ def _execute_compaction_round(
     mat_results = ray.get(mat_tasks_pending)
     logger.info(f"Got {len(mat_results)} materialize result(s).")
 
-    cluster_resources_usage = get_current_cluster_resources_usage()
-    logger.info(
-        f"Object store memory used after materialize: {cluster_resources_usage.used_object_store_memory_bytes}"
-    )
-    logger.info(
-        f"Memory used after materialize: {cluster_resources_usage.used_memory_bytes}"
-    )
+    log_current_cluster_utlization(log_identifier="post_materialize")
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]

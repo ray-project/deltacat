@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 
-class TestGetCurrentClusterResourcesUsage(unittest.TestCase):
+class TestGetCurrentClusterUtilization(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ray_mock = mock.MagicMock()
@@ -23,9 +23,9 @@ class TestGetCurrentClusterResourcesUsage(unittest.TestCase):
         super().setUpClass()
 
     def test_sanity(self):
-        from deltacat.utils.profiling import get_current_cluster_resources_usage
+        from deltacat.utils.resources import ClusterUtilization
 
-        result = get_current_cluster_resources_usage()
+        result = ClusterUtilization.get_current_cluster_utilization()
 
         self.assertEqual(10, result.total_cpu)
         self.assertEqual(4, result.used_cpu)
@@ -33,3 +33,4 @@ class TestGetCurrentClusterResourcesUsage(unittest.TestCase):
         self.assertEqual(5, result.total_object_store_memory_bytes)
         self.assertEqual(0, result.used_object_store_memory_bytes)
         self.assertEqual(6, result.used_memory_bytes)
+        self.assertIsNotNone(result.used_resources)

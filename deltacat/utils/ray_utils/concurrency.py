@@ -7,6 +7,7 @@ from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
 
 from deltacat.utils.ray_utils.runtime import current_node_resource_key
+from deltacat.utils.resources import log_current_cluster_utlization
 
 
 def invoke_parallel(
@@ -46,6 +47,7 @@ def invoke_parallel(
     Returns:
         List of Ray object references returned from the submitted tasks.
     """
+    log_current_cluster_utlization(log_identifier=ray_task.__name__)
     if max_parallelism is not None and max_parallelism <= 0:
         raise ValueError(f"Max parallelism ({max_parallelism}) must be > 0.")
     pending_ids = []
