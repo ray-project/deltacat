@@ -35,16 +35,14 @@ from deltacat.utils.metrics import MetricsConfig
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-# TODO:(rootliu) move this repartition function to a separate module under compute
+# TODO: move this repartition function to a separate module under compute
 def repartition(
     source_partition_locator: PartitionLocator,
     destination_partition_locator: PartitionLocator,
     repartition_args: Any,
-    compaction_artifact_s3_bucket: str,
+    repartition_completion_file_s3_url: str,
     last_stream_position_to_compact: int,
     repartition_type: RepartitionType = RepartitionType.RANGE,
-    rebase_source_partition_locator: Optional[PartitionLocator] = None,
-    rebase_source_partition_high_watermark: Optional[int] = None,
     sort_keys: List[SortKey] = None,
     records_per_repartitioned_file: int = 4_000_000,
     min_file_count: int = 1000,
@@ -83,13 +81,13 @@ def repartition(
         pg_config=pg_config.opts if pg_config else None,
     )
 
-    (deltas, _,) = io.discover_deltas(
+    deltas = io._discover_deltas(
         source_partition_locator,
         None,
-        last_stream_position_to_compact,
-        destination_partition_locator,
-        rebase_source_partition_locator,
-        rebase_source_partition_high_watermark,
+        deltacat_storage.get_partition(
+            source_partition_locator.stream_locator,
+            source_partition_locator.partition_values,
+        ).stream_position,
         deltacat_storage,
         **list_deltas_kwargs,
     )
@@ -161,18 +159,16 @@ def repartition(
         sort_keys,
         deltacat_storage,
     )
-    new_round_completion_info = RoundCompletionInfo.of(
+    repartition_completion_info = RoundCompletionInfo.of(
         last_stream_position_to_compact,
         new_compacted_delta_locator,
         None,
         bit_width_of_sort_keys,
         None,
     )
-    rcf_source_partition_locator = source_partition_locator
-    round_completion_file_s3_url = None
-    round_completion_file_s3_url = rcf.write_round_completion_file(
-        compaction_artifact_s3_bucket,
-        rcf_source_partition_locator,
-        new_round_completion_info,
+    return rcf.write_round_completion_file(
+        None,
+        None,
+        repartition_completion_info,
+        repartition_completion_file_s3_url,
     )
-    return round_completion_file_s3_url
