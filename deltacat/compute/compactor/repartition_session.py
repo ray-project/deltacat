@@ -166,7 +166,9 @@ def repartition(
         bit_width_of_sort_keys,
         None,
     )
-    return rcf.write_repartition_completion_file(
-        repartition_completion_file_s3_url,
+    return rcf.write_round_completion_file(
+        None,
+        None,
         repartition_completion_info,
+        repartition_completion_file_s3_url,
     )
