@@ -4,6 +4,7 @@ import logging
 from deltacat import logs
 from deltacat.compute.compactor import RoundCompletionInfo
 from deltacat.storage import PartitionLocator
+from deltacat.aws import s3u as s3_utils
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -19,8 +20,6 @@ def get_round_completion_file_s3_url(
 def read_round_completion_file(
     bucket: str, source_partition_locator: PartitionLocator
 ) -> RoundCompletionInfo:
-
-    from deltacat.aws import s3u as s3_utils
 
     round_completion_file_url = get_round_completion_file_s3_url(
         bucket,
@@ -42,8 +41,6 @@ def write_round_completion_file(
     round_completion_info: RoundCompletionInfo,
 ) -> str:
 
-    from deltacat.aws import s3u as s3_utils
-
     logger.info(f"writing round completion file contents: {round_completion_info}")
     round_completion_file_s3_url = get_round_completion_file_s3_url(
         bucket,
@@ -55,3 +52,24 @@ def write_round_completion_file(
     )
     logger.info(f"round completion file written to: {round_completion_file_s3_url}")
     return round_completion_file_s3_url
+
+
+# write rcf given s3 url
+def write_repartition_completion_file(
+    repartition_completion_file_s3_url: str,
+    round_completion_info: RoundCompletionInfo,
+) -> str:
+
+    logger.info(
+        f"writing repartition completion file contents: {round_completion_info}"
+    )
+    logger.info(
+        f"writing repartition completion file to: {repartition_completion_file_s3_url}"
+    )
+    s3_utils.upload(
+        repartition_completion_file_s3_url, str(json.dumps(round_completion_info))
+    )
+    logger.info(
+        f"repartition completion file written to: {repartition_completion_file_s3_url}"
+    )
+    return repartition_completion_file_s3_url
