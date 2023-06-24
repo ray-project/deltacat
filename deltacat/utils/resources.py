@@ -1,3 +1,6 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 import ray
 from typing import Dict, Any
 from dataclasses import dataclass
@@ -29,10 +32,14 @@ class ClusterUtilization:
             "object_store_memory"
         )
         self.used_object_store_memory_bytes = used_resources.get("object_store_memory")
+        self.used_memory_percent = self.used_memory_bytes / self.total_memory_bytes
+        self.used_object_store_memory_percent = (
+            self.used_object_store_memory_bytes / self.total_object_store_memory_bytes
+        )
         self.used_resources = used_resources
 
     @staticmethod
-    def get_current_cluster_utilization():
+    def get_current_cluster_utilization() -> ClusterUtilization:
         cluster_resources = ray.cluster_resources()
         available_resources = ray.available_resources()
 
@@ -41,11 +48,13 @@ class ClusterUtilization:
         )
 
 
-def log_current_cluster_utlization(log_identifier: str):
+def log_current_cluster_utilization(log_identifier: str):
     cluster_utilization = ClusterUtilization.get_current_cluster_utilization()
     logger.info(
-        f"Log ID={log_identifier} | Object store memory used: {cluster_utilization.used_object_store_memory_bytes}"
+        f"Log ID={log_identifier} | Cluster Object store memory used: {cluster_utilization.used_object_store_memory_bytes} "
+        f"which is {cluster_utilization.used_object_store_memory_percent}%"
     )
     logger.info(
-        f"Log ID={log_identifier} | Memory used: {cluster_utilization.used_memory_bytes}"
+        f"Log ID={log_identifier} | Total Cluster Memory used: {cluster_utilization.used_memory_bytes} which is "
+        f"{cluster_utilization.used_memory_percent}%"
     )

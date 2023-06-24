@@ -37,7 +37,7 @@ from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict, Any
 from collections import defaultdict
 from deltacat.utils.metrics import MetricsConfig
-from deltacat.utils.resources import log_current_cluster_utlization
+from deltacat.utils.resources import log_current_cluster_utilization
 
 if importlib.util.find_spec("memray"):
     import memray
