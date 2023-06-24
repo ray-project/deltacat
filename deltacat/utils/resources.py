@@ -36,6 +36,7 @@ class ClusterUtilization:
         self.used_object_store_memory_percent = (
             self.used_object_store_memory_bytes / self.total_object_store_memory_bytes
         )
+        self.used_cpu_percent = self.used_cpu / self.total_cpu
         self.used_resources = used_resources
 
     @staticmethod
@@ -57,4 +58,8 @@ def log_current_cluster_utilization(log_identifier: str):
     logger.info(
         f"Log ID={log_identifier} | Total Cluster Memory used: {cluster_utilization.used_memory_bytes} which is "
         f"{cluster_utilization.used_memory_percent}%"
+    )
+    logger.info(
+        f"Log ID={log_identifier} | Total Cluster CPU used: {cluster_utilization.used_cpu} which is "
+        f"{cluster_utilization.used_cpu_percent}%"
     )
