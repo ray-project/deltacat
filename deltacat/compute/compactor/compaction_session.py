@@ -457,7 +457,7 @@ def _execute_compaction_round(
     mat_results = ray.get(mat_tasks_pending)
     logger.info(f"Got {len(mat_results)} materialize result(s).")
 
-    log_current_cluster_utlization(log_identifier="post_materialize")
+    log_current_cluster_utilization(log_identifier="post_materialize")
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
