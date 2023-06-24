@@ -32,11 +32,13 @@ class ClusterUtilization:
             "object_store_memory"
         )
         self.used_object_store_memory_bytes = used_resources.get("object_store_memory")
-        self.used_memory_percent = self.used_memory_bytes / self.total_memory_bytes
+        self.used_memory_percent = (
+            self.used_memory_bytes / self.total_memory_bytes
+        ) * 100
         self.used_object_store_memory_percent = (
             self.used_object_store_memory_bytes / self.total_object_store_memory_bytes
-        )
-        self.used_cpu_percent = self.used_cpu / self.total_cpu
+        ) * 100
+        self.used_cpu_percent = (self.used_cpu / self.total_cpu) * 100
         self.used_resources = used_resources
 
     @staticmethod
