@@ -21,7 +21,7 @@ from ray.data.datasource import (
     ParquetMetadataProvider,
     PathPartitionParser,
 )
-from ray.data.datasource.datasource import ArrowRow, Datasource, ReadTask, WriteResult
+from ray.data.datasource.datasource import Datasource, ReadTask, WriteResult
 from ray.data.datasource.file_based_datasource import _resolve_paths_and_filesystem
 from ray.data.datasource.file_meta_provider import FastFileMetadataProvider
 from ray.types import ObjectRef
@@ -396,7 +396,7 @@ def _expand_paths_by_content_type(
     return content_type_to_paths, meta_provider
 
 
-class RedshiftDatasource(Datasource[Union[ArrowRow, Any]]):
+class RedshiftDatasource(Datasource):
     def prepare_read(
         self,
         parallelism: int,
