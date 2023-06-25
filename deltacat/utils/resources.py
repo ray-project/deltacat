@@ -6,6 +6,7 @@ from typing import Dict, Any
 from dataclasses import dataclass
 from deltacat import logs
 import logging
+from deltacat.utils.performance import timed_invocation
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -52,7 +53,11 @@ class ClusterUtilization:
 
 
 def log_current_cluster_utilization(log_identifier: str):
-    cluster_utilization = ClusterUtilization.get_current_cluster_utilization()
+    cluster_utilization, latency = timed_invocation(
+        ClusterUtilization.get_current_cluster_utilization
+    )
+    logger.info(f"Retrieved cluster utilization metrics. Took {latency}s")
+
     logger.info(
         f"Log ID={log_identifier} | Cluster Object store memory used: {cluster_utilization.used_object_store_memory_bytes} "
         f"which is {cluster_utilization.used_object_store_memory_percent}%"
