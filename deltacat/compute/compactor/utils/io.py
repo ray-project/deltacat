@@ -16,6 +16,9 @@ from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
 from typing import Dict, List, Optional, Tuple, Union
 from deltacat.compute.compactor import HighWatermark
+from deltacat.compute.compactor.model.compaction_session_audit_info import (
+    CompactionSessionAuditInfo,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -94,6 +97,7 @@ def limit_input_deltas(
     hash_bucket_count: int,
     user_hash_bucket_chunk_size: int,
     input_deltas_stats: Dict[int, DeltaStats],
+    compaction_audit: CompactionSessionAuditInfo,
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
     # TODO (pdames): when row counts are available in metadata, use them
@@ -236,6 +240,11 @@ def limit_input_deltas(
         # TODO (pdames): Test and add value for min_file_counts
     )
 
+    compaction_audit.set_input_size_bytes(delta_bytes)
+    compaction_audit.set_input_file_count(delta_manifest_entries)
+    compaction_audit.set_total_cluster_memory_bytes(worker_task_mem)
+    compaction_audit.set_hash_bucket_count(hash_bucket_count)
+
     logger.info(f"Hash bucket chunk size: {hash_bucket_chunk_size}")
     logger.info(f"Hash bucket count: {hash_bucket_count}")
     logger.info(f"Input uniform delta count: {len(rebatched_da_list)}")
@@ -246,6 +255,7 @@ def limit_input_deltas(
 def fit_input_deltas(
     input_deltas: List[Delta],
     cluster_resources: Dict[str, float],
+    compaction_audit: CompactionSessionAuditInfo,
     hash_bucket_count: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
@@ -313,6 +323,11 @@ def fit_input_deltas(
         hash_bucket_count = int(
             math.ceil(total_memory / MEMORY_TO_HASH_BUCKET_COUNT_RATIO)
         )
+
+    compaction_audit.set_input_file_count(total_files)
+    compaction_audit.set_input_size_bytes(delta_bytes)
+    compaction_audit.set_total_cluster_memory_bytes(total_memory)
+    compaction_audit.set_hash_bucket_count(hash_bucket_count)
 
     logger.info(
         f"Input delta bytes: {delta_bytes}, Total files: {total_files}, The worker_cpus: {worker_cpus}, "

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
+from deltacat.compute.compactor.model.compaction_session_audit_info import (
+    CompactionSessionAuditInfo,
+)
 from typing import Any, Dict, Optional
 
 
@@ -39,6 +42,7 @@ class RoundCompletionInfo(dict):
         sort_keys_bit_width: int,
         rebase_source_partition_locator: Optional[PartitionLocator],
         manifest_entry_copied_by_reference_ratio: Optional[float] = None,
+        compaction_audit: Optional[CompactionSessionAuditInfo] = None,
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -50,6 +54,7 @@ class RoundCompletionInfo(dict):
         rci[
             "manifestEntryCopiedByReferenceRatio"
         ] = manifest_entry_copied_by_reference_ratio
+        rci["compactionAudit"] = compaction_audit
         return rci
 
     @property
@@ -80,6 +85,10 @@ class RoundCompletionInfo(dict):
     @property
     def sort_keys_bit_width(self) -> int:
         return self["sortKeysBitWidth"]
+
+    @property
+    def compaction_audit(self) -> Optional[CompactionSessionAuditInfo]:
+        return self.get("compactionAudit")
 
     @property
     def rebase_source_partition_locator(self) -> Optional[PartitionLocator]:

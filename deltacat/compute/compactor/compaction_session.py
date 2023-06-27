@@ -3,6 +3,8 @@ from contextlib import nullcontext
 import functools
 import logging
 import ray
+import time
+import deltacat
 from deltacat import logs
 import pyarrow as pa
 from deltacat.compute.compactor import (
@@ -12,6 +14,7 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
+from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
     Delta,
@@ -37,7 +40,11 @@ from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict, Any
 from collections import defaultdict
 from deltacat.utils.metrics import MetricsConfig
-from deltacat.utils.resources import log_current_cluster_utilization
+from deltacat.compute.compactor.model.compaction_session_audit_info import (
+    CompactionSessionAuditInfo,
+)
+from deltacat.utils.resources import ClusterUtilization
+from deltacat.utils.performance import timed_invocation
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -188,6 +195,11 @@ def _execute_compaction_round(
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
 
+    compaction_audit = CompactionSessionAuditInfo()
+    compaction_audit.set_deltacat_version(deltacat.__version__)
+
+    compaction_start = time.time()
+
     if not primary_keys:
         # TODO (pdames): run simple rebatch to reduce all deltas into 1 delta
         #  with normalized manifest entry sizes
@@ -230,6 +242,7 @@ def _execute_compaction_round(
             f"{node_resource_keys}"
         )
 
+    compaction_audit.set_cluster_cpu(cluster_cpus)
     # create a remote options provider to round-robin tasks across all nodes or allocated bundles
     logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
     round_robin_opt_provider = functools.partial(
@@ -268,6 +281,7 @@ def _execute_compaction_round(
         round_completion_info.high_watermark if round_completion_info else None
     )
 
+    delta_discovery_start = time.time()
     (
         input_deltas,
         previous_last_stream_position_compacted_on_destination_table,
@@ -280,6 +294,11 @@ def _execute_compaction_round(
         rebase_source_partition_high_watermark,
         deltacat_storage,
         **list_deltas_kwargs,
+    )
+
+    delta_discovery_end = time.time()
+    compaction_audit.set_delta_discovery_time_in_seconds(
+        delta_discovery_end - delta_discovery_start
     )
 
     if not input_deltas:
@@ -298,6 +317,7 @@ def _execute_compaction_round(
         io.fit_input_deltas(
             input_deltas,
             cluster_resources,
+            compaction_audit,
             hash_bucket_count,
             deltacat_storage=deltacat_storage,
         )
@@ -307,6 +327,7 @@ def _execute_compaction_round(
             cluster_resources,
             hash_bucket_count,
             min_hash_bucket_chunk_size,
+            compaction_audit=compaction_audit,
             input_deltas_stats=input_deltas_stats,
             deltacat_storage=deltacat_storage,
         )
@@ -335,6 +356,8 @@ def _execute_compaction_round(
             "Multiple rounds are not supported. Please increase the cluster size and run again."
         )
 
+    hb_start = time.time()
+
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
@@ -353,6 +376,24 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
     hb_results: List[HashBucketResult] = ray.get(hb_tasks_pending)
     logger.info(f"Got {len(hb_results)} hash bucket results.")
+
+    hb_end = time.time()
+    compaction_audit.set_hash_bucket_time_in_seconds(hb_end - hb_start)
+
+    cluster_utilization_after_hb, cluster_util_after_hb_latency = timed_invocation(
+        ClusterUtilization.get_current_cluster_utilization
+    )
+
+    compaction_audit.set_total_cluster_object_store_memory_bytes(
+        cluster_utilization_after_hb.total_object_store_memory_bytes
+    )
+    compaction_audit.set_total_cluster_memory_bytes(
+        cluster_utilization_after_hb.total_memory_bytes
+    )
+    compaction_audit.set_object_store_memory_used_bytes_by_hash_bucketing(
+        cluster_utilization_after_hb.used_object_store_memory_bytes
+    )
+
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hb_result in hb_results:
         for hash_group_index, object_id in enumerate(
@@ -365,6 +406,18 @@ def _execute_compaction_round(
     total_hb_record_count = sum([hb_result.hb_record_count for hb_result in hb_results])
     logger.info(
         f"Got {total_hb_record_count} hash bucket records from hash bucketing step..."
+    )
+    peak_memory_during_hb = max(
+        [hb_result.peak_memory_usage_bytes for hb_result in hb_results]
+    )
+
+    telemetry_time_hb = sum(
+        [hb_result.telemetry_time_in_seconds for hb_result in hb_results]
+    )
+
+    compaction_audit.set_input_records(total_hb_record_count.item())
+    compaction_audit.set_peak_memory_used_bytes_by_hash_bucketing(
+        peak_memory_during_hb.item()
     )
 
     # TODO (pdames): when resources are freed during the last round of hash
@@ -389,6 +442,9 @@ def _execute_compaction_round(
     # identify the index of records to keep or drop based on sort keys
     num_materialize_buckets = max_parallelism
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
+
+    dedupe_start = time.time()
+
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
@@ -406,8 +462,28 @@ def _execute_compaction_round(
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
     dd_results: List[DedupeResult] = ray.get(dd_tasks_pending)
     logger.info(f"Got {len(dd_results)} dedupe results.")
+
+    dedupe_end = time.time()
+    compaction_audit.set_dedupe_time_in_seconds(dedupe_end - dedupe_start)
+
+    cluster_utilization_after_dd, cluster_util_after_dd_latency = timed_invocation(
+        ClusterUtilization.get_current_cluster_utilization
+    )
+
+    compaction_audit.set_object_store_memory_used_bytes_by_dedupe(
+        cluster_utilization_after_dd.used_object_store_memory_bytes
+        - cluster_utilization_after_hb.used_object_store_memory_bytes
+    )
+
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in dd_results])
     logger.info(f"Deduped {total_dd_record_count} records...")
+
+    peak_memory_usage_dd = max([ddr.peak_memory_usage_bytes for ddr in dd_results])
+    telemetry_time_dd = sum([ddr.telemetry_time_in_seconds for ddr in dd_results])
+
+    compaction_audit.set_records_deduped(total_dd_record_count.item())
+    compaction_audit.set_peak_memory_used_bytes_by_dedupe(peak_memory_usage_dd.item())
+
     all_mat_buckets_to_obj_id = defaultdict(list)
     for dd_result in dd_results:
         for (
@@ -419,6 +495,8 @@ def _execute_compaction_round(
             )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
     logger.info(f"Materialize buckets created: " f"{len(all_mat_buckets_to_obj_id)}")
+
+    compaction_audit.set_materialize_buckets(len(all_mat_buckets_to_obj_id))
 
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
@@ -432,6 +510,9 @@ def _execute_compaction_round(
 
     # parallel step 3:
     # materialize records to keep by index
+
+    materialize_start = time.time()
+
     mat_tasks_pending = invoke_parallel(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,
@@ -454,7 +535,7 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
-    mat_results = ray.get(mat_tasks_pending)
+    mat_results: List[MaterializeResult] = ray.get(mat_tasks_pending)
     total_count_of_src_dfl_not_touched = sum(
         m.count_of_src_dfl_not_touched for m in mat_results
     )
@@ -476,10 +557,50 @@ def _execute_compaction_round(
 
     logger.info(f"Got {len(mat_results)} materialize result(s).")
 
-    log_current_cluster_utilization(log_identifier="post_materialize")
+    materialize_end = time.time()
+
+    cluster_utilization_after_mat, cluster_util_after_mat_latency = timed_invocation(
+        ClusterUtilization.get_current_cluster_utilization
+    )
+
+    compaction_audit.set_materialize_time_in_seconds(
+        materialize_end - materialize_start
+    )
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
+
+    telemetry_time_materialize = sum(
+        [mat_result.telemetry_time_in_seconds for mat_result in mat_results]
+    )
+    peak_memory_usage_materialize = max(
+        [mat_result.peak_memory_usage_bytes for mat_result in mat_results]
+    )
+
+    compaction_audit.set_peak_memory_used_bytes_by_materialize(
+        peak_memory_usage_materialize.item()
+    )
+    compaction_audit.set_total_object_store_memory_used_bytes(
+        cluster_utilization_after_mat.used_object_store_memory_bytes
+    )
+    compaction_audit.set_peak_memory_used_bytes(
+        max(
+            [
+                compaction_audit.peak_memory_used_bytes_by_hash_bucketing,
+                compaction_audit.peak_memory_used_bytes_by_dedupe,
+                compaction_audit.peak_memory_used_bytes_by_materialize,
+            ]
+        )
+    )
+
+    compaction_audit.set_telemetry_time_in_seconds(
+        cluster_util_after_hb_latency
+        + cluster_util_after_dd_latency
+        + telemetry_time_dd
+        + telemetry_time_hb
+        + telemetry_time_materialize
+        + cluster_util_after_mat_latency
+    )
 
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
@@ -494,6 +615,7 @@ def _execute_compaction_round(
         f" Materialized records: {merged_delta.meta.record_count}"
     )
     logger.info(record_info_msg)
+
     assert (
         total_hb_record_count - total_dd_record_count == merged_delta.meta.record_count
     ), (
@@ -506,6 +628,9 @@ def _execute_compaction_round(
     )
     logger.info(f"Committed compacted delta: {compacted_delta}")
 
+    compaction_end = time.time()
+    compaction_audit.set_compaction_time_in_seconds(compaction_end - compaction_start)
+
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
@@ -516,13 +641,23 @@ def _execute_compaction_round(
         if round_completion_info
         else None
     )
+
+    pyarrow_write_result = PyArrowWriteResult.union(
+        [m.pyarrow_write_result for m in mat_results]
+    )
+
+    compaction_audit.set_output_file_count(pyarrow_write_result.files)
+    compaction_audit.set_output_size_bytes(pyarrow_write_result.file_bytes)
+    compaction_audit.set_output_size_pyarrow_bytes(pyarrow_write_result.pyarrow_bytes)
+
     new_round_completion_info = RoundCompletionInfo.of(
         last_stream_position_compacted,
         new_compacted_delta_locator,
-        PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
+        pyarrow_write_result,
         bit_width_of_sort_keys,
         last_rebase_source_partition_locator,
         manifest_entry_copied_by_reference_ratio,
+        compaction_audit,
     )
     rcf_source_partition_locator = (
         rebase_source_partition_locator
@@ -534,6 +669,7 @@ def _execute_compaction_round(
         f"compacted at: {last_stream_position_compacted},"
         f"last position: {last_stream_position_to_compact}"
     )
+
     return (
         partition,
         new_round_completion_info,
