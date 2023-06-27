@@ -195,31 +195,15 @@ def read_iceberg(
         Dataset holding Arrow records read from the specified paths.
     """
     from pyiceberg.catalog import load_catalog
-    from pyiceberg.schema import Schema
-    from pyiceberg.io.pyarrow import schema_to_pyarrow
 
     catalog_properties = catalog_properties or {}
     catalog = load_catalog(catalog_name, **catalog_properties)
     table = catalog.load_table(table_identifier)
-    partition_spec = table.spec()
 
     planned_files = [
         file_task.file.file_path
         for file_task in table.scan(snapshot_id=snapshot_id).plan_files()
     ]
-
-    partitioning = None
-    if partition_spec.fields:
-        iceberg_partition_schema = Schema(
-            *[
-                table.schema().find_field(field.source_id)
-                for field in partition_spec.fields
-            ]
-        )
-        partitioning = pa.dataset.partitioning(
-            schema=schema_to_pyarrow(iceberg_partition_schema),
-            flavor="hive",
-        )
 
     dataset = read_parquet(
         paths=planned_files,
@@ -229,7 +213,7 @@ def read_iceberg(
         ray_remote_args=ray_remote_args,
         tensor_column_schema=tensor_column_schema,
         meta_provider=meta_provider,
-        dataset_kwargs=dict(partitioning=partitioning),
+        dataset_kwargs=dict(partitioning=None),
         **arrow_parquet_args,
     )
 

@@ -58,6 +58,27 @@ def test_read_all_types(
     ]
 
 
+def test_read_selected_types(
+    catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem
+) -> None:
+    table_name = "default.test_all_types"
+    catalog_name = "local"
+    ray_dataset = read_iceberg(
+        table_name,
+        catalog_name=catalog_name,
+        catalog_properties=catalog_properties,
+        columns=["longCol", "dateCol"],
+        filesystem=mock_s3_file_system,
+    )
+    df = ray_dataset.limit(100).to_pandas(limit=100)
+    assert len(df) == 5
+    # check that the columns are in the right order
+    assert list(df.columns) == [
+        "longCol",
+        "dateCol",
+    ]
+
+
 def test_read_null_nan(
     catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem
 ) -> None:
