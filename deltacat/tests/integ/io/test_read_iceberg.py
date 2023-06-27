@@ -95,10 +95,10 @@ def test_read_null_nan(
     assert list(df.columns) == ["idx", "col_numeric"]
 
 
-def test_read_deletes(
+def test_read_positional_mor_deletes(
     catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem
 ) -> None:
-    table_name = "default.test_deletes"
+    table_name = "default.test_positional_mor_deletes"
     catalog_name = "local"
     ray_dataset = read_iceberg(
         table_name,
@@ -107,5 +107,22 @@ def test_read_deletes(
         filesystem=mock_s3_file_system,
     )
     df = ray_dataset.limit(100).to_pandas(limit=100)
-    assert len(df) == 1
-    assert list(df.columns) == ["idx", "deleted"]
+    assert len(df) == 12
+    assert list(df.columns) == ["dt", "number", "letter"]
+
+
+def test_read_positional_mor_deletes_selected_columns(
+    catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem
+) -> None:
+    table_name = "default.test_positional_mor_deletes"
+    catalog_name = "local"
+    ray_dataset = read_iceberg(
+        table_name,
+        catalog_name=catalog_name,
+        columns=["number", "letter"],
+        catalog_properties=catalog_properties,
+        filesystem=mock_s3_file_system,
+    )
+    df = ray_dataset.limit(100).to_pandas(limit=100)
+    assert len(df) == 12
+    assert list(df.columns) == ["number", "letter"]

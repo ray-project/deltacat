@@ -12,9 +12,18 @@ install:
 	venv/bin/pip install --upgrade pip
 	venv/bin/pip install -r dev-requirements.txt
 
+lint:
+	venv/bin/pre-commit run --all-files
+
 test-integration:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
-	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml build
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml rm -f
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml up -d
-	sleep 30
+	sleep 10
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml exec -T spark-iceberg ipython ./provision.py
 	venv/bin/python -m pytest deltacat/tests/integ
+
+test-integration-rebuild:
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml rm -f
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml build --no-cache
