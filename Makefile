@@ -1,11 +1,15 @@
-install:
+clean:
 	rm -rf venv
-	python -m venv venv
-	venv/bin/pip install -r dev-requirements.txt
 
-install-apple-silicon:
-	rm -rf venv
-	/usr/bin/python3 -m venv venv
+install:
+	if [ ! -d "venv" ]; then \
+  		if [[ '$(shell uname -m)' == 'arm64' ]]; then \
+			/usr/bin/python3 -m venv venv; \
+		else \
+			python -m venv venv; \
+		fi \
+	fi
+	venv/bin/pip install --upgrade pip
 	venv/bin/pip install -r dev-requirements.txt
 
 test-integration:
@@ -13,4 +17,4 @@ test-integration:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml build
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml up -d
 	sleep 30
-	venv/bin/python -m pytest tests/
+	venv/bin/python -m pytest deltacat/tests/integ

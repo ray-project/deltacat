@@ -62,7 +62,7 @@ class DeltaAnnotated(Delta):
     @staticmethod
     def rebatch(
         annotated_deltas: List[DeltaAnnotated],
-        min_delta_bytes,
+        min_delta_bytes: float,
         min_file_counts: Optional[Union[int, float]] = float("inf"),
         estimation_function: Optional[Callable] = None,
     ) -> List[DeltaAnnotated]:
@@ -83,11 +83,10 @@ class DeltaAnnotated(Delta):
         for src_da in annotated_deltas:
             src_da_annotations = src_da.annotations
             src_da_entries = src_da.manifest.entries
-            assert (
-                len(src_da_annotations) == len(src_da_entries),
+            assert len(src_da_annotations) == len(src_da_entries), (
                 f"Unexpected Error: Length of delta annotations "
                 f"({len(src_da_annotations)}) doesn't mach the length of "
-                f"delta manifest entries ({len(src_da_entries)}).",
+                f"delta manifest entries ({len(src_da_entries)})."
             )
             for i, src_entry in enumerate(src_da_entries):
                 # create a new da group if src and dest has different delta locator
@@ -141,11 +140,10 @@ class DeltaAnnotated(Delta):
         da_group_entry_count = 0
         src_da_annotations = src_da.annotations
         src_da_entries = src_da.manifest.entries
-        assert (
-            len(src_da_annotations) == len(src_da_entries),
+        assert len(src_da_annotations) == len(src_da_entries), (
             f"Unexpected Error: Length of delta annotations "
             f"({len(src_da_annotations)}) doesn't mach the length of "
-            f"delta manifest entries ({len(src_da_entries)}).",
+            f"delta manifest entries ({len(src_da_entries)})."
         )
         src_da_entries_length = len(src_da_entries)
         equal_length = src_da_entries_length // pieces

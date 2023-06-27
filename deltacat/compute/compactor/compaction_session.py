@@ -293,13 +293,22 @@ def _execute_compaction_round(
         hash_bucket_count,
         last_stream_position_compacted,
         require_multiple_rounds,
-    ) = io.limit_input_deltas(
-        input_deltas,
-        cluster_resources,
-        hash_bucket_count,
-        min_hash_bucket_chunk_size,
-        input_deltas_stats=input_deltas_stats,
-        deltacat_storage=deltacat_storage,
+    ) = (
+        io.fit_input_deltas(
+            input_deltas,
+            cluster_resources,
+            hash_bucket_count,
+            deltacat_storage=deltacat_storage,
+        )
+        if input_deltas_stats is None
+        else io.limit_input_deltas(
+            input_deltas,
+            cluster_resources,
+            hash_bucket_count,
+            min_hash_bucket_chunk_size,
+            input_deltas_stats=input_deltas_stats,
+            deltacat_storage=deltacat_storage,
+        )
     )
 
     assert hash_bucket_count is not None and hash_bucket_count > 0, (
