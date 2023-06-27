@@ -18,49 +18,73 @@ def catalog_properties() -> Dict[str, str]:
 
 @pytest.fixture()
 def mock_s3_file_system() -> S3FileSystem:
-    return S3FileSystem(access_key="admin", secret_key="password", endpoint_override="http://localhost:9000")
+    return S3FileSystem(
+        access_key="admin",
+        secret_key="password",
+        endpoint_override="http://localhost:9000",
+    )
 
 
-def test_read_all_types(catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem) -> None:
+def test_read_all_types(
+    catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem
+) -> None:
     table_name = "default.test_all_types"
     catalog_name = "local"
-    ray_dataset = read_iceberg(table_name, catalog_name=catalog_name, catalog_properties=catalog_properties,
-                               filesystem=mock_s3_file_system)
+    ray_dataset = read_iceberg(
+        table_name,
+        catalog_name=catalog_name,
+        catalog_properties=catalog_properties,
+        filesystem=mock_s3_file_system,
+    )
     df = ray_dataset.limit(100).to_pandas(limit=100)
     assert len(df) == 5
     # check that the columns are in the right order
-    assert list(df.columns) == ['longCol',
-                                'intCol',
-                                'floatCol',
-                                'doubleCol',
-                                'dateCol',
-                                'timestampCol',
-                                'stringCol',
-                                'booleanCol',
-                                'binaryCol',
-                                'byteCol',
-                                'decimalCol',
-                                'shortCol',
-                                'mapCol',
-                                'arrayCol',
-                                'structCol']
+    assert list(df.columns) == [
+        "longCol",
+        "intCol",
+        "floatCol",
+        "doubleCol",
+        "dateCol",
+        "timestampCol",
+        "stringCol",
+        "booleanCol",
+        "binaryCol",
+        "byteCol",
+        "decimalCol",
+        "shortCol",
+        "mapCol",
+        "arrayCol",
+        "structCol",
+    ]
 
 
-def test_read_null_nan(catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem) -> None:
+def test_read_null_nan(
+    catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem
+) -> None:
     table_name = "default.test_null_nan"
     catalog_name = "local"
-    ray_dataset = read_iceberg(table_name, catalog_name=catalog_name, catalog_properties=catalog_properties,
-                               filesystem=mock_s3_file_system)
+    ray_dataset = read_iceberg(
+        table_name,
+        catalog_name=catalog_name,
+        catalog_properties=catalog_properties,
+        filesystem=mock_s3_file_system,
+    )
     df = ray_dataset.limit(100).to_pandas(limit=100)
     assert len(df) == 3
-    assert list(df.columns) == ['idx', 'col_numeric']
+    assert list(df.columns) == ["idx", "col_numeric"]
 
 
-def test_read_deletes(catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem) -> None:
+def test_read_deletes(
+    catalog_properties: Dict[str, str], mock_s3_file_system: S3FileSystem
+) -> None:
     table_name = "default.test_deletes"
     catalog_name = "local"
-    ray_dataset = read_iceberg(table_name, catalog_name=catalog_name, catalog_properties=catalog_properties,
-                               filesystem=mock_s3_file_system)
+    ray_dataset = read_iceberg(
+        table_name,
+        catalog_name=catalog_name,
+        catalog_properties=catalog_properties,
+        filesystem=mock_s3_file_system,
+    )
     df = ray_dataset.limit(100).to_pandas(limit=100)
     assert len(df) == 1
-    assert list(df.columns) == ['idx', 'deleted']
+    assert list(df.columns) == ["idx", "deleted"]

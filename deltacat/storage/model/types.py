@@ -16,6 +16,7 @@ ray_version = pkg_resources.parse_version(pkg_resources.get_distribution("ray").
 change_version = pkg_resources.parse_version("2.5.0")
 if ray_version < change_version:
     from ray.data._internal.arrow_block import ArrowRow
+
     DistributedDataset = Dataset[Union[ArrowRow, np.ndarray, Any]]
 else:
     DistributedDataset = Dataset

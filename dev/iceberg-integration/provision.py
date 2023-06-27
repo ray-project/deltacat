@@ -153,9 +153,9 @@ all_types_dataframe = (
     .withColumn("structCol", expr("STRUCT(mapCol, arrayCol)"))
 )
 
-all_types_dataframe.writeTo("default.test_all_types").tableProperty("format-version", "2").partitionedBy(
-    "intCol"
-).createOrReplace()
+all_types_dataframe.writeTo("default.test_all_types").tableProperty(
+    "format-version", "2"
+).partitionedBy("intCol").createOrReplace()
 
 while True:
     time.sleep(1)
