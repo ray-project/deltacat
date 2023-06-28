@@ -43,6 +43,7 @@ setuptools.setup(
         "pydantic == 1.10.4",
         "ray >= 2.20.0",
         "s3fs == 2024.5.0",
+        "pyiceberg @ git+https://github.com/apache/iceberg#subdirectory=python",
         "tenacity == 8.1.0",
         "typing-extensions == 4.4.0",
         "pymemcache == 4.0.0",

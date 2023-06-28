@@ -1,21 +1,19 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Dict, Optional, Union, cast
 
 import pyarrow as pa
 import s3fs
 from ray.data import Dataset
 
-T = TypeVar("T")
 
-
-class DeltacatDataset(Dataset[T]):
+class DeltacatDataset(Dataset):
     @staticmethod
-    def from_dataset(dataset: Dataset[T]) -> DeltacatDataset[T]:
+    def from_dataset(dataset: Dataset) -> DeltacatDataset:
         # cast to DeltacatDataset in-place since it only adds new methods
         dataset.__class__ = DeltacatDataset
-        return cast(DeltacatDataset[T], dataset)
+        return cast(DeltacatDataset, dataset)
 
     def write_redshift(
         self,
