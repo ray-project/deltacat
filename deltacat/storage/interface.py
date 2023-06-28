@@ -443,7 +443,7 @@ def get_partition(
 
 
 def stage_delta(
-    data: Union[LocalTable, LocalDataset, DistributedDataset],
+    data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
     partition: Partition,
     delta_type: DeltaType = DeltaType.UPSERT,
     max_records_per_entry: Optional[int] = None,

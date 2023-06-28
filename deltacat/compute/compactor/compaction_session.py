@@ -455,6 +455,25 @@ def _execute_compaction_round(
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
     mat_results = ray.get(mat_tasks_pending)
+    total_count_of_src_dfl_not_touched = sum(
+        m.count_of_src_dfl_not_touched for m in mat_results
+    )
+    total_length_src_dfl = sum(m.count_of_src_dfl for m in mat_results)
+    logger.info(
+        f"Got total of {total_count_of_src_dfl_not_touched} manifest files not touched."
+    )
+    logger.info(
+        f"Got total of {total_length_src_dfl} manifest files during compaction."
+    )
+    manifest_entry_copied_by_reference_ratio = (
+        (round(total_count_of_src_dfl_not_touched / total_length_src_dfl, 4) * 100)
+        if total_length_src_dfl != 0
+        else None
+    )
+    logger.info(
+        f"{manifest_entry_copied_by_reference_ratio} percent of manifest files are copied by reference during materialize."
+    )
+
     logger.info(f"Got {len(mat_results)} materialize result(s).")
 
     log_current_cluster_utilization(log_identifier="post_materialize")
@@ -503,13 +522,13 @@ def _execute_compaction_round(
         PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
         bit_width_of_sort_keys,
         last_rebase_source_partition_locator,
+        manifest_entry_copied_by_reference_ratio,
     )
     rcf_source_partition_locator = (
         rebase_source_partition_locator
         if rebase_source_partition_locator
         else source_partition_locator
     )
-
     logger.info(
         f"partition-{source_partition_locator.partition_values},"
         f"compacted at: {last_stream_position_compacted},"
