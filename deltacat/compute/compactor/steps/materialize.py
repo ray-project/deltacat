@@ -281,10 +281,6 @@ def materialize(
             if manifest_entry_list_reference
             else None
         )
-        if referenced_manifest_delta:
-            logger.info(
-                f"Got delta with {len(referenced_manifest_delta.manifest.entries)} referenced manifest entries"
-            )
 
         merged_materialized_delta = [mr.delta for mr in materialized_results]
         merged_materialized_delta.append(referenced_manifest_delta)
@@ -301,9 +297,14 @@ def materialize(
             referenced_pyarrow_write_results
         )
 
-        assert (
-            referenced_write_result.files == referenced_manifest_delta.manifest.entries
-        ), "The files referenced must match with the entries in the delta"
+        if referenced_manifest_delta:
+            logger.info(
+                f"Got delta with {len(referenced_manifest_delta.manifest.entries)} referenced manifest entries"
+            )
+            assert (
+                referenced_write_result.files
+                == referenced_manifest_delta.manifest.entries
+            ), "The files referenced must match with the entries in the delta"
 
         assert (
             write_result.files == merged_delta.manifest.entries

@@ -7,7 +7,7 @@ from deltacat.tests.test_utils.constants import TEST_DELTA
 
 
 class TestFitInputDeltas(unittest.TestCase):
-    COMPACTION_AUDIT = CompactionSessionAuditInfo()
+    COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "test")
 
     @classmethod
     def setUpClass(cls):

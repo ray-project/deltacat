@@ -14,7 +14,7 @@ class MaterializeResult(dict):
         delta: Delta,
         task_index: int,
         pyarrow_write_result: PyArrowWriteResult,
-        referenced_pyarrow_write_result: Optional[PyArrowWriteResult],
+        referenced_pyarrow_write_result: Optional[PyArrowWriteResult] = None,
         peak_memory_usage_bytes: Optional[np.double] = None,
         telemetry_time_in_seconds: Optional[np.double] = None,
         task_completed_at: Optional[np.double] = None,
