@@ -301,13 +301,12 @@ def materialize(
             logger.info(
                 f"Got delta with {len(referenced_manifest_delta.manifest.entries)} referenced manifest entries"
             )
-            assert (
-                referenced_write_result.files
-                == referenced_manifest_delta.manifest.entries
+            assert referenced_write_result.files == len(
+                referenced_manifest_delta.manifest.entries
             ), "The files referenced must match with the entries in the delta"
 
-        assert (
-            write_result.files == merged_delta.manifest.entries
+        assert write_result.files == len(
+            merged_delta.manifest.entries
         ), "The total number of files written by materialize must match manifest entries"
 
         logger.debug(
