@@ -10,6 +10,8 @@ from deltacat.compute.compactor import (
     RoundCompletionInfo,
     SortKey,
 )
+from deltacat.compute.compactor.model.dedupe_result import DedupeResult
+from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
     Delta,
@@ -22,6 +24,7 @@ from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
     round_robin_options_provider,
 )
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.steps import dedupe as dd
 from deltacat.compute.compactor.steps import hash_bucket as hb
@@ -34,6 +37,7 @@ from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Set, Optional, Tuple, Dict, Any
 from collections import defaultdict
 from deltacat.utils.metrics import MetricsConfig
+from deltacat.utils.resources import log_current_cluster_utilization
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -94,6 +98,8 @@ def compact_partition(
     enable_profiler: Optional[bool] = False,
     metrics_config: Optional[MetricsConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -108,8 +114,11 @@ def compact_partition(
         f"compaction_partition.bin"
     ) if enable_profiler else nullcontext():
         partition = None
-        new_rcf_s3_url = None
-        (new_partition, new_rci, new_rcf_s3_url,) = _execute_compaction_round(
+        (
+            new_partition,
+            new_rci,
+            new_rcf_partition_locator,
+        ) = _execute_compaction_round(
             source_partition_locator,
             destination_partition_locator,
             primary_keys,
@@ -128,6 +137,8 @@ def compact_partition(
             enable_profiler,
             metrics_config,
             list_deltas_kwargs,
+            read_kwargs_provider,
+            s3_table_writer_kwargs,
             deltacat_storage,
             **kwargs,
         )
@@ -137,12 +148,19 @@ def compact_partition(
         logger.info(
             f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed"
         )
+        round_completion_file_s3_url = None
         if partition:
             logger.info(f"Committing compacted partition to: {partition.locator}")
             partition = deltacat_storage.commit_partition(partition)
             logger.info(f"Committed compacted partition: {partition}")
+
+            round_completion_file_s3_url = rcf.write_round_completion_file(
+                compaction_artifact_s3_bucket,
+                new_rcf_partition_locator,
+                new_rci,
+            )
         logger.info(f"Completed compaction session for: {source_partition_locator}")
-        return new_rcf_s3_url
+        return round_completion_file_s3_url
 
 
 def _execute_compaction_round(
@@ -163,7 +181,9 @@ def _execute_compaction_round(
     rebase_source_partition_high_watermark: Optional[int],
     enable_profiler: Optional[bool],
     metrics_config: Optional[MetricsConfig],
-    list_deltas_kwargs=Optional[Dict[str, Any]],
+    list_deltas_kwargs: Optional[Dict[str, Any]],
+    read_kwargs_provider: Optional[ReadKwargsProvider],
+    s3_table_writer_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -273,13 +293,23 @@ def _execute_compaction_round(
         uniform_deltas,
         hash_bucket_count,
         last_stream_position_compacted,
-    ) = io.limit_input_deltas(
-        input_deltas,
-        cluster_resources,
-        hash_bucket_count,
-        min_hash_bucket_chunk_size,
-        input_deltas_stats=input_deltas_stats,
-        deltacat_storage=deltacat_storage,
+        require_multiple_rounds,
+    ) = (
+        io.fit_input_deltas(
+            input_deltas,
+            cluster_resources,
+            hash_bucket_count,
+            deltacat_storage=deltacat_storage,
+        )
+        if input_deltas_stats is None
+        else io.limit_input_deltas(
+            input_deltas,
+            cluster_resources,
+            hash_bucket_count,
+            min_hash_bucket_chunk_size,
+            input_deltas_stats=input_deltas_stats,
+            deltacat_storage=deltacat_storage,
+        )
     )
 
     assert hash_bucket_count is not None and hash_bucket_count > 0, (
@@ -297,13 +327,7 @@ def _execute_compaction_round(
             None, dest_delta_locator, None, 0, None
         )
 
-    if last_stream_position_compacted.get(
-        source_partition_locator
-    ) < last_stream_position_to_compact or (
-        not rebase_source_partition_locator
-        and last_stream_position_compacted.get(destination_partition_locator)
-        < previous_last_stream_position_compacted_on_destination_table
-    ):
+    if require_multiple_rounds:
         logger.info(
             f"Compaction can not be completed in one round. Either increase cluster size or decrease input"
         )
@@ -323,18 +347,25 @@ def _execute_compaction_round(
         num_groups=max_parallelism,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        read_kwargs_provider=read_kwargs_provider,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
-    hb_results = ray.get(hb_tasks_pending)
+    hb_results: List[HashBucketResult] = ray.get(hb_tasks_pending)
     logger.info(f"Got {len(hb_results)} hash bucket results.")
     all_hash_group_idx_to_obj_id = defaultdict(list)
-    for hash_group_idx_to_obj_id in hb_results:
-        for hash_group_index, object_id in enumerate(hash_group_idx_to_obj_id):
+    for hb_result in hb_results:
+        for hash_group_index, object_id in enumerate(
+            hb_result.hash_bucket_group_to_obj_id
+        ):
             if object_id:
                 all_hash_group_idx_to_obj_id[hash_group_index].append(object_id)
     hash_group_count = len(all_hash_group_idx_to_obj_id)
     logger.info(f"Hash bucket groups created: {hash_group_count}")
+    total_hb_record_count = sum([hb_result.hb_record_count for hb_result in hb_results])
+    logger.info(
+        f"Got {total_hb_record_count} hash bucket records from hash bucketing step..."
+    )
 
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
@@ -373,14 +404,16 @@ def _execute_compaction_round(
         metrics_config=metrics_config,
     )
     logger.info(f"Getting {len(dd_tasks_pending)} dedupe results...")
-    dd_results = ray.get(dd_tasks_pending)
+    dd_results: List[DedupeResult] = ray.get(dd_tasks_pending)
     logger.info(f"Got {len(dd_results)} dedupe results.")
+    total_dd_record_count = sum([ddr.deduped_record_count for ddr in dd_results])
+    logger.info(f"Deduped {total_dd_record_count} records...")
     all_mat_buckets_to_obj_id = defaultdict(list)
-    for mat_bucket_idx_to_obj_id in dd_results:
+    for dd_result in dd_results:
         for (
             bucket_idx,
             dd_task_index_and_object_id_tuple,
-        ) in mat_bucket_idx_to_obj_id.items():
+        ) in dd_result.mat_bucket_idx_to_obj_id.items():
             all_mat_buckets_to_obj_id[bucket_idx].append(
                 dd_task_index_and_object_id_tuple
             )
@@ -416,15 +449,58 @@ def _execute_compaction_round(
         compacted_file_content_type=compacted_file_content_type,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        read_kwargs_provider=read_kwargs_provider,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
         deltacat_storage=deltacat_storage,
     )
     logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
     mat_results = ray.get(mat_tasks_pending)
+    total_count_of_src_dfl_not_touched = sum(
+        m.count_of_src_dfl_not_touched for m in mat_results
+    )
+    total_length_src_dfl = sum(m.count_of_src_dfl for m in mat_results)
+    logger.info(
+        f"Got total of {total_count_of_src_dfl_not_touched} manifest files not touched."
+    )
+    logger.info(
+        f"Got total of {total_length_src_dfl} manifest files during compaction."
+    )
+    manifest_entry_copied_by_reference_ratio = (
+        (round(total_count_of_src_dfl_not_touched / total_length_src_dfl, 4) * 100)
+        if total_length_src_dfl != 0
+        else None
+    )
+    logger.info(
+        f"{manifest_entry_copied_by_reference_ratio} percent of manifest files are copied by reference during materialize."
+    )
+
     logger.info(f"Got {len(mat_results)} materialize result(s).")
+
+    log_current_cluster_utilization(log_identifier="post_materialize")
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
-    merged_delta = Delta.merge_deltas(deltas)
+
+    # Note: An appropriate last stream position must be set
+    # to avoid correctness issue.
+    merged_delta = Delta.merge_deltas(
+        deltas,
+        stream_position=last_stream_position_to_compact,
+    )
+
+    record_info_msg = (
+        f"Hash bucket records: {total_hb_record_count},"
+        f" Deduped records: {total_dd_record_count}, "
+        f" Materialized records: {merged_delta.meta.record_count}"
+    )
+    logger.info(record_info_msg)
+    assert (
+        total_hb_record_count - total_dd_record_count == merged_delta.meta.record_count
+    ), (
+        f"Number of hash bucket records minus the number of deduped records"
+        f" does not match number of materialized records.\n"
+        f" {record_info_msg}"
+    )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta, properties=kwargs.get("properties", {})
     )
@@ -435,35 +511,24 @@ def _execute_compaction_round(
         compacted_delta.stream_position,
     )
 
-    rci_high_watermark = (
-        rebase_source_partition_high_watermark
-        if rebase_source_partition_high_watermark
-        else last_stream_position_compacted
-    )
-
     last_rebase_source_partition_locator = rebase_source_partition_locator or (
         round_completion_info.rebase_source_partition_locator
         if round_completion_info
         else None
     )
     new_round_completion_info = RoundCompletionInfo.of(
-        rci_high_watermark,
+        last_stream_position_compacted,
         new_compacted_delta_locator,
         PyArrowWriteResult.union([m.pyarrow_write_result for m in mat_results]),
         bit_width_of_sort_keys,
         last_rebase_source_partition_locator,
+        manifest_entry_copied_by_reference_ratio,
     )
     rcf_source_partition_locator = (
         rebase_source_partition_locator
         if rebase_source_partition_locator
         else source_partition_locator
     )
-    round_completion_file_s3_url = rcf.write_round_completion_file(
-        compaction_artifact_s3_bucket,
-        rcf_source_partition_locator,
-        new_round_completion_info,
-    )
-
     logger.info(
         f"partition-{source_partition_locator.partition_values},"
         f"compacted at: {last_stream_position_compacted},"
@@ -472,5 +537,5 @@ def _execute_compaction_round(
     return (
         partition,
         new_round_completion_info,
-        round_completion_file_s3_url,
+        rcf_source_partition_locator,
     )

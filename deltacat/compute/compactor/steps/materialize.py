@@ -1,10 +1,11 @@
 import importlib
 import logging
 import time
+from uuid import uuid4
 from collections import defaultdict
 from contextlib import nullcontext
 from itertools import chain, repeat
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any, Union
 import pyarrow as pa
 import ray
 from ray import cloudpickle
@@ -18,8 +19,20 @@ from deltacat.compute.compactor.steps.dedupe import (
     DedupeTaskIndexWithObjectId,
     DeltaFileLocatorToRecords,
 )
-from deltacat.storage import Delta, DeltaLocator, Partition, PartitionLocator
+from deltacat.storage import (
+    Delta,
+    DeltaLocator,
+    DeltaType,
+    Partition,
+    PartitionLocator,
+    Manifest,
+    ManifestEntry,
+    LocalDataset,
+    LocalTable,
+    DistributedDataset,
+)
 from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.performance import timed_invocation
@@ -52,13 +65,47 @@ def materialize(
     enable_profiler: bool,
     metrics_config: MetricsConfig,
     schema: Optional[pa.Schema] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-) -> MaterializeResult:
+):
+    def _stage_delta_implementation(
+        data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
+        partition: Partition,
+        stage_delta_from_existing_manifest: Optional[bool],
+    ) -> Delta:
+        if stage_delta_from_existing_manifest:
+            delta = Delta.of(
+                locator=DeltaLocator.of(partition.locator),
+                delta_type=DeltaType.UPSERT,
+                meta=manifest.meta,
+                manifest=data,
+                previous_stream_position=partition.stream_position,
+                properties={},
+            )
+            return delta
+
+    def _stage_delta_from_manifest_entry_reference_list(
+        manifest_entry_list_reference: List[ManifestEntry],
+        partition: Partition,
+        delta_type: DeltaType = DeltaType.UPSERT,
+    ) -> Delta:
+        assert (
+            delta_type == DeltaType.UPSERT
+        ), "Stage delta with existing manifest entries only supports UPSERT delta type!"
+        manifest = Manifest.of(entries=manifest_entry_list_reference, uuid=str(uuid4()))
+        delta = _stage_delta_implementation(
+            data=manifest,
+            partition=partition,
+            delta_type=delta_type,
+            stage_delta_from_existing_manifest=True,
+        )
+        return delta
+
     # TODO (rkenmi): Add docstrings for the steps in the compaction workflow
     #  https://github.com/ray-project/deltacat/issues/79
     def _materialize(compacted_tables: List[pa.Table]) -> MaterializeResult:
         compacted_table = pa.concat_tables(compacted_tables)
-
         if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
             # TODO (rkenmi): Investigate if we still need to convert this table to pandas DataFrame
             # TODO (pdames): compare performance to pandas-native materialize path
@@ -70,6 +117,7 @@ def materialize(
             partition,
             max_records_per_entry=max_records_per_output_file,
             content_type=compacted_file_content_type,
+            s3_table_writer_kwargs=s3_table_writer_kwargs,
         )
         compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](
             compacted_table
@@ -88,11 +136,11 @@ def materialize(
             f"({len(compacted_table)})",
         )
         materialize_result = MaterializeResult.of(
-            delta,
-            mat_bucket_index,
+            delta=delta,
+            task_index=mat_bucket_index,
             # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
             #  and in-memory-table-bytes instead of tight coupling to paBytes
-            PyArrowWriteResult.of(
+            pyarrow_write_result=PyArrowWriteResult.of(
                 len(manifest.entries),
                 TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table),
                 manifest.meta.content_length,
@@ -134,6 +182,9 @@ def materialize(
         manifest_cache = {}
         materialized_results: List[MaterializeResult] = []
         record_batch_tables = RecordBatchTables(max_records_per_output_file)
+        count_of_src_dfl = 0
+        manifest_entry_list_reference = []
+        referenced_pyarrow_write_results = []
         for src_dfl in sorted(all_src_file_records.keys()):
             record_numbers_dd_task_idx_tpl_list: List[
                 Tuple[DeltaFileLocatorToRecords, repeat]
@@ -144,11 +195,13 @@ def materialize(
             is_src_partition_file_np = src_dfl.is_source_delta
             src_stream_position_np = src_dfl.stream_position
             src_file_idx_np = src_dfl.file_index
+            count_of_src_dfl += 1
             src_file_partition_locator = (
                 source_partition_locator
                 if is_src_partition_file_np
                 else round_completion_info.compacted_delta_locator.partition_locator
             )
+
             delta_locator = DeltaLocator.of(
                 src_file_partition_locator,
                 src_stream_position_np.item(),
@@ -160,16 +213,16 @@ def materialize(
                 deltacat_storage.get_delta_manifest(delta_locator),
             )
 
-            read_kwargs_provider = None
-            # for delimited text output, disable type inference to prevent
-            # unintentional type-casting side-effects and improve performance
-            if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
-                read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
-            # enforce a consistent schema if provided, when reading files into PyArrow tables
-            elif schema is not None:
-                read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
-                    schema=schema
-                )
+            if read_kwargs_provider is None:
+                # for delimited text output, disable type inference to prevent
+                # unintentional type-casting side-effects and improve performance
+                if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+                    read_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
+                # enforce a consistent schema if provided, when reading files into PyArrow tables
+                elif schema is not None:
+                    read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
+                        schema=schema
+                    )
             pa_table, download_delta_manifest_entry_time = timed_invocation(
                 deltacat_storage.download_delta_manifest_entry,
                 Delta.of(delta_locator, None, None, None, manifest),
@@ -181,39 +234,79 @@ def materialize(
                 f" to download delta locator {delta_locator} with entry ID {src_file_idx_np.item()}"
                 f" is: {download_delta_manifest_entry_time}s"
             )
-            mask_pylist = list(repeat(False, len(pa_table)))
             record_numbers = chain.from_iterable(record_numbers_tpl)
-            # TODO(raghumdani): reference the same file URIs while writing the files
-            # instead of copying the data over and creating new files.
+            record_numbers_length = 0
+            mask_pylist = list(repeat(False, len(pa_table)))
             for record_number in record_numbers:
+                record_numbers_length += 1
                 mask_pylist[record_number] = True
-            mask = pa.array(mask_pylist)
-            pa_table = pa_table.filter(mask)
-            record_batch_tables.append(pa_table)
-            if record_batch_tables.has_batches():
-                batched_tables = record_batch_tables.evict()
-                materialized_results.append(_materialize(batched_tables))
+            if (
+                record_numbers_length == len(pa_table)
+                and src_file_partition_locator
+                == round_completion_info.compacted_delta_locator.partition_locator
+            ):
+                logger.debug(
+                    f"Untouched manifest file found, "
+                    f"record numbers length: {record_numbers_length} "
+                    f"same as downloaded table length: {len(pa_table)}"
+                )
+                untouched_src_manifest_entry = manifest.entries[src_file_idx_np.item()]
+                manifest_entry_list_reference.append(untouched_src_manifest_entry)
+                referenced_pyarrow_write_result = PyArrowWriteResult.of(
+                    len(untouched_src_manifest_entry.entries),
+                    TABLE_CLASS_TO_SIZE_FUNC[type(pa_table)](pa_table),
+                    manifest.meta.content_length,
+                    len(pa_table),
+                )
+                referenced_pyarrow_write_results.append(referenced_pyarrow_write_result)
+            else:
+                mask = pa.array(mask_pylist)
+                pa_table = pa_table.filter(mask)
+                record_batch_tables.append(pa_table)
+                if record_batch_tables.has_batches():
+                    batched_tables = record_batch_tables.evict()
+                    materialized_results.append(_materialize(batched_tables))
 
         if record_batch_tables.has_remaining():
             materialized_results.append(_materialize(record_batch_tables.remaining))
 
-        merged_delta = Delta.merge_deltas([mr.delta for mr in materialized_results])
-        assert (
-            materialized_results and len(materialized_results) > 0
-        ), f"Expected at least one materialized result in materialize step."
+        logger.info(f"Got {count_of_src_dfl} source delta files during materialize")
 
-        write_results = [mr.pyarrow_write_result for mr in materialized_results]
+        referenced_manifest_delta = (
+            _stage_delta_from_manifest_entry_reference_list(
+                manifest_entry_list_reference
+            )
+            if manifest_entry_list_reference
+            else None
+        )
+        if referenced_manifest_delta:
+            logger.info(
+                f"Got delta with {len(referenced_manifest_delta.manifest.entries)} referenced manifest entries"
+            )
+
+        merged_materialized_delta = [mr.delta for mr in materialized_results]
+        merged_materialized_delta.append(referenced_manifest_delta)
+        merged_delta = Delta.merge_deltas(
+            [d for d in merged_materialized_delta if d is not None]
+        )
+
+        write_results_union = referenced_pyarrow_write_results
+        if materialized_results:
+            for mr in materialized_results:
+                write_results_union.append(mr.pyarrow_write_result)
+        write_result = PyArrowWriteResult.union(write_results_union)
+
         logger.debug(
-            f"{len(write_results)} files written"
-            f" with records: {[wr.records for wr in write_results]}"
+            f"{len(write_results_union)} files written"
+            f" with records: {[wr.records for wr in write_results_union]}"
         )
         # Merge all new deltas into one for this materialize bucket index
         merged_materialize_result = MaterializeResult.of(
             merged_delta,
-            materialized_results[0].task_index,
-            PyArrowWriteResult.union(
-                [mr.pyarrow_write_result for mr in materialized_results]
-            ),
+            mat_bucket_index,
+            write_result,
+            len(manifest_entry_list_reference),
+            count_of_src_dfl,
         )
 
         logger.info(f"Finished materialize task...")

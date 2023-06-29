@@ -2,7 +2,7 @@ import importlib
 import logging
 from contextlib import nullcontext
 from itertools import chain
-from typing import Generator, List, Optional
+from typing import Generator, List, Optional, Tuple
 import numpy as np
 import pyarrow as pa
 import ray
@@ -14,6 +14,7 @@ from deltacat.compute.compactor import (
     RoundCompletionInfo,
 )
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
+from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.utils.primary_key_index import (
     group_hash_bucket_indices,
@@ -26,6 +27,7 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
 )
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 
@@ -35,8 +37,6 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _PK_BYTES_DELIMITER = b"L6kl7u5f"
-
-HashBucketResult = np.ndarray
 
 
 def _group_by_pk_hash_bucket(
@@ -86,17 +86,19 @@ def _group_file_records_by_pk_hash_bucket(
     primary_keys: List[str],
     sort_key_names: List[str],
     is_src_delta: np.bool_ = True,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-) -> Optional[DeltaFileEnvelopeGroups]:
+) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
     # read input parquet s3 objects into a list of delta file envelopes
-    delta_file_envelopes = _read_delta_file_envelopes(
+    delta_file_envelopes, total_record_count = _read_delta_file_envelopes(
         annotated_delta,
         primary_keys,
         sort_key_names,
+        read_kwargs_provider,
         deltacat_storage,
     )
     if delta_file_envelopes is None:
-        return None
+        return None, 0
 
     # group the data by primary key hash value
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
@@ -119,15 +121,16 @@ def _group_file_records_by_pk_hash_bucket(
                         is_src_delta,
                     )
                 )
-    return hb_to_delta_file_envelopes
+    return hb_to_delta_file_envelopes, total_record_count
 
 
 def _read_delta_file_envelopes(
     annotated_delta: DeltaAnnotated,
     primary_keys: List[str],
     sort_key_names: List[str],
+    read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
-) -> Optional[List[DeltaFileEnvelope]]:
+) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
 
     columns_to_read = list(chain(primary_keys, sort_key_names))
     # TODO (rootliu) compare performance of column read from unpartitioned vs partitioned file
@@ -136,6 +139,7 @@ def _read_delta_file_envelopes(
         annotated_delta,
         max_parallelism=1,
         columns=columns_to_read,
+        file_reader_kwargs_provider=read_kwargs_provider,
         storage_type=StorageType.LOCAL,
     )
     annotations = annotated_delta.annotations
@@ -146,10 +150,12 @@ def _read_delta_file_envelopes(
         f"annotations ({len(annotations)}).",
     )
     if not tables:
-        return None
+        return None, 0
 
     delta_file_envelopes = []
+    total_record_count = 0
     for i, table in enumerate(tables):
+        total_record_count += len(table)
         delta_file = DeltaFileEnvelope.of(
             annotations[i].annotation_stream_position,
             annotations[i].annotation_file_index,
@@ -157,7 +163,7 @@ def _read_delta_file_envelopes(
             table,
         )
         delta_file_envelopes.append(delta_file)
-    return delta_file_envelopes
+    return delta_file_envelopes, total_record_count
 
 
 def _timed_hash_bucket(
@@ -168,6 +174,7 @@ def _timed_hash_bucket(
     num_buckets: int,
     num_groups: int,
     enable_profiler: bool,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ):
     task_id = get_current_ray_task_id()
@@ -183,12 +190,16 @@ def _timed_hash_bucket(
                 annotated_delta.locator.partition_locator
                 != round_completion_info.compacted_delta_locator.partition_locator
             )
-        delta_file_envelope_groups = _group_file_records_by_pk_hash_bucket(
+        (
+            delta_file_envelope_groups,
+            total_record_count,
+        ) = _group_file_records_by_pk_hash_bucket(
             annotated_delta,
             num_buckets,
             primary_keys,
             sort_key_names,
             is_src_delta,
+            read_kwargs_provider,
             deltacat_storage,
         )
         hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
@@ -196,7 +207,9 @@ def _timed_hash_bucket(
             num_buckets,
             num_groups,
         )
-        return hash_bucket_group_to_obj_id
+        return HashBucketResult(
+            hash_bucket_group_to_obj_id, np.int64(total_record_count)
+        )
 
 
 @ray.remote
@@ -209,11 +222,12 @@ def hash_bucket(
     num_groups: int,
     enable_profiler: bool,
     metrics_config: MetricsConfig,
+    read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> HashBucketResult:
 
     logger.info(f"Starting hash bucket task...")
-    hash_bucket_group_to_obj_id, duration = timed_invocation(
+    hash_bucket_result, duration = timed_invocation(
         func=_timed_hash_bucket,
         annotated_delta=annotated_delta,
         round_completion_info=round_completion_info,
@@ -222,6 +236,7 @@ def hash_bucket(
         num_buckets=num_buckets,
         num_groups=num_groups,
         enable_profiler=enable_profiler,
+        read_kwargs_provider=read_kwargs_provider,
         deltacat_storage=deltacat_storage,
     )
     if metrics_config:
@@ -229,4 +244,4 @@ def hash_bucket(
             metrics_name="hash_bucket", value=duration, metrics_config=metrics_config
         )
     logger.info(f"Finished hash bucket task...")
-    return hash_bucket_group_to_obj_id
+    return hash_bucket_result
