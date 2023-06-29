@@ -42,7 +42,7 @@ class RoundCompletionInfo(dict):
         sort_keys_bit_width: int,
         rebase_source_partition_locator: Optional[PartitionLocator],
         manifest_entry_copied_by_reference_ratio: Optional[float] = None,
-        compaction_audit: Optional[CompactionSessionAuditInfo] = None,
+        compaction_audit_url: Optional[str] = None,
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -54,7 +54,7 @@ class RoundCompletionInfo(dict):
         rci[
             "manifestEntryCopiedByReferenceRatio"
         ] = manifest_entry_copied_by_reference_ratio
-        rci["compactionAudit"] = compaction_audit
+        rci["compactionAuditUrl"] = compaction_audit_url
         return rci
 
     @property

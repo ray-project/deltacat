@@ -292,15 +292,26 @@ def materialize(
             [d for d in merged_materialized_delta if d is not None]
         )
 
-        write_results_union = referenced_pyarrow_write_results
+        write_results_union = [*referenced_pyarrow_write_results]
         if materialized_results:
             for mr in materialized_results:
                 write_results_union.append(mr.pyarrow_write_result)
         write_result = PyArrowWriteResult.union(write_results_union)
+        referenced_write_result = PyArrowWriteResult.union(
+            referenced_pyarrow_write_results
+        )
+
+        assert (
+            referenced_write_result.files == referenced_manifest_delta.manifest.entries
+        ), "The files referenced must match with the entries in the delta"
+
+        assert (
+            write_result.files == merged_delta.manifest.entries
+        ), "The total number of files written by materialize must match manifest entries"
 
         logger.debug(
-            f"{len(write_results_union)} files written"
-            f" with records: {[wr.records for wr in write_results_union]}"
+            f"{len(write_result.files)} files written"
+            f" with records: {write_result.records}"
         )
 
         logger.info(f"Finished materialize task...")
@@ -325,10 +336,10 @@ def materialize(
             merged_delta,
             mat_bucket_index,
             write_result,
-            len(manifest_entry_list_reference),
-            count_of_src_dfl,
+            referenced_write_result,
             np.double(peak_memory_usage_bytes),
             np.double(emit_metrics_time),
+            np.double(time.time()),
         )
 
         return merged_materialize_result

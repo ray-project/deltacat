@@ -1,8 +1,32 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
+import logging
+from deltacat import logs
+from typing import List, Union
+from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
+from deltacat.compute.compactor.model.dedupe_result import DedupeResult
+from deltacat.compute.compactor.model.materialize_result import MaterializeResult
+from deltacat.utils.performance import timed_invocation
+from deltacat.utils.resources import ClusterUtilization
+from deltacat.compute.compactor import PyArrowWriteResult
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class CompactionSessionAuditInfo(dict):
+
+    DEDUPE_STEP_NAME = "dedupe"
+    MATERIALIZE_STEP_NAME = "materialize"
+    HASH_BUCKET_STEP_NAME = "hashBucket"
+
+    def __init__(self, deltacat_version: str, audit_url: str):
+        self.set_deltacat_version(deltacat_version)
+        self.set_audit_url(audit_url)
+
+    @property
+    def audit_url(self) -> str:
+        return self.get("auditUrl")
+
     @property
     def deltacat_version(self) -> str:
         """
@@ -49,11 +73,12 @@ class CompactionSessionAuditInfo(dict):
         return self.get("hashBucketCount")
 
     @property
-    def cluster_cpu(self) -> float:
+    def cluster_cpu_max(self) -> float:
         """
-        Total cluster cpu allocated for the compaction job.
+        Total cluster cpu allocated for the compaction job. If it is autoscaling cluster,
+        max cpu at any time will be reported.
         """
-        return self.get("clusterCpu")
+        return self.get("clusterCpuMax")
 
     @property
     def compaction_time_in_seconds(self) -> float:
@@ -71,7 +96,7 @@ class CompactionSessionAuditInfo(dict):
         return self.get("totalObjectStoreMemoryUsedBytes")
 
     @property
-    def peak_memory_used_bytes(self) -> float:
+    def peak_memory_used_bytes_per_task(self) -> float:
         """
         The peak memory used by a single process in the compaction job. Note that
         Ray creates a single process to run each hash bucketing, dedupe and
@@ -80,51 +105,57 @@ class CompactionSessionAuditInfo(dict):
         the cluster must be scaled to handle  the peak memory per node even
         though average memory usage is low.
         """
-        return self.get("peakMemoryUsedBytes")
+        return self.get("peakMemoryUsedBytesPerTask")
 
     @property
-    def peak_memory_used_bytes_by_hash_bucketing(self) -> float:
+    def peak_memory_used_bytes_per_hash_bucket_task(self) -> float:
         """
         The peak memory used by a single hash bucketing process. For example,
         if peak usage of hash bucketing process is 40GB, it is not safe to run
         more than 3 hash bucketing tasks on a node with 120GB to avoid crashing
         due to memory overflow.
         """
-        return self.get("peakMemoryUsedBytesByHashBucketing")
+        return self.get("hashBucketTaskPeakMemoryUsedBytes")
 
     @property
-    def peak_memory_used_bytes_by_dedupe(self) -> float:
+    def peak_memory_used_bytes_per_dedupe_task(self) -> float:
         """
         The peak memory used by a single dedupe python process. Note that
         results may be max of dedupe and hash bucketing as processes are
         reused by Ray to run dedupe and hash bucketing.
         """
-        return self.get("peakMemoryUsedBytesByDedupe")
+        return self.get("dedupeTaskPeakMemoryUsedBytes")
 
     @property
-    def peak_memory_used_bytes_by_materialize(self) -> float:
+    def peak_memory_used_bytes_per_materialize_task(self) -> float:
         """
         The peak memory used by a single materialize python process. Note
         that results may be max of materialize, dedupe and hash bucketing as
         processes are reused by Ray to run all compaction steps.
         """
-        return self.get("peakMemoryUsedBytesByMaterialize")
+        return self.get("materializeTaskpeakMemoryUsedBytes")
 
     @property
-    def object_store_memory_used_bytes_by_hash_bucketing(self) -> float:
+    def hash_bucket_post_object_store_memory_used_bytes(self) -> float:
         """
         The total object store memory used by hash bucketing step across
         cluster, before dedupe is run.
         """
-        return self.get("objectStoreMemoryUsedBytesByHashBucketing")
+        return self.get("hashBucketPostObjectStoreMemoryUsedBytes")
 
     @property
-    def object_store_memory_used_bytes_by_dedupe(self) -> float:
+    def dedupe_post_object_store_memory_used_bytes(self) -> float:
         """
-        The total object store memory used after dedupe step subtracted by the
-        object store memory using during hash bucketing.
+        The total object store memory used after dedupe step before materialize is run.
         """
-        return self.get("objectStoreMemoryUsedBytesByDedupe")
+        return self.get("dedupePostObjectStoreMemoryUsedBytes")
+
+    @property
+    def materialize_post_object_store_memory_used_bytes(self) -> float:
+        """
+        The total object store memory used after materialize step.
+        """
+        return self.get("materializePostObjectStoreMemoryUsedBytes")
 
     @property
     def materialize_buckets(self) -> int:
@@ -137,8 +168,24 @@ class CompactionSessionAuditInfo(dict):
     def hash_bucket_time_in_seconds(self) -> float:
         """
         The time taken by hash bucketing step. This includes all hash bucket tasks.
+        This includes invoke time.
         """
         return self.get("hashBucketTimeInSeconds")
+
+    @property
+    def hash_bucket_invoke_time_in_seconds(self) -> float:
+        """
+        The time taken to invoke and create all hash bucketing tasks.
+        """
+        return self.get("hashBucketInvokeTimeInSeconds")
+
+    @property
+    def hash_bucket_result_wait_time_in_seconds(self) -> float:
+        """
+        The time it takes ray.get() to resolve after the last hash bucket task has completed.
+        This value may not be accurate at less than 1 second precision.
+        """
+        return self.get("hashBucketResultWaitTimeInSeconds")
 
     @property
     def dedupe_time_in_seconds(self) -> float:
@@ -148,11 +195,41 @@ class CompactionSessionAuditInfo(dict):
         return self.get("dedupeTimeInSeconds")
 
     @property
+    def dedupe_invoke_time_in_seconds(self) -> float:
+        """
+        The time taken to invoke all dedupe tasks.
+        """
+        return self.get("dedupeInvokeTimeInSeconds")
+
+    @property
+    def dedupe_result_wait_time_in_seconds(self) -> float:
+        """
+        The time it takes ray.get() to resolve after the last dedupe task has completed.
+        This value may not be accurate at less than 1 second precision.
+        """
+        return self.get("dedupeResultWaitTimeInSeconds")
+
+    @property
     def materialize_time_in_seconds(self) -> float:
         """
         The time taken by materialize step. This includes all materialize tasks.
         """
         return self.get("materializeTimeInSeconds")
+
+    @property
+    def materialize_invoke_time_in_seconds(self) -> float:
+        """
+        The time taken to invoke all materialize tasks.
+        """
+        return self.get("materializeInvokeTimeInSeconds")
+
+    @property
+    def materialize_result_wait_time_in_seconds(self) -> float:
+        """
+        The time it takes ray.get() to resolve after the last hash bucket task has completed.
+        This value may not be accurate at less than 1 second precision.
+        """
+        return self.get("materializeResultWaitTimeInSeconds")
 
     @property
     def delta_discovery_time_in_seconds(self) -> float:
@@ -200,7 +277,6 @@ class CompactionSessionAuditInfo(dict):
     def untouched_file_count(self) -> int:
         """
         The total number of files that were untouched by materialize step.
-        TODO: set this value after implementation of manifest skipping.
         """
         return self.get("untouchedFileCount")
 
@@ -208,7 +284,6 @@ class CompactionSessionAuditInfo(dict):
     def untouched_file_ratio(self) -> float:
         """
         The ratio between total number of files untouched and total number of files in the compacted output.
-        TODO: set this value after implementation of manifest skipping.
         """
         return self.get("untouchedFileRatio")
 
@@ -216,7 +291,6 @@ class CompactionSessionAuditInfo(dict):
     def untouched_record_count(self) -> int:
         """
         The total number of records untouched during materialization.
-        TODO: set this value after implementation of manifest skipping.
         """
         return self.get("untouchedRecordCount")
 
@@ -224,7 +298,6 @@ class CompactionSessionAuditInfo(dict):
     def untouched_size_bytes(self) -> float:
         """
         The on-disk size of the data untouched during materialization.
-        TODO: set this value after implementation of manifest skipping.
         """
         return self.get("untouchedSizeBytes")
 
@@ -237,6 +310,10 @@ class CompactionSessionAuditInfo(dict):
         return self.get("telemetryTimeInSeconds")
 
     # Setters follow
+
+    def set_audit_url(self, audit_url: str) -> CompactionSessionAuditInfo:
+        self["auditUrl"] = audit_url
+        return self
 
     def set_deltacat_version(self, version: str) -> CompactionSessionAuditInfo:
         self["deltacatVersion"] = version
@@ -266,8 +343,8 @@ class CompactionSessionAuditInfo(dict):
         self["hashBucketCount"] = hash_bucket_count
         return self
 
-    def set_cluster_cpu(self, cluster_cpu: float) -> CompactionSessionAuditInfo:
-        self["clusterCpu"] = cluster_cpu
+    def set_cluster_cpu_max(self, cluster_cpu_max: float) -> CompactionSessionAuditInfo:
+        self["clusterCpuMax"] = cluster_cpu_max
         return self
 
     def set_compaction_time_in_seconds(
@@ -282,45 +359,55 @@ class CompactionSessionAuditInfo(dict):
         self["totalObjectStoreMemoryUsedBytes"] = total_object_store_memory_used_bytes
         return self
 
-    def set_peak_memory_used_bytes(
+    def set_peak_memory_used_bytes_per_task(
         self, peak_memory_used_bytes: float
     ) -> CompactionSessionAuditInfo:
-        self["peakMemoryUsedBytes"] = peak_memory_used_bytes
+        self["peakMemoryUsedBytesPerTask"] = peak_memory_used_bytes
         return self
 
-    def set_peak_memory_used_bytes_by_hash_bucketing(
-        self, peak_memory_used_bytes_by_hash_bucketing: float
+    def set_peak_memory_used_bytes_per_hash_bucket_task(
+        self, peak_memory_used_bytes_per_hash_bucket_task: float
     ) -> CompactionSessionAuditInfo:
         self[
-            "peakMemoryUsedBytesByHashBucketing"
-        ] = peak_memory_used_bytes_by_hash_bucketing
+            "hashBucketTaskPeakMemoryUsedBytes"
+        ] = peak_memory_used_bytes_per_hash_bucket_task
         return self
 
-    def set_peak_memory_used_bytes_by_dedupe(
-        self, peak_memory_used_bytes_by_dedupe: float
+    def set_peak_memory_used_bytes_per_dedupe_task(
+        self, peak_memory_used_bytes_per_dedupe_task: float
     ) -> CompactionSessionAuditInfo:
-        self["peakMemoryUsedBytesByDedupe"] = peak_memory_used_bytes_by_dedupe
+        self["dedupeTaskPeakMemoryUsedBytes"] = peak_memory_used_bytes_per_dedupe_task
         return self
 
-    def set_peak_memory_used_bytes_by_materialize(
-        self, peak_memory_used_bytes_by_materialize: float
+    def set_peak_memory_used_bytes_per_materialize_task(
+        self, peak_memory_used_bytes_per_materialize_task: float
     ) -> CompactionSessionAuditInfo:
-        self["peakMemoryUsedBytesByMaterialize"] = peak_memory_used_bytes_by_materialize
+        self[
+            "materializeTaskPeakMemoryUsedBytes"
+        ] = peak_memory_used_bytes_per_materialize_task
         return self
 
-    def set_object_store_memory_used_bytes_by_hash_bucketing(
+    def set_hash_bucket_post_object_store_memory_used_bytes(
         self, object_store_memory_used_bytes_by_hb: float
     ) -> CompactionSessionAuditInfo:
         self[
-            "objectStoreMemoryUsedBytesByHashBucketing"
+            "hashBucketPostObjectStoreMemoryUsedBytes"
         ] = object_store_memory_used_bytes_by_hb
         return self
 
-    def set_object_store_memory_used_bytes_by_dedupe(
+    def set_dedupe_post_object_store_memory_used_bytes(
         self, object_store_memory_used_bytes_by_dedupe: float
     ) -> CompactionSessionAuditInfo:
         self[
-            "objectStoreMemoryUsedBytesByDedupe"
+            "dedupePostObjectStoreMemoryUsedBytes"
+        ] = object_store_memory_used_bytes_by_dedupe
+        return self
+
+    def set_materialize_post_object_store_memory_used_bytes(
+        self, object_store_memory_used_bytes_by_dedupe: float
+    ) -> CompactionSessionAuditInfo:
+        self[
+            "materializePostObjectStoreMemoryUsedBytes"
         ] = object_store_memory_used_bytes_by_dedupe
         return self
 
@@ -336,16 +423,52 @@ class CompactionSessionAuditInfo(dict):
         self["hashBucketTimeInSeconds"] = hash_bucket_time_in_seconds
         return self
 
+    def set_hash_bucket_invoke_time_in_seconds(
+        self, hash_bucket_invoke_time: float
+    ) -> CompactionSessionAuditInfo:
+        self["hashBucketInvokeTimeInSeconds"] = hash_bucket_invoke_time
+        return self
+
+    def set_hash_bucket_result_wait_time_in_seconds(
+        self, wait_time: float
+    ) -> CompactionSessionAuditInfo:
+        self.get["hashBucketResultWaitTimeInSeconds"] = wait_time
+        return self
+
     def set_dedupe_time_in_seconds(
         self, dedupe_time_in_seconds: float
     ) -> CompactionSessionAuditInfo:
         self["dedupeTimeInSeconds"] = dedupe_time_in_seconds
         return self
 
+    def set_dedupe_invoke_time_in_seconds(
+        self, dedupe_invoke_time: float
+    ) -> CompactionSessionAuditInfo:
+        self["dedupeInvokeTimeInSeconds"] = dedupe_invoke_time
+        return self
+
+    def set_dedupe_result_wait_time_in_seconds(
+        self, wait_time: float
+    ) -> CompactionSessionAuditInfo:
+        self.get["dedupeResultWaitTimeInSeconds"] = wait_time
+        return self
+
     def set_materialize_time_in_seconds(
         self, materialize_time_in_seconds: float
     ) -> CompactionSessionAuditInfo:
         self["materializeTimeInSeconds"] = materialize_time_in_seconds
+        return self
+
+    def set_materialize_invoke_time_in_seconds(
+        self, materialize_invoke_time: float
+    ) -> CompactionSessionAuditInfo:
+        self["materializeInvokeTimeInSeconds"] = materialize_invoke_time
+        return self
+
+    def set_materialize_result_wait_time_in_seconds(
+        self, wait_time: float
+    ) -> CompactionSessionAuditInfo:
+        self.get["materializeResultWaitTimeInSeconds"] = wait_time
         return self
 
     def set_delta_discovery_time_in_seconds(
@@ -415,3 +538,121 @@ class CompactionSessionAuditInfo(dict):
     ) -> CompactionSessionAuditInfo:
         self["telemetryTimeInSeconds"] = telemetry_time_in_seconds
         return self
+
+    # High level methods to save stats
+    def save_step_stats(
+        self,
+        step_name: str,
+        task_results: Union[
+            List[HashBucketResult], List[DedupeResult], List[MaterializeResult]
+        ],
+        task_results_retrieved_at: float,
+        invoke_time_in_seconds: float,
+        task_time_in_seconds: float,
+    ) -> float:
+        """
+        Saves the stats by calling individual setters and returns the cluster telemetry time.
+        """
+
+        last_hb_task_completed_at = max(
+            hb_result.task_completed_at for hb_result in task_results
+        )
+
+        self[f"{step_name}ResultWaitTimeInSeconds"] = (
+            task_results_retrieved_at - last_hb_task_completed_at.item()
+        )
+        self[f"{step_name}TimeInSeconds"] = task_time_in_seconds
+        self[f"{step_name}InvokeTimeInSeconds"] = invoke_time_in_seconds
+
+        (
+            cluster_utilization_after_task,
+            cluster_util_after_task_latency,
+        ) = timed_invocation(ClusterUtilization.get_current_cluster_utilization)
+
+        self.set_total_cluster_object_store_memory_bytes(
+            cluster_utilization_after_task.total_object_store_memory_bytes
+        )
+        self.set_total_cluster_memory_bytes(
+            cluster_utilization_after_task.total_memory_bytes
+        )
+        self.set_total_object_store_memory_used_bytes(
+            cluster_utilization_after_task.used_object_store_memory_bytes
+        )
+
+        self[
+            f"{step_name}PostObjectStoreMemoryUsedBytes"
+        ] = cluster_utilization_after_task.used_object_store_memory_bytes
+
+        peak_task_memory = max(
+            hb_result.peak_memory_usage_bytes for hb_result in task_results
+        )
+
+        telemetry_time = sum(
+            hb_result.telemetry_time_in_seconds for hb_result in task_results
+        )
+
+        self[f"{step_name}TaskPeakMemoryUsedBytes"] = peak_task_memory.item()
+
+        return cluster_util_after_task_latency + telemetry_time
+
+    def save_round_completion_stats(
+        self, mat_results: List[MaterializeResult], total_telemetry_time: float
+    ) -> None:
+        """
+        This method saves all the relevant stats after all the steps are completed.
+        """
+        pyarrow_write_result = PyArrowWriteResult.union(
+            [m.pyarrow_write_result for m in mat_results]
+        )
+
+        total_count_of_src_dfl_not_touched = sum(
+            m.referenced_pyarrow_write_result.files for m in mat_results
+        )
+
+        logger.info(
+            f"Got total of {total_count_of_src_dfl_not_touched} manifest files not touched."
+        )
+        logger.info(
+            f"Got total of {pyarrow_write_result.files} manifest files during compaction."
+        )
+        manifest_entry_copied_by_reference_ratio = (
+            (
+                round(
+                    total_count_of_src_dfl_not_touched / pyarrow_write_result.files, 4
+                )
+                * 100
+            )
+            if pyarrow_write_result.files != 0
+            else None
+        )
+        logger.info(
+            f"{manifest_entry_copied_by_reference_ratio} percent of manifest files are copied by reference during materialize."
+        )
+
+        untouched_file_record_count = sum(
+            m.referenced_pyarrow_write_result.records for m in mat_results
+        )
+        untouched_file_size_bytes = sum(
+            m.referenced_pyarrow_write_result.file_bytes for m in mat_results
+        )
+
+        self.set_untouched_file_count(total_count_of_src_dfl_not_touched)
+        self.set_untouched_file_ratio(manifest_entry_copied_by_reference_ratio)
+        self.set_untouched_record_count(untouched_file_record_count)
+        self.set_untouched_size_bytes(untouched_file_size_bytes)
+
+        self.set_output_file_count(pyarrow_write_result.files)
+        self.set_output_size_bytes(pyarrow_write_result.file_bytes)
+        self.set_output_size_pyarrow_bytes(pyarrow_write_result.pyarrow_bytes)
+
+        self.set_peak_memory_used_bytes_per_task(
+            max(
+                [
+                    self.peak_memory_used_bytes_per_hash_bucket_task,
+                    self.peak_memory_used_bytes_per_dedupe_task,
+                    self.peak_memory_used_bytes_per_materialize_task,
+                ]
+            )
+        )
+
+        self.set_telemetry_time_in_seconds(total_telemetry_time)

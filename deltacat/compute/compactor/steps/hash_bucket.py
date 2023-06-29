@@ -1,5 +1,6 @@
 import importlib
 import logging
+import time
 from contextlib import nullcontext
 from itertools import chain
 from typing import Generator, List, Optional, Tuple
@@ -215,6 +216,7 @@ def _timed_hash_bucket(
             np.int64(total_record_count),
             np.double(peak_memory_usage_bytes),
             np.double(0.0),
+            np.double(time.time()),
         )
 
 
@@ -262,4 +264,5 @@ def hash_bucket(
         hash_bucket_result[1],
         hash_bucket_result[2],
         np.double(emit_metrics_time),
+        hash_bucket_result[4],
     )

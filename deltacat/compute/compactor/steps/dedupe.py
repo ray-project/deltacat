@@ -1,5 +1,6 @@
 import importlib
 import logging
+import time
 from collections import defaultdict
 from contextlib import nullcontext
 from typing import Any, Dict, List, Tuple
@@ -238,6 +239,7 @@ def _timed_dedupe(
             np.int64(total_deduped_records),
             np.double(peak_memory_usage_bytes),
             np.double(0.0),
+            np.double(time.time()),
         )
 
 
@@ -276,4 +278,5 @@ def dedupe(
         dedupe_result[1],
         dedupe_result[2],
         np.double(emit_metrics_time),
+        dedupe_result[4],
     )
