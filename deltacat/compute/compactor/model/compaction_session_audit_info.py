@@ -7,7 +7,7 @@ from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils.resources import ClusterUtilization
+from deltacat.utils.resources import ClusterUtilization, get_size_of_object_in_bytes
 from deltacat.compute.compactor import PyArrowWriteResult
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -316,6 +316,34 @@ class CompactionSessionAuditInfo(dict):
         """
         return self.get("telemetryTimeInSeconds")
 
+    @property
+    def hash_bucket_result_size_bytes(self) -> float:
+        """
+        The size of the results returned by hash bucket step.
+        """
+        return self.get("hashBucketResultSize")
+
+    @property
+    def dedupe_result_size_bytes(self) -> float:
+        """
+        The size of the results returned by dedupe step.
+        """
+        return self.get("dedupeResultSize")
+
+    @property
+    def materialize_result_size(self) -> float:
+        """
+        The size of the results returned by materialize step.
+        """
+        return self.get("materializeResultSize")
+
+    @property
+    def peak_memory_used_bytes_by_compaction_session_process(self) -> float:
+        """
+        The peak memory used by the entrypoint for compaction_session.
+        """
+        return self.get("peakMemoryUsedBytesCompactionSessionProcess")
+
     # Setters follow
 
     def set_audit_url(self, audit_url: str) -> CompactionSessionAuditInfo:
@@ -552,6 +580,30 @@ class CompactionSessionAuditInfo(dict):
         self["telemetryTimeInSeconds"] = telemetry_time_in_seconds
         return self
 
+    def set_hash_bucket_result_size_bytes(
+        self, hash_bucket_result_size_bytes: float
+    ) -> CompactionSessionAuditInfo:
+        self["hashBucketResultSize"] = hash_bucket_result_size_bytes
+        return self
+
+    def set_dedupe_result_size_bytes(
+        self, dedupe_result_size_bytes: float
+    ) -> CompactionSessionAuditInfo:
+        self["dedupeResultSize"] = dedupe_result_size_bytes
+        return self
+
+    def set_materialize_result_size_bytes(
+        self, materialize_result_size_bytes: float
+    ) -> CompactionSessionAuditInfo:
+        self["materializeResultSize"] = materialize_result_size_bytes
+        return self
+
+    def set_peak_memory_used_bytes_by_compaction_session_process(
+        self, peak_memory: float
+    ) -> CompactionSessionAuditInfo:
+        self["peakMemoryUsedBytesCompactionSessionProcess"] = peak_memory
+        return self
+
     # High level methods to save stats
     def save_step_stats(
         self,
@@ -576,6 +628,8 @@ class CompactionSessionAuditInfo(dict):
         )
         self[f"{step_name}TimeInSeconds"] = task_time_in_seconds
         self[f"{step_name}InvokeTimeInSeconds"] = invoke_time_in_seconds
+
+        self[f"{step_name}ResultSize"] = get_size_of_object_in_bytes(task_results)
 
         (
             cluster_utilization_after_task,

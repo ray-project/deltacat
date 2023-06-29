@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ray
+import sys
 from typing import Dict, Any
 from dataclasses import dataclass
 from deltacat import logs
@@ -68,3 +69,16 @@ def get_current_node_peak_memory_usage_in_bytes():
         return usage
     else:
         return psutil.Process().memory_info().peak_wset
+
+
+def get_size_of_object_in_bytes(obj: object) -> float:
+    size = sys.getsizeof(obj)
+    if isinstance(obj, dict):
+        return (
+            size
+            + sum(map(get_size_of_object_in_bytes, obj.keys()))
+            + sum(map(get_size_of_object_in_bytes, obj.values()))
+        )
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return size + sum(map(get_size_of_object_in_bytes, obj))
+    return size

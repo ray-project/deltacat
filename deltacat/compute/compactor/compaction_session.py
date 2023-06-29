@@ -45,6 +45,7 @@ from deltacat.utils.metrics import MetricsConfig
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
+from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 
 if importlib.util.find_spec("memray"):
@@ -203,7 +204,7 @@ def _execute_compaction_round(
     )
 
     base_audit_url = rcf_source_partition_locator.path(
-        f"{compaction_artifact_s3_bucket}/compaction-audit"
+        f"s3://{compaction_artifact_s3_bucket}/compaction-audit"
     )
     audit_url = f"{base_audit_url}.json"
 
@@ -605,6 +606,11 @@ def _execute_compaction_round(
 
     pyarrow_write_result = PyArrowWriteResult.union(
         [m.pyarrow_write_result for m in mat_results]
+    )
+
+    session_peak_memory = get_current_node_peak_memory_usage_in_bytes()
+    compaction_audit.set_peak_memory_used_bytes_by_compaction_session_process(
+        session_peak_memory
     )
 
     compaction_audit.save_round_completion_stats(
