@@ -50,6 +50,13 @@ class CompactionSessionAuditInfo(dict):
         return self.get("inputFileCount")
 
     @property
+    def uniform_deltas_created(self) -> int:
+        """
+        The total number of unitform deltas fed into the hash bucket step.
+        """
+        return self.get("uniformDeltasCreated")
+
+    @property
     def records_deduped(self) -> int:
         """
         The total number of records that were deduplicated. For example,
@@ -327,6 +334,12 @@ class CompactionSessionAuditInfo(dict):
         self["inputFileCount"] = input_file_count
         return self
 
+    def set_uniform_deltas_created(
+        self, uniform_deltas_created: int
+    ) -> CompactionSessionAuditInfo:
+        self["uniformDeltasCreated"] = uniform_deltas_created
+        return self
+
     def set_records_deduped(self, records_deduped: int) -> CompactionSessionAuditInfo:
         self["recordsDeduped"] = records_deduped
         return self
@@ -554,12 +567,12 @@ class CompactionSessionAuditInfo(dict):
         Saves the stats by calling individual setters and returns the cluster telemetry time.
         """
 
-        last_hb_task_completed_at = max(
-            hb_result.task_completed_at for hb_result in task_results
+        last_task_completed_at = max(
+            result.task_completed_at for result in task_results
         )
 
         self[f"{step_name}ResultWaitTimeInSeconds"] = (
-            task_results_retrieved_at - last_hb_task_completed_at.item()
+            task_results_retrieved_at - last_task_completed_at.item()
         )
         self[f"{step_name}TimeInSeconds"] = task_time_in_seconds
         self[f"{step_name}InvokeTimeInSeconds"] = invoke_time_in_seconds
@@ -584,11 +597,11 @@ class CompactionSessionAuditInfo(dict):
         ] = cluster_utilization_after_task.used_object_store_memory_bytes
 
         peak_task_memory = max(
-            hb_result.peak_memory_usage_bytes for hb_result in task_results
+            result.peak_memory_usage_bytes for result in task_results
         )
 
         telemetry_time = sum(
-            hb_result.telemetry_time_in_seconds for hb_result in task_results
+            result.telemetry_time_in_seconds for result in task_results
         )
 
         self[f"{step_name}TaskPeakMemoryUsedBytes"] = peak_task_memory.item()

@@ -207,7 +207,7 @@ def _execute_compaction_round(
     )
     audit_url = f"{base_audit_url}.json"
 
-    logger.info(f"Compaction will be written to {audit_url}")
+    logger.info(f"Compaction audit will be written to {audit_url}")
 
     compaction_audit = CompactionSessionAuditInfo(deltacat.__version__, audit_url)
 
@@ -348,6 +348,8 @@ def _execute_compaction_round(
         )
     )
 
+    compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
+
     assert hash_bucket_count is not None and hash_bucket_count > 0, (
         f"Expected hash bucket count to be a positive integer, but found "
         f"`{hash_bucket_count}`"
@@ -468,6 +470,9 @@ def _execute_compaction_round(
     dd_results: List[DedupeResult] = ray.get(dd_tasks_pending)
     logger.info(f"Got {len(dd_results)} dedupe results.")
 
+    # we use time.time() here because time.monotonic() has no reference point
+    # whereas time.time() measures epoch seconds. Hence, it will be reasonable
+    # to compare time.time()s captured in different nodes.
     dedupe_results_retrieved_at = time.time()
     dedupe_end = time.monotonic()
 
