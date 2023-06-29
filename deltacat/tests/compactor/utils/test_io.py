@@ -1,18 +1,19 @@
 import unittest
 from unittest import mock
-from deltacat.compute.compactor.model.compaction_session_audit_info import (
-    CompactionSessionAuditInfo,
-)
 from deltacat.tests.test_utils.constants import TEST_DELTA
 
 
 class TestFitInputDeltas(unittest.TestCase):
-    COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "test")
-
     @classmethod
     def setUpClass(cls):
         cls.module_patcher = mock.patch.dict("sys.modules", {"ray": mock.MagicMock()})
         cls.module_patcher.start()
+
+        from deltacat.compute.compactor.model.compaction_session_audit_info import (
+            CompactionSessionAuditInfo,
+        )
+
+        cls.COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "test")
 
         super().setUpClass()
 

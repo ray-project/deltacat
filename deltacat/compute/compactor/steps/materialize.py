@@ -310,7 +310,7 @@ def materialize(
         ), "The total number of files written by materialize must match manifest entries"
 
         logger.debug(
-            f"{len(write_result.files)} files written"
+            f"{write_result.files} files written"
             f" with records: {write_result.records}"
         )
 

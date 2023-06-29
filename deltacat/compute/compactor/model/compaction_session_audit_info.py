@@ -133,7 +133,7 @@ class CompactionSessionAuditInfo(dict):
         that results may be max of materialize, dedupe and hash bucketing as
         processes are reused by Ray to run all compaction steps.
         """
-        return self.get("materializeTaskpeakMemoryUsedBytes")
+        return self.get("materializeTaskPeakMemoryUsedBytes")
 
     @property
     def hash_bucket_post_object_store_memory_used_bytes(self) -> float:

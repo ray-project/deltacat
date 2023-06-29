@@ -1,5 +1,6 @@
 import unittest
 from unittest import mock
+import sys
 
 
 class TestGetCurrentClusterUtilization(unittest.TestCase):
@@ -19,6 +20,10 @@ class TestGetCurrentClusterUtilization(unittest.TestCase):
 
         cls.module_patcher = mock.patch.dict("sys.modules", {"ray": cls.ray_mock})
         cls.module_patcher.start()
+
+        # delete reference to reload from mocked ray
+        if "deltacat.utils.resources" in sys.modules:
+            del sys.modules["deltacat.utils.resources"]
 
         super().setUpClass()
 
