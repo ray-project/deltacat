@@ -276,7 +276,7 @@ def materialize(
 
         referenced_manifest_delta = (
             _stage_delta_from_manifest_entry_reference_list(
-                manifest_entry_list_reference
+                manifest_entry_list_reference, partition
             )
             if manifest_entry_list_reference
             else None
