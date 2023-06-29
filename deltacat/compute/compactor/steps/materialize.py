@@ -255,7 +255,7 @@ def materialize(
                 untouched_src_manifest_entry = manifest.entries[src_file_idx_np.item()]
                 manifest_entry_list_reference.append(untouched_src_manifest_entry)
                 referenced_pyarrow_write_result = PyArrowWriteResult.of(
-                    len(untouched_src_manifest_entry.entries),
+                    1,
                     TABLE_CLASS_TO_SIZE_FUNC[type(pa_table)](pa_table),
                     manifest.meta.content_length,
                     len(pa_table),
