@@ -1,5 +1,6 @@
 import importlib
 import logging
+import time
 from contextlib import nullcontext
 from itertools import chain
 from typing import Generator, List, Optional, Tuple
@@ -30,6 +31,7 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -207,8 +209,14 @@ def _timed_hash_bucket(
             num_buckets,
             num_groups,
         )
+
+        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
         return HashBucketResult(
-            hash_bucket_group_to_obj_id, np.int64(total_record_count)
+            hash_bucket_group_to_obj_id,
+            np.int64(total_record_count),
+            np.double(peak_memory_usage_bytes),
+            np.double(0.0),
+            np.double(time.time()),
         )
 
 
@@ -239,9 +247,22 @@ def hash_bucket(
         read_kwargs_provider=read_kwargs_provider,
         deltacat_storage=deltacat_storage,
     )
+
+    emit_metrics_time = 0.0
     if metrics_config:
-        emit_timer_metrics(
-            metrics_name="hash_bucket", value=duration, metrics_config=metrics_config
+        emit_result, latency = timed_invocation(
+            func=emit_timer_metrics,
+            metrics_name="hash_bucket",
+            value=duration,
+            metrics_config=metrics_config,
         )
+        emit_metrics_time = latency
+
     logger.info(f"Finished hash bucket task...")
-    return hash_bucket_result
+    return HashBucketResult(
+        hash_bucket_result[0],
+        hash_bucket_result[1],
+        hash_bucket_result[2],
+        np.double(emit_metrics_time),
+        hash_bucket_result[4],
+    )

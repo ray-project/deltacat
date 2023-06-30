@@ -9,6 +9,12 @@ class TestFitInputDeltas(unittest.TestCase):
         cls.module_patcher = mock.patch.dict("sys.modules", {"ray": mock.MagicMock()})
         cls.module_patcher.start()
 
+        from deltacat.compute.compactor.model.compaction_session_audit_info import (
+            CompactionSessionAuditInfo,
+        )
+
+        cls.COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "test")
+
         super().setUpClass()
 
     def test_sanity(self):
@@ -19,12 +25,18 @@ class TestFitInputDeltas(unittest.TestCase):
             hash_bucket_count,
             high_watermark,
             require_multiple_rounds,
-        ) = io.fit_input_deltas([TEST_DELTA], {"CPU": 1, "memory": 20000000}, None)
+        ) = io.fit_input_deltas(
+            [TEST_DELTA], {"CPU": 1, "memory": 20000000}, self.COMPACTION_AUDIT, None
+        )
 
         self.assertIsNotNone(hash_bucket_count)
         self.assertTrue(1, len(delta_list))
         self.assertIsNotNone(high_watermark)
         self.assertFalse(require_multiple_rounds)
+        self.assertIsNotNone(hash_bucket_count, self.COMPACTION_AUDIT.hash_bucket_count)
+        self.assertIsNotNone(self.COMPACTION_AUDIT.input_file_count)
+        self.assertIsNotNone(self.COMPACTION_AUDIT.input_size_bytes)
+        self.assertIsNotNone(self.COMPACTION_AUDIT.total_cluster_memory_bytes)
 
     def test_when_hash_bucket_count_overridden(self):
         from deltacat.compute.compactor.utils import io
@@ -34,7 +46,9 @@ class TestFitInputDeltas(unittest.TestCase):
             hash_bucket_count,
             high_watermark,
             require_multiple_rounds,
-        ) = io.fit_input_deltas([TEST_DELTA], {"CPU": 1, "memory": 20000000}, 20)
+        ) = io.fit_input_deltas(
+            [TEST_DELTA], {"CPU": 1, "memory": 20000000}, self.COMPACTION_AUDIT, 20
+        )
 
         self.assertEqual(20, hash_bucket_count)
         self.assertEqual(1, len(delta_list))
@@ -49,7 +63,9 @@ class TestFitInputDeltas(unittest.TestCase):
             hash_bucket_count,
             high_watermark,
             require_multiple_rounds,
-        ) = io.fit_input_deltas([TEST_DELTA], {"CPU": 2, "memory": 10}, 20)
+        ) = io.fit_input_deltas(
+            [TEST_DELTA], {"CPU": 2, "memory": 10}, self.COMPACTION_AUDIT, 20
+        )
 
         self.assertIsNotNone(hash_bucket_count)
         self.assertTrue(2, len(delta_list))
@@ -60,10 +76,12 @@ class TestFitInputDeltas(unittest.TestCase):
         from deltacat.compute.compactor.utils import io
 
         with self.assertRaises(AssertionError):
-            io.fit_input_deltas([], {"CPU": 100, "memory": 20000.0}, None)
+            io.fit_input_deltas(
+                [], {"CPU": 100, "memory": 20000.0}, self.COMPACTION_AUDIT, None
+            )
 
     def test_when_cpu_resources_is_not_passed(self):
         from deltacat.compute.compactor.utils import io
 
         with self.assertRaises(KeyError):
-            io.fit_input_deltas([], {}, None)
+            io.fit_input_deltas([], {}, self.COMPACTION_AUDIT, None)

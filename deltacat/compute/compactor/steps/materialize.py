@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from itertools import chain, repeat
 from typing import List, Optional, Tuple, Dict, Any, Union
 import pyarrow as pa
+import numpy as np
 import ray
 from ray import cloudpickle
 from deltacat import logs
@@ -46,6 +47,7 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -253,7 +255,7 @@ def materialize(
                 untouched_src_manifest_entry = manifest.entries[src_file_idx_np.item()]
                 manifest_entry_list_reference.append(untouched_src_manifest_entry)
                 referenced_pyarrow_write_result = PyArrowWriteResult.of(
-                    len(untouched_src_manifest_entry.entries),
+                    1,
                     TABLE_CLASS_TO_SIZE_FUNC[type(pa_table)](pa_table),
                     manifest.meta.content_length,
                     len(pa_table),
@@ -274,15 +276,11 @@ def materialize(
 
         referenced_manifest_delta = (
             _stage_delta_from_manifest_entry_reference_list(
-                manifest_entry_list_reference
+                manifest_entry_list_reference, partition
             )
             if manifest_entry_list_reference
             else None
         )
-        if referenced_manifest_delta:
-            logger.info(
-                f"Got delta with {len(referenced_manifest_delta.manifest.entries)} referenced manifest entries"
-            )
 
         merged_materialized_delta = [mr.delta for mr in materialized_results]
         merged_materialized_delta.append(referenced_manifest_delta)
@@ -290,33 +288,58 @@ def materialize(
             [d for d in merged_materialized_delta if d is not None]
         )
 
-        write_results_union = referenced_pyarrow_write_results
+        write_results_union = [*referenced_pyarrow_write_results]
         if materialized_results:
             for mr in materialized_results:
                 write_results_union.append(mr.pyarrow_write_result)
         write_result = PyArrowWriteResult.union(write_results_union)
+        referenced_write_result = PyArrowWriteResult.union(
+            referenced_pyarrow_write_results
+        )
+
+        if referenced_manifest_delta:
+            logger.info(
+                f"Got delta with {len(referenced_manifest_delta.manifest.entries)} referenced manifest entries"
+            )
+            assert referenced_write_result.files == len(
+                referenced_manifest_delta.manifest.entries
+            ), "The files referenced must match with the entries in the delta"
+
+        assert write_result.files == len(
+            merged_delta.manifest.entries
+        ), "The total number of files written by materialize must match manifest entries"
 
         logger.debug(
-            f"{len(write_results_union)} files written"
-            f" with records: {[wr.records for wr in write_results_union]}"
-        )
-        # Merge all new deltas into one for this materialize bucket index
-        merged_materialize_result = MaterializeResult.of(
-            merged_delta,
-            mat_bucket_index,
-            write_result,
-            len(manifest_entry_list_reference),
-            count_of_src_dfl,
+            f"{write_result.files} files written"
+            f" with records: {write_result.records}"
         )
 
         logger.info(f"Finished materialize task...")
         end = time.time()
         duration = end - start
+
+        emit_metrics_time = 0.0
         if metrics_config:
-            emit_timer_metrics(
+            emit_result, latency = timed_invocation(
+                func=emit_timer_metrics,
                 metrics_name="materialize",
                 value=duration,
                 metrics_config=metrics_config,
             )
+            emit_metrics_time = latency
         logger.info(f"Materialize task ended in {end - start}s")
+
+        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+
+        # Merge all new deltas into one for this materialize bucket index
+        merged_materialize_result = MaterializeResult.of(
+            merged_delta,
+            mat_bucket_index,
+            write_result,
+            referenced_write_result,
+            np.double(peak_memory_usage_bytes),
+            np.double(emit_metrics_time),
+            np.double(time.time()),
+        )
+
         return merged_materialize_result
