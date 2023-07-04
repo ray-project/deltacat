@@ -16,6 +16,8 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
+from deltacat.io.object_store import IObjectStore
+from deltacat.io.redis_object_store import RedisObjectStore
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
@@ -112,6 +114,7 @@ def compact_partition(
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    object_store: Optional[IObjectStore] = RedisObjectStore(),
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -151,6 +154,7 @@ def compact_partition(
             list_deltas_kwargs,
             read_kwargs_provider,
             s3_table_writer_kwargs,
+            object_store,
             deltacat_storage,
             **kwargs,
         )
@@ -196,6 +200,7 @@ def _execute_compaction_round(
     list_deltas_kwargs: Optional[Dict[str, Any]],
     read_kwargs_provider: Optional[ReadKwargsProvider],
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
+    object_store: Optional[IObjectStore],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -392,6 +397,7 @@ def _execute_compaction_round(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
+        object_store=object_store,
         deltacat_storage=deltacat_storage,
     )
 
@@ -467,6 +473,7 @@ def _execute_compaction_round(
         num_materialize_buckets=num_materialize_buckets,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        object_store=object_store,
     )
 
     dedupe_invoke_end = time.monotonic()
@@ -543,6 +550,7 @@ def _execute_compaction_round(
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
         s3_table_writer_kwargs=s3_table_writer_kwargs,
+        object_store=object_store,
         deltacat_storage=deltacat_storage,
     )
 
