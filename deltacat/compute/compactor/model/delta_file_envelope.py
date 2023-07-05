@@ -5,6 +5,8 @@ import numpy as np
 
 from deltacat.storage import DeltaType, LocalTable
 
+from typing import Optional
+
 DeltaFileEnvelopeGroups = np.ndarray
 
 
@@ -16,6 +18,7 @@ class DeltaFileEnvelope(dict):
         delta_type: DeltaType,
         table: LocalTable,
         is_src_delta: np.bool_ = True,
+        row_count: Optional[int] = None,
     ) -> DeltaFileEnvelope:
         """Static factory builder for a Delta File Envelope
         `
@@ -46,6 +49,7 @@ class DeltaFileEnvelope(dict):
         delta_file_envelope["deltaType"] = delta_type.value
         delta_file_envelope["table"] = table
         delta_file_envelope["is_src_delta"] = is_src_delta
+        delta_file_envelope["row_count"] = row_count
         return delta_file_envelope
 
     @property
@@ -67,3 +71,7 @@ class DeltaFileEnvelope(dict):
     @property
     def is_src_delta(self) -> np.bool_:
         return self["is_src_delta"]
+
+    @property
+    def row_count(self) -> int:
+        return self["row_count"]

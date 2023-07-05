@@ -5,11 +5,16 @@ import numpy as np
 
 from deltacat.storage import Locator
 
+from typing import Optional
+
 
 class DeltaFileLocator(Locator, tuple):
     @staticmethod
     def of(
-        is_src_delta: np.bool_, stream_position: np.int64, file_index: np.int32
+        is_src_delta: np.bool_,
+        stream_position: np.int64,
+        file_index: np.int32,
+        row_count: Optional[np.int64] = None,
     ) -> DeltaFileLocator:
         """
         Create a Delta File Locator tuple that can be used to uniquely identify
@@ -30,13 +35,7 @@ class DeltaFileLocator(Locator, tuple):
             delta_file_locator: The Delta File Locator Tuple as
             (is_source_delta, stream_position, file_index).
         """
-        return DeltaFileLocator(
-            (
-                is_src_delta,
-                stream_position,
-                file_index,
-            )
-        )
+        return DeltaFileLocator((is_src_delta, stream_position, file_index, row_count))
 
     @property
     def is_source_delta(self) -> np.bool_:
@@ -49,6 +48,10 @@ class DeltaFileLocator(Locator, tuple):
     @property
     def file_index(self) -> np.int32:
         return self[2]
+
+    @property
+    def row_count(self) -> np.int64:
+        return self[3]
 
     def canonical_string(self) -> str:
         """

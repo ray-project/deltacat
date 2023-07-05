@@ -64,6 +64,13 @@ _IS_SOURCE_COLUMN_FIELD = pa.field(
     _IS_SOURCE_COLUMN_TYPE,
 )
 
+_ROW_COUNT_COLUMN_NAME = _get_sys_col_name("row_count")
+_ROW_COUNT_COLUMN_TYPE = pa.int64()
+_ROW_COUNT_COLUMN_FIELD = pa.field(
+    _ROW_COUNT_COLUMN_NAME,
+    _ROW_COUNT_COLUMN_TYPE,
+)
+
 
 def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(obj, _PK_HASH_COLUMN_TYPE)
@@ -143,6 +150,17 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     )
 
 
+def row_count_column_np(table: pa.Table) -> np.ndarray:
+    return table[_ROW_COUNT_COLUMN_NAME].to_numpy()
+
+
+def get_row_count_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+    return pa.array(
+        obj,
+        _ROW_COUNT_COLUMN_TYPE,
+    )
+
+
 def project_delta_file_metadata_on_table(
     delta_file_envelope: DeltaFileEnvelope,
 ) -> pa.Table:
@@ -179,6 +197,10 @@ def project_delta_file_metadata_on_table(
         len(table),
     )
     table = append_is_source_col(table, is_source_iterator)
+
+    # append row count column
+    row_count_iterator = repeat(delta_file_envelope.row_count, len(table))
+    table = append_row_count_col(table, row_count_iterator)
     return table
 
 
@@ -248,6 +270,13 @@ def append_is_source_col(table: pa.Table, booleans) -> pa.Table:
     table = table.append_column(
         _IS_SOURCE_COLUMN_FIELD,
         get_is_source_column_array(booleans),
+    )
+    return table
+
+
+def append_row_count_col(table: pa.Table, row_count):
+    table = table.append_column(
+        _ROW_COUNT_COLUMN_FIELD, get_row_count_column_array(row_count)
     )
     return table
 
