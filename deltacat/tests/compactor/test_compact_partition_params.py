@@ -167,7 +167,7 @@ class TestCompactPartitionParams(unittest.TestCase):
 
         params = CompactPartitionParams.of({"primary_keys": {"foo", "bar", "baz"}})
         serialized_params = params.serialize()
-        assert json.loads(serialized_params)["primary_keys"] == ["foo", "bar", "baz"]
+        self.assertCountEqual(json.loads(serialized_params)["primary_keys"],["foo", "bar", "baz"])
 
     def test_serialize_handles_objects_with_toJSON_method(self):
         from deltacat.compute.compactor.model.compact_partition_params import (
