@@ -232,7 +232,7 @@ class TestRecordBatchTables(unittest.TestCase):
 
         self.assertEqual(bt.batched_record_count, 8)
         self.assertEqual(bt.remaining_record_count, 4)
-        self.assertNotEquals(prev_remainder_records, bt.remaining_record_count)
+        self.assertNotEqual(prev_remainder_records, bt.remaining_record_count)
         self.assertTrue(_is_sorted(bt, self.column_names[0]))
 
         bt.clear_remaining()
