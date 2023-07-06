@@ -2,7 +2,7 @@ import logging
 from ray import cloudpickle
 import time
 from deltacat.io.object_store import IObjectStore
-from typing import List
+from typing import Any, List
 from deltacat import logs
 import uuid
 import socket
@@ -14,13 +14,17 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class RedisObjectStore(IObjectStore):
+    """
+    An implementation of object store that uses Redis in memory DB.
+    """
+
     def __init__(self) -> None:
         self.client_cache = {}
         self.current_ip = None
         self.SEPARATOR = "_"
         super().__init__()
 
-    def put(self, obj: object) -> str:
+    def put(self, obj: object, *args, **kwargs) -> Any:
         serialized = cloudpickle.dumps(obj)
         uid = uuid.uuid4()
         current_ip = self._get_current_ip()
@@ -32,12 +36,25 @@ class RedisObjectStore(IObjectStore):
         else:
             raise AssertionError(f"Non truthy result returned from set for {ref}")
 
-    def get(self, refs: List[str]) -> List[object]:
-        """
-        Note that this call does not return values in the exact
-        same order as input.
-        """
+    def put_many(self, objects: List[object], *args, **kwargs) -> List[Any]:
+        input = {}
+        result = []
+        current_ip = self._get_current_ip()
+        for obj in objects:
+            serialized = cloudpickle.dumps(obj)
+            uid = uuid.uuid4()
+            ref = self._create_ref(uid, current_ip)
+            input[ref] = serialized
+            result.append(ref)
 
+        client = self._get_client_by_ip(current_ip)
+
+        if client.mset(input):
+            return result
+        else:
+            raise RuntimeError("Unable to update cache")
+
+    def get_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         result = []
         uid_per_ip = defaultdict(lambda: [])
 
@@ -71,6 +88,12 @@ class RedisObjectStore(IObjectStore):
         logger.info(f"The total time taken to read all objects is: {end - start}")
 
         return result
+
+    def get(self, ref: Any, *args, **kwargs) -> object:
+        uid, ip = ref.split(self.SEPARATOR)
+        client = self._get_client_by_ip(ip)
+        serialized = client.get(uid)
+        return cloudpickle.loads(serialized)
 
     def _get_client_by_ip(self, ip_address: str):
         if ip_address in self.client_cache:

@@ -150,7 +150,7 @@ def materialize(
         dedupe_task_indices, obj_refs = zip(*dedupe_task_idx_and_obj_id_tuples)
         # this depends on `ray.get` result order matching input order, as per the
         # contract established in: https://github.com/ray-project/ray/pull/16763
-        src_file_records_list = object_store.get(list(obj_refs))
+        src_file_records_list = object_store.get_many(list(obj_refs))
         all_src_file_records = defaultdict(list)
         for i, src_file_records in enumerate(src_file_records_list):
             dedupe_task_idx = dedupe_task_indices[i]

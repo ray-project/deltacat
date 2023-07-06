@@ -2,7 +2,7 @@ import logging
 from ray import cloudpickle
 import time
 from deltacat.io.object_store import IObjectStore
-from typing import List
+from typing import Any, List
 from deltacat import logs
 import os
 import uuid
@@ -11,18 +11,28 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class FileObjectStore(IObjectStore):
+    """
+    An implementation of object store that uses file system.
+    """
+
     def __init__(self, dir_path: str) -> None:
         self.dir_path = dir_path
         super().__init__()
 
-    def put(self, obj: object) -> str:
-        serialized = cloudpickle.dumps(obj)
-        ref = f"{self.dir_path}/{uuid.uuid4()}"
-        with open(ref, "xb") as f:
-            f.write(serialized)
-        return ref
+    def put_many(self, objects: List[object], *args, **kwargs) -> List[Any]:
+        result = []
 
-    def get(self, refs: List[str]) -> List[object]:
+        for obj in objects:
+            serialized = cloudpickle.dumps(obj)
+            ref = f"{self.dir_path}/{uuid.uuid4()}"
+            with open(ref, "xb") as f:
+                f.write(serialized)
+
+            result.append(ref)
+
+        return result
+
+    def get_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         result = []
         start = time.monotonic()
         for ref in refs:

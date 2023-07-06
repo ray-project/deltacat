@@ -226,20 +226,25 @@ def group_hash_bucket_indices(
                 hb_group_to_object[hb_group] = np.empty([num_buckets], dtype="object")
             hb_group_to_object[hb_group][hb_index] = obj
 
+    shared_objects = []
     for hb_group, obj in enumerate(hb_group_to_object):
         if obj is None:
             continue
-        obj_ref = object_store.put(obj)
-        object_refs.append(obj_ref)
-        hash_bucket_group_to_obj_id[hb_group] = obj_ref
-        # NOTE: The cloudpickle.dumps API call creates an out of band object reference to the object_ref variable.
-        # After pickling, Ray cannot track the serialized copy of the object or determine when the ObjectRef has been deserialized
-        # (e.g., if the ObjectRef is deserialized by a non-Ray process).
-        # Thus the object_ref cannot be tracked by Ray's distributed reference counter, even if it goes out of scope.
-        # The object now has a permanent reference and the data can't be freed from Ray’s object store.
-        # Manually deleting the untrackable object references offsets these permanent references and
-        # helps to allow these objects to be garbage collected normally.
-        del obj_ref
+        shared_objects.append(obj)
+
+    object_refs = object_store.put_many(shared_objects)
+
+    assert len(object_refs) == len(
+        shared_objects
+    ), f"We expect same number of refs as input as {len(object_refs)} != {len(shared_objects)}"
+
+    index = 0
+    for hb_group, obj in enumerate(hb_group_to_object):
+        if obj is None:
+            continue
+        hash_bucket_group_to_obj_id[hb_group] = object_refs[index]
+        index += 1
+
     return hash_bucket_group_to_obj_id, object_refs
 
 

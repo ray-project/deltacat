@@ -121,7 +121,7 @@ def _timed_dedupe(
             f"groups for {len(object_ids)} object refs..."
         )
 
-        delta_file_envelope_groups_list = object_store.get(object_ids)
+        delta_file_envelope_groups_list = object_store.get_many(object_ids)
         hb_index_to_delta_file_envelopes_list = defaultdict(list)
         for delta_file_envelope_groups in delta_file_envelope_groups_list:
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
@@ -200,7 +200,6 @@ def _timed_dedupe(
                 src_file_id_to_row_indices[src_dfl].append(row_idx_col[row_idx])
 
         logger.info(f"Finished all dedupe rounds...")
-        mat_bucket_to_src_file_record_count = defaultdict(dict)
         mat_bucket_to_src_file_records: Dict[
             MaterializeBucketIndex, DeltaFileLocatorToRecords
         ] = defaultdict(dict)
@@ -212,20 +211,27 @@ def _timed_dedupe(
             mat_bucket_to_src_file_records[mat_bucket][src_dfl] = np.array(
                 src_row_indices,
             )
-            mat_bucket_to_src_file_record_count[mat_bucket][src_dfl] = len(
-                src_row_indices
-            )
 
         mat_bucket_to_dd_idx_obj_id: Dict[
             MaterializeBucketIndex, DedupeTaskIndexWithObjectId
         ] = {}
-        for mat_bucket, src_file_records in mat_bucket_to_src_file_records.items():
-            object_ref = object_store.put(src_file_records)
+
+        all_src_file_records = mat_bucket_to_src_file_records.values()
+        object_refs = object_store.put_many(all_src_file_records)
+
+        assert len(object_refs) == len(all_src_file_records), (
+            "We expect to persist all objects into object store"
+            f" as {len(object_refs)} != {len(all_src_file_records)}"
+        )
+
+        index = 0
+        # Note: Dict keys() and values() are guaranteed to be in same order.
+        for mat_bucket in mat_bucket_to_src_file_records.keys():
             mat_bucket_to_dd_idx_obj_id[mat_bucket] = (
                 dedupe_task_index,
-                object_ref,
+                object_refs[index],
             )
-            del object_ref
+            index += 1
         logger.info(
             f"Count of materialize buckets with object refs: "
             f"{len(mat_bucket_to_dd_idx_obj_id)}"
