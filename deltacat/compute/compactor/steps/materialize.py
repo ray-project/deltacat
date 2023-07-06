@@ -99,7 +99,6 @@ def materialize(
         delta = _stage_delta_implementation(
             data=manifest,
             partition=partition,
-            delta_type=delta_type,
             stage_delta_from_existing_manifest=True,
         )
         return delta
@@ -197,13 +196,13 @@ def materialize(
             is_src_partition_file_np = src_dfl.is_source_delta
             src_stream_position_np = src_dfl.stream_position
             src_file_idx_np = src_dfl.file_index
+            src_file_record_count = src_dfl.file_record_count.item()
             count_of_src_dfl += 1
             src_file_partition_locator = (
                 source_partition_locator
                 if is_src_partition_file_np
                 else round_completion_info.compacted_delta_locator.partition_locator
             )
-
             delta_locator = DeltaLocator.of(
                 src_file_partition_locator,
                 src_stream_position_np.item(),
@@ -225,43 +224,43 @@ def materialize(
                     read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
                         schema=schema
                     )
-            pa_table, download_delta_manifest_entry_time = timed_invocation(
-                deltacat_storage.download_delta_manifest_entry,
-                Delta.of(delta_locator, None, None, None, manifest),
-                src_file_idx_np.item(),
-                file_reader_kwargs_provider=read_kwargs_provider,
-            )
-            logger.debug(
-                f"Time taken for materialize task"
-                f" to download delta locator {delta_locator} with entry ID {src_file_idx_np.item()}"
-                f" is: {download_delta_manifest_entry_time}s"
-            )
             record_numbers = chain.from_iterable(record_numbers_tpl)
             record_numbers_length = 0
-            mask_pylist = list(repeat(False, len(pa_table)))
+            mask_pylist = list(repeat(False, src_file_record_count))
             for record_number in record_numbers:
                 record_numbers_length += 1
                 mask_pylist[record_number] = True
             if (
-                record_numbers_length == len(pa_table)
+                record_numbers_length == src_file_record_count
                 and src_file_partition_locator
                 == round_completion_info.compacted_delta_locator.partition_locator
             ):
                 logger.debug(
                     f"Untouched manifest file found, "
                     f"record numbers length: {record_numbers_length} "
-                    f"same as downloaded table length: {len(pa_table)}"
+                    f"same as downloaded table length: {src_file_record_count}"
                 )
                 untouched_src_manifest_entry = manifest.entries[src_file_idx_np.item()]
                 manifest_entry_list_reference.append(untouched_src_manifest_entry)
                 referenced_pyarrow_write_result = PyArrowWriteResult.of(
                     1,
-                    TABLE_CLASS_TO_SIZE_FUNC[type(pa_table)](pa_table),
+                    manifest.meta.source_content_length,
                     manifest.meta.content_length,
-                    len(pa_table),
+                    src_file_record_count,
                 )
                 referenced_pyarrow_write_results.append(referenced_pyarrow_write_result)
             else:
+                pa_table, download_delta_manifest_entry_time = timed_invocation(
+                    deltacat_storage.download_delta_manifest_entry,
+                    Delta.of(delta_locator, None, None, None, manifest),
+                    src_file_idx_np.item(),
+                    file_reader_kwargs_provider=read_kwargs_provider,
+                )
+                logger.debug(
+                    f"Time taken for materialize task"
+                    f" to download delta locator {delta_locator} with entry ID {src_file_idx_np.item()}"
+                    f" is: {download_delta_manifest_entry_time}s"
+                )
                 mask = pa.array(mask_pylist)
                 pa_table = pa_table.filter(mask)
                 record_batch_tables.append(pa_table)

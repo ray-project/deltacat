@@ -116,11 +116,12 @@ def _group_file_records_by_pk_hash_bucket(
                     hb_to_delta_file_envelopes[hb] = []
                 hb_to_delta_file_envelopes[hb].append(
                     DeltaFileEnvelope.of(
-                        dfe.stream_position,
-                        dfe.file_index,
-                        dfe.delta_type,
-                        table,
-                        is_src_delta,
+                        stream_position=dfe.stream_position,
+                        file_index=dfe.file_index,
+                        delta_type=dfe.delta_type,
+                        table=table,
+                        is_src_delta=is_src_delta,
+                        file_record_count=dfe.file_record_count,
                     )
                 )
     return hb_to_delta_file_envelopes, total_record_count
@@ -159,10 +160,11 @@ def _read_delta_file_envelopes(
     for i, table in enumerate(tables):
         total_record_count += len(table)
         delta_file = DeltaFileEnvelope.of(
-            annotations[i].annotation_stream_position,
-            annotations[i].annotation_file_index,
-            annotations[i].annotation_delta_type,
-            table,
+            stream_position=annotations[i].annotation_stream_position,
+            file_index=annotations[i].annotation_file_index,
+            delta_type=annotations[i].annotation_delta_type,
+            table=table,
+            file_record_count=len(table),
         )
         delta_file_envelopes.append(delta_file)
     return delta_file_envelopes, total_record_count
