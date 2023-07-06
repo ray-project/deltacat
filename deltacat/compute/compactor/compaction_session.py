@@ -25,6 +25,9 @@ from deltacat.storage import (
     PartitionLocator,
     interface as unimplemented_deltacat_storage,
 )
+from deltacat.compute.compactor.model.compact_partition_params import (
+    CompactPartitionParams,
+)
 from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
     round_robin_options_provider,
@@ -640,3 +643,14 @@ def _execute_compaction_round(
         new_round_completion_info,
         rcf_source_partition_locator,
     )
+
+
+def compact_partition_from_request(
+    compact_partition_params: CompactPartitionParams,
+) -> Optional[str]:
+    """
+    Wrapper for compact_partition that allows for the compact_partition parameters to be
+    passed in as a custom dictionary-like CompactPartitionParams object.
+    :param compact_partition_params:
+    """
+    return compact_partition(**compact_partition_params)
