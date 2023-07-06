@@ -42,6 +42,8 @@ def write_round_completion_file(
     round_completion_info: RoundCompletionInfo,
     completion_file_s3_url: str = None,
 ) -> str:
+    if bucket is None and completion_file_s3_url is None:
+        raise AssertionError("Either bucket or completion_file_s3_url must be passed")
 
     logger.info(f"writing round completion file contents: {round_completion_info}")
     if completion_file_s3_url is None:

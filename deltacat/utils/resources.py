@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import ray
+import sys
 from typing import Dict, Any
 from dataclasses import dataclass
 from deltacat import logs
 import logging
-from deltacat.utils.performance import timed_invocation
+from resource import getrusage, RUSAGE_SELF
+import platform
+import psutil
+
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -52,21 +56,29 @@ class ClusterUtilization:
         )
 
 
-def log_current_cluster_utilization(log_identifier: str):
-    cluster_utilization, latency = timed_invocation(
-        ClusterUtilization.get_current_cluster_utilization
-    )
-    logger.info(f"Retrieved cluster utilization metrics. Took {latency}s")
+def get_current_node_peak_memory_usage_in_bytes():
+    """
+    Returns the peak memory usage of the node in bytes. This method works across
+    Windows, Darwin and Linux platforms.
+    """
+    current_platform = platform.system()
+    if current_platform != "Windows":
+        usage = getrusage(RUSAGE_SELF).ru_maxrss
+        if current_platform == "Linux":
+            usage = usage * 1024
+        return usage
+    else:
+        return psutil.Process().memory_info().peak_wset
 
-    logger.info(
-        f"Log ID={log_identifier} | Cluster Object store memory used: {cluster_utilization.used_object_store_memory_bytes} "
-        f"which is {cluster_utilization.used_object_store_memory_percent}%"
-    )
-    logger.info(
-        f"Log ID={log_identifier} | Total Cluster Memory used: {cluster_utilization.used_memory_bytes} which is "
-        f"{cluster_utilization.used_memory_percent}%"
-    )
-    logger.info(
-        f"Log ID={log_identifier} | Total Cluster CPU used: {cluster_utilization.used_cpu} which is "
-        f"{cluster_utilization.used_cpu_percent}%"
-    )
+
+def get_size_of_object_in_bytes(obj: object) -> float:
+    size = sys.getsizeof(obj)
+    if isinstance(obj, dict):
+        return (
+            size
+            + sum(map(get_size_of_object_in_bytes, obj.keys()))
+            + sum(map(get_size_of_object_in_bytes, obj.values()))
+        )
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return size + sum(map(get_size_of_object_in_bytes, obj))
+    return size
