@@ -9,7 +9,7 @@ from deltacat.types.media import ContentType
 
 class CompactPartitionParams(dict):
     """
-    This class represents the parameters passed to compact_partition
+    This class represents the parameters passed to compact_partition (deltacat/compute/compactor/compaction_session.py)
     """
 
     @staticmethod
