@@ -189,13 +189,13 @@ def _timed_dedupe(
             file_idx_col = sc.file_index_column_np(table)
             row_idx_col = sc.record_index_column_np(table)
             is_source_col = sc.is_source_column_np(table)
-            row_count_col = sc.row_count_column_np(table)
+            file_record_count_col = sc.file_record_count_column_np(table)
             for row_idx in range(len(table)):
                 src_dfl = DeltaFileLocator.of(
                     is_source_col[row_idx],
                     stream_position_col[row_idx],
                     file_idx_col[row_idx],
-                    row_count_col[row_idx],
+                    file_record_count_col[row_idx],
                 )
                 # TODO(pdames): merge contiguous record number ranges
                 src_file_id_to_row_indices[src_dfl].append(row_idx_col[row_idx])

@@ -121,7 +121,7 @@ def _group_file_records_by_pk_hash_bucket(
                         delta_type=dfe.delta_type,
                         table=table,
                         is_src_delta=is_src_delta,
-                        row_count=dfe.row_count,
+                        file_record_count=dfe.file_record_count,
                     )
                 )
     return hb_to_delta_file_envelopes, total_record_count
@@ -164,7 +164,7 @@ def _read_delta_file_envelopes(
             file_index=annotations[i].annotation_file_index,
             delta_type=annotations[i].annotation_delta_type,
             table=table,
-            row_count=len(table),
+            file_record_count=len(table),
         )
         delta_file_envelopes.append(delta_file)
     return delta_file_envelopes, total_record_count

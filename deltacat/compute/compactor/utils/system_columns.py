@@ -64,11 +64,11 @@ _IS_SOURCE_COLUMN_FIELD = pa.field(
     _IS_SOURCE_COLUMN_TYPE,
 )
 
-_ROW_COUNT_COLUMN_NAME = _get_sys_col_name("row_count")
-_ROW_COUNT_COLUMN_TYPE = pa.int64()
-_ROW_COUNT_COLUMN_FIELD = pa.field(
-    _ROW_COUNT_COLUMN_NAME,
-    _ROW_COUNT_COLUMN_TYPE,
+_FILE_RECORD_COUNT_COLUMN_NAME = _get_sys_col_name("file_record_count")
+_FILE_RECORD_COUNT_COLUMN_TYPE = pa.int64()
+_FILE_RECORD_COUNT_COLUMN_FIELD = pa.field(
+    _FILE_RECORD_COUNT_COLUMN_NAME,
+    _FILE_RECORD_COUNT_COLUMN_TYPE,
 )
 
 
@@ -150,14 +150,14 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     )
 
 
-def row_count_column_np(table: pa.Table) -> np.ndarray:
-    return table[_ROW_COUNT_COLUMN_NAME].to_numpy()
+def file_record_count_column_np(table: pa.Table) -> np.ndarray:
+    return table[_FILE_RECORD_COUNT_COLUMN_NAME].to_numpy()
 
 
-def get_row_count_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+def get_file_record_count_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(
         obj,
-        _ROW_COUNT_COLUMN_TYPE,
+        _FILE_RECORD_COUNT_COLUMN_TYPE,
     )
 
 
@@ -199,8 +199,10 @@ def project_delta_file_metadata_on_table(
     table = append_is_source_col(table, is_source_iterator)
 
     # append row count column
-    row_count_iterator = repeat(delta_file_envelope.row_count, len(table))
-    table = append_row_count_col(table, row_count_iterator)
+    file_record_count_iterator = repeat(
+        delta_file_envelope.file_record_count, len(table)
+    )
+    table = append_file_record_count_col(table, file_record_count_iterator)
     return table
 
 
@@ -274,9 +276,10 @@ def append_is_source_col(table: pa.Table, booleans) -> pa.Table:
     return table
 
 
-def append_row_count_col(table: pa.Table, row_count):
+def append_file_record_count_col(table: pa.Table, file_record_count):
     table = table.append_column(
-        _ROW_COUNT_COLUMN_FIELD, get_row_count_column_array(row_count)
+        _FILE_RECORD_COUNT_COLUMN_FIELD,
+        get_file_record_count_column_array(file_record_count),
     )
     return table
 

@@ -18,7 +18,7 @@ class DeltaFileEnvelope(dict):
         delta_type: DeltaType,
         table: LocalTable,
         is_src_delta: np.bool_ = True,
-        row_count: Optional[int] = None,
+        file_record_count: Optional[int] = None,
     ) -> DeltaFileEnvelope:
         """Static factory builder for a Delta File Envelope
         `
@@ -49,7 +49,7 @@ class DeltaFileEnvelope(dict):
         delta_file_envelope["deltaType"] = delta_type.value
         delta_file_envelope["table"] = table
         delta_file_envelope["is_src_delta"] = is_src_delta
-        delta_file_envelope["row_count"] = row_count
+        delta_file_envelope["file_record_count"] = file_record_count
         return delta_file_envelope
 
     @property
@@ -73,5 +73,5 @@ class DeltaFileEnvelope(dict):
         return self["is_src_delta"]
 
     @property
-    def row_count(self) -> int:
-        return self["row_count"]
+    def file_record_count(self) -> int:
+        return self["file_record_count"]

@@ -196,14 +196,13 @@ def materialize(
             is_src_partition_file_np = src_dfl.is_source_delta
             src_stream_position_np = src_dfl.stream_position
             src_file_idx_np = src_dfl.file_index
-            src_file_row_count = src_dfl.row_count.item()
+            src_file_record_count = src_dfl.file_record_count.item()
             count_of_src_dfl += 1
             src_file_partition_locator = (
                 source_partition_locator
                 if is_src_partition_file_np
                 else round_completion_info.compacted_delta_locator.partition_locator
             )
-
             delta_locator = DeltaLocator.of(
                 src_file_partition_locator,
                 src_stream_position_np.item(),
@@ -227,19 +226,19 @@ def materialize(
                     )
             record_numbers = chain.from_iterable(record_numbers_tpl)
             record_numbers_length = 0
-            mask_pylist = list(repeat(False, src_file_row_count))
+            mask_pylist = list(repeat(False, src_file_record_count))
             for record_number in record_numbers:
                 record_numbers_length += 1
                 mask_pylist[record_number] = True
             if (
-                record_numbers_length == src_file_row_count
+                record_numbers_length == src_file_record_count
                 and src_file_partition_locator
                 == round_completion_info.compacted_delta_locator.partition_locator
             ):
                 logger.debug(
                     f"Untouched manifest file found, "
                     f"record numbers length: {record_numbers_length} "
-                    f"same as downloaded table length: {src_file_row_count}"
+                    f"same as downloaded table length: {src_file_record_count}"
                 )
                 untouched_src_manifest_entry = manifest.entries[src_file_idx_np.item()]
                 manifest_entry_list_reference.append(untouched_src_manifest_entry)
@@ -247,7 +246,7 @@ def materialize(
                     1,
                     manifest.meta.source_content_length,
                     manifest.meta.content_length,
-                    src_file_row_count,
+                    src_file_record_count,
                 )
                 referenced_pyarrow_write_results.append(referenced_pyarrow_write_result)
             else:
