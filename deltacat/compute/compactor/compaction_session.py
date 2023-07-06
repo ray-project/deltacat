@@ -17,7 +17,7 @@ from deltacat.compute.compactor import (
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.io.object_store import IObjectStore
-from deltacat.io.redis_object_store import RedisObjectStore
+from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
@@ -114,7 +114,7 @@ def compact_partition(
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
-    object_store: Optional[IObjectStore] = RedisObjectStore(),
+    object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
