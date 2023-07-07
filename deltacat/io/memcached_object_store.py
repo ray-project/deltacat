@@ -69,7 +69,7 @@ class MemcachedObjectStore(IObjectStore):
             cache_result = client.get_many(uids)
             assert len(cache_result) == len(
                 uids
-            ), "Not all values were returned from cache"
+            ), f"Not all values were returned from cache as {len(cache_result)} != {len(uids)}"
 
             values = cache_result.values()
             total_bytes = 0

@@ -6,6 +6,7 @@ from typing import Any, List
 from deltacat import logs
 import os
 import uuid
+from builtins import open
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

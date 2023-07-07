@@ -32,7 +32,7 @@ class IObjectStore:
         """
         Get a single object from an object store.
         """
-        self.get_many([ref])[0]
+        return self.get_many([ref])[0]
 
     def get_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         ...

@@ -28,13 +28,13 @@ class RedisObjectStore(IObjectStore):
         serialized = cloudpickle.dumps(obj)
         uid = uuid.uuid4()
         current_ip = self._get_current_ip()
-        ref = f"{uid}{self.SEPARATOR}{current_ip}"
+        ref = self._create_ref(uid, current_ip)
 
         client = self._get_client_by_ip(current_ip)
         if client.set(uid.__str__(), serialized):
             return ref
         else:
-            raise AssertionError(f"Non truthy result returned from set for {ref}")
+            raise RuntimeError(f"Unable to write {ref} to cache")
 
     def put_many(self, objects: List[object], *args, **kwargs) -> List[Any]:
         input = {}
@@ -109,3 +109,6 @@ class RedisObjectStore(IObjectStore):
             self.current_ip = socket.gethostbyname(socket.gethostname())
 
         return self.current_ip
+
+    def _create_ref(self, uid, ip):
+        return f"{uid}{self.SEPARATOR}{ip}"
