@@ -10,6 +10,19 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import ray
 
+from deltacat.compute.compactor import (
+    MaterializeResult,
+    PyArrowWriteResult,
+)
+
+from deltacat.storage import (
+    Partition,
+)
+from deltacat.storage import interface as unimplemented_deltacat_storage
+
+from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
+from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
+
 from deltacat import logs
 from deltacat.compute.compactor import (
     SortKey,
@@ -106,9 +119,65 @@ def _timed_dedupe(
     sort_keys: List[SortKey],
     num_materialize_buckets: int,
     dedupe_task_index: int,
+    partition: Partition,
     enable_profiler: bool,
+    max_records_per_output_file: int,
+    compacted_file_content_type: ContentType,
     object_store: Optional[IObjectStore],
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
 ):
+
+    # TODO (rkenmi): Add docstrings for the steps in the compaction workflow
+    #  https://github.com/ray-project/deltacat/issues/79
+    def _materialize(
+        hash_bucket_index, compacted_tables: List[pa.Table]
+    ) -> MaterializeResult:
+        compacted_table = pa.concat_tables(compacted_tables)
+        if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
+            # TODO (rkenmi): Investigate if we still need to convert this table to pandas DataFrame
+            # TODO (pdames): compare performance to pandas-native materialize path
+            df = compacted_table.to_pandas(split_blocks=True, self_destruct=True)
+            compacted_table = df
+        delta, stage_delta_time = timed_invocation(
+            deltacat_storage.stage_delta,
+            compacted_table,
+            partition,
+            max_records_per_entry=max_records_per_output_file,
+            content_type=compacted_file_content_type,
+            s3_table_writer_kwargs=s3_table_writer_kwargs,
+        )
+        compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](
+            compacted_table
+        )
+        logger.debug(
+            f"Time taken for materialize task"
+            f" to upload {len(compacted_table)} records"
+            f" of size {compacted_table_size} is: {stage_delta_time}s"
+        )
+        manifest = delta.manifest
+        manifest_records = manifest.meta.record_count
+        assert (
+            manifest_records == len(compacted_table),
+            f"Unexpected Error: Materialized delta manifest record count "
+            f"({manifest_records}) does not equal compacted table record count "
+            f"({len(compacted_table)})",
+        )
+        materialize_result = MaterializeResult.of(
+            delta=delta,
+            task_index=hash_bucket_index,
+            # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
+            #  and in-memory-table-bytes instead of tight coupling to paBytes
+            pyarrow_write_result=PyArrowWriteResult.of(
+                len(manifest.entries),
+                TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table),
+                manifest.meta.content_length,
+                len(compacted_table),
+            ),
+        )
+        logger.info(f"Materialize result: {materialize_result}")
+        return materialize_result
+
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -127,13 +196,15 @@ def _timed_dedupe(
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
                 if dfes is not None:
                     hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
-        src_file_id_to_row_indices = defaultdict(list)
-        deduped_tables = []
+
         logger.info(
             f"[Dedupe task {dedupe_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
             f"dedupe rounds..."
         )
         total_deduped_records = 0
+
+        materialized_results: List[MaterializeResult] = []
+
         for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
             logger.info(
                 f"{dedupe_task_index}: union primary keys for hb_index: {hb_idx}"
@@ -182,55 +253,12 @@ def _timed_dedupe(
                 f"record count: {len(table)}, took: {drop_time}s"
             )
 
-            deduped_tables.append((hb_idx, table))
-
-            stream_position_col = sc.stream_position_column_np(table)
-            file_idx_col = sc.file_index_column_np(table)
-            row_idx_col = sc.record_index_column_np(table)
-            is_source_col = sc.is_source_column_np(table)
-            file_record_count_col = sc.file_record_count_column_np(table)
-            for row_idx in range(len(table)):
-                src_dfl = DeltaFileLocator.of(
-                    is_source_col[row_idx],
-                    stream_position_col[row_idx],
-                    file_idx_col[row_idx],
-                    file_record_count_col[row_idx],
-                )
-                # TODO(pdames): merge contiguous record number ranges
-                src_file_id_to_row_indices[src_dfl].append(row_idx_col[row_idx])
-
-        logger.info(f"Finished all dedupe rounds...")
-        mat_bucket_to_src_file_records: Dict[
-            MaterializeBucketIndex, DeltaFileLocatorToRecords
-        ] = defaultdict(dict)
-        for src_dfl, src_row_indices in src_file_id_to_row_indices.items():
-            mat_bucket = delta_file_locator_to_mat_bucket_index(
-                src_dfl,
-                num_materialize_buckets,
-            )
-            mat_bucket_to_src_file_records[mat_bucket][src_dfl] = np.array(
-                src_row_indices,
-            )
-
-        mat_bucket_to_dd_idx_obj_id: Dict[
-            MaterializeBucketIndex, DedupeTaskIndexWithObjectId
-        ] = {}
-        for mat_bucket, src_file_records in mat_bucket_to_src_file_records.items():
-            object_ref = object_store.put(src_file_records)
-            mat_bucket_to_dd_idx_obj_id[mat_bucket] = (
-                dedupe_task_index,
-                object_ref,
-            )
-            del object_ref
-        logger.info(
-            f"Count of materialize buckets with object refs: "
-            f"{len(mat_bucket_to_dd_idx_obj_id)}"
-        )
+            materialized_results.append(_materialize(hb_idx, table))
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
 
         return DedupeResult(
-            mat_bucket_to_dd_idx_obj_id,
+            materialized_results,
             np.int64(total_deduped_records),
             np.double(peak_memory_usage_bytes),
             np.double(0.0),
@@ -244,9 +272,14 @@ def dedupe(
     sort_keys: List[SortKey],
     num_materialize_buckets: int,
     dedupe_task_index: int,
+    partition: Partition,
     enable_profiler: bool,
-    metrics_config: MetricsConfig,
+    max_records_per_output_file: int,
+    compacted_file_content_type: ContentType,
     object_store: Optional[IObjectStore],
+    metrics_config: MetricsConfig,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
 ) -> DedupeResult:
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     dedupe_result, duration = timed_invocation(
@@ -257,6 +290,11 @@ def dedupe(
         dedupe_task_index=dedupe_task_index,
         enable_profiler=enable_profiler,
         object_store=object_store,
+        partition=partition,
+        max_records_per_output_file=max_records_per_output_file,
+        compacted_file_content_type=compacted_file_content_type,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
+        deltacat_storage=deltacat_storage,
     )
 
     emit_metrics_time = 0.0

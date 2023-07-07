@@ -45,10 +45,6 @@ _ORDERED_FILE_IDX_COLUMN_FIELD = pa.field(
 
 _ORDERED_RECORD_IDX_COLUMN_NAME = _get_sys_col_name("record_index")
 _ORDERED_RECORD_IDX_COLUMN_TYPE = pa.int64()
-_ORDERED_RECORD_IDX_COLUMN_FIELD = pa.field(
-    _ORDERED_RECORD_IDX_COLUMN_NAME,
-    _ORDERED_RECORD_IDX_COLUMN_TYPE,
-)
 
 _DELTA_TYPE_COLUMN_NAME = _get_sys_col_name("delta_type")
 _DELTA_TYPE_COLUMN_TYPE = pa.bool_()
@@ -232,15 +228,6 @@ def append_pk_hash_column(table: pa.Table, pk_hashes) -> pa.Table:
     return table
 
 
-def append_record_idx_col(table: pa.Table, ordered_record_indices) -> pa.Table:
-
-    table = table.append_column(
-        _ORDERED_RECORD_IDX_COLUMN_FIELD,
-        get_record_index_column_array(ordered_record_indices),
-    )
-    return table
-
-
 def append_dedupe_task_idx_col(table: pa.Table, dedupe_task_indices) -> pa.Table:
 
     table = table.append_column(
@@ -288,7 +275,6 @@ def get_minimal_hb_schema() -> pa.schema:
     return pa.schema(
         [
             _PK_HASH_COLUMN_FIELD,
-            _ORDERED_RECORD_IDX_COLUMN_FIELD,
             _ORDERED_FILE_IDX_COLUMN_FIELD,
             _PARTITION_STREAM_POSITION_COLUMN_FIELD,
             _DELTA_TYPE_COLUMN_FIELD,
