@@ -2,7 +2,6 @@ import importlib
 import logging
 import time
 from contextlib import nullcontext
-from itertools import chain
 from typing import Generator, List, Optional, Tuple
 import numpy as np
 import pyarrow as pa
@@ -56,7 +55,7 @@ def _group_by_pk_hash_bucket(
     table = sc.append_pk_hash_column(table, hash_column_generator)
 
     # drop primary key columns to free up memory
-    table = table.drop(primary_keys)
+    # table = table.drop(primary_keys)
 
     # group hash bucket record indices
     hash_bucket_to_indices = group_record_indices_by_hash_bucket(
@@ -68,10 +67,7 @@ def _group_by_pk_hash_bucket(
     hash_bucket_to_table = np.empty([num_buckets], dtype="object")
     for hb, indices in enumerate(hash_bucket_to_indices):
         if indices:
-            hash_bucket_to_table[hb] = sc.append_record_idx_col(
-                table.take(indices),
-                indices,
-            )
+            hash_bucket_to_table[hb] = table.take(indices)
     return hash_bucket_to_table
 
 
@@ -136,13 +132,11 @@ def _read_delta_file_envelopes(
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
 
-    columns_to_read = list(chain(primary_keys, sort_key_names))
     # TODO (rootliu) compare performance of column read from unpartitioned vs partitioned file
     # https://arrow.apache.org/docs/python/parquet.html#writing-to-partitioned-datasets
     tables = deltacat_storage.download_delta(
         annotated_delta,
         max_parallelism=1,
-        columns=columns_to_read,
         file_reader_kwargs_provider=read_kwargs_provider,
         storage_type=StorageType.LOCAL,
     )

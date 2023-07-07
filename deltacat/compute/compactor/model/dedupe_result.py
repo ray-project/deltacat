@@ -1,10 +1,13 @@
-from typing import Dict, Tuple, NamedTuple
+from typing import NamedTuple, List
+from deltacat.compute.compactor import (
+    MaterializeResult,
+)
 
 import numpy as np
 
 
 class DedupeResult(NamedTuple):
-    mat_bucket_idx_to_obj_id: Dict[int, Tuple]
+    materialize_results: List[MaterializeResult]
     deduped_record_count: np.int64
     peak_memory_usage_bytes: np.double
     telemetry_time_in_seconds: np.double

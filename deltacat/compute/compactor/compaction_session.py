@@ -17,8 +17,7 @@ from deltacat.compute.compactor import (
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.io.object_store import IObjectStore
-from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
-from deltacat.compute.compactor.model.materialize_result import MaterializeResult
+from deltacat.io.memcached_object_store import MemcachedObjectStore
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
     Delta,
@@ -38,7 +37,6 @@ from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.steps import dedupe as dd
 from deltacat.compute.compactor.steps import hash_bucket as hb
-from deltacat.compute.compactor.steps import materialize as mat
 from deltacat.compute.compactor.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 
@@ -114,7 +112,7 @@ def compact_partition(
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
-    object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
+    object_store: Optional[IObjectStore] = MemcachedObjectStore(),
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -210,6 +208,8 @@ def _execute_compaction_round(
         if rebase_source_partition_locator
         else source_partition_locator
     )
+
+    logger.info(f"Using object store: {object_store}")
 
     base_audit_url = rcf_source_partition_locator.path(
         f"s3://{compaction_artifact_s3_bucket}/compaction-audit"
@@ -469,11 +469,17 @@ def _execute_compaction_round(
             "dedupe_task_index": index,
             "object_ids": item,
         },
+        partition=partition,
+        max_records_per_output_file=records_per_compacted_file,
+        compacted_file_content_type=compacted_file_content_type,
         sort_keys=sort_keys,
         num_materialize_buckets=num_materialize_buckets,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         object_store=object_store,
+        metrics_config=metrics_config,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
+        deltacat_storage=deltacat_storage,
     )
 
     dedupe_invoke_end = time.monotonic()
@@ -500,20 +506,6 @@ def _execute_compaction_round(
 
     compaction_audit.set_records_deduped(total_dd_record_count.item())
 
-    all_mat_buckets_to_obj_id = defaultdict(list)
-    for dd_result in dd_results:
-        for (
-            bucket_idx,
-            dd_task_index_and_object_id_tuple,
-        ) in dd_result.mat_bucket_idx_to_obj_id.items():
-            all_mat_buckets_to_obj_id[bucket_idx].append(
-                dd_task_index_and_object_id_tuple
-            )
-    logger.info(f"Getting {len(dd_tasks_pending)} dedupe result stat(s)...")
-    logger.info(f"Materialize buckets created: " f"{len(all_mat_buckets_to_obj_id)}")
-
-    compaction_audit.set_materialize_buckets(len(all_mat_buckets_to_obj_id))
-
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
     #  tables from S3 then wait for deduping to finish before continuing
@@ -529,48 +521,9 @@ def _execute_compaction_round(
 
     s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
 
-    materialize_start = time.monotonic()
-
-    mat_tasks_pending = invoke_parallel(
-        items=all_mat_buckets_to_obj_id.items(),
-        ray_task=mat.materialize,
-        max_parallelism=max_parallelism,
-        options_provider=round_robin_opt_provider,
-        kwargs_provider=lambda index, mat_bucket_index_to_obj_id: {
-            "mat_bucket_index": mat_bucket_index_to_obj_id[0],
-            "dedupe_task_idx_and_obj_id_tuples": mat_bucket_index_to_obj_id[1],
-        },
-        schema=schema_on_read,
-        round_completion_info=round_completion_info,
-        source_partition_locator=source_partition_locator,
-        partition=partition,
-        max_records_per_output_file=records_per_compacted_file,
-        compacted_file_content_type=compacted_file_content_type,
-        enable_profiler=enable_profiler,
-        metrics_config=metrics_config,
-        read_kwargs_provider=read_kwargs_provider,
-        s3_table_writer_kwargs=s3_table_writer_kwargs,
-        object_store=object_store,
-        deltacat_storage=deltacat_storage,
-    )
-
-    materialize_invoke_end = time.monotonic()
-
-    logger.info(f"Getting {len(mat_tasks_pending)} materialize result(s)...")
-    mat_results: List[MaterializeResult] = ray.get(mat_tasks_pending)
-
-    logger.info(f"Got {len(mat_results)} materialize result(s).")
-
-    materialize_end = time.monotonic()
-    materialize_results_retrieved_at = time.time()
-
-    telemetry_time_materialize = compaction_audit.save_step_stats(
-        CompactionSessionAuditInfo.MATERIALIZE_STEP_NAME,
-        mat_results,
-        materialize_results_retrieved_at,
-        materialize_invoke_end - materialize_start,
-        materialize_end - materialize_start,
-    )
+    mat_results = []
+    for dd_result in dd_results:
+        mat_results.extend(dd_result.materialize_results)
 
     mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
@@ -625,7 +578,7 @@ def _execute_compaction_round(
     )
 
     compaction_audit.save_round_completion_stats(
-        mat_results, telemetry_time_hb + telemetry_time_dd + telemetry_time_materialize
+        mat_results, telemetry_time_hb + telemetry_time_dd
     )
 
     s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
