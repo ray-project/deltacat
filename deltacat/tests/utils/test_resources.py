@@ -27,6 +27,10 @@ class TestGetCurrentClusterUtilization(unittest.TestCase):
 
         super().setUpClass()
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.module_patcher.stop()
+
     def test_sanity(self):
         from deltacat.utils.resources import ClusterUtilization
 

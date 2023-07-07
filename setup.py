@@ -44,6 +44,8 @@ setuptools.setup(
         "s3fs == 2022.2.0",
         "tenacity == 8.1.0",
         "typing-extensions == 4.4.0",
+        "pymemcache == 4.0.0",
+        "redis == 4.6.0",
     ],
     setup_requires=["wheel"],
     package_data={
