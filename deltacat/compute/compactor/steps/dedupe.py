@@ -253,7 +253,18 @@ def _timed_dedupe(
                 f"record count: {len(table)}, took: {drop_time}s"
             )
 
-            materialized_results.append(_materialize(hb_idx, table))
+            table = table.drop(
+                [
+                    sc._PK_HASH_COLUMN_NAME,
+                    sc._FILE_RECORD_COUNT_COLUMN_NAME,
+                    sc._ORDERED_FILE_IDX_COLUMN_NAME,
+                    sc._IS_SOURCE_COLUMN_NAME,
+                    sc._DELTA_TYPE_COLUMN_NAME,
+                    sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
+                ]
+            )
+
+            materialized_results.append(_materialize(hb_idx, [table]))
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
 

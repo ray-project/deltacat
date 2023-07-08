@@ -672,9 +672,19 @@ class CompactionSessionAuditInfo(dict):
             [m.pyarrow_write_result for m in mat_results]
         )
 
-        total_count_of_src_dfl_not_touched = sum(
-            m.referenced_pyarrow_write_result.files for m in mat_results
-        )
+        total_count_of_src_dfl_not_touched = 0
+        untouched_file_record_count = 0
+        untouched_file_size_bytes = 0
+
+        for m in mat_results:
+            if m.referenced_pyarrow_write_result:
+                total_count_of_src_dfl_not_touched += (
+                    m.referenced_pyarrow_write_result.files
+                )
+                untouched_file_record_count += m.referenced_pyarrow_write_result.records
+                untouched_file_size_bytes += (
+                    m.referenced_pyarrow_write_result.file_bytes
+                )
 
         logger.info(
             f"Got total of {total_count_of_src_dfl_not_touched} manifest files not touched."
@@ -696,13 +706,6 @@ class CompactionSessionAuditInfo(dict):
             f"{manifest_entry_copied_by_reference_ratio} percent of manifest files are copied by reference during materialize."
         )
 
-        untouched_file_record_count = sum(
-            m.referenced_pyarrow_write_result.records for m in mat_results
-        )
-        untouched_file_size_bytes = sum(
-            m.referenced_pyarrow_write_result.file_bytes for m in mat_results
-        )
-
         self.set_untouched_file_count(total_count_of_src_dfl_not_touched)
         self.set_untouched_file_ratio(manifest_entry_copied_by_reference_ratio)
         self.set_untouched_record_count(untouched_file_record_count)
@@ -717,7 +720,6 @@ class CompactionSessionAuditInfo(dict):
                 [
                     self.peak_memory_used_bytes_per_hash_bucket_task,
                     self.peak_memory_used_bytes_per_dedupe_task,
-                    self.peak_memory_used_bytes_per_materialize_task,
                 ]
             )
         )

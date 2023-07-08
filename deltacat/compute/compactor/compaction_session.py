@@ -17,7 +17,7 @@ from deltacat.compute.compactor import (
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.io.object_store import IObjectStore
-from deltacat.io.memcached_object_store import MemcachedObjectStore
+from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
     Delta,
@@ -112,7 +112,7 @@ def compact_partition(
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
-    object_store: Optional[IObjectStore] = MemcachedObjectStore(),
+    object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -475,7 +475,6 @@ def _execute_compaction_round(
         sort_keys=sort_keys,
         num_materialize_buckets=num_materialize_buckets,
         enable_profiler=enable_profiler,
-        metrics_config=metrics_config,
         object_store=object_store,
         metrics_config=metrics_config,
         s3_table_writer_kwargs=s3_table_writer_kwargs,

@@ -29,6 +29,12 @@ _DEDUPE_TASK_IDX_COLUMN_FIELD = pa.field(
     _DEDUPE_TASK_IDX_COLUMN_TYPE,
 )
 
+_HASH_BUCKET_IDX_COLUMN_NAME = _get_sys_col_name("hash_bucket_idx")
+_HASH_BUCKET_IDX_COLUMN_TYPE = pa.int32()
+_HASH_BUCKET_IDX_COLUMN_FIELD = pa.field(
+    _HASH_BUCKET_IDX_COLUMN_NAME, _HASH_BUCKET_IDX_COLUMN_TYPE
+)
+
 _PARTITION_STREAM_POSITION_COLUMN_NAME = _get_sys_col_name("stream_position")
 _PARTITION_STREAM_POSITION_COLUMN_TYPE = pa.int64()
 _PARTITION_STREAM_POSITION_COLUMN_FIELD = pa.field(
@@ -66,6 +72,20 @@ _FILE_RECORD_COUNT_COLUMN_FIELD = pa.field(
     _FILE_RECORD_COUNT_COLUMN_NAME,
     _FILE_RECORD_COUNT_COLUMN_TYPE,
 )
+
+
+def append_hash_bucket_idx_col(table: pa.Table, hash_bucket_indexes) -> pa.Table:
+
+    table = table.append_column(
+        _HASH_BUCKET_IDX_COLUMN_FIELD,
+        get_hash_bucket_idx_column_array(hash_bucket_indexes),
+    )
+
+    return table
+
+
+def get_hash_bucket_idx_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+    return pa.array(obj, _HASH_BUCKET_IDX_COLUMN_TYPE)
 
 
 def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:

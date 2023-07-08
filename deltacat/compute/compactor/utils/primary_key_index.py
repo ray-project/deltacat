@@ -7,6 +7,7 @@ import numpy as np
 import pyarrow as pa
 import ray
 import s3fs
+import time
 from ray.types import ObjectRef
 
 from deltacat import logs
@@ -187,19 +188,55 @@ def delete_primary_key_index_version(
     logger.info(f"Primary key index deleted: {pki_version_locator}")
 
 
-def group_record_indices_by_hash_bucket(
-    pki_table: pa.Table, num_buckets: int
-) -> np.ndarray:
+def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -> Any:
 
-    hash_bucket_to_indices = np.empty([num_buckets], dtype="object")
-    record_index = 0
+    input_table_len = len(pki_table)
+    hash_bucket_to_table = np.empty([num_buckets], dtype="object")
+    hash_bucket_id_col_list = []
     for digest in sc.pk_hash_column_np(pki_table):
         hash_bucket = pk_digest_to_hash_bucket_index(digest, num_buckets)
-        if hash_bucket_to_indices[hash_bucket] is None:
-            hash_bucket_to_indices[hash_bucket] = []
-        hash_bucket_to_indices[hash_bucket].append(record_index)
-        record_index += 1
-    return hash_bucket_to_indices
+        hash_bucket_id_col_list.append(hash_bucket)
+
+    pki_table = sc.append_hash_bucket_idx_col(pki_table, hash_bucket_id_col_list)
+
+    sort_start = time.monotonic()
+
+    hb_pk_table = pki_table.sort_by(sc._HASH_BUCKET_IDX_COLUMN_NAME)
+
+    sort_end = time.monotonic()
+    logger.info(f"Sort took: {sort_end - sort_start}")
+
+    hb_pk_grouped_by = hb_pk_table.group_by(sc._HASH_BUCKET_IDX_COLUMN_NAME).aggregate(
+        [(sc._HASH_BUCKET_IDX_COLUMN_NAME, "count")]
+    )
+
+    group_by_end = time.monotonic()
+    logger.info(f"groupby took {group_by_end - sort_end}")
+
+    group_count_array = hb_pk_grouped_by[f"{sc._HASH_BUCKET_IDX_COLUMN_NAME}_count"]
+    hb_group_array = hb_pk_grouped_by[sc._HASH_BUCKET_IDX_COLUMN_NAME]
+
+    result_len = 0
+    for i, group_count in enumerate(group_count_array):
+        hb_idx = hb_group_array[i].as_py()
+        pyarrow_table = hb_pk_table.slice(offset=result_len, length=group_count.as_py())
+        pyarrow_table = pyarrow_table.drop([sc._HASH_BUCKET_IDX_COLUMN_NAME])
+        assert (
+            hash_bucket_to_table[hb_idx] is None
+        ), f"Hash bucket ID {hb_idx} already processed"
+        hash_bucket_to_table[hb_idx] = pyarrow_table
+        result_len += len(pyarrow_table)
+
+    assert (
+        input_table_len == result_len
+    ), f"Grouping has resulted in record loss as {result_len} != {input_table_len}"
+
+    bucketing_end = time.monotonic()
+    logger.info(
+        f"Final bucketing took: {bucketing_end - group_by_end} and total records: {len(hb_pk_table)}"
+    )
+
+    return hash_bucket_to_table
 
 
 def group_hash_bucket_indices(
