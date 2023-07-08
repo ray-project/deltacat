@@ -7,6 +7,7 @@ import numpy as np
 import pyarrow as pa
 import ray
 import s3fs
+import time
 from ray.types import ObjectRef
 
 from deltacat import logs
@@ -187,19 +188,38 @@ def delete_primary_key_index_version(
     logger.info(f"Primary key index deleted: {pki_version_locator}")
 
 
-def group_record_indices_by_hash_bucket(
-    pki_table: pa.Table, num_buckets: int
-) -> np.ndarray:
+def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -> Any:
 
-    hash_bucket_to_indices = np.empty([num_buckets], dtype="object")
+    hash_bucket_to_table = np.empty([num_buckets], dtype="object")
+    hash_bucket_to_tables = np.empty([num_buckets], dtype="object")
+
+    pylist_start = time.monotonic()
+
     record_index = 0
     for digest in sc.pk_hash_column_np(pki_table):
         hash_bucket = pk_digest_to_hash_bucket_index(digest, num_buckets)
-        if hash_bucket_to_indices[hash_bucket] is None:
-            hash_bucket_to_indices[hash_bucket] = []
-        hash_bucket_to_indices[hash_bucket].append(record_index)
+        if hash_bucket_to_tables[hash_bucket] is None:
+            hash_bucket_to_tables[hash_bucket] = []
+        hash_bucket_to_tables[hash_bucket].append(pki_table.slice(record_index, 1))
         record_index += 1
-    return hash_bucket_to_indices
+
+    pylist_end = time.monotonic()
+    logger.info(f"Created pylist of picked rows in {pylist_end - pylist_start}s")
+
+    total_records = 0
+    for hb, table_batches in enumerate(hash_bucket_to_tables):
+        if table_batches:
+            hash_bucket_to_table[hb] = pa.concat_tables(table_batches)
+            total_records += len(hash_bucket_to_table[hb])
+
+    assert (
+        total_records == record_index
+    ), "Total records sliced must match. Code bug warning."
+
+    table_end = time.monotonic()
+    logger.info(f"Table with {table_end - pylist_end}s")
+
+    return hash_bucket_to_table
 
 
 def group_hash_bucket_indices(

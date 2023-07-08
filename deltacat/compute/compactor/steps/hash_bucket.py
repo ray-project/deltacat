@@ -58,17 +58,10 @@ def _group_by_pk_hash_bucket(
     # table = table.drop(primary_keys)
 
     # group hash bucket record indices
-    hash_bucket_to_indices = group_record_indices_by_hash_bucket(
+    return group_record_indices_by_hash_bucket(
         table,
         num_buckets,
     )
-
-    # generate the ordered record number column
-    hash_bucket_to_table = np.empty([num_buckets], dtype="object")
-    for hb, indices in enumerate(hash_bucket_to_indices):
-        if indices:
-            hash_bucket_to_table[hb] = table.take(indices)
-    return hash_bucket_to_table
 
 
 def _hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
@@ -99,14 +92,20 @@ def _group_file_records_by_pk_hash_bucket(
     if delta_file_envelopes is None:
         return None, 0
 
+    logger.info(f"Read all delta file envelopes: {len(delta_file_envelopes)}")
+
     # group the data by primary key hash value
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
+        logger.info("Grouping by pk hash bucket")
+        start = time.monotonic()
         hash_bucket_to_table = _group_by_pk_hash_bucket(
             dfe.table,
             num_hash_buckets,
             primary_keys,
         )
+        group_end = time.monotonic()
+        logger.info(f"Grouping took: {group_end - start}")
         for hb, table in enumerate(hash_bucket_to_table):
             if table:
                 if hb_to_delta_file_envelopes[hb] is None:
@@ -151,17 +150,17 @@ def _read_delta_file_envelopes(
         return None, 0
 
     delta_file_envelopes = []
-    total_record_count = 0
-    for i, table in enumerate(tables):
-        total_record_count += len(table)
-        delta_file = DeltaFileEnvelope.of(
-            stream_position=annotations[i].annotation_stream_position,
-            file_index=annotations[i].annotation_file_index,
-            delta_type=annotations[i].annotation_delta_type,
-            table=table,
-            file_record_count=len(table),
-        )
-        delta_file_envelopes.append(delta_file)
+    table = pa.concat_tables(tables)
+    total_record_count = len(table)
+
+    delta_file = DeltaFileEnvelope.of(
+        stream_position=annotations[0].annotation_stream_position,
+        file_index=annotations[0].annotation_file_index,
+        delta_type=annotations[0].annotation_delta_type,
+        table=table,
+        file_record_count=len(table),
+    )
+    delta_file_envelopes.append(delta_file)
     return delta_file_envelopes, total_record_count
 
 
