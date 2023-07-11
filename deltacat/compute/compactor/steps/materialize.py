@@ -232,6 +232,7 @@ def materialize(
                 mask_pylist[record_number] = True
             if (
                 record_numbers_length == src_file_record_count
+                and round_completion_info
                 and src_file_partition_locator
                 == round_completion_info.compacted_delta_locator.partition_locator
             ):
