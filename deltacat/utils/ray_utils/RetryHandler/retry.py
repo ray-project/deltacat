@@ -37,13 +37,10 @@ class RetryHandler:
     def get_task_results(self, num_of_results: int) -> List[Any]:
     #implement wrapper here that before execution will try catch an exception
         #get what tasks we need to run our execution on
-
         finished, unfinished = ray.wait(unfinished, num_of_results)
-
         #assuming we have the tasks we want to get results of
         for finished in finished:
             finished_result = None
-
             try:
                 finished_result = ray.get(finished)
             except (Exception) as exception:
@@ -53,11 +50,14 @@ class RetryHandler:
             if finished_result == RetryableException:
                 #feed into submit_single_task
             else:
-
+                #Non-retryable Exception
 
 
     def handle_ray_exception(self, exception: Exception, TaskInfo: TaskInfoObject) -> Error:
         #will compare the exception with known exceptions and determine way to handle it based off that
         #if RayOOM Error then: raise that error
 
-    def get_retry_strategy()
+    def get_retry_strategy(self, exception: Exception, TaskInfo: TaskInfoObject) --> Any:
+        """
+        Given the exception and task info it will check what retry to execute
+        """
