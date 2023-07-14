@@ -7,7 +7,6 @@ import numpy as np
 import pyarrow as pa
 import ray
 import s3fs
-from ray import cloudpickle
 from ray.types import ObjectRef
 
 from deltacat import logs
@@ -30,6 +29,7 @@ from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.tables import get_table_slicer, get_table_writer
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
+from deltacat.io.object_store import IObjectStore
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -203,7 +203,10 @@ def group_record_indices_by_hash_bucket(
 
 
 def group_hash_bucket_indices(
-    hash_bucket_object_groups: np.ndarray, num_buckets: int, num_groups: int
+    hash_bucket_object_groups: np.ndarray,
+    num_buckets: int,
+    num_groups: int,
+    object_store: Optional[IObjectStore] = None,
 ) -> Tuple[np.ndarray, List[ObjectRef]]:
     """
     Groups all the ObjectRef that belongs to a particular hash bucket group and hash bucket index.
@@ -226,19 +229,10 @@ def group_hash_bucket_indices(
     for hb_group, obj in enumerate(hb_group_to_object):
         if obj is None:
             continue
-        obj_ref = ray.put(obj)
-        pickled_obj_ref = cloudpickle.dumps(obj_ref)
-        object_refs.append(pickled_obj_ref)
-        hash_bucket_group_to_obj_id[hb_group] = pickled_obj_ref
-        # NOTE: The cloudpickle.dumps API call creates an out of band object reference to the object_ref variable.
-        # After pickling, Ray cannot track the serialized copy of the object or determine when the ObjectRef has been deserialized
-        # (e.g., if the ObjectRef is deserialized by a non-Ray process).
-        # Thus the object_ref cannot be tracked by Ray's distributed reference counter, even if it goes out of scope.
-        # The object now has a permanent reference and the data can't be freed from Ray’s object store.
-        # Manually deleting the untrackable object references offsets these permanent references and
-        # helps to allow these objects to be garbage collected normally.
-        del obj_ref
-        del pickled_obj_ref
+        object_ref = object_store.put(obj)
+        object_refs.append(object_ref)
+        hash_bucket_group_to_obj_id[hb_group] = object_ref
+        del object_ref
     return hash_bucket_group_to_obj_id, object_refs
 
 
