@@ -14,7 +14,7 @@ from deltacat.storage import (
 )
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 from deltacat.compute.compactor import HighWatermark
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -25,7 +25,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 def discover_deltas(
     source_partition_locator: PartitionLocator,
-    high_watermark: Union[HighWatermark, int],
+    high_watermark: int,
     last_stream_position_to_compact: int,
     compacted_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_locator: Optional[PartitionLocator],
@@ -37,9 +37,7 @@ def discover_deltas(
     # Source One: new deltas from uncompacted table for incremental compaction or deltas from compacted table for rebase
     input_deltas = _discover_deltas(
         source_partition_locator,
-        high_watermark.get(source_partition_locator)
-        if isinstance(high_watermark, dict)
-        else high_watermark,
+        high_watermark,
         last_stream_position_to_compact
         if not rebase_source_partition_locator
         else deltacat_storage.get_partition(
@@ -50,31 +48,13 @@ def discover_deltas(
         **kwargs,
     )
 
+    logger.info(
+        f"Length of input deltas from source table {len(input_deltas)} up to {rebase_source_partition_high_watermark}"
+    )
+
     # Source Two: delta from compacted table for incremental compaction or new deltas from uncompacted table for rebase
     previous_last_stream_position_compacted = -1
-    if not rebase_source_partition_locator:  # compacted table
-        compacted_partition = deltacat_storage.get_partition(
-            compacted_partition_locator.stream_locator,
-            compacted_partition_locator.partition_values,
-        )
-        previous_last_stream_position_compacted = (
-            compacted_partition.stream_position if compacted_partition else -1
-        )
-        input_deltas_compacted = []
-        if previous_last_stream_position_compacted > 0:
-            input_deltas_compacted = _discover_deltas(
-                compacted_partition_locator,
-                None,
-                previous_last_stream_position_compacted,
-                deltacat_storage,
-                **kwargs,
-            )
-        logger.info(
-            f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
-            f"Length of input deltas from compacted table {len(input_deltas_compacted)} up to {high_watermark}"
-        )
-        input_deltas += input_deltas_compacted
-    else:  # new deltas from uncompacted table between previous_last_stream_position_compacted and current last_position_to_compact
+    if rebase_source_partition_locator is not None:  # compacted table
         input_deltas_new = _discover_deltas(
             rebase_source_partition_locator,
             rebase_source_partition_high_watermark,
@@ -83,8 +63,7 @@ def discover_deltas(
             **kwargs,
         )
         logger.info(
-            f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
-            f"Length of input deltas from compacted table {len(input_deltas)} up to {rebase_source_partition_high_watermark}"
+            f"Length of input deltas from compacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
         )
         input_deltas += input_deltas_new
 
@@ -99,7 +78,7 @@ def limit_input_deltas(
     input_deltas_stats: Dict[int, DeltaStats],
     compaction_audit: CompactionSessionAuditInfo,
     deltacat_storage=unimplemented_deltacat_storage,
-) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
+) -> Tuple[List[DeltaAnnotated], int, int, bool]:
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
     #  input delta records than bytes.
@@ -124,7 +103,7 @@ def limit_input_deltas(
     delta_manifest_entries = 0
     require_multiple_rounds = False
     # tracks the latest stream position for each partition locator
-    high_watermark = HighWatermark()
+    high_watermark = 0
     limited_input_da_list = []
 
     if input_deltas_stats is None:
@@ -154,10 +133,7 @@ def limit_input_deltas(
             delta_bytes += entry.meta.content_length
             if not delta_stats:
                 delta_bytes_pyarrow = delta_bytes * PYARROW_INFLATION_MULTIPLIER
-        high_watermark.set(
-            delta.locator.partition_locator,
-            max(position, high_watermark.get(delta.locator.partition_locator)),
-        )
+        high_watermark = max(high_watermark, position)
         if delta_bytes_pyarrow > worker_obj_store_mem:
             logger.info(
                 f"Input deltas limited to "
@@ -279,7 +255,7 @@ def fit_input_deltas(
     """
     worker_cpus = int(cluster_resources["CPU"])
     total_memory = float(cluster_resources["memory"])
-    high_watermark = HighWatermark()
+    high_watermark = 0
     annotated_input_da_list = []
     delta_bytes = 0
     total_files = 0
@@ -296,10 +272,7 @@ def fit_input_deltas(
 
         total_files += len(manifest_entries)
 
-        high_watermark.set(
-            delta.locator.partition_locator,
-            max(position, high_watermark.get(delta.locator.partition_locator)),
-        )
+        high_watermark = max(high_watermark, position)
         delta_annotated = DeltaAnnotated.of(delta)
         annotated_input_da_list.append(delta_annotated)
 

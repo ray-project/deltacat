@@ -2,7 +2,7 @@ import importlib
 import logging
 import time
 from contextlib import nullcontext
-from typing import Generator, List, Optional, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
 import pyarrow as pa
 import ray
@@ -15,14 +15,12 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
-from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.compute.compactor.utils.primary_key_index import (
     group_hash_bucket_indices,
     group_record_indices_by_hash_bucket,
 )
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import StorageType
-from deltacat.utils.common import sha1_digest
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
@@ -32,27 +30,20 @@ from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.compute.compactor.utils.primary_key_index import generate_pk_hash_column
 
 if importlib.util.find_spec("memray"):
     import memray
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-_PK_BYTES_DELIMITER = b"L6kl7u5f"
-
 
 def _group_by_pk_hash_bucket(
     table: pa.Table, num_buckets: int, primary_keys: List[str]
 ) -> np.ndarray:
     # generate the primary key digest column
-    all_pk_column_fields = []
-    for pk_name in primary_keys:
-        # casting a primary key column to numpy also ensures no nulls exist
-        # TODO (pdames): catch error in cast to numpy and print user-friendly err msg.
-        column_fields = table[pk_name].to_numpy()
-        all_pk_column_fields.append(column_fields)
-    hash_column_generator = _hash_pk_bytes_generator(all_pk_column_fields)
-    table = sc.append_pk_hash_column(table, hash_column_generator)
+
+    table = generate_pk_hash_column(table, primary_keys)
 
     # drop primary key columns to free up memory
     # table = table.drop(primary_keys)
@@ -64,14 +55,6 @@ def _group_by_pk_hash_bucket(
     )
 
     return result
-
-
-def _hash_pk_bytes_generator(all_column_fields) -> Generator[bytes, None, None]:
-    for field_index in range(len(all_column_fields[0])):
-        bytes_to_join = []
-        for column_fields in all_column_fields:
-            bytes_to_join.append(bytes(str(column_fields[field_index]), "utf-8"))
-        yield sha1_digest(_PK_BYTES_DELIMITER.join(bytes_to_join))
 
 
 def _group_file_records_by_pk_hash_bucket(

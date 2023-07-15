@@ -36,10 +36,11 @@ class RoundCompletionInfo(dict):
 
     @staticmethod
     def of(
-        high_watermark: HighWatermark,
+        high_watermark: int,
         compacted_delta_locator: DeltaLocator,
         compacted_pyarrow_write_result: PyArrowWriteResult,
         sort_keys_bit_width: int,
+        hb_id_to_indices: Dict,
         rebase_source_partition_locator: Optional[PartitionLocator],
         manifest_entry_copied_by_reference_ratio: Optional[float] = None,
         compaction_audit_url: Optional[str] = None,
@@ -55,17 +56,12 @@ class RoundCompletionInfo(dict):
             "manifestEntryCopiedByReferenceRatio"
         ] = manifest_entry_copied_by_reference_ratio
         rci["compactionAuditUrl"] = compaction_audit_url
+        rci["hbIdToIndices"] = hb_id_to_indices
         return rci
 
     @property
-    def high_watermark(self) -> HighWatermark:
-        val: Dict[str, Any] = self.get("highWatermark")
-        if (
-            val is not None
-            and isinstance(val, dict)
-            and not isinstance(val, HighWatermark)
-        ):
-            self["highWatermark"] = val = HighWatermark(val)
+    def high_watermark(self) -> int:
+        val: int = self.get("highWatermark")
         return val
 
     @property
@@ -97,3 +93,7 @@ class RoundCompletionInfo(dict):
     @property
     def manifest_entry_copied_by_reference_ratio(self) -> Optional[float]:
         return self["manifestEntryCopiedByReferenceRatio"]
+
+    @property
+    def hb_id_to_indices(self) -> Dict:
+        return self["hbIdToIndices"]

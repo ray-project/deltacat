@@ -2,9 +2,10 @@ import json
 import logging
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
+import hashlib
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import ray
 import s3fs
 import time
@@ -33,6 +34,35 @@ from deltacat.utils.ray_utils.concurrency import invoke_parallel
 from deltacat.io.object_store import IObjectStore
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+_PK_BYTES_DELIMITER = "L6kl7u5f"
+
+
+def generate_pk_hash_column(table, primary_keys):
+    start = time.monotonic()
+    pk_columns = []
+    for pk_name in primary_keys:
+        pk_columns.append(pc.cast(table[pk_name], pa.string()))
+
+    pk_columns.append(_PK_BYTES_DELIMITER)
+    hash_column = pc.binary_join_element_wise(*pk_columns)
+    hash_column_np = hash_column.to_numpy()
+
+    # TODO: do this only if pk size is huge.
+    # The above takes nearly 6s.
+    result = []
+    for digest in hash_column_np:
+        result.append(hashlib.sha1(digest.encode("utf-8")).hexdigest())
+
+    table = sc.append_pk_hash_column(table, result)
+    end = time.monotonic()
+
+    # It took approx 15.982524741999995s to generate pk hash of len: 5824678 and size: 593381554
+    logger.info(
+        f"It took approx {end - start}s to generate pk hash of len: {len(hash_column)} and size: {hash_column.nbytes}"
+    )
+
+    return table
 
 
 def rehash(
@@ -193,17 +223,25 @@ def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -
     input_table_len = len(pki_table)
     hash_bucket_to_table = np.empty([num_buckets], dtype="object")
     hash_bucket_id_col_list = []
+    bucket_id_start = time.monotonic()
     for digest in sc.pk_hash_column_np(pki_table):
         hash_bucket = pk_digest_to_hash_bucket_index(digest, num_buckets)
         hash_bucket_id_col_list.append(hash_bucket)
 
     pki_table = sc.append_hash_bucket_idx_col(pki_table, hash_bucket_id_col_list)
+    bucket_id_end = time.monotonic()
+
+    # Took 4.721033879999993s to generate the hb index for 5817260 rows
+    logger.info(
+        f"Took {bucket_id_end - bucket_id_start}s to generate the hb index for {len(pki_table)} rows"
+    )
 
     sort_start = time.monotonic()
 
     hb_pk_table = pki_table.sort_by(sc._HASH_BUCKET_IDX_COLUMN_NAME)
 
     sort_end = time.monotonic()
+    # Sort took: 19.621158946999998
     logger.info(f"Sort took: {sort_end - sort_start}")
 
     hb_pk_grouped_by = hb_pk_table.group_by(sc._HASH_BUCKET_IDX_COLUMN_NAME).aggregate(
@@ -211,6 +249,7 @@ def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -
     )
 
     group_by_end = time.monotonic()
+    # groupby took 0.09588522000001376
     logger.info(f"groupby took {group_by_end - sort_end}")
 
     group_count_array = hb_pk_grouped_by[f"{sc._HASH_BUCKET_IDX_COLUMN_NAME}_count"]
@@ -232,6 +271,8 @@ def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -
     ), f"Grouping has resulted in record loss as {result_len} != {input_table_len}"
 
     bucketing_end = time.monotonic()
+
+    # Final bucketing took: 0.007040638999995963 and total records: 5817260
     logger.info(
         f"Final bucketing took: {bucketing_end - group_by_end} and total records: {len(hb_pk_table)}"
     )
@@ -278,8 +319,7 @@ def pk_digest_to_hash_bucket_index(digest, num_buckets: int) -> int:
     Deterministically get the hash bucket a particular digest belongs to
     based on number of total hash buckets.
     """
-
-    return int.from_bytes(digest, "big") % num_buckets
+    return int(digest, 16) % num_buckets
 
 
 def write_primary_key_index_files(

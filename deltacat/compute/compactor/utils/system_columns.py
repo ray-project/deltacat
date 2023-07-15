@@ -1,4 +1,3 @@
-from itertools import repeat
 from typing import Union
 
 import numpy as np
@@ -14,9 +13,8 @@ def _get_sys_col_name(suffix):
     return f"{_SYS_COL_UUID}_{suffix}"
 
 
-_PK_HASH_DIGEST_BYTE_WIDTH = 20
 _PK_HASH_COLUMN_NAME = _get_sys_col_name("hash")
-_PK_HASH_COLUMN_TYPE = pa.binary(_PK_HASH_DIGEST_BYTE_WIDTH)
+_PK_HASH_COLUMN_TYPE = pa.string()
 _PK_HASH_COLUMN_FIELD = pa.field(
     _PK_HASH_COLUMN_NAME,
     _PK_HASH_COLUMN_TYPE,
@@ -183,42 +181,27 @@ def project_delta_file_metadata_on_table(
 
     table = delta_file_envelope.table
 
-    # append ordered file number column
-    ordered_file_number = delta_file_envelope.file_index
-    ordered_file_number_iterator = repeat(
-        int(ordered_file_number),
-        len(table),
-    )
-    table = append_file_idx_column(table, ordered_file_number_iterator)
-
-    # append event timestamp column
-    stream_position = delta_file_envelope.stream_position
-    stream_position_iterator = repeat(
-        int(stream_position),
-        len(table),
-    )
-    table = append_stream_position_column(table, stream_position_iterator)
-
-    # append delta type column
-    delta_type = delta_file_envelope.delta_type
-    delta_type_iterator = repeat(
-        delta_type_to_field(delta_type),
-        len(table),
-    )
-    table = append_delta_type_col(table, delta_type_iterator)
+    # We assume all are UPSERT bundles.
+    # # append delta type column
+    # delta_type = delta_file_envelope.delta_type
+    # delta_type_iterator = repeat(
+    #     delta_type_to_field(delta_type),
+    #     len(table),
+    # )
+    # table = append_delta_type_col(table, delta_type_iterator)
 
     # append is source column
-    is_source_iterator = repeat(
-        True if delta_file_envelope.is_src_delta else False,
-        len(table),
-    )
-    table = append_is_source_col(table, is_source_iterator)
+    # is_source_iterator = repeat(
+    #     True if delta_file_envelope.is_src_delta else False,
+    #     len(table),
+    # )
+    # table = append_is_source_col(table, is_source_iterator)
 
     # append row count column
-    file_record_count_iterator = repeat(
-        delta_file_envelope.file_record_count, len(table)
-    )
-    table = append_file_record_count_col(table, file_record_count_iterator)
+    # file_record_count_iterator = repeat(
+    #     delta_file_envelope.file_record_count, len(table)
+    # )
+    # table = append_file_record_count_col(table, file_record_count_iterator)
     return table
 
 

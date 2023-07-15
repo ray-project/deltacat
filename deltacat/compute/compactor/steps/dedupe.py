@@ -9,6 +9,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import ray
+from itertools import repeat
 
 from deltacat.compute.compactor import (
     MaterializeResult,
@@ -26,7 +27,7 @@ from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat import logs
 from deltacat.compute.compactor import (
     SortKey,
-    SortOrder,
+    RoundCompletionInfo,
     DeltaFileEnvelope,
     DeltaFileLocator,
 )
@@ -40,6 +41,7 @@ from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.compute.compactor.utils.primary_key_index import generate_pk_hash_column
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -52,7 +54,52 @@ DedupeTaskIndex, PickledObjectRef = int, str
 DedupeTaskIndexWithObjectId = Tuple[DedupeTaskIndex, PickledObjectRef]
 
 
-def _union_primary_key_indices(
+def combine_column(table, name):
+    return table.column(name).combine_chunks()
+
+
+def groupify_array(arr):
+    # Input: Pyarrow/Numpy array
+    # Output:
+    #   - 1. Unique values
+    #   - 2. Count per unique
+    #   - 3. Sort index
+    #   - 4. Begin index per unique
+    dic, counts = np.unique(arr, return_counts=True)
+    sort_idx = np.argsort(arr)
+    return dic, counts, sort_idx, [0] + np.cumsum(counts)[:-1].tolist()
+
+
+def columns_to_array(table, columns):
+    columns = [columns] if isinstance(columns, str) else list(set(columns))
+    values = [c.to_numpy() for c in table.select(columns).itercolumns()]
+    return np.array(list(map(hash, zip(*values))))
+
+
+def drop_duplicates(table, on=[], keep="first"):
+    # Gather columns to arr
+    arr = columns_to_array(table, (on if on else table.column_names))
+
+    # Groupify
+    dic, counts, sort_idxs, bgn_idxs = groupify_array(arr)
+
+    # Gather idxs
+    if keep == "last":
+        idxs = (np.array(bgn_idxs) - 1)[1:].tolist() + [len(sort_idxs) - 1]
+    elif keep == "first":
+        idxs = bgn_idxs
+    elif keep == "drop":
+        idxs = [i for i, c in zip(bgn_idxs, counts) if c == 1]
+
+    mask = list(repeat(False, len(table)))
+
+    for id in sort_idxs[idxs]:
+        mask[id] = True
+
+    return table.filter(pa.array(mask))
+
+
+def _dedupe_incremental(
     hash_bucket_index: int, df_envelopes_list: List[List[DeltaFileEnvelope]]
 ) -> pa.Table:
     logger.info(
@@ -68,9 +115,19 @@ def _union_primary_key_indices(
         reverse=False,  # ascending
     )
     for df_envelope in df_envelopes:
-        hb_tables.append(sc.project_delta_file_metadata_on_table(df_envelope))
+        hb_tables.append(df_envelope.table)
 
     hb_table = pa.concat_tables(hb_tables)
+
+    start = time.monotonic()
+    # TODO: We do not need to run this when rebasing.
+    hb_table = drop_duplicates(hb_table, on=[sc._PK_HASH_COLUMN_NAME], keep="last")
+    end = time.monotonic()
+    # Rebase:  Dropping duplicates for incremental in 31 took: 88.78605026099999
+    #
+    logger.info(
+        f"Dropping duplicates for incremental in {hash_bucket_index} took: {end - start}"
+    )
 
     logger.info(
         f"Total records in hash bucket {hash_bucket_index} is {hb_table.num_rows}"
@@ -78,53 +135,83 @@ def _union_primary_key_indices(
     return hb_table
 
 
-def _drop_duplicates_by_primary_key_hash(table: pa.Table) -> pa.Table:
-    value_to_last_row_idx = {}
-
-    pk_hash_np = sc.pk_hash_column_np(table)
-    op_type_np = sc.delta_type_column_np(table)
-
-    assert len(pk_hash_np) == len(op_type_np), (
-        f"Primary key digest column length ({len(pk_hash_np)}) doesn't "
-        f"match delta type column length ({len(op_type_np)})."
+def merge_tables(table, old_table):
+    start = time.monotonic()
+    mask = pc.invert(
+        pc.is_in(old_table[sc._PK_HASH_COLUMN_NAME], table[sc._PK_HASH_COLUMN_NAME])
     )
 
-    # TODO(raghumdani): move the dedupe to C++ using arrow methods or similar.
-    row_idx = 0
-    pk_op_val_iter = zip(pk_hash_np, op_type_np)
-    for (pk_val, op_val) in pk_op_val_iter:
+    result = old_table.filter(mask)
+    end = time.monotonic()
 
-        # operation type is True for `UPSERT` and False for `DELETE`
-        if op_val:
-            # UPSERT this row
-            value_to_last_row_idx[pk_val] = row_idx
-        else:
-            # DELETE this row
-            value_to_last_row_idx.pop(pk_val, None)
+    # Merging with old table took: 4.996597067999971. Total records: 12223266 and 12232035 and 11789
+    logger.info(
+        f"Merging with old table took: {end - start}. Total records: {len(result)} and {len(old_table)} and {len(table)}"
+    )
 
-        row_idx += 1
-
-    return table.take(list(value_to_last_row_idx.values()))
+    return pa.concat_tables([result, table])
 
 
-def delta_file_locator_to_mat_bucket_index(
-    df_locator: DeltaFileLocator, materialize_bucket_count: int
-) -> int:
-    digest = df_locator.digest()
-    return int.from_bytes(digest, "big") % materialize_bucket_count
+def download_old_table_and_hash(
+    hb_index: int,
+    rcf: RoundCompletionInfo,
+    read_kwargs_provider,
+    primary_keys,
+    deltacat_storage: unimplemented_deltacat_storage,
+):
+    tables = []
+    hb_index_to_indices = rcf.hb_id_to_indices
+    indices = hb_index_to_indices[str(hb_index)]
+
+    assert (
+        indices is not None and len(indices) == 2
+    ), "indices should not be none and contains exactly two elements"
+
+    start = time.monotonic()
+
+    # pool = multiprocessing.Pool(indices[1] - indices[0])
+
+    # partial_downloader = partial(
+    #     downloader, compacted_delta=rcf.compacted_delta_locator, read_kwargs_provider=read_kwargs_provider)
+
+    # for table in pool.map(partial_downloader, [indices[0] + offset for offset in range(indices[1] - indices[0])]):
+    #     tables.append(table)
+
+    for offset in range(indices[1] - indices[0]):
+        table = deltacat_storage.download_delta_manifest_entry(
+            rcf.compacted_delta_locator,
+            entry_index=(indices[0] + offset),
+            file_reader_kwargs_provider=read_kwargs_provider,
+        )
+
+        tables.append(table)
+
+    end = time.monotonic()
+
+    # Downloaded 4 files for hash bucket: 850 in 64.093580946s
+    # There is an opportunity to parallelize this but this is also current behavior.
+    logger.info(
+        f"Downloaded {indices[1] - indices[0]} files for hash bucket: {hb_index} in {end - start}s"
+    )
+
+    result = pa.concat_tables(tables)
+    return generate_pk_hash_column(result, primary_keys=primary_keys)
 
 
 def _timed_dedupe(
     object_ids: List[Any],
     sort_keys: List[SortKey],
     num_materialize_buckets: int,
+    read_kwargs_provider: Any,
     dedupe_task_index: int,
     partition: Partition,
     enable_profiler: bool,
     max_records_per_output_file: int,
     compacted_file_content_type: ContentType,
     object_store: Optional[IObjectStore],
+    primary_keys: Any,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ):
 
@@ -205,16 +292,17 @@ def _timed_dedupe(
 
         materialized_results: List[MaterializeResult] = []
 
+        # TODO, if hash buckets are not touched, reference their files as is.
         for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
             logger.info(
                 f"{dedupe_task_index}: union primary keys for hb_index: {hb_idx}"
             )
-
             table, union_time = timed_invocation(
-                func=_union_primary_key_indices,
+                func=_dedupe_incremental,
                 hash_bucket_index=hb_idx,
                 df_envelopes_list=dfe_list,
             )
+            # # Dedupe round input record count: 8859597, took 92.469715982s
             logger.info(
                 f"[Dedupe {dedupe_task_index}] Dedupe round input "
                 f"record count: {len(table)}, took {union_time}s"
@@ -223,17 +311,6 @@ def _timed_dedupe(
             # sort by sort keys
             if len(sort_keys):
                 # TODO (pdames): convert to O(N) dedupe w/ sort keys
-                sort_keys.extend(
-                    [
-                        SortKey.of(
-                            sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
-                            SortOrder.ASCENDING,
-                        ),
-                        SortKey.of(
-                            sc._ORDERED_FILE_IDX_COLUMN_NAME, SortOrder.ASCENDING
-                        ),
-                    ]
-                )
                 table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
 
             # drop duplicates by primary key hash column
@@ -241,26 +318,30 @@ def _timed_dedupe(
                 f"[Dedupe task index {dedupe_task_index}] Dropping duplicates for {hb_idx}"
             )
 
-            hb_table_record_count = len(table)
-            table, drop_time = timed_invocation(
-                func=_drop_duplicates_by_primary_key_hash, table=table
-            )
-            deduped_record_count = hb_table_record_count - len(table)
-            total_deduped_records += deduped_record_count
+            if round_completion_info is not None:
+                compacted_table = download_old_table_and_hash(
+                    hb_idx,
+                    round_completion_info,
+                    read_kwargs_provider,
+                    primary_keys,
+                    deltacat_storage,
+                )
 
-            logger.info(
-                f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
-                f"record count: {len(table)}, took: {drop_time}s"
-            )
+                hb_table_record_count = len(table) + len(compacted_table)
+                table, drop_time = timed_invocation(
+                    func=merge_tables, old_table=compacted_table, table=table
+                )
+                deduped_record_count = hb_table_record_count - len(table)
+                total_deduped_records += deduped_record_count
+
+                logger.info(
+                    f"[Dedupe task index {dedupe_task_index}] Dedupe round output "
+                    f"record count: {len(table)}, took: {drop_time}s"
+                )
 
             table = table.drop(
                 [
                     sc._PK_HASH_COLUMN_NAME,
-                    sc._FILE_RECORD_COUNT_COLUMN_NAME,
-                    sc._ORDERED_FILE_IDX_COLUMN_NAME,
-                    sc._IS_SOURCE_COLUMN_NAME,
-                    sc._DELTA_TYPE_COLUMN_NAME,
-                    sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
                 ]
             )
 
@@ -289,7 +370,10 @@ def dedupe(
     compacted_file_content_type: ContentType,
     object_store: Optional[IObjectStore],
     metrics_config: MetricsConfig,
+    primary_keys: Any,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    read_kwargs_provider=None,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> DedupeResult:
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
@@ -297,14 +381,17 @@ def dedupe(
         func=_timed_dedupe,
         object_ids=object_ids,
         sort_keys=sort_keys,
+        read_kwargs_provider=read_kwargs_provider,
         num_materialize_buckets=num_materialize_buckets,
         dedupe_task_index=dedupe_task_index,
         enable_profiler=enable_profiler,
         object_store=object_store,
         partition=partition,
+        primary_keys=primary_keys,
         max_records_per_output_file=max_records_per_output_file,
         compacted_file_content_type=compacted_file_content_type,
         s3_table_writer_kwargs=s3_table_writer_kwargs,
+        round_completion_info=round_completion_info,
         deltacat_storage=deltacat_storage,
     )
 

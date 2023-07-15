@@ -19,6 +19,7 @@ from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.io.object_store import IObjectStore
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.compute.stats.models.delta_stats import DeltaStats
+from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -209,6 +210,7 @@ def _execute_compaction_round(
         else source_partition_locator
     )
 
+    logger.info(f"PyArrow logger version: {pa.__version__}")
     logger.info(f"Using object store: {object_store}")
 
     base_audit_url = rcf_source_partition_locator.path(
@@ -363,16 +365,6 @@ def _execute_compaction_round(
         f"Expected hash bucket count to be a positive integer, but found "
         f"`{hash_bucket_count}`"
     )
-    # parallel step 1:
-    # group like primary keys together by hashing them into buckets
-    if not round_completion_info and rebase_source_partition_locator:
-        # generate a rc_info for hb and materialize to tell whether a delta is src or destination in case of rebase
-        dest_delta_locator = DeltaLocator.of(
-            partition_locator=rebase_source_partition_locator, stream_position=None
-        )
-        round_completion_info = RoundCompletionInfo.of(
-            None, dest_delta_locator, None, 0, None
-        )
 
     if require_multiple_rounds:
         logger.info(
@@ -477,6 +469,9 @@ def _execute_compaction_round(
         enable_profiler=enable_profiler,
         object_store=object_store,
         metrics_config=metrics_config,
+        primary_keys=primary_keys,
+        round_completion_info=round_completion_info,
+        read_kwargs_provider=read_kwargs_provider,
         s3_table_writer_kwargs=s3_table_writer_kwargs,
         deltacat_storage=deltacat_storage,
     )
@@ -524,8 +519,18 @@ def _execute_compaction_round(
     for dd_result in dd_results:
         mat_results.extend(dd_result.materialize_results)
 
-    mat_results = sorted(mat_results, key=lambda m: m.task_index)
+    mat_results: List[MaterializeResult] = sorted(
+        mat_results, key=lambda m: m.task_index
+    )
     deltas = [m.delta for m in mat_results]
+    hb_id_to_file_indices_range = {}
+    file_index = 0
+    for m in mat_results:
+        hb_id_to_file_indices_range[str(m.task_index)] = [
+            file_index,
+            file_index + m.pyarrow_write_result.files,
+        ]
+        file_index += m.pyarrow_write_result.files
 
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
@@ -541,13 +546,14 @@ def _execute_compaction_round(
     )
     logger.info(record_info_msg)
 
-    assert (
-        total_hb_record_count - total_dd_record_count == merged_delta.meta.record_count
-    ), (
-        f"Number of hash bucket records minus the number of deduped records"
-        f" does not match number of materialized records.\n"
-        f" {record_info_msg}"
-    )
+    # Note: This will not hold true now as hb record count is just incremental delta record count.
+    # assert (
+    #     total_hb_record_count - total_dd_record_count == merged_delta.meta.record_count
+    # ), (
+    #     f"Number of hash bucket records minus the number of deduped records"
+    #     f" does not match number of materialized records.\n"
+    #     f" {record_info_msg}"
+    # )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta, properties=kwargs.get("properties", {})
     )
@@ -587,6 +593,7 @@ def _execute_compaction_round(
         new_compacted_delta_locator,
         pyarrow_write_result,
         bit_width_of_sort_keys,
+        hb_id_to_file_indices_range,
         last_rebase_source_partition_locator,
         compaction_audit.untouched_file_ratio,
         audit_url,
