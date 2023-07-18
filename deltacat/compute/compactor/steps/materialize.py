@@ -64,6 +64,7 @@ def materialize(
     dedupe_task_idx_and_obj_id_tuples: List[DedupeTaskIndexWithObjectId],
     max_records_per_output_file: int,
     compacted_file_content_type: ContentType,
+    enable_manifest_entry_copy_by_reference: bool,
     enable_profiler: bool,
     metrics_config: MetricsConfig,
     schema: Optional[pa.Schema] = None,
@@ -231,7 +232,9 @@ def materialize(
                 record_numbers_length += 1
                 mask_pylist[record_number] = True
             if (
-                record_numbers_length == src_file_record_count
+                round_completion_info
+                and enable_manifest_entry_copy_by_reference
+                and record_numbers_length == src_file_record_count
                 and src_file_partition_locator
                 == round_completion_info.compacted_delta_locator.partition_locator
             ):
@@ -244,8 +247,8 @@ def materialize(
                 manifest_entry_list_reference.append(untouched_src_manifest_entry)
                 referenced_pyarrow_write_result = PyArrowWriteResult.of(
                     1,
-                    manifest.meta.source_content_length,
-                    manifest.meta.content_length,
+                    untouched_src_manifest_entry.meta.source_content_length,
+                    untouched_src_manifest_entry.meta.content_length,
                     src_file_record_count,
                 )
                 referenced_pyarrow_write_results.append(referenced_pyarrow_write_result)
