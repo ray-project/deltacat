@@ -100,7 +100,9 @@ def drop_duplicates(table, on=[], keep="first"):
 
 
 def _dedupe_incremental(
-    hash_bucket_index: int, df_envelopes_list: List[List[DeltaFileEnvelope]]
+    hash_bucket_index: int,
+    df_envelopes_list: List[List[DeltaFileEnvelope]],
+    can_drop=True,
 ) -> pa.Table:
     logger.info(
         f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
@@ -120,8 +122,10 @@ def _dedupe_incremental(
     hb_table = pa.concat_tables(hb_tables)
 
     start = time.monotonic()
-    # TODO: We do not need to run this when rebasing.
-    hb_table = drop_duplicates(hb_table, on=[sc._PK_HASH_COLUMN_NAME], keep="last")
+    if can_drop:
+        # TODO: We do not need to run this when rebasing.
+        hb_table = drop_duplicates(hb_table, on=[sc._PK_HASH_COLUMN_NAME], keep="last")
+
     end = time.monotonic()
     # Rebase:  Dropping duplicates for incremental in 31 took: 88.78605026099999
     #
@@ -301,6 +305,7 @@ def _timed_dedupe(
                 func=_dedupe_incremental,
                 hash_bucket_index=hb_idx,
                 df_envelopes_list=dfe_list,
+                can_drop=(round_completion_info is not None),
             )
             # # Dedupe round input record count: 8859597, took 92.469715982s
             logger.info(

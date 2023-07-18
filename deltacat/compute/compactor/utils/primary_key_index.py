@@ -36,6 +36,7 @@ from deltacat.io.object_store import IObjectStore
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 _PK_BYTES_DELIMITER = "L6kl7u5f"
+MAX_SIZE_OF_RECORD_BATCH_IN_GIB = 2 * 1024 * 1024 * 1024
 
 
 def generate_pk_hash_column(table, primary_keys):
@@ -58,6 +59,7 @@ def generate_pk_hash_column(table, primary_keys):
     end = time.monotonic()
 
     # It took approx 15.982524741999995s to generate pk hash of len: 5824678 and size: 593381554
+    # It took approx 121.390761371s to generate pk hash of len: 86245179 and size: 6102873492
     logger.info(
         f"It took approx {end - start}s to generate pk hash of len: {len(hash_column)} and size: {hash_column.nbytes}"
     )
@@ -218,24 +220,7 @@ def delete_primary_key_index_version(
     logger.info(f"Primary key index deleted: {pki_version_locator}")
 
 
-def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -> Any:
-
-    input_table_len = len(pki_table)
-    hash_bucket_to_table = np.empty([num_buckets], dtype="object")
-    hash_bucket_id_col_list = []
-    bucket_id_start = time.monotonic()
-    for digest in sc.pk_hash_column_np(pki_table):
-        hash_bucket = pk_digest_to_hash_bucket_index(digest, num_buckets)
-        hash_bucket_id_col_list.append(hash_bucket)
-
-    pki_table = sc.append_hash_bucket_idx_col(pki_table, hash_bucket_id_col_list)
-    bucket_id_end = time.monotonic()
-
-    # Took 4.721033879999993s to generate the hb index for 5817260 rows
-    logger.info(
-        f"Took {bucket_id_end - bucket_id_start}s to generate the hb index for {len(pki_table)} rows"
-    )
-
+def _group_record_batches_by_hash_bucket(pki_table, hash_bucket_to_table):
     sort_start = time.monotonic()
 
     hb_pk_table = pki_table.sort_by(sc._HASH_BUCKET_IDX_COLUMN_NAME)
@@ -260,11 +245,76 @@ def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -
         hb_idx = hb_group_array[i].as_py()
         pyarrow_table = hb_pk_table.slice(offset=result_len, length=group_count.as_py())
         pyarrow_table = pyarrow_table.drop([sc._HASH_BUCKET_IDX_COLUMN_NAME])
-        assert (
-            hash_bucket_to_table[hb_idx] is None
-        ), f"Hash bucket ID {hb_idx} already processed"
-        hash_bucket_to_table[hb_idx] = pyarrow_table
+        if hash_bucket_to_table[hb_idx] is None:
+            hash_bucket_to_table[hb_idx] = []
+        hash_bucket_to_table[hb_idx].append(pyarrow_table)
         result_len += len(pyarrow_table)
+
+    return result_len
+
+
+def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -> Any:
+
+    input_table_len = len(pki_table)
+    hash_bucket_to_tables = np.empty([num_buckets], dtype="object")
+    hb_to_table = np.empty([num_buckets], dtype="object")
+    hash_bucket_id_col_list = []
+    bucket_id_start = time.monotonic()
+    for digest in sc.pk_hash_column_np(pki_table):
+        hash_bucket = pk_digest_to_hash_bucket_index(digest, num_buckets)
+        hash_bucket_id_col_list.append(hash_bucket)
+
+    pki_table = sc.append_hash_bucket_idx_col(pki_table, hash_bucket_id_col_list)
+    bucket_id_end = time.monotonic()
+
+    # Took 4.721033879999993s to generate the hb index for 5817260 rows
+    logger.info(
+        f"Took {bucket_id_end - bucket_id_start}s to generate the hb index for {len(pki_table)} rows"
+    )
+
+    # This split will ensure that the sort is not performed on a very huge table
+    # resulting in ArrowInvalid: offset overflow while concatenating arrays
+    # Known issue with Arrow: https://github.com/apache/arrow/issues/25822
+    start = time.monotonic()
+    table_batches = pki_table.to_batches()
+    end = time.monotonic()
+
+    logger.info(f"toBatches took {end - start} for {len(pki_table)} rows")
+
+    current_bytes = 0
+    record_batches = []
+    result_len = 0
+    for rbatch in table_batches:
+        current_bytes += rbatch.nbytes
+        record_batches.append(rbatch)
+        if current_bytes >= MAX_SIZE_OF_RECORD_BATCH_IN_GIB:
+            # Total number of record batches without exceeding 2147483648 is 78 and size 2160901323
+            logger.info(
+                f"Total number of record batches without exceeding {MAX_SIZE_OF_RECORD_BATCH_IN_GIB} is {len(record_batches)} and size {current_bytes}"
+            )
+            result_len += _group_record_batches_by_hash_bucket(
+                pa.Table.from_batches(record_batches), hash_bucket_to_tables
+            )
+            current_bytes = 0
+            record_batches.clear()
+
+    if record_batches:
+        result_len += _group_record_batches_by_hash_bucket(
+            pa.Table.from_batches(record_batches), hash_bucket_to_tables
+        )
+        current_bytes = 0
+        record_batches.clear()
+
+    concat_start = time.monotonic()
+    for hb, tables in enumerate(hash_bucket_to_tables):
+        if tables:
+            assert hb_to_table[hb] is None, f"The HB index is repeated {hb}"
+            hb_to_table[hb] = pa.concat_tables(tables)
+
+    concat_end = time.monotonic()
+    logger.info(
+        f"Total time it took to concat all record batches: {concat_end - concat_start}"
+    )
 
     assert (
         input_table_len == result_len
@@ -273,11 +323,12 @@ def group_record_indices_by_hash_bucket(pki_table: pa.Table, num_buckets: int) -
     bucketing_end = time.monotonic()
 
     # Final bucketing took: 0.007040638999995963 and total records: 5817260
+    # Final bucketing took: 140.91121000199996 and total records: 86245179
     logger.info(
-        f"Final bucketing took: {bucketing_end - group_by_end} and total records: {len(hb_pk_table)}"
+        f"Final bucketing took: {bucketing_end - start} and total records: {input_table_len}"
     )
 
-    return hash_bucket_to_table
+    return hb_to_table
 
 
 def group_hash_bucket_indices(
