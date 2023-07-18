@@ -292,6 +292,13 @@ def _execute_compaction_round(
             )
         logger.info(f"Round completion file: {round_completion_info}")
 
+    enable_manifest_entry_copy_by_reference = (
+        False if rebase_source_partition_locator else True
+    )
+    logger.info(
+        f"Enable manifest entry copy by reference is set to: {enable_manifest_entry_copy_by_reference}"
+    )
+
     # discover input delta files
     # For rebase:
     # Copy the old compacted table to a new destination, plus any new deltas from rebased source
@@ -544,6 +551,7 @@ def _execute_compaction_round(
         round_completion_info=round_completion_info,
         source_partition_locator=source_partition_locator,
         partition=partition,
+        enable_manifest_entry_copy_by_reference=enable_manifest_entry_copy_by_reference,
         max_records_per_output_file=records_per_compacted_file,
         compacted_file_content_type=compacted_file_content_type,
         enable_profiler=enable_profiler,
