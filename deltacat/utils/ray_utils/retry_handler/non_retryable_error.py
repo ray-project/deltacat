@@ -1,4 +1,4 @@
-class NonRetryableExc(RuntimeError):
+class NonRetryableError(RuntimeError):
 """
 Class represents a non-retryable error
 """

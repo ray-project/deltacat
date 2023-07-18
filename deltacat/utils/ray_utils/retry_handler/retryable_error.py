@@ -1,4 +1,4 @@
-class RetryableEXc(RuntimeError):
+class RetryableError(RuntimeError):
 """
 class for errors that can be retried
 """
