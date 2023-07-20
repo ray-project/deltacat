@@ -9,7 +9,7 @@ Class TaskInfoObject:
                  task_callable: Callable[[Any], [Any],
                  task_input: Any,
                  ray_remote_task_options: RayRemoteTaskOptions = RayRemoteTaskOptions(),
-                 exception_retry_strategy_configs: List[TaskExceptionRetryConfig]): #what inputs do I need here
+                 exception_retry_strategy_configs: List[TaskExceptionRetryConfig]):
         self.task_callable = task_callable
         self.task_input = task_input
         self.ray_remote_task_options = ray_remote_task_options
