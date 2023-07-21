@@ -29,21 +29,21 @@ def submit_single_task(taskObj: TaskInfoObject, TaskContext: Optional[Interface]
 
 class RayTaskSubmissionHandler:
     """
-    Executes a single Ray task given task info
-    """
-    def execute_task(self, ray_remote_task_info: RayRemoteTaskInfo) -> Any:
-            self.start_tasks_execution([ray_remote_task_info])
-            return self.wait_and_get_all_task_results()[0]
-
-    """
     Starts execution of all given a list of Ray tasks with optional arguments: scaling strategy and straggler detection
     """
     def start_tasks_execution(self,
                               ray_remote_task_infos: List[TaskInfoObject],
                               scaling_strategy: Optional[BatchScalingStrategy] = None,
-                              straggler_detection: Optional[StragglerDetectionInterface] = None) -> None:
+                              straggler_detection: Optional[StragglerDetectionInterface] = None,
+                              task_context: Optional[TaskContext]) -> None:
         if scaling_strategy is None:
             scaling_strategy = RayRemoteTasksBatchScalingParams(len(ray_remote_task_infos))
+        while scaling_strategy.hasNextBatch:
+            current_batch = scaling_strategy.next_batch()
+            for tasks in current_batch:
+                #execute and retry and detect straggler if avail
+
+
 
             #use interface methods and data to detect stragglers in ray
         self.num_of_submitted_tasks = len(ray_remote_task_infos)
@@ -57,9 +57,10 @@ class RayTaskSubmissionHandler:
         logger.info(f"Starting the execution of {len(ray_remote_task_infos)} Ray remote tasks. Concurrency of tasks execution: {self.current_batch_size}")
         if straggler_detection is not None:
             #feed to non-detection only retry handler
-            __wait_and_get_all_task_results(self, straggler_detection)
-        self.__submit_tasks(self.remaining_ray_remote_task_infos[:self.current_batch_size])
-        self.remaining_ray_remote_task_infos = self.remaining_ray_remote_task_infos[self.current_batch_size:]
+            self.__wait_and_get_all_task_results(straggler_detection)
+        else:
+            self.__submit_tasks(self.remaining_ray_remote_task_infos[:self.current_batch_size])
+            self.remaining_ray_remote_task_infos = self.remaining_ray_remote_task_infos[self.current_batch_size:]
 
 
     def __wait_and_get_all_task_results(self, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
@@ -145,17 +146,4 @@ class RayTaskSubmissionHandler:
 
     def __handle_ray_exception(self, exception: Exception, ray_remote_task_info: RayRemoteTaskInfo) -> RayRemoteTaskExecutionError:
         logger.error(f"Ray remote task failed with {type(exception)} Ray exception: {exception}")
-        if type(exception).__name__ == "RayTaskError(UnexpectedRayTaskError)":
-            raise UnexpectedRayTaskError(str(exception))
-        elif type(exception).__name__ == "RayTaskError(RayOutOfMemoryError)":
-            return RayRemoteTaskExecutionError(exception=RayOutOfMemoryError(str(exception)), ray_remote_task_info=ray_remote_task_info)
-        elif type(exception) == ray.exceptions.OwnerDiedError:
-            return RayRemoteTaskExecutionError(exception=RayOwnerDiedError(str(exception)), ray_remote_task_info=ray_remote_task_info)
-        elif type(exception) == ray.exceptions.WorkerCrashedError:
-            return RayRemoteTaskExecutionError(exception=RayWorkerCrashedError(str(exception)), ray_remote_task_info=ray_remote_task_info)
-        elif type(exception) == ray.exceptions.LocalRayletDiedError:
-            return RayRemoteTaskExecutionError(exception=RayLocalRayletDiedError(str(exception)), ray_remote_task_info=ray_remote_task_info)
-        elif type(exception) == ray.exceptions.RaySystemError:
-            return RayRemoteTaskExecutionError(exception=RaySystemError(str(exception)), ray_remote_task_info=ray_remote_task_info)
-
-        raise UnexpectedRayPlatformError(str(exception))
+        if type(exception).__name__ ==

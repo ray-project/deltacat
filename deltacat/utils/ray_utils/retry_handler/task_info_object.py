@@ -4,9 +4,9 @@ from deltacat.utils.ray_utils.retry_handler.task_info_object import TaskExceptio
 from deltacat.utils.ray_utils.retry_handler.task_options import RayRemoteTaskOptions
 
 @dataclass
-Class TaskInfoObject:
+class TaskInfoObject:
     def __init__(self,
-                 task_callable: Callable[[Any], [Any],
+                 task_callable: Callable[[Any], [Any]],
                  task_input: Any,
                  ray_remote_task_options: RayRemoteTaskOptions = RayRemoteTaskOptions(),
                  exception_retry_strategy_configs: List[TaskExceptionRetryConfig]):

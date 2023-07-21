@@ -10,7 +10,7 @@ Params:
 
 Use cases:
 1. Notifying progress
-    a. 
+    a. TaskContext (progressNotifier - (send_heartbeat, send_progress, get_progress), timeout_time) from StragglerDetectionInterface
 2. Detecting stragglers
    Given the straggler detection algorithm fed in by the client, the method get_timeout_val will be used to determine how
    long the task will run before it is considered a straggler. The logic for this must be provided by the client internally.
@@ -20,3 +20,4 @@ Use cases:
 
 The client can provide these inputs to fulfil the following use cases:
 
+Given a list of 1000 tasks, we will first scale each batch to a reasonable size and run the retry and detection on each batch 
