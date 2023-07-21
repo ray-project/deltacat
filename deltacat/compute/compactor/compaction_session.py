@@ -466,11 +466,16 @@ def _execute_compaction_round(
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
 
     dedupe_start = time.monotonic()
-
+    dd_max_parallelism = int(
+        max_parallelism * kwargs.get("dd_max_parallelism_ratio", 1)
+    )
+    logger.info(
+        f"dd max_parallelism is set to {dd_max_parallelism}, max_parallelism is {max_parallelism}"
+    )
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
-        max_parallelism=max_parallelism,
+        max_parallelism=dd_max_parallelism,
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, item: {
             "dedupe_task_index": index,
