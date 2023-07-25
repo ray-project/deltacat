@@ -115,7 +115,7 @@ def compact_partition(
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
-    s3_client_kwargs: Optional[Dict[str, Any]] = None,
+    s3_client_kwargs: Optional[Dict[str, Any]] = {},
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
