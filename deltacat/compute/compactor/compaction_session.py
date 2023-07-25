@@ -115,6 +115,7 @@ def compact_partition(
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
+    s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -155,6 +156,7 @@ def compact_partition(
             read_kwargs_provider,
             s3_table_writer_kwargs,
             object_store,
+            s3_client_kwargs,
             deltacat_storage,
             **kwargs,
         )
@@ -201,6 +203,7 @@ def _execute_compaction_round(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
     object_store: Optional[IObjectStore],
+    s3_client_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -330,7 +333,11 @@ def _execute_compaction_round(
         delta_discovery_end - delta_discovery_start
     )
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -424,7 +431,11 @@ def _execute_compaction_round(
         hb_end - hb_start,
     )
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hb_result in hb_results:
@@ -539,7 +550,11 @@ def _execute_compaction_round(
     # parallel step 3:
     # materialize records to keep by index
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     materialize_start = time.monotonic()
 
@@ -641,7 +656,11 @@ def _execute_compaction_round(
         mat_results, telemetry_time_hb + telemetry_time_dd + telemetry_time_materialize
     )
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     new_round_completion_info = RoundCompletionInfo.of(
         last_stream_position_compacted,
