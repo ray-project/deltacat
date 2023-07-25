@@ -176,6 +176,7 @@ def compact_partition(
                 compaction_artifact_s3_bucket,
                 new_rcf_partition_locator,
                 new_rci,
+                **s3_client_kwargs,
             )
         logger.info(f"Completed compaction session for: {source_partition_locator}")
         return round_completion_file_s3_url
@@ -287,7 +288,7 @@ def _execute_compaction_round(
     round_completion_info = None
     if not rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
-            compaction_artifact_s3_bucket, source_partition_locator
+            compaction_artifact_s3_bucket, source_partition_locator, **s3_client_kwargs
         )
         if not round_completion_info:
             logger.info(
