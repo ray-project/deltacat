@@ -115,7 +115,7 @@ def compact_partition(
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
-    s3_client_kwargs: Optional[Dict[str, Any]] = {},
+    s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -283,6 +283,9 @@ def _execute_compaction_round(
     # "safe" number of parallel tasks that our autoscaling cluster could handle
     max_parallelism = int(cluster_cpus)
     logger.info(f"Max parallelism: {max_parallelism}")
+
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
 
     # read the results from any previously completed compaction round
     round_completion_info = None
