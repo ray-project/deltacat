@@ -124,6 +124,9 @@ def compact_partition(
         logger.info(f"memray profiler not available, disabling all profiling")
         enable_profiler = False
 
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
     # memray official documentation link:
     # https://bloomberg.github.io/memray/getting_started.html
     with memray.Tracker(
@@ -283,9 +286,6 @@ def _execute_compaction_round(
     # "safe" number of parallel tasks that our autoscaling cluster could handle
     max_parallelism = int(cluster_cpus)
     logger.info(f"Max parallelism: {max_parallelism}")
-
-    if s3_client_kwargs is None:
-        s3_client_kwargs = {}
 
     # read the results from any previously completed compaction round
     round_completion_info = None
