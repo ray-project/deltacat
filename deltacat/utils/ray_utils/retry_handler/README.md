@@ -10,12 +10,12 @@ Params:
 
 Use cases:
 1. Notifying progress
-    This will be done through ProgressNotifierInterface. The client can use has_progress and send_progress
+    This will be done through ProgressNotifierInterface. The client can implement has_progress and send_progress from the interface
     to recieve updates on task level progress. This can be an SNSQueue or any type of indicator the client may choose.
 2. Detecting stragglers
    Given the straggler detection algorithm implemented by StragglerDetectionInterface, the method is_straggler will inform 
-   the customer if the current node is a straggler according to their own logic and proving them with TaskContext, the information 
-   they might need to make that decision.
+   the customer if the current node is a straggler according to their own logic. In order to make their decision, we will provide them 
+   with TaskContext that contains fields and data that the client can use to decide if a task is a straggler or not.
 3. Retrying retryable exceptions
    Within the failure directory, there are common errors that are retryable and when detected as an instance 
    of the retryable class, will cause the task to be retried when the exception is caught. If the client would like
