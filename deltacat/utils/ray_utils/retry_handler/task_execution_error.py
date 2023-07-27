@@ -1,4 +1,4 @@
-class RayRemoteTaskExecutionError():
+class RayRemoteTaskExecutionError:
     """
     An error class that denotes the Ray Remote Task Execution Failure
     """

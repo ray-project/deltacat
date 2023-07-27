@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict, List, cast, Optional
-from deltacat.utils.ray_utils.retry_handler.ray_remote_tasks_batch_scaling_params import RayRemoteTasksBatchScalingParams
+from deltacat.utils.ray_utils.retry_handler.ray_remote_tasks_batch_scaling_strategy import RayRemoteTasksBatchScalingStrategy
 import ray
 import time
 import logging
@@ -13,12 +13,13 @@ logger = configure_logger(logging.getLogger(__name__))
 
 @ray.remote
 def submit_single_task(taskObj: TaskInfoObject, TaskContext: Optional[Interface] = None) -> Any:
+    """
+     Submits a single task for execution, handles any exceptions that may occur during execution,
+     and applies appropriate retry strategies if they are defined.
+    """
     try:
         taskObj.attempt_count += 1
         curr_attempt = taskObj.attempt_count
-        if TaskContext is not None:
-            # custom logic for checking if taskContext has progress and then use to detect stragglers
-        #track time/progress in here
         logger.debug(f"Executing the submitted Ray remote task as part of attempt number: {current_attempt_number}")
         return taskObj.task_callable(taskObj.task_input)
     except (Exception) as exception:
@@ -26,6 +27,8 @@ def submit_single_task(taskObj: TaskInfoObject, TaskContext: Optional[Interface]
         if exception_retry_strategy_config is not None:
             return RayRemoteTaskExecutionError(exception_retry_strategy_config.exception, taskObj)
 
+        logger.error(f"The exception thrown by submitted Ray task during attempt number: {current_attempt_number} is non-retryable or unexpected, hence throwing Non retryable exception: {exception}")
+        raise UnexpectedRayTaskError(str(exception))
 
 class RayTaskSubmissionHandler:
     """
@@ -36,59 +39,58 @@ class RayTaskSubmissionHandler:
                               scaling_strategy: Optional[BatchScalingStrategy] = None,
                               straggler_detection: Optional[StragglerDetectionInterface] = None,
                               task_context: Optional[TaskContext]) -> None:
+        """
+        Prepares and initiates the execution of a batch of tasks and can optionally support
+        custom client batch scaling, straggler detection, and task context
+        """
         if scaling_strategy is None:
-            scaling_strategy = RayRemoteTasksBatchScalingParams(len(ray_remote_task_infos))
-        while scaling_strategy.hasNextBatch:
-            current_batch = scaling_strategy.next_batch()
-            for tasks in current_batch:
-                #execute and retry and detect straggler if avail
+            scaling_strategy = RayRemoteTasksBatchScalingStrategy(ray_remote_task_infos)
 
-
-
-            #use interface methods and data to detect stragglers in ray
-        self.num_of_submitted_tasks = len(ray_remote_task_infos)
-        self.current_batch_size = min(scaling_strategy.get_batch_size, self.num_of_submitted_tasks)
-        self.num_of_submitted_tasks_completed = 0
-        self.remaining_ray_remote_task_infos = ray_remote_task_infos
-        self.batch_scaling_params = batch_scaling_params
-        self.task_promise_obj_ref_to_task_info_map: Dict[Any, RayRemoteTaskInfo] = {}
-
-        self.unfinished_promises: List[Any] = []
-        logger.info(f"Starting the execution of {len(ray_remote_task_infos)} Ray remote tasks. Concurrency of tasks execution: {self.current_batch_size}")
         if straggler_detection is not None:
-            #feed to non-detection only retry handler
-            self.__wait_and_get_all_task_results(straggler_detection)
-        else:
-            self.__submit_tasks(self.remaining_ray_remote_task_infos[:self.current_batch_size])
-            self.remaining_ray_remote_task_infos = self.remaining_ray_remote_task_infos[self.current_batch_size:]
+            while scaling_strategy.hasNextBatch():
+                current_batch = scaling_strategy.next_batch()
+                for task in current_batch:
+                    if straggler_detection.isStraggler(task):
+                        ray.cancel(task)
+                    else:
+                        self._submit_tasks(task)
 
+    def _wait_and_get_all_task_results(self, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
+        return self._get_task_results(self.num_of_submitted_tasks, straggler_detection)
 
-    def __wait_and_get_all_task_results(self, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
-        return self.__get_task_results(self.num_of_submitted_tasks, straggler_detection)
+    def _get_task_results(self, num_of_results: int, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
+        """
+        Gets results from a list of tasks to be executed, and catches exceptions to manage the retry strategy.
+        Optional: Given a StragglerDetectionInterface, can detect and handle straggler tasks according to the client logic
+        """
+        if not self.unfinished_promises or num_of_results == 0:
+            return []
+        elif num_of_results > len(self.unfinished_promises):
+            num_of_results = len(self.unfinished_promises)
 
-    #Straggler detection will go in here
-    def __get_task_results(self, num_of_results: int, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
-        if straggler_detection is not None:
-            finished, unfinished = ray.wait(unfinished, num_of_results, straggler_detection.calc_timeout_val)
-        else:
-            finished, unfinished = ray.wait(unfinished, num_of_results)
+        finished, self.unfinished_promises = ray.wait(self.unfinished_promises, num_of_results)
+        successful_results = []
+
         for finished in finished:
             finished_result = None
             try:
                 finished_result = ray.get(finished)
             except (Exception) as exception:
                 #if exception send to method handle_ray_exception to determine what to do and assign the corresp error
-                finished_result = self.handle_ray_exception(exception=exception, ray_remote_task_info=self.task_promise_obj_ref_to_task_info_map[str(finished_promise)] )#evaluate the exception and return the error
+                finished_result = self._handle_ray_exception(exception=exception, ray_remote_task_info=self.task_promise_obj_ref_to_task_info_map[str(finished_promise)] )#evaluate the exception and return the error
 
             if finished_result and type(finished_result) == RayRemoteTaskExecutionError:
                 finished_result = cast(RayRemoteTaskExecutionError, finished_result)
+
+                if straggler_detection and straggler_detection.isStraggler(finished_result):
+                    ray.cancel(finished_result)
                 exception_retry_strategy_config = get_retry_strategy_config_for_known_exception(finished_result.exception,
                      finished_result.ray_remote_task_info.exception_retry_strategy_configs)
                 if (exception_retry_strategy_config is None or finished_result.ray_remote_task_info.num_of_attempts > exception_retry_strategy_config.max_retry_attempts):
                     logger.error(f"The submitted task has exhausted all the maximum retries configured and finally throws exception - {finished_result.exception}")
                     raise finished_result.exception
-                self.__update_ray_remote_task_options_on_exception(finished_result.exception, finished_result.ray_remote_task_info)
-                self.unfinished_promises.append(self.__invoke_ray_remote_task(ray_remote_task_info=finished_result.ray_remote_task_info))
+                self._update_ray_remote_task_options_on_exception(finished_result.exception, finished_result.ray_remote_task_info)
+                self.unfinished_promises.append(self._invoke_ray_remote_task(ray_remote_task_info=finished_result.ray_remote_task_info))
             else:
                 successful_results.append(finished_result)
                 del self.task_promise_obj_ref_to_task_info_map[str(finished_promise)]
@@ -97,29 +99,35 @@ class RayTaskSubmissionHandler:
         self.num_of_submitted_tasks_completed += num_of_successful_results
         self.current_batch_size -= num_of_successful_results
 
-        self.__enqueue_new_tasks(num_of_successful_results)
+        self._enqueue_new_tasks(num_of_successful_results)
 
         if num_of_successful_results < num_of_results:
-            successful_results.extend(self.wait_and_get_task_results(num_of_results - num_of_successful_results))
+            successful_results.extend(self._get_task_results(num_of_results - num_of_successful_results))
             return successful_results
         else:
             return successful_results
 
 
-    def __enqueue_new_tasks(self, num_of_tasks: int) -> None:
-            new_tasks_submitted = self.remaining_ray_remote_task_infos[:num_of_tasks]
-            num_of_new_tasks_submitted = len(new_tasks_submitted)
-            self.__submit_tasks(new_tasks_submitted)
-            self.remaining_ray_remote_task_infos = self.remaining_ray_remote_task_infos[num_of_tasks:]
-            self.current_batch_size += num_of_new_tasks_submitted
-            logger.info(f"Enqueued {num_of_new_tasks_submitted} new tasks. Current concurrency of tasks execution: {self.current_batch_size}, Current Task progress: {self.num_of_submitted_tasks_completed}/{self.num_of_submitted_tasks}")
+    def _enqueue_new_tasks(self, num_of_tasks: int) -> None:
+        """
+        Helper method to submit a specified number of tasks
+        """
+        new_tasks_submitted = self.remaining_ray_remote_task_infos[:num_of_tasks]
+        num_of_new_tasks_submitted = len(new_tasks_submitted)
+        self._submit_tasks(new_tasks_submitted)
+        self.remaining_ray_remote_task_infos = self.remaining_ray_remote_task_infos[num_of_tasks:]
+        self.current_batch_size += num_of_new_tasks_submitted
+        logger.info(f"Enqueued {num_of_new_tasks_submitted} new tasks. Current concurrency of tasks execution: {self.current_batch_size}, Current Task progress: {self.num_of_submitted_tasks_completed}/{self.num_of_submitted_tasks}")
 
-    def __submit_tasks(self, ray_remote_task_infos: List[RayRemoteTaskInfo]) -> None:
+    def _submit_tasks(self, ray_remote_task_infos: List[RayRemoteTaskInfo]) -> None:
         for ray_remote_task_info in ray_remote_task_infos:
             time.sleep(0.005)
-            self.unfinished_promises.append(self.__invoke_ray_remote_task(ray_remote_task_info))
-
-    def __invoke_ray_remote_task(self, ray_remote_task_info: RayRemoteTaskInfo) -> Any:
+            if self.straggler_detection and self.straggler_detection.is_straggler(ray_remote_task_info):
+                ray.cancel(ray_remote_task_info)
+            else:
+            self.unfinished_promises.append(self._invoke_ray_remote_task(ray_remote_task_info))
+    #replace with ray.options
+    def _invoke_ray_remote_task(self, ray_remote_task_info: RayRemoteTaskInfo) -> Any:
         ray_remote_task_options_arguments = dict()
 
         if ray_remote_task_info.ray_remote_task_options.memory:
@@ -136,14 +144,15 @@ class RayTaskSubmissionHandler:
 
         return ray_remote_task_promise_obj_ref
 
-    def __update_ray_remote_task_options_on_exception(self, exception: Exception, ray_remote_task_info: RayRemoteTaskInfo):
+    #replace with ray.options
+    def _update_ray_remote_task_options_on_exception(self, exception: Exception, ray_remote_task_info: RayRemoteTaskInfo):
         exception_retry_strategy_config = get_retry_strategy_config_for_known_exception(exception, ray_remote_task_info.exception_retry_strategy_configs)
         if exception_retry_strategy_config and ray_remote_task_info.ray_remote_task_options.memory:
             logger.info(f"Updating the Ray remote task options after encountering exception: {exception}")
             ray_remote_task_memory_multiply_factor = exception_retry_strategy_config.ray_remote_task_memory_multiply_factor
             ray_remote_task_info.ray_remote_task_options.memory *= ray_remote_task_memory_multiply_factor
             logger.info(f"Updated ray remote task options Memory: {ray_remote_task_info.ray_remote_task_options.memory}")
-
-    def __handle_ray_exception(self, exception: Exception, ray_remote_task_info: RayRemoteTaskInfo) -> RayRemoteTaskExecutionError:
+    #replace with own exceptions
+    def _handle_ray_exception(self, exception: Exception, ray_remote_task_info: RayRemoteTaskInfo) -> RayRemoteTaskExecutionError:
         logger.error(f"Ray remote task failed with {type(exception)} Ray exception: {exception}")
-        if type(exception).__name__ ==
+        if type(exception).__name__ == "AWSSecurityTokenRateExceededException(RetryableError)"

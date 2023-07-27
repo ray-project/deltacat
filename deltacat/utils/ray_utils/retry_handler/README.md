@@ -10,14 +10,18 @@ Params:
 
 Use cases:
 1. Notifying progress
-    a. TaskContext (progressNotifier - (send_heartbeat, send_progress, get_progress), timeout_time) from StragglerDetectionInterface
+    This will be done through ProgressNotifierInterface. The client can use has_progress and send_progress
+    to recieve updates on task level progress. This can be an SNSQueue or any type of indicator the client may choose.
 2. Detecting stragglers
-   Given the straggler detection algorithm fed in by the client, the method get_timeout_val will be used to determine how
-   long the task will run before it is considered a straggler. The logic for this must be provided by the client internally.
+   Given the straggler detection algorithm implemented by StragglerDetectionInterface, the method is_straggler will inform 
+   the customer if the current node is a straggler according to their own logic and proving them with TaskContext, the information 
+   they might need to make that decision.
 3. Retrying retryable exceptions
-   a. Within the failure directory, there are common errors that are retryable and when detected as an instance 
-    of the retryable class, will cause the task to be retried through submitting the task. 
+   Within the failure directory, there are common errors that are retryable and when detected as an instance 
+   of the retryable class, will cause the task to be retried when the exception is caught. If the client would like
+   to create their own exceptions to be handles, they can create a class that is an extension of retryable_error or 
+   non_retryable_error and the framework should handle it based on the configuration strategy.
 
-The client can provide these inputs to fulfil the following use cases:
 
-Given a list of 1000 tasks, we will first scale each batch to a reasonable size and run the retry and detection on each batch 
+
+
