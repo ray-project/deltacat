@@ -5,11 +5,10 @@ from uuid import uuid4
 from collections import defaultdict
 from contextlib import nullcontext
 from itertools import chain, repeat
-from typing import List, Optional, Tuple, Dict, Any, Union
+from typing import List, Optional, Tuple, Dict, Any
 import pyarrow as pa
 import numpy as np
 import ray
-from ray import cloudpickle
 from deltacat import logs
 from deltacat.compute.compactor import (
     MaterializeResult,
@@ -28,15 +27,13 @@ from deltacat.storage import (
     PartitionLocator,
     Manifest,
     ManifestEntry,
-    LocalDataset,
-    LocalTable,
-    DistributedDataset,
 )
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.performance import timed_invocation
+from deltacat.io.object_store import IObjectStore
 from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowCsvPureUtf8,
     ReadKwargsProviderPyArrowSchemaOverride,
@@ -70,24 +67,9 @@ def materialize(
     schema: Optional[pa.Schema] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    object_store: Optional[IObjectStore] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ):
-    def _stage_delta_implementation(
-        data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
-        partition: Partition,
-        stage_delta_from_existing_manifest: Optional[bool],
-    ) -> Delta:
-        if stage_delta_from_existing_manifest:
-            delta = Delta.of(
-                locator=DeltaLocator.of(partition.locator),
-                delta_type=DeltaType.UPSERT,
-                meta=manifest.meta,
-                manifest=data,
-                previous_stream_position=partition.stream_position,
-                properties={},
-            )
-            return delta
-
     def _stage_delta_from_manifest_entry_reference_list(
         manifest_entry_list_reference: List[ManifestEntry],
         partition: Partition,
@@ -97,10 +79,13 @@ def materialize(
             delta_type == DeltaType.UPSERT
         ), "Stage delta with existing manifest entries only supports UPSERT delta type!"
         manifest = Manifest.of(entries=manifest_entry_list_reference, uuid=str(uuid4()))
-        delta = _stage_delta_implementation(
-            data=manifest,
-            partition=partition,
-            stage_delta_from_existing_manifest=True,
+        delta = Delta.of(
+            locator=DeltaLocator.of(partition.locator),
+            delta_type=delta_type,
+            meta=manifest.meta,
+            manifest=manifest,
+            previous_stream_position=partition.stream_position,
+            properties={},
         )
         return delta
 
@@ -162,18 +147,11 @@ def materialize(
         f"dedupe_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
         start = time.time()
-        dedupe_task_idx_and_obj_ref_tuples = [
-            (
-                t1,
-                cloudpickle.loads(t2),
-            )
-            for t1, t2 in dedupe_task_idx_and_obj_id_tuples
-        ]
         logger.info(f"Resolved materialize task obj refs...")
-        dedupe_task_indices, obj_refs = zip(*dedupe_task_idx_and_obj_ref_tuples)
+        dedupe_task_indices, obj_refs = zip(*dedupe_task_idx_and_obj_id_tuples)
         # this depends on `ray.get` result order matching input order, as per the
         # contract established in: https://github.com/ray-project/ray/pull/16763
-        src_file_records_list = ray.get(list(obj_refs))
+        src_file_records_list = object_store.get_many(list(obj_refs))
         all_src_file_records = defaultdict(list)
         for i, src_file_records in enumerate(src_file_records_list):
             dedupe_task_idx = dedupe_task_indices[i]

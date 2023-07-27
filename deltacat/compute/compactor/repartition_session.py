@@ -53,6 +53,7 @@ def repartition(
     pg_config: Optional[PlacementGroupConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -166,9 +167,13 @@ def repartition(
         bit_width_of_sort_keys,
         None,
     )
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
     return rcf.write_round_completion_file(
         None,
         None,
         repartition_completion_info,
         repartition_completion_file_s3_url,
+        **s3_client_kwargs,
     )

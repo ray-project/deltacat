@@ -16,6 +16,8 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
+from deltacat.io.object_store import IObjectStore
+from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.stats.models.delta_stats import DeltaStats
 from deltacat.storage import (
@@ -112,6 +114,8 @@ def compact_partition(
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
+    s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -119,6 +123,9 @@ def compact_partition(
     if not importlib.util.find_spec("memray"):
         logger.info(f"memray profiler not available, disabling all profiling")
         enable_profiler = False
+
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
 
     # memray official documentation link:
     # https://bloomberg.github.io/memray/getting_started.html
@@ -151,6 +158,8 @@ def compact_partition(
             list_deltas_kwargs,
             read_kwargs_provider,
             s3_table_writer_kwargs,
+            object_store,
+            s3_client_kwargs,
             deltacat_storage,
             **kwargs,
         )
@@ -170,6 +179,7 @@ def compact_partition(
                 compaction_artifact_s3_bucket,
                 new_rcf_partition_locator,
                 new_rci,
+                **s3_client_kwargs,
             )
         logger.info(f"Completed compaction session for: {source_partition_locator}")
         return round_completion_file_s3_url
@@ -196,6 +206,8 @@ def _execute_compaction_round(
     list_deltas_kwargs: Optional[Dict[str, Any]],
     read_kwargs_provider: Optional[ReadKwargsProvider],
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
+    object_store: Optional[IObjectStore],
+    s3_client_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -279,7 +291,7 @@ def _execute_compaction_round(
     round_completion_info = None
     if not rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
-            compaction_artifact_s3_bucket, source_partition_locator
+            compaction_artifact_s3_bucket, source_partition_locator, **s3_client_kwargs
         )
         if not round_completion_info:
             logger.info(
@@ -325,7 +337,11 @@ def _execute_compaction_round(
         delta_discovery_end - delta_discovery_start
     )
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -399,6 +415,7 @@ def _execute_compaction_round(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
+        object_store=object_store,
         deltacat_storage=deltacat_storage,
     )
 
@@ -418,7 +435,11 @@ def _execute_compaction_round(
         hb_end - hb_start,
     )
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hb_result in hb_results:
@@ -460,11 +481,16 @@ def _execute_compaction_round(
     logger.info(f"Materialize Bucket Count: {num_materialize_buckets}")
 
     dedupe_start = time.monotonic()
-
+    dd_max_parallelism = int(
+        max_parallelism * kwargs.get("dd_max_parallelism_ratio", 1)
+    )
+    logger.info(
+        f"dd max_parallelism is set to {dd_max_parallelism}, max_parallelism is {max_parallelism}"
+    )
     dd_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.values(),
         ray_task=dd.dedupe,
-        max_parallelism=max_parallelism,
+        max_parallelism=dd_max_parallelism,
         options_provider=round_robin_opt_provider,
         kwargs_provider=lambda index, item: {
             "dedupe_task_index": index,
@@ -474,6 +500,7 @@ def _execute_compaction_round(
         num_materialize_buckets=num_materialize_buckets,
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
+        object_store=object_store,
     )
 
     dedupe_invoke_end = time.monotonic()
@@ -527,7 +554,11 @@ def _execute_compaction_round(
     # parallel step 3:
     # materialize records to keep by index
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     materialize_start = time.monotonic()
 
@@ -551,6 +582,7 @@ def _execute_compaction_round(
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
         s3_table_writer_kwargs=s3_table_writer_kwargs,
+        object_store=object_store,
         deltacat_storage=deltacat_storage,
     )
 
@@ -628,7 +660,11 @@ def _execute_compaction_round(
         mat_results, telemetry_time_hb + telemetry_time_dd + telemetry_time_materialize
     )
 
-    s3_utils.upload(compaction_audit.audit_url, str(json.dumps(compaction_audit)))
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **s3_client_kwargs,
+    )
 
     new_round_completion_info = RoundCompletionInfo.of(
         last_stream_position_compacted,

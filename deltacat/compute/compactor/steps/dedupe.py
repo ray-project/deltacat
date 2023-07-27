@@ -1,5 +1,6 @@
 import importlib
 import logging
+from typing import Optional
 import time
 from collections import defaultdict
 from contextlib import nullcontext
@@ -8,7 +9,6 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import ray
-from ray import cloudpickle
 
 from deltacat import logs
 from deltacat.compute.compactor import (
@@ -25,6 +25,7 @@ from deltacat.utils.ray_utils.runtime import (
 )
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.io.object_store import IObjectStore
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
@@ -106,6 +107,7 @@ def _timed_dedupe(
     num_materialize_buckets: int,
     dedupe_task_index: int,
     enable_profiler: bool,
+    object_store: Optional[IObjectStore],
 ):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
@@ -114,15 +116,12 @@ def _timed_dedupe(
     ) if enable_profiler else nullcontext():
         # TODO (pdames): mitigate risk of running out of memory here in cases of
         #  severe skew of primary key updates in deltas
-        src_file_records_obj_refs = [
-            cloudpickle.loads(obj_id_pkl) for obj_id_pkl in object_ids
-        ]
         logger.info(
             f"[Dedupe task {dedupe_task_index}] Getting delta file envelope "
-            f"groups for {len(src_file_records_obj_refs)} object refs..."
+            f"groups for {len(object_ids)} object refs..."
         )
 
-        delta_file_envelope_groups_list = ray.get(src_file_records_obj_refs)
+        delta_file_envelope_groups_list = object_store.get_many(object_ids)
         hb_index_to_delta_file_envelopes_list = defaultdict(list)
         for delta_file_envelope_groups in delta_file_envelope_groups_list:
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
@@ -201,7 +200,6 @@ def _timed_dedupe(
                 src_file_id_to_row_indices[src_dfl].append(row_idx_col[row_idx])
 
         logger.info(f"Finished all dedupe rounds...")
-        mat_bucket_to_src_file_record_count = defaultdict(dict)
         mat_bucket_to_src_file_records: Dict[
             MaterializeBucketIndex, DeltaFileLocatorToRecords
         ] = defaultdict(dict)
@@ -213,22 +211,17 @@ def _timed_dedupe(
             mat_bucket_to_src_file_records[mat_bucket][src_dfl] = np.array(
                 src_row_indices,
             )
-            mat_bucket_to_src_file_record_count[mat_bucket][src_dfl] = len(
-                src_row_indices
-            )
 
         mat_bucket_to_dd_idx_obj_id: Dict[
             MaterializeBucketIndex, DedupeTaskIndexWithObjectId
         ] = {}
         for mat_bucket, src_file_records in mat_bucket_to_src_file_records.items():
-            object_ref = ray.put(src_file_records)
-            pickled_object_ref = cloudpickle.dumps(object_ref)
+            object_ref = object_store.put(src_file_records)
             mat_bucket_to_dd_idx_obj_id[mat_bucket] = (
                 dedupe_task_index,
-                pickled_object_ref,
+                object_ref,
             )
             del object_ref
-            del pickled_object_ref
         logger.info(
             f"Count of materialize buckets with object refs: "
             f"{len(mat_bucket_to_dd_idx_obj_id)}"
@@ -253,6 +246,7 @@ def dedupe(
     dedupe_task_index: int,
     enable_profiler: bool,
     metrics_config: MetricsConfig,
+    object_store: Optional[IObjectStore],
 ) -> DedupeResult:
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     dedupe_result, duration = timed_invocation(
@@ -262,6 +256,7 @@ def dedupe(
         num_materialize_buckets=num_materialize_buckets,
         dedupe_task_index=dedupe_task_index,
         enable_profiler=enable_profiler,
+        object_store=object_store,
     )
 
     emit_metrics_time = 0.0

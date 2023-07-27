@@ -31,6 +31,7 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.io.object_store import IObjectStore
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
@@ -179,6 +180,7 @@ def _timed_hash_bucket(
     num_groups: int,
     enable_profiler: bool,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    object_store: Optional[IObjectStore] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ):
     task_id = get_current_ray_task_id()
@@ -207,9 +209,7 @@ def _timed_hash_bucket(
             deltacat_storage,
         )
         hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
-            delta_file_envelope_groups,
-            num_buckets,
-            num_groups,
+            delta_file_envelope_groups, num_buckets, num_groups, object_store
         )
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
@@ -233,6 +233,7 @@ def hash_bucket(
     enable_profiler: bool,
     metrics_config: MetricsConfig,
     read_kwargs_provider: Optional[ReadKwargsProvider],
+    object_store: Optional[IObjectStore],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> HashBucketResult:
 
@@ -247,6 +248,7 @@ def hash_bucket(
         num_groups=num_groups,
         enable_profiler=enable_profiler,
         read_kwargs_provider=read_kwargs_provider,
+        object_store=object_store,
         deltacat_storage=deltacat_storage,
     )
 
