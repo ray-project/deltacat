@@ -129,6 +129,7 @@ def repartition_range(
             partition_table: pa.Table = pa.concat_tables(
                 partition_tables
             ).remove_column(0)
+            assert col_name_int64 not in partition_table.schema.names
             if len(partition_table) > 0:
                 partition_table_length += len(partition_table)
                 partition_delta: Delta = deltacat_storage.stage_delta(
@@ -142,6 +143,7 @@ def repartition_range(
     assert (
         partition_table_length == total_record_count
     ), f"Repartitioned table should have the same number of records {partition_table_length} as the original table {total_record_count}"
+
     return RepartitionResult(
         range_deltas=partition_deltas,
     )
