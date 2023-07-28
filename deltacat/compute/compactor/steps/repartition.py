@@ -106,6 +106,7 @@ def repartition_range(
             pa.field(col_name_int64, pa.int64()),
             pc.cast(table[column], pa.int64()),
         )
+        null_row_table = table_new.filter(pc.field(col_name_int64).is_null())
         # Iterate over pairs of values in partition_ranges
         for i, (lower_limit, upper_limit) in enumerate(
             zip(partition_ranges[:-1], partition_ranges[1:]), start=0
@@ -117,12 +118,17 @@ def repartition_range(
                     & (pc.field(col_name_int64) <= pc.scalar(upper_limit))
                 )
             )
+            if i == 0:
+                partitioned_tables_list[i].append(null_row_table)
+
     partition_table_length = 0
     # After re-grouping the tables by specified ranges, for each group, we need concat and stage the tables
     partition_deltas: List[Delta] = []
     for partition_tables in partitioned_tables_list:
         if len(partition_tables) > 0:
-            partition_table: pa.Table = pa.concat_tables(partition_tables)
+            partition_table: pa.Table = pa.concat_tables(
+                partition_tables
+            ).remove_column(0)
             if len(partition_table) > 0:
                 partition_table_length += len(partition_table)
                 partition_delta: Delta = deltacat_storage.stage_delta(
