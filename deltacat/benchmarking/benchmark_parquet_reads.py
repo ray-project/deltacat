@@ -6,13 +6,13 @@ import pytest
 # Benchmarks for retrieving a single column in the Parquet file
 SINGLE_COLUMN_BENCHMARKS = {
     "mvp": ("s3://daft-public-data/test_fixtures/parquet-dev/mvp.parquet", ["a"]),
-    "TPCH-lineitems-200MB-1RG": ("s3://daft-public-data/test_fixtures/parquet-dev/daft_200MB_lineitem_chunk.RG-2.parquet", ["L_ORDERKEY"]),
+    "TPCH-lineitems-200MB-2RG": ("s3://daft-public-data/test_fixtures/parquet-dev/daft_200MB_lineitem_chunk.RG-2.parquet", ["L_ORDERKEY"]),
 }
 
 # Benchmarks for retrieving all columns in the Parquet file
 ALL_COLUMN_BENCHMARKS = {
     "mvp": ("s3://daft-public-data/test_fixtures/parquet-dev/mvp.parquet", None),
-    "TPCH-lineitems-200MB-1RG": ("s3://daft-public-data/test_fixtures/parquet-dev/daft_200MB_lineitem_chunk.RG-2.parquet", None),
+    "TPCH-lineitems-200MB-2RG": ("s3://daft-public-data/test_fixtures/parquet-dev/daft_200MB_lineitem_chunk.RG-2.parquet", None),
 }
 
 @pytest.mark.benchmark(group="num_rowgroups_single_column")
