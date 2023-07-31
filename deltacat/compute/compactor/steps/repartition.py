@@ -126,8 +126,9 @@ def repartition_range(
     partition_deltas: List[Delta] = []
     for partition_tables in partitioned_tables_list:
         if len(partition_tables) > 0:
+            print(f"column to be dropped: {col_name_int64}")
             partition_table: pa.Table = pa.concat_tables(partition_tables).drop(
-                col_name_int64
+                [col_name_int64]
             )
             assert col_name_int64 not in partition_table.schema.names
             if len(partition_table) > 0:
