@@ -49,8 +49,4 @@ PYARROW_INFLATION_MULTIPLIER = 2.5
 # Inflation multiplier from snappy-compressed parquet to pyarrow for all columns.
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
 
-PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG = {
-    "retries": {"max_attempts": 25, "mode": "standard"}
-}
-
 MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE
