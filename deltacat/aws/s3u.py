@@ -3,6 +3,8 @@ import multiprocessing
 from functools import partial
 from typing import Any, Callable, Dict, Generator, List, Optional, Union
 from uuid import uuid4
+from botocore.config import Config
+from deltacat.aws.constants import BOTO_MAX_RETRIES
 
 import pyarrow as pa
 import ray
@@ -385,14 +387,16 @@ def download_manifest_entry(
     content_encoding: Optional[ContentEncoding] = None,
 ) -> LocalTable:
 
+    conf = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
     s3_client_kwargs = (
         {
             "aws_access_key_id": token_holder["accessKeyId"],
             "aws_secret_access_key": token_holder["secretAccessKey"],
             "aws_session_token": token_holder["sessionToken"],
+            "config": conf,
         }
         if token_holder
-        else {}
+        else {"config": conf}
     )
     if not content_type:
         content_type = manifest_entry.meta.content_type
