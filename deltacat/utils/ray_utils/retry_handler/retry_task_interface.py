@@ -3,15 +3,9 @@ from deltacat.utils.ray_utils.retry_handler.task_info_object import TaskInfoObje
 import Exception
 
 class RetryTaskInterface(Protocol):
-    def init_tasks(self, task_infos: List[TaskInfoObject]) -> None:
-        """
-        Loads all tasks to check for retries if exception occurs
-        """
-        pass
-
     def should_retry(self, task: TaskInfoObject, exception: Exception) -> bool:
         """
-        Given a task, determine whether it should be retried or not
+        Given a task, determine whether it should be retried or not based on if its an instance of the RetryableError
         """
         pass
 

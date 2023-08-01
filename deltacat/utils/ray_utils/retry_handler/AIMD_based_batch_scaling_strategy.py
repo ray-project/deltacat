@@ -1,6 +1,6 @@
 from typing import List, Any
 from deltacat.utils.ray_utils.retry_handler.batch_scaling_interface import BatchScalingInterface
-class RayRemoteTasksBatchScalingStrategy(BatchScalingInterface):
+class AIMDBasedBatchScalingStrategy(BatchScalingInterface):
     """
     Default batch scaling parameters for if the client does not provide their own batch_scaling parameters
     """
@@ -38,5 +38,12 @@ class RayRemoteTasksBatchScalingStrategy(BatchScalingInterface):
         self.batch_index = batch_end
         return batch
 
-    def mark_task_completed(self, task_info: TaskInfoObject) -> None:
+    def mark_task_complete(self, task_info: TaskInfoObject):
+        task_info.completed = True
 
+    def increase_batch_size(self):
+        self.batch_size = min(self.batch_size + self.additive_increase, self.max_batch_size)
+
+
+    def decrease_batch_size(self):
+        self.batch_size = max(self.batch_size * self.multiplicative_decrease, self.min_batch_size)

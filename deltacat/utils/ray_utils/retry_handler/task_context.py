@@ -6,6 +6,6 @@ class TaskContext():
     This class represents important info pertaining to the task that other interfaces like Straggler Detection
     can use to make decisions
     """
-    def __init__(self, progress_notifier: ProgressNotifierInterface, timeoutTime: float):
+    def __init__(self, progress_notifier: ProgressNotifierInterface, timeout: float):
         self.progress_notifier = progress_notifier
-        self.timeoutTime = timeoutTime
+        self.timeout = timeout

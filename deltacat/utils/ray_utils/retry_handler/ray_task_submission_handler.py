@@ -38,22 +38,62 @@ class RayTaskSubmissionHandler:
                               ray_remote_task_infos: List[TaskInfoObject],
                               scaling_strategy: Optional[BatchScalingStrategy] = None,
                               straggler_detection: Optional[StragglerDetectionInterface] = None,
+                              retry_strategy: Optional[RetryTaskInterface],
                               task_context: Optional[TaskContext]) -> None:
         """
         Prepares and initiates the execution of a batch of tasks and can optionally support
         custom client batch scaling, straggler detection, and task context
         """
         if scaling_strategy is None:
-            scaling_strategy = RayRemoteTasksBatchScalingStrategy(ray_remote_task_infos)
+            scaling_strategy = AIMDBasedBatchScalingStrategy(ray_remote_task_infos)
+        if retry_strategy is None:
+            retry_strategy = RetryTaskDefault(max_retries = 3)
 
-        if straggler_detection is not None:
-            while scaling_strategy.hasNextBatch():
-                current_batch = scaling_strategy.next_batch()
-                for task in current_batch:
-                    if straggler_detection.isStraggler(task):
-                        ray.cancel(task)
+        active_tasks = []
+
+        while scaling_strategy.has_next_batch():
+            current_batch = scaling_strategy.next_batch()
+            for task in current_batch:
+                try:
+                    self._submit_tasks(task)
+                    active_tasks.append(task)
+                except Exception as e:
+                    if retry_strategy.should_retry(task, e):
+                        retry_strategy.retry(task, e)
+                        continue
                     else:
-                        self._submit_tasks(task)
+                        raise #? not sure what to do if the error isnt retryable
+            completed_tasks = self._wait_and_get_all_task_results(active_tasks)
+
+            for task in completed_tasks:
+                scaling_strategy.mark_task_complete(task)
+                active_tasks.remove(task)
+
+            if all(task.completed for task in current_batch):
+                scaling_strategy.increase_batch_size()
+            else:
+                scaling_strategy.decrease_batch_size()
+
+            #handle strags
+            if straggler_detection is not None:
+                for task in active_tasks: #tasks that are still running
+                    if straggler_detection.is_straggler(task, task_context):
+                        ray.cancel(task)
+                        active_tasks.remove(task)
+                        #maybe we need to requeue the cancelled task? can add back to ray_remote_task_infos
+
+
+                #call wait_and_get_all ...
+                    #when ray returns results mark as completed --> to mark as completed we want to give a bool field to the task info object and set to true, when gets marked to true
+                #if success, additive increase method to batchScaling
+                #if failure, MD on the batch size and continue until nothing remains
+                #check at least 1 is completed from current batch
+                #mark task as completed
+
+        #wait some time period here ? --> call to _wait_and_get_all_task_results so there is a period to collect completed tasks
+        #use result of wait and remove from active_tasks because it is completed
+        #use results of completed promises compared to total tasks in batch to determine batch scaling increase or decrease
+
 
     def _wait_and_get_all_task_results(self, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
         return self._get_task_results(self.num_of_submitted_tasks, straggler_detection)
@@ -119,15 +159,13 @@ class RayTaskSubmissionHandler:
         self.current_batch_size += num_of_new_tasks_submitted
         logger.info(f"Enqueued {num_of_new_tasks_submitted} new tasks. Current concurrency of tasks execution: {self.current_batch_size}, Current Task progress: {self.num_of_submitted_tasks_completed}/{self.num_of_submitted_tasks}")
 
-    def _submit_tasks(self, ray_remote_task_infos: List[RayRemoteTaskInfo]) -> None:
-        for ray_remote_task_info in ray_remote_task_infos:
+    def _submit_tasks(self, info_objs: List[TaskInfoObject]) -> None:
+        for info_obj in info_objs:
             time.sleep(0.005)
-            if self.straggler_detection and self.straggler_detection.is_straggler(ray_remote_task_info):
-                ray.cancel(ray_remote_task_info)
-            else:
-            self.unfinished_promises.append(self._invoke_ray_remote_task(ray_remote_task_info))
+            self.unfinished_promises.append(self._invoke_ray_remote_task(info_obj))
     #replace with ray.options
     def _invoke_ray_remote_task(self, ray_remote_task_info: RayRemoteTaskInfo) -> Any:
+        #change to using ray.options
         ray_remote_task_options_arguments = dict()
 
         if ray_remote_task_info.ray_remote_task_options.memory:
