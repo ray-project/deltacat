@@ -8,7 +8,8 @@ import logging
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional
 from pyarrow.parquet import ParquetFile
-from pyarrow.fs import S3FileSystem
+import s3fs
+from deltacat.exceptions import ValidationError
 
 import pyarrow as pa
 from fsspec import AbstractFileSystem
@@ -288,19 +289,24 @@ def s3_file_to_parquet(
         f"Content type: {content_type}. Encoding: {content_encoding}"
     )
 
-    if content_type != ContentType.PARQUET.value:
-        raise ValueError(
-            f"S3 file with content type: {content_type} "
-            "cannot be read into pyarrow.parquet.ParquetFile"
+    if (
+        content_type != ContentType.PARQUET.value
+        or content_encoding != ContentEncoding.IDENTITY
+    ):
+        raise ValidationError(
+            f"S3 file with content type: {content_type} and "
+            f"content encoding: {content_encoding} cannot be read"
+            "into pyarrow.parquet.ParquetFile"
         )
 
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
-    s3_file_system = S3FileSystem(
-        access_key=s3_client_kwargs.get("aws_access_key_id"),
-        secret_key=s3_client_kwargs.get("aws_secret_access_key"),
-        session_token=s3_client_kwargs.get("aws_session_token"),
+    s3_file_system = s3fs.S3FileSystem(
+        key=s3_client_kwargs.get("aws_access_key_id"),
+        secret=s3_client_kwargs.get("aws_secret_access_key"),
+        token=s3_client_kwargs.get("aws_session_token"),
+        client_kwargs=s3_client_kwargs,
     )
 
     kwargs = {}
@@ -311,9 +317,7 @@ def s3_file_to_parquet(
         f"Reading the file from {s3_url} into ParquetFile with kwargs: {kwargs}"
     )
     pqFile, latency = timed_invocation(
-        lambda: ParquetFile(
-            s3_url.replace("s3://", ""), filesystem=s3_file_system, **kwargs
-        )
+        lambda: ParquetFile(s3_url, filesystem=s3_file_system, **kwargs)
     )
     logger.debug(f"Time to get {s3_url} into parquet file: {latency}s")
 
