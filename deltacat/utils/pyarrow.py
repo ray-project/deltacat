@@ -8,7 +8,7 @@ import logging
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional
 from pyarrow.parquet import ParquetFile
-import s3fs
+from pyarrow.fs import S3FileSystem
 
 import pyarrow as pa
 from fsspec import AbstractFileSystem
@@ -297,22 +297,22 @@ def s3_file_to_parquet(
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
-    s3_file_system = s3fs.S3FileSystem(
-        key=s3_client_kwargs.get("aws_access_key_id"),
-        secret=s3_client_kwargs.get("aws_secret_access_key"),
-        token=s3_client_kwargs.get("aws_session_token"),
-        s3_additional_kwargs=s3_client_kwargs,
+    s3_file_system = S3FileSystem(
+        access_key=s3_client_kwargs.get("aws_access_key_id"),
+        secret_key=s3_client_kwargs.get("aws_secret_access_key"),
+        session_token=s3_client_kwargs.get("aws_session_token"),
     )
 
-    if pa_read_func_kwargs_provider is None:
-        pa_read_func_kwargs_provider = {}
+    kwargs = {}
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
     logger.debug(
-        f"Reading the file from {s3_url} into ParquetFile with kwargs: {pa_read_func_kwargs_provider}"
+        f"Reading the file from {s3_url} into ParquetFile with kwargs: {kwargs}"
     )
     pqFile, latency = timed_invocation(
         lambda: ParquetFile(
-            s3_url, filesystem=s3_file_system, **pa_read_func_kwargs_provider
+            s3_url.replace("s3://", ""), filesystem=s3_file_system, **kwargs
         )
     )
     logger.debug(f"Time to get {s3_url} into parquet file: {latency}s")
