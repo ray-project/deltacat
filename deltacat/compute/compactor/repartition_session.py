@@ -144,7 +144,9 @@ def repartition(
     logger.info(f"repartition {repar_end - repar_start} seconds")
     logger.info(f"Got {len(ordered_deltas)} task results.")
     # ordered_deltas are ordered as [cold1, cold2, coldN, hot1, hot2, hotN]
-    merged_delta = Delta.merge_deltas(ordered_deltas)
+    merged_delta = Delta.merge_deltas(
+        ordered_deltas, stream_position=last_stream_position_to_compact
+    )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta, properties=kwargs.get("properties", {})
     )
