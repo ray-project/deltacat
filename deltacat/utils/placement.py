@@ -229,8 +229,8 @@ class PlacementGroupManager:
 
     def get_current_node_resource_key(self) -> str:
         # on ec2: address="172.31.34.51:6379"
-        # on manta: address = "2600:1f10:4674:6815:aadb:2dc8:de61:bc8e:6379"
-        current_node_name = ray.experimental.internal_kv.global_gcs_client.address[:-5]
+        # on AWS Glue for Ray: address = "2600:1f10:4674:6815:aadb:2dc8:de61:bc8e:6379"
+        current_node_name, _ = ray.experimental.internal_kv.global_gcs_client.address.split(":")
         for node in ray.nodes():
             if node["NodeName"] == current_node_name:
                 # Found the node.
