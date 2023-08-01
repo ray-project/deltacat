@@ -36,6 +36,9 @@ BYTES_PER_GIBIBYTE = 2**30
 BYTES_PER_TEBIBYTE = 2**40
 BYTES_PER_PEBIBYTE = 2**50
 
+SIGNED_INT64_MIN_VALUE = -(2**63)
+SIGNED_INT64_MAX_VALUE = 2**63 - 1
+
 # Inflation multiplier from snappy-compressed parquet to pyarrow.
 # This should be kept larger than actual average inflation multipliers.
 # Note that this is a very rough guess since actual observed pyarrow

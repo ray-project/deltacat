@@ -2,6 +2,7 @@ import importlib
 import logging
 from contextlib import nullcontext
 import pyarrow.compute as pc
+from deltacat.constants import SIGNED_INT64_MIN_VALUE, SIGNED_INT64_MAX_VALUE
 import pyarrow as pa
 from typing import List, Optional
 from deltacat.types.media import StorageType, ContentType
@@ -93,7 +94,9 @@ def repartition_range(
     if not all(column in table.column_names for table in tables):
         raise ValueError(f"Column {column} does not exist in the table")
     partition_ranges.sort()
-    partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
+    partition_ranges = (
+        [SIGNED_INT64_MIN_VALUE] + partition_ranges + [SIGNED_INT64_MAX_VALUE]
+    )
     partitioned_tables_list = [[] for _ in range(len(partition_ranges) - 1)]
 
     total_record_count = 0
