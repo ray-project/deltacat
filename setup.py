@@ -38,7 +38,7 @@ setuptools.setup(
         "boto3 ~= 1.20",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
-        "pyarrow == 10.0.1",
+        "pyarrow == 12.0.1",
         "pydantic == 1.10.4",
         "ray[default] ~= 2.0",
         "s3fs == 2022.2.0",

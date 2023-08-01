@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import List, Union, Any
 
+from pyarrow.parquet import ParquetFile
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -8,7 +9,7 @@ import pkg_resources
 from ray.data._internal.arrow_block import ArrowRow
 from ray.data.dataset import Dataset
 
-LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray]
+LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray, ParquetFile]
 LocalDataset = List[LocalTable]
 # Starting Ray 2.5.0, Dataset follows a strict mode (https://docs.ray.io/en/latest/data/faq.html#migrating-to-strict-mode),
 # and generic annotation is removed. So add a version checker to determine whether to use the old or new definition.

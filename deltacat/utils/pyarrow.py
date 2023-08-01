@@ -7,6 +7,9 @@ import io
 import logging
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional
+from pyarrow.parquet import ParquetFile
+import s3fs
+from deltacat.exceptions import ValidationError
 
 import pyarrow as pa
 from fsspec import AbstractFileSystem
@@ -270,6 +273,55 @@ def s3_file_to_table(
     table, latency = timed_invocation(pa_read_func, *args, **kwargs)
     logger.debug(f"Time to read {s3_url} into PyArrow table: {latency}s")
     return table
+
+
+def s3_file_to_parquet(
+    s3_url: str,
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    **s3_client_kwargs,
+) -> ParquetFile:
+    logger.debug(
+        f"Reading {s3_url} to PyArrow ParquetFile. "
+        f"Content type: {content_type}. Encoding: {content_encoding}"
+    )
+
+    if (
+        content_type != ContentType.PARQUET.value
+        or content_encoding != ContentEncoding.IDENTITY
+    ):
+        raise ValidationError(
+            f"S3 file with content type: {content_type} and "
+            f"content encoding: {content_encoding} cannot be read"
+            "into pyarrow.parquet.ParquetFile"
+        )
+
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
+    s3_file_system = s3fs.S3FileSystem(
+        key=s3_client_kwargs.get("aws_access_key_id"),
+        secret=s3_client_kwargs.get("aws_secret_access_key"),
+        token=s3_client_kwargs.get("aws_session_token"),
+        client_kwargs=s3_client_kwargs,
+    )
+
+    kwargs = {}
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    logger.debug(
+        f"Reading the file from {s3_url} into ParquetFile with kwargs: {kwargs}"
+    )
+    pqFile, latency = timed_invocation(
+        lambda: ParquetFile(s3_url, filesystem=s3_file_system, **kwargs)
+    )
+    logger.debug(f"Time to get {s3_url} into parquet file: {latency}s")
+
+    return pqFile
 
 
 def table_size(table: pa.Table) -> int:
