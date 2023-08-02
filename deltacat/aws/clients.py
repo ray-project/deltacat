@@ -23,7 +23,6 @@ INSTANCE_METADATA_SERVICE_IPV4_URI = "http://169.254.169.254/latest/meta-data/" 
 def block_until_instance_metadata_service_returns_success(
     total_number_of_retries=10,
     backoff_factor=0.5,
-    backoff_max=600,
 ) -> Optional[Response]:
     # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
     with Session() as session:
