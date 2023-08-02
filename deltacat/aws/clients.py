@@ -22,25 +22,27 @@ INSTANCE_METADATA_SERVICE_IPV4_URI = "http://169.254.169.254/latest/meta-data/" 
 
 def block_until_instance_metadata_service_returns_success(
     total_number_of_retries=10,
-    backoff_factor=1,
+    backoff_factor=0.5,
+    backoff_max=600,
 ) -> Optional[Response]:
     # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
     with Session() as session:
         retries = Retry(
             total=total_number_of_retries,
-            backoff_factor=backoff_factor,  # A backoff factor to apply between attempts after the second try: {backoff factor} * (2 ** ({number of previous retries}))
-            # For example, if the backoff_factor is 1, then Retry.sleep() will sleep for [1s, 2s, 4s, 8s, …] between retries after the first retry.
+            backoff_factor=backoff_factor,
             status_forcelist=[
+                # 429
                 HTTPStatus.TOO_MANY_REQUESTS,
+                # 5xx
                 HTTPStatus.INTERNAL_SERVER_ERROR,
+                HTTPStatus.NOT_IMPLEMENTED,
                 HTTPStatus.BAD_GATEWAY,
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 HTTPStatus.GATEWAY_TIMEOUT,
             ],
             raise_on_status=True,  # Whether to raise an MaxRetryError exception if retries are exhausted or to return a response with a response code in the 3xx range.
         )
-        adapter = HTTPAdapter(max_retries=retries)
-        session.mount("http", adapter)
+        session.mount("http://", HTTPAdapter(max_retries=retries))
         response = session.get(INSTANCE_METADATA_SERVICE_IPV4_URI)
         return response
 
