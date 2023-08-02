@@ -1,6 +1,7 @@
 import logging
 from functools import lru_cache
 import requests
+from requests import Session
 from typing import Optional
 from http import HTTPStatus
 
@@ -17,10 +18,7 @@ from deltacat.aws.constants import BOTO_MAX_RETRIES
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 BOTO3_PROFILE_NAME_KWARG_KEY = "boto3_profile_name"
-INSTANCE_METADATA_SERVICE_URI_BASE = "169.254.169.254/latest/meta-data"
-INSTANCE_PROFILE_ROLE_CREDENTIALS_PATH = (
-    "/identity-credentials/ec2/security-credentials/ec2-instance"
-)
+INSTANCE_METADATA_SERVICE_IPV4_URI = "http://169.254.169.254/latest/meta-data/" # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
 
 
 def block_until_instance_metadata_service_returns_success(
@@ -28,11 +26,11 @@ def block_until_instance_metadata_service_returns_success(
     backoff_factor=1,
 ) -> Optional[Response]:
     # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-    with requests.Session as session:
+    with Session as session:
         retries = Retry(
             total=total_number_of_retries,
             backoff_factor=backoff_factor,  # A backoff factor to apply between attempts after the second try: {backoff factor} * (2 ** ({number of previous retries}))
-            # For example, if the backoff_factor is 1, then Retry.sleep() will sleep for [1s, 2s, 4s, 8s, …] between retries.
+            # For example, if the backoff_factor is 1, then Retry.sleep() will sleep for [1s, 2s, 4s, 8s, …] between retries after the first retry.
             status_forcelist=[
                 HTTPStatus.TOO_MANY_REQUESTS,
                 HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -44,9 +42,7 @@ def block_until_instance_metadata_service_returns_success(
         )
         adapter = HTTPAdapter(max_retries=retries)
         session.mount("http", adapter)
-        response = session.get(
-            f"http://{INSTANCE_METADATA_SERVICE_URI_BASE}{INSTANCE_PROFILE_ROLE_CREDENTIALS_PATH}"
-        )
+        response = session.get(INSTANCE_METADATA_SERVICE_IPV4_URI)
         print(f"response={response.text}")
         logger.info(
             f"Instance profile credentials are now accessible. Instance Metadata Service (IMDS) returned success with status code {response.status_code}"
