@@ -37,14 +37,11 @@ def block_until_instance_metadata_service_returns_success(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 HTTPStatus.GATEWAY_TIMEOUT,
             ],
-            raise_on_status=True,  # Whether, if the number of retries are exhausted, to raise a MaxRetryError, or to return a response with a response code in the 3xx range.
+            raise_on_status=True,  # Whether to raise an MaxRetryError exception if retries are exhausted or to return a response with a response code in the 3xx range.
         )
         adapter = HTTPAdapter(max_retries=retries)
         session.mount("http", adapter)
         response = session.get(INSTANCE_METADATA_SERVICE_IPV4_URI)
-        logger.info(
-            f"Instance profile credentials are now accessible. Instance Metadata Service (IMDS) returned success with status code {response.status_code}"
-        )
         return response
 
 

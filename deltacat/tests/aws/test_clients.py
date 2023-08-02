@@ -75,7 +75,7 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
             block_until_instance_metadata_service_returns_success().status_code, 200
         )
         expect_call_to_INSTANCE_METADATA_SERVICE_IPV4_URI = [
-            call.__enter__().get(INSTANCE_METADATA_SERVICE_IPV4_URI)
+            call.__enter__().get("http://169.254.169.254/latest/meta-data/")
         ]
         session_mock.return_value.assert_has_calls(
             expect_call_to_INSTANCE_METADATA_SERVICE_IPV4_URI,
