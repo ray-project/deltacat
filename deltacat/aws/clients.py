@@ -97,6 +97,3 @@ def client_cache(name: str, region: Optional[str], **kwargs) -> BaseClient:
     # we don't use the @lru_cache decorator because Ray can't pickle it
     cached_function = lru_cache()(_client)
     return cached_function(name, region, **kwargs)
-
-
-# print(block_until_instance_metadata_service_returns_success())
