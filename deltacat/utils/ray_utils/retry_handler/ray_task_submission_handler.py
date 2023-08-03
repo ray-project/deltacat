@@ -25,7 +25,7 @@ def submit_single_task(taskObj: TaskInfoObject, TaskContext: Optional[Interface]
     except (Exception) as exception:
         exception_retry_strategy_config = get_retry_strategy_config_for_known_exception(exception, taskObj.exception_retry_strategy_configs)
         if exception_retry_strategy_config is not None:
-            return RayRemoteTaskExecutionError(exception_retry_strategy_config.exception, taskObj)
+            return TaskExecutionError(exception_retry_strategy_config.exception, taskObj)
 
         logger.error(f"The exception thrown by submitted Ray task during attempt number: {current_attempt_number} is non-retryable or unexpected, hence throwing Non retryable exception: {exception}")
         raise UnexpectedRayTaskError(str(exception))
@@ -38,14 +38,14 @@ class RayTaskSubmissionHandler:
                               ray_remote_task_infos: List[TaskInfoObject],
                               scaling_strategy: Optional[BatchScalingStrategy] = None,
                               straggler_detection: Optional[StragglerDetectionInterface] = None,
-                              retry_strategy: Optional[RetryTaskInterface],
-                              task_context: Optional[TaskContext]) -> None:
+                              retry_strategy: Optional[RetryTaskInterface] = None,
+                              task_context: Optional[TaskContext] = None) -> None:
         """
         Prepares and initiates the execution of a batch of tasks and can optionally support
         custom client batch scaling, straggler detection, and task context
         """
         if scaling_strategy is None:
-            scaling_strategy = AIMDBasedBatchScalingStrategy(ray_remote_task_infos)
+            scaling_strategy = AIMDBasedBatchScalingStrategy(ray_remote_task_infos, 50, 100, 10, 2, 0.5)
         if retry_strategy is None:
             retry_strategy = RetryTaskDefault(max_retries = 3)
 
@@ -54,17 +54,26 @@ class RayTaskSubmissionHandler:
         while scaling_strategy.has_next_batch():
             current_batch = scaling_strategy.next_batch()
             for task in current_batch:
+                self._submit_tasks(task)
+                active_tasks.append(task)
+
+            for task in active_tasks:
                 try:
-                    self._submit_tasks(task)
-                    active_tasks.append(task)
-                except Exception as e:
+                    completed_task = self.get_task_results(1)
+                    if not completed_task: # if list is empty -> failure:
+                        scaling_strategy.decrease_batch_size()
+                    else:
+                        task = completed_task[0]
+                        scaling_strategy.mark_task_complete(task)
+                        active_tasks.remove(task)
+                        scaling_strategy.increase_batch_size()
+                except Exception as e: # am i able to detect exceptions here?
                     if retry_strategy.should_retry(task, e):
                         retry_strategy.retry(task, e)
                         continue
                     else:
                         raise #? not sure what to do if the error isnt retryable
-            completed_tasks = self._wait_and_get_all_task_results(active_tasks)
-
+    """
             for task in completed_tasks:
                 scaling_strategy.mark_task_complete(task)
                 active_tasks.remove(task)
@@ -73,32 +82,20 @@ class RayTaskSubmissionHandler:
                 scaling_strategy.increase_batch_size()
             else:
                 scaling_strategy.decrease_batch_size()
-
+    """
             #handle strags
             if straggler_detection is not None:
                 for task in active_tasks: #tasks that are still running
-                    if straggler_detection.is_straggler(task, task_context):
+                    if straggler_detection.is_straggler(task, task_context): #for task context, everytime a task completes in wait_and_get, I'll attach timeoutlength to context for client to use
                         ray.cancel(task)
                         active_tasks.remove(task)
                         #maybe we need to requeue the cancelled task? can add back to ray_remote_task_infos
+                        ray_remo
 
+    def _wait_and_get_all_task_results(self) -> List[Any]:
+        return self._get_task_results(self.num_of_submitted_tasks)
 
-                #call wait_and_get_all ...
-                    #when ray returns results mark as completed --> to mark as completed we want to give a bool field to the task info object and set to true, when gets marked to true
-                #if success, additive increase method to batchScaling
-                #if failure, MD on the batch size and continue until nothing remains
-                #check at least 1 is completed from current batch
-                #mark task as completed
-
-        #wait some time period here ? --> call to _wait_and_get_all_task_results so there is a period to collect completed tasks
-        #use result of wait and remove from active_tasks because it is completed
-        #use results of completed promises compared to total tasks in batch to determine batch scaling increase or decrease
-
-
-    def _wait_and_get_all_task_results(self, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
-        return self._get_task_results(self.num_of_submitted_tasks, straggler_detection)
-
-    def _get_task_results(self, num_of_results: int, straggler_detection: Optional[StragglerDetectionInterface]) -> List[Any]:
+    def _get_task_results(self, num_of_results: int) -> List[Any]:
         """
         Gets results from a list of tasks to be executed, and catches exceptions to manage the retry strategy.
         Optional: Given a StragglerDetectionInterface, can detect and handle straggler tasks according to the client logic
@@ -119,11 +116,6 @@ class RayTaskSubmissionHandler:
                 #if exception send to method handle_ray_exception to determine what to do and assign the corresp error
                 finished_result = self._handle_ray_exception(exception=exception, ray_remote_task_info=self.task_promise_obj_ref_to_task_info_map[str(finished_promise)] )#evaluate the exception and return the error
 
-            if finished_result and type(finished_result) == RayRemoteTaskExecutionError:
-                finished_result = cast(RayRemoteTaskExecutionError, finished_result)
-
-                if straggler_detection and straggler_detection.isStraggler(finished_result):
-                    ray.cancel(finished_result)
                 exception_retry_strategy_config = get_retry_strategy_config_for_known_exception(finished_result.exception,
                      finished_result.ray_remote_task_info.exception_retry_strategy_configs)
                 if (exception_retry_strategy_config is None or finished_result.ray_remote_task_info.num_of_attempts > exception_retry_strategy_config.max_retry_attempts):
@@ -163,6 +155,7 @@ class RayTaskSubmissionHandler:
         for info_obj in info_objs:
             time.sleep(0.005)
             self.unfinished_promises.append(self._invoke_ray_remote_task(info_obj))
+
     #replace with ray.options
     def _invoke_ray_remote_task(self, ray_remote_task_info: RayRemoteTaskInfo) -> Any:
         #change to using ray.options

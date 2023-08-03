@@ -4,11 +4,6 @@ class BatchScalingInterface(Protocol):
     """
     Interface for a generic batch scaling that the client can provide.
     """
-    def init_tasks(self, initial_batch_size: int, max_batch_size: int, min_batch_size: int, task_infos: List[TaskInfoObject]) -> None:
-        """
-        Loads all tasks to be executed for retry batching
-        """
-        pass
     def has_next_batch(self) -> bool:
         """
         Returns true if there are tasks remaining in the overall List of tasks to create a new batch
@@ -26,17 +21,11 @@ class BatchScalingInterface(Protocol):
         """
         pass
 
-    def increase_batch_size(self) -> None:
+    def mark_batch_failed(self, task_info: TaskInfoObject) -> None:
         """
-        Increase the batch size by some amount according to client specifications
+        If the task returns the exeption that was caught, we mark the task as failed and
+        decrease multiplicative
+        :param task_info:
         :return:
         """
         pass
-
-    def decrease_batch_size(self) -> None:
-        """
-        Decrease the batch size by some amount according to client specifications
-        :return:
-        """
-        pass
-

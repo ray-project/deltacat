@@ -4,23 +4,23 @@ class AIMDBasedBatchScalingStrategy(BatchScalingInterface):
     """
     Default batch scaling parameters for if the client does not provide their own batch_scaling parameters
     """
-    def __init__(self, additive_increase: int, multiplicative_decrease: float):
-        self.task_infos = []
-        self.batch_index = 0
-        self.batch_size = None
-        self.max_batch_size = None
-        self.min_batch_size = None
-        self.additive_increase = additive_increase
-        self.multiplicative_decrease = multiplicative_decrease
-    def init_tasks(self, initial_batch_size: int, max_batch_size: int, min_batch_size: int, task_infos: List[TaskInfoObject])-> None:
-        """
-        Setup AIMD scaling for the batches as the default
-        """
+    def __init__(self,
+                 task_infos: List[TaskInfoObject],
+                 initial_batch_size: int,
+                 max_batch_size: int,
+                 min_batch_size: int,
+                 additive_increase: int,
+                 multiplicative_decrease: float):
         self.task_infos = task_infos
+        self.batch_index = 0
         self.batch_size = initial_batch_size
         self.max_batch_size = max_batch_size
         self.min_batch_size = min_batch_size
+        self.additive_increase = additive_increase
+        self.multiplicative_decrease = multiplicative_decrease
 
+        #dictionary
+        self.task_completion_status: Dict[str, bool] = {task.task_id: False for task in self.task_infos}
 
     def has_next_batch(self) -> bool:
         """
@@ -39,11 +39,9 @@ class AIMDBasedBatchScalingStrategy(BatchScalingInterface):
         return batch
 
     def mark_task_complete(self, task_info: TaskInfoObject):
-        task_info.completed = True
+        self.task_completion_status[task_info.task_id] = True
+        self.batch_size = self.batch_size + self.additive_increase
 
-    def increase_batch_size(self):
-        self.batch_size = min(self.batch_size + self.additive_increase, self.max_batch_size)
-
-
-    def decrease_batch_size(self):
-        self.batch_size = max(self.batch_size * self.multiplicative_decrease, self.min_batch_size)
+    def mark_task_failed(self, task_info: TaskInfoObject):
+        self.task_completion_status[task_info.task_id] = False
+        self.batch_size = self.batch_size * self.multiplicative_decrease
