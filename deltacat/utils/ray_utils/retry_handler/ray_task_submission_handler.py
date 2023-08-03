@@ -70,6 +70,7 @@ class RayTaskSubmissionHandler:
                 except Exception as e: # am i able to detect exceptions here?
                     if retry_strategy.should_retry(task, e):
                         retry_strategy.retry(task, e)
+                        return 1
                         continue
                     else:
                         raise #? not sure what to do if the error isnt retryable
