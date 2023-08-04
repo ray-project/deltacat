@@ -16,7 +16,7 @@ from deltacat.types.media import (
 
 
 def pyarrow_read(path: str, columns: list[str] | None = None) -> pa.Table:
-    assert path.startswith("s3://")
+    assert path.startswith("s3://"), f"Expected file path to start with 's3://', but got {path}."
     fs = pafs.S3FileSystem()
     path = path.replace("s3://", "")
     return papq.read_table(path, columns=columns, filesystem=fs)
