@@ -5,6 +5,13 @@
 1. Install DeltaCat's `requirements.txt` and `dev-requirements.txt`
 2. Install the appropriate versions of additional packages that are being benchmarked (e.g. `pip install getdaft`)
 
+## Adding Benchmarks
+
+### Parquet Reads
+
+Modify the `SINGLE_COLUMN_BENCHMARKS` and `ALL_COLUMN_BENCHMARKS` fixtures in `deltacat/benchmarking/benchmark_parquet_reads.py`
+to add more files and benchmark test cases.
+
 ## Running Benchmarks
 
 ### Parquet Reads

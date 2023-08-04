@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import io
-
-import boto3
 import pyarrow as pa
 import pyarrow.fs as pafs
 import pyarrow.parquet as papq
