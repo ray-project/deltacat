@@ -10,6 +10,7 @@ import socket
 from pymemcache.client.base import Client
 from pymemcache.client.retrying import RetryingClient
 from pymemcache.exceptions import MemcacheUnexpectedCloseError
+from pymemcache.client.rendezvous import RendezvousHash
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -19,12 +20,19 @@ class MemcachedObjectStore(IObjectStore):
     An implementation of object store that uses Memcached.
     """
 
-    def __init__(self, port=11212) -> None:
-        self.client_cache = {}
+    def __init__(self, storage_node_ips, port=11212) -> None:
         self.current_ip = None
         self.SEPARATOR = "_"
         self.port = port
+        self.storage_node_ips = storage_node_ips
+        self.hasher = None
         super().__init__()
+
+    def initialize_hasher(self):
+        if not self.hasher:
+            self.hasher = RendezvousHash()
+            for n in self.storage_node_ips:
+                self.hasher.add_node(n)
 
     def put_many(self, objects: List[object], *args, **kwargs) -> List[Any]:
         input = {}
@@ -100,19 +108,19 @@ class MemcachedObjectStore(IObjectStore):
         return f"{uid}{self.SEPARATOR}{ip}"
 
     def _get_client_by_ip(self, ip_address: str):
-        if ip_address in self.client_cache:
-            return self.client_cache[ip_address]
-
-        base_client = Client((ip_address, self.port))
-        client = RetryingClient(
-            base_client,
-            attempts=3,
-            retry_delay=0.01,
-            retry_for=[MemcacheUnexpectedCloseError],
-        )
-
-        self.client_cache[ip_address] = client
-        return client
+        self.initialize_hasher()
+        storage_node_ip = self.hasher.get_node(ip_address)
+        if storage_node_ip:
+            base_client = Client((storage_node_ip, self.port))
+            client = RetryingClient(
+                base_client,
+                attempts=3,
+                retry_delay=0.01,
+                retry_for=[MemcacheUnexpectedCloseError, ConnectionResetError],
+            )
+            return client
+        else:
+            logger.warning(f"Failed to find storage_node_ip for {ip_address}")
 
     def _get_current_ip(self):
         if self.current_ip is None:
