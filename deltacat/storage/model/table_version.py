@@ -9,6 +9,7 @@ from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.types.media import ContentType
+from deltacat.storage.model.sort_key import SortKey
 
 
 class TableVersion(dict):
@@ -21,6 +22,7 @@ class TableVersion(dict):
         description: Optional[str] = None,
         properties: Optional[Dict[str, str]] = None,
         content_types: Optional[List[ContentType]] = None,
+        sort_keys: Optional[List[SortKey]] = None,
     ) -> TableVersion:
         table_version = TableVersion()
         table_version.locator = locator
@@ -30,6 +32,7 @@ class TableVersion(dict):
         table_version.description = description
         table_version.properties = properties
         table_version.content_types = content_types
+        table_version.sort_keys = sort_keys
         return table_version
 
     @property
@@ -50,6 +53,14 @@ class TableVersion(dict):
     @schema.setter
     def schema(self, schema: Optional[Union[pa.Schema, str, bytes]]) -> None:
         self["schema"] = schema
+
+    @property
+    def sort_keys(self) -> Optional[List[SortKey]]:
+        return self.get("sort_keys")
+
+    @sort_keys.setter
+    def sort_keys(self, sort_keys: Optional[List[SortKey]]) -> None:
+        self["sort_keys"] = sort_keys
 
     @property
     def partition_keys(self) -> Optional[List[Dict[str, Any]]]:

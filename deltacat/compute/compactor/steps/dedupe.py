@@ -12,11 +12,10 @@ import ray
 
 from deltacat import logs
 from deltacat.compute.compactor import (
-    SortKey,
-    SortOrder,
     DeltaFileEnvelope,
     DeltaFileLocator,
 )
+from deltacat.storage.model.sort_key import SortKey, SortOrder
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.utils.ray_utils.runtime import (

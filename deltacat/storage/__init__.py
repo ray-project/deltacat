@@ -22,6 +22,7 @@ from deltacat.storage.model.types import (
     LocalTable,
     SchemaConsistencyType,
 )
+from deltacat.storage.model.sort_key import SortKey, SortOrder
 
 __all__ = [
     "CommitState",
@@ -50,4 +51,6 @@ __all__ = [
     "TableLocator",
     "TableVersion",
     "TableVersionLocator",
+    "SortKey",
+    "SortOrder",
 ]
