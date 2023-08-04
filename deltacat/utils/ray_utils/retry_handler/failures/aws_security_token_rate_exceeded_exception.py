@@ -1,4 +1,4 @@
-from deltacat.utils.ray_utils.retry_handler.retryable_error.failures import RetryableError
+from deltacat.utils.ray_utils.retry_handler.failures.retryable_error import RetryableError
 
 class AWSSecurityTokenRateExceededException(RetryableError):
 

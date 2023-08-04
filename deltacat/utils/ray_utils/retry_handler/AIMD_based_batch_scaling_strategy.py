@@ -40,8 +40,15 @@ class AIMDBasedBatchScalingStrategy(BatchScalingInterface):
 
     def mark_task_complete(self, task_info: TaskInfoObject):
         self.task_completion_status[task_info.task_id] = True
-        self.batch_size = self.batch_size + self.additive_increase
+        if (self.batch_size + self.additive_increase) > self.max_batch_size:
+            self.batch_size = self.max_batch_size
+        else:
+            self.batch_size = self.batch_size + self.additive_increase
 
     def mark_task_failed(self, task_info: TaskInfoObject):
         self.task_completion_status[task_info.task_id] = False
-        self.batch_size = self.batch_size * self.multiplicative_decrease
+        if (self.batch_size * self.multiplicative_decrease) < self.min_batch_size:
+            self.batch_size = self.min_batch_size
+        else:
+            self.batch_size = self.batch_size * self.multiplicative_decrease
+

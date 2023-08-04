@@ -40,57 +40,43 @@ class RayTaskSubmissionHandler:
                               straggler_detection: Optional[StragglerDetectionInterface] = None,
                               retry_strategy: Optional[RetryTaskInterface] = None,
                               task_context: Optional[TaskContext] = None) -> None:
-        """
-        Prepares and initiates the execution of a batch of tasks and can optionally support
-        custom client batch scaling, straggler detection, and task context
-        """
+    """
+    Prepares and initiates the execution of a batch of tasks and can optionally support
+    custom client batch scaling, straggler detection, and task context
+    """
         if scaling_strategy is None:
             scaling_strategy = AIMDBasedBatchScalingStrategy(ray_remote_task_infos, 50, 100, 10, 2, 0.5)
         if retry_strategy is None:
             retry_strategy = RetryTaskDefault(max_retries = 3)
 
         active_tasks = []
+        attempts = {task.task_id: 0 for task in ray_remote_task_infos}
 
         while scaling_strategy.has_next_batch():
             current_batch = scaling_strategy.next_batch()
             for task in current_batch:
-                self._submit_tasks(task)
-                active_tasks.append(task)
+                self._submit_task(task)
+                active_tasks.append(task) #maybe should be task_id
 
-            for task in active_tasks:
-                try:
-                    completed_task = self.get_task_results(1)
-                    if not completed_task: # if list is empty -> failure:
-                        scaling_strategy.decrease_batch_size()
-                    else:
-                        task = completed_task[0]
-                        scaling_strategy.mark_task_complete(task)
-                        active_tasks.remove(task)
-                        scaling_strategy.increase_batch_size()
-                except Exception as e: # am i able to detect exceptions here?
-                    if retry_strategy.should_retry(task, e):
-                        retry_strategy.retry(task, e)
-                        continue
-                    else:
-                        raise #? not sure what to do if the error isnt retryable
-    """
-            for task in completed_tasks:
-                scaling_strategy.mark_task_complete(task)
-                active_tasks.remove(task)
-
-            if all(task.completed for task in current_batch):
-                scaling_strategy.increase_batch_size()
-            else:
-                scaling_strategy.decrease_batch_size()
-    """
-            #handle strags
+            while active_tasks:
+                completed_task = self._get_task_results(1)
+                if isInstance(completed_task, TaskExecutionError):
+                    scaling_strategy.mark_task_failed(completed_task)
+                    if retry_strategy.should_retry(task, completed_task): #add max retry here
+                        attempts[task.task_id] += 1
+                        self.ray_remote_task_infos.append(completed_task)
+                        active_tasks.remove(completed_task)
+                else:
+                    scaling_strategy.mark_task_complete(completed_task)
+                    active_tasks.remove(task)
+                        # If straggler detection is enabled, iterate over the active tasks again
             if straggler_detection is not None:
-                for task in active_tasks: #tasks that are still running
-                    if straggler_detection.is_straggler(task, task_context): #for task context, everytime a task completes in wait_and_get, I'll attach timeoutlength to context for client to use
+                for task in active_tasks[:]:
+                    if straggler_detection.is_straggler(task, task_context):
                         ray.cancel(task)
                         active_tasks.remove(task)
-                        #maybe we need to requeue the cancelled task? can add back to ray_remote_task_infos
-                        ray_remo
+                        # If you want to re-add the cancelled stragglers to the task queue
+                        self.ray_remote_task_infos.append(task)
 
     def _wait_and_get_all_task_results(self) -> List[Any]:
         return self._get_task_results(self.num_of_submitted_tasks)
