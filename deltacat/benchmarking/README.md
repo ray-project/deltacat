@@ -2,8 +2,8 @@
 
 ## Setup
 
-1. Install DeltaCat's `requirements.txt` and `dev-requirements.txt`
-2. Install the appropriate versions of additional packages that are being benchmarked (e.g. `pip install getdaft`)
+1. Install DeltaCat's `benchmark-requirements.txt`
+2. Ensure the appropriate versions of additional packages that are being benchmarked are installed (e.g. `pip install getdaft==X.X.XX`)
 
 ## Adding Benchmarks
 
