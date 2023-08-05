@@ -37,8 +37,6 @@ class DeltaFileEnvelope(dict):
         """
         if stream_position is None:
             raise ValueError("Missing delta file envelope stream position.")
-        if file_index is None:
-            raise ValueError("Missing delta file envelope file index.")
         if delta_type is None:
             raise ValueError("Missing Delta file envelope delta type.")
         if table is None:
