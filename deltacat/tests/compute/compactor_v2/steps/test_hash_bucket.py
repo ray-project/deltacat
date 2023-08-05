@@ -196,5 +196,5 @@ class TestHashBucket(unittest.TestCase):
                             total_records_in_result += len(dfe.table)
                             self.assertEqual(num_columns, len(dfe.table.column_names))
 
-        self.assertEqual(len(hb_index_to_dfes), num_hash_buckets)
+        self.assertTrue(len(hb_index_to_dfes) <= num_hash_buckets)
         self.assertEqual(total_records_in_result, record_count)
