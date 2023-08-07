@@ -1,6 +1,5 @@
 import logging
 from functools import lru_cache
-from requests import Session
 from typing import Optional
 from http import HTTPStatus
 
@@ -9,41 +8,120 @@ from boto3.exceptions import ResourceNotExistsError
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.config import Config
-from requests.adapters import HTTPAdapter, Retry, Response
+from requests.adapters import Response
+from tenacity import (
+    RetryError,
+    Retrying,
+    wait_fixed,
+    retry_if_exception,
+    stop_after_delay,
+)
 
 from deltacat import logs
 from deltacat.aws.constants import BOTO_MAX_RETRIES
+import requests
+
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 BOTO3_PROFILE_NAME_KWARG_KEY = "boto3_profile_name"
 INSTANCE_METADATA_SERVICE_IPV4_URI = "http://169.254.169.254/latest/meta-data/"  # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+RETRYABLE_HTTP_STATUS_CODES = [
+    # 429
+    HTTPStatus.TOO_MANY_REQUESTS,
+    # 5xx
+    HTTPStatus.INTERNAL_SERVER_ERROR,
+    HTTPStatus.NOT_IMPLEMENTED,
+    HTTPStatus.BAD_GATEWAY,
+    HTTPStatus.SERVICE_UNAVAILABLE,
+    HTTPStatus.GATEWAY_TIMEOUT,
+]
+
+
+class retry_if_retryable_http_status_code(retry_if_exception):
+    """
+    Retry strategy that retries if the exception is an ``HTTPError`` with
+    a status code in the retryable errors list.
+    """
+
+    def __init__(self):
+        def is_retryable_error(exception):
+            return (
+                isinstance(exception, requests.exceptions.HTTPError)
+                and exception.response.status_code in RETRYABLE_HTTP_STATUS_CODES
+            )
+
+        super().__init__(predicate=is_retryable_error)
+
+
+def log_attempt_number(retry_state):
+    """return the result of the last call attempt"""
+    logger.warning(f"Retrying: {retry_state.attempt_number}...")
+
+
+def _get_url(url: str, get_url_kwargs=None):
+    if get_url_kwargs is None:
+        get_url_kwargs = {}
+    resp = requests.get(url, **get_url_kwargs)
+    resp.raise_for_status()
+    return resp
+
+
+def retry_url(
+    retry_strategy,
+    wait_strategy,
+    stop_strategy,
+    url,
+) -> Optional[Response]:
+    """Retries a request to the given URL until it succeeds.
+
+    Args:
+        retry_strategy (Callable): A function that returns a retry strategy.
+        wait_strategy (Callable): A function that returns a wait strategy.
+        stop_strategy (Callable): A function that returns a stop strategy.
+        url (str): The URL to retry.
+
+    Returns:
+        Optional[Response]: The response from the URL, or None if the request
+            failed after the maximum number of retries.
+    """
+    try:
+        for attempt in Retrying(
+            retry=retry_strategy(),
+            wait=wait_strategy,
+            stop=stop_strategy,
+            after=log_attempt_number,
+        ):
+            with attempt:
+                resp = _get_url(url)
+                return resp
+    except RetryError as re:
+        logger.error(f"Failed to retry URL: {url} - {re}")
+    logger.info(f"Unable to get from URL: {url}")
+    return None
 
 
 def block_until_instance_metadata_service_returns_success(
-    total_number_of_retries=10,
-    backoff_factor=0.5,
+    retry_strategy=retry_if_retryable_http_status_code,
+    wait_strategy=wait_fixed(2),  # wait 2 seconds before retrying,
+    stop_strategy=stop_after_delay(5),  # stop trying after 10 minutes
+    url=INSTANCE_METADATA_SERVICE_IPV4_URI,
 ) -> Optional[Response]:
-    # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-    with Session() as session:
-        retries = Retry(
-            total=total_number_of_retries,
-            backoff_factor=backoff_factor,
-            status_forcelist=[
-                # 429
-                HTTPStatus.TOO_MANY_REQUESTS,
-                # 5xx
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                HTTPStatus.NOT_IMPLEMENTED,
-                HTTPStatus.BAD_GATEWAY,
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                HTTPStatus.GATEWAY_TIMEOUT,
-            ],
-            raise_on_status=True,  # Whether to raise an MaxRetryError exception if retries are exhausted or to return a response with a response code in the 3xx range.
-        )
-        session.mount("http://", HTTPAdapter(max_retries=retries))
-        response = session.get(INSTANCE_METADATA_SERVICE_IPV4_URI)
-        return response
+    """Blocks until the instance metadata service returns a successful response.
+
+    Args:
+        retry_strategy (Callable): A function that returns a retry strategy.
+        wait_strategy (Callable): A function that returns a wait strategy.
+        stop_strategy (Callable): A function that returns a stop strategy.
+        url (str): The URL of the instance metadata service.
+
+    Returns:
+        Optional[Response]: The response from the instance metadata service,
+            or None if the request failed after the maximum number of retries.
+
+    https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+    """
+    return retry_url(retry_strategy, wait_strategy, stop_strategy, url)
 
 
 def _get_session_from_kwargs(input_kwargs):

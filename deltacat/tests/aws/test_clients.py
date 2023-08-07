@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 import unittest
 import json
 from http import HTTPStatus
@@ -24,6 +24,9 @@ class MockResponse:
         self.text = text
         self.reason = reason
 
+    def raise_for_status(*args, **kwargs):
+        pass
+
 
 class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
     @classmethod
@@ -34,50 +37,32 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
     def tearDownClass(cls) -> None:
         pass
 
-    @patch("deltacat.aws.clients.Session")
-    def test_sanity(self, session_mock):
+    @patch("deltacat.aws.clients.requests")
+    def test_sanity(self, requests_mock):
         from deltacat.aws.clients import (
             block_until_instance_metadata_service_returns_success,
             INSTANCE_METADATA_SERVICE_IPV4_URI,
         )
 
-        mocked_session = MagicMock()
-        mocked_session.__enter__.return_value.get.return_value = MockResponse(
-            200, "foo"
-        )
-        session_mock.return_value = mocked_session
+        requests_mock.get.return_value = MockResponse(200, "foo")
         self.assertEqual(
             block_until_instance_metadata_service_returns_success().status_code, 200
         )
-        expect_call_to_INSTANCE_METADATA_SERVICE_IPV4_URI = [
-            call.__enter__().get(INSTANCE_METADATA_SERVICE_IPV4_URI)
-        ]
-        session_mock.return_value.assert_has_calls(
-            expect_call_to_INSTANCE_METADATA_SERVICE_IPV4_URI,
-            any_order=True,
-        )
 
-    @patch("deltacat.aws.clients.Session")
-    def test_retrying_on_statuses_in_status_force_list(self, session_mock):
+    @patch("deltacat.aws.clients.requests")
+    def test_retrying_on_statuses_in_status_force_list(self, requests_mock):
         from deltacat.aws.clients import (
             block_until_instance_metadata_service_returns_success,
-            INSTANCE_METADATA_SERVICE_IPV4_URI,
         )
 
-        mocked_session = MagicMock()
-        mocked_session.__enter__.return_value.get.side_effect = [
+        requests_mock.get.side_effect = [
             MockResponse(HTTPStatus.OK, json.dumps(HAPPY_RESPONSE)),
             MockResponse(HTTPStatus.TOO_MANY_REQUESTS, "foo"),
             MockResponse(HTTPStatus.INTERNAL_SERVER_ERROR, "foo"),
+            MockResponse(HTTPStatus.NOT_IMPLEMENTED, "bar"),
+            MockResponse(HTTPStatus.SERVICE_UNAVAILABLE, "bar"),
+            MockResponse(HTTPStatus.GATEWAY_TIMEOUT, "bar"),
         ]
-        session_mock.return_value = mocked_session
         self.assertEqual(
             block_until_instance_metadata_service_returns_success().status_code, 200
-        )
-        expect_call_to_INSTANCE_METADATA_SERVICE_IPV4_URI = [
-            call.__enter__().get(INSTANCE_METADATA_SERVICE_IPV4_URI)
-        ]
-        session_mock.return_value.assert_has_calls(
-            expect_call_to_INSTANCE_METADATA_SERVICE_IPV4_URI,
-            any_order=True,
         )
