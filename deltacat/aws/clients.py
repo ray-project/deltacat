@@ -104,7 +104,7 @@ def retry_url(
 def block_until_instance_metadata_service_returns_success(
     retry_strategy=retry_if_retryable_http_status_code,
     wait_strategy=wait_fixed(2),  # wait 2 seconds before retrying,
-    stop_strategy=stop_after_delay(5),  # stop trying after 10 minutes
+    stop_strategy=stop_after_delay(60 * 10),  # stop trying after 10 minutes
     url=INSTANCE_METADATA_SERVICE_IPV4_URI,
 ) -> Optional[Response]:
     """Blocks until the instance metadata service returns a successful response.
