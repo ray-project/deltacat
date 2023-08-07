@@ -38,7 +38,7 @@ RETRYABLE_HTTP_STATUS_CODES = [
 ]
 
 
-class retry_if_retryable_http_status_code(retry_if_exception):
+class RetryIfRetrableHTTPStatusCode(retry_if_exception):
     """
     Retry strategy that retries if the exception is an ``HTTPError`` with
     a status code in the retryable errors list.
@@ -54,7 +54,7 @@ class retry_if_retryable_http_status_code(retry_if_exception):
         super().__init__(predicate=is_retryable_error)
 
 
-def log_attempt_number(retry_state):
+def _log_attempt_number(retry_state):
     """return the result of the last call attempt"""
     logger.warning(f"Retrying: {retry_state.attempt_number}...")
 
@@ -67,11 +67,11 @@ def _get_url(url: str, get_url_kwargs=None):
     return resp
 
 
-def retry_url(
+def retrying_get(
+    url: str,
     retry_strategy,
     wait_strategy,
     stop_strategy,
-    url,
 ) -> Optional[Response]:
     """Retries a request to the given URL until it succeeds.
 
@@ -90,7 +90,7 @@ def retry_url(
             retry=retry_strategy(),
             wait=wait_strategy,
             stop=stop_strategy,
-            after=log_attempt_number,
+            after=_log_attempt_number,
         ):
             with attempt:
                 resp = _get_url(url)
@@ -102,10 +102,10 @@ def retry_url(
 
 
 def block_until_instance_metadata_service_returns_success(
-    retry_strategy=retry_if_retryable_http_status_code,
+    url=INSTANCE_METADATA_SERVICE_IPV4_URI,
+    retry_strategy=RetryIfRetrableHTTPStatusCode,
     wait_strategy=wait_fixed(2),  # wait 2 seconds before retrying,
     stop_strategy=stop_after_delay(60 * 10),  # stop trying after 10 minutes
-    url=INSTANCE_METADATA_SERVICE_IPV4_URI,
 ) -> Optional[Response]:
     """Blocks until the instance metadata service returns a successful response.
 
@@ -121,7 +121,7 @@ def block_until_instance_metadata_service_returns_success(
 
     https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
     """
-    return retry_url(retry_strategy, wait_strategy, stop_strategy, url)
+    return retrying_get(url, retry_strategy, wait_strategy, stop_strategy)
 
 
 def _get_session_from_kwargs(input_kwargs):
