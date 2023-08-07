@@ -2,6 +2,7 @@
 
 This is a simple sqlite based mock for DeltaCAT storage. Follow below steps to create a new table that can be
 consumed by the DeltaCAT compute module. All the APIs expect a kwargs `sqlite3_con` and `sqlite3_cur` to be passed in.
+Alternatively, you can also pass `db_file_path` kwarg.
 
 -   Create a virtual env and activate it.
 
