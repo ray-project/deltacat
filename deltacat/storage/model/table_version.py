@@ -56,11 +56,11 @@ class TableVersion(dict):
 
     @property
     def sort_keys(self) -> Optional[List[SortKey]]:
-        return self.get("sort_keys")
+        return self.get("sortKeys")
 
     @sort_keys.setter
     def sort_keys(self, sort_keys: Optional[List[SortKey]]) -> None:
-        self["sort_keys"] = sort_keys
+        self["sortKeys"] = sort_keys
 
     @property
     def partition_keys(self) -> Optional[List[Dict[str, Any]]]:
