@@ -7,8 +7,8 @@ import functools
 import itertools
 from deltacat.compute.compactor import (
     RoundCompletionInfo,
-    SortKey,
 )
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.utils.ray_utils.concurrency import (
@@ -31,6 +31,7 @@ from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.utils.metrics import MetricsConfig
+from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -157,7 +158,7 @@ def repartition(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
     )
-    bit_width_of_sort_keys = SortKey.validate_sort_keys(
+    bit_width_of_sort_keys = validate_sort_keys(
         source_partition_locator,
         sort_keys,
         deltacat_storage,

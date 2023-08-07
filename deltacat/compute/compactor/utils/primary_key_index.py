@@ -6,26 +6,12 @@ import pyarrow as pa
 from ray.types import ObjectRef
 
 from deltacat import logs
-from deltacat.aws import s3u
-from deltacat.compute.compactor import (
-    PrimaryKeyIndexVersionLocator,
-)
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.io.object_store import IObjectStore
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-
-def delete_primary_key_index_version(
-    s3_bucket: str, pki_version_locator: PrimaryKeyIndexVersionLocator
-) -> None:
-
-    logger.info(f"Deleting primary key index: {pki_version_locator}")
-    s3u.delete_files_by_prefix(
-        s3_bucket,
-        pki_version_locator.primary_key_index_version_root_path,
-    )
-    logger.info(f"Primary key index deleted: {pki_version_locator}")
+# TODO: Deprecate this module in the favor of compactor_v2
 
 
 def group_record_indices_by_hash_bucket(
