@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from uuid import uuid4
 
-from deltacat.compute.compactor.model.sort_key import SortKey
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.storage import Locator, PartitionLocator
 from deltacat.utils.common import sha1_hexdigest
 

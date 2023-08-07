@@ -11,9 +11,9 @@ from deltacat import logs
 from deltacat.compute.compactor import (
     DeltaAnnotated,
     DeltaFileEnvelope,
-    SortKey,
     RoundCompletionInfo,
 )
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.utils import system_columns as sc

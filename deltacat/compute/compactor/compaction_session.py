@@ -12,8 +12,8 @@ import pyarrow as pa
 from deltacat.compute.compactor import (
     PyArrowWriteResult,
     RoundCompletionInfo,
-    SortKey,
 )
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.io.object_store import IObjectStore
@@ -50,6 +50,7 @@ from deltacat.utils.metrics import MetricsConfig
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
+from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 
@@ -83,7 +84,7 @@ def check_preconditions(
         assert (
             new_hash_bucket_count >= 1
         ), "New hash bucket count must be a positive value"
-    return SortKey.validate_sort_keys(
+    return validate_sort_keys(
         source_partition_locator,
         sort_keys,
         deltacat_storage,
