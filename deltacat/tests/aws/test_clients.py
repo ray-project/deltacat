@@ -41,7 +41,6 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
     def test_sanity(self, requests_mock):
         from deltacat.aws.clients import (
             block_until_instance_metadata_service_returns_success,
-            INSTANCE_METADATA_SERVICE_IPV4_URI,
         )
 
         requests_mock.get.return_value = MockResponse(200, "foo")
