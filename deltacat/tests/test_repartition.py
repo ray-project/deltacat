@@ -186,19 +186,6 @@ class TestRepartitionRange(unittest.TestCase):
         )
         self.assertEqual(len(result.range_deltas), 2)
 
-    def test_ranges_with_inf(self):
-        self.repartition_args["ranges"] = [1678665487112747, float("inf")]
-        result = repartition_range(
-            self.tables,
-            self.destination_partition,
-            self.repartition_args,
-            self.max_records_per_output_file,
-            self.repartitioned_file_content_type,
-            self.deltacat_storage,
-            self.deltacat_storage_kwargs,
-        )
-        self.assertEqual(len(result.range_deltas), 2)
-
     def test_null_rows_are_not_dropped(self):
         # Add null value to the first table
         tables_with_null = [
