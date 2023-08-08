@@ -233,7 +233,9 @@ class PlacementGroupManager:
         (
             current_node_name,
             _,
-        ) = ray.experimental.internal_kv.global_gcs_client.address.split(":")
+        ) = ray.experimental.internal_kv.global_gcs_client.address.rsplit(
+            ":", 1
+        )  # using rsplit split on the last occurence of delimiter ":"
         for node in ray.nodes():
             if node["NodeName"] == current_node_name:
                 # Found the node.

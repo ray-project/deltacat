@@ -14,9 +14,9 @@ class DeltaFileEnvelope(dict):
     @staticmethod
     def of(
         stream_position: int,
-        file_index: int,
         delta_type: DeltaType,
         table: LocalTable,
+        file_index: int = None,
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
     ) -> DeltaFileEnvelope:

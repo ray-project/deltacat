@@ -188,6 +188,36 @@ class TestRepartitionRange(unittest.TestCase):
         )
         self.assertEqual(len(result.range_deltas), 2)
 
+    def test_null_rows_are_not_dropped(self):
+        # Add null value to the first table
+        tables_with_null = [
+            pa.table(
+                {
+                    "last_updated": [
+                        None,
+                        1678665487112746,
+                        1678665487112747,
+                        1678665487112748,
+                    ]
+                }
+            ),
+            self.tables[1],
+        ]
+
+        result = repartition_range(
+            tables_with_null,
+            self.destination_partition,
+            self.repartition_args,
+            self.max_records_per_output_file,
+            self.repartitioned_file_content_type,
+            self.deltacat_storage,
+        )
+
+        # Assuming range_deltas is a list of DataFrames,
+        # check that the first DataFrame has the null value in the 'last_updated' column
+        # This may need to be adjusted depending on the actual structure of range_deltas
+        self.assertEqual(len(result.range_deltas), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

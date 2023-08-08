@@ -2,6 +2,7 @@ import importlib
 import logging
 from contextlib import nullcontext
 import pyarrow.compute as pc
+from deltacat.constants import SIGNED_INT64_MIN_VALUE, SIGNED_INT64_MAX_VALUE
 import pyarrow as pa
 from typing import List, Optional
 from deltacat.types.media import StorageType, ContentType
@@ -93,7 +94,9 @@ def repartition_range(
     if not all(column in table.column_names for table in tables):
         raise ValueError(f"Column {column} does not exist in the table")
     partition_ranges.sort()
-    partition_ranges = [-float("Inf")] + partition_ranges + [float("Inf")]
+    partition_ranges = (
+        [SIGNED_INT64_MIN_VALUE] + partition_ranges + [SIGNED_INT64_MAX_VALUE]
+    )
     partitioned_tables_list = [[] for _ in range(len(partition_ranges) - 1)]
 
     total_record_count = 0
@@ -106,6 +109,7 @@ def repartition_range(
             pa.field(col_name_int64, pa.int64()),
             pc.cast(table[column], pa.int64()),
         )
+        null_row_table = table_new.filter(pc.field(col_name_int64).is_null())
         # Iterate over pairs of values in partition_ranges
         for i, (lower_limit, upper_limit) in enumerate(
             zip(partition_ranges[:-1], partition_ranges[1:]), start=0
@@ -117,12 +121,19 @@ def repartition_range(
                     & (pc.field(col_name_int64) <= pc.scalar(upper_limit))
                 )
             )
+            if i == 0:
+                partitioned_tables_list[i].append(null_row_table)
+
     partition_table_length = 0
     # After re-grouping the tables by specified ranges, for each group, we need concat and stage the tables
     partition_deltas: List[Delta] = []
     for partition_tables in partitioned_tables_list:
         if len(partition_tables) > 0:
-            partition_table: pa.Table = pa.concat_tables(partition_tables)
+            print(f"column to be dropped: {col_name_int64}")
+            partition_table: pa.Table = pa.concat_tables(partition_tables).drop(
+                [col_name_int64]
+            )
+            assert col_name_int64 not in partition_table.schema.names
             if len(partition_table) > 0:
                 partition_table_length += len(partition_table)
                 partition_delta: Delta = deltacat_storage.stage_delta(
@@ -136,6 +147,7 @@ def repartition_range(
     assert (
         partition_table_length == total_record_count
     ), f"Repartitioned table should have the same number of records {partition_table_length} as the original table {total_record_count}"
+
     return RepartitionResult(
         range_deltas=partition_deltas,
     )
