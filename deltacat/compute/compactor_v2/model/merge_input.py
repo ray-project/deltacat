@@ -74,7 +74,7 @@ class MergeInput(Dict):
     def primary_keys(self) -> List[str]:
         return self["primary_keys"]
 
-    @property
+    @propert
     def hash_group_index(self) -> int:
         return self["hash_group_index"]
 
