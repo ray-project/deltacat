@@ -38,34 +38,26 @@ class MemcachedObjectStore(IObjectStore):
                 self.hasher.add_node(n)
 
     def put_many(self, objects: List[object], *args, **kwargs) -> List[Any]:
-        input = {}
+        input = defaultdict(dict)
         result = []
-        current_ip = self._get_current_ip()
-        if self.storage_node_ips:
-            create_ref_ip = self._get_storage_node_ip(current_ip)
-        else:
-            create_ref_ip = current_ip
         for obj in objects:
             serialized = cloudpickle.dumps(obj)
             uid = uuid.uuid4()
+            create_ref_ip = self._get_create_ref_ip(uid.__str__())
             ref = self._create_ref(uid, create_ref_ip)
-            input[uid.__str__()] = serialized
+            input[create_ref_ip][uid.__str__()] = serialized
             result.append(ref)
-
-        client = self._get_client_by_ip(create_ref_ip)
-        if client.set_many(input, noreply=False):
-            raise RuntimeError("Unable to write few keys to cache")
+        for create_ref_ip, uid_to_object in input.items():
+            client = self._get_client_by_ip(create_ref_ip)
+            if client.set_many(uid_to_object, noreply=False):
+                raise RuntimeError("Unable to write few keys to cache")
 
         return result
 
     def put(self, obj: object, *args, **kwargs) -> Any:
         serialized = cloudpickle.dumps(obj)
         uid = uuid.uuid4()
-        current_ip = self._get_current_ip()
-        if self.storage_node_ips:
-            create_ref_ip = self._get_storage_node_ip(current_ip)
-        else:
-            create_ref_ip = current_ip
+        create_ref_ip = self._get_create_ref_ip(uid.__str__())
         ref = self._create_ref(uid, create_ref_ip)
         client = self._get_client_by_ip(create_ref_ip)
 
@@ -118,10 +110,17 @@ class MemcachedObjectStore(IObjectStore):
     def _create_ref(self, uid, ip) -> str:
         return f"{uid}{self.SEPARATOR}{ip}"
 
-    def _get_storage_node_ip(self, ip_address: str):
+    def _get_storage_node_ip(self, key: str):
         self.initialize_hasher()
-        storage_node_ip = self.hasher.get_node(ip_address)
+        storage_node_ip = self.hasher.get_node(key)
         return storage_node_ip
+
+    def _get_create_ref_ip(self, uid: str):
+        if self.storage_node_ips:
+            create_ref_ip = self._get_storage_node_ip(uid)
+        else:
+            create_ref_ip = self._get_current_ip()
+        return create_ref_ip
 
     def _get_client_by_ip(self, ip_address: str):
         if ip_address in self.client_cache:

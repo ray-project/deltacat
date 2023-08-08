@@ -31,11 +31,10 @@ class TestMemcachedObjectStore(unittest.TestCase):
         mock_retrying_client.return_value = mock_client.return_value
         mock_client.return_value.set_many.return_value = []
 
-        result = self.object_store.put_many(["a", "b"])
+        result = self.object_store.put_many(["a", "b", "c"])
 
-        self.assertEqual(2, len(result))
+        self.assertEqual(3, len(result))
         self.assertRegex(result[0], ".*_.*")
-        self.assertEqual(1, mock_client.return_value.set_many.call_count)
 
     @mock.patch("deltacat.io.memcached_object_store.Client")
     @mock.patch("deltacat.io.memcached_object_store.RetryingClient")
