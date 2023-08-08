@@ -18,20 +18,20 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 @ray.remote
 def merge(input: MergeInput) -> MergeResult:
 
-    logger.info(f"Starting hash bucket task...")
+    logger.info(f"Starting merge task...")
     merge_result, duration = timed_invocation(func=_timed_merge, input=input)
 
     emit_metrics_time = 0.0
     if input.metrics_config:
         emit_result, latency = timed_invocation(
             func=emit_timer_metrics,
-            metrics_name="hash_bucket",
+            metrics_name="merge",
             value=duration,
             metrics_config=input.metrics_config,
         )
         emit_metrics_time = latency
 
-    logger.info(f"Finished hash bucket task...")
+    logger.info(f"Finished merge task...")
     return MergeResult(
         merge_result[0],
         merge_result[1],
