@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 import pyarrow as pa
 
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.compute.compactor.model.sort_key import SortKey
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace
 from deltacat.storage.model.types import (

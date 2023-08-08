@@ -7,8 +7,8 @@ import functools
 import itertools
 from deltacat.compute.compactor import (
     RoundCompletionInfo,
-    SortKey,
 )
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.utils.ray_utils.concurrency import (
@@ -31,6 +31,7 @@ from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.utils.metrics import MetricsConfig
+from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -53,6 +54,7 @@ def repartition(
     pg_config: Optional[PlacementGroupConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
@@ -143,7 +145,9 @@ def repartition(
     logger.info(f"repartition {repar_end - repar_start} seconds")
     logger.info(f"Got {len(ordered_deltas)} task results.")
     # ordered_deltas are ordered as [cold1, cold2, coldN, hot1, hot2, hotN]
-    merged_delta = Delta.merge_deltas(ordered_deltas)
+    merged_delta = Delta.merge_deltas(
+        ordered_deltas, stream_position=last_stream_position_to_compact
+    )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta, properties=kwargs.get("properties", {})
     )
@@ -154,7 +158,7 @@ def repartition(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
     )
-    bit_width_of_sort_keys = SortKey.validate_sort_keys(
+    bit_width_of_sort_keys = validate_sort_keys(
         source_partition_locator,
         sort_keys,
         deltacat_storage,
@@ -166,9 +170,13 @@ def repartition(
         bit_width_of_sort_keys,
         None,
     )
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
     return rcf.write_round_completion_file(
         None,
         None,
         repartition_completion_info,
         repartition_completion_file_s3_url,
+        **s3_client_kwargs,
     )

@@ -64,6 +64,13 @@ _IS_SOURCE_COLUMN_FIELD = pa.field(
     _IS_SOURCE_COLUMN_TYPE,
 )
 
+_FILE_RECORD_COUNT_COLUMN_NAME = _get_sys_col_name("file_record_count")
+_FILE_RECORD_COUNT_COLUMN_TYPE = pa.int64()
+_FILE_RECORD_COUNT_COLUMN_FIELD = pa.field(
+    _FILE_RECORD_COUNT_COLUMN_NAME,
+    _FILE_RECORD_COUNT_COLUMN_TYPE,
+)
+
 
 def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(obj, _PK_HASH_COLUMN_TYPE)
@@ -143,6 +150,17 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     )
 
 
+def file_record_count_column_np(table: pa.Table) -> np.ndarray:
+    return table[_FILE_RECORD_COUNT_COLUMN_NAME].to_numpy()
+
+
+def get_file_record_count_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+    return pa.array(
+        obj,
+        _FILE_RECORD_COUNT_COLUMN_TYPE,
+    )
+
+
 def project_delta_file_metadata_on_table(
     delta_file_envelope: DeltaFileEnvelope,
 ) -> pa.Table:
@@ -179,6 +197,12 @@ def project_delta_file_metadata_on_table(
         len(table),
     )
     table = append_is_source_col(table, is_source_iterator)
+
+    # append row count column
+    file_record_count_iterator = repeat(
+        delta_file_envelope.file_record_count, len(table)
+    )
+    table = append_file_record_count_col(table, file_record_count_iterator)
     return table
 
 
@@ -248,6 +272,14 @@ def append_is_source_col(table: pa.Table, booleans) -> pa.Table:
     table = table.append_column(
         _IS_SOURCE_COLUMN_FIELD,
         get_is_source_column_array(booleans),
+    )
+    return table
+
+
+def append_file_record_count_col(table: pa.Table, file_record_count):
+    table = table.append_column(
+        _FILE_RECORD_COUNT_COLUMN_FIELD,
+        get_file_record_count_column_array(file_record_count),
     )
     return table
 

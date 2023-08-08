@@ -1,5 +1,6 @@
 import importlib
 import logging
+import time
 from contextlib import nullcontext
 from itertools import chain
 from typing import Generator, List, Optional, Tuple
@@ -10,9 +11,9 @@ from deltacat import logs
 from deltacat.compute.compactor import (
     DeltaAnnotated,
     DeltaFileEnvelope,
-    SortKey,
     RoundCompletionInfo,
 )
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.utils import system_columns as sc
@@ -30,6 +31,8 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.io.object_store import IObjectStore
+from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -114,11 +117,12 @@ def _group_file_records_by_pk_hash_bucket(
                     hb_to_delta_file_envelopes[hb] = []
                 hb_to_delta_file_envelopes[hb].append(
                     DeltaFileEnvelope.of(
-                        dfe.stream_position,
-                        dfe.file_index,
-                        dfe.delta_type,
-                        table,
-                        is_src_delta,
+                        stream_position=dfe.stream_position,
+                        file_index=dfe.file_index,
+                        delta_type=dfe.delta_type,
+                        table=table,
+                        is_src_delta=is_src_delta,
+                        file_record_count=dfe.file_record_count,
                     )
                 )
     return hb_to_delta_file_envelopes, total_record_count
@@ -157,10 +161,11 @@ def _read_delta_file_envelopes(
     for i, table in enumerate(tables):
         total_record_count += len(table)
         delta_file = DeltaFileEnvelope.of(
-            annotations[i].annotation_stream_position,
-            annotations[i].annotation_file_index,
-            annotations[i].annotation_delta_type,
-            table,
+            stream_position=annotations[i].annotation_stream_position,
+            file_index=annotations[i].annotation_file_index,
+            delta_type=annotations[i].annotation_delta_type,
+            table=table,
+            file_record_count=len(table),
         )
         delta_file_envelopes.append(delta_file)
     return delta_file_envelopes, total_record_count
@@ -175,6 +180,7 @@ def _timed_hash_bucket(
     num_groups: int,
     enable_profiler: bool,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    object_store: Optional[IObjectStore] = None,
     deltacat_storage=unimplemented_deltacat_storage,
 ):
     task_id = get_current_ray_task_id()
@@ -203,12 +209,16 @@ def _timed_hash_bucket(
             deltacat_storage,
         )
         hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
-            delta_file_envelope_groups,
-            num_buckets,
-            num_groups,
+            delta_file_envelope_groups, num_buckets, num_groups, object_store
         )
+
+        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
         return HashBucketResult(
-            hash_bucket_group_to_obj_id, np.int64(total_record_count)
+            hash_bucket_group_to_obj_id,
+            np.int64(total_record_count),
+            np.double(peak_memory_usage_bytes),
+            np.double(0.0),
+            np.double(time.time()),
         )
 
 
@@ -223,6 +233,7 @@ def hash_bucket(
     enable_profiler: bool,
     metrics_config: MetricsConfig,
     read_kwargs_provider: Optional[ReadKwargsProvider],
+    object_store: Optional[IObjectStore],
     deltacat_storage=unimplemented_deltacat_storage,
 ) -> HashBucketResult:
 
@@ -237,11 +248,25 @@ def hash_bucket(
         num_groups=num_groups,
         enable_profiler=enable_profiler,
         read_kwargs_provider=read_kwargs_provider,
+        object_store=object_store,
         deltacat_storage=deltacat_storage,
     )
+
+    emit_metrics_time = 0.0
     if metrics_config:
-        emit_timer_metrics(
-            metrics_name="hash_bucket", value=duration, metrics_config=metrics_config
+        emit_result, latency = timed_invocation(
+            func=emit_timer_metrics,
+            metrics_name="hash_bucket",
+            value=duration,
+            metrics_config=metrics_config,
         )
+        emit_metrics_time = latency
+
     logger.info(f"Finished hash bucket task...")
-    return hash_bucket_result
+    return HashBucketResult(
+        hash_bucket_result[0],
+        hash_bucket_result[1],
+        hash_bucket_result[2],
+        np.double(emit_metrics_time),
+        hash_bucket_result[4],
+    )
