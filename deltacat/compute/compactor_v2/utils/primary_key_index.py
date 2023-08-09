@@ -27,8 +27,8 @@ def _append_sha1_hash_to_table(table: pa.Table, hash_column: pa.Array) -> pa.Tab
     hash_column_np = hash_column.to_numpy()
 
     result = []
-    for digest in hash_column_np:
-        result.append(hashlib.sha1(digest.encode("utf-8")).hexdigest())
+    for hash_value in hash_column_np:
+        result.append(hashlib.sha1(hash_value.encode("utf-8")).hexdigest())
 
     return sc.append_pk_hash_string_column(table, result)
 
@@ -112,11 +112,12 @@ def group_record_indices_by_hash_bucket(
     input_table_len = len(pki_table)
 
     hash_bucket_to_table = np.empty([num_buckets], dtype="object")
-    hash_bucket_id_col_list = []
+    hash_bucket_id_col_list = np.empty([input_table_len], dtype="int32")
     bucketing_start_time = time.monotonic()
-    for digest in sc.pk_hash_string_column_np(pki_table):
-        hash_bucket = pk_digest_to_hash_bucket_index(digest, num_buckets)
-        hash_bucket_id_col_list.append(hash_bucket)
+
+    for index, hash_value in enumerate(sc.pk_hash_string_column_np(pki_table)):
+        hash_bucket = pk_digest_to_hash_bucket_index(hash_value, num_buckets)
+        hash_bucket_id_col_list[index] = hash_bucket
 
     pki_table = sc.append_hash_bucket_idx_col(pki_table, hash_bucket_id_col_list)
     bucketing_end_time = time.monotonic()

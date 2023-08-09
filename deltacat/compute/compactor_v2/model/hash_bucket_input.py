@@ -70,7 +70,7 @@ class HashBucketInput(Dict):
         return self.get("object_store")
 
     @property
-    def deltacat_storage(self) -> Any:
+    def deltacat_storage(self) -> unimplemented_deltacat_storage:
         return self.get("deltacat_storage")
 
     @property
