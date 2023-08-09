@@ -462,7 +462,6 @@ def create_table_version(
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
     latest_version = get_latest_table_version(namespace, table_name, *args, **kwargs)
-
     if (
         table_version is not None
         and latest_version
@@ -1032,6 +1031,7 @@ def get_stream(
     *args,
     **kwargs,
 ) -> Optional[Stream]:
+    assert not isinstance(table_version, int), f"Passed an integer as the table version"
     obj = get_table_version(namespace, table_name, table_version, *args, **kwargs)
 
     if obj is None:

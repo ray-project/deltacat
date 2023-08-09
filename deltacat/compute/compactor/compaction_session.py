@@ -218,7 +218,6 @@ def _execute_compaction_round(
         if rebase_source_partition_locator
         else source_partition_locator
     )
-
     base_audit_url = rcf_source_partition_locator.path(
         f"s3://{compaction_artifact_s3_bucket}/compaction-audit"
     )
