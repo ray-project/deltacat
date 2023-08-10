@@ -188,9 +188,9 @@ def list_deltas(
 
     for delta in all_deltas:
         if (
-            not first_stream_position or first_stream_position <= delta.stream_position
+            not first_stream_position or first_stream_position < delta.stream_position
         ) and (
-            not last_stream_position or last_stream_position > delta.stream_position
+            not last_stream_position or delta.stream_position <= last_stream_position
         ):
             result.append(delta)
 
@@ -761,7 +761,18 @@ def commit_partition(partition: Partition, *args, **kwargs) -> Partition:
         params = (json.dumps(pv_partition), pv_partition.locator.canonical_string())
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
 
+    deltas = list_partition_deltas(partition, *args, **kwargs).all_items()
+    deltas.sort(reverse=True, key=lambda x: x.stream_position)
+
+    stream_position = partition.stream_position
+    if deltas:
+        stream_position = deltas[0].stream_position
+
     partition.state = CommitState.COMMITTED
+    partition.stream_position = stream_position
+    partition.previous_stream_position = (
+        pv_partition.stream_position if pv_partition else None
+    )
     params = (json.dumps(partition), partition.locator.canonical_string())
     cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
     con.commit()

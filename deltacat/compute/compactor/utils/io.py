@@ -45,6 +45,7 @@ def discover_deltas(
         else deltacat_storage.get_partition(
             source_partition_locator.stream_locator,
             source_partition_locator.partition_values,
+            **kwargs,
         ).stream_position,
         deltacat_storage,
         **kwargs,
@@ -258,6 +259,7 @@ def fit_input_deltas(
     compaction_audit: CompactionSessionAuditInfo,
     hash_bucket_count: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
     """
     This method tries to fit all the input deltas to run into the existing cluster. Contrary to
@@ -348,6 +350,7 @@ def _discover_deltas(
     table_name = stream_locator.table_name
     table_version = stream_locator.table_version
     partition_values = source_partition_locator.partition_values
+    # assert False is True
     deltas_list_result = deltacat_storage.list_deltas(
         namespace=namespace,
         table_name=table_name,
