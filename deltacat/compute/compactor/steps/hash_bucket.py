@@ -91,7 +91,7 @@ def _group_file_records_by_pk_hash_bucket(
     is_src_delta: np.bool_ = True,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
+     **kwargs,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes, total_record_count = _read_delta_file_envelopes(
@@ -142,9 +142,6 @@ def _read_delta_file_envelopes(
     columns_to_read = list(chain(primary_keys, sort_key_names))
     # TODO (rootliu) compare performance of column read from unpartitioned vs partitioned file
     # https://arrow.apache.org/docs/python/parquet.html#writing-to-partitioned-datasets
-    print(f"**kwargs: {kwargs}")
-    print(f"columns_to_read: {columns_to_read}")
-    print(f"sort_key_names: {sort_key_names}")
     tables = deltacat_storage.download_delta(
         annotated_delta,
         max_parallelism=1,

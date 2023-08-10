@@ -94,7 +94,7 @@ def s3_resource(mock_aws_credential):
 def ds_mock_kwargs():
     DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
         "db_file_path",
-        "deltacat/tests/local_deltacat_storage/db_test.sql",
+        "deltacat/tests/local_deltacat_storage/db_test.sqlite",
     )
     kwargs: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
@@ -177,24 +177,23 @@ def sanity_viable_destination_table(ds_mock_kwargs):
         table_version=REBASE_TEST_DESTINATION_TABLE_VERSION,
         **ds_mock_kwargs,
     )
-    col1 = pa.array([str(i) for i in range(10)])
-    # col2 = pa.array(["bar"] * 10)
-    test_table = pa.Table.from_arrays(
-        [col1], names=REBASE_TEST_DESTINATION_PRIMARY_KEYS
-    )
-    staged_partition = ds.stage_partition(destination_stream, [], **ds_mock_kwargs)
-    committed_delta: Delta = ds.commit_delta(
-        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
-    )
-    ds.commit_partition(staged_partition, **ds_mock_kwargs)
+    # col1 = pa.array([str(i) for i in range(10)])
+    # test_table = pa.Table.from_arrays(
+    #     [col1], names=REBASE_TEST_DESTINATION_PRIMARY_KEYS
+    # )
+    # staged_partition = ds.stage_partition(destination_stream, [], **ds_mock_kwargs)
+    # ds.commit_delta(
+    #     ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+    # )
+    # ds.commit_partition(staged_partition, **ds_mock_kwargs)
     yield
-    ds.delete_partition(
-        REBASE_TEST_DESTINATION_NAMESPACE,
-        REBASE_TEST_DESTINATION_TABLE_NAME,
-        REBASE_TEST_DESTINATION_TABLE_VERSION,
-        [],
-        **ds_mock_kwargs,
-    )
+    # ds.delete_partition(
+    #     REBASE_TEST_DESTINATION_NAMESPACE,
+    #     REBASE_TEST_DESTINATION_TABLE_NAME,
+    #     REBASE_TEST_DESTINATION_TABLE_VERSION,
+    #     [],
+    #     **ds_mock_kwargs,
+    # )
     ds.delete_stream(
         REBASE_TEST_DESTINATION_NAMESPACE,
         REBASE_TEST_DESTINATION_TABLE_NAME,
@@ -277,8 +276,13 @@ def test_compact_partition_success(
         [],
         **ds_mock_kwargs,
     )
-    destination_partition = ds.get_partition(
-        destination_table_stream.locator, [], **ds_mock_kwargs
+    # destination_partition = ds.get_partition(
+    #     destination_table_stream.locator, [], **ds_mock_kwargs
+    # )
+    destination_partition_locator = PartitionLocator.of(
+        destination_table_stream.locator,
+        [],
+        None,
     )
     num_workers = 1
     worker_instance_cpu = 1
@@ -292,7 +296,7 @@ def test_compact_partition_success(
     ).all_items()
     compact_partition_params: Dict[str, Any] = {
         "source_partition_locator": source_partition.locator,
-        "destination_partition_locator": destination_partition.locator,
+        "destination_partition_locator": destination_partition_locator,
         "last_stream_position_to_compact": source_partition.stream_position,
         "primary_keys": set(source_table_version.primary_keys)
         if source_table_version.primary_keys
@@ -309,8 +313,8 @@ def test_compact_partition_success(
         "pg_config": PlacementGroupManager(1, total_cpus, worker_instance_cpu).pgs[0],
         **ds_mock_kwargs,
     }
-    foo = ds.get_delta_manifest(deltas[0], **ds_mock_kwargs)
-    print(f"{foo=}")
+    manifest = ds.get_delta_manifest(deltas[0], **ds_mock_kwargs)
+    # print(f"DEBUG {}\ntest_compaction_session:{manifest=}")
     list_deltas = ds.list_deltas(
         REBASE_TEST_SOURCE_NAMESPACE,
         REBASE_TEST_SOURCE_TABLE_NAME,
@@ -319,3 +323,4 @@ def test_compact_partition_success(
         **ds_mock_kwargs,
     ).all_items()
     actual_res = compact_partition(**compact_partition_params)
+    # got compacted table 

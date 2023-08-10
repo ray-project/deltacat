@@ -334,7 +334,7 @@ def _execute_compaction_round(
         rebase_source_partition_locator,
         rebase_source_partition_high_watermark,
         deltacat_storage,
-        **kwargs,
+        **{**list_deltas_kwargs, **kwargs},
     )
 
     delta_discovery_end = time.monotonic()
@@ -638,7 +638,8 @@ def _execute_compaction_round(
     )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta,
-        properties=kwargs.get("properties", DEFAULT_PROPERTIES_ARG) ** kwargs,
+        properties=kwargs.get("properties", DEFAULT_PROPERTIES_ARG), 
+        **kwargs,
     )
     logger.info(f"Committed compacted delta: {compacted_delta}")
 

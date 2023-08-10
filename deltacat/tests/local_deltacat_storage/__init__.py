@@ -388,16 +388,16 @@ def get_delta_manifest(
     delta_like: Union[Delta, DeltaLocator], *args, **kwargs
 ) -> Manifest:
     delta = get_delta(
-        delta_like.namespace,
-        delta_like.table_name,
-        delta_like.stream_position,
-        delta_like.partition_values,
-        delta_like.table_version,
-        True,
+        namespace=delta_like.namespace,
+        table_name=delta_like.table_name,
+        stream_position=delta_like.stream_position,
+        partition_values=delta_like.partition_values,
+        table_version=delta_like.table_version,
+        include_manifest=True,
         *args,
         **kwargs,
     )
-    print(f"DEBUG:get_delta_manifest: {delta_like=} \n {delta=}")
+    print(f"DEBUG:get_delta_manifest: {delta_like=} \n{delta=} \n\n\n")
     if not delta:
         return None
 
