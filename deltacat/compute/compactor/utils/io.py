@@ -57,6 +57,7 @@ def discover_deltas(
         compacted_partition = deltacat_storage.get_partition(
             compacted_partition_locator.stream_locator,
             compacted_partition_locator.partition_values,
+            **kwargs,
         )
         previous_last_stream_position_compacted = (
             compacted_partition.stream_position if compacted_partition else -1
@@ -350,7 +351,13 @@ def _discover_deltas(
     table_name = stream_locator.table_name
     table_version = stream_locator.table_version
     partition_values = source_partition_locator.partition_values
-    # assert False is True
+    deltas_list_resultDEBUG = deltacat_storage.list_deltas(
+        namespace=namespace,
+        table_name=table_name,
+        partition_values=partition_values,
+        table_version=table_version,
+        **kwargs,
+    ).all_items()
     deltas_list_result = deltacat_storage.list_deltas(
         namespace=namespace,
         table_name=table_name,

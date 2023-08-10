@@ -12,7 +12,8 @@ from typing import Any, Dict, Optional
 from typing import List
 import pyarrow as pa
 
-MAX_RECORDS_PER_FILE = 1
+MAX_RECORDS_PER_FILE: int = 1
+COLUMN_NAMES: List[str] = ["pk", "sk"]
 
 TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
 # REBASE  src = spark compacted table to create an initial version of ray compacted table
@@ -25,15 +26,15 @@ REBASE_TEST_SOURCE_PRIMARY_KEYS = ["id"]
 REBASE_TEST_DESTINATION_NAMESPACE = "rebase_destination_test_namespace"
 REBASE_TEST_DESTINATION_TABLE_NAME = "rebase_destination_test_table"
 REBASE_TEST_DESTINATION_TABLE_VERSION = "1"
+REBASE_TEST_DESTINATION_PARTITION_KEYS = [{"keyName": "region_id", "keyType": "int"}]
+REBASE_TEST_DESTINATION_PRIMARY_KEYS = ["id"]
 
-# INCREMENTAL = ray -> ray
-INCREMENTAL_TEST_NAMESPACE = "incremental_test_namespace"
-INCREMENTAL_TEST_SOURCE_TABLE_NAME = "incremental_test_table"
-INCREMENTAL_TEST_SOURCE_TABLE_VERSION = "1"
-INCREMENTAL_TEST_DESTINATION_TABLE_NAME = "incremental_destination_test_table"
-INCREMENTAL_TEST_DESTINATION_TABLE_VERSION = None
-
-COLUMN_NAMES: List[str] = ["pk", "sk"]
+# # INCREMENTAL = ray -> ray
+# INCREMENTAL_TEST_NAMESPACE = "incremental_test_namespace"
+# INCREMENTAL_TEST_SOURCE_TABLE_NAME = "incremental_test_table"
+# INCREMENTAL_TEST_SOURCE_TABLE_VERSION = "1"
+# INCREMENTAL_TEST_DESTINATION_TABLE_NAME = "incremental_destination_test_table"
+# INCREMENTAL_TEST_DESTINATION_TABLE_VERSION = None
 
 # IN-PLACE?
 
@@ -49,7 +50,7 @@ def mock_aws_credential():
 
 
 @pytest.fixture(scope="module")
-def s3_resource(mock_aws_credential: None):
+def s3_resource(mock_aws_credential):
     with mock_s3():
         yield boto3.resource("s3")
 
@@ -57,11 +58,14 @@ def s3_resource(mock_aws_credential: None):
 # function-level fixtures
 @pytest.fixture(scope="function")
 def ds_mock_kwargs():
-    conn: Connection = sqlite3.connect(
-        "deltacat/tests/local_deltacat_storage/db_test.sql"
-    )
+    DATABASE_RELATIVE_PATH = "deltacat/tests/local_deltacat_storage/db_test.sql"
+    conn: Connection = sqlite3.connect(DATABASE_RELATIVE_PATH)
     cur: Cursor = conn.cursor()
-    kwargs: Dict[str, Any] = {"sqlite3_con": conn, "sqlite3_cur": cur}
+    kwargs: Dict[str, Any] = {
+        "sqlite3_con": conn,
+        "sqlite3_cur": cur,
+        "sqlite3_rel_path": DATABASE_RELATIVE_PATH,
+    }
     yield kwargs
     conn.close()
 
@@ -77,10 +81,10 @@ def fake_compaction_artifacts_s3_bucket(s3_resource, monkeypatch):
 
 # rebase
 @pytest.fixture(scope="function")
-def rebase_source_table_version(ds_mock_kwargs):
+def sanity_viable_source_table(ds_mock_kwargs):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentEncoding, ContentType, TableType
-    from deltacat.storage import Stream, Table, TableVersion
+    from deltacat.storage import Delta, Stream, Table, TableVersion
 
     ds.create_namespace(REBASE_TEST_SOURCE_NAMESPACE, {}, **ds_mock_kwargs)
     ds.create_table_version(
@@ -97,11 +101,12 @@ def rebase_source_table_version(ds_mock_kwargs):
         **ds_mock_kwargs,
     )
     col1 = pa.array([i for i in range(10)])
-    col2 = pa.array(["test"] * 10)
+    col2 = pa.array(["foo"] * 10)
     test_table = pa.Table.from_arrays([col1, col2], names=COLUMN_NAMES)
     staged_partition = ds.stage_partition(source_stream, [], **ds_mock_kwargs)
-    delta1 = ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs)
-    committed_delta = ds.commit_delta(delta1, **ds_mock_kwargs)
+    committed_delta: Delta = ds.commit_delta(
+        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+    )
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
     yield
     ds.delete_partition(
@@ -120,10 +125,10 @@ def rebase_source_table_version(ds_mock_kwargs):
 
 
 @pytest.fixture(scope="function")
-def rebase_destination_table_version(ds_mock_kwargs):
+def sanity_viable_destination_table(ds_mock_kwargs):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentEncoding, ContentType, TableType
-    from deltacat.storage import Stream, Table, TableVersion
+    from deltacat.storage import Delta, Stream, Table, TableVersion
 
     ds.create_namespace(REBASE_TEST_DESTINATION_NAMESPACE, {}, **ds_mock_kwargs)
     ds.create_table_version(
@@ -138,8 +143,14 @@ def rebase_destination_table_version(ds_mock_kwargs):
         table_version=REBASE_TEST_DESTINATION_TABLE_VERSION,
         **ds_mock_kwargs,
     )
-    staged_destination = ds.stage_partition(destination_stream, [], **ds_mock_kwargs)
-    ds.commit_partition(staged_destination, **ds_mock_kwargs)
+    col1 = pa.array([i for i in range(10)])
+    col2 = pa.array(["bar"] * 10)
+    test_table = pa.Table.from_arrays([col1, col2], names=COLUMN_NAMES)
+    staged_partition = ds.stage_partition(destination_stream, [], **ds_mock_kwargs)
+    committed_delta: Delta = ds.commit_delta(
+        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+    )
+    ds.commit_partition(staged_partition, **ds_mock_kwargs)
     yield
     ds.delete_partition(
         REBASE_TEST_DESTINATION_NAMESPACE,
@@ -159,8 +170,8 @@ def rebase_destination_table_version(ds_mock_kwargs):
 def test_compact_partition_success(
     ds_mock_kwargs,
     fake_compaction_artifacts_s3_bucket,
-    rebase_source_table_version,
-    rebase_destination_table_version,
+    sanity_viable_source_table,
+    sanity_viable_destination_table,
 ):
     from deltacat.compute.compactor.compaction_session import compact_partition
     from deltacat.storage.model.partition import (
@@ -233,7 +244,6 @@ def test_compact_partition_success(
     destination_partition = ds.get_partition(
         destination_table_stream.locator, [], **ds_mock_kwargs
     )
-    # assert False is True
     num_workers = 1
     worker_instance_cpu = 1
     total_cpus = num_workers * worker_instance_cpu
@@ -244,9 +254,9 @@ def test_compact_partition_success(
         source_table_stream.table_version,
         **ds_mock_kwargs,
     ).all_items()
+    print(f"{deltas=}")
     # old_parent_table_stream_pos = int(deltas[0]["streamPosition"])
-    old_parent_table_stream_pos = deltas[0]["deltaLocator"]["streamPosition"]
-    # assert False is True
+    # old_parent_table_stream_pos = deltas[0]["deltaLocator"]["streamPosition"]
     compact_partition_params: Dict[str, Any] = {
         "source_partition_locator": source_partition.locator,
         "destination_partition_locator": destination_partition.locator,
@@ -270,5 +280,4 @@ def test_compact_partition_success(
         **ds_mock_kwargs,
     ).all_items()
     print(f"{list_deltas=}")
-    # assert False is True
     actual_res = compact_partition(**compact_partition_params)
