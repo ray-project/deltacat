@@ -334,7 +334,6 @@ def download_delta_manifest_entry(
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
     manifest = get_delta_manifest(delta_like, *args, **kwargs)
-
     if entry_index >= len(manifest.entries):
         raise IndexError(
             f"Manifest entry index {entry_index} does not exist. "
@@ -352,7 +351,6 @@ def download_delta_manifest_entry(
         )
 
     serialized_data = serialized_data[0]
-
     if entry.meta.content_type == ContentType.PARQUET:
         if table_type == TableType.PYARROW_PARQUET:
             table = pa.parquet.ParquetFile(io.BytesIO(serialized_data))
@@ -399,7 +397,7 @@ def get_delta_manifest(
         *args,
         **kwargs,
     )
-
+    print(f"DEBUG:get_delta_manifest: {delta_like=} \n {delta=}")
     if not delta:
         return None
 

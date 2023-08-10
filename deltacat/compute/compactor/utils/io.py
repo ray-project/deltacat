@@ -101,6 +101,7 @@ def limit_input_deltas(
     input_deltas_stats: Dict[int, DeltaStats],
     compaction_audit: CompactionSessionAuditInfo,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of

@@ -171,6 +171,7 @@ def collect_stats_by_columns(
     delta_annotated: DeltaAnnotated,
     columns_to_compute: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> Dict[str, Any]:
     """Materializes one manifest entry at a time to save memory usage and calculate stats from each of its columns.
 

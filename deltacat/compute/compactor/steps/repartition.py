@@ -58,6 +58,7 @@ def repartition_range(
     max_records_per_output_file: int,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ):
     """
     Repartitions a list of Arrow tables based on specified ranges and stores the repartitioned tables.
@@ -163,6 +164,7 @@ def _timed_repartition(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> RepartitionResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
@@ -201,6 +203,7 @@ def repartition(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> RepartitionResult:
     logger.info(f"Starting repartition task...")
     repartition_result, duration = timed_invocation(

@@ -69,6 +69,7 @@ def materialize(
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     object_store: Optional[IObjectStore] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ):
     def _stage_delta_from_manifest_entry_reference_list(
         manifest_entry_list_reference: List[ManifestEntry],
@@ -105,6 +106,7 @@ def materialize(
             max_records_per_entry=max_records_per_output_file,
             content_type=compacted_file_content_type,
             s3_table_writer_kwargs=s3_table_writer_kwargs,
+            **kwargs,
         )
         compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](
             compacted_table
@@ -190,10 +192,11 @@ def materialize(
 
             manifest = manifest_cache.setdefault(
                 dl_digest,
-                deltacat_storage.get_delta_manifest(delta_locator),
+                deltacat_storage.get_delta_manifest(delta_locator, **kwargs),
             )
 
             if read_kwargs_provider is None:
+                # assert False is True
                 # for delimited text output, disable type inference to prevent
                 # unintentional type-casting side-effects and improve performance
                 if compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
@@ -203,6 +206,8 @@ def materialize(
                     read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
                         schema=schema
                     )
+                else:
+                    read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride()
             record_numbers = chain.from_iterable(record_numbers_tpl)
             record_numbers_length = 0
             mask_pylist = list(repeat(False, src_file_record_count))
@@ -231,12 +236,17 @@ def materialize(
                 )
                 referenced_pyarrow_write_results.append(referenced_pyarrow_write_result)
             else:
+                print(
+                    f"DEBUG: {src_file_idx_np=}, {read_kwargs_provider=}, {kwargs=}, {record_number=}, {manifest=}, {delta_locator=}"
+                )
                 pa_table, download_delta_manifest_entry_time = timed_invocation(
                     deltacat_storage.download_delta_manifest_entry,
                     Delta.of(delta_locator, None, None, None, manifest),
                     src_file_idx_np.item(),
                     file_reader_kwargs_provider=read_kwargs_provider,
+                    **kwargs,
                 )
+                assert False is True
                 logger.debug(
                     f"Time taken for materialize task"
                     f" to download delta locator {delta_locator} with entry ID {src_file_idx_np.item()}"
@@ -253,7 +263,7 @@ def materialize(
             materialized_results.append(_materialize(record_batch_tables.remaining))
 
         logger.info(f"Got {count_of_src_dfl} source delta files during materialize")
-
+        assert False is True
         referenced_manifest_delta = (
             _stage_delta_from_manifest_entry_reference_list(
                 manifest_entry_list_reference, partition

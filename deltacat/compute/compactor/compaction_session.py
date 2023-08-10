@@ -60,6 +60,9 @@ if importlib.util.find_spec("memray"):
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+DEFAULT_DEDUPE_MAX_PARALLELISM_RATIO_ARG: int = 1
+DEFAULT_PROPERTIES_ARG: Dict[str, Any] = {}
+
 
 def check_preconditions(
     source_partition_locator: PartitionLocator,
@@ -68,6 +71,7 @@ def check_preconditions(
     max_records_per_output_file: int,
     new_hash_bucket_count: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> int:
 
     assert (
@@ -173,7 +177,7 @@ def compact_partition(
         round_completion_file_s3_url = None
         if partition:
             logger.info(f"Committing compacted partition to: {partition.locator}")
-            partition = deltacat_storage.commit_partition(partition)
+            partition = deltacat_storage.commit_partition(partition, **kwargs)
             logger.info(f"Committed compacted partition: {partition}")
 
             round_completion_file_s3_url = rcf.write_round_completion_file(
@@ -402,9 +406,7 @@ def _execute_compaction_round(
         raise AssertionError(
             "Multiple rounds are not supported. Please increase the cluster size and run again."
         )
-
     hb_start = time.monotonic()
-
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
@@ -420,6 +422,7 @@ def _execute_compaction_round(
         read_kwargs_provider=read_kwargs_provider,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
+        **kwargs,
     )
 
     hb_invoke_end = time.monotonic()
@@ -459,7 +462,6 @@ def _execute_compaction_round(
     )
 
     compaction_audit.set_input_records(total_hb_record_count.item())
-
     # TODO (pdames): when resources are freed during the last round of hash
     #  bucketing, start running dedupe tasks that read existing dedupe
     #  output from S3 then wait for hash bucketing to finish before continuing
@@ -470,13 +472,14 @@ def _execute_compaction_round(
         compacted_stream_locator.namespace,
         compacted_stream_locator.table_name,
         compacted_stream_locator.table_version,
+        **kwargs,
     )
     partition = deltacat_storage.stage_partition(
         stream,
         destination_partition_locator.partition_values,
+        **kwargs,
     )
     new_compacted_partition_locator = partition.locator
-
     # parallel step 2:
     # discover records with duplicate primary keys in each hash bucket, and
     # identify the index of records to keep or drop based on sort keys
@@ -485,7 +488,10 @@ def _execute_compaction_round(
 
     dedupe_start = time.monotonic()
     dd_max_parallelism = int(
-        max_parallelism * kwargs.get("dd_max_parallelism_ratio", 1)
+        max_parallelism
+        * kwargs.get(
+            "dd_max_parallelism_ratio", DEFAULT_DEDUPE_MAX_PARALLELISM_RATIO_ARG
+        )
     )
     logger.info(
         f"dd max_parallelism is set to {dd_max_parallelism}, max_parallelism is {max_parallelism}"
@@ -504,6 +510,7 @@ def _execute_compaction_round(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         object_store=object_store,
+        **kwargs,
     )
 
     dedupe_invoke_end = time.monotonic()
@@ -529,7 +536,6 @@ def _execute_compaction_round(
     )
 
     compaction_audit.set_records_deduped(total_dd_record_count.item())
-
     all_mat_buckets_to_obj_id = defaultdict(list)
     for dd_result in dd_results:
         for (
@@ -543,7 +549,6 @@ def _execute_compaction_round(
     logger.info(f"Materialize buckets created: " f"{len(all_mat_buckets_to_obj_id)}")
 
     compaction_audit.set_materialize_buckets(len(all_mat_buckets_to_obj_id))
-
     # TODO(pdames): when resources are freed during the last round of deduping
     #  start running materialize tasks that read materialization source file
     #  tables from S3 then wait for deduping to finish before continuing
@@ -564,7 +569,6 @@ def _execute_compaction_round(
     )
 
     materialize_start = time.monotonic()
-
     mat_tasks_pending = invoke_parallel(
         items=all_mat_buckets_to_obj_id.items(),
         ray_task=mat.materialize,
@@ -587,6 +591,7 @@ def _execute_compaction_round(
         s3_table_writer_kwargs=s3_table_writer_kwargs,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
+        **kwargs,
     )
 
     materialize_invoke_end = time.monotonic()
@@ -632,7 +637,8 @@ def _execute_compaction_round(
         f" {record_info_msg}"
     )
     compacted_delta = deltacat_storage.commit_delta(
-        merged_delta, properties=kwargs.get("properties", {})
+        merged_delta,
+        properties=kwargs.get("properties", DEFAULT_PROPERTIES_ARG) ** kwargs,
     )
     logger.info(f"Committed compacted delta: {compacted_delta}")
 

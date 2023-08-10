@@ -1,19 +1,19 @@
 import mock
 import ray
 from mock import MagicMock
-import sqlite3
 import pandas as pd
 from moto import mock_s3
 import pytest
 import os
 import boto3
-from sqlite3 import Connection, Cursor
+from pyarrow import csv as pacsv
 from typing import Any, Dict, Optional
+from deltacat.utils.common import ContentTypeKwargsProvider
 from typing import List
 import pyarrow as pa
 
 MAX_RECORDS_PER_FILE: int = 1
-COLUMN_NAMES: List[str] = ["pk", "sk"]
+BASIC_COLUMN_NAMES: List[str] = ["id"]
 
 TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
 # REBASE  src = spark compacted table to create an initial version of ray compacted table
@@ -28,6 +28,40 @@ REBASE_TEST_DESTINATION_TABLE_NAME = "rebase_destination_test_table"
 REBASE_TEST_DESTINATION_TABLE_VERSION = "1"
 REBASE_TEST_DESTINATION_PARTITION_KEYS = [{"keyName": "region_id", "keyType": "int"}]
 REBASE_TEST_DESTINATION_PRIMARY_KEYS = ["id"]
+
+
+@pytest.fixture
+def compaction_default_read_kwargs_provider():
+    from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
+    from deltacat.utils.common import ContentTypeKwargsProvider
+
+    class CompactionDefaultReadKwargsProvider(ContentTypeKwargsProvider):
+        def __init__(
+            self,
+            schema: Optional[pa.Schema] = None,
+        ):
+            self.schema = schema
+
+        def _get_kwargs(
+            self, content_type: str, kwargs: Dict[str, Any]
+        ) -> Dict[str, Any]:
+            if content_type in DELIMITED_TEXT_CONTENT_TYPES:
+                convert_options = pacsv.ConvertOptions(
+                    quoted_strings_can_be_null=False, strings_can_be_null=False
+                )
+                if self.schema:
+                    convert_options.column_types = self.schema
+                kwargs["convert_options"] = convert_options
+            elif content_type == ContentType.PARQUET:
+                # kwargs here are passed into `pyarrow.parquet.read_table`.
+                # Only supported in PyArrow 8.0.0+
+                # https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html
+                if self.schema:
+                    kwargs["schema"] = self.schema
+                kwargs["coerce_int96_timestamp_unit"] = "ms"
+
+            return kwargs
+
 
 # # INCREMENTAL = ray -> ray
 # INCREMENTAL_TEST_NAMESPACE = "incremental_test_namespace"
@@ -58,16 +92,14 @@ def s3_resource(mock_aws_credential):
 # function-level fixtures
 @pytest.fixture(scope="function")
 def ds_mock_kwargs():
-    DATABASE_RELATIVE_PATH = "deltacat/tests/local_deltacat_storage/db_test.sql"
-    conn: Connection = sqlite3.connect(DATABASE_RELATIVE_PATH)
-    cur: Cursor = conn.cursor()
+    DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
+        "db_file_path",
+        "deltacat/tests/local_deltacat_storage/db_test.sql",
+    )
     kwargs: Dict[str, Any] = {
-        "sqlite3_con": conn,
-        "sqlite3_cur": cur,
-        "sqlite3_rel_path": DATABASE_RELATIVE_PATH,
+        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs
-    conn.close()
 
 
 @pytest.fixture(scope="function")
@@ -92,6 +124,7 @@ def sanity_viable_source_table(ds_mock_kwargs):
         REBASE_TEST_SOURCE_TABLE_NAME,
         REBASE_TEST_SOURCE_TABLE_VERSION,
         primary_key_column_names=REBASE_TEST_SOURCE_PRIMARY_KEYS,
+        supported_content_types=[ContentType.PARQUET],
         **ds_mock_kwargs,
     )
     source_stream: Stream = ds.get_stream(
@@ -100,9 +133,9 @@ def sanity_viable_source_table(ds_mock_kwargs):
         table_version=REBASE_TEST_SOURCE_TABLE_VERSION,
         **ds_mock_kwargs,
     )
-    col1 = pa.array([i for i in range(10)])
+    col1 = pa.array([str(i) for i in range(10)])
     col2 = pa.array(["foo"] * 10)
-    test_table = pa.Table.from_arrays([col1, col2], names=COLUMN_NAMES)
+    test_table = pa.Table.from_arrays([col1], names=REBASE_TEST_SOURCE_PRIMARY_KEYS)
     staged_partition = ds.stage_partition(source_stream, [], **ds_mock_kwargs)
     committed_delta: Delta = ds.commit_delta(
         ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
@@ -135,6 +168,7 @@ def sanity_viable_destination_table(ds_mock_kwargs):
         REBASE_TEST_DESTINATION_NAMESPACE,
         REBASE_TEST_DESTINATION_TABLE_NAME,
         REBASE_TEST_DESTINATION_TABLE_VERSION,
+        supported_content_types=[ContentType.PARQUET],
         **ds_mock_kwargs,
     )
     destination_stream: Stream = ds.get_stream(
@@ -143,9 +177,11 @@ def sanity_viable_destination_table(ds_mock_kwargs):
         table_version=REBASE_TEST_DESTINATION_TABLE_VERSION,
         **ds_mock_kwargs,
     )
-    col1 = pa.array([i for i in range(10)])
-    col2 = pa.array(["bar"] * 10)
-    test_table = pa.Table.from_arrays([col1, col2], names=COLUMN_NAMES)
+    col1 = pa.array([str(i) for i in range(10)])
+    # col2 = pa.array(["bar"] * 10)
+    test_table = pa.Table.from_arrays(
+        [col1], names=REBASE_TEST_DESTINATION_PRIMARY_KEYS
+    )
     staged_partition = ds.stage_partition(destination_stream, [], **ds_mock_kwargs)
     committed_delta: Delta = ds.commit_delta(
         ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
@@ -254,17 +290,18 @@ def test_compact_partition_success(
         source_table_stream.table_version,
         **ds_mock_kwargs,
     ).all_items()
-    print(f"{deltas=}")
-    # old_parent_table_stream_pos = int(deltas[0]["streamPosition"])
-    # old_parent_table_stream_pos = deltas[0]["deltaLocator"]["streamPosition"]
     compact_partition_params: Dict[str, Any] = {
         "source_partition_locator": source_partition.locator,
         "destination_partition_locator": destination_partition.locator,
         "last_stream_position_to_compact": source_partition.stream_position,
-        "primary_keys": set(source_table_version.primary_keys),
+        "primary_keys": set(source_table_version.primary_keys)
+        if source_table_version.primary_keys
+        else None,
+        "sort_keys": set(source_table_version.sort_keys)
+        if source_table_version.sort_keys
+        else None,
         "hash_bucket_count": None,
         "records_per_compacted_file": MAX_RECORDS_PER_FILE,
-        "dd_max_parallelism_ratio": 1.0,
         "deltacat_storage": ds,
         "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
         "compacted_file_content_type": ContentType.PARQUET,
@@ -272,6 +309,8 @@ def test_compact_partition_success(
         "pg_config": PlacementGroupManager(1, total_cpus, worker_instance_cpu).pgs[0],
         **ds_mock_kwargs,
     }
+    foo = ds.get_delta_manifest(deltas[0], **ds_mock_kwargs)
+    print(f"{foo=}")
     list_deltas = ds.list_deltas(
         REBASE_TEST_SOURCE_NAMESPACE,
         REBASE_TEST_SOURCE_TABLE_NAME,
@@ -279,5 +318,4 @@ def test_compact_partition_success(
         REBASE_TEST_SOURCE_TABLE_VERSION,
         **ds_mock_kwargs,
     ).all_items()
-    print(f"{list_deltas=}")
     actual_res = compact_partition(**compact_partition_params)

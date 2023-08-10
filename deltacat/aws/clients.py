@@ -38,7 +38,7 @@ RETRYABLE_HTTP_STATUS_CODES = [
 ]
 
 
-class RetryIfRetrableHTTPStatusCode(retry_if_exception):
+class RetryIfRetryableHTTPStatusCode(retry_if_exception):
     """
     Retry strategy that retries if the exception is an ``HTTPError`` with
     a status code in the retryable errors list.
@@ -103,7 +103,7 @@ def retrying_get(
 
 def block_until_instance_metadata_service_returns_success(
     url=INSTANCE_METADATA_SERVICE_IPV4_URI,
-    retry_strategy=RetryIfRetrableHTTPStatusCode,
+    retry_strategy=RetryIfRetryableHTTPStatusCode,
     wait_strategy=wait_fixed(2),  # wait 2 seconds before retrying,
     stop_strategy=stop_after_delay(60 * 10),  # stop trying after 10 minutes
 ) -> Optional[Response]:
@@ -121,11 +121,13 @@ def block_until_instance_metadata_service_returns_success(
 
     https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
     """
+    if _get_url(url).status_code == HTTPStatus.FORBIDDEN:
+        return None
     return retrying_get(url, retry_strategy, wait_strategy, stop_strategy)
 
 
 def _get_session_from_kwargs(input_kwargs):
-    block_until_instance_metadata_service_returns_success()
+    # block_until_instance_metadata_service_returns_success()
     if input_kwargs.get(BOTO3_PROFILE_NAME_KWARG_KEY) is not None:
         boto3_session = boto3.Session(
             profile_name=input_kwargs.get(BOTO3_PROFILE_NAME_KWARG_KEY)

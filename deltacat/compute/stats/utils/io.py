@@ -83,6 +83,7 @@ def get_delta_stats(
     delta_locator: DeltaLocator,
     columns: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> DeltaStats:
     """Ray distributed task to compute and collect stats for a requested delta.
     If no columns are requested, stats will be computed for all columns.
@@ -105,6 +106,7 @@ def get_deltas_from_range(
     start_position_inclusive: DeltaRange,
     end_position_inclusive: DeltaRange,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> List[Delta]:
     """Looks up deltas in the specified partition using Ray, given both starting and ending delta stream positions.
 
@@ -145,6 +147,7 @@ def _collect_stats_by_columns(
     delta: Delta,
     columns_to_compute: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> DeltaStats:
     """Materializes one manifest entry at a time to save memory usage and calculate stats from each of its columns.
     Args:
