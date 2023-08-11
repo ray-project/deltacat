@@ -15,6 +15,7 @@ from pyarrow import feather as paf
 from pyarrow import json as pajson
 from pyarrow import parquet as papq
 from ray.data.datasource import BlockWritePathProvider
+from deltacat.utils.daft import pyarrow_to_daft_schema
 
 from deltacat import logs
 from deltacat.types.media import (
@@ -261,7 +262,7 @@ def s3_file_to_table(
         table = Table.read_parquet(
             path=s3_url, 
             columns=column_names, 
-            coerce_int96_timestamp_unit=TimeUnit.ms(), 
+            coerce_int96_timestamp_unit=TimeUnit.from_str(pa_read_func_kwargs_provider.pq_coerce_int96_timestamp_unit or "ms"), 
             io_config=IOConfig(s3=S3Config(
                     key_id=s3_client_kwargs["aws_access_key_id"],
                     access_key=s3_client_kwargs["aws_secret_access_key"],
@@ -272,8 +273,9 @@ def s3_file_to_table(
         )
         logger.debug(f"Read S3 object from {s3_url} using daft")
 
-
-
+        daft_schema = pyarrow_to_daft_schema(pa_read_func_kwargs_provider.schema)
+        return table.cast_to_schema(daft_schema).to_arrow()
+    
     s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
     pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]
