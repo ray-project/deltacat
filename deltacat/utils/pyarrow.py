@@ -259,10 +259,17 @@ def s3_file_to_table(
         from daft.table import Table
         from daft import TimeUnit 
         from daft.io import IOConfig, S3Config
+
+        kwargs = {}
+        if pa_read_func_kwargs_provider is not None:
+            kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+        coerce_int96_timestamp_unit=TimeUnit.from_str(kwargs.get("coerce_int96_timestamp_unit", "ms")), 
+
         table = Table.read_parquet(
             path=s3_url, 
             columns=column_names, 
-            coerce_int96_timestamp_unit=TimeUnit.from_str(pa_read_func_kwargs_provider.pq_coerce_int96_timestamp_unit or "ms"), 
+            coerce_int96_timestamp_unit=coerce_int96_timestamp_unit, 
             io_config=IOConfig(s3=S3Config(
                     key_id=s3_client_kwargs["aws_access_key_id"],
                     access_key=s3_client_kwargs["aws_secret_access_key"],
@@ -273,8 +280,11 @@ def s3_file_to_table(
         )
         logger.debug(f"Read S3 object from {s3_url} using daft")
 
-        daft_schema = pyarrow_to_daft_schema(pa_read_func_kwargs_provider.schema)
-        return table.cast_to_schema(daft_schema).to_arrow()
+        if "schema" in kwargs:
+            daft_schema = pyarrow_to_daft_schema(kwargs["schema"])
+            return  table.cast_to_schema(daft_schema).to_arrow()
+        else:
+            return table.to_arrow()
     
     s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
