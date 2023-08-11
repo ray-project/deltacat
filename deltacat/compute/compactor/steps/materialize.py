@@ -118,11 +118,10 @@ def materialize(
         )
         manifest = delta.manifest
         manifest_records = manifest.meta.record_count
-        assert (
-            manifest_records == len(compacted_table),
+        assert manifest_records == len(compacted_table), (
             f"Unexpected Error: Materialized delta manifest record count "
             f"({manifest_records}) does not equal compacted table record count "
-            f"({len(compacted_table)})",
+            f"({len(compacted_table)})"
         )
         materialize_result = MaterializeResult.of(
             delta=delta,

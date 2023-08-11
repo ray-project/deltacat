@@ -37,7 +37,7 @@ def current_node_resource_key() -> str:
     actors on that node via:
     `foo.options(resources={get_current_node_resource_key(): 0.01}).remote()`
     """
-    current_node_id = ray.get_runtime_context().node_id.hex()
+    current_node_id = ray.get_runtime_context().get_node_id()
     keys = node_resource_keys(lambda n: n["NodeID"] == current_node_id)
     assert (
         len(keys) <= 1
@@ -83,7 +83,7 @@ def other_live_node_resource_keys() -> List[str]:
 
     For example, invoking this function from your Ray application driver on the
     head node returns the resource keys of all live worker nodes."""
-    current_node_id = ray.get_runtime_context().node_id.hex()
+    current_node_id = ray.get_runtime_context().get_node_id()
     return node_resource_keys(
         lambda n: n["NodeID"] != current_node_id and is_node_alive(n)
     )
@@ -97,7 +97,7 @@ def other_node_resource_keys() -> List[str]:
 
     For example, invoking this function from your Ray application driver on the
     head node returns the resource keys of all worker nodes."""
-    current_node_id = ray.get_runtime_context().node_id.hex()
+    current_node_id = ray.get_runtime_context().get_node_id()
     return node_resource_keys(lambda n: n["NodeID"] != current_node_id)
 
 
