@@ -386,7 +386,7 @@ def download_delta_manifest_entry(
 
 def get_delta_manifest(
     delta_like: Union[Delta, DeltaLocator], *args, **kwargs
-) -> Manifest:
+) -> Optional[Manifest]:
     delta = get_delta(
         namespace=delta_like.namespace,
         table_name=delta_like.table_name,
@@ -397,7 +397,6 @@ def get_delta_manifest(
         *args,
         **kwargs,
     )
-    print(f"DEBUG:get_delta_manifest: {delta_like=} \n{delta=} \n\n\n")
     if not delta:
         return None
 

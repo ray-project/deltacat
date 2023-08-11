@@ -1,14 +1,10 @@
-import mock
 import ray
-from mock import MagicMock
-import pandas as pd
 from moto import mock_s3
 import pytest
 import os
 import boto3
 from pyarrow import csv as pacsv
 from typing import Any, Dict, Optional
-from deltacat.utils.common import ContentTypeKwargsProvider
 from typing import List
 import pyarrow as pa
 
@@ -115,8 +111,8 @@ def fake_compaction_artifacts_s3_bucket(s3_resource, monkeypatch):
 @pytest.fixture(scope="function")
 def sanity_viable_source_table(ds_mock_kwargs):
     import deltacat.tests.local_deltacat_storage as ds
-    from deltacat.types.media import ContentEncoding, ContentType, TableType
-    from deltacat.storage import Delta, Stream, Table, TableVersion
+    from deltacat.types.media import ContentType
+    from deltacat.storage import Partition, Stream
 
     ds.create_namespace(REBASE_TEST_SOURCE_NAMESPACE, {}, **ds_mock_kwargs)
     ds.create_table_version(
@@ -134,10 +130,11 @@ def sanity_viable_source_table(ds_mock_kwargs):
         **ds_mock_kwargs,
     )
     col1 = pa.array([str(i) for i in range(10)])
-    col2 = pa.array(["foo"] * 10)
     test_table = pa.Table.from_arrays([col1], names=REBASE_TEST_SOURCE_PRIMARY_KEYS)
-    staged_partition = ds.stage_partition(source_stream, [], **ds_mock_kwargs)
-    committed_delta: Delta = ds.commit_delta(
+    staged_partition: Partition = ds.stage_partition(
+        source_stream, [], **ds_mock_kwargs
+    )
+    ds.commit_delta(
         ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
     )
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
@@ -160,8 +157,8 @@ def sanity_viable_source_table(ds_mock_kwargs):
 @pytest.fixture(scope="function")
 def sanity_viable_destination_table(ds_mock_kwargs):
     import deltacat.tests.local_deltacat_storage as ds
-    from deltacat.types.media import ContentEncoding, ContentType, TableType
-    from deltacat.storage import Delta, Stream, Table, TableVersion
+    from deltacat.types.media import ContentType
+    from deltacat.storage import Stream
 
     ds.create_namespace(REBASE_TEST_DESTINATION_NAMESPACE, {}, **ds_mock_kwargs)
     ds.create_table_version(
@@ -177,23 +174,8 @@ def sanity_viable_destination_table(ds_mock_kwargs):
         table_version=REBASE_TEST_DESTINATION_TABLE_VERSION,
         **ds_mock_kwargs,
     )
-    # col1 = pa.array([str(i) for i in range(10)])
-    # test_table = pa.Table.from_arrays(
-    #     [col1], names=REBASE_TEST_DESTINATION_PRIMARY_KEYS
-    # )
-    # staged_partition = ds.stage_partition(destination_stream, [], **ds_mock_kwargs)
-    # ds.commit_delta(
-    #     ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
-    # )
-    # ds.commit_partition(staged_partition, **ds_mock_kwargs)
+    print(destination_stream)
     yield
-    # ds.delete_partition(
-    #     REBASE_TEST_DESTINATION_NAMESPACE,
-    #     REBASE_TEST_DESTINATION_TABLE_NAME,
-    #     REBASE_TEST_DESTINATION_TABLE_VERSION,
-    #     [],
-    #     **ds_mock_kwargs,
-    # )
     ds.delete_stream(
         REBASE_TEST_DESTINATION_NAMESPACE,
         REBASE_TEST_DESTINATION_TABLE_NAME,
@@ -209,47 +191,14 @@ def test_compact_partition_success(
     sanity_viable_destination_table,
 ):
     from deltacat.compute.compactor.compaction_session import compact_partition
-    from deltacat.storage.model.partition import (
-        Partition,
-        PartitionLocator,
-        StreamLocator,
-        TableVersionLocator,
-        TableLocator,
-    )
     from deltacat.types.media import ContentType
     from deltacat.utils.placement import (
-        PlacementGroupConfig,
-        placement_group,
         PlacementGroupManager,
     )
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.storage import (
-        Delta,
-        DeltaLocator,
-        DeltaType,
-        DistributedDataset,
-        LifecycleState,
-        ListResult,
-        LocalDataset,
-        LocalTable,
-        Manifest,
-        ManifestAuthor,
-        Namespace,
-        NamespaceLocator,
-        Partition,
-        SchemaConsistencyType,
-        Stream,
-        StreamLocator,
-        Table,
-        TableVersion,
-        TableVersionLocator,
-        TableLocator,
-        CommitState,
-        SortKey,
         PartitionLocator,
-        ManifestMeta,
-        ManifestEntry,
-        ManifestEntryList,
+        Stream,
     )
 
     ray.init(local_mode=True)  # TODO (use non-deprecated alternative)
@@ -314,7 +263,6 @@ def test_compact_partition_success(
         **ds_mock_kwargs,
     }
     manifest = ds.get_delta_manifest(deltas[0], **ds_mock_kwargs)
-    # print(f"DEBUG {}\ntest_compaction_session:{manifest=}")
     list_deltas = ds.list_deltas(
         REBASE_TEST_SOURCE_NAMESPACE,
         REBASE_TEST_SOURCE_TABLE_NAME,
@@ -322,5 +270,24 @@ def test_compact_partition_success(
         REBASE_TEST_SOURCE_TABLE_VERSION,
         **ds_mock_kwargs,
     ).all_items()
+    print(f"{manifest=}\n{list_deltas=}")
     actual_res = compact_partition(**compact_partition_params)
-    # got compacted table 
+    print(actual_res)
+    # query rcf
+    # different PKs/timestamp/int
+    # region_
+    # got compacted table
+
+    # primary key as different types
+    # partition keys as different types - multip partition keys
+
+    """
+    Cases:
+    1. incremental + no round completion file (sanity) (destination empty)
+    2. incremental + round completion file
+    3. Backfill
+        w round completion and no round completion
+    4. rebase
+        w round completion and no round completion
+    5. Rebase then incremental (use same round completion file)
+    """

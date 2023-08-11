@@ -91,7 +91,7 @@ def _group_file_records_by_pk_hash_bucket(
     is_src_delta: np.bool_ = True,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-     **kwargs,
+    **kwargs,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes, total_record_count = _read_delta_file_envelopes(
@@ -194,6 +194,7 @@ def _timed_hash_bucket(
         f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
         sort_key_names = [key.key_name for key in sort_keys]
+        # TODO: This will always to set to
         if not round_completion_info:
             is_src_delta = True
         else:

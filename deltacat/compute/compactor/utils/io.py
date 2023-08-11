@@ -352,13 +352,6 @@ def _discover_deltas(
     table_name = stream_locator.table_name
     table_version = stream_locator.table_version
     partition_values = source_partition_locator.partition_values
-    deltas_list_resultDEBUG = deltacat_storage.list_deltas(
-        namespace=namespace,
-        table_name=table_name,
-        partition_values=partition_values,
-        table_version=table_version,
-        **kwargs,
-    ).all_items()
     deltas_list_result = deltacat_storage.list_deltas(
         namespace=namespace,
         table_name=table_name,

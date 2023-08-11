@@ -424,7 +424,7 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
         **kwargs,
     )
-
+    # source has a partition, destination has a partition, no round completion file
     hb_invoke_end = time.monotonic()
 
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -638,7 +638,7 @@ def _execute_compaction_round(
     )
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta,
-        properties=kwargs.get("properties", DEFAULT_PROPERTIES_ARG), 
+        properties=kwargs.get("properties", DEFAULT_PROPERTIES_ARG),
         **kwargs,
     )
     logger.info(f"Committed compacted delta: {compacted_delta}")
