@@ -71,8 +71,6 @@ def materialize(
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ):
-    print(f"DEBUG:materialize: {source_partition_locator=}, {partition=}")
-
     def _stage_delta_from_manifest_entry_reference_list(
         manifest_entry_list_reference: List[ManifestEntry],
         partition: Partition,
@@ -186,15 +184,11 @@ def materialize(
                 if is_src_partition_file_np
                 else round_completion_info.compacted_delta_locator.partition_locator
             )
-            print(
-                f"DEBUG:_materialize {round_completion_info=} {is_src_partition_file_np=}"
-            )
             delta_locator = DeltaLocator.of(
                 src_file_partition_locator,
                 src_stream_position_np.item(),
             )
             dl_digest = delta_locator.digest()
-            print(f"DEBUG:materialize:get_delta_manifest: {delta_locator=}")
             manifest = manifest_cache.setdefault(
                 dl_digest,
                 deltacat_storage.get_delta_manifest(delta_locator, **kwargs),
@@ -238,9 +232,6 @@ def materialize(
                 )
                 referenced_pyarrow_write_results.append(referenced_pyarrow_write_result)
             else:
-                print(
-                    f"DEBUG:materialize {src_file_idx_np=},{Delta.of(delta_locator, None, None, None, manifest)=}"
-                )
                 pa_table, download_delta_manifest_entry_time = timed_invocation(
                     deltacat_storage.download_delta_manifest_entry,
                     Delta.of(delta_locator, None, None, None, manifest),
