@@ -14,7 +14,7 @@ def pyarrow_to_daft_schema(pa_schema: pa.Schema) -> DaftSchema:
     Returns:
         DaftSchema: Converted PyArrow schema
     """
-    return daft.Schema._from_field_name_and_types(
+    return DaftSchema._from_field_name_and_types(
         [
             (pa_field.name, daft.DataType.from_arrow_type(pa_field.type))
             for pa_field in pa_schema

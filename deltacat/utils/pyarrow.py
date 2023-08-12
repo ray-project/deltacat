@@ -276,7 +276,7 @@ def s3_file_to_table(
                 s3=S3Config(
                     key_id=s3_client_kwargs["aws_access_key_id"],
                     access_key=s3_client_kwargs["aws_secret_access_key"],
-                    aws_session_token=s3_client_kwargs["aws_session_token"],
+                    session_token=s3_client_kwargs["aws_session_token"],
                     num_tries=25,
                 )
             ),
