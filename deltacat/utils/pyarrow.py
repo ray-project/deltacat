@@ -270,7 +270,7 @@ def s3_file_to_table(
 
         table = Table.read_parquet(
             path=s3_url,
-            columns=column_names,
+            columns=include_columns,
             coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
             io_config=IOConfig(
                 s3=S3Config(
