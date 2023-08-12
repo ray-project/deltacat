@@ -343,16 +343,8 @@ def _discover_deltas(
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> List[Delta]:
-    stream_locator = source_partition_locator.stream_locator
-    namespace = stream_locator.namespace
-    table_name = stream_locator.table_name
-    table_version = stream_locator.table_version
-    partition_values = source_partition_locator.partition_values
-    deltas_list_result = deltacat_storage.list_deltas(
-        namespace=namespace,
-        table_name=table_name,
-        partition_values=partition_values,
-        table_version=table_version,
+    deltas_list_result = deltacat_storage.list_partition_deltas(
+        partition_like=source_partition_locator,
         first_stream_position=start_position_exclusive,
         last_stream_position=end_position_inclusive,
         ascending_order=True,
