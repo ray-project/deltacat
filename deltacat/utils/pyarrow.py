@@ -264,8 +264,8 @@ def s3_file_to_table(
         if pa_read_func_kwargs_provider is not None:
             kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
-        coerce_int96_timestamp_unit = (
-            TimeUnit.from_str(kwargs.get("coerce_int96_timestamp_unit", "ms"))
+        coerce_int96_timestamp_unit = TimeUnit.from_str(
+            kwargs.get("coerce_int96_timestamp_unit", "ms")
         )
 
         table = Table.read_parquet(
