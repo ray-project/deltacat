@@ -199,6 +199,7 @@ def collect_stats_by_columns(
                 TableType.PYARROW,
                 columns_to_compute,
                 equivalent_table_types="uncompacted",
+                **kwargs,
             )
         )
         assert isinstance(entry_pyarrow_table, pyarrow.Table), (

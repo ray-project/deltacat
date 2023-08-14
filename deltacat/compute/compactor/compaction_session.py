@@ -92,6 +92,7 @@ def check_preconditions(
         source_partition_locator,
         sort_keys,
         deltacat_storage,
+        **kwargs,
     )
 
 
@@ -255,6 +256,7 @@ def _execute_compaction_round(
         records_per_compacted_file,
         hash_bucket_count,
         deltacat_storage,
+        **kwargs,
     )
 
     # sort primary keys to produce the same pk digest regardless of input order

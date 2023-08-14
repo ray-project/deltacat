@@ -60,6 +60,7 @@ def collect(
             source_partition_locator.namespace,
             source_partition_locator.table_name,
             source_partition_locator.table_version,
+            **kwargs,
         )
     for range_pair in merge_intervals(delta_stream_position_range_set):
         begin, end = range_pair
@@ -105,6 +106,7 @@ def collect_from_deltas(
             delta_locator.namespace,
             delta_locator.table_name,
             delta_locator.table_version,
+            **kwargs,
         )
 
     delta_stats_processed_list: List[DeltaStats] = _collect_stats_from_deltas(

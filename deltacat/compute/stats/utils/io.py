@@ -95,7 +95,7 @@ def get_delta_stats(
         A delta wide stats container
     """
 
-    manifest = deltacat_storage.get_delta_manifest(delta_locator)
+    manifest = deltacat_storage.get_delta_manifest(delta_locator, **kwargs)
     delta = Delta.of(delta_locator, None, None, None, manifest)
     return _collect_stats_by_columns(delta, columns, deltacat_storage)
 
@@ -139,6 +139,7 @@ def get_deltas_from_range(
         end_position_inclusive,
         ascending_order=True,
         include_manifest=False,
+        **kwargs,
     )
     return deltas_list_result.all_items()
 
@@ -170,7 +171,11 @@ def _collect_stats_by_columns(
     for file_idx, manifest in enumerate(delta.manifest.entries):
         entry_pyarrow_table: LocalTable = (
             deltacat_storage.download_delta_manifest_entry(
-                delta, file_idx, TableType.PYARROW, columns_to_compute
+                delta,
+                file_idx,
+                TableType.PYARROW,
+                columns_to_compute,
+                **kwargs,
             )
         )
         assert isinstance(entry_pyarrow_table, pyarrow.Table), (
