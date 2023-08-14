@@ -118,6 +118,7 @@ def compact_partition(
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
     s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Optional[str]:
 
@@ -127,6 +128,9 @@ def compact_partition(
 
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
+
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
 
     # memray official documentation link:
     # https://bloomberg.github.io/memray/getting_started.html
@@ -162,6 +166,7 @@ def compact_partition(
             object_store,
             s3_client_kwargs,
             deltacat_storage,
+            deltacat_storage_kwargs,
             **kwargs,
         )
         if new_partition:
@@ -210,6 +215,7 @@ def _execute_compaction_round(
     object_store: Optional[IObjectStore],
     s3_client_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
 
@@ -330,7 +336,8 @@ def _execute_compaction_round(
         rebase_source_partition_locator,
         rebase_source_partition_high_watermark,
         deltacat_storage,
-        **list_deltas_kwargs,
+        deltacat_storage_kwargs,
+        list_deltas_kwargs,
     )
 
     delta_discovery_end = time.monotonic()

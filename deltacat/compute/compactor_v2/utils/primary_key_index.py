@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional, Iterable
 
 import numpy as np
 import pyarrow as pa
@@ -10,14 +10,10 @@ from deltacat.compute.compactor_v2.constants import (
     TOTAL_BYTES_IN_SHA1_HASH,
     PK_DELIMITER,
 )
-from ray.types import ObjectRef
 import time
-
+from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelope
 from deltacat import logs
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.compute.compactor.utils.primary_key_index import (
-    group_hash_bucket_indices as group_hash_bucket_indices_v1,
-)
 from deltacat.io.object_store import IObjectStore
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -179,15 +175,59 @@ def group_hash_bucket_indices(
     num_buckets: int,
     num_groups: int,
     object_store: Optional[IObjectStore] = None,
-) -> Tuple[np.ndarray, List[ObjectRef]]:
+) -> np.ndarray:
     """
     This method persists all tables for a given hash bucket into the object store
     and returns the object references for each hash group.
     """
 
-    return group_hash_bucket_indices_v1(
-        hash_bucket_object_groups, num_buckets, num_groups, object_store
-    )
+    hash_bucket_group_to_obj_id_size_tuple = np.empty([num_groups], dtype="object")
+
+    if hash_bucket_object_groups is None:
+        return hash_bucket_group_to_obj_id_size_tuple
+
+    hb_group_to_object = np.empty([num_groups], dtype="object")
+    hash_group_to_size = np.empty([num_groups], dtype="int64")
+    hash_group_to_num_rows = np.empty([num_groups], dtype="int64")
+
+    for hb_index, obj in enumerate(hash_bucket_object_groups):
+        if obj:
+            hb_group = hash_bucket_index_to_hash_group_index(hb_index, num_groups)
+            if hb_group_to_object[hb_group] is None:
+                hb_group_to_object[hb_group] = np.empty([num_buckets], dtype="object")
+                hash_group_to_size[hb_group] = np.int64(0)
+                hash_group_to_num_rows[hb_group] = np.int64(0)
+            hb_group_to_object[hb_group][hb_index] = obj
+            for dfe in obj:
+                casted_dfe: DeltaFileEnvelope = dfe
+                hash_group_to_size[hb_group] += casted_dfe.table_size_bytes
+                hash_group_to_num_rows[hb_group] += casted_dfe.table_num_rows
+
+    for hb_group, obj in enumerate(hb_group_to_object):
+        if obj is None:
+            continue
+        object_ref = object_store.put(obj)
+        hash_bucket_group_to_obj_id_size_tuple[hb_group] = (
+            object_ref,
+            hash_group_to_size[hb_group],
+            hash_group_to_num_rows[hb_group],
+        )
+        del object_ref
+    return hash_bucket_group_to_obj_id_size_tuple
+
+
+def hash_bucket_index_to_hash_group_index(hb_index: int, num_groups: int) -> int:
+    return hb_index % num_groups
+
+
+def hash_group_index_to_hash_bucket_indices(
+    hb_group: int, num_buckets: int, num_groups: int
+) -> Iterable[int]:
+
+    if hb_group > num_buckets:
+        return []
+
+    return range(hb_group, num_groups, num_buckets)
 
 
 def pk_digest_to_hash_bucket_index(digest: str, num_buckets: int) -> int:

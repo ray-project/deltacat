@@ -184,9 +184,9 @@ class TestHashBucket(unittest.TestCase):
 
         hb_index_to_dfes = defaultdict(list)
         total_records_in_result = 0
-        for _, object_id in enumerate(hb_result.hash_bucket_group_to_obj_id):
+        for _, object_id in enumerate(hb_result.hash_bucket_group_to_obj_id_tuple):
             if object_id:
-                obj = object_store.get(object_id)
+                obj = object_store.get(object_id[0])
                 for hb_idx, dfes in enumerate(obj):
                     if dfes is not None:
                         hb_index_to_dfes[hb_idx].extend(dfes)

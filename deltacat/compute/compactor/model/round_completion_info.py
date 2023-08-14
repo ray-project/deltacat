@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from typing import Tuple
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
@@ -40,9 +41,11 @@ class RoundCompletionInfo(dict):
         compacted_delta_locator: DeltaLocator,
         compacted_pyarrow_write_result: PyArrowWriteResult,
         sort_keys_bit_width: int,
-        rebase_source_partition_locator: Optional[PartitionLocator],
+        rebase_source_partition_locator: Optional[PartitionLocator] = None,
         manifest_entry_copied_by_reference_ratio: Optional[float] = None,
         compaction_audit_url: Optional[str] = None,
+        hash_bucket_count: Optional[int] = None,
+        hb_index_to_entry_range: Optional[Dict[int, Tuple[int, int]]] = None,
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -55,6 +58,8 @@ class RoundCompletionInfo(dict):
             "manifestEntryCopiedByReferenceRatio"
         ] = manifest_entry_copied_by_reference_ratio
         rci["compactionAuditUrl"] = compaction_audit_url
+        rci["hashBucketCount"] = hash_bucket_count
+        rci["hbIndexToEntryRange"] = hb_index_to_entry_range
         return rci
 
     @property
@@ -97,3 +102,14 @@ class RoundCompletionInfo(dict):
     @property
     def manifest_entry_copied_by_reference_ratio(self) -> Optional[float]:
         return self["manifestEntryCopiedByReferenceRatio"]
+
+    @property
+    def hash_bucket_count(self) -> Optional[int]:
+        return self["hashBucketCount"]
+
+    @property
+    def hb_index_to_entry_range(self) -> Optional[Dict[int, Tuple[int, int]]]:
+        """
+        The start index is inclusive and end index is exclusive by default.
+        """
+        return self["hbIndexToEntryRange"]

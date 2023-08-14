@@ -26,6 +26,10 @@ from deltacat.types.media import (
     ContentEncoding,
     ContentType,
 )
+from deltacat.types.partial_download import (
+    PartialFileDownloadParams,
+    PartialParquetParameters,
+)
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 
@@ -240,6 +244,86 @@ def _add_column_kwargs(
                 )
 
 
+def s3_partial_parquet_file_to_table(
+    s3_url: str,
+    include_columns: Optional[List[str]] = None,
+    partial_file_download_params: Optional[PartialParquetParameters] = None,
+    **kwargs,
+) -> pa.Table:
+
+    assert (
+        partial_file_download_params is not None
+    ), "Partial parquet params must not be None"
+    assert (
+        partial_file_download_params.row_groups_to_download is not None
+    ), "No row groups to download"
+
+    pq_file = s3_file_to_parquet(
+        s3_url=s3_url,
+        include_columns=include_columns,
+        partial_file_download_params=partial_file_download_params,
+        **kwargs,
+    )
+
+    table, latency = timed_invocation(
+        lambda: pq_file.read_row_groups(
+            partial_file_download_params.row_groups_to_download, columns=include_columns
+        )
+    )
+
+    logger.debug(f"Successfully read from s3_url={s3_url} in {latency}s")
+
+    # TODO: cast to appropriate schema
+    return table
+
+
+def s3_parquet_file_to_table(
+    s3_url: str,
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
+    **s3_client_kwargs,
+) -> pa.Table:
+
+    logger.debug(
+        f"Reading to Parquet table using read_table for {content_type} "
+        f"and encoding: {content_encoding}"
+    )
+
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
+    s3_file_system = s3fs.S3FileSystem(
+        key=s3_client_kwargs.get("aws_access_key_id"),
+        secret=s3_client_kwargs.get("aws_secret_access_key"),
+        token=s3_client_kwargs.get("aws_session_token"),
+        client_kwargs=s3_client_kwargs,
+    )
+
+    kwargs = {}
+    _add_column_kwargs(
+        content_type=content_type,
+        column_names=column_names,
+        include_columns=include_columns,
+        kwargs=kwargs,
+    )
+
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    table, latency = timed_invocation(
+        lambda: papq.read_table(
+            s3_url, columns=include_columns, filesystem=s3_file_system, **kwargs
+        )
+    )
+
+    logger.debug(f"Successfully read the table from s3 url={s3_url} in {latency}s")
+    return table
+
+
 def s3_file_to_table(
     s3_url: str,
     content_type: str,
@@ -247,6 +331,7 @@ def s3_file_to_table(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> pa.Table:
 
@@ -256,6 +341,34 @@ def s3_file_to_table(
         f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
         f"Encoding: {content_encoding}"
     )
+
+    if (
+        content_type == ContentType.PARQUET.value
+        and content_encoding == ContentEncoding.IDENTITY.value
+    ):
+        logger.debug(
+            f"Performing read using parquet reader for encoding={content_encoding} "
+            f"and content_type={content_type}"
+        )
+
+        parquet_reader_func = s3_parquet_file_to_table
+
+        if partial_file_download_params and isinstance(
+            partial_file_download_params, PartialParquetParameters
+        ):
+            parquet_reader_func = s3_partial_parquet_file_to_table
+
+        return parquet_reader_func(
+            s3_url=s3_url,
+            content_type=content_type,
+            content_encoding=content_encoding,
+            column_names=column_names,
+            include_columns=include_columns,
+            pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
+            partial_file_download_params=partial_file_download_params,
+            **s3_client_kwargs,
+        )
+
     s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
     pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]

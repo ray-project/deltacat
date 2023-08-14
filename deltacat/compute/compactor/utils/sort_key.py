@@ -9,6 +9,7 @@ def validate_sort_keys(
     source_partition_locator: PartitionLocator,
     sort_keys: List[SortKey],
     deltacat_storage,
+    deltacat_storage_kwargs,
 ) -> int:
     """
     Validates the input sort keys to ensure that they are unique, are using
@@ -27,6 +28,7 @@ def validate_sort_keys(
             stream_locator.namespace,
             stream_locator.table_name,
             stream_locator.table_version,
+            **deltacat_storage_kwargs,
         )
         if isinstance(table_version_schema, pa.Schema):
             for sort_key_name in sort_key_names:
