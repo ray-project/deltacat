@@ -127,7 +127,7 @@ def block_until_instance_metadata_service_returns_success(
 
 
 def _get_session_from_kwargs(input_kwargs):
-    # block_until_instance_metadata_service_returns_success()
+    block_until_instance_metadata_service_returns_success()
     if input_kwargs.get(BOTO3_PROFILE_NAME_KWARG_KEY) is not None:
         boto3_session = boto3.Session(
             profile_name=input_kwargs.get(BOTO3_PROFILE_NAME_KWARG_KEY)

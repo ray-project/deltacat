@@ -46,6 +46,7 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
             block_until_instance_metadata_service_returns_success().status_code, 200
         )
 
+    # TODO: (piercef) Fix this test now that we return None on HTTPStatus 429
     # @patch("deltacat.aws.clients.requests")
     # def test_retrying_on_statuses_in_status_force_list(self, requests_mock):
     #     from deltacat.aws.clients import (

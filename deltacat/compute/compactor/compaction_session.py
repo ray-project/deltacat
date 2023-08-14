@@ -426,7 +426,6 @@ def _execute_compaction_round(
         deltacat_storage=deltacat_storage,
         **kwargs,
     )
-    # source has a partition, destination has a partition, no round completion file
     hb_invoke_end = time.monotonic()
 
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
