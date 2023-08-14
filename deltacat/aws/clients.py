@@ -121,6 +121,7 @@ def block_until_instance_metadata_service_returns_success(
 
     https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
     """
+    # We will get a 403 HTTP status code if running deltacat not in an EC2 instance. In that case we won't want to block
     if _get_url(url).status_code == HTTPStatus.FORBIDDEN:
         return None
     return retrying_get(url, retry_strategy, wait_strategy, stop_strategy)
