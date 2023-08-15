@@ -14,7 +14,7 @@ from deltacat.storage import (
 )
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from deltacat.compute.compactor import HighWatermark
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -31,23 +31,27 @@ def discover_deltas(
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Delta], int]:
 
     # Source One: new deltas from uncompacted table for incremental compaction or deltas from compacted table for rebase
-    input_deltas = _discover_deltas(
-        source_partition_locator,
+    start_position_exclusive = (
         high_watermark.get(source_partition_locator)
         if isinstance(high_watermark, dict)
-        else high_watermark,
+        else high_watermark
+    )
+    input_deltas = _discover_deltas(
+        source_partition_locator,
+        start_position_exclusive,
         last_stream_position_to_compact
         if not rebase_source_partition_locator
         else deltacat_storage.get_partition(
             source_partition_locator.stream_locator,
             source_partition_locator.partition_values,
+            **deltacat_storage_kwargs,
         ).stream_position,
         deltacat_storage,
-        **kwargs,
+        deltacat_storage_kwargs,
     )
 
     # Source Two: delta from compacted table for incremental compaction or new deltas from uncompacted table for rebase
@@ -56,6 +60,7 @@ def discover_deltas(
         compacted_partition = deltacat_storage.get_partition(
             compacted_partition_locator.stream_locator,
             compacted_partition_locator.partition_values,
+            **deltacat_storage_kwargs,
         )
         previous_last_stream_position_compacted = (
             compacted_partition.stream_position if compacted_partition else -1
@@ -67,7 +72,7 @@ def discover_deltas(
                 None,
                 previous_last_stream_position_compacted,
                 deltacat_storage,
-                **kwargs,
+                deltacat_storage_kwargs,
             )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
@@ -80,7 +85,7 @@ def discover_deltas(
             rebase_source_partition_high_watermark,
             last_stream_position_to_compact,
             deltacat_storage,
-            **kwargs,
+            deltacat_storage_kwargs,
         )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
@@ -99,6 +104,8 @@ def limit_input_deltas(
     input_deltas_stats: Dict[int, DeltaStats],
     compaction_audit: CompactionSessionAuditInfo,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
     # TODO (pdames): when row counts are available in metadata, use them
     #  instead of bytes - memory consumption depends more on number of
@@ -135,7 +142,7 @@ def limit_input_deltas(
         for stream_pos, delta_stats in input_deltas_stats.items()
     }
     for delta in input_deltas:
-        manifest = deltacat_storage.get_delta_manifest(delta)
+        manifest = deltacat_storage.get_delta_manifest(delta, **deltacat_storage_kwargs)
         delta.manifest = manifest
         position = delta.stream_position
         delta_stats = input_deltas_stats.get(delta.stream_position, DeltaStats())
@@ -258,6 +265,8 @@ def fit_input_deltas(
     compaction_audit: CompactionSessionAuditInfo,
     hash_bucket_count: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
     """
     This method tries to fit all the input deltas to run into the existing cluster. Contrary to
@@ -341,6 +350,7 @@ def _discover_deltas(
     start_position_exclusive: Optional[int],
     end_position_inclusive: int,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> List[Delta]:
     stream_locator = source_partition_locator.stream_locator
@@ -357,7 +367,7 @@ def _discover_deltas(
         last_stream_position=end_position_inclusive,
         ascending_order=True,
         include_manifest=True,
-        **kwargs,
+        **deltacat_storage_kwargs,
     )
     deltas = deltas_list_result.all_items()
     if not deltas:

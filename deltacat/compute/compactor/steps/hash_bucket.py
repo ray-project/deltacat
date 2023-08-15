@@ -3,7 +3,7 @@ import logging
 import time
 from contextlib import nullcontext
 from itertools import chain
-from typing import Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 import numpy as np
 import pyarrow as pa
 import ray
@@ -91,6 +91,8 @@ def _group_file_records_by_pk_hash_bucket(
     is_src_delta: np.bool_ = True,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes, total_record_count = _read_delta_file_envelopes(
@@ -99,6 +101,8 @@ def _group_file_records_by_pk_hash_bucket(
         sort_key_names,
         read_kwargs_provider,
         deltacat_storage,
+        deltacat_storage_kwargs,
+        **kwargs,
     )
     if delta_file_envelopes is None:
         return None, 0
@@ -134,6 +138,8 @@ def _read_delta_file_envelopes(
     sort_key_names: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
 
     columns_to_read = list(chain(primary_keys, sort_key_names))
@@ -145,6 +151,7 @@ def _read_delta_file_envelopes(
         columns=columns_to_read,
         file_reader_kwargs_provider=read_kwargs_provider,
         storage_type=StorageType.LOCAL,
+        **deltacat_storage_kwargs,
     )
     annotations = annotated_delta.annotations
     assert (
@@ -182,6 +189,8 @@ def _timed_hash_bucket(
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     object_store: Optional[IObjectStore] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
@@ -189,6 +198,7 @@ def _timed_hash_bucket(
         f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
         sort_key_names = [key.key_name for key in sort_keys]
+        # TODO: This will always to set to
         if not round_completion_info:
             is_src_delta = True
         else:
@@ -207,6 +217,8 @@ def _timed_hash_bucket(
             is_src_delta,
             read_kwargs_provider,
             deltacat_storage,
+            deltacat_storage_kwargs,
+            **kwargs,
         )
         hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
             delta_file_envelope_groups, num_buckets, num_groups, object_store
@@ -235,8 +247,9 @@ def hash_bucket(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     object_store: Optional[IObjectStore],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> HashBucketResult:
-
     logger.info(f"Starting hash bucket task...")
     hash_bucket_result, duration = timed_invocation(
         func=_timed_hash_bucket,
@@ -250,6 +263,8 @@ def hash_bucket(
         read_kwargs_provider=read_kwargs_provider,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
+        **kwargs,
     )
 
     emit_metrics_time = 0.0

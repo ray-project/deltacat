@@ -52,7 +52,7 @@ class CompactionSessionAuditInfo(dict):
     @property
     def uniform_deltas_created(self) -> int:
         """
-        The total number of unitform deltas fed into the hash bucket step.
+        The total number of uniform deltas fed into the hash bucket step.
         """
         return self.get("uniformDeltasCreated")
 
@@ -68,7 +68,7 @@ class CompactionSessionAuditInfo(dict):
     @property
     def input_size_bytes(self) -> float:
         """
-        The on-disk size in bytes of the input.
+        The on-disk size in bytes of the input. Analogous to bytes scanned
         """
         return self.get("inputSizeBytes")
 

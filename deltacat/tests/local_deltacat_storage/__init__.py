@@ -188,9 +188,9 @@ def list_deltas(
 
     for delta in all_deltas:
         if (
-            not first_stream_position or first_stream_position <= delta.stream_position
+            not first_stream_position or first_stream_position < delta.stream_position
         ) and (
-            not last_stream_position or last_stream_position > delta.stream_position
+            not last_stream_position or delta.stream_position <= last_stream_position
         ):
             result.append(delta)
 
@@ -334,7 +334,6 @@ def download_delta_manifest_entry(
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
     manifest = get_delta_manifest(delta_like, *args, **kwargs)
-
     if entry_index >= len(manifest.entries):
         raise IndexError(
             f"Manifest entry index {entry_index} does not exist. "
@@ -352,7 +351,6 @@ def download_delta_manifest_entry(
         )
 
     serialized_data = serialized_data[0]
-
     if entry.meta.content_type == ContentType.PARQUET:
         if table_type == TableType.PYARROW_PARQUET:
             table = pa.parquet.ParquetFile(io.BytesIO(serialized_data))
@@ -388,18 +386,17 @@ def download_delta_manifest_entry(
 
 def get_delta_manifest(
     delta_like: Union[Delta, DeltaLocator], *args, **kwargs
-) -> Manifest:
+) -> Optional[Manifest]:
     delta = get_delta(
-        delta_like.namespace,
-        delta_like.table_name,
-        delta_like.stream_position,
-        delta_like.partition_values,
-        delta_like.table_version,
-        True,
+        namespace=delta_like.namespace,
+        table_name=delta_like.table_name,
+        stream_position=delta_like.stream_position,
+        partition_values=delta_like.partition_values,
+        table_version=delta_like.table_version,
+        include_manifest=True,
         *args,
         **kwargs,
     )
-
     if not delta:
         return None
 
@@ -462,7 +459,6 @@ def create_table_version(
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
     latest_version = get_latest_table_version(namespace, table_name, *args, **kwargs)
-
     if (
         table_version is not None
         and latest_version
@@ -762,7 +758,18 @@ def commit_partition(partition: Partition, *args, **kwargs) -> Partition:
         params = (json.dumps(pv_partition), pv_partition.locator.canonical_string())
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
 
+    deltas = list_partition_deltas(partition, *args, **kwargs).all_items()
+    deltas.sort(reverse=True, key=lambda x: x.stream_position)
+
+    stream_position = partition.stream_position
+    if deltas:
+        stream_position = deltas[0].stream_position
+
     partition.state = CommitState.COMMITTED
+    partition.stream_position = stream_position
+    partition.previous_stream_position = (
+        pv_partition.stream_position if pv_partition else None
+    )
     params = (json.dumps(partition), partition.locator.canonical_string())
     cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
     con.commit()
@@ -1032,6 +1039,7 @@ def get_stream(
     *args,
     **kwargs,
 ) -> Optional[Stream]:
+    assert not isinstance(table_version, int), f"Passed an integer as the table version"
     obj = get_table_version(namespace, table_name, table_version, *args, **kwargs)
 
     if obj is None:
