@@ -120,4 +120,6 @@ INCREMENTAL_TEST_CASES = {
         MAX_RECORDS_PER_FILE,
         None,
     ),
+    # decimal, int, timestamp pk, multipk
+    # honoring sort key
 }

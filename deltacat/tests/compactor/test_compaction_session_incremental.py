@@ -6,7 +6,7 @@ import pytest
 import os
 import json
 import boto3
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
@@ -24,7 +24,6 @@ from deltacat.tests.compactor.common import (
 from deltacat.tests.compactor.testcases import (
     INCREMENTAL_TEST_CASES,
 )
-
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -88,19 +87,19 @@ def ds_mock_kwargs():
 
 # TEARDOWN
 def setup_incremental_source_and_destination_tables(
-    primary_keys: frozenset[str],
-    sort_keys,
-    partition_keys: List[PartitionKey],
+    primary_keys: Set[str],
+    sort_keys: Optional[List[Any]],
+    partition_keys: Optional[List[PartitionKey]],
     column_names: List[str],
     arrow_arrays: List[pa.Array],
-    partition_values,
-    ds_mock_kwargs,
-    source_namespace=BASE_TEST_SOURCE_NAMESPACE,
-    source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-    source_table_name=BASE_TEST_SOURCE_TABLE_NAME,
-    destination_namespace=BASE_TEST_DESTINATION_NAMESPACE,
-    destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
-    destination_table_name=BASE_TEST_DESTINATION_TABLE_NAME,
+    partition_values: Optional[List[Any]],
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+    source_namespace: str = BASE_TEST_SOURCE_NAMESPACE,
+    source_table_version: str = BASE_TEST_SOURCE_TABLE_VERSION,
+    source_table_name: str = BASE_TEST_SOURCE_TABLE_NAME,
+    destination_namespace: str = BASE_TEST_DESTINATION_NAMESPACE,
+    destination_table_version: str = BASE_TEST_DESTINATION_TABLE_VERSION,
+    destination_table_name: str = BASE_TEST_DESTINATION_TABLE_NAME,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
