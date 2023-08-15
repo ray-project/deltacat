@@ -38,13 +38,13 @@ class PartitionKey(dict):
 MAX_RECORDS_PER_FILE: int = 1
 TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
 # REBASE  src = spark compacted table to create an initial version of ray compacted table
-TEST_SOURCE_NAMESPACE = "source_test_namespace"
-TEST_SOURCE_TABLE_NAME = "test_table"
-TEST_SOURCE_TABLE_VERSION = "1"
+BASE_TEST_SOURCE_NAMESPACE = "source_test_namespace"
+BASE_TEST_SOURCE_TABLE_NAME = "test_table"
+BASE_TEST_SOURCE_TABLE_VERSION = "1"
 
-TEST_DESTINATION_NAMESPACE = "destination_test_namespace"
-TEST_DESTINATION_TABLE_NAME = "destination_test_table"
-TEST_DESTINATION_TABLE_VERSION = "1"
+BASE_TEST_DESTINATION_NAMESPACE = "destination_test_namespace"
+BASE_TEST_DESTINATION_TABLE_NAME = "destination_test_table_RAY"
+BASE_TEST_DESTINATION_TABLE_VERSION = "1"
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -102,6 +102,8 @@ def ds_mock_kwargs():
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs_for_local_deltacat_storage
+    if os.path.exists(DATABASE_FILE_PATH_VALUE):
+        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 # TEARDOWN
@@ -319,10 +321,16 @@ def test_compact_partition_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import Partition, Stream
-    from deltacat.compute.compactor.compaction_session import compact_partition
+    from deltacat.compute.compactor.compaction_session import (
+        compact_partition,
+        # compact_partition_from_request,
+    )
     from deltacat.storage.model.sort_key import SortKey
     from deltacat.storage import (
         PartitionLocator,
+    )
+    from deltacat.compute.compactor.model.compact_partition_params import (
+        CompactPartitionParams,
     )
     from deltacat.utils.placement import (
         PlacementGroupManager,
@@ -331,12 +339,12 @@ def test_compact_partition_incremental(
         RoundCompletionInfo,
     )
 
-    source_namespace = TEST_SOURCE_NAMESPACE
-    source_table_name = TEST_SOURCE_TABLE_NAME
-    source_table_version = TEST_SOURCE_TABLE_VERSION
-    destination_namespace = TEST_DESTINATION_NAMESPACE
-    destination_table_name = TEST_DESTINATION_TABLE_NAME
-    destination_table_version = TEST_DESTINATION_TABLE_VERSION
+    source_namespace = BASE_TEST_SOURCE_NAMESPACE
+    source_table_name = BASE_TEST_SOURCE_TABLE_NAME
+    source_table_version = BASE_TEST_SOURCE_TABLE_VERSION
+    destination_namespace = BASE_TEST_DESTINATION_NAMESPACE
+    destination_table_name = BASE_TEST_DESTINATION_TABLE_NAME
+    destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
     # setup
     sort_keys = None
     if in_sort_keys is not None:
@@ -397,16 +405,16 @@ def test_compact_partition_incremental(
     ray.init(local_mode=True)
     assert ray.is_initialized()
     source_table_version = ds.get_table_version(
-        TEST_SOURCE_NAMESPACE,
-        TEST_SOURCE_TABLE_NAME,
-        TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_SOURCE_NAMESPACE,
+        BASE_TEST_SOURCE_TABLE_NAME,
+        BASE_TEST_SOURCE_TABLE_VERSION,
         **ds_mock_kwargs,
     )
     source_partition = ds.get_partition(
         ds.get_stream(
-            namespace=TEST_SOURCE_NAMESPACE,
-            table_name=TEST_SOURCE_TABLE_NAME,
-            table_version=TEST_SOURCE_TABLE_VERSION,
+            namespace=BASE_TEST_SOURCE_NAMESPACE,
+            table_name=BASE_TEST_SOURCE_TABLE_NAME,
+            table_version=BASE_TEST_SOURCE_TABLE_VERSION,
             **ds_mock_kwargs,
         ).locator,
         partition_values,
@@ -439,8 +447,10 @@ def test_compact_partition_incremental(
         "source_partition_locator": source_partition.locator,
         "sort_keys": sort_keys if sort_keys else None,
     }
+    # compact_partition_params_2 = CompactPartitionParams.of(compact_partition_params)
     # execute
     rcf_file_s3_uri = compact_partition(**compact_partition_params)
+    # rcf_file_s3_uri = compact_partition_from_request(compact_partition_params)
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(
         s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key

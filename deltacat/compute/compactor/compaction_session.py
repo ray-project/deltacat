@@ -715,10 +715,11 @@ def _execute_compaction_round(
 
 def compact_partition_from_request(
     compact_partition_params: CompactPartitionParams,
+    *compact_partition_pos_args,
 ) -> Optional[str]:
     """
     Wrapper for compact_partition that allows for the compact_partition parameters to be
-    passed in as a custom dictionary-like CompactPartitionParams object.
+    passed in as a custom dictionary-like CompactPartitionParams object along with any compact_partition positional arguments.
     :param compact_partition_params:
     """
-    return compact_partition(**compact_partition_params)
+    return compact_partition(*compact_partition_pos_args, **compact_partition_params)
