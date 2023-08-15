@@ -218,10 +218,10 @@ def setup_incremental_source_and_destination_tables(
 )
 def test_compact_partition_incremental(
     request,
-    s3_resource,
-    ds_mock_kwargs,
-    compaction_artifacts_s3_bucket,
-    test_name,
+    s3_resource: ServiceResource,
+    ds_mock_kwargs: Dict[str, Any],
+    compaction_artifacts_s3_bucket: None,
+    test_name: str,
     primary_keys_param: Set[str],
     sort_keys_param,
     partition_keys_param,
@@ -313,12 +313,14 @@ def test_compact_partition_incremental(
             "primary_keys": primary_keys_param,
             "rebase_source_partition_locator": rebase_source_partition_locator_param,
             "records_per_compacted_file": records_per_compacted_file_param,
+            "s3_client_kwargs": None,
             "source_partition_locator": source_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
         }
     )
     # execute
     rcf_file_s3_uri = compact_partition_from_request(compact_partition_params)
+    # validate
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(
         s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
