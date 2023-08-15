@@ -94,6 +94,8 @@ def _group_file_records_by_pk_hash_bucket(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     # read input parquet s3 objects into a list of delta file envelopes
     delta_file_envelopes, total_record_count = _read_delta_file_envelopes(
         annotated_delta,
@@ -141,7 +143,8 @@ def _read_delta_file_envelopes(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     columns_to_read = list(chain(primary_keys, sort_key_names))
     # TODO (rootliu) compare performance of column read from unpartitioned vs partitioned file
     # https://arrow.apache.org/docs/python/parquet.html#writing-to-partitioned-datasets
@@ -192,6 +195,8 @@ def _timed_hash_bucket(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -249,6 +254,8 @@ def hash_bucket(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> HashBucketResult:
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     logger.info(f"Starting hash bucket task...")
     hash_bucket_result, duration = timed_invocation(
         func=_timed_hash_bucket,

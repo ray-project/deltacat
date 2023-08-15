@@ -122,7 +122,8 @@ def collect_from_partition(
     *args,
     **kwargs,
 ) -> ObjectRef[Dict[int, DeltaStats]]:
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     if not columns:
         columns = deltacat_storage.get_table_version_column_names(
             source_partition_locator.namespace,

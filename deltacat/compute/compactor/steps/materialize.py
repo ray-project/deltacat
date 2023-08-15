@@ -72,6 +72,9 @@ def materialize(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
+
     def _stage_delta_from_manifest_entry_reference_list(
         manifest_entry_list_reference: List[ManifestEntry],
         partition: Partition,

@@ -18,6 +18,8 @@ def validate_sort_keys(
     sum of bit widths across sort key data types is less-than-or-equal-to
     256. Returns the sum of bit widths across all sort keys.
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     total_sort_keys_bit_width = 0
     if sort_keys:
         sort_key_names = [key.key_name for key in sort_keys]

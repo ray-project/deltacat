@@ -33,7 +33,8 @@ def discover_deltas(
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Delta], int]:
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     # Source One: new deltas from uncompacted table for incremental compaction or deltas from compacted table for rebase
     start_position_exclusive = (
         high_watermark.get(source_partition_locator)
@@ -115,6 +116,8 @@ def limit_input_deltas(
     # this assumption could be removed, but we'd still need to know the max
     # resources we COULD get for this cluster, and the amount of memory
     # available per CPU should remain fixed across the cluster.
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     worker_cpus = int(cluster_resources["CPU"])
     worker_obj_store_mem = float(cluster_resources["object_store_memory"])
     logger.info(f"Total worker object store memory: {worker_obj_store_mem}")
@@ -286,6 +289,8 @@ def fit_input_deltas(
         Tuple of list of annotated deltas, recommended hash bucket count, high watermark,
             and whether multiple rounds are required (which is always False)
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     worker_cpus = int(cluster_resources["CPU"])
     total_memory = float(cluster_resources["memory"])
     high_watermark = HighWatermark()
@@ -353,6 +358,8 @@ def _discover_deltas(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> List[Delta]:
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     stream_locator = source_partition_locator.stream_locator
     namespace = stream_locator.namespace
     table_name = stream_locator.table_name

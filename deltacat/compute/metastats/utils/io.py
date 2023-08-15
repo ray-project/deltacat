@@ -183,6 +183,8 @@ def collect_stats_by_columns(
     Returns:
         A delta wide stats container
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     total_tables_size = 0
 
     # Mapping of column_name -> [stats_file_idx_1, stats_file_idx_2, ... stats_file_idx_n]

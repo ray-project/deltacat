@@ -129,7 +129,8 @@ def compact_partition(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Optional[str]:
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     if not importlib.util.find_spec("memray"):
         logger.info(f"memray profiler not available, disabling all profiling")
         enable_profiler = False
@@ -225,13 +226,13 @@ def _execute_compaction_round(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     rcf_source_partition_locator = (
         rebase_source_partition_locator
         if rebase_source_partition_locator
         else source_partition_locator
     )
-
     base_audit_url = rcf_source_partition_locator.path(
         f"s3://{compaction_artifact_s3_bucket}/compaction-audit"
     )

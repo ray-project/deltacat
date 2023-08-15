@@ -94,7 +94,8 @@ def get_delta_stats(
     Returns:
         A delta wide stats container
     """
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     manifest = deltacat_storage.get_delta_manifest(
         delta_locator, **deltacat_storage_kwargs
     )
@@ -162,6 +163,8 @@ def _collect_stats_by_columns(
     Returns:
         A delta wide stats container
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     assert (
         delta.manifest is not None
     ), f"Manifest should not be missing from delta for stats calculation: {delta}"

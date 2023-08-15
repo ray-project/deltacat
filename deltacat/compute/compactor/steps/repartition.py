@@ -87,6 +87,8 @@ def repartition_range(
         in the tables, an error will be raised. For each partition range, a new file is created. This could result in
         more output files than input files.
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     column: str = repartition_args["column"]
     partition_ranges: List = repartition_args["ranges"]
     if len(partition_ranges) == 0:
@@ -169,6 +171,8 @@ def _timed_repartition(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> RepartitionResult:
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -210,6 +214,8 @@ def repartition(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> RepartitionResult:
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     logger.info(f"Starting repartition task...")
     repartition_result, duration = timed_invocation(
         func=_timed_repartition,
