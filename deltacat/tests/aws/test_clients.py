@@ -73,7 +73,6 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
         )
 
         requests_mock.get.side_effect = [
-            MockResponse(HTTPStatus.OK, "foo"),
             MockResponse(HTTPStatus.FORBIDDEN, "foo"),
         ]
         self.assertEqual(
