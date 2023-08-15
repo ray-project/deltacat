@@ -173,7 +173,6 @@ def compact_partition(
             s3_client_kwargs,
             deltacat_storage,
             deltacat_storage_kwargs,
-            **list_deltas_kwargs,
         )
         if new_partition:
             partition = new_partition
