@@ -322,8 +322,7 @@ def test_compact_partition_incremental(
     from deltacat.types.media import ContentType
     from deltacat.storage import Partition, Stream
     from deltacat.compute.compactor.compaction_session import (
-        compact_partition,
-        # compact_partition_from_request,
+        compact_partition_from_request,
     )
     from deltacat.storage.model.sort_key import SortKey
     from deltacat.storage import (
@@ -430,27 +429,27 @@ def test_compact_partition_incremental(
     pgm = None
     if create_placement_group:
         pgm = PlacementGroupManager(1, total_cpus, worker_instance_cpu).pgs[0]
-    compact_partition_params: Dict[str, Any] = {
-        "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
-        "compacted_file_content_type": ContentType.PARQUET,
-        "dd_max_parallelism_ratio": 1.0,
-        "deltacat_storage": ds,
-        "deltacat_storage_kwargs": ds_mock_kwargs,
-        "destination_partition_locator": destination_partition_locator,
-        "hash_bucket_count": hash_bucket_count,
-        "last_stream_position_to_compact": source_partition.stream_position,
-        "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
-        "pg_config": pgm,
-        "primary_keys": primary_keys,
-        "rebase_source_partition_locator": rebase_source_partition_locator,
-        "records_per_compacted_file": records_per_compacted_file,
-        "source_partition_locator": source_partition.locator,
-        "sort_keys": sort_keys if sort_keys else None,
-    }
-    # compact_partition_params_2 = CompactPartitionParams.of(compact_partition_params)
+    compact_partition_params = CompactPartitionParams.of(
+        {
+            "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+            "compacted_file_content_type": ContentType.PARQUET,
+            "dd_max_parallelism_ratio": 1.0,
+            "deltacat_storage": ds,
+            "deltacat_storage_kwargs": ds_mock_kwargs,
+            "destination_partition_locator": destination_partition_locator,
+            "hash_bucket_count": hash_bucket_count,
+            "last_stream_position_to_compact": source_partition.stream_position,
+            "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+            "pg_config": pgm,
+            "primary_keys": primary_keys,
+            "rebase_source_partition_locator": rebase_source_partition_locator,
+            "records_per_compacted_file": records_per_compacted_file,
+            "source_partition_locator": source_partition.locator,
+            "sort_keys": sort_keys if sort_keys else None,
+        }
+    )
     # execute
-    rcf_file_s3_uri = compact_partition(**compact_partition_params)
-    # rcf_file_s3_uri = compact_partition_from_request(compact_partition_params)
+    rcf_file_s3_uri = compact_partition_from_request(compact_partition_params)
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(
         s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
