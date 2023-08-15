@@ -3,7 +3,7 @@ import logging
 import time
 from contextlib import nullcontext
 from itertools import chain
-from typing import Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 import numpy as np
 import pyarrow as pa
 import ray
@@ -91,6 +91,7 @@ def _group_file_records_by_pk_hash_bucket(
     is_src_delta: np.bool_ = True,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
     # read input parquet s3 objects into a list of delta file envelopes
@@ -100,6 +101,7 @@ def _group_file_records_by_pk_hash_bucket(
         sort_key_names,
         read_kwargs_provider,
         deltacat_storage,
+        deltacat_storage_kwargs,
         **kwargs,
     )
     if delta_file_envelopes is None:
@@ -136,6 +138,7 @@ def _read_delta_file_envelopes(
     sort_key_names: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
 
@@ -148,7 +151,7 @@ def _read_delta_file_envelopes(
         columns=columns_to_read,
         file_reader_kwargs_provider=read_kwargs_provider,
         storage_type=StorageType.LOCAL,
-        **kwargs,
+        **deltacat_storage_kwargs,
     )
     annotations = annotated_delta.annotations
     assert (
@@ -186,6 +189,7 @@ def _timed_hash_bucket(
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     object_store: Optional[IObjectStore] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
     task_id = get_current_ray_task_id()
@@ -213,6 +217,7 @@ def _timed_hash_bucket(
             is_src_delta,
             read_kwargs_provider,
             deltacat_storage,
+            deltacat_storage_kwargs,
             **kwargs,
         )
         hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
@@ -242,6 +247,7 @@ def hash_bucket(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     object_store: Optional[IObjectStore],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> HashBucketResult:
     logger.info(f"Starting hash bucket task...")
@@ -257,6 +263,7 @@ def hash_bucket(
         read_kwargs_provider=read_kwargs_provider,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
         **kwargs,
     )
 

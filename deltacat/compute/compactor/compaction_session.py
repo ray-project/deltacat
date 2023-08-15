@@ -71,9 +71,11 @@ def check_preconditions(
     max_records_per_output_file: int,
     new_hash_bucket_count: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> int:
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     assert (
         source_partition_locator.partition_values
         == destination_partition_locator.partition_values
@@ -92,6 +94,7 @@ def check_preconditions(
         source_partition_locator,
         sort_keys,
         deltacat_storage,
+        deltacat_storage_kwargs,
         **kwargs,
     )
 
@@ -123,6 +126,7 @@ def compact_partition(
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
     s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Optional[str]:
 
@@ -167,7 +171,8 @@ def compact_partition(
             object_store,
             s3_client_kwargs,
             deltacat_storage,
-            **kwargs,
+            deltacat_storage_kwargs,
+            **list_deltas_kwargs,
         )
         if new_partition:
             partition = new_partition
@@ -178,7 +183,9 @@ def compact_partition(
         round_completion_file_s3_url = None
         if partition:
             logger.info(f"Committing compacted partition to: {partition.locator}")
-            partition = deltacat_storage.commit_partition(partition, **kwargs)
+            partition = deltacat_storage.commit_partition(
+                partition, **deltacat_storage_kwargs
+            )
             logger.info(f"Committed compacted partition: {partition}")
 
             round_completion_file_s3_url = rcf.write_round_completion_file(
@@ -215,6 +222,7 @@ def _execute_compaction_round(
     object_store: Optional[IObjectStore],
     s3_client_kwargs: Optional[Dict[str, Any]],
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
 
@@ -256,6 +264,7 @@ def _execute_compaction_round(
         records_per_compacted_file,
         hash_bucket_count,
         deltacat_storage,
+        deltacat_storage_kwargs,
         **kwargs,
     )
 
@@ -336,7 +345,7 @@ def _execute_compaction_round(
         rebase_source_partition_locator,
         rebase_source_partition_high_watermark,
         deltacat_storage,
-        **{**list_deltas_kwargs, **kwargs},
+        deltacat_storage_kwargs,
     )
 
     delta_discovery_end = time.monotonic()
@@ -369,6 +378,7 @@ def _execute_compaction_round(
             compaction_audit,
             hash_bucket_count,
             deltacat_storage=deltacat_storage,
+            deltacat_storage_kwargs=deltacat_storage_kwargs,
             **kwargs,
         )
         if input_deltas_stats is None
@@ -380,6 +390,7 @@ def _execute_compaction_round(
             compaction_audit=compaction_audit,
             input_deltas_stats=input_deltas_stats,
             deltacat_storage=deltacat_storage,
+            deltacat_storage_kwargs=deltacat_storage_kwargs,
             **kwargs,
         )
     )
@@ -424,6 +435,7 @@ def _execute_compaction_round(
         read_kwargs_provider=read_kwargs_provider,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
         **kwargs,
     )
     hb_invoke_end = time.monotonic()
@@ -473,12 +485,12 @@ def _execute_compaction_round(
         compacted_stream_locator.namespace,
         compacted_stream_locator.table_name,
         compacted_stream_locator.table_version,
-        **kwargs,
+        **deltacat_storage_kwargs,
     )
     partition = deltacat_storage.stage_partition(
         stream,
         destination_partition_locator.partition_values,
-        **kwargs,
+        **deltacat_storage_kwargs,
     )
     new_compacted_partition_locator = partition.locator
     # parallel step 2:
@@ -592,6 +604,7 @@ def _execute_compaction_round(
         s3_table_writer_kwargs=s3_table_writer_kwargs,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
         **kwargs,
     )
 
@@ -640,7 +653,7 @@ def _execute_compaction_round(
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta,
         properties=kwargs.get("properties", DEFAULT_PROPERTIES_ARG),
-        **kwargs,
+        **deltacat_storage_kwargs,
     )
     logger.info(f"Committed compacted delta: {compacted_delta}")
 

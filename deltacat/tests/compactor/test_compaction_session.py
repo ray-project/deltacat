@@ -415,6 +415,7 @@ def test_compact_partition_incremental(
         "compacted_file_content_type": ContentType.PARQUET,
         "dd_max_parallelism_ratio": 1.0,
         "deltacat_storage": ds,
+        "deltacat_storage_kwargs": ds_mock_kwargs,
         "destination_partition_locator": destination_partition_locator,
         "hash_bucket_count": None,
         "last_stream_position_to_compact": source_partition.stream_position,
@@ -425,7 +426,6 @@ def test_compact_partition_incremental(
         "records_per_compacted_file": MAX_RECORDS_PER_FILE,
         "source_partition_locator": source_partition.locator,
         "sort_keys": sort_keys if sort_keys else None,
-        **ds_mock_kwargs,
     }
     # execute
     rcf_file_s3_uri = compact_partition(**compact_partition_params)
@@ -444,7 +444,9 @@ def test_compact_partition_incremental(
         and validation_callback_func_kwargs is not None
     ):
         validation_callback_func(**validation_callback_func_kwargs)
-    if cleanup_prev_table:
+    if not cleanup_prev_table:
+        pass
+    else:
         request.getfixturevalue("cleanup_database_between_executions")
     ray.shutdown()
     assert not ray.is_initialized()

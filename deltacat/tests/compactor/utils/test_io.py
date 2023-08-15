@@ -1,6 +1,13 @@
+import os
 import unittest
 from unittest import mock
 from deltacat.tests.test_utils.constants import TEST_DELTA
+from typing import Any, Dict
+
+DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
+    "db_file_path",
+    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
+)
 
 
 class TestFitInputDeltas(unittest.TestCase):
@@ -13,16 +20,23 @@ class TestFitInputDeltas(unittest.TestCase):
             CompactionSessionAuditInfo,
         )
 
+        cls.kwargs_for_local_deltacat_storage: Dict[str, Any] = {
+            DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
+        }
+
         cls.COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "test")
 
         super().setUpClass()
 
     @classmethod
     def tearDownClass(cls) -> None:
+        if os.path.exists(DATABASE_FILE_PATH_VALUE):
+            os.remove(DATABASE_FILE_PATH_VALUE)
         cls.module_patcher.stop()
 
     def test_sanity(self):
         from deltacat.compute.compactor.utils import io
+        import deltacat.tests.local_deltacat_storage as ds
 
         (
             delta_list,
@@ -30,7 +44,12 @@ class TestFitInputDeltas(unittest.TestCase):
             high_watermark,
             require_multiple_rounds,
         ) = io.fit_input_deltas(
-            [TEST_DELTA], {"CPU": 1, "memory": 20000000}, self.COMPACTION_AUDIT, None
+            [TEST_DELTA],
+            {"CPU": 1, "memory": 20000000},
+            self.COMPACTION_AUDIT,
+            None,
+            ds,
+            self.kwargs_for_local_deltacat_storage,
         )
 
         self.assertIsNotNone(hash_bucket_count)
@@ -44,6 +63,7 @@ class TestFitInputDeltas(unittest.TestCase):
 
     def test_when_hash_bucket_count_overridden(self):
         from deltacat.compute.compactor.utils import io
+        import deltacat.tests.local_deltacat_storage as ds
 
         (
             delta_list,
@@ -51,7 +71,12 @@ class TestFitInputDeltas(unittest.TestCase):
             high_watermark,
             require_multiple_rounds,
         ) = io.fit_input_deltas(
-            [TEST_DELTA], {"CPU": 1, "memory": 20000000}, self.COMPACTION_AUDIT, 20
+            [TEST_DELTA],
+            {"CPU": 1, "memory": 20000000},
+            self.COMPACTION_AUDIT,
+            20,
+            ds,
+            self.kwargs_for_local_deltacat_storage,
         )
 
         self.assertEqual(20, hash_bucket_count)
@@ -61,6 +86,7 @@ class TestFitInputDeltas(unittest.TestCase):
 
     def test_when_not_enough_memory_splits_manifest_entries(self):
         from deltacat.compute.compactor.utils import io
+        import deltacat.tests.local_deltacat_storage as ds
 
         (
             delta_list,
@@ -68,7 +94,12 @@ class TestFitInputDeltas(unittest.TestCase):
             high_watermark,
             require_multiple_rounds,
         ) = io.fit_input_deltas(
-            [TEST_DELTA], {"CPU": 2, "memory": 10}, self.COMPACTION_AUDIT, 20
+            [TEST_DELTA],
+            {"CPU": 2, "memory": 10},
+            self.COMPACTION_AUDIT,
+            20,
+            ds,
+            self.kwargs_for_local_deltacat_storage,
         )
 
         self.assertIsNotNone(hash_bucket_count)
@@ -78,14 +109,28 @@ class TestFitInputDeltas(unittest.TestCase):
 
     def test_when_no_input_deltas(self):
         from deltacat.compute.compactor.utils import io
+        import deltacat.tests.local_deltacat_storage as ds
 
         with self.assertRaises(AssertionError):
             io.fit_input_deltas(
-                [], {"CPU": 100, "memory": 20000.0}, self.COMPACTION_AUDIT, None
+                [],
+                {"CPU": 100, "memory": 20000.0},
+                self.COMPACTION_AUDIT,
+                None,
+                ds,
+                self.kwargs_for_local_deltacat_storage,
             )
 
     def test_when_cpu_resources_is_not_passed(self):
         from deltacat.compute.compactor.utils import io
+        import deltacat.tests.local_deltacat_storage as ds
 
         with self.assertRaises(KeyError):
-            io.fit_input_deltas([], {}, self.COMPACTION_AUDIT, None)
+            io.fit_input_deltas(
+                [],
+                {},
+                self.COMPACTION_AUDIT,
+                None,
+                ds,
+                self.kwargs_for_local_deltacat_storage,
+            )

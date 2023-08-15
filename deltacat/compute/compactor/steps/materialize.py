@@ -69,6 +69,7 @@ def materialize(
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     object_store: Optional[IObjectStore] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
     def _stage_delta_from_manifest_entry_reference_list(
@@ -106,6 +107,7 @@ def materialize(
             max_records_per_entry=max_records_per_output_file,
             content_type=compacted_file_content_type,
             s3_table_writer_kwargs=s3_table_writer_kwargs,
+            deltacat_storage_kwargs=deltacat_storage_kwargs,
             **kwargs,
         )
         compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](
@@ -190,7 +192,9 @@ def materialize(
             dl_digest = delta_locator.digest()
             manifest = manifest_cache.setdefault(
                 dl_digest,
-                deltacat_storage.get_delta_manifest(delta_locator, **kwargs),
+                deltacat_storage.get_delta_manifest(
+                    delta_locator, **deltacat_storage_kwargs
+                ),
             )
 
             if read_kwargs_provider is None:
@@ -236,7 +240,7 @@ def materialize(
                     Delta.of(delta_locator, None, None, None, manifest),
                     src_file_idx_np.item(),
                     file_reader_kwargs_provider=read_kwargs_provider,
-                    **kwargs,
+                    **deltacat_storage_kwargs,
                 )
                 logger.debug(
                     f"Time taken for materialize task"
