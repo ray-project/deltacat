@@ -140,6 +140,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         None,
         True,
+        False,
     ),
     "2-incremental-pkstr-skstr-norcf": (
         ["pk_col_1"],
@@ -160,6 +161,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         None,
         True,
+        False,
     ),
     "3-incremental-pkstr-multiskstr-norcf": (
         ["pk_col_1"],
@@ -191,6 +193,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         None,
         True,
+        False,
     ),
     "4-incremental-duplicate-pk": (
         ["pk_col_1"],
@@ -222,6 +225,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         None,
         True,
+        False,
     ),
 }
 
