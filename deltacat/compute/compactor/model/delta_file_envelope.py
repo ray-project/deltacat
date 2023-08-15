@@ -81,7 +81,7 @@ class DeltaFileEnvelope(dict):
             return self.table.nbytes
         else:
             raise ValueError(
-                f"Table type: {type(self.table)} for supported for size method."
+                f"Table type: {type(self.table)} not for supported for size method."
             )
 
     @property

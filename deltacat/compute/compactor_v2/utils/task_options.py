@@ -12,9 +12,12 @@ from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
 from deltacat.compute.compactor_v2.utils.io import append_content_type_params
+from deltacat.compute.compactor_v2.constants import TOTAL_MEMORY_BUFFER_PERCENTAGE
 
 
-def _calculate_column_size(type_params: PartialParquetParameters, columns: List[str]):
+def _calculate_parquet_column_size(
+    type_params: PartialParquetParameters, columns: List[str]
+):
     column_size = 0.0
     for rg in type_params.row_groups_to_download:
         columns_found = 0
@@ -90,7 +93,9 @@ def estimate_manifest_entry_column_size_bytes(
                 isinstance(type_params, PartialParquetParameters)
                 and type_params.pq_metadata
             ):
-                return _calculate_column_size(type_params=type_params, columns=columns)
+                return _calculate_parquet_column_size(
+                    type_params=type_params, columns=columns
+                )
 
     return None
 
@@ -136,8 +141,8 @@ def hash_bucket_resource_options_provider(
     # Refer to hash_bucket step for more details.
     total_memory = size_bytes + total_pk_size + num_rows * 20 + num_rows * 4
 
-    # Consider 20% buffer
-    total_memory = total_memory * 1.2
+    # Consider buffer
+    total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
     return {"CPU": 0.01, "memory": total_memory}
 
@@ -217,8 +222,8 @@ def merge_resource_options_provider(
                         pk_size_bytes += pk_size
 
     # total data downloaded + primary key hash column + primary key column + dict size for merge
-    total_memory = data_size + pk_size + num_rows * 20
+    total_memory = data_size + pk_size + num_rows * 20 + num_rows * 20
 
-    total_memory = total_memory * 1.2
+    total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
     return {"CPU": 0.01, "memory": total_memory}
