@@ -4,7 +4,7 @@ from contextlib import nullcontext
 import pyarrow.compute as pc
 from deltacat.constants import SIGNED_INT64_MIN_VALUE, SIGNED_INT64_MAX_VALUE
 import pyarrow as pa
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from deltacat.types.media import StorageType, ContentType
 import ray
 from deltacat import logs
@@ -58,6 +58,7 @@ def repartition_range(
     max_records_per_output_file: int,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
     """
@@ -142,6 +143,7 @@ def repartition_range(
                     destination_partition,
                     max_records_per_entry=max_records_per_output_file,
                     content_type=repartitioned_file_content_type,
+                    **deltacat_storage_kwargs,
                 )
                 partition_deltas.append(partition_delta)
 
@@ -164,6 +166,7 @@ def _timed_repartition(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> RepartitionResult:
     task_id = get_current_ray_task_id()
@@ -184,6 +187,7 @@ def _timed_repartition(
                 max_records_per_output_file=max_records_per_output_file,
                 repartitioned_file_content_type=repartitioned_file_content_type,
                 deltacat_storage=deltacat_storage,
+                deltacat_storage_kwargs=deltacat_storage_kwargs,
             )
         else:
             raise NotImplementedError(
@@ -203,6 +207,7 @@ def repartition(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> RepartitionResult:
     logger.info(f"Starting repartition task...")
@@ -217,6 +222,7 @@ def repartition(
         read_kwargs_provider=read_kwargs_provider,
         repartitioned_file_content_type=repartitioned_file_content_type,
         deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
     )
     if metrics_config:
         emit_timer_metrics(
