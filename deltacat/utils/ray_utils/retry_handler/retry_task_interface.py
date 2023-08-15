@@ -1,6 +1,6 @@
 from typing import List, Protocol
 from deltacat.utils.ray_utils.retry_handler.task_info_object import TaskInfoObject
-import Exception
+from builtins import Exception
 
 class RetryTaskInterface(Protocol):
     def should_retry(self, task: TaskInfoObject, exception: Exception) -> bool:

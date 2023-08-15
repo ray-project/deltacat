@@ -1,7 +1,7 @@
 from typing import List, Optional
-from ray_manager.models.ray_remote_task_exception_retry_strategy_config import RayRemoteTaskExceptionRetryConfig
+from deltacat.utils.ray_utils.retry_handler.task_exception_retry_config import TaskExceptionRetryConfig
 def get_retry_strategy_config_for_known_exception(exception: Exception,
-                                                  exception_retry_strategy_configs: List[RayRemoteTaskExceptionRetryConfig]) -> Optional[RayRemoteTaskExceptionRetryConfig]:
+                                                  exception_retry_strategy_configs: List[TaskExceptionRetryConfig]) -> Optional[TaskExceptionRetryConfig]:
     """
     Checks whether the exception seen is recognized as a retryable error or not
     """
