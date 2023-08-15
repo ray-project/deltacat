@@ -5,7 +5,7 @@ import functools
 import logging
 import os
 import pathlib
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import ray
 from ray.types import ObjectRef
@@ -118,6 +118,7 @@ def collect_from_partition(
     stat_results_s3_bucket: Optional[str] = None,
     metastats_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     *args,
     **kwargs,
 ) -> ObjectRef[Dict[int, DeltaStats]]:
@@ -168,7 +169,6 @@ def _find_deltas(
     source_partition_locator: PartitionLocator,
     delta_stream_position_range_set: Optional[Set[DeltaRange]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> List[Delta]:
 
     if delta_stream_position_range_set is None:
@@ -198,7 +198,6 @@ def _start_all_stats_collection_from_deltas(
     stat_results_s3_bucket: Optional[str] = None,
     metastats_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> Dict[int, DeltaStats]:
 
     delta_stats_compute_list: List[DeltaLocator] = []
@@ -281,7 +280,6 @@ def _start_metadata_stats_collection(
     stat_results_s3_bucket: Optional[str] = None,
     metastats_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> Dict[int, DeltaStats]:
 
     meta_stats_res_ready: Dict[int, int] = {}
@@ -352,7 +350,6 @@ def _start_stats_cluster(
     metastats_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     partition_val: Optional[str] = "partition_val",
-    **kwargs,
 ):
     # ray_up_latency = timed_invocation(
     #     func=ray_up,

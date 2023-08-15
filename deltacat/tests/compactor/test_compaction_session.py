@@ -127,6 +127,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         True,
         False,
+        True,
     ),
     "2-incremental-pkstr-skstr-norcf": (
         ["pk_col_1"],
@@ -148,6 +149,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         True,
         False,
+        True,
     ),
     "3-incremental-pkstr-multiskstr-norcf": (
         ["pk_col_1"],
@@ -180,6 +182,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         True,
         False,
+        True,
     ),
     "4-incremental-duplicate-pk": (
         ["pk_col_1"],
@@ -212,6 +215,7 @@ INCREMENTAL_TEST_CASES = {
         None,
         True,
         False,
+        True,
     ),
 }
 
@@ -231,6 +235,7 @@ INCREMENTAL_TEST_CASES = {
         "validation_callback_func_kwargs",
         "cleanup_prev_table",
         "use_prev_compacted",
+        "create_placement_group",
     ],
     [
         (
@@ -247,6 +252,7 @@ INCREMENTAL_TEST_CASES = {
             validation_callback_func_kwargs,
             cleanup_prev_table,
             use_prev_compacted,
+            create_placement_group,
         )
         for test_name, (
             primary_keys,
@@ -261,6 +267,7 @@ INCREMENTAL_TEST_CASES = {
             validation_callback_func_kwargs,
             cleanup_prev_table,
             use_prev_compacted,
+            create_placement_group,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
@@ -283,6 +290,7 @@ def test_compact_partition_incremental(
     validation_callback_func_kwargs,
     cleanup_prev_table,
     use_prev_compacted,
+    create_placement_group,
 ):
 
     """
@@ -395,7 +403,9 @@ def test_compact_partition_incremental(
     )
     num_workers, worker_instance_cpu = 1, 1
     total_cpus = num_workers * worker_instance_cpu
-    pgm = PlacementGroupManager(1, total_cpus, worker_instance_cpu).pgs[0]
+    pgm = None
+    if create_placement_group:
+        pgm = PlacementGroupManager(1, total_cpus, worker_instance_cpu).pgs[0]
     compact_partition_params: Dict[str, Any] = {
         "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
         "compacted_file_content_type": ContentType.PARQUET,

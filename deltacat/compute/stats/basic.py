@@ -27,7 +27,6 @@ def collect(
     columns: Optional[List[str]] = None,
     stat_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> Dict[int, DeltaStats]:
     """Collects statistics on deltas, given a set of delta stream position ranges.
 
@@ -60,7 +59,6 @@ def collect(
             source_partition_locator.namespace,
             source_partition_locator.table_name,
             source_partition_locator.table_version,
-            **kwargs,
         )
     for range_pair in merge_intervals(delta_stream_position_range_set):
         begin, end = range_pair
@@ -94,7 +92,6 @@ def collect_from_deltas(
     columns: Optional[List[str]] = None,
     stat_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> StatsResult:
     """
     Variant of the `collect` function that takes a list of deltas and computes
@@ -106,7 +103,6 @@ def collect_from_deltas(
             delta_locator.namespace,
             delta_locator.table_name,
             delta_locator.table_version,
-            **kwargs,
         )
 
     delta_stats_processed_list: List[DeltaStats] = _collect_stats_from_deltas(
@@ -123,7 +119,6 @@ def _collect_stats_from_deltas(
     columns: Optional[List[str]] = None,
     stat_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> List[DeltaStats]:
     delta_cache_lookup_pending: List[ObjectRef[DeltaStatsCacheResult]] = []
     delta_stats_compute_pending: List[ObjectRef[DeltaStats]] = []
@@ -153,7 +148,6 @@ def _process_stats(
     delta_stats_compute_pending: List[ObjectRef[DeltaStats]],
     stat_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> List[DeltaStats]:
     if stat_results_s3_bucket:
         delta_stats_processed_list: List[DeltaStats] = _resolve_pending_stats_and_cache(
@@ -193,7 +187,6 @@ def _resolve_pending_stats_and_cache(
 def _get_cached_and_pending_stats(
     discover_deltas_pending: List[ObjectRef[DeltaStatsCacheResult]],
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
 ) -> Tuple[List[DeltaStats], List[ObjectRef[DeltaStats]]]:
     """
     Returns a tuple of a list of delta stats fetched from the cache, and a list of Ray tasks which will
