@@ -1,6 +1,6 @@
 import logging
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, FrozenSet
 from http import HTTPStatus
 
 import boto3
@@ -72,6 +72,7 @@ def retrying_get(
     retry_strategy,
     wait_strategy,
     stop_strategy,
+    short_circuit_on_status: FrozenSet[int] = {HTTPStatus.OK},
 ) -> Optional[Response]:
     """Retries a request to the given URL until it succeeds.
 
@@ -86,6 +87,9 @@ def retrying_get(
             failed after the maximum number of retries.
     """
     try:
+        resp = _get_url(url)
+        if resp.status_code in short_circuit_on_status:
+            return resp
         for attempt in Retrying(
             retry=retry_strategy(),
             wait=wait_strategy,
@@ -121,10 +125,14 @@ def block_until_instance_metadata_service_returns_success(
 
     https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
     """
-    # We will get a 403 HTTP status code if running deltacat not in an EC2 instance. In that case we won't want to block
-    if _get_url(url).status_code == HTTPStatus.FORBIDDEN:
-        return None
-    return retrying_get(url, retry_strategy, wait_strategy, stop_strategy)
+    # We will get a 403 HTTP status code if running deltacat not in an EC2 instance. In that case we won't want to block.
+    return retrying_get(
+        url,
+        retry_strategy,
+        wait_strategy,
+        stop_strategy,
+        short_circuit_on_status={HTTPStatus.OK, HTTPStatus.FORBIDDEN},
+    )
 
 
 def _get_session_from_kwargs(input_kwargs):
