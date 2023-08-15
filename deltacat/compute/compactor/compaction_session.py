@@ -606,7 +606,6 @@ def _execute_compaction_round(
         object_store=object_store,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
-        **kwargs,
     )
 
     materialize_invoke_end = time.monotonic()
