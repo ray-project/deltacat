@@ -46,6 +46,11 @@ TEST_DESTINATION_NAMESPACE = "destination_test_namespace"
 TEST_DESTINATION_TABLE_NAME = "destination_test_table"
 TEST_DESTINATION_TABLE_VERSION = "1"
 
+DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
+    "db_file_path",
+    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
+)
+
 
 """
 HELPERS
@@ -65,6 +70,7 @@ MODULE scoped fixtures
 """
 
 
+# SETUP
 @pytest.fixture(autouse=True, scope="module")
 def mock_aws_credential():
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
@@ -90,23 +96,31 @@ def compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
     yield
 
 
+# TEARDOWN
+@pytest.fixture(autouse=True, scope="module")
+def remove_the_database_file_after_compaction_session_tests_complete():
+    if os.path.exists(DATABASE_FILE_PATH_VALUE):
+        os.remove(DATABASE_FILE_PATH_VALUE)
+
+
 """
-Function scoped fixtures
+FUNCTION scoped fixtures
 """
 
 
+# SETUP
 @pytest.fixture(scope="function")
 def ds_mock_kwargs():
-    DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-        "db_file_path",
-        "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-    )
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs_for_local_deltacat_storage
-    # cleanup the created db file after
+
+
+# TEARDOWN
+@pytest.fixture(scope="function")
+def cleanup_database_between_executions():
     if os.path.exists(DATABASE_FILE_PATH_VALUE):
         os.remove(DATABASE_FILE_PATH_VALUE)
 
@@ -124,6 +138,8 @@ INCREMENTAL_TEST_CASES = {
             [pa.array([str(i) for i in range(10)])], names=["pk_col_1"]
         ),
         None,
+        None,
+        True,
     ),
     "2-incremental-pkstr-skstr-norcf": (
         ["pk_col_1"],
@@ -142,6 +158,8 @@ INCREMENTAL_TEST_CASES = {
             names=["pk_col_1", "sk_col_1"],
         ),
         None,
+        None,
+        True,
     ),
     "3-incremental-pkstr-multiskstr-norcf": (
         ["pk_col_1"],
@@ -171,6 +189,8 @@ INCREMENTAL_TEST_CASES = {
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
         None,
+        None,
+        True,
     ),
     "4-incremental-duplicate-pk": (
         ["pk_col_1"],
@@ -200,6 +220,8 @@ INCREMENTAL_TEST_CASES = {
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
         None,
+        None,
+        True,
     ),
 }
 
@@ -216,6 +238,8 @@ INCREMENTAL_TEST_CASES = {
         "partition_values",
         "expected_result",
         "validation_callback_func",
+        "validation_callback_func_args",
+        "cleanup_prev_table",
     ],
     [
         (
@@ -229,6 +253,8 @@ INCREMENTAL_TEST_CASES = {
             partition_values,
             expected_result,
             validation_callback_func,
+            validation_callback_func_kwargs,
+            cleanup_prev_table,
         )
         for test_name, (
             primary_keys,
@@ -240,11 +266,14 @@ INCREMENTAL_TEST_CASES = {
             partition_values,
             expected_result,
             validation_callback_func,
+            validation_callback_func_kwargs,
+            cleanup_prev_table,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
 )
 def test_compact_partition_incremental(
+    request,
     s3_resource,
     ds_mock_kwargs,
     compaction_artifacts_s3_bucket,
@@ -258,6 +287,8 @@ def test_compact_partition_incremental(
     partition_values,
     expected_result,
     validation_callback_func,  # use and implement if you want to run additional validations apart from the ones in the test
+    validation_callback_func_kwargs,
+    cleanup_prev_table,
 ):
 
     """
@@ -400,7 +431,12 @@ def test_compact_partition_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(expected_result)
-    if validation_callback_func is not None:
-        validation_callback_func()
+    if (
+        validation_callback_func is not None
+        and validation_callback_func_kwargs is not None
+    ):
+        validation_callback_func(**validation_callback_func_kwargs)
+    if cleanup_prev_table:
+        request.getfixturevalue("cleanup_database_between_executions")
     ray.shutdown()
     assert not ray.is_initialized()
