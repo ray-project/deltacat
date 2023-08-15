@@ -198,7 +198,6 @@ def _timed_hash_bucket(
         f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
         sort_key_names = [key.key_name for key in sort_keys]
-        # TODO: This will always to set to
         if not round_completion_info:
             is_src_delta = True
         else:
