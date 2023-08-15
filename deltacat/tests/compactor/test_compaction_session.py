@@ -128,6 +128,8 @@ INCREMENTAL_TEST_CASES = {
         True,
         False,
         True,
+        MAX_RECORDS_PER_FILE,
+        None,
     ),
     "2-incremental-pkstr-skstr-norcf": (
         ["pk_col_1"],
@@ -150,6 +152,8 @@ INCREMENTAL_TEST_CASES = {
         True,
         False,
         True,
+        MAX_RECORDS_PER_FILE,
+        None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": (
         ["pk_col_1"],
@@ -183,6 +187,8 @@ INCREMENTAL_TEST_CASES = {
         True,
         False,
         True,
+        MAX_RECORDS_PER_FILE,
+        None,
     ),
     "4-incremental-duplicate-pk": (
         ["pk_col_1"],
@@ -216,6 +222,8 @@ INCREMENTAL_TEST_CASES = {
         True,
         False,
         True,
+        MAX_RECORDS_PER_FILE,
+        None,
     ),
 }
 
@@ -236,6 +244,8 @@ INCREMENTAL_TEST_CASES = {
         "cleanup_prev_table",
         "use_prev_compacted",
         "create_placement_group",
+        "records_per_compacted_file",
+        "hash_bucket_count",
     ],
     [
         (
@@ -253,6 +263,8 @@ INCREMENTAL_TEST_CASES = {
             cleanup_prev_table,
             use_prev_compacted,
             create_placement_group,
+            records_per_compacted_file,
+            hash_bucket_count,
         )
         for test_name, (
             primary_keys,
@@ -268,6 +280,8 @@ INCREMENTAL_TEST_CASES = {
             cleanup_prev_table,
             use_prev_compacted,
             create_placement_group,
+            records_per_compacted_file,
+            hash_bucket_count,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
@@ -291,6 +305,8 @@ def test_compact_partition_incremental(
     cleanup_prev_table,
     use_prev_compacted,
     create_placement_group,
+    records_per_compacted_file,
+    hash_bucket_count,
 ):
 
     """
@@ -413,13 +429,13 @@ def test_compact_partition_incremental(
         "deltacat_storage": ds,
         "deltacat_storage_kwargs": ds_mock_kwargs,
         "destination_partition_locator": destination_partition_locator,
-        "hash_bucket_count": None,
+        "hash_bucket_count": hash_bucket_count,
         "last_stream_position_to_compact": source_partition.stream_position,
         "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
         "pg_config": pgm,
         "primary_keys": primary_keys,
-        "rebase_source_partition_locator": None,
-        "records_per_compacted_file": MAX_RECORDS_PER_FILE,
+        "rebase_source_partition_locator": rebase_source_partition_locator,
+        "records_per_compacted_file": records_per_compacted_file,
         "source_partition_locator": source_partition.locator,
         "sort_keys": sort_keys if sort_keys else None,
     }
