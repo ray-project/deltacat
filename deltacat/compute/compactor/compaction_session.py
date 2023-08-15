@@ -525,7 +525,6 @@ def _execute_compaction_round(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         object_store=object_store,
-        **kwargs,
     )
 
     dedupe_invoke_end = time.monotonic()
