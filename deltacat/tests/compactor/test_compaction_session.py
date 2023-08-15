@@ -10,7 +10,7 @@ from typing import Any, Dict
 from typing import List
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
-
+from deltacat.tests.test_utils.utils import read_s3_contents
 from enum import Enum
 
 
@@ -50,20 +50,6 @@ DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
     "deltacat/tests/local_deltacat_storage/db_test.sqlite",
 )
-
-
-"""
-HELPERS
-"""
-
-
-def helper_read_s3_contents(
-    s3_resource: ServiceResource, bucket_name: str, key: str
-) -> Dict[str, Any]:
-    response = s3_resource.Object(bucket_name, key).get()
-    file_content: str = response["Body"].read().decode("utf-8")
-    return json.loads(file_content)
-
 
 """
 MODULE scoped fixtures
@@ -430,7 +416,7 @@ def test_compact_partition_incremental(
     # execute
     rcf_file_s3_uri = compact_partition(**compact_partition_params)
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
-    rcf_file_output: Dict[str, Any] = helper_read_s3_contents(
+    rcf_file_output: Dict[str, Any] = read_s3_contents(
         s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
     )
     round_completion_info = RoundCompletionInfo(**rcf_file_output)
