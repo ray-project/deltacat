@@ -32,6 +32,7 @@ def discover_deltas(
     rebase_source_partition_high_watermark: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Tuple[List[Delta], int]:
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
@@ -53,6 +54,7 @@ def discover_deltas(
         ).stream_position,
         deltacat_storage,
         deltacat_storage_kwargs,
+        **kwargs,
     )
 
     # Source Two: delta from compacted table for incremental compaction or new deltas from uncompacted table for rebase
@@ -74,6 +76,7 @@ def discover_deltas(
                 previous_last_stream_position_compacted,
                 deltacat_storage,
                 deltacat_storage_kwargs,
+                **kwargs,
             )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
@@ -87,6 +90,7 @@ def discover_deltas(
             last_stream_position_to_compact,
             deltacat_storage,
             deltacat_storage_kwargs,
+            **kwargs,
         )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
