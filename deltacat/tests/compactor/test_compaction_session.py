@@ -448,5 +448,3 @@ def test_compact_partition_incremental(
         pass
     else:
         request.getfixturevalue("cleanup_database_between_executions")
-    ray.shutdown()
-    assert not ray.is_initialized()

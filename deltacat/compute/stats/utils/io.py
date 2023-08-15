@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pyarrow
 import ray
@@ -83,7 +83,7 @@ def get_delta_stats(
     delta_locator: DeltaLocator,
     columns: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 ) -> DeltaStats:
     """Ray distributed task to compute and collect stats for a requested delta.
     If no columns are requested, stats will be computed for all columns.
@@ -95,9 +95,13 @@ def get_delta_stats(
         A delta wide stats container
     """
 
-    manifest = deltacat_storage.get_delta_manifest(delta_locator, **kwargs)
+    manifest = deltacat_storage.get_delta_manifest(
+        delta_locator, **deltacat_storage_kwargs
+    )
     delta = Delta.of(delta_locator, None, None, None, manifest)
-    return _collect_stats_by_columns(delta, columns, deltacat_storage)
+    return _collect_stats_by_columns(
+        delta, columns, deltacat_storage, deltacat_storage_kwargs
+    )
 
 
 @ray.remote
@@ -148,7 +152,7 @@ def _collect_stats_by_columns(
     delta: Delta,
     columns_to_compute: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
-    **kwargs,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 ) -> DeltaStats:
     """Materializes one manifest entry at a time to save memory usage and calculate stats from each of its columns.
     Args:
@@ -175,7 +179,7 @@ def _collect_stats_by_columns(
                 file_idx,
                 TableType.PYARROW,
                 columns_to_compute,
-                **kwargs,
+                **deltacat_storage_kwargs,
             )
         )
         assert isinstance(entry_pyarrow_table, pyarrow.Table), (
