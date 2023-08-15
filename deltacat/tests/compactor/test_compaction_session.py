@@ -238,7 +238,7 @@ INCREMENTAL_TEST_CASES = {
         "partition_values",
         "expected_result",
         "validation_callback_func",
-        "validation_callback_func_args",
+        "validation_callback_func_kwargs",
         "cleanup_prev_table",
     ],
     [
