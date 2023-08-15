@@ -240,6 +240,7 @@ INCREMENTAL_TEST_CASES = {
         "validation_callback_func",
         "validation_callback_func_kwargs",
         "cleanup_prev_table",
+        "use_prev_compacted",
     ],
     [
         (
@@ -255,6 +256,7 @@ INCREMENTAL_TEST_CASES = {
             validation_callback_func,
             validation_callback_func_kwargs,
             cleanup_prev_table,
+            use_prev_compacted,
         )
         for test_name, (
             primary_keys,
@@ -268,6 +270,7 @@ INCREMENTAL_TEST_CASES = {
             validation_callback_func,
             validation_callback_func_kwargs,
             cleanup_prev_table,
+            use_prev_compacted,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
@@ -289,6 +292,7 @@ def test_compact_partition_incremental(
     validation_callback_func,  # use and implement if you want to run additional validations apart from the ones in the test
     validation_callback_func_kwargs,
     cleanup_prev_table,
+    use_prev_compacted,
 ):
 
     """
