@@ -33,6 +33,7 @@ def start_stats_collection(
     stat_results_s3_bucket: Optional[str] = None,
     metastats_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    **kwargs,
 ) -> Dict[str, List[DeltaStats]]:
     """Collects statistics on deltas, given a set of delta stream position ranges.
     Example:

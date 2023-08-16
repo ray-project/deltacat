@@ -1,7 +1,7 @@
 from unittest.mock import patch
 import unittest
-import json
 from http import HTTPStatus
+import requests
 
 HAPPY_RESPONSE = {
     "AccessKeyId": "ASIA123456789",
@@ -20,7 +20,7 @@ class MockResponse:
     """
 
     def __init__(self, status_code: int, text: str, reason: str = "") -> None:
-        self.status_code = status_code
+        self.status_code: requests.Response.status_code = status_code
         self.text = text
         self.reason = reason
 
@@ -55,7 +55,7 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
         )
 
         requests_mock.get.side_effect = [
-            MockResponse(HTTPStatus.OK, json.dumps(HAPPY_RESPONSE)),
+            MockResponse(HTTPStatus.OK, "foo"),
             MockResponse(HTTPStatus.TOO_MANY_REQUESTS, "foo"),
             MockResponse(HTTPStatus.INTERNAL_SERVER_ERROR, "foo"),
             MockResponse(HTTPStatus.NOT_IMPLEMENTED, "bar"),
@@ -64,4 +64,17 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
         ]
         self.assertEqual(
             block_until_instance_metadata_service_returns_success().status_code, 200
+        )
+
+    @patch("deltacat.aws.clients.requests")
+    def test_retrying_status_on_shortlist_returns_early(self, requests_mock):
+        from deltacat.aws.clients import (
+            block_until_instance_metadata_service_returns_success,
+        )
+
+        requests_mock.get.side_effect = [
+            MockResponse(HTTPStatus.FORBIDDEN, "foo"),
+        ]
+        self.assertEqual(
+            block_until_instance_metadata_service_returns_success().status_code, 403
         )
