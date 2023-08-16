@@ -405,6 +405,20 @@ class CompactionSessionAuditInfo(dict):
         """
         return self.get("hashBucketProcessedSizeBytes")
 
+    @property
+    def total_cpu_seconds(self) -> float:
+        """
+        Total number of vCPUs provisioned in the cluster weighted over time.
+        """
+        return self.get("totalCPUSeconds")
+
+    @property
+    def used_cpu_seconds(self) -> float:
+        """
+        Total used vCPU in the cluster weighted over time.
+        """
+        return self.get("usedCPUSeconds")
+
     # Setters follow
 
     def set_audit_url(self, audit_url: str) -> CompactionSessionAuditInfo:
@@ -711,6 +725,14 @@ class CompactionSessionAuditInfo(dict):
         self, size: int
     ) -> CompactionSessionAuditInfo:
         self["hashBucketProcessedSizeBytes"] = size
+        return self
+
+    def set_total_cpu_seconds(self, value: float) -> CompactionSessionAuditInfo:
+        self["totalCPUSeconds"] = value
+        return self
+
+    def set_used_cpu_seconds(self, value: float) -> CompactionSessionAuditInfo:
+        self["usedCPUSeconds"] = value
         return self
 
     # High level methods to save stats
