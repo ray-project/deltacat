@@ -120,7 +120,7 @@ INCREMENTAL_TEST_CASES = {
         MAX_RECORDS_PER_FILE,
         None,
     ),
-    "5-incremental-decimal-pk": (
+    "5-incremental-decimal-pk-simple": (
         ["pk_col_1"],
         [
             {
@@ -150,7 +150,7 @@ INCREMENTAL_TEST_CASES = {
         MAX_RECORDS_PER_FILE,
         None,
     ),
-    "7-incremental-integer-pk": (
+    "7-incremental-integer-pk-simple": (
         ["pk_col_1"],
         [
             {
@@ -180,7 +180,7 @@ INCREMENTAL_TEST_CASES = {
         MAX_RECORDS_PER_FILE,
         None,
     ),
-    "8-incremental-timestamp-pk": (
+    "8-incremental-timestamp-pk-simple": (
         ["pk_col_1"],
         [
             {
@@ -210,7 +210,66 @@ INCREMENTAL_TEST_CASES = {
         MAX_RECORDS_PER_FILE,
         None,
     ),
-    # yyyy-MM-dd HH:mm:ssZZ
-    # decimal, int, timestamp pk, multipk
-    # honoring sort key
+    "9-incremental-decimal-pk-multi": (
+        ["pk_col_1", "pk_col_2"],
+        [
+            {
+                "key_name": "sk_col_1",
+            },
+        ],
+        [],
+        ["pk_col_1", "pk_col_2", "sk_col_1"],
+        [
+            pa.array([i / 10 for i in range(0, 20)]),
+            pa.array(offer_iso8601_timestamp_list(20, "minutes")),
+            pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+        ],
+        None,
+        ["1"],
+        pa.Table.from_arrays(
+            [
+                pa.array([i / 10 for i in range(0, 20)]),
+                pa.array(offer_iso8601_timestamp_list(20, "minutes")),
+                pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+            ],
+            names=["pk_col_1", "pk_col_2", "sk_col_1"],
+        ),
+        None,
+        None,
+        True,
+        False,
+        True,
+        MAX_RECORDS_PER_FILE,
+        None,
+    ),
+    "10-incremental-decimal-pk-multi-dup": (
+        ["pk_col_1"],
+        [
+            {
+                "key_name": "sk_col_1",
+            },
+        ],
+        [],
+        ["pk_col_1", "sk_col_1"],
+        [
+            pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+            pa.array([i for i in range(20)]),
+        ],
+        None,
+        ["1"],
+        pa.Table.from_arrays(
+            [
+                pa.array([0.1, 0.2, 0.3, 0.4, 0.5]),
+                pa.array([3, 7, 11, 15, 19]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        None,
+        None,
+        True,
+        False,
+        True,
+        MAX_RECORDS_PER_FILE,
+        None,
+    ),
 }
