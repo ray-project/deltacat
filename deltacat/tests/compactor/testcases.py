@@ -6,6 +6,15 @@ from deltacat.tests.compactor.common import (
     offer_iso8601_timestamp_list,
 )
 
+
+"""
+TODO Test Cases:
+1. incremental w/wout round completion file
+2. Backfill w/wout round completion
+3. Rebase w/wout round completion file
+4. Rebase then incremental (use same round completion file)
+"""
+
 INCREMENTAL_TEST_CASES = {
     "1-incremental-pkstr-sknone-norcf": (
         {"pk_col_1"},  # Primary key columns
@@ -210,7 +219,7 @@ INCREMENTAL_TEST_CASES = {
         MAX_RECORDS_PER_FILE,
         None,
     ),
-    "9-incremental-decimal-pk-multi": (
+    "9-incremental-decimal-timestamp-pk-multi": (
         ["pk_col_1", "pk_col_2"],
         [
             {

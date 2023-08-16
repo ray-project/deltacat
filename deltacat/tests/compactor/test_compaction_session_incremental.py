@@ -237,14 +237,6 @@ def test_compact_partition_incremental(
     records_per_compacted_file_param,
     hash_bucket_count_param,
 ):
-
-    """
-    TODO Test Cases:
-    1. incremental w/wout round completion file
-    2. Backfill w/wout round completion
-    3. Rebase w/wout round completion file
-    4. Rebase then incremental (use same round completion file)
-    """
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.compute.compactor.compaction_session import (
@@ -335,7 +327,3 @@ def test_compact_partition_incremental(
         and validation_callback_func_kwargs is not None
     ):
         validation_callback_func(**validation_callback_func_kwargs)
-    # if not cleanup_prev_table:
-    #     pass
-    # else:
-    #     request.getfixturevalue("cleanup_database_between_executions")
