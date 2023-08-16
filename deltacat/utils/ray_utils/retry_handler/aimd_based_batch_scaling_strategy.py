@@ -18,30 +18,31 @@ class AIMDBasedBatchScalingStrategy(BatchScalingInterface):
                  min_batch_size: int,
                  additive_increase: int,
                  multiplicative_decrease: float):
-        self.task_infos = list(task_infos)
+        self.task_infos = deque(list(task_infos))
         self.batch_index = 0
         self.batch_size = initial_batch_size
         self.max_batch_size = max_batch_size
         self.min_batch_size = min_batch_size
         self.additive_increase = additive_increase
         self.multiplicative_decrease = multiplicative_decrease
-
-        # dictionary
         self.task_completion_status: Dict[str, bool] = {task.task_id: False for task in self.task_infos}
-
+        # move attempts to be handled by batch scaling instead of handler. can use a dequeue that appends failing tasks to the end of the list to be tried later by the batch
     def has_next_batch(self) -> bool:
         """
         Returns the list of tasks included in the next batch of whatever size based on AIMD
         """
-        return self.batch_index < len(self.task_infos)
+        return bool(self.task_infos)
 
     def next_batch(self) -> List[TaskInfoObject]:
         """
         If there are no more tasks to execute that can not create a batch, return False
         """
         batch_end = math.floor(min(self.batch_index + self.batch_size, len(self.task_infos)))
-        batch = self.task_infos[self.batch_index:batch_end]
-        self.batch_index = batch_end
+        print("current batch index" + str(self.batch_index))
+        print("current batch end" + str(batch_end))
+        batch = []
+        for i in range(batch_end - self.batch_index):
+            batch.append(self.task_infos.popleft())
         return batch
 
     def mark_task_complete(self, task_id: int):

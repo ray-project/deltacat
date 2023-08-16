@@ -29,12 +29,5 @@ class TestRayTaskSubmissionHandler(unittest.TestCase):
         self.assertEqual(sorted(results[0]), sorted(expected_successful_results))
         self.assertEqual(sorted(results[1]), sorted(expected_failed_tasks_ids))
 
-
-
-    # when there are failures
-    # calling correct APIs
-    # when there are all successes
-
-
 if __name__ == '__main__':
     unittest.main()

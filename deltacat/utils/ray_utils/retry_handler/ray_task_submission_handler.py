@@ -112,6 +112,7 @@ class RayTaskSubmissionHandler:
                     self.attempts[finished_result.task_info.task_id] += 1
                     self._update_ray_remote_task_options_on_exception(finished_result.exception, finished_result.task_info)
                     self.unfinished_promises.append(self._invoke_ray_remote_task(ray_remote_task_info=finished_result.task_info))
+                    #maybe add the task to the beginning of the batch here
             else:
                 successful_results.append(finished_result)
                 return [successful_results, finished]
