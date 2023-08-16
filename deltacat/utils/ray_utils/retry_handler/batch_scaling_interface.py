@@ -23,9 +23,14 @@ class BatchScalingInterface(Protocol):
 
     def mark_batch_failed(self, task_info: TaskInfoObject) -> None:
         """
-        If the task returns the exeption that was caught, we mark the task as failed and
-        decrease multiplicative
+        If the task returns the exception that was caught, we mark the task as failed
         :param task_info:
         :return:
+        """
+        pass
+
+    def is_task_completed(self, task_id: int) -> bool:
+        """
+        Given a task ID, returns whether the task has been completed or not
         """
         pass

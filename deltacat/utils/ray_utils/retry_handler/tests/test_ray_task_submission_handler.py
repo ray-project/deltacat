@@ -1,18 +1,12 @@
 import unittest
 from unittest.mock import Mock, patch
-
 import ray
 from deltacat.utils.ray_utils.retry_handler.ray_task_submission_handler import RayTaskSubmissionHandler
-
 from deltacat.utils.ray_utils.retry_handler.tests.task_util import square_num_ray_task_with_failures
 from deltacat.utils.ray_utils.retry_handler.tests.task_util import square_num_ray_task
 from deltacat.utils.ray_utils.retry_handler.task_info_object import TaskInfoObject
-
 from deltacat.utils.ray_utils.retry_handler.failures.aws_security_token_rate_exceeded_exception import \
     AWSSecurityTokenRateExceededException
-
-
-
 
 class TestRayTaskSubmissionHandler(unittest.TestCase):
     @classmethod
@@ -27,18 +21,15 @@ class TestRayTaskSubmissionHandler(unittest.TestCase):
         self.tasks = [TaskInfoObject(i, square_num_ray_task_with_failures, i) for i in
                       task_input_list]  # id:1-10, callable:square_num_ray_task, input 1-10
 
-    def test_get_task_results_successes(self):
+    def test_get_task_results_failures(self):
         results = self.handler.start_tasks_execution(self.tasks)
-        expected_successes = [[1], []]
+        expected_successful_results = [i ** 2 for i in range(2, 11) if i not in [1, 5, 10]]
+        expected_failed_tasks_ids = [1, 5, 10]
+        expected_output = [expected_successful_results, expected_failed_tasks_ids]
+        self.assertEqual(sorted(results[0]), sorted(expected_successful_results))
+        self.assertEqual(sorted(results[1]), sorted(expected_failed_tasks_ids))
 
-        self.assertEqual(results, expected_successes)
 
-    #def test_get_task_results_failures(self):
-        #results = self.handler.start_tasks_execution(self.tasks)
-        #expected_successes = [i **2 for i in range(1,6)]
-        #print(results)
-        #print(expected_successes)
-        #self.assertEqual(results, expected_successes)
 
     # when there are failures
     # calling correct APIs

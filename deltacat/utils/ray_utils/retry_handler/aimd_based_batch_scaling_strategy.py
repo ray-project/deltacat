@@ -1,3 +1,5 @@
+from collections import deque
+import copy
 from typing import List, Any
 from deltacat.utils.ray_utils.retry_handler.batch_scaling_interface import BatchScalingInterface
 import math
@@ -16,7 +18,7 @@ class AIMDBasedBatchScalingStrategy(BatchScalingInterface):
                  min_batch_size: int,
                  additive_increase: int,
                  multiplicative_decrease: float):
-        self.task_infos = task_infos
+        self.task_infos = list(task_infos)
         self.batch_index = 0
         self.batch_size = initial_batch_size
         self.max_batch_size = max_batch_size
@@ -38,9 +40,6 @@ class AIMDBasedBatchScalingStrategy(BatchScalingInterface):
         If there are no more tasks to execute that can not create a batch, return False
         """
         batch_end = math.floor(min(self.batch_index + self.batch_size, len(self.task_infos)))
-        print("in next_batch")
-        print(self.batch_index)
-        print(batch_end)
         batch = self.task_infos[self.batch_index:batch_end]
         self.batch_index = batch_end
         return batch

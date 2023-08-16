@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
-from deltacat.utils.ray_utils.retry_handler.AIMD_based_batch_scaling_strategy import AIMDBasedBatchScalingStrategy
+from deltacat.utils.ray_utils.retry_handler.aimd_based_batch_scaling_strategy import AIMDBasedBatchScalingStrategy
 from deltacat.utils.ray_utils.retry_handler.task_info_object import TaskInfoObject
 from deltacat.utils.ray_utils.retry_handler.tests.task_util import square_num_ray_task
 
@@ -24,7 +24,7 @@ class TestAIMDBatchScaling(unittest.TestCase):
         self.assertFalse(self.batch_strategy.has_next_batch())
 
     def test_next_batch(self):
-        initial_num_tasks = len(self.tasks) #10
+        initial_num_tasks = len(self.tasks)
         initial_index = self.batch_strategy.batch_index
         batch = self.batch_strategy.next_batch()
         self.assertEqual(len(batch), 2)
@@ -35,24 +35,19 @@ class TestAIMDBatchScaling(unittest.TestCase):
         # batch size gets updated
         initial_batch_size = 2
         self.assertEqual(self.batch_strategy.batch_size, initial_batch_size)
-
         task_to_complete = self.tasks[0]
-
-        self.batch_strategy.mark_task_complete(task_to_complete)
-
+        self.batch_strategy.mark_task_complete(task_to_complete.task_id)
         self.assertTrue(
-            self.batch_strategy.is_task_completed(task_to_complete))  # task id should be marked as completed
-
+            self.batch_strategy.is_task_completed(task_to_complete.task_id))  # task id should be marked as completed
         self.assertEqual(self.batch_strategy.batch_size, 4)  # batch should increase by 2
 
     def test_mark_task_failed(self):
         initial_batch_size = 2
         self.assertEqual(self.batch_strategy.batch_size, initial_batch_size)
         task_to_fail = self.tasks[0]
-        self.batch_strategy.mark_task_failed(task_to_fail)
-        self.assertFalse(self.batch_strategy.is_task_completed(task_to_fail))
+        self.batch_strategy.mark_task_failed(task_to_fail.task_id)
+        self.assertFalse(self.batch_strategy.is_task_completed(task_to_fail.task_id))
         self.assertEqual(self.batch_strategy.batch_size, 1)
-
 
     def test_many_successes_and_failures(self):
         initial_batch_size = 2
