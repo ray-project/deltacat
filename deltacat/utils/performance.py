@@ -1,6 +1,8 @@
 import time
 from collections import Counter
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Tuple, TypeVar
+
+T = TypeVar("T")
 
 
 def invoke_with_perf_counter(
@@ -15,7 +17,7 @@ def invoke_with_perf_counter(
     return result, latency
 
 
-def timed_invocation(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
+def timed_invocation(func: Callable[[Any], T], *args, **kwargs) -> Tuple[T, float]:
 
     start = time.perf_counter()
     result = func(*args, **kwargs)

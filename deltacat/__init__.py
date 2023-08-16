@@ -28,7 +28,6 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     init,
 )
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.compute.compactor import SortKey, SortOrder
 from deltacat.storage import (
     DistributedDataset,
     LifecycleState,
@@ -37,13 +36,15 @@ from deltacat.storage import (
     LocalTable,
     Namespace,
     SchemaConsistencyType,
+    SortKey,
+    SortOrder,
 )
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "0.1.18b13"
+__version__ = "0.1.18b14"
 
 
 __all__ = [
