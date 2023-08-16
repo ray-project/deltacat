@@ -60,8 +60,22 @@ def setup_sort_and_partition_keys(sort_keys_param, partition_keys_param):
 def offer_iso8601_timestamp_list(
     periods: int,
     unit_of_time: str,
-    start_time=dt.datetime(2023, 5, 3, 10, 0, 0, 0, tzinfo=timezone.utc),
+    end_time=dt.datetime(2023, 5, 3, 10, 0, 0, 0, tzinfo=timezone.utc),
 ) -> List[str]:
+    """
+    Returns a list of ISO 8601 timestamps, each periods units of time before the start time.
+
+    Args:
+    periods: The number of timestamps to return.
+    unit_of_time: The unit of time to use for the timestamps. Must be one of "seconds", "minutes", "hours", "days", or "weeks".
+    end_time: The end time for the timestamps. Defaults to 2023-05-03T10:00:00Z.
+
+    Returns:
+    A list of ISO 8601 timestamps, each periods units of time before the start time.
+
+    Raises:
+    ValueError: If the unit_of_time argument is not one of "seconds", "minutes", "hours", "days", or "weeks".
+    """
     import datetime as dt
 
     acceptable_units_of_time = ["seconds", "minutes", "hours", "days", "weeks"]
@@ -73,7 +87,7 @@ def offer_iso8601_timestamp_list(
     for i in range(periods):
         kwarg = {unit_of_time: i}
         res.append(
-            (start_time - dt.timedelta(**kwarg)).strftime(
+            (end_time - dt.timedelta(**kwarg)).strftime(
                 UTC_ISO_8601_FORMAT_WITHOUT_MILLIS
             )
         )
