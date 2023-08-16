@@ -36,7 +36,7 @@ INCREMENTAL_TEST_CASES = {
         ),
         None,  # validation_callback_func
         None,  # validation_callback_func_kwargs
-        True,  # ds_mock_kwargs
+        True,  # teardown_local_deltacat_storage_db
         False,  # use_prev_compacted
         True,  # create_placement_group_param
         MAX_RECORDS_PER_FILE,  # records_per_compacted_file_param
