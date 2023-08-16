@@ -284,14 +284,14 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         ["pk_col_1", "sk_col_1"],
         [
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
-            pa.array([i for i in range(20)]),
+            pa.array(reversed([i for i in range(20)])),
         ],
         None,
         ["1"],
         pa.Table.from_arrays(
             [
                 pa.array([0.1, 0.2, 0.3, 0.4, 0.5]),
-                pa.array([3, 7, 11, 15, 19]),
+                pa.array([19, 15, 11, 7, 3]),
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
