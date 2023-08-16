@@ -22,18 +22,19 @@ INCREMENTAL_TEST_CASES = {
         [{"key_name": "region_id", "key_type": "int"}],  # Partition keys
         ["pk_col_1"],  # column_names
         [pa.array([str(i) for i in range(10)])],  # arrow arrays
-        None,
-        ["1"],
+        None,  # rebase_source_partition_locator_param
+        ["1"],  # partition_values_param
         pa.Table.from_arrays(
-            [pa.array([str(i) for i in range(10)])], names=["pk_col_1"]
+            [pa.array([str(i) for i in range(10)])],
+            names=["pk_col_1"],  # expected_result
         ),
-        None,
-        None,
-        True,
-        False,
-        True,
-        MAX_RECORDS_PER_FILE,
-        None,
+        None,  # validation_callback_func
+        None,  # validation_callback_func_kwargs
+        True,  # ds_mock_kwargs
+        False,  # use_prev_compacted
+        True,  # create_placement_group_param
+        MAX_RECORDS_PER_FILE,  # records_per_compacted_file_param
+        None,  # hash_bucket_count_param
     ),
     "2-incremental-pkstr-skstr-norcf": (
         ["pk_col_1"],
