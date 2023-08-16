@@ -31,12 +31,17 @@ DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
 )
 
 """
-MODULE scoped fixtures
+PACKAGE scoped fixtures
 """
 
 
-# SETUP
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(autouse=True, scope="package")
+def cleanup_the_database_file_after_all_compaction_session_package_tests_complete():
+    if os.path.exists(DATABASE_FILE_PATH_VALUE):
+        os.remove(DATABASE_FILE_PATH_VALUE)
+
+
+@pytest.fixture(autouse=True, scope="package")
 def mock_aws_credential():
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
     os.environ["AWS_SECRET_ACCESS_ID"] = "testing"
@@ -46,26 +51,24 @@ def mock_aws_credential():
     yield
 
 
+"""
+MODULE scoped fixtures
+"""
+
+
 @pytest.fixture(scope="module")
-def s3_resource(mock_aws_credential):
+def setup_s3_resource(mock_aws_credential):
     with mock_s3():
         yield boto3.resource("s3")
 
 
 @pytest.fixture(scope="module")
-def compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
-    s3_resource.create_bucket(
+def setup_compaction_artifacts_s3_bucket(setup_s3_resource: ServiceResource):
+    setup_s3_resource.create_bucket(
         ACL="authenticated-read",
         Bucket=TEST_S3_RCF_BUCKET_NAME,
     )
     yield
-
-
-# TEARDOWN
-@pytest.fixture(autouse=True, scope="module")
-def remove_the_database_file_after_compaction_session_tests_complete():
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 """
@@ -73,19 +76,22 @@ FUNCTION scoped fixtures
 """
 
 
-# SETUP
 @pytest.fixture(scope="function")
-def ds_mock_kwargs():
+def teardown_local_deltacat_storage_db(request):
+    if os.path.exists(DATABASE_FILE_PATH_VALUE):
+        os.remove(DATABASE_FILE_PATH_VALUE)
+
+
+@pytest.fixture(scope="function")
+def setup_local_deltacat_storage_conn(teardown_local_deltacat_storage_db):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
+    teardown_local_deltacat_storage_db
 
 
-# TEARDOWN
 def setup_incremental_source_and_destination_tables(
     primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
@@ -170,7 +176,7 @@ def setup_incremental_source_and_destination_tables(
         "expected_result",
         "validation_callback_func",
         "validation_callback_func_kwargs",
-        "cleanup_prev_table",
+        "teardown_local_deltacat_storage_db",
         "use_prev_compacted",
         "create_placement_group_param",
         "records_per_compacted_file_param",
@@ -189,7 +195,7 @@ def setup_incremental_source_and_destination_tables(
             expected_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            cleanup_prev_table,
+            teardown_local_deltacat_storage_db,
             use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -206,7 +212,7 @@ def setup_incremental_source_and_destination_tables(
             expected_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            cleanup_prev_table,
+            teardown_local_deltacat_storage_db,
             use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -214,12 +220,14 @@ def setup_incremental_source_and_destination_tables(
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
+    indirect=["teardown_local_deltacat_storage_db"],
 )
 def test_compact_partition_incremental(
     request,
-    s3_resource: ServiceResource,
-    ds_mock_kwargs: Dict[str, Any],
-    compaction_artifacts_s3_bucket: None,
+    setup_s3_resource: ServiceResource,
+    setup_local_deltacat_storage_conn: Dict[str, Any],
+    teardown_local_deltacat_storage_db,
+    setup_compaction_artifacts_s3_bucket: None,
     test_name: str,
     primary_keys_param: Set[str],
     sort_keys_param,
@@ -231,7 +239,6 @@ def test_compact_partition_incremental(
     expected_result,
     validation_callback_func,  # use and implement if you want to run additional validations apart from the ones in the test
     validation_callback_func_kwargs,
-    cleanup_prev_table,
     use_prev_compacted,
     create_placement_group_param,
     records_per_compacted_file_param,
@@ -254,6 +261,8 @@ def test_compact_partition_incremental(
     from deltacat.compute.compactor import (
         RoundCompletionInfo,
     )
+
+    ds_mock_kwargs = setup_local_deltacat_storage_conn
 
     # setup
     sort_keys, partition_keys = setup_sort_and_partition_keys(
@@ -314,7 +323,7 @@ def test_compact_partition_incremental(
     # validate
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(
-        s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
+        setup_s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
     )
     round_completion_info = RoundCompletionInfo(**rcf_file_output)
     print(f"rcf_file_output: {json.dumps(rcf_file_output, indent=2)}")
