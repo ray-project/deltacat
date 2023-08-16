@@ -5,6 +5,10 @@ from deltacat.tests.compactor.common import (
     MAX_RECORDS_PER_FILE,
     offer_iso8601_timestamp_list,
 )
+from deltacat.tests.compactor.common import (
+    BASE_TEST_SOURCE_TABLE_VERSION,
+    BASE_TEST_DESTINATION_TABLE_VERSION,
+)
 
 
 """
@@ -17,6 +21,8 @@ TODO Test Cases:
 
 INCREMENTAL_TEST_CASES = {
     "1-incremental-pkstr-sknone-norcf": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         {"pk_col_1"},  # Primary key columns
         [],  # Sort key columns
         [{"key_name": "region_id", "key_type": "int"}],  # Partition keys
@@ -37,6 +43,8 @@ INCREMENTAL_TEST_CASES = {
         None,  # hash_bucket_count_param
     ),
     "2-incremental-pkstr-skstr-norcf": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
         [
             {
@@ -61,6 +69,8 @@ INCREMENTAL_TEST_CASES = {
         None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
         [
             {
@@ -96,6 +106,8 @@ INCREMENTAL_TEST_CASES = {
         None,
     ),
     "4-incremental-duplicate-pk": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
         [
             {
@@ -131,6 +143,8 @@ INCREMENTAL_TEST_CASES = {
         None,
     ),
     "5-incremental-decimal-pk-simple": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
         [
             {
@@ -161,6 +175,8 @@ INCREMENTAL_TEST_CASES = {
         None,
     ),
     "7-incremental-integer-pk-simple": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
         [
             {
@@ -191,6 +207,8 @@ INCREMENTAL_TEST_CASES = {
         None,
     ),
     "8-incremental-timestamp-pk-simple": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
         [
             {
@@ -221,6 +239,8 @@ INCREMENTAL_TEST_CASES = {
         None,
     ),
     "9-incremental-decimal-timestamp-pk-multi": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1", "pk_col_2"],
         [
             {
@@ -253,6 +273,8 @@ INCREMENTAL_TEST_CASES = {
         None,
     ),
     "10-incremental-decimal-pk-multi-dup": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
         [
             {

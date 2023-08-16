@@ -16,10 +16,8 @@ from deltacat.tests.compactor.common import (
     TEST_S3_RCF_BUCKET_NAME,
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
-    BASE_TEST_SOURCE_TABLE_VERSION,
     BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
-    BASE_TEST_DESTINATION_TABLE_VERSION,
 )
 from deltacat.tests.compactor.testcases import (
     INCREMENTAL_TEST_CASES,
@@ -93,6 +91,8 @@ def setup_local_deltacat_storage_conn(teardown_local_deltacat_storage_db):
 
 
 def setup_incremental_source_and_destination_tables(
+    source_table_version: str,
+    destination_table_version: str,
     primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
@@ -101,10 +101,8 @@ def setup_incremental_source_and_destination_tables(
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
     source_namespace: str = BASE_TEST_SOURCE_NAMESPACE,
-    source_table_version: str = BASE_TEST_SOURCE_TABLE_VERSION,
     source_table_name: str = BASE_TEST_SOURCE_TABLE_NAME,
     destination_namespace: str = BASE_TEST_DESTINATION_NAMESPACE,
-    destination_table_version: str = BASE_TEST_DESTINATION_TABLE_VERSION,
     destination_table_name: str = BASE_TEST_DESTINATION_TABLE_NAME,
 ):
     import deltacat.tests.local_deltacat_storage as ds
@@ -166,6 +164,8 @@ def setup_incremental_source_and_destination_tables(
 @pytest.mark.parametrize(
     [
         "test_name",
+        "source_table_version",
+        "destination_table_version",
         "primary_keys_param",
         "sort_keys_param",
         "partition_keys_param",
@@ -185,6 +185,8 @@ def setup_incremental_source_and_destination_tables(
     [
         (
             test_name,
+            source_table_version,
+            destination_table_version,
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
@@ -202,6 +204,8 @@ def setup_incremental_source_and_destination_tables(
             hash_bucket_count_param,
         )
         for test_name, (
+            source_table_version,
+            destination_table_version,
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
@@ -223,12 +227,13 @@ def setup_incremental_source_and_destination_tables(
     indirect=["teardown_local_deltacat_storage_db"],
 )
 def test_compact_partition_incremental(
-    request,
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
     teardown_local_deltacat_storage_db,
     setup_compaction_artifacts_s3_bucket: None,
     test_name: str,
+    source_table_version: str,
+    destination_table_version: str,
     primary_keys_param: Set[str],
     sort_keys_param,
     partition_keys_param,
@@ -272,6 +277,8 @@ def test_compact_partition_incremental(
         source_table_stream,
         destination_table_stream,
     ) = setup_incremental_source_and_destination_tables(
+        source_table_version,
+        destination_table_version,
         primary_keys_param,
         sort_keys,
         partition_keys,
