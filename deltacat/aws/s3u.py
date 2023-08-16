@@ -41,6 +41,7 @@ from deltacat.types.tables import (
     TABLE_TYPE_TO_READER_FUNC,
     get_table_length,
 )
+from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.common import ReadKwargsProvider
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -199,6 +200,7 @@ def read_file(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> LocalTable:
 
@@ -211,6 +213,7 @@ def read_file(
             column_names,
             include_columns,
             file_reader_kwargs_provider,
+            partial_file_download_params,
             **s3_client_kwargs,
         )
         return table
@@ -413,6 +416,14 @@ def download_manifest_entry(
     s3_url = manifest_entry.uri
     if s3_url is None:
         s3_url = manifest_entry.url
+
+    partial_file_download_params = None
+    if manifest_entry.meta and manifest_entry.meta.content_type_parameters:
+        for type_params in manifest_entry.meta.content_type_parameters:
+            if isinstance(type_params, PartialFileDownloadParams):
+                partial_file_download_params = type_params
+                break
+
     # @retry decorator can't be pickled by Ray, so wrap download in Retrying
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
@@ -428,6 +439,7 @@ def download_manifest_entry(
         column_names,
         include_columns,
         file_reader_kwargs_provider,
+        partial_file_download_params,
         **s3_client_kwargs,
     )
     return table

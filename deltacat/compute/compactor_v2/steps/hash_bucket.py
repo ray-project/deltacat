@@ -13,7 +13,7 @@ from deltacat.compute.compactor import (
     DeltaFileEnvelope,
 )
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
-from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
+from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     group_hash_bucket_indices,
     group_by_pk_hash_bucket,
@@ -40,7 +40,7 @@ def _read_delta_file_envelopes(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
-) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
+) -> Tuple[Optional[List[DeltaFileEnvelope]], int, int]:
 
     tables = deltacat_storage.download_delta(
         annotated_delta,
@@ -57,7 +57,7 @@ def _read_delta_file_envelopes(
         f"annotations ({len(annotations)}).",
     )
     if not tables:
-        return None, 0
+        return None, 0, 0
 
     delta_stream_position = annotations[0].annotation_stream_position
     delta_type = annotations[0].annotation_delta_type
@@ -75,6 +75,7 @@ def _read_delta_file_envelopes(
     delta_file_envelopes = []
     table = pa.concat_tables(tables)
     total_record_count = len(table)
+    total_size_bytes = int(table.nbytes)
 
     delta_file = DeltaFileEnvelope.of(
         stream_position=delta_stream_position,
@@ -82,7 +83,7 @@ def _read_delta_file_envelopes(
         table=table,
     )
     delta_file_envelopes.append(delta_file)
-    return delta_file_envelopes, total_record_count
+    return delta_file_envelopes, total_record_count, total_size_bytes
 
 
 def _group_file_records_by_pk_hash_bucket(
@@ -92,16 +93,21 @@ def _group_file_records_by_pk_hash_bucket(
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
-) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
+) -> Tuple[Optional[DeltaFileEnvelopeGroups], int, int]:
     # read input parquet s3 objects into a list of delta file envelopes
-    delta_file_envelopes, total_record_count = _read_delta_file_envelopes(
+    (
+        delta_file_envelopes,
+        total_record_count,
+        total_size_bytes,
+    ) = _read_delta_file_envelopes(
         annotated_delta,
         read_kwargs_provider,
         deltacat_storage,
         deltacat_storage_kwargs,
     )
+
     if delta_file_envelopes is None:
-        return None, 0
+        return None, 0, 0
 
     logger.info(f"Read all delta file envelopes: {len(delta_file_envelopes)}")
 
@@ -129,7 +135,7 @@ def _group_file_records_by_pk_hash_bucket(
                         table=table,
                     )
                 )
-    return hb_to_delta_file_envelopes, total_record_count
+    return hb_to_delta_file_envelopes, total_record_count, total_size_bytes
 
 
 def _timed_hash_bucket(input: HashBucketInput):
@@ -141,6 +147,7 @@ def _timed_hash_bucket(input: HashBucketInput):
         (
             delta_file_envelope_groups,
             total_record_count,
+            total_size_bytes,
         ) = _group_file_records_by_pk_hash_bucket(
             annotated_delta=input.annotated_delta,
             num_hash_buckets=input.num_hash_buckets,
@@ -149,7 +156,7 @@ def _timed_hash_bucket(input: HashBucketInput):
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-        hash_bucket_group_to_obj_id, _ = group_hash_bucket_indices(
+        hash_bucket_group_to_obj_id_tuple = group_hash_bucket_indices(
             hash_bucket_object_groups=delta_file_envelope_groups,
             num_buckets=input.num_hash_buckets,
             num_groups=input.num_hash_groups,
@@ -158,7 +165,8 @@ def _timed_hash_bucket(input: HashBucketInput):
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
         return HashBucketResult(
-            hash_bucket_group_to_obj_id,
+            hash_bucket_group_to_obj_id_tuple,
+            np.int64(total_size_bytes),
             np.int64(total_record_count),
             np.double(peak_memory_usage_bytes),
             np.double(0.0),
@@ -189,6 +197,7 @@ def hash_bucket(input: HashBucketInput) -> HashBucketResult:
         hash_bucket_result[0],
         hash_bucket_result[1],
         hash_bucket_result[2],
+        hash_bucket_result[3],
         np.double(emit_metrics_time),
-        hash_bucket_result[4],
+        hash_bucket_result[5],
     )

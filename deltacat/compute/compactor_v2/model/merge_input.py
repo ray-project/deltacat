@@ -22,8 +22,10 @@ class MergeInput(Dict):
         write_to_partition: Partition,
         compacted_file_content_type: ContentType,
         primary_keys: List[str],
+        hash_group_index: int,
+        num_hash_groups: int,
         sort_keys: Optional[List[SortKey]] = None,
-        dedupe_task_index: Optional[int] = 0,
+        merge_task_index: Optional[int] = 0,
         max_records_per_output_file: Optional[int] = 4_000_000,
         enable_profiler: Optional[bool] = False,
         metrics_config: Optional[MetricsConfig] = None,
@@ -40,8 +42,10 @@ class MergeInput(Dict):
         result["write_to_partition"] = write_to_partition
         result["compacted_file_content_type"] = compacted_file_content_type
         result["primary_keys"] = primary_keys
+        result["hash_group_index"] = hash_group_index
+        result["num_hash_groups"] = num_hash_groups
         result["sort_keys"] = sort_keys
-        result["dedupe_task_index"] = dedupe_task_index
+        result["merge_task_index"] = merge_task_index
         result["max_records_per_output_file"] = max_records_per_output_file
         result["enable_profiler"] = enable_profiler
         result["metrics_config"] = metrics_config
@@ -71,12 +75,20 @@ class MergeInput(Dict):
         return self["primary_keys"]
 
     @property
+    def hash_group_index(self) -> int:
+        return self["hash_group_index"]
+
+    @property
+    def num_hash_groups(self) -> int:
+        return self["num_hash_groups"]
+
+    @property
     def sort_keys(self) -> Optional[List[SortKey]]:
         return self.get("sort_keys")
 
     @property
-    def dedupe_task_index(self) -> int:
-        return self.get("dedupe_task_index")
+    def merge_task_index(self) -> int:
+        return self.get("merge_task_index")
 
     @property
     def max_records_per_output_file(self) -> int:
