@@ -15,7 +15,6 @@ from pyarrow import feather as paf
 from pyarrow import json as pajson
 from pyarrow import parquet as papq
 from ray.data.datasource import BlockWritePathProvider
-from deltacat.utils.daft import pyarrow_to_daft_schema
 
 from deltacat import logs
 from deltacat.types.media import (
@@ -257,6 +256,7 @@ def s3_file_to_table(
 
     if content_type == ContentType.PARQUET.value:
         from daft.table import Table
+        from daft.logical.schema import Schema
         from daft import TimeUnit
         from daft.io import IOConfig, S3Config
 
@@ -284,7 +284,7 @@ def s3_file_to_table(
         logger.debug(f"Read S3 object from {s3_url} using daft")
 
         if "schema" in kwargs:
-            daft_schema = pyarrow_to_daft_schema(kwargs["schema"])
+            daft_schema = Schema.from_pyarrow_schema(kwargs["schema"])
             return table.cast_to_schema(daft_schema).to_arrow()
         else:
             return table.to_arrow()
