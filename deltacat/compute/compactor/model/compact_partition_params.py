@@ -380,3 +380,4 @@ class CompactPartitionParams(dict):
             default=CompactPartitionParams.json_handler_for_compact_partition_params,
         )
         return serialized_arguments_compact_partition_args
+    

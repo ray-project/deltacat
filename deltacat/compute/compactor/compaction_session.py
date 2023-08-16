@@ -138,6 +138,9 @@ def compact_partition(
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
+
     # memray official documentation link:
     # https://bloomberg.github.io/memray/getting_started.html
     with memray.Tracker(
