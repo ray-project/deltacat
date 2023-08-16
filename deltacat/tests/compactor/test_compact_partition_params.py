@@ -87,29 +87,46 @@ class TestCompactPartitionParams(unittest.TestCase):
         from deltacat.compute.compactor.model.compact_partition_params import (
             CompactPartitionParams,
         )
+        from deltacat.storage import PartitionLocator
+
+        test_destination_partition_locator = PartitionLocator(
+            {
+                "partitionLocator": {
+                    "streamLocator": {
+                        "tableVersionLocator": {
+                            "tableLocator": {
+                                "namespaceLocator": {
+                                    "namespace": "rebase_destination_test_namespace"
+                                },
+                                "tableName": "rebase_destination_test_table",
+                            },
+                            "tableVersion": "1",
+                        },
+                        "streamId": "d963f747-4663-4d6a-a935-8097a39a8ba8",
+                        "storageType": "SQLITE3",
+                    },
+                    "partitionValues": [],
+                    "partitionId": "98c24387-fe37-4a88-98cb-61c48a4d7891",
+                },
+                "schema": None,
+                "contentTypes": ["application/parquet"],
+                "state": "active",
+                "previousStreamPosition": None,
+                "previousPartitionId": None,
+                "streamPosition": 1691707520598,
+                "nextPartitionId": None,
+            }
+        )
 
         params = CompactPartitionParams.of(
-            {"destination_partition_locator": "my-partition"}
+            {"destination_partition_locator": test_destination_partition_locator}
         )
         serialized_params = params.serialize()
         assert isinstance(serialized_params, str)
-        assert json.loads(serialized_params) == {
-            "compacted_file_content_type": None,
-            "compaction_artifact_s3_bucket": None,
-            "deltacat_storage": None,
-            "hash_bucket_count": None,
-            "last_stream_position_to_compact": None,
-            "list_deltas_kwargs": None,
-            "pg_config": None,
-            "primary_keys": None,
-            "properties": None,
-            "read_kwargs_provider": None,
-            "rebase_source_partition_high_watermark": None,
-            "rebase_source_partition_locator": None,
-            "s3_table_writer_kwargs": None,
-            "source_partition_locator": None,
-            "destination_partition_locator": "my-partition",
-        }
+        assert (
+            json.loads(serialized_params)["destination_partition_locator"]
+            == test_destination_partition_locator
+        )
 
     def test_serialize_returns_json_string_with_all_fields(self):
         from deltacat.compute.compactor.model.compact_partition_params import (
