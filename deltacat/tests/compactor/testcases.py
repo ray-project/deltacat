@@ -1,5 +1,3 @@
-# Allow classes to use self-referencing Type hints in Python 3.7.
-from __future__ import annotations
 import pyarrow as pa
 from deltacat.tests.compactor.common import (
     MAX_RECORDS_PER_FILE,
@@ -330,7 +328,42 @@ for test_name, (
 """
 
 # TODO: Add test cases where next tc is dependent on the previous compacted table existing
-INCREMENTAL_DEPENDENT_TEST_CASES = {}
+INCREMENTAL_DEPENDENT_TEST_CASES = {
+    "11-incremental-multi-dup-retain-table": (
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        BASE_TEST_DESTINATION_TABLE_VERSION,
+        ["pk_col_1", "pk_col_2"],
+        [
+            {
+                "key_name": "sk_col_1",
+            },
+        ],
+        [],
+        ["pk_col_1", "pk_col_2", "sk_col_1"],
+        [
+            pa.array([i / 10 for i in range(0, 20)]),
+            pa.array(offer_iso8601_timestamp_list(20, "minutes")),
+            pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+        ],
+        None,
+        ["1"],
+        pa.Table.from_arrays(
+            [
+                pa.array([i / 10 for i in range(0, 20)]),
+                pa.array(offer_iso8601_timestamp_list(20, "minutes")),
+                pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+            ],
+            names=["pk_col_1", "pk_col_2", "sk_col_1"],
+        ),
+        None,
+        None,
+        False,
+        False,
+        True,
+        MAX_RECORDS_PER_FILE,
+        None,
+    ),
+}
 
 INCREMENTAL_TEST_CASES = {
     **INCREMENTAL_INDEPENDENT_TEST_CASES,

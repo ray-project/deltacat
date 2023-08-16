@@ -1,4 +1,3 @@
-import os
 import unittest
 from unittest import mock
 from deltacat.tests.test_utils.constants import TEST_DELTA
@@ -30,8 +29,6 @@ class TestFitInputDeltas(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
-        if os.path.exists(DATABASE_FILE_PATH_VALUE):
-            os.remove(DATABASE_FILE_PATH_VALUE)
         cls.module_patcher.stop()
 
     def test_sanity(self):

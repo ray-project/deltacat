@@ -27,17 +27,11 @@ DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
 )
 
 """
-PACKAGE scoped fixtures
+MODULE scoped fixtures
 """
 
 
-@pytest.fixture(autouse=True, scope="package")
-def cleanup_the_database_file_after_all_compaction_session_package_tests_complete():
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
-
-
-@pytest.fixture(autouse=True, scope="package")
+@pytest.fixture(autouse=True, scope="module")
 def mock_aws_credential():
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
     os.environ["AWS_SECRET_ACCESS_ID"] = "testing"
@@ -47,9 +41,11 @@ def mock_aws_credential():
     yield
 
 
-"""
-MODULE scoped fixtures
-"""
+@pytest.fixture(autouse=True, scope="module")
+def cleanup_the_database_file_after_all_compaction_session_package_tests_complete():
+    # make sure the database file is deleted after all the compactor package tests are completed
+    if os.path.exists(DATABASE_FILE_PATH_VALUE):
+        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 @pytest.fixture(scope="module")
