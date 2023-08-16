@@ -1,5 +1,3 @@
-# Allow classes to use self-referencing Type hints in Python 3.7.
-from __future__ import annotations
 import ray
 from moto import mock_s3
 import pytest
@@ -75,19 +73,18 @@ FUNCTION scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def teardown_local_deltacat_storage_db(request):
+def teardown_local_deltacat_storage_db():
     if os.path.exists(DATABASE_FILE_PATH_VALUE):
         os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 @pytest.fixture(scope="function")
-def setup_local_deltacat_storage_conn(teardown_local_deltacat_storage_db):
+def setup_local_deltacat_storage_conn():
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs_for_local_deltacat_storage
-    teardown_local_deltacat_storage_db
 
 
 def setup_incremental_source_and_destination_tables(
@@ -176,7 +173,7 @@ def setup_incremental_source_and_destination_tables(
         "expected_result",
         "validation_callback_func",
         "validation_callback_func_kwargs",
-        "teardown_local_deltacat_storage_db",
+        "do_teardown_local_deltacat_storage_db",
         "use_prev_compacted",
         "create_placement_group_param",
         "records_per_compacted_file_param",
@@ -197,7 +194,7 @@ def setup_incremental_source_and_destination_tables(
             expected_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            teardown_local_deltacat_storage_db,
+            do_teardown_local_deltacat_storage_db,
             use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -216,7 +213,7 @@ def setup_incremental_source_and_destination_tables(
             expected_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            teardown_local_deltacat_storage_db,
+            do_teardown_local_deltacat_storage_db,
             use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -224,12 +221,12 @@ def setup_incremental_source_and_destination_tables(
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
-    indirect=["teardown_local_deltacat_storage_db"],
+    indirect=[],
 )
 def test_compact_partition_incremental(
+    request: pytest.FixtureRequest,
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
-    teardown_local_deltacat_storage_db,
     setup_compaction_artifacts_s3_bucket: None,
     test_name: str,
     source_table_version: str,
@@ -242,8 +239,9 @@ def test_compact_partition_incremental(
     rebase_source_partition_locator_param,
     partition_values_param,
     expected_result,
-    validation_callback_func,  # use and implement if you want to run additional validations apart from the ones in the test
+    validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
     validation_callback_func_kwargs,
+    do_teardown_local_deltacat_storage_db,
     use_prev_compacted,
     create_placement_group_param,
     records_per_compacted_file_param,
@@ -343,3 +341,7 @@ def test_compact_partition_incremental(
         and validation_callback_func_kwargs is not None
     ):
         validation_callback_func(**validation_callback_func_kwargs)
+    # https://docs.pytest.org/en/7.1.x/reference/reference.html#pytest.FixtureRequest.getfixturevalue
+    if do_teardown_local_deltacat_storage_db:
+        request.getfixturevalue("teardown_local_deltacat_storage_db")
+    return

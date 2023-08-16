@@ -19,7 +19,8 @@ TODO Test Cases:
 4. Rebase then incremental (use same round completion file)
 """
 
-INCREMENTAL_TEST_CASES = {
+
+INCREMENTAL_INDEPENDENT_TEST_CASES = {
     "1-incremental-pkstr-sknone-norcf": (
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
@@ -304,4 +305,34 @@ INCREMENTAL_TEST_CASES = {
         MAX_RECORDS_PER_FILE,
         None,
     ),
+}
+
+"""
+for test_name, (
+            source_table_version,
+            destination_table_version,
+            primary_keys_param,
+            sort_keys_param,
+            partition_keys_param,
+            column_names_param,
+            arrow_arrays_param,
+            rebase_source_partition_locator_param,
+            partition_values_param,
+            expected_result,
+            validation_callback_func,
+            validation_callback_func_kwargs,
+            do_teardown_local_deltacat_storage_db,
+            use_prev_compacted,
+            create_placement_group_param,
+            records_per_compacted_file_param,
+            hash_bucket_count_param,
+        ) in INCREMENTAL_TEST_CASES.items()
+"""
+
+# TODO: Add test cases where next tc is dependent on the previous compacted table existing
+INCREMENTAL_DEPENDENT_TEST_CASES = {}
+
+INCREMENTAL_TEST_CASES = {
+    **INCREMENTAL_INDEPENDENT_TEST_CASES,
+    **INCREMENTAL_DEPENDENT_TEST_CASES,
 }
