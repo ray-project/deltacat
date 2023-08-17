@@ -15,6 +15,20 @@ from deltacat.compute.compactor_v2.utils.io import append_content_type_params
 from deltacat.compute.compactor_v2.constants import TOTAL_MEMORY_BUFFER_PERCENTAGE
 
 
+def _get_parquet_type_params_if_exist(
+    entry: ManifestEntry,
+) -> Optional[PartialParquetParameters]:
+    if (
+        entry.meta
+        and entry.meta.content_type == ContentType.PARQUET
+        and entry.meta.content_encoding == ContentEncoding.IDENTITY
+    ):
+        for type_params in entry.meta.content_type_parameters:
+            if isinstance(type_params, PartialParquetParameters):
+                return type_params
+    return None
+
+
 def _calculate_parquet_column_size(
     type_params: PartialParquetParameters, columns: List[str]
 ):
@@ -37,17 +51,13 @@ def _calculate_parquet_column_size(
 def estimate_manifest_entry_size_bytes(
     entry: ManifestEntry, previous_inflation: float, **kwargs
 ) -> float:
-    if (
-        entry.meta
-        and entry.meta.content_type == ContentType.PARQUET
-        and entry.meta.content_encoding == ContentEncoding.IDENTITY
-    ):
-        for type_params in entry.meta.content_type_parameters:
-            if isinstance(type_params, PartialParquetParameters):
-                return type_params.in_memory_size_bytes
-
     if entry.meta.source_content_length:
         return entry.meta.source_content_length
+
+    type_params = _get_parquet_type_params_if_exist(entry=entry)
+
+    if type_params:
+        return type_params.in_memory_size_bytes
 
     return entry.meta.content_length * previous_inflation
 
@@ -58,17 +68,13 @@ def estimate_manifest_entry_num_rows(
     previous_inflation: float,
     **kwargs,
 ) -> int:
-    if (
-        entry.meta
-        and entry.meta.content_type == ContentType.PARQUET
-        and entry.meta.content_encoding == ContentEncoding.IDENTITY
-    ):
-        for type_params in entry.meta.content_type_parameters:
-            if isinstance(type_params, PartialParquetParameters):
-                return type_params.num_rows
-
     if entry.meta.record_count:
         return entry.meta.record_count
+
+    type_params = _get_parquet_type_params_if_exist(entry=entry)
+
+    if type_params:
+        return type_params.num_rows
 
     total_size_bytes = estimate_manifest_entry_size_bytes(
         entry=entry, previous_inflation=previous_inflation, **kwargs
@@ -83,19 +89,10 @@ def estimate_manifest_entry_column_size_bytes(
     if not columns:
         return 0
 
-    if (
-        entry.meta
-        and entry.meta.content_type == ContentType.PARQUET
-        and entry.meta.content_encoding == ContentEncoding.IDENTITY
-    ):
-        for type_params in entry.meta.content_type_parameters:
-            if (
-                isinstance(type_params, PartialParquetParameters)
-                and type_params.pq_metadata
-            ):
-                return _calculate_parquet_column_size(
-                    type_params=type_params, columns=columns
-                )
+    type_params = _get_parquet_type_params_if_exist(entry=entry)
+
+    if type_params.pq_metadata:
+        return _calculate_parquet_column_size(type_params=type_params, columns=columns)
 
     return None
 
@@ -144,7 +141,7 @@ def hash_bucket_resource_options_provider(
     # Consider buffer
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
-    return {"CPU": 0.01, "memory": total_memory}
+    return {"num_cpus": 0.01, "memory": total_memory}
 
 
 def merge_resource_options_provider(
@@ -226,4 +223,4 @@ def merge_resource_options_provider(
 
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
-    return {"CPU": 0.01, "memory": total_memory}
+    return {"num_cpus": 0.01, "memory": total_memory}
