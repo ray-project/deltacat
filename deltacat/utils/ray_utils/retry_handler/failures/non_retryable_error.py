@@ -1,5 +1,3 @@
-from builtins import Exception
-
 
 class NonRetryableError(Exception):
     """

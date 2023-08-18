@@ -1,7 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass
 from typing import List
-from deltacat.utils.ray_utils.retry_handler.failures.aws_security_token_rate_exceeded_exception import AWSSecurityTokenRateExceededException
+from deltacat.utils.ray_utils.retry_handler.failures.aws_security_token_rate_exceeded_exception import \
+    AWSSecurityTokenRateExceededException
 
 from deltacat.utils.ray_utils.retry_handler.task_constants import (
     DEFAULT_MAX_RAY_REMOTE_TASK_RETRY_ATTEMPTS,
@@ -31,7 +31,6 @@ class TaskExceptionRetryConfig:
         self.back_off_factor = back_off_factor
         self.ray_remote_task_memory_multiply_factor = ray_remote_task_memory_multiplication_factor
         self.is_throttling_exception = is_throttling_exception
-
 
     def getDefaultConfig() -> List[TaskExceptionRetryConfig]:
         return [TaskExceptionRetryConfig(exception=RetryableError(), is_throttling_exception=True),

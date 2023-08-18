@@ -1,4 +1,3 @@
-from typing import List, Protocol
 from deltacat.utils.ray_utils.retry_handler.task_info_object import TaskInfoObject
 from builtins import Exception
 from deltacat.utils.ray_utils.retry_handler.retry_task_interface import RetryTaskInterface

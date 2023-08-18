@@ -1,4 +1,4 @@
-from typing import List, Any, Protocol
+from typing import List, Protocol
 from deltacat.utils.ray_utils.retry_handler.task_info_object import TaskInfoObject
 class BatchScalingInterface(Protocol):
     """

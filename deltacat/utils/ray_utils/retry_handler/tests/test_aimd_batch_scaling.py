@@ -27,7 +27,6 @@ class TestAIMDBatchScaling(unittest.TestCase):
         initial_index = self.batch_strategy.batch_index
         batch = self.batch_strategy.next_batch()
         self.assertEqual(len(batch), 2)
-        #self.assertEqual(self.batch_strategy.batch_index, initial_index + self.batch_strategy.additive_increase)
 
     def test_mark_task_complete(self):
         # assuming we call a success, want to see that completion dictionary is updated
