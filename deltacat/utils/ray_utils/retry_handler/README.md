@@ -22,6 +22,10 @@ Use cases:
    to create their own exceptions to be handles, they can create a class that is an extension of retryable_error or 
    non_retryable_error and the framework should handle it based on the configuration strategy.
 
+To-Do:
+1. Integrate Straggler Detection Interface and TaskContext information to pass to client to determine if a task is_straggler
+2. Test case for Exception being thrown- currently commented out since assertRaises() is not detected the UnexpectedRayTask Exception
+
 
 
 
