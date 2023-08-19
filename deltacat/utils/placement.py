@@ -289,7 +289,7 @@ def _config(
     cluster_resources["memory"] = float(pg_res["memory"])
     cluster_resources["object_store_memory"] = float(pg_res["object_store_memory"])
     pg_config = PlacementGroupConfig(
-        opts=opts, cluster_resources=cluster_resources, node_ips=node_ips
+        opts=opts, resource=cluster_resources, node_ips=node_ips
     )
     logger.info(f"pg has resources:{cluster_resources}")
     logger.debug(f"pg has node ips:{node_ips}")

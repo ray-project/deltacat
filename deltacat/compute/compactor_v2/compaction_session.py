@@ -58,6 +58,10 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]:
 
+    assert (
+        params.hash_bucket_count is not None and params.hash_bucket_count >= 1
+    ), "hash_bucket_count is a required arg for compactor v2"
+
     with memray.Tracker(
         f"compaction_partition.bin"
     ) if params.enable_profiler else nullcontext(), ClusterUtilizationOverTimeRange() as cluster_util:
@@ -113,6 +117,8 @@ def _execute_compaction(
 
     compaction_start = time.monotonic()
 
+    task_max_parallelism = params.task_max_parallelism
+
     if params.pg_config:
         logger.info(
             "pg_config specified. Tasks will be scheduled in a placement group."
@@ -120,6 +126,7 @@ def _execute_compaction(
         cluster_resources = params.pg_config.resource
         cluster_cpus = cluster_resources["CPU"]
         cluster_memory = cluster_resources["memory"]
+        task_max_parallelism = cluster_cpus
         compaction_audit.set_cluster_cpu_max(cluster_cpus)
         compaction_audit.set_total_cluster_memory_bytes(cluster_memory)
 
@@ -232,7 +239,7 @@ def _execute_compaction(
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
         ray_task=hb.hash_bucket,
-        max_parallelism=params.max_parallelism,
+        max_parallelism=task_max_parallelism,
         options_provider=hb_options_provider,
         kwargs_provider=hash_bucket_input_provider,
     )
@@ -358,7 +365,7 @@ def _execute_compaction(
     merge_tasks_pending = invoke_parallel(
         items=all_hash_group_idx_to_obj_id.items(),
         ray_task=mg.merge,
-        max_parallelism=params.max_parallelism,
+        max_parallelism=task_max_parallelism,
         options_provider=merge_options_provider,
         kwargs_provider=merge_input_provider,
     )

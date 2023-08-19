@@ -18,7 +18,7 @@ from deltacat.compute.compactor_v2.constants import (
     MIN_DELTA_BYTES_IN_BATCH,
     MIN_FILES_IN_BATCH,
     AVERAGE_RECORD_SIZE_BYTES,
-    MAX_PARALLELISM,
+    TASK_MAX_PARALLELISM,
 )
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
@@ -47,9 +47,6 @@ class CompactPartitionParams(dict):
         assert (
             params.get("compaction_artifact_s3_bucket") is not None
         ), "compaction_artifact_s3_bucket is a required arg"
-        assert (
-            params.get("hash_bucket_count") is not None
-        ), "hash_bucket_count is a required arg"
 
         result = CompactPartitionParams(params)
 
@@ -75,7 +72,9 @@ class CompactPartitionParams(dict):
             result.deltacat_storage,
             result.deltacat_storage_kwargs,
         )
-        result.max_parallelism = params.get("max_parallelism", MAX_PARALLELISM)
+        result.task_max_parallelism = params.get(
+            "task_max_parallelism", TASK_MAX_PARALLELISM
+        )
         result.min_files_in_batch = params.get("min_files_in_batch", MIN_FILES_IN_BATCH)
         result.min_delta_bytes_in_batch = params.get(
             "min_delta_bytes_in_batch", MIN_DELTA_BYTES_IN_BATCH
@@ -105,9 +104,6 @@ class CompactPartitionParams(dict):
         assert (
             result.records_per_compacted_file and result.records_per_compacted_file >= 1
         ), "Max records per output file must be a positive value"
-        assert (
-            result.hash_bucket_count and result.hash_bucket_count >= 1
-        ), "Hash bucket count must be greater than or equal to 0"
 
         return result
 
@@ -175,12 +171,12 @@ class CompactPartitionParams(dict):
         self["compacted_file_content_type"] = content_type
 
     @property
-    def max_parallelism(self) -> int:
-        return self["max_parallelism"]
+    def task_max_parallelism(self) -> int:
+        return self["task_max_parallelism"]
 
-    @max_parallelism.setter
-    def max_parallelism(self, max_parallelism: int) -> None:
-        self["max_parallelism"] = max_parallelism
+    @task_max_parallelism.setter
+    def task_max_parallelism(self, max_parallelism: int) -> None:
+        self["task_max_parallelism"] = max_parallelism
 
     @property
     def average_record_size_bytes(self) -> float:
@@ -271,8 +267,8 @@ class CompactPartitionParams(dict):
         self["bit_width_of_sort_keys"] = width
 
     @property
-    def hash_bucket_count(self) -> int:
-        return self["hash_bucket_count"]
+    def hash_bucket_count(self) -> Optional[int]:
+        return self.get("hash_bucket_count")
 
     @hash_bucket_count.setter
     def hash_bucket_count(self, count: int) -> None:

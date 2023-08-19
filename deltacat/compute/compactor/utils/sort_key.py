@@ -1,5 +1,5 @@
 import pyarrow as pa
-from typing import Dict, Any, List, Optional
+from typing import List
 from deltacat.storage import PartitionLocator, SortKey
 
 MAX_SORT_KEYS_BIT_WIDTH = 256
@@ -31,7 +31,6 @@ def validate_sort_keys(
             stream_locator.namespace,
             stream_locator.table_name,
             stream_locator.table_version,
-            **deltacat_storage_kwargs,
             **deltacat_storage_kwargs,
         )
         if isinstance(table_version_schema, pa.Schema):
