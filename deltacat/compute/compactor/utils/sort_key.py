@@ -32,7 +32,6 @@ def validate_sort_keys(
             stream_locator.table_name,
             stream_locator.table_version,
             **deltacat_storage_kwargs,
-            **deltacat_storage_kwargs,
         )
         if isinstance(table_version_schema, pa.Schema):
             for sort_key_name in sort_key_names:
