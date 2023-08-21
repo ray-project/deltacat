@@ -56,7 +56,7 @@ class ClusterUtilization:
         )
 
 
-def get_current_node_peak_memory_usage_in_bytes():
+def get_current_node_peak_memory_usage_in_bytes() -> int:
     """
     Returns the peak memory usage of the node in bytes. This method works across
     Windows, Darwin and Linux platforms.

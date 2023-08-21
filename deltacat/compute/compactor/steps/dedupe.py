@@ -107,20 +107,21 @@ def _timed_dedupe(
     dedupe_task_index: int,
     enable_profiler: bool,
     object_store: Optional[IObjectStore],
+    **kwargs,
 ):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
         f"dedupe_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
-        # TODO (pdames): mitigate risk of running out of memory here in cases of
-        #  severe skew of primary key updates in deltas
+        # TODO (pdames): mitigate risk of running out of memory here in cases of severe skew of primary key updates in deltas
         logger.info(
             f"[Dedupe task {dedupe_task_index}] Getting delta file envelope "
             f"groups for {len(object_ids)} object refs..."
         )
-
-        delta_file_envelope_groups_list = object_store.get_many(object_ids)
+        delta_file_envelope_groups_list: List[object] = object_store.get_many(
+            object_ids
+        )
         hb_index_to_delta_file_envelopes_list = defaultdict(list)
         for delta_file_envelope_groups in delta_file_envelope_groups_list:
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
@@ -171,7 +172,8 @@ def _timed_dedupe(
 
             hb_table_record_count = len(table)
             table, drop_time = timed_invocation(
-                func=_drop_duplicates_by_primary_key_hash, table=table
+                func=_drop_duplicates_by_primary_key_hash,
+                table=table,
             )
             deduped_record_count = hb_table_record_count - len(table)
             total_deduped_records += deduped_record_count
@@ -227,7 +229,6 @@ def _timed_dedupe(
         )
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
-
         return DedupeResult(
             mat_bucket_to_dd_idx_obj_id,
             np.int64(total_deduped_records),
@@ -246,6 +247,7 @@ def dedupe(
     enable_profiler: bool,
     metrics_config: MetricsConfig,
     object_store: Optional[IObjectStore],
+    **kwargs,
 ) -> DedupeResult:
     logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     dedupe_result, duration = timed_invocation(
@@ -256,6 +258,7 @@ def dedupe(
         dedupe_task_index=dedupe_task_index,
         enable_profiler=enable_profiler,
         object_store=object_store,
+        **kwargs,
     )
 
     emit_metrics_time = 0.0
