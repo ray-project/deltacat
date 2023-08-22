@@ -218,9 +218,17 @@ def group_record_indices_by_hash_bucket(
         f"hb index for {len(pki_table)} rows"
     )
 
-    return _optimized_group_record_batches_by_hash_bucket(
-        pki_table=pki_table, num_buckets=num_buckets
+    result, group_latency = timed_invocation(
+        _optimized_group_record_batches_by_hash_bucket,
+        pki_table=pki_table,
+        num_buckets=num_buckets,
     )
+
+    logger.info(
+        f"Final grouping of table with {input_table_len} records took: {group_latency}s"
+    )
+
+    return result
 
 
 def group_hash_bucket_indices(

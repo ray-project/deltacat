@@ -1,9 +1,9 @@
 import pyarrow as pa
-from deltacat.tests.compactor.common import (
+from deltacat.tests.compute.common import (
     MAX_RECORDS_PER_FILE,
     offer_iso8601_timestamp_list,
 )
-from deltacat.tests.compactor.common import (
+from deltacat.tests.compute.common import (
     BASE_TEST_SOURCE_TABLE_VERSION,
     BASE_TEST_DESTINATION_TABLE_VERSION,
 )

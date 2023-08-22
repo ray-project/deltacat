@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
-from deltacat.tests.compactor.common import (
+from deltacat.tests.compute.common import (
     setup_sort_and_partition_keys,
     PartitionKey,
     TEST_S3_RCF_BUCKET_NAME,
@@ -17,7 +17,7 @@ from deltacat.tests.compactor.common import (
     BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
 )
-from deltacat.tests.compactor.testcases import (
+from deltacat.tests.compute.testcases import (
     INCREMENTAL_TEST_CASES,
 )
 
