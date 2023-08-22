@@ -54,7 +54,7 @@ class TestS3ParquetFileToTable(TestCase):
         self.assertEqual(result.schema.field(1).type, "string")
 
 
-class TestS3FileToParquetTable(TestCase):
+class TestS3PartialParquetFileToTable(TestCase):
     def test_s3_partial_parquet_file_to_table_sanity(self):
 
         pq_file = ParquetFile(PARQUET_FILE_PATH)
