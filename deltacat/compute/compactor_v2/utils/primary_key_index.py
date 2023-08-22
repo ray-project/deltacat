@@ -9,12 +9,14 @@ import hashlib
 from deltacat.compute.compactor_v2.constants import (
     TOTAL_BYTES_IN_SHA1_HASH,
     PK_DELIMITER,
+    MAX_SIZE_OF_RECORD_BATCH_IN_GIB,
 )
 import time
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelope
 from deltacat import logs
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.io.object_store import IObjectStore
+from deltacat.utils.performance import timed_invocation
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -31,6 +33,100 @@ def _append_sha1_hash_to_table(table: pa.Table, hash_column: pa.Array) -> pa.Tab
 
 def _is_sha1_desired(hash_column: pa.Array) -> bool:
     return hash_column.nbytes > TOTAL_BYTES_IN_SHA1_HASH * len(hash_column)
+
+
+def _append_table_by_hash_bucket(
+    pki_table: pa.Table, hash_bucket_to_table: np.ndarray
+) -> int:
+
+    hb_pk_table, sort_latency = timed_invocation(
+        lambda: pki_table.sort_by(sc._HASH_BUCKET_IDX_COLUMN_NAME)
+    )
+    logger.info(f"Sorting a pk table of length {len(pki_table)} took {sort_latency}s")
+
+    hb_pk_grouped_by, groupby_latency = timed_invocation(
+        lambda: hb_pk_table.group_by(sc._HASH_BUCKET_IDX_COLUMN_NAME).aggregate(
+            [(sc._HASH_BUCKET_IDX_COLUMN_NAME, "count")]
+        )
+    )
+
+    logger.info(
+        f"Grouping a pki table of length {len(pki_table)} into took {groupby_latency}s"
+    )
+
+    group_count_array = hb_pk_grouped_by[f"{sc._HASH_BUCKET_IDX_COLUMN_NAME}_count"]
+    hb_group_array = hb_pk_grouped_by[sc._HASH_BUCKET_IDX_COLUMN_NAME]
+
+    result_len = 0
+    for i, group_count in enumerate(group_count_array):
+        hb_idx = hb_group_array[i].as_py()
+        pyarrow_table = hb_pk_table.slice(offset=result_len, length=group_count.as_py())
+        pyarrow_table = pyarrow_table.drop([sc._HASH_BUCKET_IDX_COLUMN_NAME])
+        if hash_bucket_to_table[hb_idx] is None:
+            hash_bucket_to_table[hb_idx] = []
+        hash_bucket_to_table[hb_idx].append(pyarrow_table)
+        result_len += len(pyarrow_table)
+
+    return result_len
+
+
+def _optimized_group_record_batches_by_hash_bucket(
+    pki_table: pa.Table, num_buckets: int
+):
+
+    input_table_len = len(pki_table)
+
+    hash_bucket_to_tables = np.empty([num_buckets], dtype="object")
+    hb_to_table = np.empty([num_buckets], dtype="object")
+
+    # This split will ensure that the sort is not performed on a very huge table
+    # resulting in ArrowInvalid: offset overflow while concatenating arrays
+    # Known issue with Arrow: https://github.com/apache/arrow/issues/25822
+    table_batches, to_batches_latency = timed_invocation(lambda: pki_table.to_batches())
+
+    logger.info(f"to_batches took {to_batches_latency} for {len(pki_table)} rows")
+
+    current_bytes = 0
+    record_batches = []
+    result_len = 0
+    for record_batch in table_batches:
+        current_bytes += record_batch.nbytes
+        record_batches.append(record_batch)
+        if current_bytes >= MAX_SIZE_OF_RECORD_BATCH_IN_GIB:
+            logger.info(
+                f"Total number of record batches without exceeding {MAX_SIZE_OF_RECORD_BATCH_IN_GIB} "
+                f"is {len(record_batches)} and size {current_bytes}"
+            )
+            result_len += _append_table_by_hash_bucket(
+                pa.Table.from_batches(record_batches), hash_bucket_to_tables
+            )
+            current_bytes = 0
+            record_batches.clear()
+
+    if record_batches:
+        result_len += _append_table_by_hash_bucket(
+            pa.Table.from_batches(record_batches), hash_bucket_to_tables
+        )
+        current_bytes = 0
+        record_batches.clear()
+
+    concat_start = time.monotonic()
+    for hb, tables in enumerate(hash_bucket_to_tables):
+        if tables:
+            assert hb_to_table[hb] is None, f"The HB index is repeated {hb}"
+            hb_to_table[hb] = pa.concat_tables(tables)
+
+    concat_end = time.monotonic()
+    logger.info(
+        f"Total time taken to concat all record batches with length "
+        f"{input_table_len}: {concat_end - concat_start}s"
+    )
+
+    assert (
+        input_table_len == result_len
+    ), f"Grouping has resulted in record loss as {result_len} != {input_table_len}"
+
+    return hb_to_table
 
 
 def group_by_pk_hash_bucket(
@@ -107,7 +203,6 @@ def group_record_indices_by_hash_bucket(
 
     input_table_len = len(pki_table)
 
-    hash_bucket_to_table = np.empty([num_buckets], dtype="object")
     hash_bucket_id_col_list = np.empty([input_table_len], dtype="int32")
     bucketing_start_time = time.monotonic()
 
@@ -123,51 +218,9 @@ def group_record_indices_by_hash_bucket(
         f"hb index for {len(pki_table)} rows"
     )
 
-    sort_start_time = time.monotonic()
-
-    hb_pk_table = pki_table.sort_by(sc._HASH_BUCKET_IDX_COLUMN_NAME)
-
-    sort_end_time = time.monotonic()
-    logger.info(
-        f"Sorted the table with {len(hb_pk_table)} rows in {sort_end_time - sort_start_time}s"
+    return _optimized_group_record_batches_by_hash_bucket(
+        pki_table=pki_table, num_buckets=num_buckets
     )
-
-    hb_pk_grouped_by = hb_pk_table.group_by(sc._HASH_BUCKET_IDX_COLUMN_NAME).aggregate(
-        [(sc._HASH_BUCKET_IDX_COLUMN_NAME, "count")]
-    )
-
-    group_by_end_time = time.monotonic()
-    group_count_array = hb_pk_grouped_by[f"{sc._HASH_BUCKET_IDX_COLUMN_NAME}_count"]
-    logger.info(
-        f"Created {len(group_count_array)} groups by hash bucket index "
-        f"in {group_by_end_time - sort_end_time}s"
-    )
-
-    hb_group_array = hb_pk_grouped_by[sc._HASH_BUCKET_IDX_COLUMN_NAME]
-
-    result_len = 0
-    for i, group_count in enumerate(group_count_array):
-        hb_idx = hb_group_array[i].as_py()
-        pyarrow_table = hb_pk_table.slice(offset=result_len, length=group_count.as_py())
-        pyarrow_table = pyarrow_table.drop([sc._HASH_BUCKET_IDX_COLUMN_NAME])
-        assert (
-            hash_bucket_to_table[hb_idx] is None
-        ), f"Hash bucket ID {hb_idx} already processed"
-        hash_bucket_to_table[hb_idx] = pyarrow_table
-        result_len += len(pyarrow_table)
-
-    assert (
-        input_table_len == result_len
-    ), f"Grouping has resulted in record loss as {result_len} != {input_table_len}"
-
-    bucketing_end_time = time.monotonic()
-
-    logger.info(
-        f"Final bucketing took: {bucketing_end_time - group_by_end_time}"
-        f" and total records: {len(hb_pk_table)}"
-    )
-
-    return hash_bucket_to_table
 
 
 def group_hash_bucket_indices(
