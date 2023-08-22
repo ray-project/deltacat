@@ -25,6 +25,7 @@ from deltacat.types.media import (
 )
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
+from deltacat.utils.daft import daft_s3_file_to_table
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -255,40 +256,14 @@ def s3_file_to_table(
     )
 
     if content_type == ContentType.PARQUET.value:
-        from daft.table import Table
-        from daft.logical.schema import Schema
-        from daft import TimeUnit
-        from daft.io import IOConfig, S3Config
-
-        kwargs = {}
-        if pa_read_func_kwargs_provider is not None:
-            kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
-
-        coerce_int96_timestamp_unit = TimeUnit.from_str(
-            kwargs.get("coerce_int96_timestamp_unit", "ms")
+        return daft_s3_file_to_table(
+            s3_url=s3_url,
+            content_type=content_type,
+            content_encoding=content_encoding,
+            include_columns=include_columns,
+            pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
+            **s3_client_kwargs,
         )
-
-        table = Table.read_parquet(
-            path=s3_url,
-            columns=include_columns,
-            coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
-            io_config=IOConfig(
-                s3=S3Config(
-                    key_id=s3_client_kwargs["aws_access_key_id"],
-                    access_key=s3_client_kwargs["aws_secret_access_key"],
-                    session_token=s3_client_kwargs["aws_session_token"],
-                    num_tries=25,
-                )
-            ),
-        )
-        logger.debug(f"Read S3 object from {s3_url} using daft")
-
-        if "schema" in kwargs:
-            daft_schema = Schema.from_pyarrow_schema(kwargs["schema"])
-            return table.cast_to_schema(daft_schema).to_arrow()
-        else:
-            return table.to_arrow()
-
     s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
     pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]
