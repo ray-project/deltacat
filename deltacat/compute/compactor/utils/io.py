@@ -382,7 +382,7 @@ def _discover_deltas(
         last_stream_position=end_position_inclusive,
         ascending_order=True,
         include_manifest=True,
-        **deltacat_storage_kwargs,
+        **kwargs,
     )
     deltas = deltas_list_result.all_items()
     if not deltas:
