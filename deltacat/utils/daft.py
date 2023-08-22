@@ -34,7 +34,6 @@ def daft_s3_file_to_table(
         content_encoding == ContentEncoding.IDENTITY.value
     ), "daft native reader currently only supports identity encoding, got {content_encoding}"
 
-
     kwargs = {}
     if pa_read_func_kwargs_provider is not None:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
@@ -43,22 +42,23 @@ def daft_s3_file_to_table(
         kwargs.get("coerce_int96_timestamp_unit", "ms")
     )
 
-    kwargs['path'] = s3_url
-    kwargs['columns'] = include_columns
+    kwargs["path"] = s3_url
+    kwargs["columns"] = include_columns
     io_config = IOConfig(
-            s3=S3Config(
-                key_id=s3_client_kwargs.get("aws_access_key_id"),
-                access_key=s3_client_kwargs.get("aws_secret_access_key"),
-                session_token=s3_client_kwargs.get("aws_session_token"),
-                num_tries=BOTO_MAX_RETRIES,
-            )
+        s3=S3Config(
+            key_id=s3_client_kwargs.get("aws_access_key_id"),
+            access_key=s3_client_kwargs.get("aws_secret_access_key"),
+            session_token=s3_client_kwargs.get("aws_session_token"),
+            num_tries=BOTO_MAX_RETRIES,
         )
+    )
 
-    table, latency = timed_invocation(Table.read_parquet,
+    table, latency = timed_invocation(
+        Table.read_parquet,
         path=s3_url,
         columns=include_columns,
         io_config=io_config,
-        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
+        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
     )
 
     logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")

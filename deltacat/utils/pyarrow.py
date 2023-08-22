@@ -255,8 +255,9 @@ def s3_file_to_table(
         f"Encoding: {content_encoding}"
     )
 
-    if (content_type == ContentType.PARQUET.value and 
-        content_encoding == ContentEncoding.IDENTITY.value
+    if (
+        content_type == ContentType.PARQUET.value
+        and content_encoding == ContentEncoding.IDENTITY.value
     ):
         return daft_s3_file_to_table(
             s3_url=s3_url,
