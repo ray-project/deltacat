@@ -51,7 +51,7 @@ def _append_table_by_hash_bucket(
     )
 
     logger.info(
-        f"Grouping a pki table of length {len(pki_table)} into took {groupby_latency}s"
+        f"Grouping a pki table of length {len(pki_table)} took {groupby_latency}s"
     )
 
     group_count_array = hb_pk_grouped_by[f"{sc._HASH_BUCKET_IDX_COLUMN_NAME}_count"]
