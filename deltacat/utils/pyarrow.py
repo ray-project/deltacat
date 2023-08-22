@@ -32,6 +32,7 @@ from deltacat.types.partial_download import (
 )
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
+from deltacat.utils.arguments import sanitize_kwargs_to_callable
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -244,11 +245,34 @@ def _add_column_kwargs(
                 )
 
 
+def _get_compatible_target_schema(
+    table_schema: pa.Schema, input_schema: pa.Schema
+) -> pa.Schema:
+    target_schema_fields = []
+
+    for field in table_schema:
+        index = input_schema.get_field_index(field.name)
+
+        if index != -1:
+            target_field = input_schema.field(index)
+            target_schema_fields.append(target_field)
+        else:
+            target_schema_fields.append(field)
+
+    target_schema = pa.schema(target_schema_fields, metadata=table_schema.metadata)
+
+    return target_schema
+
+
 def s3_partial_parquet_file_to_table(
     s3_url: str,
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
     partial_file_download_params: Optional[PartialParquetParameters] = None,
-    **kwargs,
+    **s3_client_kwargs,
 ) -> pa.Table:
 
     assert (
@@ -260,20 +284,35 @@ def s3_partial_parquet_file_to_table(
 
     pq_file = s3_file_to_parquet(
         s3_url=s3_url,
-        include_columns=include_columns,
+        content_type=content_type,
+        content_encoding=content_encoding,
         partial_file_download_params=partial_file_download_params,
-        **kwargs,
+        **s3_client_kwargs,
     )
 
     table, latency = timed_invocation(
-        lambda: pq_file.read_row_groups(
-            partial_file_download_params.row_groups_to_download, columns=include_columns
-        )
+        pq_file.read_row_groups,
+        partial_file_download_params.row_groups_to_download,
+        columns=include_columns or column_names,
     )
 
     logger.debug(f"Successfully read from s3_url={s3_url} in {latency}s")
 
-    # TODO: cast to appropriate schema
+    kwargs = {}
+
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    # Note: ordering is not guaranteed.
+    if kwargs.get("schema") is not None:
+        input_schema = kwargs.get("schema")
+        table_schema = table.schema
+
+        target_schema = _get_compatible_target_schema(table_schema, input_schema)
+        casted_table = table.cast(target_schema)
+
+        return casted_table
+
     return table
 
 
@@ -296,14 +335,17 @@ def s3_parquet_file_to_table(
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
-    s3_file_system = s3fs.S3FileSystem(
-        key=s3_client_kwargs.get("aws_access_key_id"),
-        secret=s3_client_kwargs.get("aws_secret_access_key"),
-        token=s3_client_kwargs.get("aws_session_token"),
-        client_kwargs=s3_client_kwargs,
-    )
-
     kwargs = {}
+
+    if s3_url.startswith("s3://"):
+        s3_file_system = s3fs.S3FileSystem(
+            key=s3_client_kwargs.get("aws_access_key_id"),
+            secret=s3_client_kwargs.get("aws_secret_access_key"),
+            token=s3_client_kwargs.get("aws_session_token"),
+            client_kwargs=s3_client_kwargs,
+        )
+        kwargs["filesystem"] = s3_file_system
+
     _add_column_kwargs(
         content_type=content_type,
         column_names=column_names,
@@ -314,13 +356,9 @@ def s3_parquet_file_to_table(
     if pa_read_func_kwargs_provider:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
-    table, latency = timed_invocation(
-        lambda: papq.read_table(
-            s3_url, columns=include_columns, filesystem=s3_file_system, **kwargs
-        )
-    )
+    table, latency = timed_invocation(papq.read_table, s3_url, **kwargs)
 
-    logger.debug(f"Successfully read the table from s3 url={s3_url} in {latency}s")
+    logger.debug(f"Successfully read the table from url={s3_url} in {latency}s")
     return table
 
 
@@ -415,23 +453,27 @@ def s3_file_to_parquet(
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
-    s3_file_system = s3fs.S3FileSystem(
-        key=s3_client_kwargs.get("aws_access_key_id"),
-        secret=s3_client_kwargs.get("aws_secret_access_key"),
-        token=s3_client_kwargs.get("aws_session_token"),
-        client_kwargs=s3_client_kwargs,
-    )
-
     kwargs = {}
+
+    if s3_url.startswith("s3://"):
+        s3_file_system = s3fs.S3FileSystem(
+            key=s3_client_kwargs.get("aws_access_key_id"),
+            secret=s3_client_kwargs.get("aws_secret_access_key"),
+            token=s3_client_kwargs.get("aws_session_token"),
+            client_kwargs=s3_client_kwargs,
+        )
+        kwargs["filesystem"] = s3_file_system
+
     if pa_read_func_kwargs_provider:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    kwargs = sanitize_kwargs_to_callable(ParquetFile.__init__, kwargs)
 
     logger.debug(
         f"Reading the file from {s3_url} into ParquetFile with kwargs: {kwargs}"
     )
-    pqFile, latency = timed_invocation(
-        lambda: ParquetFile(s3_url, filesystem=s3_file_system, **kwargs)
-    )
+    pqFile, latency = timed_invocation(ParquetFile, s3_url, **kwargs)
+
     logger.debug(f"Time to get {s3_url} into parquet file: {latency}s")
 
     return pqFile

@@ -222,6 +222,12 @@ def read_file(
             # Timeout error not caught by botocore
             raise RetryableError(f"Retry table download from: {s3_url}") from e
         raise NonRetryableError(f"Failed table download from: {s3_url}") from e
+    except BaseException as e:
+        logger.warn(
+            f"Read has failed for {s3_url} and content_type={content_type} "
+            f"and encoding={content_encoding}. Error: {e}"
+        )
+        raise e
 
 
 def upload_sliced_table(
