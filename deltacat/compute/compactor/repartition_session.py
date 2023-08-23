@@ -91,7 +91,7 @@ def repartition(
             source_partition_locator.partition_values,
         ).stream_position,
         deltacat_storage,
-        **list_deltas_kwargs,
+        list_deltas_kwargs,
     )
 
     uniform_deltas = []
