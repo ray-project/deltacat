@@ -22,6 +22,7 @@ def daft_s3_file_to_table(
     s3_url: str,
     content_type: str,
     content_encoding: str,
+    column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
     **s3_client_kwargs,
@@ -42,8 +43,6 @@ def daft_s3_file_to_table(
         kwargs.get("coerce_int96_timestamp_unit", "ms")
     )
 
-    kwargs["path"] = s3_url
-    kwargs["columns"] = include_columns
     io_config = IOConfig(
         s3=S3Config(
             key_id=s3_client_kwargs.get("aws_access_key_id"),
@@ -56,7 +55,7 @@ def daft_s3_file_to_table(
     table, latency = timed_invocation(
         Table.read_parquet,
         path=s3_url,
-        columns=include_columns,
+        columns=include_columns or column_names,
         io_config=io_config,
         coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
     )
