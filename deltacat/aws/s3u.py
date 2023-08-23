@@ -225,7 +225,8 @@ def read_file(
     except BaseException as e:
         logger.warn(
             f"Read has failed for {s3_url} and content_type={content_type} "
-            f"and encoding={content_encoding}. Error: {e}"
+            f"and encoding={content_encoding}. Error: {e}",
+            exc_info=True,
         )
         raise e
 
