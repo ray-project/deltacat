@@ -75,12 +75,15 @@ def teardown_local_deltacat_storage_db():
 
 
 @pytest.fixture(scope="function")
-def setup_local_deltacat_storage_conn():
+def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs_for_local_deltacat_storage
+    request.getfixturevalue(
+        "cleanup_the_database_file_after_all_compaction_session_package_tests_complete"
+    )
 
 
 def setup_incremental_source_and_destination_tables(
