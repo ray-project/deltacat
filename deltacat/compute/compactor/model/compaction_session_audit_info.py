@@ -804,7 +804,10 @@ class CompactionSessionAuditInfo(dict):
         )
 
         total_count_of_src_dfl_not_touched = sum(
-            m.referenced_pyarrow_write_result.files for m in mat_results
+            m.referenced_pyarrow_write_result.files
+            if m.referenced_pyarrow_write_result
+            else 0
+            for m in mat_results
         )
 
         logger.info(
@@ -828,10 +831,16 @@ class CompactionSessionAuditInfo(dict):
         )
 
         untouched_file_record_count = sum(
-            m.referenced_pyarrow_write_result.records for m in mat_results
+            m.referenced_pyarrow_write_result.records
+            if m.referenced_pyarrow_write_result
+            else 0
+            for m in mat_results
         )
         untouched_file_size_bytes = sum(
-            m.referenced_pyarrow_write_result.file_bytes for m in mat_results
+            m.referenced_pyarrow_write_result.file_bytes
+            if m.referenced_pyarrow_write_result
+            else 0
+            for m in mat_results
         )
 
         self.set_untouched_file_count(total_count_of_src_dfl_not_touched)
@@ -846,9 +855,10 @@ class CompactionSessionAuditInfo(dict):
         self.set_peak_memory_used_bytes_per_task(
             max(
                 [
-                    self.peak_memory_used_bytes_per_hash_bucket_task,
-                    self.peak_memory_used_bytes_per_dedupe_task,
-                    self.peak_memory_used_bytes_per_materialize_task,
+                    self.peak_memory_used_bytes_per_hash_bucket_task or 0,
+                    self.peak_memory_used_bytes_per_dedupe_task or 0,
+                    self.peak_memory_used_bytes_per_materialize_task or 0,
+                    self.peak_memory_used_bytes_per_merge_task or 0,
                 ]
             )
         )

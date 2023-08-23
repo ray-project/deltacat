@@ -294,7 +294,7 @@ class CompactPartitionParams(dict):
     def rebase_source_partition_locator(self) -> Optional[PartitionLocator]:
         val = self.get("rebase_source_partition_locator")
 
-        if not val and not isinstance(val, PartitionLocator):
+        if val and not isinstance(val, PartitionLocator):
             val = PartitionLocator(val)
 
         return val

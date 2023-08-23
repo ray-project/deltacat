@@ -79,36 +79,6 @@ class TestCompactPartitionParams(unittest.TestCase):
         from deltacat.compute.compactor.model.compact_partition_params import (
             CompactPartitionParams,
         )
-        from deltacat.storage import PartitionLocator
-
-        test_destination_partition_locator = PartitionLocator(
-            {
-                "partitionLocator": {
-                    "streamLocator": {
-                        "tableVersionLocator": {
-                            "tableLocator": {
-                                "namespaceLocator": {
-                                    "namespace": "rebase_destination_test_namespace"
-                                },
-                                "tableName": "rebase_destination_test_table",
-                            },
-                            "tableVersion": "1",
-                        },
-                        "streamId": "d963f747-4663-4d6a-a935-8097a39a8ba8",
-                        "storageType": "SQLITE3",
-                    },
-                    "partitionValues": [],
-                    "partitionId": "98c24387-fe37-4a88-98cb-61c48a4d7891",
-                },
-                "schema": None,
-                "contentTypes": ["application/parquet"],
-                "state": "active",
-                "previousStreamPosition": None,
-                "previousPartitionId": None,
-                "streamPosition": 1691707520598,
-                "nextPartitionId": None,
-            }
-        )
 
         params = CompactPartitionParams.of(
             TestCompactPartitionParams.VALID_COMPACT_PARTITION_PARAMS
