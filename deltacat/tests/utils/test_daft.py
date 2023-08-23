@@ -19,12 +19,22 @@ class TestDaftParquetReader(unittest.TestCase):
         self.assertEqual(table.schema.names, ["a", "b"])
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column(self):
+    def test_read_from_s3_single_column_via_include_columns(self):
         table = daft_s3_file_to_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
             include_columns=["b"],
+        )
+        self.assertEqual(table.schema.names, ["b"])
+        self.assertEqual(table.num_rows, 100)
+
+    def test_read_from_s3_single_column_via_column_names(self):
+        table = daft_s3_file_to_table(
+            self.MVP_PATH,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            column_names=["b"],
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)

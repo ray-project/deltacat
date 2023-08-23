@@ -263,6 +263,7 @@ def s3_file_to_table(
             s3_url=s3_url,
             content_type=content_type,
             content_encoding=content_encoding,
+            column_names=column_names,
             include_columns=include_columns,
             pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
             **s3_client_kwargs,
