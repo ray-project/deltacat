@@ -97,16 +97,26 @@ def _optimized_group_record_batches_by_hash_bucket(
                 f"Total number of record batches without exceeding {MAX_SIZE_OF_RECORD_BATCH_IN_GIB} "
                 f"is {len(record_batches)} and size {current_bytes}"
             )
-            result_len += _append_table_by_hash_bucket(
-                pa.Table.from_batches(record_batches), hash_bucket_to_tables
+            appended_len, append_latency = timed_invocation(
+                _append_table_by_hash_bucket,
+                pa.Table.from_batches(record_batches),
+                hash_bucket_to_tables,
             )
+            logger.info(
+                f"Appended the hash bucketed batch of {appended_len} in {append_latency}s"
+            )
+
+            result_len += appended_len
             current_bytes = 0
             record_batches.clear()
 
     if record_batches:
-        result_len += _append_table_by_hash_bucket(
-            pa.Table.from_batches(record_batches), hash_bucket_to_tables
+        appended_len, append_latency = timed_invocation(
+            _append_table_by_hash_bucket,
+            pa.Table.from_batches(record_batches),
+            hash_bucket_to_tables,
         )
+        result_len += appended_len
         current_bytes = 0
         record_batches.clear()
 

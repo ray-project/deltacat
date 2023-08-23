@@ -11,7 +11,9 @@ from deltacat.compute.compactor.model.round_completion_info import RoundCompleti
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
-from deltacat.compute.compactor_v2.utils.io import append_content_type_params
+from deltacat.compute.compactor_v2.utils.content_type_params import (
+    append_content_type_params,
+)
 from deltacat.compute.compactor_v2.constants import TOTAL_MEMORY_BUFFER_PERCENTAGE
 
 
@@ -219,7 +221,7 @@ def merge_resource_options_provider(
                         pk_size_bytes += pk_size
 
     # total data downloaded + primary key hash column + primary key column + dict size for merge
-    total_memory = data_size + pk_size + num_rows * 20 + num_rows * 20
+    total_memory = data_size + pk_size_bytes + num_rows * 20 + num_rows * 20
 
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 

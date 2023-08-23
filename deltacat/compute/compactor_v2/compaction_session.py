@@ -211,7 +211,7 @@ def _execute_compaction(
     compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
 
     hb_options_provider = functools.partial(
-        func=task_resource_options_provider,
+        task_resource_options_provider,
         pg_config=params.pg_config,
         resource_amount_provider=hash_bucket_resource_options_provider,
         previous_inflation=params.previous_inflation,
@@ -325,7 +325,7 @@ def _execute_compaction(
 
     # BSP Step 2: Merge
     merge_options_provider = functools.partial(
-        func=task_resource_options_provider,
+        task_resource_options_provider,
         pg_config=params.pg_config,
         resource_amount_provider=merge_resource_options_provider,
         num_hash_groups=params.hash_group_count,

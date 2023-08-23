@@ -8,7 +8,6 @@ import logging
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional
 from pyarrow.parquet import ParquetFile
-import s3fs
 from deltacat.exceptions import ValidationError
 
 import pyarrow as pa
@@ -18,6 +17,7 @@ from pyarrow import feather as paf
 from pyarrow import json as pajson
 from pyarrow import parquet as papq
 from ray.data.datasource import BlockWritePathProvider
+from deltacat.utils.s3fs import create_s3_file_system
 
 from deltacat import logs
 from deltacat.types.media import (
@@ -211,26 +211,6 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         return kwargs
 
 
-def _create_s3_file_system(s3_client_kwargs: dict) -> s3fs.S3FileSystem:
-    if not s3_client_kwargs:
-        return s3fs.S3FileSystem(anon=True)
-
-    config_kwargs = {}
-    if s3_client_kwargs.get("config") is not None:
-        boto_config = s3_client_kwargs.pop("config")
-        for key, val in boto_config.__dict__.items():
-            if not key.startswith("_") and val is not None:
-                config_kwargs[key] = val
-
-    anon = False
-    if s3_client_kwargs.get("aws_access_key_id") is None:
-        anon = True
-
-    return s3fs.S3FileSystem(
-        anon=anon, client_kwargs=s3_client_kwargs, config_kwargs=config_kwargs or None
-    )
-
-
 def _add_column_kwargs(
     content_type: str,
     column_names: Optional[List[str]],
@@ -357,7 +337,7 @@ def s3_parquet_file_to_table(
     kwargs = {}
 
     if s3_url.startswith("s3://"):
-        s3_file_system = _create_s3_file_system(s3_client_kwargs)
+        s3_file_system = create_s3_file_system(s3_client_kwargs)
         kwargs["filesystem"] = s3_file_system
 
     _add_column_kwargs(
@@ -471,11 +451,13 @@ def s3_file_to_parquet(
     kwargs = {}
 
     if s3_url.startswith("s3://"):
-        s3_file_system = _create_s3_file_system(s3_client_kwargs)
+        s3_file_system = create_s3_file_system(s3_client_kwargs)
         kwargs["filesystem"] = s3_file_system
 
     if pa_read_func_kwargs_provider:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    logger.debug(f"Pre-sanitize kwargs for {s3_url}: {kwargs}")
 
     kwargs = sanitize_kwargs_to_callable(ParquetFile.__init__, kwargs)
 

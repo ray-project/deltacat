@@ -208,6 +208,7 @@ class PlacementGroupManager:
         cpu_per_bundle: int,
         strategy="SPREAD",
         capture_child_tasks=True,
+        memory_per_bundle=None,
     ):
         head_res_key = self.get_current_node_resource_key()
         # run the task on head and consume a fractional cpu, so that pg can be created on non-head node
@@ -217,7 +218,11 @@ class PlacementGroupManager:
         self._pg_configs = ray.get(
             [
                 _config.options(resources={head_res_key: 0.01}).remote(
-                    total_cpus_per_pg, cpu_per_bundle, strategy, capture_child_tasks
+                    total_cpus_per_pg,
+                    cpu_per_bundle,
+                    strategy,
+                    capture_child_tasks,
+                    memory_per_bundle=memory_per_bundle,
                 )
                 for i in range(num_pgs)
             ]
@@ -252,12 +257,18 @@ def _config(
     strategy="SPREAD",
     capture_child_tasks=True,
     time_out: Optional[float] = None,
+    memory_per_bundle: Optional[float] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     pg_config = None
     opts = {}
     cluster_resources = {}
     num_bundles = (int)(total_cpus_per_pg / cpu_per_node)
     bundles = [{"CPU": cpu_per_node} for i in range(num_bundles)]
+
+    if memory_per_bundle:
+        for bundle in bundles:
+            bundle["memory"] = memory_per_bundle
+
     pg = placement_group(bundles, strategy=strategy)
     ray.get(pg.ready(), timeout=time_out)
     if not pg:
