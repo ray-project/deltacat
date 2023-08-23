@@ -1,7 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import copy
 import bz2
 import gzip
 import io
@@ -36,8 +35,6 @@ from deltacat.utils.performance import timed_invocation
 from deltacat.utils.arguments import sanitize_kwargs_to_callable
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-S3FS_CONFIG_ARG = "config"
 
 CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
     ContentType.UNESCAPED_TSV.value: pacsv.read_csv,
@@ -215,18 +212,22 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
 
 
 def _create_s3_file_system(s3_client_kwargs: dict) -> s3fs.S3FileSystem:
-    if s3_client_kwargs is None:
-        return s3fs.S3FileSystem()
+    if not s3_client_kwargs:
+        return s3fs.S3FileSystem(anon=True)
 
-    client_kwargs = copy.copy(s3_client_kwargs)
     config_kwargs = {}
+    if s3_client_kwargs.get("config") is not None:
+        boto_config = s3_client_kwargs.pop("config")
+        for key, val in boto_config.__dict__.items():
+            if not key.startswith("_") and val is not None:
+                config_kwargs[key] = val
 
-    if client_kwargs.get(S3FS_CONFIG_ARG) is not None:
-        config_kwargs = client_kwargs.pop(S3FS_CONFIG_ARG)
+    anon = False
+    if s3_client_kwargs.get("aws_access_key_id") is None:
+        anon = True
 
     return s3fs.S3FileSystem(
-        config_kwargs=config_kwargs,
-        client_kwargs=client_kwargs,
+        anon=anon, client_kwargs=s3_client_kwargs, config_kwargs=config_kwargs or None
     )
 
 
@@ -446,6 +447,7 @@ def s3_file_to_parquet(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> ParquetFile:
     logger.debug(
