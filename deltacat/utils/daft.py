@@ -29,11 +29,11 @@ def daft_s3_file_to_table(
 ):
     assert (
         content_type == ContentType.PARQUET.value
-    ), "daft native reader currently only supports parquet, got {content_type}"
+    ), f"daft native reader currently only supports parquet, got {content_type}"
 
     assert (
         content_encoding == ContentEncoding.IDENTITY.value
-    ), "daft native reader currently only supports identity encoding, got {content_encoding}"
+    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
 
     kwargs = {}
     if pa_read_func_kwargs_provider is not None:
