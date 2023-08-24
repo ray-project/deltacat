@@ -342,10 +342,12 @@ def test_compact_partition_incremental(
 
     # the compacted table may contain multiple files and chunks
     # and order of records may be incorrect due to multiple files.
-    expected_result = expected_result.combine_chunks()\
-        .sort_by([(val, 'ascending') for val in primary_keys_param])
-    compacted_table = compacted_table.combine_chunks()\
-        .sort_by([(val, 'ascending') for val in primary_keys_param])
+    expected_result = expected_result.combine_chunks().sort_by(
+        [(val, "ascending") for val in primary_keys_param]
+    )
+    compacted_table = compacted_table.combine_chunks().sort_by(
+        [(val, "ascending") for val in primary_keys_param]
+    )
 
     assert compacted_table.equals(
         expected_result

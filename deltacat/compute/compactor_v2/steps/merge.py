@@ -31,8 +31,9 @@ from deltacat.utils.metrics import emit_timer_metrics
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
-    hash_group_index_to_hash_bucket_indices
+    hash_group_index_to_hash_bucket_indices,
 )
+from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
 
 
 if importlib.util.find_spec("memray"):
@@ -41,42 +42,9 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def create_chunked_index_array(array: pa.Array) -> pa.Array:
-    """
-    Creates an chunked array where each chunk is of same size in the input array. 
-    """
-    chunk_lengths = [len(array.chunk(chunk_index))
-                     for chunk_index in range(len(array.chunks))]
-    result = np.array([np.arange(cl) for cl in chunk_lengths], dtype="object")
-    chunk_lengths = ([0] + chunk_lengths)[:-1]
-    result = pa.chunked_array(result + np.cumsum(chunk_lengths))
-    return result
-
-
-def drop_duplicates(table: pa.Table, on: str) -> pa.Table:
-    """
-    It is important to not combine the chunks for performance reasons. 
-    """
-    index_array, array_latency = timed_invocation(create_chunked_index_array, table[on])
-
-    logger.info("Created a chunked index array of length "
-                f" {len(index_array)} in {array_latency}s")
-
-    table = table.set_column(
-        table.shape[1], sc._ORDERED_RECORD_IDX_COLUMN_NAME, index_array)
-    selector = table.group_by([on]).aggregate(
-        [(sc._ORDERED_RECORD_IDX_COLUMN_NAME, "max")])
-
-    table = table.filter(pc.is_in(table[sc._ORDERED_RECORD_IDX_COLUMN_NAME],
-                                  value_set=selector[f'{sc._ORDERED_RECORD_IDX_COLUMN_NAME}_max']))
-
-    table = table.drop([sc._ORDERED_RECORD_IDX_COLUMN_NAME])
-
-    return table
-
-
 def _build_incremental_table(
-    hash_bucket_index: int, df_envelopes_list: List[List[DeltaFileEnvelope]],
+    hash_bucket_index: int,
+    df_envelopes_list: List[List[DeltaFileEnvelope]],
 ) -> pa.Table:
 
     logger.info(
@@ -139,7 +107,7 @@ def _download_old_table_and_hash(
 
     result = pa.concat_tables(tables)
 
-    return generate_pk_hash_column(result, primary_keys=primary_keys),
+    return (generate_pk_hash_column(result, primary_keys=primary_keys),)
 
 
 def _timed_merge(input: MergeInput) -> MergeResult:
@@ -175,10 +143,11 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         )
         manifest = delta.manifest
         manifest_records = manifest.meta.record_count
-        assert manifest_records == len(compacted_table), \
-            f"Unexpected Error: Materialized delta manifest record count " \
-            f"({manifest_records}) does not equal compacted table record count " \
+        assert manifest_records == len(compacted_table), (
+            f"Unexpected Error: Materialized delta manifest record count "
+            f"({manifest_records}) does not equal compacted table record count "
             f"({len(compacted_table)})"
+        )
         materialize_result = MaterializeResult.of(
             delta=delta,
             task_index=hash_bucket_index,
@@ -211,9 +180,10 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         )
         hb_index_to_delta_file_envelopes_list = defaultdict(list)
         for delta_file_envelope_groups in delta_file_envelope_groups_list:
-            assert input.hash_bucket_count == len(delta_file_envelope_groups), \
-                f"The hash bucket count must match the dfe size as {input.hash_bucket_count}" \
+            assert input.hash_bucket_count == len(delta_file_envelope_groups), (
+                f"The hash bucket count must match the dfe size as {input.hash_bucket_count}"
                 f" != {len(delta_file_envelope_groups)}"
+            )
 
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
                 if dfes is not None:
@@ -229,9 +199,9 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
         materialized_results: List[MaterializeResult] = []
 
-        valid_hb_indices_iterable = hash_group_index_to_hash_bucket_indices(input.hash_group_index,
-                                                                            input.hash_bucket_count,
-                                                                            input.num_hash_groups)
+        valid_hb_indices_iterable = hash_group_index_to_hash_bucket_indices(
+            input.hash_group_index, input.hash_bucket_count, input.num_hash_groups
+        )
 
         for hb_idx in valid_hb_indices_iterable:
             dfe_list = hb_index_to_delta_file_envelopes_list[hb_idx]
@@ -241,22 +211,22 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
                 incremental_len = len(table)
                 logger.info(
-                    f"Got the incremental table of length {incremental_len} for hash bucket {hb_idx}")
+                    f"Got the incremental table of length {incremental_len} for hash bucket {hb_idx}"
+                )
 
                 if input.sort_keys:
                     table = table.sort_by(input.sort_keys)
 
                 table, dedupe_latency = timed_invocation(
-                    func=drop_duplicates,
-                    table=table,
-                    on=sc._PK_HASH_STRING_COLUMN_NAME
+                    func=drop_duplicates, table=table, on=sc._PK_HASH_STRING_COLUMN_NAME
                 )
 
                 dedupe_count = incremental_len - len(table)
 
                 logger.info(
                     f"Dropped {dedupe_count} duplicates from the incremental "
-                    f"for hash bucket {hb_idx} in {dedupe_latency}s.")
+                    f"for hash bucket {hb_idx} in {dedupe_latency}s."
+                )
 
                 if input.round_completion_info is not None:
                     (compacted_table, file_count), download_latency = timed_invocation(
@@ -270,7 +240,8 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     )
 
                     logger.info(
-                        f"Downloaded {file_count} files for hash bucket: {hb_idx} in {download_latency}s")
+                        f"Downloaded {file_count} files for hash bucket: {hb_idx} in {download_latency}s"
+                    )
 
                     hb_table_record_count = len(table) + len(compacted_table)
                     table, drop_time = timed_invocation(
@@ -280,8 +251,10 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     deduped_record_count = hb_table_record_count - len(table)
                     total_deduped_records += deduped_record_count
 
-                    logger.info(f"Merging incremental of len {incremental_len} into"
-                                f" {len(compacted_table)} took {drop_time}s")
+                    logger.info(
+                        f"Merging incremental of len {incremental_len} into"
+                        f" {len(compacted_table)} took {drop_time}s"
+                    )
 
                 table = table.drop(
                     [

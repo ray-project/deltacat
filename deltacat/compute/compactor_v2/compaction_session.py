@@ -221,20 +221,21 @@ def _execute_compaction(
 
     hb_start = time.monotonic()
 
-    def hash_bucket_input_provider(index, item): return {
-        "input": HashBucketInput.of(
-            item,
-            primary_keys=params.primary_keys,
-            num_hash_buckets=params.hash_bucket_count,
-            num_hash_groups=params.hash_group_count,
-            enable_profiler=params.enable_profiler,
-            metrics_config=params.metrics_config,
-            read_kwargs_provider=params.read_kwargs_provider,
-            object_store=params.object_store,
-            deltacat_storage=params.deltacat_storage,
-            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        )
-    }
+    def hash_bucket_input_provider(index, item):
+        return {
+            "input": HashBucketInput.of(
+                item,
+                primary_keys=params.primary_keys,
+                num_hash_buckets=params.hash_bucket_count,
+                num_hash_groups=params.hash_group_count,
+                enable_profiler=params.enable_profiler,
+                metrics_config=params.metrics_config,
+                read_kwargs_provider=params.read_kwargs_provider,
+                object_store=params.object_store,
+                deltacat_storage=params.deltacat_storage,
+                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+            )
+        }
 
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
@@ -338,28 +339,29 @@ def _execute_compaction(
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
     )
 
-    def merge_input_provider(index, item): return {
-        "input": MergeInput.of(
-            dfe_groups_refs=item[1],
-            write_to_partition=compacted_partition,
-            compacted_file_content_type=params.compacted_file_content_type,
-            primary_keys=params.primary_keys,
-            sort_keys=params.sort_keys,
-            merge_task_index=index,
-            hash_bucket_count=params.hash_bucket_count,
-            hash_group_index=item[0],
-            num_hash_groups=params.hash_group_count,
-            max_records_per_output_file=params.records_per_compacted_file,
-            enable_profiler=params.enable_profiler,
-            metrics_config=params.metrics_config,
-            s3_table_writer_kwargs=params.s3_table_writer_kwargs,
-            read_kwargs_provider=params.read_kwargs_provider,
-            round_completion_info=round_completion_info,
-            object_store=params.object_store,
-            deltacat_storage=params.deltacat_storage,
-            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        )
-    }
+    def merge_input_provider(index, item):
+        return {
+            "input": MergeInput.of(
+                dfe_groups_refs=item[1],
+                write_to_partition=compacted_partition,
+                compacted_file_content_type=params.compacted_file_content_type,
+                primary_keys=params.primary_keys,
+                sort_keys=params.sort_keys,
+                merge_task_index=index,
+                hash_bucket_count=params.hash_bucket_count,
+                hash_group_index=item[0],
+                num_hash_groups=params.hash_group_count,
+                max_records_per_output_file=params.records_per_compacted_file,
+                enable_profiler=params.enable_profiler,
+                metrics_config=params.metrics_config,
+                s3_table_writer_kwargs=params.s3_table_writer_kwargs,
+                read_kwargs_provider=params.read_kwargs_provider,
+                round_completion_info=round_completion_info,
+                object_store=params.object_store,
+                deltacat_storage=params.deltacat_storage,
+                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+            )
+        }
 
     merge_start = time.monotonic()
 
