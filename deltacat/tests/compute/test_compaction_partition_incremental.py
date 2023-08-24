@@ -17,8 +17,10 @@ from deltacat.tests.compute.common import (
     BASE_TEST_SOURCE_TABLE_NAME,
     BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
+    DEFAULT_NUM_WORKERS,
+    DEFAULT_WORKER_INSTANCE_CPUS,
 )
-from deltacat.tests.compute.testcases import (
+from deltacat.tests.compute.compact_partition_test_cases import (
     INCREMENTAL_TEST_CASES,
 )
 
@@ -205,8 +207,6 @@ def test_compact_partition_incremental(
         source_table_stream,
         destination_table_stream,
     ) = setup_general_source_and_destination_tables(
-        source_table_version,
-        destination_table_version,
         primary_keys_param,
         sort_keys,
         partition_keys,
@@ -228,7 +228,7 @@ def test_compact_partition_incremental(
         partition_values_param,
         None,
     )
-    num_workers, worker_instance_cpu = 1, 1
+    num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
     total_cpus = num_workers * worker_instance_cpu
     pgm = None
     if create_placement_group_param:

@@ -16,9 +16,15 @@ BASE_TEST_DESTINATION_NAMESPACE = "destination_test_namespace"
 BASE_TEST_DESTINATION_TABLE_NAME = "destination_test_table_RAY"
 BASE_TEST_DESTINATION_TABLE_VERSION = "1"
 
+COMPACTED_VIEW_NAMESPACE = "compacted"
+RAY_COMPACTED_VIEW_NAMESPACE = "compacted_ray"
+
 HASH_BUCKET_COUNT: int = 1
 
 MAX_RECORDS_PER_FILE: int = 1
+
+DEFAULT_NUM_WORKERS = 1
+DEFAULT_WORKER_INSTANCE_CPUS = 1
 
 UTC_ISO_8601_FORMAT_WITHOUT_MILLIS = "%Y-%m-%dT%H:%M:%SZ"  # '2018-09-05T14:09:03Z'
 
@@ -61,8 +67,6 @@ def setup_sort_and_partition_keys(sort_keys_param, partition_keys_param):
 
 
 def setup_general_source_and_destination_tables(
-    source_table_version: str,
-    destination_table_version: str,
     primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
@@ -70,10 +74,12 @@ def setup_general_source_and_destination_tables(
     arrow_arrays: List[pa.Array],
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
-    source_namespace: str = BASE_TEST_SOURCE_NAMESPACE,
+    source_table_version: str = BASE_TEST_DESTINATION_TABLE_VERSION,
+    destination_table_version: str = BASE_TEST_DESTINATION_TABLE_VERSION,
     source_table_name: str = BASE_TEST_SOURCE_TABLE_NAME,
-    destination_namespace: str = BASE_TEST_DESTINATION_NAMESPACE,
     destination_table_name: str = BASE_TEST_DESTINATION_TABLE_NAME,
+    source_namespace: str = BASE_TEST_SOURCE_NAMESPACE,
+    destination_namespace: str = BASE_TEST_DESTINATION_NAMESPACE,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType

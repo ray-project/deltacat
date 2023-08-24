@@ -9,14 +9,22 @@ from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.common import (
     setup_general_source_and_destination_tables,
     setup_sort_and_partition_keys,
+    offer_iso8601_timestamp_list,
     PartitionKey,
     TEST_S3_RCF_BUCKET_NAME,
+    BASE_TEST_SOURCE_TABLE_VERSION,
+    BASE_TEST_DESTINATION_TABLE_VERSION,
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
     BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
+    COMPACTED_VIEW_NAMESPACE,
+    RAY_COMPACTED_VIEW_NAMESPACE,
+    DEFAULT_NUM_WORKERS,
+    DEFAULT_WORKER_INSTANCE_CPUS,
+    MAX_RECORDS_PER_FILE,
 )
-from deltacat.tests.compute.testcases import (
+from deltacat.tests.compute.compact_partition_test_cases import (
     INCREMENTAL_TEST_CASES,
 )
 from typing import Any, Dict
@@ -99,12 +107,25 @@ def test_compact_partition_rebase_then_incremental(
     )
 
     ds_mock_kwargs = setup_local_deltacat_storage_conn
+    ray.shutdown()
+    ray.init(local_mode=True)
+    assert ray.is_initialized()
+    # phase 1
+    source_table_version = BASE_TEST_SOURCE_TABLE_VERSION
+    destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
+    primary_keys_param = {"pk_col_1"}
+    sort_keys_param = []
+    partition_keys_param = [{"key_name": "region_id", "key_type": "int"}]
+    column_names_param = ["pk_col_1"]
+    arrow_arrays_param = [pa.array([str(i) for i in range(10)])]
+    partition_values_param = ["1"]
+    sort_keys, partition_keys = setup_sort_and_partition_keys(
+        sort_keys_param, partition_keys_param
+    )
     (
         source_table_stream,
         destination_table_stream,
     ) = setup_general_source_and_destination_tables(
-        source_table_version,
-        destination_table_version,
         primary_keys_param,
         sort_keys,
         partition_keys,
@@ -112,7 +133,51 @@ def test_compact_partition_rebase_then_incremental(
         arrow_arrays_param,
         partition_values_param,
         ds_mock_kwargs,
+        source_namespace=BASE_TEST_SOURCE_NAMESPACE,
+        source_table_name=BASE_TEST_SOURCE_TABLE_NAME,
+        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
+        destination_namespace=COMPACTED_VIEW_NAMESPACE,
+        destination_table_name=BASE_TEST_SOURCE_TABLE_NAME + "_compacted",
+        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
     )
-    ray.shutdown()
-    ray.init(local_mode=True)
-    assert ray.is_initialized()
+    source_partition = ds.get_partition(
+        source_table_stream.locator,
+        partition_values_param,
+        **ds_mock_kwargs,
+    )
+    destination_partition_locator = PartitionLocator.of(
+        destination_table_stream.locator,
+        partition_values_param,
+        None,
+    )
+    num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
+    total_cpus = num_workers * worker_instance_cpu
+    pgm = None
+    create_placement_group_param = False
+    if create_placement_group_param:
+        pgm = PlacementGroupManager(
+            1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
+        ).pgs[0]
+    hash_bucket_count_param = None
+    records_per_compacted_file_param = MAX_RECORDS_PER_FILE
+    rebase_source_partition_locator_param = None
+    compact_partition_params = CompactPartitionParams.of(
+        {
+            "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+            "compacted_file_content_type": ContentType.PARQUET,
+            "dd_max_parallelism_ratio": 1.0,
+            "deltacat_storage": ds,
+            "deltacat_storage_kwargs": ds_mock_kwargs,
+            "destination_partition_locator": destination_partition_locator,
+            "hash_bucket_count": hash_bucket_count_param,
+            "last_stream_position_to_compact": source_partition.stream_position,
+            "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+            "pg_config": pgm,
+            "primary_keys": primary_keys_param,
+            "rebase_source_partition_locator": rebase_source_partition_locator_param,
+            "records_per_compacted_file": records_per_compacted_file_param,
+            "s3_client_kwargs": {},
+            "source_partition_locator": source_partition.locator,
+            "sort_keys": sort_keys if sort_keys else None,
+        }
+    )
