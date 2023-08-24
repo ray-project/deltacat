@@ -221,7 +221,7 @@ def _execute_compaction(
 
     hb_start = time.monotonic()
 
-    hash_bucket_input_provider = lambda index, item: {
+    def hash_bucket_input_provider(index, item): return {
         "input": HashBucketInput.of(
             item,
             primary_keys=params.primary_keys,
@@ -338,7 +338,7 @@ def _execute_compaction(
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
     )
 
-    merge_input_provider = lambda index, item: {
+    def merge_input_provider(index, item): return {
         "input": MergeInput.of(
             dfe_groups_refs=item[1],
             write_to_partition=compacted_partition,
@@ -346,6 +346,7 @@ def _execute_compaction(
             primary_keys=params.primary_keys,
             sort_keys=params.sort_keys,
             merge_task_index=index,
+            hash_bucket_count=params.hash_bucket_count,
             hash_group_index=item[0],
             num_hash_groups=params.hash_group_count,
             max_records_per_output_file=params.records_per_compacted_file,

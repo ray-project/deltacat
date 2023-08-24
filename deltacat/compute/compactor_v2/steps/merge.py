@@ -9,7 +9,6 @@ import pyarrow.compute as pc
 from collections import defaultdict
 from deltacat import logs
 from typing import List, Optional
-from itertools import repeat
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -32,6 +31,7 @@ from deltacat.utils.metrics import emit_timer_metrics
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
+    hash_group_index_to_hash_bucket_indices
 )
 
 
@@ -41,53 +41,42 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def combine_column(table, name):
-    return table.column(name).combine_chunks()
+def create_chunked_index_array(array: pa.Array) -> pa.Array:
+    """
+    Creates an chunked array where each chunk is of same size in the input array. 
+    """
+    chunk_lengths = [len(array.chunk(chunk_index))
+                     for chunk_index in range(len(array.chunks))]
+    result = np.array([np.arange(cl) for cl in chunk_lengths], dtype="object")
+    chunk_lengths = ([0] + chunk_lengths)[:-1]
+    result = pa.chunked_array(result + np.cumsum(chunk_lengths))
+    return result
 
 
-def groupify_array(arr):
-    # Input: Pyarrow/Numpy array
-    # Output:
-    #   - 1. Unique values
-    #   - 2. Count per unique
-    #   - 3. Sort index
-    #   - 4. Begin index per unique
-    dic, counts = np.unique(arr, return_counts=True)
-    sort_idx = np.argsort(arr)
-    return dic, counts, sort_idx, [0] + np.cumsum(counts)[:-1].tolist()
+def drop_duplicates(table: pa.Table, on: str) -> pa.Table:
+    """
+    It is important to not combine the chunks for performance reasons. 
+    """
+    index_array, array_latency = timed_invocation(create_chunked_index_array, table[on])
 
+    logger.info("Created a chunked index array of length "
+                f" {len(index_array)} in {array_latency}s")
 
-def columns_to_array(table, columns):
-    columns = [columns] if isinstance(columns, str) else list(set(columns))
-    values = [c.to_numpy() for c in table.select(columns).itercolumns()]
-    return np.array(list(map(hash, zip(*values))))
+    table = table.set_column(
+        table.shape[1], sc._ORDERED_RECORD_IDX_COLUMN_NAME, index_array)
+    selector = table.group_by([on]).aggregate(
+        [(sc._ORDERED_RECORD_IDX_COLUMN_NAME, "max")])
 
+    table = table.filter(pc.is_in(table[sc._ORDERED_RECORD_IDX_COLUMN_NAME],
+                                  value_set=selector[f'{sc._ORDERED_RECORD_IDX_COLUMN_NAME}_max']))
 
-def drop_duplicates(table, on=[], keep="first"):
-    # Gather columns to arr
-    arr = columns_to_array(table, (on if on else table.column_names))
+    table = table.drop([sc._ORDERED_RECORD_IDX_COLUMN_NAME])
 
-    # Groupify
-    dic, counts, sort_idxs, bgn_idxs = groupify_array(arr)
-
-    # Gather idxs
-    if keep == "last":
-        idxs = (np.array(bgn_idxs) - 1)[1:].tolist() + [len(sort_idxs) - 1]
-    elif keep == "first":
-        idxs = bgn_idxs
-    elif keep == "drop":
-        idxs = [i for i, c in zip(bgn_idxs, counts) if c == 1]
-
-    mask = list(repeat(False, len(table)))
-
-    for id in sort_idxs[idxs]:
-        mask[id] = True
-
-    return table.filter(pa.array(mask))
+    return table
 
 
 def _dedupe_incremental(
-    hash_bucket_index: int, df_envelopes_list: List[List[DeltaFileEnvelope]]
+    hash_bucket_index: int, df_envelopes_list: List[List[DeltaFileEnvelope]],
 ) -> pa.Table:
     logger.info(
         f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
@@ -109,11 +98,9 @@ def _dedupe_incremental(
     start = time.monotonic()
     # TODO: We do not need to run this when rebasing.
     hb_table = drop_duplicates(
-        hb_table, on=[sc._PK_HASH_STRING_COLUMN_NAME], keep="last"
+        hb_table, on=sc._PK_HASH_STRING_COLUMN_NAME
     )
     end = time.monotonic()
-    # Rebase:  Dropping duplicates for incremental in 31 took: 88.78605026099999
-    #
     logger.info(
         f"Dropping duplicates for incremental in {hash_bucket_index} took: {end - start}"
     )
@@ -136,7 +123,6 @@ def merge_tables(table, old_table):
     result = old_table.filter(mask)
     end = time.monotonic()
 
-    # Merging with old table took: 4.996597067999971. Total records: 12223266 and 12232035 and 11789
     logger.info(
         f"Merging with old table took: {end - start}. Total records: {len(result)} and {len(old_table)} and {len(table)}"
     )
@@ -176,8 +162,6 @@ def download_old_table_and_hash(
 
     end = time.monotonic()
 
-    # Downloaded 4 files for hash bucket: 850 in 64.093580946s
-    # There is an opportunity to parallelize this but this is also current behavior.
     logger.info(
         f"Downloaded {indices[1] - indices[0]} files for hash bucket: {hb_index} in {end - start}s"
     )
@@ -219,12 +203,10 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         )
         manifest = delta.manifest
         manifest_records = manifest.meta.record_count
-        assert (
-            manifest_records == len(compacted_table),
-            f"Unexpected Error: Materialized delta manifest record count "
-            f"({manifest_records}) does not equal compacted table record count "
-            f"({len(compacted_table)})",
-        )
+        assert manifest_records == len(compacted_table), \
+            f"Unexpected Error: Materialized delta manifest record count " \
+            f"({manifest_records}) does not equal compacted table record count " \
+            f"({len(compacted_table)})"
         materialize_result = MaterializeResult.of(
             delta=delta,
             task_index=hash_bucket_index,
@@ -257,6 +239,10 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         )
         hb_index_to_delta_file_envelopes_list = defaultdict(list)
         for delta_file_envelope_groups in delta_file_envelope_groups_list:
+            assert input.hash_bucket_count == len(delta_file_envelope_groups), \
+                f"The hash bucket count must match the dfe size as {input.hash_bucket_count}" \
+                f" != {len(delta_file_envelope_groups)}"
+
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
                 if dfes is not None:
                     hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
@@ -271,65 +257,76 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
         materialized_results: List[MaterializeResult] = []
 
-        for hb_idx, dfe_list in hb_index_to_delta_file_envelopes_list.items():
-            logger.info(
-                f"{input.merge_task_index}: union primary keys for hb_index: {hb_idx}"
-            )
-            table, union_time = timed_invocation(
-                func=_dedupe_incremental,
-                hash_bucket_index=hb_idx,
-                df_envelopes_list=dfe_list,
-            )
-            # Dedupe round input record count: 8859597, took 92.469715982s
-            logger.info(
-                f"[Dedupe {input.merge_task_index}] Dedupe round input "
-                f"record count: {len(table)}, took {union_time}s"
-            )
+        valid_hb_indices_iterable = hash_group_index_to_hash_bucket_indices(input.hash_group_index,
+                                                                            input.hash_bucket_count,
+                                                                            input.num_hash_groups)
 
-            if input.sort_keys:
-                # sort by sort keys
-                if len(input.sort_keys):
-                    # TODO (pdames): convert to O(N) dedupe w/ sort keys
+        for hb_idx in valid_hb_indices_iterable:
+            dfe_list = hb_index_to_delta_file_envelopes_list[hb_idx]
+
+            if dfe_list:
+                logger.info(
+                    f"{input.merge_task_index}: union primary keys for hb_index: {hb_idx}"
+                )
+
+                table, union_time = timed_invocation(
+                    func=_dedupe_incremental,
+                    hash_bucket_index=hb_idx,
+                    df_envelopes_list=dfe_list,
+                )
+
+                logger.info(
+                    f"[Dedupe {input.merge_task_index}] Dedupe round input "
+                    f"record count: {len(table)}, took {union_time}s"
+                )
+
+                print(f"Deduped Table: {table}")
+
+                # FIXME: sort must be done before dedupe
+                if input.sort_keys:
                     table = table.take(
                         pc.sort_indices(table, sort_keys=input.sort_keys)
                     )
 
-            # drop duplicates by primary key hash column
-            logger.info(
-                f"[Dedupe task index {input.merge_task_index}] Dropping duplicates for {hb_idx}"
-            )
-
-            if input.round_completion_info is not None:
-                compacted_table = download_old_table_and_hash(
-                    hb_idx,
-                    input.round_completion_info,
-                    input.read_kwargs_provider,
-                    input.primary_keys,
-                    input.deltacat_storage,
-                    input.deltacat_storage_kwargs,
-                )
-
-                hb_table_record_count = len(table) + len(compacted_table)
-                table, drop_time = timed_invocation(
-                    func=merge_tables, old_table=compacted_table, table=table
-                )
-                deduped_record_count = hb_table_record_count - len(table)
-                total_deduped_records += deduped_record_count
-
+                # drop duplicates by primary key hash column
                 logger.info(
-                    f"[Dedupe task index {input.merge_task_index}] Dedupe round output "
-                    f"record count: {len(table)}, took: {drop_time}s"
+                    f"[Dedupe task index {input.merge_task_index}] Dropping duplicates for {hb_idx}"
                 )
 
-            table = table.drop(
-                [
-                    sc._PK_HASH_STRING_COLUMN_NAME,
-                ]
-            )
+                if input.round_completion_info is not None:
+                    compacted_table = download_old_table_and_hash(
+                        hb_idx,
+                        input.round_completion_info,
+                        input.read_kwargs_provider,
+                        input.primary_keys,
+                        input.deltacat_storage,
+                        input.deltacat_storage_kwargs,
+                    )
 
-            materialized_results.append(
-                _materialize(hb_idx, [table], input.deltacat_storage_kwargs)
-            )
+                    hb_table_record_count = len(table) + len(compacted_table)
+                    table, drop_time = timed_invocation(
+                        func=merge_tables, old_table=compacted_table, table=table
+                    )
+                    deduped_record_count = hb_table_record_count - len(table)
+                    total_deduped_records += deduped_record_count
+
+                    logger.info(
+                        f"[Dedupe task index {input.merge_task_index}] Dedupe round output "
+                        f"record count: {len(table)}, took: {drop_time}s"
+                    )
+
+                table = table.drop(
+                    [
+                        sc._PK_HASH_STRING_COLUMN_NAME,
+                    ]
+                )
+
+                materialized_results.append(
+                    _materialize(hb_idx, [table], input.deltacat_storage_kwargs)
+                )
+            else:
+                # TODO: copy by reference
+                pass
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
 
