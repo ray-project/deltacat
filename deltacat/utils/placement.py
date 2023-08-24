@@ -21,9 +21,10 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 @dataclass
 class PlacementGroupConfig:
-    def __init__(self, opts, resource):
+    def __init__(self, opts, resource, node_ips):
         self.opts = opts
         self.resource = resource
+        self.node_ips = node_ips
 
 
 class NodeGroupManager:
@@ -207,6 +208,7 @@ class PlacementGroupManager:
         cpu_per_bundle: int,
         strategy="SPREAD",
         capture_child_tasks=True,
+        memory_per_bundle=None,
     ):
         head_res_key = self.get_current_node_resource_key()
         # run the task on head and consume a fractional cpu, so that pg can be created on non-head node
@@ -216,7 +218,11 @@ class PlacementGroupManager:
         self._pg_configs = ray.get(
             [
                 _config.options(resources={head_res_key: 0.01}).remote(
-                    total_cpus_per_pg, cpu_per_bundle, strategy, capture_child_tasks
+                    total_cpus_per_pg,
+                    cpu_per_bundle,
+                    strategy,
+                    capture_child_tasks,
+                    memory_per_bundle=memory_per_bundle,
                 )
                 for i in range(num_pgs)
             ]
@@ -251,12 +257,18 @@ def _config(
     strategy="SPREAD",
     capture_child_tasks=True,
     time_out: Optional[float] = None,
+    memory_per_bundle: Optional[float] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     pg_config = None
     opts = {}
     cluster_resources = {}
     num_bundles = (int)(total_cpus_per_pg / cpu_per_node)
     bundles = [{"CPU": cpu_per_node} for i in range(num_bundles)]
+
+    if memory_per_bundle:
+        for bundle in bundles:
+            bundle["memory"] = memory_per_bundle
+
     pg = placement_group(bundles, strategy=strategy)
     ray.get(pg.ready(), timeout=time_out)
     if not pg:
@@ -275,6 +287,7 @@ def _config(
     # query available resources given list of node id
     all_nodes_available_res = ray._private.state.state._available_resources_per_node()
     pg_res = {"CPU": 0, "memory": 0, "object_store_memory": 0}
+    node_ips = []
     for node_id in node_ids:
         if node_id in all_nodes_available_res:
             v = all_nodes_available_res[node_id]
@@ -282,10 +295,14 @@ def _config(
             pg_res["CPU"] += node_detail["resources_total"]["CPU"]
             pg_res["memory"] += v["memory"]
             pg_res["object_store_memory"] += v["object_store_memory"]
+            node_ips.append(node_detail["node_ip"])
     cluster_resources["CPU"] = int(pg_res["CPU"])
     cluster_resources["memory"] = float(pg_res["memory"])
     cluster_resources["object_store_memory"] = float(pg_res["object_store_memory"])
-    pg_config = PlacementGroupConfig(opts, cluster_resources)
+    pg_config = PlacementGroupConfig(
+        opts=opts, resource=cluster_resources, node_ips=node_ips
+    )
     logger.info(f"pg has resources:{cluster_resources}")
+    logger.debug(f"pg has node ips:{node_ips}")
 
     return pg_config

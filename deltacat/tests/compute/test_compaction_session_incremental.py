@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
-from deltacat.tests.compactor.common import (
+from deltacat.tests.compute.common import (
     setup_sort_and_partition_keys,
     PartitionKey,
     TEST_S3_RCF_BUCKET_NAME,
@@ -17,7 +17,7 @@ from deltacat.tests.compactor.common import (
     BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
 )
-from deltacat.tests.compactor.testcases import (
+from deltacat.tests.compute.testcases import (
     INCREMENTAL_TEST_CASES,
 )
 
@@ -177,6 +177,7 @@ def setup_incremental_source_and_destination_tables(
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
+        "compact_partition_func",
     ],
     [
         (
@@ -198,6 +199,7 @@ def setup_incremental_source_and_destination_tables(
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            compact_partition_func,
         )
         for test_name, (
             source_table_version,
@@ -217,6 +219,7 @@ def setup_incremental_source_and_destination_tables(
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
@@ -245,12 +248,10 @@ def test_compact_partition_incremental(
     create_placement_group_param,
     records_per_compacted_file_param,
     hash_bucket_count_param,
+    compact_partition_func,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
-    from deltacat.compute.compactor.compaction_session import (
-        compact_partition_from_request,
-    )
     from deltacat.storage import (
         PartitionLocator,
     )
@@ -301,7 +302,9 @@ def test_compact_partition_incremental(
     total_cpus = num_workers * worker_instance_cpu
     pgm = None
     if create_placement_group_param:
-        pgm = PlacementGroupManager(1, total_cpus, worker_instance_cpu).pgs[0]
+        pgm = PlacementGroupManager(
+            1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
+        ).pgs[0]
     compact_partition_params = CompactPartitionParams.of(
         {
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -317,13 +320,13 @@ def test_compact_partition_incremental(
             "primary_keys": primary_keys_param,
             "rebase_source_partition_locator": rebase_source_partition_locator_param,
             "records_per_compacted_file": records_per_compacted_file_param,
-            "s3_client_kwargs": None,
+            "s3_client_kwargs": {},
             "source_partition_locator": source_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
         }
     )
     # execute
-    rcf_file_s3_uri = compact_partition_from_request(compact_partition_params)
+    rcf_file_s3_uri = compact_partition_func(compact_partition_params)
     # validate
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(
@@ -334,7 +337,9 @@ def test_compact_partition_incremental(
     compacted_delta_locator = round_completion_info.compacted_delta_locator
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
-    assert compacted_table.equals(expected_result)
+    assert compacted_table.equals(
+        expected_result
+    ), f"{compacted_table} does not match {expected_result}"
     if (
         validation_callback_func is not None
         and validation_callback_func_kwargs is not None
