@@ -1,5 +1,5 @@
 import pyarrow as pa
-from typing import Dict, Any, List, Optional
+from typing import List
 from deltacat.storage import PartitionLocator, SortKey
 
 MAX_SORT_KEYS_BIT_WIDTH = 256
@@ -9,7 +9,7 @@ def validate_sort_keys(
     source_partition_locator: PartitionLocator,
     sort_keys: List[SortKey],
     deltacat_storage,
-    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    deltacat_storage_kwargs,
     **kwargs,
 ) -> int:
     """

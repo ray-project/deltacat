@@ -143,9 +143,10 @@ def _configure_logger(
             log_dir, log_base_file_name, primary_log_level
         )
         _add_logger_handler(logger, handler)
-    ray_runtime_ctx = ray.get_runtime_context()
-    if ray_runtime_ctx.worker.connected:
-        logger = RayRuntimeContextLoggerAdapter(logger, ray_runtime_ctx)
+    if ray.is_initialized():
+        ray_runtime_ctx = ray.get_runtime_context()
+        if ray_runtime_ctx.worker.connected:
+            logger = RayRuntimeContextLoggerAdapter(logger, ray_runtime_ctx)
 
     return logger
 

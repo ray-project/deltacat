@@ -347,7 +347,7 @@ def _execute_compaction_round(
         rebase_source_partition_high_watermark,
         deltacat_storage,
         deltacat_storage_kwargs,
-        **list_deltas_kwargs,
+        list_deltas_kwargs,
     )
 
     delta_discovery_end = time.monotonic()

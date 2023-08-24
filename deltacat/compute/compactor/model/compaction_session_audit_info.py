@@ -18,6 +18,7 @@ class CompactionSessionAuditInfo(dict):
     DEDUPE_STEP_NAME = "dedupe"
     MATERIALIZE_STEP_NAME = "materialize"
     HASH_BUCKET_STEP_NAME = "hashBucket"
+    MERGE_STEP_NAME = "merge"
 
     def __init__(self, deltacat_version: str, audit_url: str):
         self.set_deltacat_version(deltacat_version)
@@ -143,6 +144,15 @@ class CompactionSessionAuditInfo(dict):
         return self.get("materializeTaskPeakMemoryUsedBytes")
 
     @property
+    def peak_memory_used_bytes_per_merge_task(self) -> float:
+        """
+        The peak memory used by a single merge python process. Note
+        that results may be max of merge, and hash bucketing as
+        processes are reused by Ray to run all compaction steps.
+        """
+        return self.get("mergeTaskPeakMemoryUsedBytes")
+
+    @property
     def hash_bucket_post_object_store_memory_used_bytes(self) -> float:
         """
         The total object store memory used by hash bucketing step across
@@ -163,6 +173,13 @@ class CompactionSessionAuditInfo(dict):
         The total object store memory used after materialize step.
         """
         return self.get("materializePostObjectStoreMemoryUsedBytes")
+
+    @property
+    def merge_post_object_store_memory_used_bytes(self) -> float:
+        """
+        The total object store memory used after merge step.
+        """
+        return self.get("mergePostObjectStoreMemoryUsedBytes")
 
     @property
     def materialize_buckets(self) -> int:
@@ -233,10 +250,32 @@ class CompactionSessionAuditInfo(dict):
     @property
     def materialize_result_wait_time_in_seconds(self) -> float:
         """
-        The time it takes ray.get() to resolve after the last hash bucket task has completed.
+        The time it takes ray.get() to resolve after the last materialize task has completed.
         This value may not be accurate at less than 1 second precision.
         """
         return self.get("materializeResultWaitTimeInSeconds")
+
+    @property
+    def merge_result_wait_time_in_seconds(self) -> float:
+        """
+        The time it takes ray.get() to resolve after the last task has completed.
+        This value may not be accurate at less than 1 second precision.
+        """
+        return self.get("mergeResultWaitTimeInSeconds")
+
+    @property
+    def merge_time_in_seconds(self) -> float:
+        """
+        The time taken by merge step. This includes all merge tasks.
+        """
+        return self.get("mergeTimeInSeconds")
+
+    @property
+    def merge_invoke_time_in_seconds(self) -> float:
+        """
+        The time taken to invoke all merge tasks.
+        """
+        return self.get("mergeInvokeTimeInSeconds")
 
     @property
     def delta_discovery_time_in_seconds(self) -> float:
@@ -338,11 +377,47 @@ class CompactionSessionAuditInfo(dict):
         return self.get("materializeResultSize")
 
     @property
+    def merge_result_size(self) -> float:
+        """
+        The size of the results returned by merge step.
+        """
+        return self.get("mergeResultSize")
+
+    @property
     def peak_memory_used_bytes_by_compaction_session_process(self) -> float:
         """
         The peak memory used by the entrypoint for compaction_session.
         """
         return self.get("peakMemoryUsedBytesCompactionSessionProcess")
+
+    @property
+    def estimated_in_memory_size_bytes_during_discovery(self) -> float:
+        """
+        The estimated in-memory size during the discovery. This can be used
+        to determine the accuracy of memory estimation logic.
+        """
+        return self.get("estimatedInMemorySizeBytesDuringDiscovery")
+
+    @property
+    def hash_bucket_processed_size_bytes(self) -> int:
+        """
+        The total size of the input data processed during hash bucket
+        """
+        return self.get("hashBucketProcessedSizeBytes")
+
+    @property
+    def total_cpu_seconds(self) -> float:
+        """
+        Total number of vCPUs provisioned in the cluster weighted over time.
+        """
+        return self.get("totalCPUSeconds")
+
+    @property
+    def used_cpu_seconds(self) -> float:
+        """
+        Total used vCPU in the cluster weighted over time.
+        """
+        return self.get("usedCPUSeconds")
 
     # Setters follow
 
@@ -428,6 +503,12 @@ class CompactionSessionAuditInfo(dict):
         ] = peak_memory_used_bytes_per_materialize_task
         return self
 
+    def set_peak_memory_used_bytes_per_merge_task(
+        self, peak_memory_used_bytes: float
+    ) -> CompactionSessionAuditInfo:
+        self["mergeTaskPeakMemoryUsedBytes"] = peak_memory_used_bytes
+        return self
+
     def set_hash_bucket_post_object_store_memory_used_bytes(
         self, object_store_memory_used_bytes_by_hb: float
     ) -> CompactionSessionAuditInfo:
@@ -450,6 +531,12 @@ class CompactionSessionAuditInfo(dict):
         self[
             "materializePostObjectStoreMemoryUsedBytes"
         ] = object_store_memory_used_bytes_by_dedupe
+        return self
+
+    def set_merge_post_object_store_memory_used_bytes(
+        self, object_store_memory_used_bytes: float
+    ) -> CompactionSessionAuditInfo:
+        self["mergePostObjectStoreMemoryUsedBytes"] = object_store_memory_used_bytes
         return self
 
     def set_materialize_buckets(
@@ -510,6 +597,24 @@ class CompactionSessionAuditInfo(dict):
         self, wait_time: float
     ) -> CompactionSessionAuditInfo:
         self.get["materializeResultWaitTimeInSeconds"] = wait_time
+        return self
+
+    def set_merge_time_in_seconds(
+        self, time_in_seconds: float
+    ) -> CompactionSessionAuditInfo:
+        self["mergeTimeInSeconds"] = time_in_seconds
+        return self
+
+    def set_merge_invoke_time_in_seconds(
+        self, invoke_time: float
+    ) -> CompactionSessionAuditInfo:
+        self["mergeInvokeTimeInSeconds"] = invoke_time
+        return self
+
+    def set_merge_result_wait_time_in_seconds(
+        self, wait_time: float
+    ) -> CompactionSessionAuditInfo:
+        self.get["mergeResultWaitTimeInSeconds"] = wait_time
         return self
 
     def set_delta_discovery_time_in_seconds(
@@ -598,10 +703,36 @@ class CompactionSessionAuditInfo(dict):
         self["materializeResultSize"] = materialize_result_size_bytes
         return self
 
+    def set_merge_result_size_bytes(
+        self, merge_result_size_bytes: float
+    ) -> CompactionSessionAuditInfo:
+        self["mergeResultSize"] = merge_result_size_bytes
+        return self
+
     def set_peak_memory_used_bytes_by_compaction_session_process(
         self, peak_memory: float
     ) -> CompactionSessionAuditInfo:
         self["peakMemoryUsedBytesCompactionSessionProcess"] = peak_memory
+        return self
+
+    def set_estimated_in_memory_size_bytes_during_discovery(
+        self, memory: float
+    ) -> CompactionSessionAuditInfo:
+        self["estimatedInMemorySizeBytesDuringDiscovery"] = memory
+        return self
+
+    def set_hash_bucket_processed_size_bytes(
+        self, size: int
+    ) -> CompactionSessionAuditInfo:
+        self["hashBucketProcessedSizeBytes"] = size
+        return self
+
+    def set_total_cpu_seconds(self, value: float) -> CompactionSessionAuditInfo:
+        self["totalCPUSeconds"] = value
+        return self
+
+    def set_used_cpu_seconds(self, value: float) -> CompactionSessionAuditInfo:
+        self["usedCPUSeconds"] = value
         return self
 
     # High level methods to save stats
@@ -673,7 +804,10 @@ class CompactionSessionAuditInfo(dict):
         )
 
         total_count_of_src_dfl_not_touched = sum(
-            m.referenced_pyarrow_write_result.files for m in mat_results
+            m.referenced_pyarrow_write_result.files
+            if m.referenced_pyarrow_write_result
+            else 0
+            for m in mat_results
         )
 
         logger.info(
@@ -697,10 +831,16 @@ class CompactionSessionAuditInfo(dict):
         )
 
         untouched_file_record_count = sum(
-            m.referenced_pyarrow_write_result.records for m in mat_results
+            m.referenced_pyarrow_write_result.records
+            if m.referenced_pyarrow_write_result
+            else 0
+            for m in mat_results
         )
         untouched_file_size_bytes = sum(
-            m.referenced_pyarrow_write_result.file_bytes for m in mat_results
+            m.referenced_pyarrow_write_result.file_bytes
+            if m.referenced_pyarrow_write_result
+            else 0
+            for m in mat_results
         )
 
         self.set_untouched_file_count(total_count_of_src_dfl_not_touched)
@@ -715,9 +855,10 @@ class CompactionSessionAuditInfo(dict):
         self.set_peak_memory_used_bytes_per_task(
             max(
                 [
-                    self.peak_memory_used_bytes_per_hash_bucket_task,
-                    self.peak_memory_used_bytes_per_dedupe_task,
-                    self.peak_memory_used_bytes_per_materialize_task,
+                    self.peak_memory_used_bytes_per_hash_bucket_task or 0,
+                    self.peak_memory_used_bytes_per_dedupe_task or 0,
+                    self.peak_memory_used_bytes_per_materialize_task or 0,
+                    self.peak_memory_used_bytes_per_merge_task or 0,
                 ]
             )
         )
