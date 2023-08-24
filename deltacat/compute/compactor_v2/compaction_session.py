@@ -414,7 +414,7 @@ def _execute_compaction(
 
         hb_id_to_entry_indices_range[str(m.task_index)] = (
             file_index,
-            file_index + m.pyarrow_write_result.files - 1,
+            file_index + m.pyarrow_write_result.files,
         )
 
         file_index += m.pyarrow_write_result.files

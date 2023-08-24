@@ -8,7 +8,7 @@ import time
 import pyarrow.compute as pc
 from collections import defaultdict
 from deltacat import logs
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -75,9 +75,10 @@ def drop_duplicates(table: pa.Table, on: str) -> pa.Table:
     return table
 
 
-def _dedupe_incremental(
+def _build_incremental_table(
     hash_bucket_index: int, df_envelopes_list: List[List[DeltaFileEnvelope]],
 ) -> pa.Table:
+
     logger.info(
         f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
         f"{len(df_envelopes_list)} delta file envelope lists..."
@@ -93,26 +94,10 @@ def _dedupe_incremental(
     for df_envelope in df_envelopes:
         hb_tables.append(df_envelope.table)
 
-    hb_table = pa.concat_tables(hb_tables)
-
-    start = time.monotonic()
-    # TODO: We do not need to run this when rebasing.
-    hb_table = drop_duplicates(
-        hb_table, on=sc._PK_HASH_STRING_COLUMN_NAME
-    )
-    end = time.monotonic()
-    logger.info(
-        f"Dropping duplicates for incremental in {hash_bucket_index} took: {end - start}"
-    )
-
-    logger.info(
-        f"Total records in hash bucket {hash_bucket_index} is {hb_table.num_rows}"
-    )
-    return hb_table
+    return pa.concat_tables(hb_tables)
 
 
-def merge_tables(table, old_table):
-    start = time.monotonic()
+def _merge_tables(table, old_table):
     mask = pc.invert(
         pc.is_in(
             old_table[sc._PK_HASH_STRING_COLUMN_NAME],
@@ -121,25 +106,19 @@ def merge_tables(table, old_table):
     )
 
     result = old_table.filter(mask)
-    end = time.monotonic()
-
-    logger.info(
-        f"Merging with old table took: {end - start}. Total records: {len(result)} and {len(old_table)} and {len(table)}"
-    )
-
     # TODO(zyiqin): Support merging DELETE DeltaType.
 
     return pa.concat_tables([result, table])
 
 
-def download_old_table_and_hash(
+def _download_old_table_and_hash(
     hb_index: int,
     rcf: RoundCompletionInfo,
     read_kwargs_provider,
     primary_keys,
     deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
-):
+) -> Tuple[pa.Table, int]:
     tables = []
     hb_index_to_indices = rcf.hb_index_to_entry_range
     indices = hb_index_to_indices[str(hb_index)]
@@ -147,8 +126,6 @@ def download_old_table_and_hash(
     assert (
         indices is not None and len(indices) == 2
     ), "indices should not be none and contains exactly two elements"
-
-    start = time.monotonic()
 
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
@@ -160,14 +137,9 @@ def download_old_table_and_hash(
 
         tables.append(table)
 
-    end = time.monotonic()
-
-    logger.info(
-        f"Downloaded {indices[1] - indices[0]} files for hash bucket: {hb_index} in {end - start}s"
-    )
-
     result = pa.concat_tables(tables)
-    return generate_pk_hash_column(result, primary_keys=primary_keys)
+
+    return generate_pk_hash_column(result, primary_keys=primary_keys),
 
 
 def _timed_merge(input: MergeInput) -> MergeResult:
@@ -250,8 +222,8 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         # TODO(zyiqin): Support copy all manifest files from empty hash bucket
 
         logger.info(
-            f"[Dedupe task {input.merge_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
-            f"dedupe rounds..."
+            f"[Merge task {input.merge_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
+            f"merge rounds..."
         )
         total_deduped_records = 0
 
@@ -265,55 +237,51 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             dfe_list = hb_index_to_delta_file_envelopes_list[hb_idx]
 
             if dfe_list:
+                table = _build_incremental_table(hb_idx, dfe_list)
+
+                incremental_len = len(table)
                 logger.info(
-                    f"{input.merge_task_index}: union primary keys for hb_index: {hb_idx}"
-                )
+                    f"Got the incremental table of length {incremental_len} for hash bucket {hb_idx}")
 
-                table, union_time = timed_invocation(
-                    func=_dedupe_incremental,
-                    hash_bucket_index=hb_idx,
-                    df_envelopes_list=dfe_list,
-                )
-
-                logger.info(
-                    f"[Dedupe {input.merge_task_index}] Dedupe round input "
-                    f"record count: {len(table)}, took {union_time}s"
-                )
-
-                print(f"Deduped Table: {table}")
-
-                # FIXME: sort must be done before dedupe
                 if input.sort_keys:
-                    table = table.take(
-                        pc.sort_indices(table, sort_keys=input.sort_keys)
-                    )
+                    table = table.sort_by(input.sort_keys)
 
-                # drop duplicates by primary key hash column
-                logger.info(
-                    f"[Dedupe task index {input.merge_task_index}] Dropping duplicates for {hb_idx}"
+                table, dedupe_latency = timed_invocation(
+                    func=drop_duplicates,
+                    table=table,
+                    on=sc._PK_HASH_STRING_COLUMN_NAME
                 )
+
+                dedupe_count = incremental_len - len(table)
+
+                logger.info(
+                    f"Dropped {dedupe_count} duplicates from the incremental "
+                    f"for hash bucket {hb_idx} in {dedupe_latency}s.")
 
                 if input.round_completion_info is not None:
-                    compacted_table = download_old_table_and_hash(
-                        hb_idx,
-                        input.round_completion_info,
-                        input.read_kwargs_provider,
-                        input.primary_keys,
-                        input.deltacat_storage,
-                        input.deltacat_storage_kwargs,
+                    (compacted_table, file_count), download_latency = timed_invocation(
+                        func=_download_old_table_and_hash,
+                        hb_idx=hb_idx,
+                        rcf=input.round_completion_info,
+                        read_kwargs_provider=input.read_kwargs_provider,
+                        primary_keys=input.primary_keys,
+                        deltacat_storage=input.deltacat_storage,
+                        deltacat_storage_kwargs=input.deltacat_storage_kwargs,
                     )
+
+                    logger.info(
+                        f"Downloaded {file_count} files for hash bucket: {hb_idx} in {download_latency}s")
 
                     hb_table_record_count = len(table) + len(compacted_table)
                     table, drop_time = timed_invocation(
-                        func=merge_tables, old_table=compacted_table, table=table
+                        func=_merge_tables, old_table=compacted_table, table=table
                     )
+
                     deduped_record_count = hb_table_record_count - len(table)
                     total_deduped_records += deduped_record_count
 
-                    logger.info(
-                        f"[Dedupe task index {input.merge_task_index}] Dedupe round output "
-                        f"record count: {len(table)}, took: {drop_time}s"
-                    )
+                    logger.info(f"Merging incremental of len {incremental_len} into"
+                                f" {len(compacted_table)} took {drop_time}s")
 
                 table = table.drop(
                     [

@@ -238,7 +238,8 @@ def test_compact_partition_incremental(
     rebase_source_partition_locator_param,
     partition_values_param,
     expected_result,
-    validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
+    # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
+    validation_callback_func,
     validation_callback_func_kwargs,
     do_teardown_local_deltacat_storage_db,
     use_prev_compacted,
@@ -334,6 +335,12 @@ def test_compact_partition_incremental(
     compacted_delta_locator = round_completion_info.compacted_delta_locator
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
+
+    expected_result = expected_result.combine_chunks()\
+        .sort_by([(val, 'ascending') for val in primary_keys_param])
+    compacted_table = compacted_table.combine_chunks()\
+        .sort_by([(val, 'ascending') for val in primary_keys_param])
+
     assert compacted_table.equals(
         expected_result
     ), f"{compacted_table} does not match {expected_result}"
