@@ -1,37 +1,22 @@
 import unittest
 from unittest import mock
-import sys
+import time
 
 
 class TestGetCurrentClusterUtilization(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.ray_mock = mock.MagicMock()
-        cls.ray_mock.cluster_resources.return_value = {
+    @mock.patch("deltacat.utils.resources.ray")
+    def test_sanity(self, ray_mock):
+        ray_mock.cluster_resources.return_value = {
             "CPU": 10,
             "memory": 10,
             "object_store_memory": 5,
         }
-        cls.ray_mock.available_resources.return_value = {
+        ray_mock.available_resources.return_value = {
             "CPU": 6,
             "memory": 4,
             "object_store_memory": 5,
         }
 
-        cls.module_patcher = mock.patch.dict("sys.modules", {"ray": cls.ray_mock})
-        cls.module_patcher.start()
-
-        # delete reference to reload from mocked ray
-        if "deltacat.utils.resources" in sys.modules:
-            del sys.modules["deltacat.utils.resources"]
-
-        super().setUpClass()
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.module_patcher.stop()
-
-    def test_sanity(self):
         from deltacat.utils.resources import ClusterUtilization
 
         result = ClusterUtilization.get_current_cluster_utilization()
@@ -43,3 +28,21 @@ class TestGetCurrentClusterUtilization(unittest.TestCase):
         self.assertEqual(0, result.used_object_store_memory_bytes)
         self.assertEqual(6, result.used_memory_bytes)
         self.assertIsNotNone(result.used_resources)
+
+
+class TestClusterUtilizationOverTimeRange(unittest.TestCase):
+    @mock.patch("deltacat.utils.resources.ray")
+    def test_sanity(self, ray_mock):
+        from deltacat.utils.resources import ClusterUtilizationOverTimeRange
+
+        ray_mock.cluster_resources.side_effect = [{"CPU": 32} for _ in range(5)]
+        ray_mock.available_resources.side_effect = [
+            {"CPU": 2 ** (i + 1)} for i in range(5)
+        ]
+
+        with ClusterUtilizationOverTimeRange() as cu:
+            time.sleep(3)
+            self.assertTrue(cu.used_vcpu_seconds <= 82)  # 30 + 28 + 24
+            self.assertTrue(
+                cu.total_vcpu_seconds >= cu.used_vcpu_seconds
+            )  # total is greater than used
