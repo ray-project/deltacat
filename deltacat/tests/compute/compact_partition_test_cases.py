@@ -1,13 +1,13 @@
 import pyarrow as pa
 from typing import Dict, List
 from deltacat.tests.compute.common import (
-    MAX_RECORDS_PER_FILE,
     offer_iso8601_timestamp_list,
 )
-from deltacat.tests.compute.common import (
+from deltacat.tests.compute.constants import (
     BASE_TEST_SOURCE_TABLE_VERSION,
     BASE_TEST_DESTINATION_TABLE_VERSION,
     HASH_BUCKET_COUNT,
+    MAX_RECORDS_PER_FILE,
 )
 from dataclasses import dataclass, fields
 
@@ -25,7 +25,6 @@ class CompactorTestCase:
     partition_keys_param: Dict[str, str]
     column_names_param: Dict[str, str]
     arrow_arrays_param: Dict[str, pa.Array]
-    rebase_source_partition_locator_param: str
     partition_values_param: str
     expected_result: pa.Table
     validation_callback_func: callable
@@ -39,6 +38,11 @@ class CompactorTestCase:
     # makes CompactorTestCase iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
     def __iter__(self):
         return (getattr(self, field.name) for field in fields(self))
+
+
+@dataclass(frozen=True)
+class RebaseThenIncrementalCompactorTestCase(CompactorTestCase):
+    pass
 
 
 def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List]):
@@ -71,7 +75,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1"],
         arrow_arrays_param=[pa.array([str(i) for i in range(10)])],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [pa.array([str(i) for i in range(10)])],
@@ -96,7 +99,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([str(i) for i in range(10)]),
             pa.array(["test"] * 10),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [pa.array([str(i) for i in range(10)]), pa.array(["test"] * 10)],
@@ -129,7 +131,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array(["test"] * 10),
             pa.array(["foo"] * 10),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
@@ -166,7 +167,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([str(i) for i in range(10)]),
             pa.array(["foo"] * 10),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
@@ -199,7 +199,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([i / 10 for i in range(0, 10)]),
             pa.array([str(i) for i in range(10)]),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
@@ -231,7 +230,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([i for i in range(0, 10)]),
             pa.array([str(i) for i in range(10)]),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
@@ -263,7 +261,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array(offer_iso8601_timestamp_list(10, "minutes")),
             pa.array([str(i) for i in range(10)]),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
@@ -296,7 +293,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array(offer_iso8601_timestamp_list(20, "minutes")),
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
@@ -329,7 +325,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
             pa.array(reversed([i for i in range(20)])),
         ],
-        rebase_source_partition_locator_param=None,
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
@@ -349,46 +344,76 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
 }
 
 # TODO: Add test cases where next tc is dependent on the previous compacted table existing
-INCREMENTAL_DEPENDENT_TEST_CASES = {
-    "11-incremental-multi-dup-retain-table": (
-        BASE_TEST_SOURCE_TABLE_VERSION,
-        BASE_TEST_DESTINATION_TABLE_VERSION,
-        ["pk_col_1", "pk_col_2"],
-        [
-            {
-                "key_name": "sk_col_1",
-            },
-        ],
-        [],
-        ["pk_col_1", "pk_col_2", "sk_col_1"],
-        [
-            pa.array([i / 10 for i in range(0, 20)]),
-            pa.array(offer_iso8601_timestamp_list(20, "minutes")),
-            pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
-        ],
-        None,
-        ["1"],
-        pa.Table.from_arrays(
-            [
-                pa.array([i / 10 for i in range(0, 20)]),
-                pa.array(offer_iso8601_timestamp_list(20, "minutes")),
-                pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
-            ],
-            names=["pk_col_1", "pk_col_2", "sk_col_1"],
-        ),
-        None,
-        None,
-        False,
-        False,
-        True,
-        MAX_RECORDS_PER_FILE,
-        HASH_BUCKET_COUNT,
-    ),
-}
+# INCREMENTAL_DEPENDENT_TEST_CASES = {
+#     "11-incremental-multi-dup-retain-table": (
+#         BASE_TEST_SOURCE_TABLE_VERSION,
+#         BASE_TEST_DESTINATION_TABLE_VERSION,
+#         ["pk_col_1", "pk_col_2"],
+#         [
+#             {
+#                 "key_name": "sk_col_1",
+#             },
+#         ],
+#         [],
+#         ["pk_col_1", "pk_col_2", "sk_col_1"],
+#         [
+#             pa.array([i / 10 for i in range(0, 20)]),
+#             pa.array(offer_iso8601_timestamp_list(20, "minutes")),
+#             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+#         ],
+#         None,
+#         ["1"],
+#         pa.Table.from_arrays(
+#             [
+#                 pa.array([i / 10 for i in range(0, 20)]),
+#                 pa.array(offer_iso8601_timestamp_list(20, "minutes")),
+#                 pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+#             ],
+#             names=["pk_col_1", "pk_col_2", "sk_col_1"],
+#         ),
+#         None,
+#         None,
+#         False,
+#         False,
+#         True,
+#         MAX_RECORDS_PER_FILE,
+#         HASH_BUCKET_COUNT,
+#     ),
+# }
 
 INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
     {
         **INCREMENTAL_INDEPENDENT_TEST_CASES,
-        # **INCREMENTAL_DEPENDENT_TEST_CASES,
+    }
+)
+
+REBASE_THEN_INCREMENTAL_TEST_CASES = {
+    "1-rebase-then-incremental": RebaseThenIncrementalCompactorTestCase(
+        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
+        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
+        primary_keys_param={"pk_col_1"},
+        sort_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        column_names_param=["pk_col_1"],
+        arrow_arrays_param=[pa.array([str(i) for i in range(10)])],
+        partition_values_param=["1"],
+        expected_result=pa.Table.from_arrays(
+            [pa.array([str(i) for i in range(10)])],
+            names=["pk_col_1"],
+        ),
+        validation_callback_func=None,
+        validation_callback_func_kwargs=None,
+        teardown_local_deltacat_storage_db=True,
+        use_prev_compacted=False,
+        create_placement_group_param=True,
+        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        hash_bucket_count_param=None,
+    )
+}
+
+
+REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
+    {
+        **REBASE_THEN_INCREMENTAL_TEST_CASES,
     }
 )

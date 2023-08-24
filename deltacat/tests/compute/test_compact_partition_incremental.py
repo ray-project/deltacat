@@ -4,7 +4,7 @@ import pytest
 import os
 import json
 import boto3
-from typing import Any, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
@@ -12,6 +12,11 @@ from deltacat.tests.compute.common import (
     setup_general_source_and_destination_tables,
     setup_sort_and_partition_keys,
     PartitionKey,
+)
+from deltacat.tests.compute.compact_partition_test_cases import (
+    INCREMENTAL_TEST_CASES,
+)
+from deltacat.tests.compute.constants import (
     TEST_S3_RCF_BUCKET_NAME,
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
@@ -19,9 +24,6 @@ from deltacat.tests.compute.common import (
     BASE_TEST_DESTINATION_TABLE_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
-)
-from deltacat.tests.compute.compact_partition_test_cases import (
-    INCREMENTAL_TEST_CASES,
 )
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
@@ -99,7 +101,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "partition_keys_param",
         "column_names_param",
         "arrow_arrays_param",
-        "rebase_source_partition_locator_param",
         "partition_values_param",
         "expected_result",
         "validation_callback_func",
@@ -121,7 +122,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_keys_param,
             column_names_param,
             arrow_arrays_param,
-            rebase_source_partition_locator_param,
             partition_values_param,
             expected_result,
             validation_callback_func,
@@ -141,7 +141,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_keys_param,
             column_names_param,
             arrow_arrays_param,
-            rebase_source_partition_locator_param,
             partition_values_param,
             expected_result,
             validation_callback_func,
@@ -170,7 +169,6 @@ def test_compact_partition_incremental(
     partition_keys_param,
     column_names_param: List[str],
     arrow_arrays_param: List[pa.Array],
-    rebase_source_partition_locator_param,
     partition_values_param,
     expected_result,
     validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
@@ -180,7 +178,7 @@ def test_compact_partition_incremental(
     create_placement_group_param,
     records_per_compacted_file_param,
     hash_bucket_count_param,
-    compact_partition_func,
+    compact_partition_func: Callable,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
@@ -248,7 +246,7 @@ def test_compact_partition_incremental(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys_param,
-            "rebase_source_partition_locator": rebase_source_partition_locator_param,
+            "rebase_source_partition_locator": None,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition.locator,

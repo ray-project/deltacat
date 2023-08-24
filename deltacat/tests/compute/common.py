@@ -4,6 +4,8 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 import pyarrow as pa
 import datetime as dt
+import json
+from boto3.resources.base import ServiceResource
 from datetime import timezone
 
 TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
@@ -48,6 +50,29 @@ class PartitionKey(dict):
     def key_type(self) -> PartitionKeyType:
         key_type = self["keyType"]
         return None if key_type is None else PartitionKeyType(key_type)
+
+
+"""
+UTILS
+"""
+
+
+def get_compacted_delta_locator_from_rcf(
+    s3_resource: ServiceResource, rcf_file_s3_uri: str
+):
+    from deltacat.tests.test_utils.utils import read_s3_contents
+    from deltacat.compute.compactor import (
+        RoundCompletionInfo,
+    )
+
+    _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
+    rcf_file_output: Dict[str, Any] = read_s3_contents(
+        s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
+    )
+    round_completion_info = RoundCompletionInfo(**rcf_file_output)
+    print(f"rcf_file_output: {json.dumps(rcf_file_output, indent=2)}")
+    compacted_delta_locator = round_completion_info.compacted_delta_locator
+    return compacted_delta_locator
 
 
 def setup_sort_and_partition_keys(sort_keys_param, partition_keys_param):
