@@ -27,3 +27,8 @@ TASK_MAX_PARALLELISM = 5367
 # as buffer. This value will ensure the job doesn't run out
 # of memory by considering buffer for uncertainities.
 TOTAL_MEMORY_BUFFER_PERCENTAGE = 20
+
+# The total size of records that will be hash bucketed at once
+# Since, sorting is nlogn, we ensure that is not performed
+# on a very large dataset for best performance.
+MAX_SIZE_OF_RECORD_BATCH_IN_GIB = 2 * 1024 * 1024 * 1024

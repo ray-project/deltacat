@@ -91,7 +91,7 @@ def repartition(
             source_partition_locator.partition_values,
         ).stream_position,
         deltacat_storage,
-        **list_deltas_kwargs,
+        list_deltas_kwargs,
     )
 
     uniform_deltas = []
@@ -162,6 +162,7 @@ def repartition(
         source_partition_locator,
         sort_keys,
         deltacat_storage,
+        deltacat_storage_kwargs={},
     )
     repartition_completion_info = RoundCompletionInfo.of(
         last_stream_position_to_compact,

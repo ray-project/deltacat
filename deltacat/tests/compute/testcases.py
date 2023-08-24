@@ -1,12 +1,34 @@
 import pyarrow as pa
-from deltacat.tests.compactor.common import (
+from typing import Dict, List
+from deltacat.tests.compute.common import (
     MAX_RECORDS_PER_FILE,
     offer_iso8601_timestamp_list,
 )
-from deltacat.tests.compactor.common import (
+from deltacat.tests.compute.common import (
     BASE_TEST_SOURCE_TABLE_VERSION,
     BASE_TEST_DESTINATION_TABLE_VERSION,
+    HASH_BUCKET_COUNT,
 )
+from deltacat.compute.compactor.compaction_session import (
+    compact_partition_from_request as compact_partition_v1,
+)
+from deltacat.compute.compactor_v2.compaction_session import (
+    compact_partition as compact_partition_v2,
+)
+
+
+def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List]):
+    final_cases = {}
+    for version, compact_partition_func in enumerate(
+        [compact_partition_v1, compact_partition_v2]
+    ):
+        for case_name, case_value in test_cases.items():
+            final_cases[f"{case_name}_v{version}"] = [
+                *case_value,
+                compact_partition_func,
+            ]
+
+    return final_cases
 
 
 """
@@ -19,7 +41,7 @@ TODO Test Cases:
 
 
 INCREMENTAL_INDEPENDENT_TEST_CASES = {
-    "1-incremental-pkstr-sknone-norcf": (
+    "1-incremental-pkstr-sknone-norcf": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         {"pk_col_1"},  # Primary key columns
@@ -39,9 +61,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,  # use_prev_compacted
         True,  # create_placement_group_param
         MAX_RECORDS_PER_FILE,  # records_per_compacted_file_param
-        None,  # hash_bucket_count_param
-    ),
-    "2-incremental-pkstr-skstr-norcf": (
+        HASH_BUCKET_COUNT,  # hash_bucket_count_param
+    ],
+    "2-incremental-pkstr-skstr-norcf": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
@@ -65,9 +87,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
-    "3-incremental-pkstr-multiskstr-norcf": (
+        HASH_BUCKET_COUNT,
+    ],
+    "3-incremental-pkstr-multiskstr-norcf": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
@@ -102,9 +124,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
-    "4-incremental-duplicate-pk": (
+        HASH_BUCKET_COUNT,
+    ],
+    "4-incremental-duplicate-pk": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
@@ -139,9 +161,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
-    "5-incremental-decimal-pk-simple": (
+        HASH_BUCKET_COUNT,
+    ],
+    "5-incremental-decimal-pk-simple": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
@@ -171,9 +193,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
-    "7-incremental-integer-pk-simple": (
+        HASH_BUCKET_COUNT,
+    ],
+    "7-incremental-integer-pk-simple": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
@@ -203,9 +225,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
-    "8-incremental-timestamp-pk-simple": (
+        HASH_BUCKET_COUNT,
+    ],
+    "8-incremental-timestamp-pk-simple": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
@@ -235,9 +257,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
-    "9-incremental-decimal-timestamp-pk-multi": (
+        HASH_BUCKET_COUNT,
+    ],
+    "9-incremental-decimal-timestamp-pk-multi": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1", "pk_col_2"],
@@ -269,9 +291,9 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
-    "10-incremental-decimal-pk-multi-dup": (
+        HASH_BUCKET_COUNT,
+    ],
+    "10-incremental-decimal-pk-multi-dup": [
         BASE_TEST_SOURCE_TABLE_VERSION,
         BASE_TEST_DESTINATION_TABLE_VERSION,
         ["pk_col_1"],
@@ -301,8 +323,8 @@ INCREMENTAL_INDEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
-    ),
+        HASH_BUCKET_COUNT,
+    ],
 }
 
 """
@@ -361,11 +383,13 @@ INCREMENTAL_DEPENDENT_TEST_CASES = {
         False,
         True,
         MAX_RECORDS_PER_FILE,
-        None,
+        HASH_BUCKET_COUNT,
     ),
 }
 
-INCREMENTAL_TEST_CASES = {
-    **INCREMENTAL_INDEPENDENT_TEST_CASES,
-    **INCREMENTAL_DEPENDENT_TEST_CASES,
-}
+INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
+    {
+        **INCREMENTAL_INDEPENDENT_TEST_CASES,
+        **INCREMENTAL_DEPENDENT_TEST_CASES,
+    }
+)

@@ -211,7 +211,7 @@ def _execute_compaction(
     compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
 
     hb_options_provider = functools.partial(
-        func=task_resource_options_provider,
+        task_resource_options_provider,
         pg_config=params.pg_config,
         resource_amount_provider=hash_bucket_resource_options_provider,
         previous_inflation=params.previous_inflation,
@@ -221,20 +221,21 @@ def _execute_compaction(
 
     hb_start = time.monotonic()
 
-    hash_bucket_input_provider = lambda index, item: {
-        "input": HashBucketInput.of(
-            item,
-            primary_keys=params.primary_keys,
-            num_hash_buckets=params.hash_bucket_count,
-            num_hash_groups=params.hash_group_count,
-            enable_profiler=params.enable_profiler,
-            metrics_config=params.metrics_config,
-            read_kwargs_provider=params.read_kwargs_provider,
-            object_store=params.object_store,
-            deltacat_storage=params.deltacat_storage,
-            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        )
-    }
+    def hash_bucket_input_provider(index, item):
+        return {
+            "input": HashBucketInput.of(
+                item,
+                primary_keys=params.primary_keys,
+                num_hash_buckets=params.hash_bucket_count,
+                num_hash_groups=params.hash_group_count,
+                enable_profiler=params.enable_profiler,
+                metrics_config=params.metrics_config,
+                read_kwargs_provider=params.read_kwargs_provider,
+                object_store=params.object_store,
+                deltacat_storage=params.deltacat_storage,
+                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+            )
+        }
 
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
@@ -325,7 +326,7 @@ def _execute_compaction(
 
     # BSP Step 2: Merge
     merge_options_provider = functools.partial(
-        func=task_resource_options_provider,
+        task_resource_options_provider,
         pg_config=params.pg_config,
         resource_amount_provider=merge_resource_options_provider,
         num_hash_groups=params.hash_group_count,
@@ -338,27 +339,29 @@ def _execute_compaction(
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
     )
 
-    merge_input_provider = lambda index, item: {
-        "input": MergeInput.of(
-            dfe_groups_refs=item[1],
-            write_to_partition=compacted_partition,
-            compacted_file_content_type=params.compacted_file_content_type,
-            primary_keys=params.primary_keys,
-            sort_keys=params.sort_keys,
-            merge_task_index=index,
-            hash_group_index=item[0],
-            num_hash_groups=params.hash_group_count,
-            max_records_per_output_file=params.records_per_compacted_file,
-            enable_profiler=params.enable_profiler,
-            metrics_config=params.metrics_config,
-            s3_table_writer_kwargs=params.s3_table_writer_kwargs,
-            read_kwargs_provider=params.read_kwargs_provider,
-            round_completion_info=round_completion_info,
-            object_store=params.object_store,
-            deltacat_storage=params.deltacat_storage,
-            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        )
-    }
+    def merge_input_provider(index, item):
+        return {
+            "input": MergeInput.of(
+                dfe_groups_refs=item[1],
+                write_to_partition=compacted_partition,
+                compacted_file_content_type=params.compacted_file_content_type,
+                primary_keys=params.primary_keys,
+                sort_keys=params.sort_keys,
+                merge_task_index=index,
+                hash_bucket_count=params.hash_bucket_count,
+                hash_group_index=item[0],
+                num_hash_groups=params.hash_group_count,
+                max_records_per_output_file=params.records_per_compacted_file,
+                enable_profiler=params.enable_profiler,
+                metrics_config=params.metrics_config,
+                s3_table_writer_kwargs=params.s3_table_writer_kwargs,
+                read_kwargs_provider=params.read_kwargs_provider,
+                round_completion_info=round_completion_info,
+                object_store=params.object_store,
+                deltacat_storage=params.deltacat_storage,
+                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+            )
+        }
 
     merge_start = time.monotonic()
 
@@ -413,7 +416,7 @@ def _execute_compaction(
 
         hb_id_to_entry_indices_range[str(m.task_index)] = (
             file_index,
-            file_index + m.pyarrow_write_result.files - 1,
+            file_index + m.pyarrow_write_result.files,
         )
 
         file_index += m.pyarrow_write_result.files

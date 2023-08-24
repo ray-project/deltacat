@@ -24,6 +24,7 @@ class MergeInput(Dict):
         primary_keys: List[str],
         hash_group_index: int,
         num_hash_groups: int,
+        hash_bucket_count: int,
         sort_keys: Optional[List[SortKey]] = None,
         merge_task_index: Optional[int] = 0,
         max_records_per_output_file: Optional[int] = 4_000_000,
@@ -44,6 +45,7 @@ class MergeInput(Dict):
         result["primary_keys"] = primary_keys
         result["hash_group_index"] = hash_group_index
         result["num_hash_groups"] = num_hash_groups
+        result["hash_bucket_count"] = hash_bucket_count
         result["sort_keys"] = sort_keys
         result["merge_task_index"] = merge_task_index
         result["max_records_per_output_file"] = max_records_per_output_file
@@ -81,6 +83,10 @@ class MergeInput(Dict):
     @property
     def num_hash_groups(self) -> int:
         return self["num_hash_groups"]
+
+    @property
+    def hash_bucket_count(self) -> int:
+        return self["hash_bucket_count"]
 
     @property
     def sort_keys(self) -> Optional[List[SortKey]]:
