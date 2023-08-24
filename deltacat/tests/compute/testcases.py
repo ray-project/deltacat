@@ -71,7 +71,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         column_names_param=["pk_col_1"],
         arrow_arrays_param=[pa.array([str(i) for i in range(10)])],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [pa.array([str(i) for i in range(10)])],
             names=["pk_col_1"],
@@ -96,7 +96,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array(["test"] * 10),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [pa.array([str(i) for i in range(10)]), pa.array(["test"] * 10)],
             names=["pk_col_1", "sk_col_1"],
@@ -129,7 +129,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array(["foo"] * 10),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(10)]),
@@ -166,7 +166,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array(["foo"] * 10),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(5)] + ["6"]),
@@ -199,7 +199,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([str(i) for i in range(10)]),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
                 pa.array([i / 10 for i in range(0, 10)]),
@@ -231,7 +231,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([str(i) for i in range(10)]),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
                 pa.array([i for i in range(0, 10)]),
@@ -263,7 +263,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([str(i) for i in range(10)]),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
                 pa.array(offer_iso8601_timestamp_list(10, "minutes")),
@@ -296,7 +296,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
                 pa.array([i / 10 for i in range(0, 20)]),
@@ -329,7 +329,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
             pa.array(reversed([i for i in range(20)])),
         ],
         rebase_source_partition_locator_param=None,
-        partition_values_param="1",
+        partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
             [
                 pa.array([0.1, 0.2, 0.3, 0.4, 0.5]),

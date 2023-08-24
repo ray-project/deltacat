@@ -59,7 +59,7 @@ def setup_sort_and_partition_keys(sort_keys_param, partition_keys_param):
     return sort_keys, partition_keys
 
 
-class TestFactory:
+class TestTableUtilityFactory:
     @classmethod
     def offer_iso8601_timestamp_list(
         cls,
