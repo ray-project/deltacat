@@ -282,6 +282,10 @@ def test_compact_partition_incremental(
         arrow_arrays_param,
         partition_values_param,
         ds_mock_kwargs,
+        f"{test_name}_src_namespace",
+        f"{test_name}_table_src",
+        f"{test_name}_dest_namespace",
+        f"{test_name}_table_dest",
     )
     ray.shutdown()
     ray.init(local_mode=True)
@@ -336,6 +340,8 @@ def test_compact_partition_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
 
+    # the compacted table may contain multiple files and chunks
+    # and order of records may be incorrect due to multiple files.
     expected_result = expected_result.combine_chunks()\
         .sort_by([(val, 'ascending') for val in primary_keys_param])
     compacted_table = compacted_table.combine_chunks()\
