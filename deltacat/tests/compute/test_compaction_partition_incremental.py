@@ -4,11 +4,12 @@ import pytest
 import os
 import json
 import boto3
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.common import (
+    setup_general_source_and_destination_tables,
     setup_sort_and_partition_keys,
     PartitionKey,
     TEST_S3_RCF_BUCKET_NAME,
@@ -84,77 +85,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     request.getfixturevalue(
         "cleanup_the_database_file_after_all_compaction_session_package_tests_complete"
     )
-
-
-def setup_incremental_source_and_destination_tables(
-    source_table_version: str,
-    destination_table_version: str,
-    primary_keys: Set[str],
-    sort_keys: Optional[List[Any]],
-    partition_keys: Optional[List[PartitionKey]],
-    column_names: List[str],
-    arrow_arrays: List[pa.Array],
-    partition_values: Optional[List[Any]],
-    ds_mock_kwargs: Optional[Dict[str, Any]],
-    source_namespace: str = BASE_TEST_SOURCE_NAMESPACE,
-    source_table_name: str = BASE_TEST_SOURCE_TABLE_NAME,
-    destination_namespace: str = BASE_TEST_DESTINATION_NAMESPACE,
-    destination_table_name: str = BASE_TEST_DESTINATION_TABLE_NAME,
-):
-    import deltacat.tests.local_deltacat_storage as ds
-    from deltacat.types.media import ContentType
-    from deltacat.storage import Partition, Stream
-
-    ds.create_namespace(source_namespace, {}, **ds_mock_kwargs)
-    ds.create_table_version(
-        source_namespace,
-        source_table_name,
-        source_table_version,
-        primary_key_column_names=list(primary_keys),
-        sort_keys=sort_keys,
-        partition_keys=partition_keys,
-        supported_content_types=[ContentType.PARQUET],
-        **ds_mock_kwargs,
-    )
-    source_table_stream: Stream = ds.get_stream(
-        namespace=source_namespace,
-        table_name=source_table_name,
-        table_version=source_table_version,
-        **ds_mock_kwargs,
-    )
-    test_table: pa.Table = pa.Table.from_arrays(arrow_arrays, names=column_names)
-    staged_partition: Partition = ds.stage_partition(
-        source_table_stream, partition_values, **ds_mock_kwargs
-    )
-    ds.commit_delta(
-        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
-    )
-    ds.commit_partition(staged_partition, **ds_mock_kwargs)
-    # create the destination table
-    ds.create_namespace(destination_namespace, {}, **ds_mock_kwargs)
-    ds.create_table_version(
-        destination_namespace,
-        destination_table_name,
-        destination_table_version,
-        primary_key_column_names=list(primary_keys),
-        sort_keys=sort_keys,
-        partition_keys=partition_keys,
-        supported_content_types=[ContentType.PARQUET],
-        **ds_mock_kwargs,
-    )
-    destination_table_stream: Stream = ds.get_stream(
-        namespace=destination_namespace,
-        table_name=destination_table_name,
-        table_version=destination_table_version,
-        **ds_mock_kwargs,
-    )
-    source_table_stream_after_committed: Stream = ds.get_stream(
-        namespace=source_namespace,
-        table_name=source_table_name,
-        table_version=source_table_version,
-        **ds_mock_kwargs,
-    )
-    return source_table_stream_after_committed, destination_table_stream
 
 
 @pytest.mark.parametrize(
@@ -274,7 +204,7 @@ def test_compact_partition_incremental(
     (
         source_table_stream,
         destination_table_stream,
-    ) = setup_incremental_source_and_destination_tables(
+    ) = setup_general_source_and_destination_tables(
         source_table_version,
         destination_table_version,
         primary_keys_param,
