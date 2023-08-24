@@ -36,6 +36,7 @@ class CompactorTestCase:
     records_per_compacted_file_param: int
     hash_bucket_count_param: int
 
+    # makes CompactorTestCase iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
     def __iter__(self):
         return (getattr(self, field.name) for field in fields(self))
 
