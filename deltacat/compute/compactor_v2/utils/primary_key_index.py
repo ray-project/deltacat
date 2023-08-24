@@ -298,7 +298,7 @@ def hash_group_index_to_hash_bucket_indices(
     if hb_group > num_buckets:
         return []
 
-    return range(hb_group, num_groups, num_buckets)
+    return range(hb_group, num_buckets, num_groups)
 
 
 def pk_digest_to_hash_bucket_index(digest: str, num_buckets: int) -> int:
