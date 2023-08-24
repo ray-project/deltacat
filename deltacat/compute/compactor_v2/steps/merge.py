@@ -6,6 +6,7 @@ import pyarrow as pa
 import ray
 import time
 import pyarrow.compute as pc
+from uuid import uuid4
 from collections import defaultdict
 from deltacat import logs
 from typing import List, Optional, Tuple
@@ -32,6 +33,12 @@ from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
     hash_group_index_to_hash_bucket_indices,
+)
+from deltacat.storage import (
+    Delta,
+    DeltaLocator,
+    DeltaType,
+    Manifest,
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
 
@@ -79,7 +86,7 @@ def _merge_tables(table, old_table):
     return pa.concat_tables([result, table])
 
 
-def _download_old_table_and_hash(
+def _download_pk_hashed_old_table(
     hb_index: int,
     rcf: RoundCompletionInfo,
     read_kwargs_provider,
@@ -89,11 +96,15 @@ def _download_old_table_and_hash(
 ) -> Tuple[pa.Table, int]:
     tables = []
     hb_index_to_indices = rcf.hb_index_to_entry_range
+    if str(hb_index) not in hb_index_to_indices:
+        return None
     indices = hb_index_to_indices[str(hb_index)]
 
     assert (
         indices is not None and len(indices) == 2
     ), "indices should not be none and contains exactly two elements"
+
+    start = time.monotonic()
 
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
@@ -105,14 +116,70 @@ def _download_old_table_and_hash(
 
         tables.append(table)
 
-    result = pa.concat_tables(tables)
+    end = time.monotonic()
 
-    return (generate_pk_hash_column(result, primary_keys=primary_keys),)
+    logger.info(
+        f"Downloaded {indices[1] - indices[0]} files for hash bucket: {hb_index} in {end - start}s"
+    )
+
+    result = pa.concat_tables(tables)
+    return generate_pk_hash_column(result, primary_keys=primary_keys)
 
 
 def _timed_merge(input: MergeInput) -> MergeResult:
     # TODO (rkenmi): Add docstrings for the steps in the compaction workflow
     #  https://github.com/ray-project/deltacat/issues/79
+
+    def _copy_all_manifest_files_from_old_hash_bucket(
+        hb_index_copy_by_reference,
+        round_completion_info,
+        write_to_partition,
+        deltacat_storage,
+        deltacat_storage_kwargs,
+    ):
+
+        delta_locator = round_completion_info.compacted_delta_locator
+        manifest = deltacat_storage.get_delta_manifest(
+            delta_locator, **deltacat_storage_kwargs
+        )
+
+        manifest_entry_referenced_list = []
+        materialize_result_list = []
+        hb_index_to_indices = round_completion_info.hb_index_to_entry_range
+        for hb_index in hb_index_copy_by_reference:
+            if str(hb_index) in hb_index_to_indices:
+                indices = hb_index_to_indices[str(hb_index)]
+                for offset in range(indices[1] - indices[0]):
+                    entry_index = indices[0] + offset
+                    manifest_entry = manifest.entries[entry_index]
+                    manifest_entry_referenced_list.append(manifest_entry)
+                manifest = Manifest.of(
+                    entries=manifest_entry_referenced_list, uuid=str(uuid4())
+                )
+                delta = Delta.of(
+                    locator=DeltaLocator.of(write_to_partition.locator),
+                    delta_type=DeltaType.UPSERT,
+                    meta=manifest.meta,
+                    manifest=manifest,
+                    previous_stream_position=write_to_partition.stream_position,
+                    properties={},
+                )
+                materialize_result = MaterializeResult.of(
+                    delta=delta,
+                    task_index=hb_index,
+                    pyarrow_write_result=None,
+                    # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
+                    #  and in-memory-table-bytes instead of tight coupling to paBytes
+                    referenced_pyarrow_write_result=PyArrowWriteResult.of(
+                        len(manifest_entry_referenced_list),
+                        manifest.meta.source_content_length,
+                        manifest.meta.content_length,
+                        manifest.meta.record_count,
+                    ),
+                )
+                materialize_result_list.append(materialize_result)
+        return materialize_result_list
+
     def _materialize(
         hash_bucket_index,
         compacted_tables: List[pa.Table],
@@ -166,12 +233,13 @@ def _timed_merge(input: MergeInput) -> MergeResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
-        f"dedupe_{worker_id}_{task_id}.bin"
+        f"merge_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
-        # TODO (pdames): mitigate risk of running out of memory here in cases of
-        #  severe skew of primary key updates in deltas
+        # In V2, we need to mitigate risk of running out of memory here in cases of
+        #  severe skew of primary key updates in deltas. By severe skew, we mean
+        #  one hash bucket require more memory than a worker instance have.
         logger.info(
-            f"[Dedupe task {input.merge_task_index}] Getting delta file envelope "
+            f"[Merge task {input.merge_task_index}] Getting delta file envelope "
             f"groups for {len(input.dfe_groups_refs)} object refs..."
         )
 
@@ -188,24 +256,15 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
                 if dfes is not None:
                     hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
-
-        # TODO(zyiqin): Support copy all manifest files from empty hash bucket
-
-        logger.info(
-            f"[Merge task {input.merge_task_index}] Running {len(hb_index_to_delta_file_envelopes_list)} "
-            f"merge rounds..."
+        valid_hb_indices_iterable = hash_group_index_to_hash_bucket_indices(
+            input.hash_group_index, input.hash_bucket_count, input.num_hash_groups
         )
         total_deduped_records = 0
 
         materialized_results: List[MaterializeResult] = []
-
-        valid_hb_indices_iterable = hash_group_index_to_hash_bucket_indices(
-            input.hash_group_index, input.hash_bucket_count, input.num_hash_groups
-        )
-
+        hb_index_copy_by_reference = []
         for hb_idx in valid_hb_indices_iterable:
             dfe_list = hb_index_to_delta_file_envelopes_list[hb_idx]
-
             if dfe_list:
                 table = _build_incremental_table(hb_idx, dfe_list)
 
@@ -229,32 +288,27 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 )
 
                 if input.round_completion_info is not None:
-                    (compacted_table, file_count), download_latency = timed_invocation(
-                        func=_download_old_table_and_hash,
-                        hb_idx=hb_idx,
-                        rcf=input.round_completion_info,
-                        read_kwargs_provider=input.read_kwargs_provider,
-                        primary_keys=input.primary_keys,
-                        deltacat_storage=input.deltacat_storage,
-                        deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+                    compacted_table = _download_pk_hashed_old_table(
+                        hb_idx,
+                        input.round_completion_info,
+                        input.read_kwargs_provider,
+                        input.primary_keys,
+                        input.deltacat_storage,
+                        input.deltacat_storage_kwargs,
                     )
 
-                    logger.info(
-                        f"Downloaded {file_count} files for hash bucket: {hb_idx} in {download_latency}s"
-                    )
-
-                    hb_table_record_count = len(table) + len(compacted_table)
-                    table, drop_time = timed_invocation(
-                        func=_merge_tables, old_table=compacted_table, table=table
-                    )
-
-                    deduped_record_count = hb_table_record_count - len(table)
+                    deduped_record_count = 0
+                    if compacted_table:
+                        hb_table_record_count = len(table) + len(compacted_table)
+                        table, drop_time = timed_invocation(
+                            func=_merge_tables, old_table=compacted_table, table=table
+                        )
+                        deduped_record_count = hb_table_record_count - len(table)
+                        logger.info(
+                            f"[Merge task index merge tables {input.merge_task_index}] Dedupe round output "
+                            f"record count: {len(table)}, took: {drop_time}s"
+                        )
                     total_deduped_records += deduped_record_count
-
-                    logger.info(
-                        f"Merging incremental of len {incremental_len} into"
-                        f" {len(compacted_table)} took {drop_time}s"
-                    )
 
                 table = table.drop(
                     [
@@ -266,8 +320,20 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     _materialize(hb_idx, [table], input.deltacat_storage_kwargs)
                 )
             else:
-                # TODO: copy by reference
-                pass
+                if input.round_completion_info:
+                    hb_index_copy_by_reference.append(hb_idx)
+
+        if hb_index_copy_by_reference:
+            referenced_materialized_result = (
+                _copy_all_manifest_files_from_old_hash_bucket(
+                    hb_index_copy_by_reference,
+                    input.round_completion_info,
+                    input.write_to_partition,
+                    input.deltacat_storage,
+                    input.deltacat_storage_kwargs,
+                )
+            )
+            materialized_results.extend(referenced_materialized_result)
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
 
