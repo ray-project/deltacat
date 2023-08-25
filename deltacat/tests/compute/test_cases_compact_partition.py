@@ -26,15 +26,20 @@ class CompactorTestCase:
     column_names_param: Dict[str, str]
     input_deltas_arrow_arrays_param: Dict[str, pa.Array]
     expected_compact_partition_result: pa.Table
-    validation_callback_func: callable
-    validation_callback_func_kwargs: Dict[str, str]
     create_placement_group_param: bool
     records_per_compacted_file_param: int
     hash_bucket_count_param: int
+    validation_callback_func: callable
+    validation_callback_func_kwargs: Dict[str, str]
 
     # makes CompactorTestCase iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
     def __iter__(self):
         return (getattr(self, field.name) for field in fields(self))
+
+
+@dataclass(frozen=True)
+class IncrementalCompactionTestCase(CompactorTestCase):
+    pass
 
 
 @dataclass(frozen=True)
@@ -54,17 +59,8 @@ def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List]):
     return final_cases
 
 
-"""
-TODO Test Cases:
-1. incremental w/wout round completion file
-2. Backfill w/wout round completion
-3. Rebase w/wout round completion file
-4. Rebase then incremental (use same round completion file)
-"""
-
-
-INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
-    "1-incremental-pkstr-sknone-norcf": CompactorTestCase(
+INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
+    "1-incremental-pkstr-sknone-norcf": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
@@ -83,7 +79,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "2-incremental-pkstr-skstr-norcf": CompactorTestCase(
+    "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
@@ -105,7 +101,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "3-incremental-pkstr-multiskstr-norcf": CompactorTestCase(
+    "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
@@ -139,7 +135,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "4-incremental-duplicate-pk": CompactorTestCase(
+    "4-incremental-duplicate-pk": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
@@ -173,7 +169,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "5-incremental-decimal-pk-simple": CompactorTestCase(
+    "5-incremental-decimal-pk-simple": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
@@ -202,7 +198,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "6-incremental-integer-pk-simple": CompactorTestCase(
+    "6-incremental-integer-pk-simple": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
@@ -231,7 +227,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "7-incremental-timestamp-pk-simple": CompactorTestCase(
+    "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
@@ -260,7 +256,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "8-incremental-decimal-timestamp-pk-multi": CompactorTestCase(
+    "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1", "pk_col_2"},
@@ -291,7 +287,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
         records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
     ),
-    "9-incremental-decimal-pk-multi-dup": CompactorTestCase(
+    "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCase(
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},

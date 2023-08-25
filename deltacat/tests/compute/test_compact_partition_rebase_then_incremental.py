@@ -5,7 +5,6 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
-from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.constants import (
     REBASING_NAMESPACE,
     REBASING_NAME_SUFFIX,
@@ -16,10 +15,7 @@ from deltacat.tests.compute.constants import (
     BASE_TEST_DESTINATION_TABLE_VERSION,
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
-    BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
-    REBASING_NAMESPACE,
-    RAY_COMPACTED_NAMESPACE,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
     MAX_RECORDS_PER_FILE,
@@ -27,8 +23,6 @@ from deltacat.tests.compute.constants import (
 from deltacat.tests.compute.common import (
     setup_general_source_and_destination_tables,
     setup_sort_and_partition_keys,
-    offer_iso8601_timestamp_list,
-    PartitionKey,
     get_compacted_delta_locator_from_rcf,
 )
 from deltacat.tests.compute.test_cases_compact_partition import (
@@ -106,11 +100,11 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "column_names_param",
         "input_deltas_arrow_arrays_param",
         "expected_compact_partition_result",
-        "validation_callback_func",
-        "validation_callback_func_kwargs",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
+        "validation_callback_func",
+        "validation_callback_func_kwargs",
         "compact_partition_func",
     ],
     [
@@ -125,11 +119,11 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             column_names_param,
             input_deltas_arrow_arrays_param,
             expected_compact_partition_result,
-            validation_callback_func,
-            validation_callback_func_kwargs,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            validation_callback_func,
+            validation_callback_func_kwargs,
             compact_partition_func,
         )
         for test_name, (
@@ -142,11 +136,11 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             column_names_param,
             input_deltas_arrow_arrays_param,
             expected_compact_partition_result,
-            validation_callback_func,
-            validation_callback_func_kwargs,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            validation_callback_func,
+            validation_callback_func_kwargs,
             compact_partition_func,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
     ],
@@ -168,11 +162,11 @@ def test_compact_partition_rebase_then_incremental(
     column_names_param: List[str],
     input_deltas_arrow_arrays_param: List[pa.Array],
     expected_compact_partition_result,
-    validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
-    validation_callback_func_kwargs,
     create_placement_group_param,
     records_per_compacted_file_param,
     hash_bucket_count_param,
+    validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
+    validation_callback_func_kwargs,
     compact_partition_func: Callable,
 ):
     import deltacat.tests.local_deltacat_storage as ds
@@ -187,9 +181,6 @@ def test_compact_partition_rebase_then_incremental(
     )
     from deltacat.utils.placement import (
         PlacementGroupManager,
-    )
-    from deltacat.compute.compactor import (
-        RoundCompletionInfo,
     )
 
     ds_mock_kwargs = setup_local_deltacat_storage_conn

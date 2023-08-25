@@ -17,10 +17,6 @@ from deltacat.tests.compute.test_cases_compact_partition import (
 )
 from deltacat.tests.compute.constants import (
     TEST_S3_RCF_BUCKET_NAME,
-    BASE_TEST_SOURCE_NAMESPACE,
-    BASE_TEST_SOURCE_TABLE_NAME,
-    BASE_TEST_DESTINATION_NAMESPACE,
-    BASE_TEST_DESTINATION_TABLE_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
@@ -95,11 +91,11 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "column_names_param",
         "input_deltas_arrow_arrays_param",
         "expected_compact_partition_result",
-        "validation_callback_func",
-        "validation_callback_func_kwargs",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
+        "validation_callback_func",
+        "validation_callback_func_kwargs",
         "compact_partition_func",
     ],
     [
@@ -114,11 +110,11 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             column_names_param,
             input_deltas_arrow_arrays_param,
             expected_compact_partition_result,
-            validation_callback_func,
-            validation_callback_func_kwargs,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            validation_callback_func,
+            validation_callback_func_kwargs,
             compact_partition_func,
         )
         for test_name, (
@@ -131,11 +127,11 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             column_names_param,
             input_deltas_arrow_arrays_param,
             expected_compact_partition_result,
-            validation_callback_func,
-            validation_callback_func_kwargs,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            validation_callback_func,
+            validation_callback_func_kwargs,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
@@ -157,11 +153,11 @@ def test_compact_partition_incremental(
     column_names_param: List[str],
     input_deltas_arrow_arrays_param: List[pa.Array],
     expected_compact_partition_result,
-    validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
-    validation_callback_func_kwargs,
     create_placement_group_param,
     records_per_compacted_file_param,
     hash_bucket_count_param,
+    validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
+    validation_callback_func_kwargs,
     compact_partition_func: Callable,
 ):
     import deltacat.tests.local_deltacat_storage as ds
