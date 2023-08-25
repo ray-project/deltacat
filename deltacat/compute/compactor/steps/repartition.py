@@ -4,7 +4,7 @@ from contextlib import nullcontext
 import pyarrow.compute as pc
 from deltacat.constants import SIGNED_INT64_MIN_VALUE, SIGNED_INT64_MAX_VALUE
 import pyarrow as pa
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from deltacat.types.media import StorageType, ContentType
 import ray
 from deltacat import logs
@@ -58,6 +58,8 @@ def repartition_range(
     max_records_per_output_file: int,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ):
     """
     Repartitions a list of Arrow tables based on specified ranges and stores the repartitioned tables.
@@ -85,6 +87,8 @@ def repartition_range(
         in the tables, an error will be raised. For each partition range, a new file is created. This could result in
         more output files than input files.
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     column: str = repartition_args["column"]
     partition_ranges: List = repartition_args["ranges"]
     if len(partition_ranges) == 0:
@@ -141,6 +145,7 @@ def repartition_range(
                     destination_partition,
                     max_records_per_entry=max_records_per_output_file,
                     content_type=repartitioned_file_content_type,
+                    **deltacat_storage_kwargs,
                 )
                 partition_deltas.append(partition_delta)
 
@@ -163,7 +168,11 @@ def _timed_repartition(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> RepartitionResult:
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -182,6 +191,7 @@ def _timed_repartition(
                 max_records_per_output_file=max_records_per_output_file,
                 repartitioned_file_content_type=repartitioned_file_content_type,
                 deltacat_storage=deltacat_storage,
+                deltacat_storage_kwargs=deltacat_storage_kwargs,
             )
         else:
             raise NotImplementedError(
@@ -201,7 +211,11 @@ def repartition(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> RepartitionResult:
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     logger.info(f"Starting repartition task...")
     repartition_result, duration = timed_invocation(
         func=_timed_repartition,
@@ -214,6 +228,7 @@ def repartition(
         read_kwargs_provider=read_kwargs_provider,
         repartitioned_file_content_type=repartitioned_file_content_type,
         deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
     )
     if metrics_config:
         emit_timer_metrics(

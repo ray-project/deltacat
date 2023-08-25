@@ -1,14 +1,15 @@
 # setup.py install_requires
 # any changes here should also be reflected in setup.py "install_requires"
 boto3 ~= 1.20
-getdaft==0.1.12
+getdaft==0.1.14
 numpy == 1.21.5
 pandas == 1.3.5
-pyarrow == 10.0.1
+pyarrow == 12.0.1
 pydantic == 1.10.4
 pymemcache == 4.0.0
 ray[default] ~= 2.0
 redis == 4.6.0
 s3fs == 2022.2.0
+schedule == 1.2.0
 tenacity == 8.1.0
 typing-extensions == 4.4.0

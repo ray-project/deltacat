@@ -14,6 +14,10 @@ from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.aws.constants import BOTO_MAX_RETRIES
 from deltacat.utils.performance import timed_invocation
 
+from deltacat.types.partial_download import (
+    PartialFileDownloadParams,
+)
+
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -25,6 +29,7 @@ def daft_s3_file_to_table(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ):
     assert (
@@ -48,6 +53,7 @@ def daft_s3_file_to_table(
             key_id=s3_client_kwargs.get("aws_access_key_id"),
             access_key=s3_client_kwargs.get("aws_secret_access_key"),
             session_token=s3_client_kwargs.get("aws_session_token"),
+            retry_mode="adaptive",
             num_tries=BOTO_MAX_RETRIES,
         )
     )
@@ -58,6 +64,7 @@ def daft_s3_file_to_table(
         columns=include_columns or column_names,
         io_config=io_config,
         coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+        multithreaded_io=False,
     )
 
     logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")

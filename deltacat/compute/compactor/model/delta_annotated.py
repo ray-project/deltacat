@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
-from types import FunctionType
+import copy
+from deltacat.types.media import ContentType, ContentEncoding
+from deltacat.types.partial_download import PartialParquetParameters
 from typing import Callable, List, Optional, Union
 
 from deltacat import logs
@@ -64,7 +66,9 @@ class DeltaAnnotated(Delta):
         annotated_deltas: List[DeltaAnnotated],
         min_delta_bytes: float,
         min_file_counts: Optional[Union[int, float]] = float("inf"),
-        estimation_function: Optional[Callable] = None,
+        estimation_function: Optional[
+            Callable[[ManifestEntry], float]
+        ] = lambda entry: entry.meta.content_length,
     ) -> List[DeltaAnnotated]:
         """
         Simple greedy algorithm to split/merge 1 or more annotated deltas into
@@ -76,11 +80,16 @@ class DeltaAnnotated(Delta):
         of bytes at rest for the associated object. Returns the list of annotated
         delta groups.
         """
-        groups = []
+        split_annotated_deltas: List[DeltaAnnotated] = []
+        groups: List[DeltaAnnotated] = []
         new_da = DeltaAnnotated()
         new_da_bytes = 0
         da_group_entry_count = 0
-        for src_da in annotated_deltas:
+
+        for delta_annotated in annotated_deltas:
+            split_annotated_deltas.extend(DeltaAnnotated._split_single(delta_annotated))
+
+        for src_da in split_annotated_deltas:
             src_da_annotations = src_da.annotations
             src_da_entries = src_da.manifest.entries
             assert (
@@ -105,11 +114,7 @@ class DeltaAnnotated(Delta):
                     src_da, new_da, src_entry, src_da_annotations[i]
                 )
                 # TODO: Fetch s3_obj["Size"] if entry content length undefined?
-                estimated_new_da_bytes = (
-                    estimation_function(src_entry.meta.content_length)
-                    if type(estimation_function) is FunctionType
-                    else src_entry.meta.content_length
-                )
+                estimated_new_da_bytes = estimation_function(src_entry)
                 new_da_bytes += estimated_new_da_bytes
                 da_group_entry_count += 1
                 if (
@@ -132,6 +137,7 @@ class DeltaAnnotated(Delta):
                     da_group_entry_count = 0
         if new_da:
             groups.append(new_da)
+
         return groups
 
     @staticmethod
@@ -207,3 +213,79 @@ class DeltaAnnotated(Delta):
                 dst_da.type = None
             entries.append(src_entry)
             dst_da.annotations.append(src_annotation)
+
+    @staticmethod
+    def _split_single(delta_annotated: DeltaAnnotated) -> List[DeltaAnnotated]:
+        """
+        Split a single delta annotated into multiple granular
+        annotated entries. Note that split is not always guaranteed.
+
+        Note: Currently we are only able to split the Parquet File downloads.
+        """
+
+        result = []
+
+        if (
+            delta_annotated.meta
+            and delta_annotated.manifest
+            and delta_annotated.meta.content_type == ContentType.PARQUET
+            and delta_annotated.meta.content_encoding == ContentEncoding.IDENTITY
+        ):
+            # we split by row groups
+            for entry_index, entry in enumerate(delta_annotated.manifest.entries):
+                input_split_params = None
+                if entry.meta and entry.meta.content_type_parameters:
+                    for type_params in entry.meta.content_type_parameters:
+                        if (
+                            isinstance(type_params, PartialParquetParameters)
+                            and type_params.num_row_groups > 1
+                            and type_params.pq_metadata
+                        ):
+                            input_split_params = type_params
+                            break
+
+                if input_split_params:
+                    logger.info(
+                        f"Splitting input file with URI: {entry.uri} into "
+                        f"different {input_split_params.num_row_groups} entries"
+                    )
+
+                    for rg in input_split_params.row_groups_to_download:
+                        new_da = DeltaAnnotated()
+                        new_entry_dict = copy.deepcopy(entry)
+                        new_entry = ManifestEntry(new_entry_dict)
+
+                        row_group_meta = input_split_params.pq_metadata.row_group(rg)
+
+                        new_partial_params = PartialParquetParameters.of(
+                            row_groups_to_download=[rg],
+                            num_row_groups=1,
+                            num_rows=row_group_meta.num_rows,
+                            in_memory_size_bytes=row_group_meta.total_byte_size,
+                            pq_metadata=input_split_params.pq_metadata,
+                        )
+
+                        new_entry.meta.content_type_parameters = [new_partial_params]
+                        for type_params in entry.meta.content_type_parameters:
+                            if not isinstance(type_params, PartialParquetParameters):
+                                new_entry.meta.content_type_parameters.append(
+                                    type_params
+                                )
+
+                        DeltaAnnotated._append_annotated_entry(
+                            delta_annotated,
+                            new_da,
+                            new_entry,
+                            delta_annotated.annotations[entry_index],
+                        )
+
+                        result.append(new_da)
+
+        if result:
+            return result
+        else:
+            logger.info(
+                f"Split was not performed on the delta with locator: {delta_annotated.locator}"
+            )
+
+        return [delta_annotated]
