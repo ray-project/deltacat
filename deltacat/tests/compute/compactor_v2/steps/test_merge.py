@@ -63,7 +63,7 @@ class TestMerge(unittest.TestCase):
             partition, [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK], **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
-        all_hash_group_idx_to_obj_id = self.prepare_merge_inputs(
+        all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
             old_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
         )
 
@@ -89,7 +89,7 @@ class TestMerge(unittest.TestCase):
             merge_result = ray.get(merge_result_promise)
             merge_res_list.append(merge_result)
         # 8 unique pk, no duplication
-        self.validate_merge_output(merge_res_list, 8)
+        self._validate_merge_output(merge_res_list, 8)
 
     def test_merge_multiple_hash_group_multiple_pk(self):
         number_of_hash_group = 2
@@ -103,7 +103,7 @@ class TestMerge(unittest.TestCase):
             partition, [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK], **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
-        all_hash_group_idx_to_obj_id = self.prepare_merge_inputs(
+        all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
             new_delta,
             object_store,
             number_of_hash_bucket,
@@ -133,7 +133,7 @@ class TestMerge(unittest.TestCase):
             merge_result = ray.get(merge_result_promise)
             merge_res_list.append(merge_result)
         # 10 records, 2 duplication, record count left should be 8
-        self.validate_merge_output(merge_res_list, 8)
+        self._validate_merge_output(merge_res_list, 8)
 
     def test_merge_incrementa_copy_by_reference_date_pk(self):
         number_of_hash_group = 2
@@ -153,7 +153,7 @@ class TestMerge(unittest.TestCase):
             self.MERGE_NAMESPACE, [self.DEDUPE_WITH_DUPLICATION_DATE_PK], **self.kwargs
         )
 
-        all_hash_group_idx_to_obj_id = self.prepare_merge_inputs(
+        all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
             old_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
         )
         for hg_index, dfes in all_hash_group_idx_to_obj_id.items():
@@ -177,7 +177,7 @@ class TestMerge(unittest.TestCase):
             hb_index_to_entry_range=hb_id_to_entry_indices_range,
         )
 
-        all_hash_group_idx_to_obj_id_new = self.prepare_merge_inputs(
+        all_hash_group_idx_to_obj_id_new = self._prepare_merge_inputs(
             new_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
         )
 
@@ -207,18 +207,18 @@ class TestMerge(unittest.TestCase):
         # old delta: 1 record, copied by reference
         # new delta: 9 records, 2 duplication
         # result: 1 + 9 - 2 = 8
-        self.validate_merge_output(merge_res_list, 8)
+        self._validate_merge_output(merge_res_list, 8)
 
-    def prepare_merge_inputs(
+    def _prepare_merge_inputs(
         self, delta_to_merge, object_store, num_hash_bucket, num_hash_group, pk
     ):
-        hb_output = self.run_hash_bucketing(
+        hb_output = self._run_hash_bucketing(
             delta_to_merge, object_store, num_hash_bucket, num_hash_group, pk
         )
-        merge_input = self.hb_output_to_merge_input(hb_output, num_hash_group)
+        merge_input = self._hb_output_to_merge_input(hb_output, num_hash_group)
         return merge_input
 
-    def run_hash_bucketing(
+    def _run_hash_bucketing(
         self, delta_to_merge, object_store, num_hash_bucket, num_hash_group, pk
     ):
         annotated_delta = DeltaAnnotated.of(delta_to_merge)
@@ -236,7 +236,7 @@ class TestMerge(unittest.TestCase):
         hb_results: List[HashBucketResult] = [ray.get(hb_result_promise)]
         return hb_results
 
-    def hb_output_to_merge_input(self, hb_results, num_hash_group):
+    def _hb_output_to_merge_input(self, hb_results, num_hash_group):
         all_hash_group_idx_to_obj_id = defaultdict(list)
         for hb_group in range(num_hash_group):
             all_hash_group_idx_to_obj_id[hb_group] = []
@@ -251,7 +251,7 @@ class TestMerge(unittest.TestCase):
                     )
         return all_hash_group_idx_to_obj_id
 
-    def validate_merge_output(self, merge_res_list, expected_record_count):
+    def _validate_merge_output(self, merge_res_list, expected_record_count):
         materialize_res = []
         for mr in merge_res_list:
             for m in mr.materialize_results:
