@@ -26,6 +26,10 @@ def drop_duplicates(table: pa.Table, on: str) -> pa.Table:
     """
     It is important to not combine the chunks for performance reasons.
     """
+
+    if on not in table.column_names:
+        return table
+
     index_array, array_latency = timed_invocation(
         _create_chunked_index_array, table[on]
     )

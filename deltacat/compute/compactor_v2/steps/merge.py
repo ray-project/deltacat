@@ -55,6 +55,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def _build_incremental_table(
     hash_bucket_index: int,
     df_envelopes_list: List[List[DeltaFileEnvelope]],
+    primary_keys: List[str],
 ) -> pa.Table:
 
     logger.info(
@@ -72,10 +73,15 @@ def _build_incremental_table(
     for df_envelope in df_envelopes:
         hb_tables.append(df_envelope.table)
 
-    return pa.concat_tables(hb_tables)
+    result = pa.concat_tables(hb_tables)
+
+    if not primary_keys:
+        result = result.drop([sc._PK_HASH_STRING_COLUMN_NAME])
+
+    return result
 
 
-def _merge_tables(table, old_table):
+def _merge_tables(table: pa.Table, old_table: pa.Table) -> pa.Table:
     mask = pc.invert(
         pc.is_in(
             old_table[sc._PK_HASH_STRING_COLUMN_NAME],
@@ -120,6 +126,10 @@ def _download_pk_hashed_old_table(
         tables.append(table)
 
     result = pa.concat_tables(tables)
+
+    if not primary_keys:
+        return result
+
     return generate_pk_hash_column(result, primary_keys=primary_keys)
 
 
@@ -272,7 +282,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
             if dfe_list:
                 total_dfes_found += 1
-                table = _build_incremental_table(hb_idx, dfe_list)
+                table = _build_incremental_table(hb_idx, dfe_list, input.primary_keys)
 
                 incremental_len = len(table)
                 logger.info(
@@ -315,21 +325,24 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     )
 
                     hb_table_record_count = len(table) + len(compacted_table)
-                    table, drop_time = timed_invocation(
+                    table, merge_time = timed_invocation(
                         func=_merge_tables, old_table=compacted_table, table=table
                     )
                     total_deduped_records += hb_table_record_count - len(table)
 
                     logger.info(
                         f"[Merge task index {input.merge_task_index}] Merged "
-                        f"record count: {len(table)}, took: {drop_time}s"
+                        f"record count: {len(table)}, took: {merge_time}s"
                     )
 
-                table = table.drop(
-                    [
-                        sc._PK_HASH_STRING_COLUMN_NAME,
-                    ]
-                )
+                if input.primary_keys:
+                    # pk hash column is meaningful only if
+                    # primary keys exist.
+                    table = table.drop(
+                        [
+                            sc._PK_HASH_STRING_COLUMN_NAME,
+                        ]
+                    )
 
                 materialized_results.append(_materialize(hb_idx, [table]))
             else:
