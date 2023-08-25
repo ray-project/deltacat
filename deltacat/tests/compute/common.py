@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 import pyarrow as pa
 import datetime as dt
 import json
@@ -149,10 +149,6 @@ def setup_general_source_and_destination_tables(
         **ds_mock_kwargs,
     )
     return source_table_stream_after_committed, destination_table_stream
-
-
-def create_incremental_src_destination_table_strategy() -> Tuple[Any, Any, Any]:
-    pass
 
 
 def offer_iso8601_timestamp_list(
