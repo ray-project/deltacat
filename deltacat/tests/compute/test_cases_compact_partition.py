@@ -17,8 +17,6 @@ from deltacat.compute.compactor.compaction_session import (
 
 @dataclass(frozen=True)
 class CompactorTestCase:
-    source_table_version: str
-    destination_table_version: str
     primary_keys_param: Dict[str, str]
     sort_keys_param: Dict[str, str]
     partition_keys_param: Dict[str, str]
@@ -61,8 +59,6 @@ def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List]):
 
 INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "1-incremental-pkstr-sknone-norcf": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[],
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
@@ -80,8 +76,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[],
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
@@ -102,8 +96,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {
@@ -136,8 +128,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {
@@ -170,8 +160,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {
@@ -199,8 +187,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {
@@ -228,8 +214,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {
@@ -257,8 +241,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1", "pk_col_2"},
         sort_keys_param=[
             {
@@ -288,8 +270,6 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count_param=None,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {
@@ -326,8 +306,6 @@ INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "1-rebase-then-incremental": RebaseThenIncrementalCompactorTestCase(
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {

@@ -15,7 +15,6 @@ from deltacat.tests.compute.constants import (
     BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
     BASE_TEST_DESTINATION_TABLE_VERSION,
-    UTC_ISO_8601_FORMAT_WITHOUT_MILLIS,
 )
 
 
@@ -171,6 +170,8 @@ def offer_iso8601_timestamp_list(
     ValueError: If the unit_of_time argument is not one of "seconds", "minutes", "hours", "days", or "weeks".
     """
     import datetime as dt
+
+    UTC_ISO_8601_FORMAT_WITHOUT_MILLIS = "%Y-%m-%dT%H:%M:%SZ"  # '2018-09-05T14:09:03Z'
 
     acceptable_units_of_time = ["seconds", "minutes", "hours", "days", "weeks"]
     if unit_of_time not in acceptable_units_of_time:

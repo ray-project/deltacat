@@ -2,7 +2,6 @@ import ray
 from moto import mock_s3
 import pytest
 import os
-import json
 import boto3
 from typing import Any, Callable, Dict, List, Set
 from boto3.resources.base import ServiceResource
@@ -10,6 +9,7 @@ import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.common import (
     setup_general_source_and_destination_tables,
+    get_compacted_delta_locator_from_rcf,
     setup_sort_and_partition_keys,
 )
 from deltacat.tests.compute.test_cases_compact_partition import (
@@ -54,7 +54,7 @@ def setup_s3_resource(mock_aws_credential):
         yield boto3.resource("s3")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(autouse=True, scope="module")
 def setup_compaction_artifacts_s3_bucket(setup_s3_resource: ServiceResource):
     setup_s3_resource.create_bucket(
         ACL="authenticated-read",
@@ -82,8 +82,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
 @pytest.mark.parametrize(
     [
         "test_name",
-        "source_table_version",
-        "destination_table_version",
         "primary_keys_param",
         "sort_keys_param",
         "partition_keys_param",
@@ -101,8 +99,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     [
         (
             test_name,
-            source_table_version,
-            destination_table_version,
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
@@ -118,8 +114,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             compact_partition_func,
         )
         for test_name, (
-            source_table_version,
-            destination_table_version,
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
@@ -142,10 +136,7 @@ def test_compact_partition_incremental(
     request: pytest.FixtureRequest,
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
-    setup_compaction_artifacts_s3_bucket: None,
     test_name: str,
-    source_table_version: str,
-    destination_table_version: str,
     primary_keys_param: Set[str],
     sort_keys_param,
     partition_keys_param,
@@ -236,13 +227,9 @@ def test_compact_partition_incremental(
     # execute
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
     # validate
-    _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
-    rcf_file_output: Dict[str, Any] = read_s3_contents(
-        setup_s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
+    compacted_delta_locator = get_compacted_delta_locator_from_rcf(
+        setup_s3_resource, rcf_file_s3_uri
     )
-    round_completion_info = RoundCompletionInfo(**rcf_file_output)
-    print(f"rcf_file_output: {json.dumps(rcf_file_output, indent=2)}")
-    compacted_delta_locator = round_completion_info.compacted_delta_locator
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(

@@ -63,7 +63,7 @@ def setup_s3_resource(mock_aws_credential):
         yield boto3.resource("s3")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(autouse=True, scope="module")
 def setup_compaction_artifacts_s3_bucket(setup_s3_resource: ServiceResource):
     setup_s3_resource.create_bucket(
         ACL="authenticated-read",
@@ -91,8 +91,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
 @pytest.mark.parametrize(
     [
         "test_name",
-        "source_table_version",
-        "destination_table_version",
         "primary_keys_param",
         "sort_keys_param",
         "partition_keys_param",
@@ -110,8 +108,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     [
         (
             test_name,
-            source_table_version,
-            destination_table_version,
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
@@ -127,8 +123,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             compact_partition_func,
         )
         for test_name, (
-            source_table_version,
-            destination_table_version,
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
@@ -151,10 +145,7 @@ def test_compact_partition_rebase_then_incremental(
     request: pytest.FixtureRequest,
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
-    setup_compaction_artifacts_s3_bucket: None,
     test_name: str,
-    source_table_version: str,
-    destination_table_version: str,
     primary_keys_param: Set[str],
     sort_keys_param,
     partition_keys_param,
