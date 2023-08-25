@@ -210,12 +210,6 @@ def test_compact_partition_rebase_then_incremental(
         input_deltas_arrow_arrays_param,
         partition_values_param,
         ds_mock_kwargs,
-        source_namespace=source_namespace,
-        source_table_name=source_table_name,
-        source_table_version=source_table_version,
-        destination_namespace=destination_table_namespace,
-        destination_table_name=destination_table_name,
-        destination_table_version=destination_table_version,
     )
     # rebase table
     ds.create_namespace(rebasing_namespace, {}, **ds_mock_kwargs)

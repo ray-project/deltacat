@@ -62,6 +62,18 @@ def get_compacted_delta_locator_from_rcf(
     return compacted_delta_locator
 
 
+def setup_partition_keys(partition_keys_param) -> Optional[PartitionKey]:
+    partition_keys = None
+    if partition_keys_param is not None:
+        partition_keys = [
+            PartitionKey.of(
+                partition_key["key_name"], PartitionKeyType(partition_key["key_type"])
+            )
+            for partition_key in partition_keys_param
+        ]
+    return partition_keys
+
+
 def setup_sort_and_partition_keys(sort_keys_param, partition_keys_param):
     from deltacat.storage.model.sort_key import SortKey
 
