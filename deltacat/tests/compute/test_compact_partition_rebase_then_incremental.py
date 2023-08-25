@@ -7,9 +7,9 @@ from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.constants import (
-    COMPACTED_VIEW_NAMESPACE,
-    COMPACTED_NAME_SUFFIX,
-    RAY_COMPACTED_VIEW_NAMESPACE,
+    REBASING_NAMESPACE,
+    REBASING_NAME_SUFFIX,
+    RAY_COMPACTED_NAMESPACE,
     RAY_COMPACTED_NAME_SUFFIX,
     TEST_S3_RCF_BUCKET_NAME,
     BASE_TEST_SOURCE_TABLE_VERSION,
@@ -18,8 +18,8 @@ from deltacat.tests.compute.constants import (
     BASE_TEST_SOURCE_TABLE_NAME,
     BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
-    COMPACTED_VIEW_NAMESPACE,
-    RAY_COMPACTED_VIEW_NAMESPACE,
+    REBASING_NAMESPACE,
+    RAY_COMPACTED_NAMESPACE,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
     MAX_RECORDS_PER_FILE,
@@ -31,7 +31,7 @@ from deltacat.tests.compute.common import (
     PartitionKey,
     get_compacted_delta_locator_from_rcf,
 )
-from deltacat.tests.compute.compact_partition_test_cases import (
+from deltacat.tests.compute.test_cases_compact_partition import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Set
@@ -176,7 +176,6 @@ def test_compact_partition_rebase_then_incremental(
     partition_keys_param,
     column_names_param: List[str],
     arrow_arrays_param: List[pa.Array],
-    rebase_source_partition_locator_param,
     partition_values_param,
     expected_result,
     validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
@@ -191,6 +190,7 @@ def test_compact_partition_rebase_then_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
+        Partition,
         PartitionLocator,
         Stream,
     )
@@ -208,15 +208,24 @@ def test_compact_partition_rebase_then_incremental(
     ray.shutdown()
     ray.init(local_mode=True)
     assert ray.is_initialized()
-    # PHASE 1 - Add deltas
+    """
+    REBASE
+    """
+
+    source_namespace = BASE_TEST_SOURCE_NAMESPACE
+    source_table_name = BASE_TEST_SOURCE_TABLE_NAME
     source_table_version = BASE_TEST_SOURCE_TABLE_VERSION
+
+    rebasing_namespace = REBASING_NAMESPACE
+    rebasing_table_name = BASE_TEST_SOURCE_TABLE_NAME + REBASING_NAME_SUFFIX
+    rebasing_table_version = BASE_TEST_SOURCE_TABLE_VERSION
+
+    destination_table_namespace = RAY_COMPACTED_NAMESPACE
+    destination_table_name = (
+        BASE_TEST_DESTINATION_TABLE_NAME + RAY_COMPACTED_NAME_SUFFIX
+    )
     destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
-    primary_keys_param = {"pk_col_1"}
-    sort_keys_param = []
-    partition_keys_param = [{"key_name": "region_id", "key_type": "int"}]
-    column_names_param = ["pk_col_1"]
-    arrow_arrays_param = [pa.array([str(i) for i in range(10)])]
-    partition_values_param = ["1"]
+
     sort_keys, partition_keys = setup_sort_and_partition_keys(
         sort_keys_param, partition_keys_param
     )
@@ -231,19 +240,63 @@ def test_compact_partition_rebase_then_incremental(
         arrow_arrays_param,
         partition_values_param,
         ds_mock_kwargs,
-        source_namespace=BASE_TEST_SOURCE_NAMESPACE,
-        source_table_name=BASE_TEST_SOURCE_TABLE_NAME,
-        source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
-        destination_namespace=COMPACTED_VIEW_NAMESPACE,
-        destination_table_name=BASE_TEST_SOURCE_TABLE_NAME + COMPACTED_NAME_SUFFIX,
-        destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
+        source_namespace=source_namespace,
+        source_table_name=source_table_name,
+        source_table_version=source_table_version,
+        destination_namespace=destination_table_namespace,
+        destination_table_name=destination_table_name,
+        destination_table_version=destination_table_version,
     )
-    source_partition = ds.get_partition(
+    # rebase table
+    ds.create_namespace(rebasing_namespace, {}, **ds_mock_kwargs)
+    ds.create_table_version(
+        rebasing_namespace,
+        rebasing_table_name,
+        rebasing_table_version,
+        primary_key_column_names=list(primary_keys_param),
+        sort_keys=sort_keys,
+        partition_keys=partition_keys,
+        supported_content_types=[ContentType.PARQUET],
+        **ds_mock_kwargs,
+    )
+    rebasing_table_stream: Stream = ds.get_stream(
+        namespace=rebasing_namespace,
+        table_name=rebasing_table_name,
+        table_version=rebasing_table_version,
+        **ds_mock_kwargs,
+    )
+    test_table: pa.Table = pa.Table.from_arrays(
+        [
+            pa.array([str(i) for i in range(10)]),
+            pa.array([i for i in range(10, 20)]),
+            pa.array(["foo"] * 10),
+        ],
+        names=column_names_param,
+    )
+    staged_partition: Partition = ds.stage_partition(
+        rebasing_table_stream, partition_values_param, **ds_mock_kwargs
+    )
+    ds.commit_delta(
+        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+    )
+    ds.commit_partition(staged_partition, **ds_mock_kwargs)
+    rebased_stream_after_committed: Stream = ds.get_stream(
+        namespace=rebasing_namespace,
+        table_name=rebasing_table_name,
+        table_version=rebasing_table_version,
+        **ds_mock_kwargs,
+    )
+    rebased_partition: Partition = ds.get_partition(
+        rebased_stream_after_committed.locator,
+        partition_values_param,
+        **ds_mock_kwargs,
+    )
+    source_partition: Partition = ds.get_partition(
         source_table_stream.locator,
         partition_values_param,
         **ds_mock_kwargs,
     )
-    destination_partition_locator = PartitionLocator.of(
+    destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         partition_values_param,
         None,
@@ -258,7 +311,6 @@ def test_compact_partition_rebase_then_incremental(
         ).pgs[0]
     hash_bucket_count_param = None
     records_per_compacted_file_param = MAX_RECORDS_PER_FILE
-    rebase_source_partition_locator_param = None
     compact_partition_params = CompactPartitionParams.of(
         {
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -272,10 +324,13 @@ def test_compact_partition_rebase_then_incremental(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys_param,
-            "rebase_source_partition_locator": rebase_source_partition_locator_param,
+            "properties": {
+                "parent_stream_position": str(10),
+            },
+            "rebase_source_partition_locator": source_partition.locator,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
-            "source_partition_locator": source_partition.locator,
+            "source_partition_locator": rebased_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
         }
     )
@@ -290,49 +345,47 @@ def test_compact_partition_rebase_then_incremental(
         expected_result
     ), f"{compacted_table} does not match {expected_result}"
 
-    # PHASE 2 - rebase
-    source_table_stream = ds.get_table_version(
-        compacted_delta_locator.namespace,
-        compacted_delta_locator.table_name,
-        source_table_version,
-        **ds_mock_kwargs,
-    )
-    destination_table_name = source_table_stream.table_name + RAY_COMPACTED_NAME_SUFFIX
-    destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
-    ds.create_namespace(RAY_COMPACTED_VIEW_NAMESPACE, {}, **ds_mock_kwargs)
-    ds.create_table_version(
-        RAY_COMPACTED_VIEW_NAMESPACE,
-        destination_table_name,
-        destination_table_version=1,
-        **ds_mock_kwargs,
-    )
+    """
+    INCREMENTAL
+    """
+
     destination_table_stream: Stream = ds.get_stream(
-        namespace=RAY_COMPACTED_VIEW_NAMESPACE,
+        namespace=destination_table_namespace,
         table_name=destination_table_name,
         table_version=destination_table_version,
         **ds_mock_kwargs,
     )
-    source_partition = ds.get_partition(
-        source_table_stream.locator,
-        partition_values_param,
-        **ds_mock_kwargs,
-    )
-    destination_partition_locator = PartitionLocator.of(
+    destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         partition_values_param,
         None,
     )
-    num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
-    total_cpus = num_workers * worker_instance_cpu
-    pgm = None
-    create_placement_group_param = False
-    if create_placement_group_param:
-        pgm = PlacementGroupManager(
-            1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
-        ).pgs[0]
-    hash_bucket_count_param = None
-    records_per_compacted_file_param = MAX_RECORDS_PER_FILE
-    rebase_source_partition_locator_param = None
+    test_table: pa.Table = pa.Table.from_arrays(
+        [
+            pa.array([str(i) for i in range(10)]),
+            pa.array([i for i in range(20, 30)]),
+            pa.array(["foo"] * 10),
+        ],
+        names=column_names_param,
+    )
+    staged_partition: Partition = ds.stage_partition(
+        source_table_stream, partition_values_param, **ds_mock_kwargs
+    )
+    ds.commit_delta(
+        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+    )
+    ds.commit_partition(staged_partition, **ds_mock_kwargs)
+    source_table_stream_after_committed: Stream = ds.get_stream(
+        namespace=source_namespace,
+        table_name=source_table_name,
+        table_version=source_table_version,
+        **ds_mock_kwargs,
+    )
+    source_partition: Partition = ds.get_partition(
+        source_table_stream_after_committed.locator,
+        partition_values_param,
+        **ds_mock_kwargs,
+    )
     compact_partition_params = CompactPartitionParams.of(
         {
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -346,7 +399,10 @@ def test_compact_partition_rebase_then_incremental(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys_param,
-            "rebase_source_partition_locator": rebase_source_partition_locator_param,
+            "properties": {
+                "parent_stream_position": str(10),
+            },
+            "rebase_source_partition_locator": None,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition.locator,
@@ -360,5 +416,12 @@ def test_compact_partition_rebase_then_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(
-        expected_result
+        pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(20, 30)]),
+                pa.array(["foo"] * 10),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2"],
+        )
     ), f"{compacted_table} does not match {expected_result}"

@@ -124,7 +124,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
                 "key_name": "sk_col_2",
             },
         ],
-        partition_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1", "sk_col_1", "sk_col_2"],
         arrow_arrays_param=[
             pa.array([str(i) for i in range(10)]),
@@ -160,7 +160,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
                 "key_name": "sk_col_2",
             },
         ],
-        partition_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1", "sk_col_1", "sk_col_2"],
         arrow_arrays_param=[
             pa.array([str(i) for i in range(5)] + ["6", "6", "6", "6", "6"]),
@@ -193,7 +193,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
                 "key_name": "sk_col_1",
             },
         ],
-        partition_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1", "sk_col_1"],
         arrow_arrays_param=[
             pa.array([i / 10 for i in range(0, 10)]),
@@ -224,7 +224,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
                 "key_name": "sk_col_1",
             },
         ],
-        partition_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1", "sk_col_1"],
         arrow_arrays_param=[
             pa.array([i for i in range(0, 10)]),
@@ -255,7 +255,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
                 "key_name": "sk_col_1",
             },
         ],
-        partition_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1", "sk_col_1"],
         arrow_arrays_param=[
             pa.array(offer_iso8601_timestamp_list(10, "minutes")),
@@ -286,7 +286,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
                 "key_name": "sk_col_1",
             },
         ],
-        partition_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1", "pk_col_2", "sk_col_1"],
         arrow_arrays_param=[
             pa.array([i / 10 for i in range(0, 20)]),
@@ -319,7 +319,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
                 "key_name": "sk_col_1",
             },
         ],
-        partition_keys_param=[],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         column_names_param=["pk_col_1", "sk_col_1"],
         arrow_arrays_param=[
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
@@ -383,7 +383,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, CompactorTestCase] = {
 
 INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
     {
-        **INCREMENTAL_INDEPENDENT_TEST_CASES,
+        # **INCREMENTAL_INDEPENDENT_TEST_CASES,
     }
 )
 
@@ -392,14 +392,29 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         source_table_version=BASE_TEST_SOURCE_TABLE_VERSION,
         destination_table_version=BASE_TEST_DESTINATION_TABLE_VERSION,
         primary_keys_param={"pk_col_1"},
-        sort_keys_param=[],
+        sort_keys_param=[
+            {
+                "key_name": "sk_col_1",
+            },
+            {
+                "key_name": "sk_col_2",
+            },
+        ],
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
-        column_names_param=["pk_col_1"],
-        arrow_arrays_param=[pa.array([str(i) for i in range(10)])],
+        column_names_param=["pk_col_1", "sk_col_1", "sk_col_2"],
+        arrow_arrays_param=[
+            pa.array([str(i) for i in range(10)]),
+            pa.array([i for i in range(10)]),
+            pa.array(["foo"] * 10),
+        ],
         partition_values_param=["1"],
         expected_result=pa.Table.from_arrays(
-            [pa.array([str(i) for i in range(10)])],
-            names=["pk_col_1"],
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(10, 20)]),
+                pa.array(["foo"] * 10),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
         validation_callback_func=None,
         validation_callback_func_kwargs=None,

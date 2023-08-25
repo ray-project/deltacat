@@ -6,17 +6,17 @@ from boto3.resources.base import ServiceResource
 TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
 # REBASE  src = spark compacted table to create an initial version of ray compacted table
 BASE_TEST_SOURCE_NAMESPACE = "source_test_namespace"
-BASE_TEST_SOURCE_TABLE_NAME = "test_table"
+BASE_TEST_SOURCE_TABLE_NAME = "source_test_table"
 BASE_TEST_SOURCE_TABLE_VERSION = "1"
 
 BASE_TEST_DESTINATION_NAMESPACE = "destination_test_namespace"
-BASE_TEST_DESTINATION_TABLE_NAME = "destination_test_table_RAY"
+BASE_TEST_DESTINATION_TABLE_NAME = "destination_test_table"
 BASE_TEST_DESTINATION_TABLE_VERSION = "1"
 
-COMPACTED_VIEW_NAMESPACE = "compacted"
-RAY_COMPACTED_VIEW_NAMESPACE = "compacted_ray"
+REBASING_NAMESPACE = "compacted"
+REBASING_NAME_SUFFIX = "_compacted"
 
-COMPACTED_NAME_SUFFIX = "_compacted"
+RAY_COMPACTED_NAMESPACE = "compacted_ray"
 RAY_COMPACTED_NAME_SUFFIX = "_compacted_ray"
 
 

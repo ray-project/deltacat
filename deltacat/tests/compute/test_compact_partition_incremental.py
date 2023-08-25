@@ -13,7 +13,7 @@ from deltacat.tests.compute.common import (
     setup_sort_and_partition_keys,
     PartitionKey,
 )
-from deltacat.tests.compute.compact_partition_test_cases import (
+from deltacat.tests.compute.test_cases_compact_partition import (
     INCREMENTAL_TEST_CASES,
 )
 from deltacat.tests.compute.constants import (
