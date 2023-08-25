@@ -8,27 +8,22 @@ import json
 from boto3.resources.base import ServiceResource
 from datetime import timezone
 
-TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
-# REBASE  src = spark compacted table to create an initial version of ray compacted table
-BASE_TEST_SOURCE_NAMESPACE = "source_test_namespace"
-BASE_TEST_SOURCE_TABLE_NAME = "test_table"
-BASE_TEST_SOURCE_TABLE_VERSION = "1"
-
-BASE_TEST_DESTINATION_NAMESPACE = "destination_test_namespace"
-BASE_TEST_DESTINATION_TABLE_NAME = "destination_test_table_RAY"
-BASE_TEST_DESTINATION_TABLE_VERSION = "1"
-
-COMPACTED_VIEW_NAMESPACE = "compacted"
-RAY_COMPACTED_VIEW_NAMESPACE = "compacted_ray"
-
-HASH_BUCKET_COUNT: int = 1
-
-MAX_RECORDS_PER_FILE: int = 1
-
-DEFAULT_NUM_WORKERS = 1
-DEFAULT_WORKER_INSTANCE_CPUS = 1
-
-UTC_ISO_8601_FORMAT_WITHOUT_MILLIS = "%Y-%m-%dT%H:%M:%SZ"  # '2018-09-05T14:09:03Z'
+from deltacat.tests.compute.constants import (
+    TEST_S3_RCF_BUCKET_NAME,
+    BASE_TEST_SOURCE_NAMESPACE,
+    BASE_TEST_SOURCE_TABLE_NAME,
+    BASE_TEST_SOURCE_TABLE_VERSION,
+    BASE_TEST_DESTINATION_NAMESPACE,
+    BASE_TEST_DESTINATION_TABLE_NAME,
+    BASE_TEST_DESTINATION_TABLE_VERSION,
+    COMPACTED_VIEW_NAMESPACE,
+    RAY_COMPACTED_VIEW_NAMESPACE,
+    HASH_BUCKET_COUNT,
+    MAX_RECORDS_PER_FILE,
+    DEFAULT_NUM_WORKERS,
+    DEFAULT_WORKER_INSTANCE_CPUS,
+    UTC_ISO_8601_FORMAT_WITHOUT_MILLIS,
+)
 
 
 class PartitionKeyType(str, Enum):
