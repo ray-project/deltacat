@@ -90,10 +90,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs_for_local_deltacat_storage
-
-
-@pytest.fixture(scope="function")
-def teardown_local_deltacat_storage_db():
     if os.path.exists(DATABASE_FILE_PATH_VALUE):
         os.remove(DATABASE_FILE_PATH_VALUE)
 
@@ -106,14 +102,12 @@ def teardown_local_deltacat_storage_db():
         "primary_keys_param",
         "sort_keys_param",
         "partition_keys_param",
-        "column_names_param",
-        "arrow_arrays_param",
         "partition_values_param",
-        "expected_result",
+        "column_names_param",
+        "input_deltas_arrow_arrays_param",
+        "expected_compact_partition_result",
         "validation_callback_func",
         "validation_callback_func_kwargs",
-        "do_teardown_local_deltacat_storage_db",
-        "use_prev_compacted",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
@@ -127,14 +121,12 @@ def teardown_local_deltacat_storage_db():
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
-            column_names_param,
-            arrow_arrays_param,
             partition_values_param,
-            expected_result,
+            column_names_param,
+            input_deltas_arrow_arrays_param,
+            expected_compact_partition_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            do_teardown_local_deltacat_storage_db,
-            use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -146,14 +138,12 @@ def teardown_local_deltacat_storage_db():
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
-            column_names_param,
-            arrow_arrays_param,
             partition_values_param,
-            expected_result,
+            column_names_param,
+            input_deltas_arrow_arrays_param,
+            expected_compact_partition_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            do_teardown_local_deltacat_storage_db,
-            use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -174,14 +164,12 @@ def test_compact_partition_rebase_then_incremental(
     primary_keys_param: Set[str],
     sort_keys_param,
     partition_keys_param,
-    column_names_param: List[str],
-    arrow_arrays_param: List[pa.Array],
     partition_values_param,
-    expected_result,
+    column_names_param: List[str],
+    input_deltas_arrow_arrays_param: List[pa.Array],
+    expected_compact_partition_result,
     validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
     validation_callback_func_kwargs,
-    do_teardown_local_deltacat_storage_db,
-    use_prev_compacted,
     create_placement_group_param,
     records_per_compacted_file_param,
     hash_bucket_count_param,
@@ -237,7 +225,7 @@ def test_compact_partition_rebase_then_incremental(
         sort_keys,
         partition_keys,
         column_names_param,
-        arrow_arrays_param,
+        input_deltas_arrow_arrays_param,
         partition_values_param,
         ds_mock_kwargs,
         source_namespace=source_namespace,
@@ -342,8 +330,8 @@ def test_compact_partition_rebase_then_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(
-        expected_result
-    ), f"{compacted_table} does not match {expected_result}"
+        expected_compact_partition_result
+    ), f"{compacted_table} does not match {expected_compact_partition_result}"
 
     """
     INCREMENTAL
@@ -424,4 +412,4 @@ def test_compact_partition_rebase_then_incremental(
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         )
-    ), f"{compacted_table} does not match {expected_result}"
+    ), f"{compacted_table} does not match {expected_compact_partition_result}"

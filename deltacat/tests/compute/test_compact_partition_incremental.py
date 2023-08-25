@@ -11,7 +11,6 @@ from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.common import (
     setup_general_source_and_destination_tables,
     setup_sort_and_partition_keys,
-    PartitionKey,
 )
 from deltacat.tests.compute.test_cases_compact_partition import (
     INCREMENTAL_TEST_CASES,
@@ -74,21 +73,14 @@ FUNCTION scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def teardown_local_deltacat_storage_db():
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
-
-
-@pytest.fixture(scope="function")
 def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
     }
     yield kwargs_for_local_deltacat_storage
-    request.getfixturevalue(
-        "cleanup_the_database_file_after_all_compaction_session_package_tests_complete"
-    )
+    if os.path.exists(DATABASE_FILE_PATH_VALUE):
+        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 @pytest.mark.parametrize(
@@ -99,14 +91,12 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "primary_keys_param",
         "sort_keys_param",
         "partition_keys_param",
-        "column_names_param",
-        "arrow_arrays_param",
         "partition_values_param",
-        "expected_result",
+        "column_names_param",
+        "input_deltas_arrow_arrays_param",
+        "expected_compact_partition_result",
         "validation_callback_func",
         "validation_callback_func_kwargs",
-        "do_teardown_local_deltacat_storage_db",
-        "use_prev_compacted",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
@@ -120,14 +110,12 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
-            column_names_param,
-            arrow_arrays_param,
             partition_values_param,
-            expected_result,
+            column_names_param,
+            input_deltas_arrow_arrays_param,
+            expected_compact_partition_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            do_teardown_local_deltacat_storage_db,
-            use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -139,14 +127,12 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             primary_keys_param,
             sort_keys_param,
             partition_keys_param,
-            column_names_param,
-            arrow_arrays_param,
             partition_values_param,
-            expected_result,
+            column_names_param,
+            input_deltas_arrow_arrays_param,
+            expected_compact_partition_result,
             validation_callback_func,
             validation_callback_func_kwargs,
-            do_teardown_local_deltacat_storage_db,
-            use_prev_compacted,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -167,14 +153,12 @@ def test_compact_partition_incremental(
     primary_keys_param: Set[str],
     sort_keys_param,
     partition_keys_param,
-    column_names_param: List[str],
-    arrow_arrays_param: List[pa.Array],
     partition_values_param,
-    expected_result,
+    column_names_param: List[str],
+    input_deltas_arrow_arrays_param: List[pa.Array],
+    expected_compact_partition_result,
     validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
     validation_callback_func_kwargs,
-    do_teardown_local_deltacat_storage_db,
-    use_prev_compacted,
     create_placement_group_param,
     records_per_compacted_file_param,
     hash_bucket_count_param,
@@ -209,7 +193,7 @@ def test_compact_partition_incremental(
         sort_keys,
         partition_keys,
         column_names_param,
-        arrow_arrays_param,
+        input_deltas_arrow_arrays_param,
         partition_values_param,
         ds_mock_kwargs,
     )
@@ -266,14 +250,11 @@ def test_compact_partition_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(
-        expected_result
-    ), f"{compacted_table} does not match {expected_result}"
+        expected_compact_partition_result
+    ), f"{compacted_table} does not match {expected_compact_partition_result}"
     if (
         validation_callback_func is not None
         and validation_callback_func_kwargs is not None
     ):
         validation_callback_func(**validation_callback_func_kwargs)
-    # https://docs.pytest.org/en/7.1.x/reference/reference.html#pytest.FixtureRequest.getfixturevalue
-    if do_teardown_local_deltacat_storage_db:
-        request.getfixturevalue("teardown_local_deltacat_storage_db")
     return
