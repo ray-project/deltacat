@@ -5,7 +5,7 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
-from deltacat.tests.compute.constants import (
+from deltacat.tests.compute.test_util_constant import (
     REBASING_NAMESPACE,
     REBASING_NAME_SUFFIX,
     RAY_COMPACTED_NAMESPACE,
@@ -20,12 +20,12 @@ from deltacat.tests.compute.constants import (
     DEFAULT_WORKER_INSTANCE_CPUS,
     MAX_RECORDS_PER_FILE,
 )
-from deltacat.tests.compute.common import (
+from deltacat.tests.compute.test_util_common import (
     setup_general_source_and_destination_tables,
     setup_sort_and_partition_keys,
     get_compacted_delta_locator_from_rcf,
 )
-from deltacat.tests.compute.test_cases_compact_partition import (
+from deltacat.tests.compute.compact_partition_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Set
@@ -103,6 +103,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "hash_bucket_count_param",
         "validation_callback_func",
         "validation_callback_func_kwargs",
+        "create_table_strategy",
         "compact_partition_func",
     ],
     [
@@ -120,6 +121,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             hash_bucket_count_param,
             validation_callback_func,
             validation_callback_func_kwargs,
+            create_table_strategy,
             compact_partition_func,
         )
         for test_name, (
@@ -135,6 +137,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             hash_bucket_count_param,
             validation_callback_func,
             validation_callback_func_kwargs,
+            create_table_strategy,
             compact_partition_func,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
     ],
@@ -158,6 +161,7 @@ def test_compact_partition_rebase_then_incremental(
     hash_bucket_count_param,
     validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
     validation_callback_func_kwargs,
+    create_table_strategy,
     compact_partition_func: Callable,
 ):
     import deltacat.tests.local_deltacat_storage as ds
@@ -202,7 +206,8 @@ def test_compact_partition_rebase_then_incremental(
     (
         source_table_stream,
         destination_table_stream,
-    ) = setup_general_source_and_destination_tables(
+        rebased_stream_after_committed,
+    ) = create_table_strategy(
         primary_keys_param,
         sort_keys,
         partition_keys,
@@ -210,50 +215,6 @@ def test_compact_partition_rebase_then_incremental(
         input_deltas_arrow_arrays_param,
         partition_values_param,
         ds_mock_kwargs,
-    )
-    # rebase table
-    ds.create_namespace(rebasing_namespace, {}, **ds_mock_kwargs)
-    ds.create_table_version(
-        rebasing_namespace,
-        rebasing_table_name,
-        rebasing_table_version,
-        primary_key_column_names=list(primary_keys_param),
-        sort_keys=sort_keys,
-        partition_keys=partition_keys,
-        supported_content_types=[ContentType.PARQUET],
-        **ds_mock_kwargs,
-    )
-    rebasing_table_stream: Stream = ds.get_stream(
-        namespace=rebasing_namespace,
-        table_name=rebasing_table_name,
-        table_version=rebasing_table_version,
-        **ds_mock_kwargs,
-    )
-    test_table: pa.Table = pa.Table.from_arrays(
-        [
-            pa.array([str(i) for i in range(10)]),
-            pa.array([i for i in range(10, 20)]),
-            pa.array(["foo"] * 10),
-        ],
-        names=column_names_param,
-    )
-    staged_partition: Partition = ds.stage_partition(
-        rebasing_table_stream, partition_values_param, **ds_mock_kwargs
-    )
-    ds.commit_delta(
-        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
-    )
-    ds.commit_partition(staged_partition, **ds_mock_kwargs)
-    rebased_stream_after_committed: Stream = ds.get_stream(
-        namespace=rebasing_namespace,
-        table_name=rebasing_table_name,
-        table_version=rebasing_table_version,
-        **ds_mock_kwargs,
-    )
-    rebased_partition: Partition = ds.get_partition(
-        rebased_stream_after_committed.locator,
-        partition_values_param,
-        **ds_mock_kwargs,
     )
     source_partition: Partition = ds.get_partition(
         source_table_stream.locator,
@@ -264,6 +225,11 @@ def test_compact_partition_rebase_then_incremental(
         destination_table_stream.locator,
         partition_values_param,
         None,
+    )
+    rebased_partition: Partition = ds.get_partition(
+        rebased_stream_after_committed.locator,
+        partition_values_param,
+        **ds_mock_kwargs,
     )
     num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
     total_cpus = num_workers * worker_instance_cpu

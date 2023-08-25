@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import pyarrow as pa
 from boto3.resources.base import ServiceResource
 
-from deltacat.tests.compute.constants import (
+from deltacat.tests.compute.test_util_constant import (
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
     BASE_TEST_SOURCE_TABLE_VERSION,
@@ -17,7 +17,7 @@ from deltacat.tests.compute.constants import (
     RAY_COMPACTED_NAME_SUFFIX,
     REBASING_NAME_SUFFIX,
 )
-from deltacat.tests.compute.common import (
+from deltacat.tests.compute.test_util_common import (
     PartitionKey,
 )
 
