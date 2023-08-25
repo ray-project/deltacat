@@ -9,7 +9,8 @@ import pyarrow as pa
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
-    setup_sort_and_partition_keys,
+    setup_sort_keys,
+    setup_partition_keys,
 )
 from deltacat.tests.compute.compact_partition_test_cases import (
     INCREMENTAL_TEST_CASES,
@@ -172,9 +173,8 @@ def test_compact_partition_incremental(
     ds_mock_kwargs = setup_local_deltacat_storage_conn
 
     # setup
-    sort_keys, partition_keys = setup_sort_and_partition_keys(
-        sort_keys_param, partition_keys_param
-    )
+    sort_keys = setup_sort_keys(sort_keys)
+    partition_keys = setup_partition_keys(partition_keys)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
         primary_keys_param,
         sort_keys,

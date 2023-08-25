@@ -74,20 +74,13 @@ def setup_partition_keys(partition_keys_param) -> Optional[PartitionKey]:
     return partition_keys
 
 
-def setup_sort_and_partition_keys(sort_keys_param, partition_keys_param):
+def setup_sort_keys(sort_keys_param) -> Optional[Any]:
     from deltacat.storage.model.sort_key import SortKey
 
-    sort_keys, partition_keys = None, None
+    sort_keys = None
     if sort_keys_param is not None:
         sort_keys = [SortKey.of(sort_key["key_name"]) for sort_key in sort_keys_param]
-    if partition_keys_param is not None:
-        partition_keys = [
-            PartitionKey.of(
-                partition_key["key_name"], PartitionKeyType(partition_key["key_type"])
-            )
-            for partition_key in partition_keys_param
-        ]
-    return sort_keys, partition_keys
+    return sort_keys
 
 
 def offer_iso8601_timestamp_list(

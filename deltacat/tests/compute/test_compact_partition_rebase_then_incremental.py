@@ -21,8 +21,8 @@ from deltacat.tests.compute.test_util_constant import (
     MAX_RECORDS_PER_FILE,
 )
 from deltacat.tests.compute.test_util_common import (
-    setup_general_source_and_destination_tables,
-    setup_sort_and_partition_keys,
+    setup_partition_keys,
+    setup_sort_keys,
     get_compacted_delta_locator_from_rcf,
 )
 from deltacat.tests.compute.compact_partition_test_cases import (
@@ -186,13 +186,9 @@ def test_compact_partition_rebase_then_incremental(
     REBASE
     """
 
-    source_namespace = BASE_TEST_SOURCE_NAMESPACE
+    source_table_namespace = BASE_TEST_SOURCE_NAMESPACE
     source_table_name = BASE_TEST_SOURCE_TABLE_NAME
     source_table_version = BASE_TEST_SOURCE_TABLE_VERSION
-
-    rebasing_namespace = REBASING_NAMESPACE
-    rebasing_table_name = BASE_TEST_SOURCE_TABLE_NAME + REBASING_NAME_SUFFIX
-    rebasing_table_version = BASE_TEST_SOURCE_TABLE_VERSION
 
     destination_table_namespace = RAY_COMPACTED_NAMESPACE
     destination_table_name = (
@@ -200,13 +196,12 @@ def test_compact_partition_rebase_then_incremental(
     )
     destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
 
-    sort_keys, partition_keys = setup_sort_and_partition_keys(
-        sort_keys_param, partition_keys_param
-    )
+    sort_keys = setup_sort_keys(sort_keys_param)
+    partition_keys = setup_partition_keys(partition_keys_param)
     (
         source_table_stream,
         destination_table_stream,
-        rebased_stream_after_committed,
+        rebased_table_stream,
     ) = create_table_strategy(
         primary_keys_param,
         sort_keys,
@@ -227,7 +222,7 @@ def test_compact_partition_rebase_then_incremental(
         None,
     )
     rebased_partition: Partition = ds.get_partition(
-        rebased_stream_after_committed.locator,
+        rebased_table_stream.locator,
         partition_values_param,
         **ds_mock_kwargs,
     )
@@ -254,9 +249,6 @@ def test_compact_partition_rebase_then_incremental(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys_param,
-            "properties": {
-                "parent_stream_position": str(10),
-            },
             "rebase_source_partition_locator": source_partition.locator,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
@@ -306,7 +298,7 @@ def test_compact_partition_rebase_then_incremental(
     )
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
     source_table_stream_after_committed: Stream = ds.get_stream(
-        namespace=source_namespace,
+        namespace=source_table_namespace,
         table_name=source_table_name,
         table_version=source_table_version,
         **ds_mock_kwargs,
@@ -329,9 +321,6 @@ def test_compact_partition_rebase_then_incremental(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys_param,
-            "properties": {
-                "parent_stream_position": str(10),
-            },
             "rebase_source_partition_locator": None,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},

@@ -62,7 +62,7 @@ class IncrementalCompactionTestCase(CompactorTestCase):
 
 @dataclass(frozen=True)
 class RebaseThenIncrementalCompactorTestCase(CompactorTestCase):
-    pass
+    rebase_expected_compact_partition_result: pa.Table
 
 
 INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
@@ -348,6 +348,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(),
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
