@@ -141,17 +141,17 @@ def test_compact_partition_incremental(
     setup_local_deltacat_storage_conn: Dict[str, Any],
     test_name: str,
     primary_keys_param: Set[str],
-    sort_keys_param,
-    partition_keys_param,
-    partition_values_param,
+    sort_keys_param: Dict[str, str],
+    partition_keys_param: Dict[str, str],
+    partition_values_param: str,
     column_names_param: List[str],
-    input_deltas_arrow_arrays_param: List[pa.Array],
-    expected_compact_partition_result,
-    create_placement_group_param,
-    records_per_compacted_file_param,
-    hash_bucket_count_param,
-    validation_callback_func,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
-    validation_callback_func_kwargs,
+    input_deltas_arrow_arrays_param: Dict[str, pa.Array],
+    expected_compact_partition_result: pa.Table,
+    create_placement_group_param: bool,
+    records_per_compacted_file_param: int,
+    hash_bucket_count_param: int,
+    validation_callback_func: Callable,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
+    validation_callback_func_kwargs: Dict[str, Any],
     create_table_strategy: Callable,
     compact_partition_func: Callable,
 ):
@@ -173,8 +173,8 @@ def test_compact_partition_incremental(
     ds_mock_kwargs = setup_local_deltacat_storage_conn
 
     # setup
-    sort_keys = setup_sort_keys(sort_keys)
-    partition_keys = setup_partition_keys(partition_keys)
+    sort_keys = setup_sort_keys(sort_keys_param)
+    partition_keys = setup_partition_keys(partition_keys_param)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
         primary_keys_param,
         sort_keys,

@@ -4,7 +4,7 @@ from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
 )
 from deltacat.tests.compute.test_util_constant import (
-    MAX_RECORDS_PER_FILE,
+    DEFAULT_MAX_RECORDS_PER_FILE,
 )
 from dataclasses import dataclass, fields
 
@@ -39,7 +39,7 @@ class CompactorTestCase:
     sort_keys_param: Dict[str, str]
     partition_keys_param: Dict[str, str]
     partition_values_param: str
-    column_names_param: Dict[str, str]
+    column_names_param: List[str]
     input_deltas_arrow_arrays_param: Dict[str, pa.Array]
     expected_compact_partition_result: pa.Table
     create_placement_group_param: bool
@@ -80,7 +80,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -101,7 +101,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -134,7 +134,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -167,7 +167,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -195,7 +195,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -223,7 +223,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -251,7 +251,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -281,7 +281,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
@@ -309,17 +309,11 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_incremental_case_strategy,
     ),
 }
-
-INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
-    {
-        **INCREMENTAL_INDEPENDENT_TEST_CASES,
-    }
-)
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "1-rebase-then-incremental": RebaseThenIncrementalCompactorTestCase(
@@ -348,19 +342,28 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
-        rebase_expected_compact_partition_result=pa.Table.from_arrays(),
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(10, 20)]),
+                pa.array(["foo"] * 10),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2"],
+        ),
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
         create_placement_group_param=True,
-        records_per_compacted_file_param=MAX_RECORDS_PER_FILE,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_table_for_rebase_then_incremental_strategy,
     )
 }
 
+INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
+    INCREMENTAL_INDEPENDENT_TEST_CASES
+)
+
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
-    {
-        **REBASE_THEN_INCREMENTAL_TEST_CASES,
-    }
+    REBASE_THEN_INCREMENTAL_TEST_CASES
 )
