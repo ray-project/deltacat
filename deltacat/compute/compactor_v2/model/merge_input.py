@@ -10,6 +10,10 @@ from deltacat.storage import (
     SortKey,
     interface as unimplemented_deltacat_storage,
 )
+from deltacat.compute.compactor_v2.constants import (
+    DROP_DUPLICATES,
+    MAX_RECORDS_PER_COMPACTED_FILE,
+)
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
@@ -25,9 +29,10 @@ class MergeInput(Dict):
         hash_group_index: int,
         num_hash_groups: int,
         hash_bucket_count: int,
+        drop_duplicates: Optional[bool] = DROP_DUPLICATES,
         sort_keys: Optional[List[SortKey]] = None,
         merge_task_index: Optional[int] = 0,
-        max_records_per_output_file: Optional[int] = 4_000_000,
+        max_records_per_output_file: Optional[int] = MAX_RECORDS_PER_COMPACTED_FILE,
         enable_profiler: Optional[bool] = False,
         metrics_config: Optional[MetricsConfig] = None,
         s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
@@ -46,6 +51,7 @@ class MergeInput(Dict):
         result["hash_group_index"] = hash_group_index
         result["num_hash_groups"] = num_hash_groups
         result["hash_bucket_count"] = hash_bucket_count
+        result["drop_duplicates"] = drop_duplicates
         result["sort_keys"] = sort_keys
         result["merge_task_index"] = merge_task_index
         result["max_records_per_output_file"] = max_records_per_output_file
@@ -87,6 +93,10 @@ class MergeInput(Dict):
     @property
     def hash_bucket_count(self) -> int:
         return self["hash_bucket_count"]
+
+    @property
+    def drop_duplicates(self) -> int:
+        return self["drop_duplicates"]
 
     @property
     def sort_keys(self) -> Optional[List[SortKey]]:

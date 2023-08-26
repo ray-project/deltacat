@@ -178,8 +178,53 @@ class TestMerge(unittest.TestCase):
             merge_result = ray.get(merge_result_promise)
             merge_res_list.append(merge_result)
 
-        # 10 records, no duplication
+        # 6 records, no duplication
         self._validate_merge_output(merge_res_list, 6)
+
+    def test_merge_multiple_hash_group_with_can_duplicate_false(self):
+        number_of_hash_group = 2
+        number_of_hash_bucket = 2
+        partition = stage_partition_from_csv_file(
+            self._testMethodName,
+            [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
+            **self.kwargs,
+        )
+        new_delta = commit_delta_to_staged_partition(
+            partition, [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK], **self.kwargs
+        )
+        object_store = RayPlasmaObjectStore()
+        all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
+            new_delta,
+            object_store,
+            number_of_hash_bucket,
+            number_of_hash_group,
+            ["pk1", "pk2"],
+        )
+
+        merge_input_list = []
+        for hg_index, dfes in all_hash_group_idx_to_obj_id.items():
+            merge_input_list.append(
+                MergeInput.of(
+                    compacted_file_content_type=ContentType.PARQUET,
+                    hash_group_index=hg_index,
+                    hash_bucket_count=number_of_hash_bucket,
+                    num_hash_groups=number_of_hash_group,
+                    dfe_groups_refs=dfes,
+                    write_to_partition=partition,
+                    drop_duplicates=False,
+                    primary_keys=["pk1", "pk2"],
+                    deltacat_storage=ds,
+                    deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+                    object_store=object_store,
+                )
+            )
+        merge_res_list = []
+        for merge_input in merge_input_list:
+            merge_result_promise = merge.remote(merge_input)
+            merge_result = ray.get(merge_result_promise)
+            merge_res_list.append(merge_result)
+        # 10 records, no dedupe
+        self._validate_merge_output(merge_res_list, 10)
 
     def test_merge_incrementa_copy_by_reference_date_pk(self):
         number_of_hash_group = 2

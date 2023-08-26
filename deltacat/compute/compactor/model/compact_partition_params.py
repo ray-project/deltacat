@@ -19,6 +19,7 @@ from deltacat.compute.compactor_v2.constants import (
     MIN_FILES_IN_BATCH,
     AVERAGE_RECORD_SIZE_BYTES,
     TASK_MAX_PARALLELISM,
+    DROP_DUPLICATES,
 )
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
@@ -88,6 +89,7 @@ class CompactPartitionParams(dict):
         result.hash_group_count = params.get(
             "hash_group_count", result.hash_bucket_count
         )
+        result.drop_duplicates = params.get("drop_duplicates", DROP_DUPLICATES)
 
         if not importlib.util.find_spec("memray"):
             result.enable_profiler = False
@@ -257,6 +259,14 @@ class CompactPartitionParams(dict):
     @records_per_compacted_file.setter
     def records_per_compacted_file(self, count: int) -> None:
         self["records_per_compacted_file"] = count
+
+    @property
+    def drop_duplicates(self) -> bool:
+        return self["drop_duplicates"]
+
+    @drop_duplicates.setter
+    def drop_duplicates(self, value: bool):
+        self["drop_duplicates"] = value
 
     @property
     def bit_width_of_sort_keys(self) -> int:

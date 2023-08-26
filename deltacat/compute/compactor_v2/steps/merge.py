@@ -55,7 +55,6 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def _build_incremental_table(
     hash_bucket_index: int,
     df_envelopes_list: List[List[DeltaFileEnvelope]],
-    primary_keys: List[str],
 ) -> pa.Table:
 
     logger.info(
@@ -75,30 +74,57 @@ def _build_incremental_table(
 
     result = pa.concat_tables(hb_tables)
 
-    if not primary_keys:
-        result = result.drop([sc._PK_HASH_STRING_COLUMN_NAME])
-
     return result
 
 
-def _merge_tables(table: pa.Table, old_table: pa.Table) -> pa.Table:
-    mask = pc.invert(
-        pc.is_in(
-            old_table[sc._PK_HASH_STRING_COLUMN_NAME],
-            table[sc._PK_HASH_STRING_COLUMN_NAME],
+def _merge_tables(
+    table: pa.Table,
+    primary_keys: List[str],
+    can_drop_duplicates: bool,
+    compacted_table: Optional[pa.Table] = None,
+) -> pa.Table:
+
+    all_tables = []
+    if compacted_table:
+        all_tables.append(compacted_table)
+
+    all_tables.append(table)
+
+    if not primary_keys or not can_drop_duplicates:
+        # we need not dedupe
+        return pa.concat_tables(all_tables)
+
+    all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
+
+    result = []
+    if compacted_table:
+        incremental_table = drop_duplicates(
+            all_tables[1], on=sc._PK_HASH_STRING_COLUMN_NAME
         )
-    )
 
-    result = old_table.filter(mask)
-    # TODO(zyiqin): Support merging DELETE DeltaType.
+        compacted_table = all_tables[0]
 
-    return pa.concat_tables([result, table])
+        mask = pc.invert(pc.is_in(compacted_table, incremental_table))
+
+        result.append(compacted_table.filter(mask))
+
+        # TODO: filter out delete type records
+        result.append(incremental_table)
+    else:
+        incremental_table = drop_duplicates(
+            all_tables[0], on=sc._PK_HASH_STRING_COLUMN_NAME
+        )
+        result.append(incremental_table)
+
+    final_table = pa.concat_tables(result)
+    final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
+
+    return final_table
 
 
-def _download_pk_hashed_old_table(
+def _download_compacted_table(
     hb_index: int,
     rcf: RoundCompletionInfo,
-    primary_keys: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
@@ -125,12 +151,7 @@ def _download_pk_hashed_old_table(
 
         tables.append(table)
 
-    result = pa.concat_tables(tables)
-
-    if not primary_keys:
-        return result
-
-    return generate_pk_hash_column(result, primary_keys=primary_keys)
+    return pa.concat_tables(tables)
 
 
 def _copy_all_manifest_files_from_old_hash_buckets(
@@ -282,7 +303,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
             if dfe_list:
                 total_dfes_found += 1
-                table = _build_incremental_table(hb_idx, dfe_list, input.primary_keys)
+                table = _build_incremental_table(hb_idx, dfe_list)
 
                 incremental_len = len(table)
                 logger.info(
@@ -296,53 +317,41 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     # will not be equal to compaction(compaction(delta1, delta2), delta3).
                     table = table.sort_by(input.sort_keys)
 
-                table, dedupe_latency = timed_invocation(
-                    func=drop_duplicates, table=table, on=sc._PK_HASH_STRING_COLUMN_NAME
-                )
-
-                dedupe_count = incremental_len - len(table)
-                total_deduped_records += dedupe_count
-
-                logger.info(
-                    f"Dropped {dedupe_count} duplicates from the incremental "
-                    f"for hash bucket {hb_idx} in {dedupe_latency}s."
-                )
-
+                compacted_table = None
                 if (
                     input.round_completion_info
                     and input.round_completion_info.hb_index_to_entry_range
-                    and str(hb_idx)
-                    in input.round_completion_info.hb_index_to_entry_range
+                    and input.round_completion_info.hb_index_to_entry_range.get(
+                        str(hb_idx)
+                    )
+                    is not None
                 ):
 
-                    compacted_table = _download_pk_hashed_old_table(
+                    compacted_table = _download_compacted_table(
                         hb_index=hb_idx,
                         rcf=input.round_completion_info,
                         read_kwargs_provider=input.read_kwargs_provider,
-                        primary_keys=input.primary_keys,
                         deltacat_storage=input.deltacat_storage,
                         deltacat_storage_kwargs=input.deltacat_storage_kwargs,
                     )
 
-                    hb_table_record_count = len(table) + len(compacted_table)
-                    table, merge_time = timed_invocation(
-                        func=_merge_tables, old_table=compacted_table, table=table
-                    )
-                    total_deduped_records += hb_table_record_count - len(table)
+                hb_table_record_count = len(table) + (
+                    len(compacted_table) if compacted_table else 0
+                )
 
-                    logger.info(
-                        f"[Merge task index {input.merge_task_index}] Merged "
-                        f"record count: {len(table)}, took: {merge_time}s"
-                    )
+                table, merge_time = timed_invocation(
+                    func=_merge_tables,
+                    table=table,
+                    primary_keys=input.primary_keys,
+                    can_drop_duplicates=input.drop_duplicates,
+                    compacted_table=compacted_table,
+                )
+                total_deduped_records += hb_table_record_count - len(table)
 
-                if input.primary_keys:
-                    # pk hash column is meaningful only if
-                    # primary keys exist.
-                    table = table.drop(
-                        [
-                            sc._PK_HASH_STRING_COLUMN_NAME,
-                        ]
-                    )
+                logger.info(
+                    f"[Merge task index {input.merge_task_index}] Merged "
+                    f"record count: {len(table)}, took: {merge_time}s"
+                )
 
                 materialized_results.append(_materialize(hb_idx, [table]))
             else:
