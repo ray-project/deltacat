@@ -6,8 +6,6 @@ import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.compute.test_util_constant import (
-    REBASING_NAMESPACE,
-    REBASING_NAME_SUFFIX,
     RAY_COMPACTED_NAMESPACE,
     RAY_COMPACTED_NAME_SUFFIX,
     TEST_S3_RCF_BUCKET_NAME,
@@ -268,8 +266,8 @@ def test_compact_partition_rebase_then_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(
-        expected_compact_partition_result
-    ), f"{compacted_table} does not match {expected_compact_partition_result}"
+        rebase_expected_compact_partition_result
+    ), f"{compacted_table} does not match {rebase_expected_compact_partition_result}"
 
     """
     INCREMENTAL

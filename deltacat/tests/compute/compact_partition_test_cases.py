@@ -41,7 +41,7 @@ class CompactorTestCase:
     partition_values_param: str
     column_names_param: List[str]
     input_deltas_arrow_arrays_param: Dict[str, pa.Array]
-    expected_compact_partition_result: pa.Table
+    expected_terminal_compact_partition_result: pa.Table
     create_placement_group_param: bool
     records_per_compacted_file_param: int
     hash_bucket_count_param: int
@@ -73,7 +73,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         partition_values_param=["1"],
         column_names_param=["pk_col_1"],
         input_deltas_arrow_arrays_param=[pa.array([str(i) for i in range(10)])],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [pa.array([str(i) for i in range(10)])],
             names=["pk_col_1"],
         ),
@@ -94,7 +94,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array([str(i) for i in range(10)]),
             pa.array(["test"] * 10),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [pa.array([str(i) for i in range(10)]), pa.array(["test"] * 10)],
             names=["pk_col_1", "sk_col_1"],
         ),
@@ -123,7 +123,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array(["test"] * 10),
             pa.array(["foo"] * 10),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(10)]),
                 pa.array(["test"] * 10),
@@ -156,7 +156,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array([str(i) for i in range(10)]),
             pa.array(["foo"] * 10),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(5)] + ["6"]),
                 pa.array([str(i) for i in range(5)] + ["9"]),
@@ -185,7 +185,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array([i / 10 for i in range(0, 10)]),
             pa.array([str(i) for i in range(10)]),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([i / 10 for i in range(0, 10)]),
                 pa.array([str(i) for i in range(10)]),
@@ -213,7 +213,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array([i for i in range(0, 10)]),
             pa.array([str(i) for i in range(10)]),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([i for i in range(0, 10)]),
                 pa.array([str(i) for i in range(10)]),
@@ -241,7 +241,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array(offer_iso8601_timestamp_list(10, "minutes")),
             pa.array([str(i) for i in range(10)]),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array(offer_iso8601_timestamp_list(10, "minutes")),
                 pa.array([str(i) for i in range(10)]),
@@ -270,7 +270,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array(offer_iso8601_timestamp_list(20, "minutes")),
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([i / 10 for i in range(0, 20)]),
                 pa.array(offer_iso8601_timestamp_list(20, "minutes")),
@@ -299,7 +299,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
             pa.array(reversed([i for i in range(20)])),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([0.1, 0.2, 0.3, 0.4, 0.5]),
                 pa.array([19, 15, 11, 7, 3]),
@@ -331,10 +331,10 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         column_names_param=["pk_col_1", "sk_col_1", "sk_col_2"],
         input_deltas_arrow_arrays_param=[
             pa.array([str(i) for i in range(10)]),
-            pa.array([i for i in range(10)]),
+            pa.array([i for i in range(0, 10)]),
             pa.array(["foo"] * 10),
         ],
-        expected_compact_partition_result=pa.Table.from_arrays(
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(10)]),
                 pa.array([i for i in range(10, 20)]),
@@ -342,10 +342,10 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
-        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(10)]),
-                pa.array([i for i in range(10, 20)]),
+                pa.array([i for i in range(20, 30)]),
                 pa.array(["foo"] * 10),
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2"],

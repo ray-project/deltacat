@@ -6,7 +6,6 @@ import boto3
 from typing import Any, Callable, Dict, List, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
-from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
     setup_sort_keys,
@@ -88,7 +87,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "partition_values_param",
         "column_names_param",
         "input_deltas_arrow_arrays_param",
-        "expected_compact_partition_result",
+        "expected_terminal_compact_partition_result",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
@@ -106,7 +105,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
-            expected_compact_partition_result,
+            expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -122,7 +121,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
-            expected_compact_partition_result,
+            expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -146,7 +145,7 @@ def test_compact_partition_incremental(
     partition_values_param: str,
     column_names_param: List[str],
     input_deltas_arrow_arrays_param: Dict[str, pa.Array],
-    expected_compact_partition_result: pa.Table,
+    expected_terminal_compact_partition_result: pa.Table,
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
@@ -165,9 +164,6 @@ def test_compact_partition_incremental(
     )
     from deltacat.utils.placement import (
         PlacementGroupManager,
-    )
-    from deltacat.compute.compactor import (
-        RoundCompletionInfo,
     )
 
     ds_mock_kwargs = setup_local_deltacat_storage_conn
@@ -233,8 +229,8 @@ def test_compact_partition_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(
-        expected_compact_partition_result
-    ), f"{compacted_table} does not match {expected_compact_partition_result}"
+        expected_terminal_compact_partition_result
+    ), f"{compacted_table} does not match {expected_terminal_compact_partition_result}"
     if (
         validation_callback_func is not None
         and validation_callback_func_kwargs is not None
