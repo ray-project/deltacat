@@ -60,11 +60,16 @@ def _append_delta_type_column(table: pa.Table, value: np.bool_):
 
 
 def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
+    if sc._DELTA_TYPE_COLUMN_NAME not in table.column_names:
+        return table
+
     delta_type_value = sc.delta_type_to_field(delta_type)
 
-    return table.filter(
+    result = table.filter(
         pc.not_equal(table[sc._DELTA_TYPE_COLUMN_NAME], delta_type_value)
     )
+
+    return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
 
 def _build_incremental_table(
@@ -84,16 +89,22 @@ def _build_incremental_table(
         key=lambda df: (df.stream_position, df.file_index),
         reverse=False,  # ascending
     )
+    is_delete = False
     for df_envelope in df_envelopes:
         assert (
             df_envelope.delta_type != DeltaType.APPEND
         ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
+        if df_envelope.delta_type == DeltaType.DELETE:
+            is_delete = True
 
-        envelope_table = _append_delta_type_column(
-            df_envelope.table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type))
-        )
+    for df_envelope in df_envelopes:
+        table = df_envelope.table
+        if is_delete:
+            table = _append_delta_type_column(
+                table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type))
+            )
 
-        hb_tables.append(envelope_table)
+        hb_tables.append(table)
 
     result = pa.concat_tables(hb_tables)
 
@@ -123,8 +134,8 @@ def _merge_tables(
     all_tables.append(table)
 
     if not primary_keys or not can_drop_duplicates:
-        all_tables[incremental_idx] = all_tables[incremental_idx].drop(
-            [sc._DELTA_TYPE_COLUMN_NAME]
+        all_tables[incremental_idx] = _drop_delta_type_rows(
+            all_tables[incremental_idx], DeltaType.DELETE
         )
         # we need not drop duplicates
         return pa.concat_tables(all_tables)
@@ -150,7 +161,6 @@ def _merge_tables(
         result_table_list.append(compacted_table.filter(records_to_keep))
 
     incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
-    incremental_table = incremental_table.drop([sc._DELTA_TYPE_COLUMN_NAME])
     result_table_list.append(incremental_table)
 
     final_table = pa.concat_tables(result_table_list)
