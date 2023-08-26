@@ -52,6 +52,21 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+def _append_delta_type_column(table: pa.Table, value: np.bool_):
+    return table.append_column(
+        sc._DELTA_TYPE_COLUMN_FIELD,
+        pa.array(np.repeat(value, len(table)), sc._DELTA_TYPE_COLUMN_TYPE),
+    )
+
+
+def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
+    delta_type_value = sc.delta_type_to_field(delta_type)
+
+    return table.filter(
+        pc.not_equal(table[sc._DELTA_TYPE_COLUMN_NAME], delta_type_value)
+    )
+
+
 def _build_incremental_table(
     hash_bucket_index: int,
     df_envelopes_list: List[List[DeltaFileEnvelope]],
@@ -70,7 +85,15 @@ def _build_incremental_table(
         reverse=False,  # ascending
     )
     for df_envelope in df_envelopes:
-        hb_tables.append(df_envelope.table)
+        assert (
+            df_envelope.delta_type != DeltaType.APPEND
+        ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
+
+        envelope_table = _append_delta_type_column(
+            df_envelope.table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type))
+        )
+
+        hb_tables.append(envelope_table)
 
     result = pa.concat_tables(hb_tables)
 
@@ -83,40 +106,54 @@ def _merge_tables(
     can_drop_duplicates: bool,
     compacted_table: Optional[pa.Table] = None,
 ) -> pa.Table:
+    """
+    Merges the table with compacted table dropping duplicates where necessary.
+
+    This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
+    appended to the table.
+    """
 
     all_tables = []
+    incremental_idx = 0
+
     if compacted_table:
+        incremental_idx = 1
         all_tables.append(compacted_table)
 
     all_tables.append(table)
 
     if not primary_keys or not can_drop_duplicates:
-        # we need not dedupe
+        all_tables[incremental_idx] = all_tables[incremental_idx].drop(
+            [sc._DELTA_TYPE_COLUMN_NAME]
+        )
+        # we need not drop duplicates
         return pa.concat_tables(all_tables)
 
     all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
 
-    result = []
-    if compacted_table:
-        incremental_table = drop_duplicates(
-            all_tables[1], on=sc._PK_HASH_STRING_COLUMN_NAME
-        )
+    result_table_list = []
 
+    incremental_table = drop_duplicates(
+        all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
+    )
+
+    if compacted_table:
         compacted_table = all_tables[0]
 
-        mask = pc.invert(pc.is_in(compacted_table, incremental_table))
-
-        result.append(compacted_table.filter(mask))
-
-        # TODO: filter out delete type records
-        result.append(incremental_table)
-    else:
-        incremental_table = drop_duplicates(
-            all_tables[0], on=sc._PK_HASH_STRING_COLUMN_NAME
+        records_to_keep = pc.invert(
+            pc.is_in(
+                compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
+                incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
+            )
         )
-        result.append(incremental_table)
 
-    final_table = pa.concat_tables(result)
+        result_table_list.append(compacted_table.filter(records_to_keep))
+
+    incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
+    incremental_table = incremental_table.drop([sc._DELTA_TYPE_COLUMN_NAME])
+    result_table_list.append(incremental_table)
+
+    final_table = pa.concat_tables(result_table_list)
     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
 
     return final_table

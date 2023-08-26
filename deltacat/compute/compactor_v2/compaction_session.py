@@ -403,8 +403,6 @@ def _execute_compaction(
         mat_results, key=lambda m: m.task_index
     )
 
-    deltas = [m.delta for m in mat_results]
-
     hb_id_to_entry_indices_range = {}
     file_index = 0
     previous_task_index = -1
@@ -431,7 +429,6 @@ def _execute_compaction(
         **params.s3_client_kwargs,
     )
 
-    mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
 
     # Note: An appropriate last stream position must be set
