@@ -91,6 +91,7 @@ def create_uniform_input_deltas(
     min_delta_bytes: Optional[float] = MIN_DELTA_BYTES_IN_BATCH,
     min_file_counts: Optional[float] = MIN_FILES_IN_BATCH,
     previous_inflation: Optional[float] = PYARROW_INFLATION_MULTIPLIER,
+    enable_input_split: Optional[bool] = False,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[DeltaAnnotated]:
@@ -104,12 +105,15 @@ def create_uniform_input_deltas(
         manifest_entries = delta.manifest.entries
         delta_manifest_entries += len(manifest_entries)
         for entry_index in range(len(manifest_entries)):
-            entry = append_content_type_params(
-                delta=delta,
-                entry_index=entry_index,
-                deltacat_storage=deltacat_storage,
-                deltacat_storage_kwargs=deltacat_storage_kwargs,
-            )
+            if enable_input_split:
+                entry = append_content_type_params(
+                    delta=delta,
+                    entry_index=entry_index,
+                    deltacat_storage=deltacat_storage,
+                    deltacat_storage_kwargs=deltacat_storage_kwargs,
+                )
+            else:
+                entry = manifest_entries[entry_index]
 
             delta_bytes += entry.meta.content_length
             estimated_da_bytes += estimate_manifest_entry_size_bytes(

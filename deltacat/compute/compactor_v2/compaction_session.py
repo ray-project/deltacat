@@ -182,7 +182,22 @@ def _execute_compaction(
         params.list_deltas_kwargs,
     )
 
+    uniform_deltas = io.create_uniform_input_deltas(
+        input_deltas=input_deltas,
+        hash_bucket_count=params.hash_bucket_count,
+        compaction_audit=compaction_audit,
+        deltacat_storage=params.deltacat_storage,
+        previous_inflation=params.previous_inflation,
+        min_delta_bytes=params.min_delta_bytes_in_batch,
+        min_file_counts=params.min_files_in_batch,
+        # disable input split during rebase as the rebase files are already uniform
+        enable_input_split=params.rebase_source_partition_locator is None,
+        deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+    )
+
     delta_discovery_end = time.monotonic()
+
+    compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
     compaction_audit.set_delta_discovery_time_in_seconds(
         delta_discovery_end - delta_discovery_start
     )
@@ -196,19 +211,6 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-
-    uniform_deltas = io.create_uniform_input_deltas(
-        input_deltas=input_deltas,
-        hash_bucket_count=params.hash_bucket_count,
-        compaction_audit=compaction_audit,
-        deltacat_storage=params.deltacat_storage,
-        previous_inflation=params.previous_inflation,
-        min_delta_bytes=params.min_delta_bytes_in_batch,
-        min_file_counts=params.min_files_in_batch,
-        deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-    )
-
-    compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
 
     hb_options_provider = functools.partial(
         task_resource_options_provider,

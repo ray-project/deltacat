@@ -24,6 +24,7 @@ def _get_parquet_type_params_if_exist(
         entry.meta
         and entry.meta.content_type == ContentType.PARQUET
         and entry.meta.content_encoding == ContentEncoding.IDENTITY
+        and entry.meta.content_type_parameters
     ):
         for type_params in entry.meta.content_type_parameters:
             if isinstance(type_params, PartialParquetParameters):
@@ -93,7 +94,7 @@ def estimate_manifest_entry_column_size_bytes(
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
-    if type_params.pq_metadata:
+    if type_params and type_params.pq_metadata:
         return _calculate_parquet_column_size(type_params=type_params, columns=columns)
 
     return None

@@ -198,7 +198,7 @@ class CompactPartitionParams(dict):
 
     @property
     def min_delta_bytes_in_batch(self) -> float:
-        return self["min_files_in_batch"]
+        return self["min_delta_bytes_in_batch"]
 
     @min_delta_bytes_in_batch.setter
     def min_delta_bytes_in_batch(self, min_delta_bytes_in_batch: float) -> None:
