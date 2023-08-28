@@ -21,6 +21,7 @@ from deltacat.storage import (
     Table,
     TableVersion,
     SortKey,
+    PartitionLocator,
 )
 from deltacat.types.media import ContentType, StorageType, TableType
 from deltacat.utils.common import ReadKwargsProvider
@@ -105,7 +106,13 @@ def list_deltas(
 
 
 def list_partition_deltas(
-    partition: Partition, include_manifest: bool = False, *args, **kwargs
+    partition_like: Union[Partition, PartitionLocator],
+    first_stream_position: Optional[int] = None,
+    last_stream_position: Optional[int] = None,
+    ascending_order: bool = False,
+    include_manifest: bool = False,
+    *args,
+    **kwargs
 ) -> ListResult[Delta]:
     """
     Lists a page of deltas committed to the given partition.
