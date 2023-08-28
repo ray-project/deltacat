@@ -19,7 +19,9 @@ from deltacat.tests.compute.test_util_create_table_strategy import (
 ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Callable] = [compact_partition_v1]
 
 
-def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List]):
+def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List] = None):
+    if test_cases is None:
+        test_cases = {}
     final_cases = {}
     for version, compact_partition_func in enumerate(
         ENABLED_COMPACT_PARTITIONS_DRIVERS
@@ -37,7 +39,7 @@ def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List]):
 class CompactorTestCase:
     primary_keys_param: Dict[str, str]
     sort_keys_param: Dict[str, str]
-    partition_keys_param: Dict[str, str]
+    partition_keys_param: List[Dict[str, str]]
     partition_values_param: str
     column_names_param: List[str]
     input_deltas_arrow_arrays_param: List[pa.Array]
@@ -329,32 +331,36 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         ],
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         partition_values_param=["1"],
-        column_names_param=["pk_col_1", "sk_col_1", "sk_col_2"],
+        column_names_param=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         input_deltas_arrow_arrays_param=[
             pa.array([str(i) for i in range(10)]),
             pa.array([i for i in range(0, 10)]),
             pa.array(["foo"] * 10),
+            pa.array([i / 10 for i in range(10, 20)]),
         ],
         incremental_deltas_arrow_arrays_param=[
             pa.array([str(i) for i in range(10)]),
             pa.array([i for i in range(20, 30)]),
             pa.array(["foo"] * 10),
+            pa.array([i / 10 for i in range(40, 50)]),
         ],
         rebase_expected_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(10)]),
-                pa.array([i for i in range(10, 20)]),
+                pa.array([i for i in range(0, 10)]),
                 pa.array(["foo"] * 10),
+                pa.array([i / 10 for i in range(10, 20)]),
             ],
-            names=["pk_col_1", "sk_col_1", "sk_col_2"],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         ),
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([str(i) for i in range(10)]),
                 pa.array([i for i in range(20, 30)]),
                 pa.array(["foo"] * 10),
+                pa.array([i / 10 for i in range(40, 50)]),
             ],
-            names=["pk_col_1", "sk_col_1", "sk_col_2"],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         ),
         validation_callback_func=None,
         validation_callback_func_kwargs=None,
@@ -362,7 +368,57 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
-    )
+    ),
+    "11-rebase-then-incremental-duplicate-pk": RebaseThenIncrementalCompactorTestCase(
+        primary_keys_param={"pk_col_1"},
+        sort_keys_param=[
+            {
+                "key_name": "sk_col_1",
+            },
+            {
+                "key_name": "sk_col_2",
+            },
+        ],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_values_param=["1"],
+        column_names_param=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        input_deltas_arrow_arrays_param=[
+            pa.array([str(i) for i in range(5)] + ["6", "6", "6", "6", "6"]),
+            pa.array([i for i in range(0, 10)]),
+            pa.array(["foo"] * 10),
+            pa.array([i / 10 for i in range(10, 20)]),
+        ],
+        incremental_deltas_arrow_arrays_param=[
+            pa.array([str(i) for i in range(5)] + ["6", "6", "7", "7", "8"]),
+            pa.array([i for i in range(20, 30)]),
+            pa.array(["foo"] * 10),
+            pa.array([i / 10 for i in range(40, 50)]),
+        ],
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array(["0", "1", "2", "3", "4", "6"]),
+                pa.array([0, 1, 2, 3, 4, 9]),
+                pa.array(["foo", "foo", "foo", "foo", "foo", "foo"]),
+                pa.array([1, 1.1, 1.2, 1.3, 1.4, 1.9]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array(["0", "1", "2", "3", "4", "6", "7", "8"]),
+                pa.array([20, 21, 22, 23, 24, 26, 28, 29]),
+                pa.array(["foo", "foo", "foo", "foo", "foo", "foo", "foo", "foo"]),
+                pa.array([4, 4.1, 4.2, 4.3, 4.4, 4.6, 4.8, 4.9]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        validation_callback_func=None,
+        validation_callback_func_kwargs=None,
+        create_placement_group_param=True,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count_param=None,
+        create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+    ),
 }
 
 INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(

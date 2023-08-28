@@ -180,7 +180,6 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
     )
 
     # create destination table
-    # create destination table
     ds.create_namespace(destination_namespace, {}, **ds_mock_kwargs)
     ds.create_table_version(
         destination_namespace,
@@ -211,14 +210,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         table_version=rebasing_table_version,
         **ds_mock_kwargs,
     )
-    test_table: pa.Table = pa.Table.from_arrays(
-        [
-            pa.array([str(i) for i in range(10)]),
-            pa.array([i for i in range(10, 20)]),
-            pa.array(["foo"] * 10),
-        ],
-        names=column_names,
-    )
+    test_table: pa.Table = pa.Table.from_arrays(arrow_arrays, names=column_names)
     staged_partition: Partition = ds.stage_partition(
         rebasing_table_stream, partition_values, **ds_mock_kwargs
     )

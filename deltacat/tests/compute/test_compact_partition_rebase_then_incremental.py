@@ -95,7 +95,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "partition_values_param",
         "column_names_param",
         "input_deltas_arrow_arrays_param",
-        "expected_compact_partition_result",
+        "expected_terminal_compact_partition_result",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
@@ -115,7 +115,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
-            expected_compact_partition_result,
+            expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -133,7 +133,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
-            expected_compact_partition_result,
+            expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -159,7 +159,7 @@ def test_compact_partition_rebase_then_incremental(
     partition_values_param: str,
     column_names_param: List[str],
     input_deltas_arrow_arrays_param: Dict[str, pa.Array],
-    expected_compact_partition_result: pa.Table,
+    expected_terminal_compact_partition_result: pa.Table,
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
@@ -336,12 +336,5 @@ def test_compact_partition_rebase_then_incremental(
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
     assert compacted_table.equals(
-        pa.Table.from_arrays(
-            [
-                pa.array([str(i) for i in range(10)]),
-                pa.array([i for i in range(20, 30)]),
-                pa.array(["foo"] * 10),
-            ],
-            names=["pk_col_1", "sk_col_1", "sk_col_2"],
-        )
-    ), f"{compacted_table} does not match {expected_compact_partition_result}"
+        expected_terminal_compact_partition_result
+    ), f"{compacted_table} does not match {expected_terminal_compact_partition_result}"
