@@ -95,6 +95,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "partition_values_param",
         "column_names_param",
         "input_deltas_arrow_arrays_param",
+        "input_deltas_delta_type",
         "expected_terminal_compact_partition_result",
         "create_placement_group_param",
         "records_per_compacted_file_param",
@@ -103,6 +104,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "validation_callback_func_kwargs",
         "create_table_strategy",
         "incremental_deltas_arrow_arrays_param",
+        "incremental_deltas_delta_type",
         "rebase_expected_compact_partition_result",
         "compact_partition_func",
     ],
@@ -115,6 +117,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
+            input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -123,6 +126,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             validation_callback_func_kwargs,
             create_table_strategy,
             incremental_deltas_arrow_arrays_param,
+            incremental_deltas_delta_type,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         )
@@ -133,6 +137,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
+            input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -141,6 +146,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             validation_callback_func_kwargs,
             create_table_strategy,
             incremental_deltas_arrow_arrays_param,
+            incremental_deltas_delta_type,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
@@ -159,6 +165,7 @@ def test_compact_partition_rebase_then_incremental(
     partition_values_param: str,
     column_names_param: List[str],
     input_deltas_arrow_arrays_param: Dict[str, pa.Array],
+    input_deltas_delta_type: str,
     expected_terminal_compact_partition_result: pa.Table,
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
@@ -167,12 +174,14 @@ def test_compact_partition_rebase_then_incremental(
     validation_callback_func_kwargs: Dict[str, Any],
     create_table_strategy: Callable,
     incremental_deltas_arrow_arrays_param: Dict[str, pa.Array],
+    incremental_deltas_delta_type: str,
     rebase_expected_compact_partition_result: pa.Table,
     compact_partition_func: Callable,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
+        DeltaType,
         Partition,
         PartitionLocator,
         Stream,
@@ -204,6 +213,7 @@ def test_compact_partition_rebase_then_incremental(
 
     sort_keys = setup_sort_keys(sort_keys_param)
     partition_keys = setup_partition_keys(partition_keys_param)
+    delta_type = DeltaType(input_deltas_delta_type)
     (
         source_table_stream,
         destination_table_stream,
@@ -214,6 +224,7 @@ def test_compact_partition_rebase_then_incremental(
         partition_keys,
         column_names_param,
         input_deltas_arrow_arrays_param,
+        delta_type,
         partition_values_param,
         ds_mock_kwargs,
     )

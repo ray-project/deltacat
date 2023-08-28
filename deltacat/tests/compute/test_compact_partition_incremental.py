@@ -87,6 +87,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "partition_values_param",
         "column_names_param",
         "input_deltas_arrow_arrays_param",
+        "input_deltas_delta_type",
         "expected_terminal_compact_partition_result",
         "create_placement_group_param",
         "records_per_compacted_file_param",
@@ -105,6 +106,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
+            input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -121,6 +123,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             partition_values_param,
             column_names_param,
             input_deltas_arrow_arrays_param,
+            input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             create_placement_group_param,
             records_per_compacted_file_param,
@@ -145,6 +148,7 @@ def test_compact_partition_incremental(
     partition_values_param: str,
     column_names_param: List[str],
     input_deltas_arrow_arrays_param: List[pa.Array],
+    input_deltas_delta_type: str,
     expected_terminal_compact_partition_result: pa.Table,
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
@@ -157,6 +161,7 @@ def test_compact_partition_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
+        DeltaType,
         PartitionLocator,
     )
     from deltacat.compute.compactor.model.compact_partition_params import (
@@ -171,12 +176,14 @@ def test_compact_partition_incremental(
     # setup
     sort_keys = setup_sort_keys(sort_keys_param)
     partition_keys = setup_partition_keys(partition_keys_param)
+    delta_type = DeltaType(input_deltas_delta_type)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
         primary_keys_param,
         sort_keys,
         partition_keys,
         column_names_param,
         input_deltas_arrow_arrays_param,
+        delta_type,
         partition_values_param,
         ds_mock_kwargs,
     )

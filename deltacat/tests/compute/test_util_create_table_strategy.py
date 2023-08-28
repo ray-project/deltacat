@@ -19,6 +19,10 @@ from deltacat.tests.compute.test_util_common import (
     PartitionKey,
 )
 
+from deltacat.storage import (
+    DeltaType,
+)
+
 
 def _create_empty_destination_table(
     primary_keys: Set[str],
@@ -62,7 +66,8 @@ def _create_base_src_table_w_deltas(
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     column_names: List[str],
-    arrow_arrays: List[pa.Array],
+    input_deltas: List[pa.Array],
+    input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
 ):
@@ -95,7 +100,7 @@ def _create_base_src_table_w_deltas(
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    test_table: pa.Table = pa.Table.from_arrays(arrow_arrays, names=column_names)
+    test_table: pa.Table = pa.Table.from_arrays(input_deltas, names=column_names)
     staged_partition: Partition = ds.stage_partition(
         source_table_stream, partition_values, **ds_mock_kwargs
     )
@@ -117,7 +122,8 @@ def create_src_w_deltas_destination_strategy(
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     column_names: List[str],
-    arrow_arrays: List[pa.Array],
+    input_deltas: List[pa.Array],
+    input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
 ) -> Tuple[Any, Any, Any]:
@@ -128,7 +134,8 @@ def create_src_w_deltas_destination_strategy(
         sort_keys,
         partition_keys,
         column_names,
-        arrow_arrays,
+        input_deltas,
+        input_delta_type,
         partition_values,
         ds_mock_kwargs,
     )
@@ -138,7 +145,7 @@ def create_src_w_deltas_destination_strategy(
         sort_keys,
         partition_keys,
         column_names,
-        arrow_arrays,
+        input_deltas,
         partition_values,
         ds_mock_kwargs,
     )
@@ -150,7 +157,8 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     column_names: List[str],
-    arrow_arrays: List[pa.Array],
+    input_deltas: List[pa.Array],
+    input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
 ):
@@ -174,7 +182,8 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         sort_keys,
         partition_keys,
         column_names,
-        arrow_arrays,
+        input_deltas,
+        input_delta_type,
         partition_values,
         ds_mock_kwargs,
     )
@@ -210,7 +219,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         table_version=rebasing_table_version,
         **ds_mock_kwargs,
     )
-    test_table: pa.Table = pa.Table.from_arrays(arrow_arrays, names=column_names)
+    test_table: pa.Table = pa.Table.from_arrays(input_deltas, names=column_names)
     staged_partition: Partition = ds.stage_partition(
         rebasing_table_stream, partition_values, **ds_mock_kwargs
     )
