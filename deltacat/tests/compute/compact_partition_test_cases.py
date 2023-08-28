@@ -11,7 +11,7 @@ from dataclasses import dataclass, fields
 from deltacat.compute.compactor.compaction_session import (
     compact_partition_from_request as compact_partition_v1,
 )
-from deltacat.tests.compute.test_util_create_table_strategy import (
+from deltacat.tests.compute.test_util_create_deltas_strategy import (
     create_src_w_deltas_destination_strategy,
     create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )

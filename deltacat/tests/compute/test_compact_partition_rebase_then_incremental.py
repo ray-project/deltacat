@@ -6,14 +6,10 @@ import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.compute.test_util_constant import (
-    RAY_COMPACTED_NAMESPACE,
-    RAY_COMPACTED_NAME_SUFFIX,
-    TEST_S3_RCF_BUCKET_NAME,
-    BASE_TEST_SOURCE_TABLE_VERSION,
-    BASE_TEST_DESTINATION_TABLE_VERSION,
-    BASE_TEST_SOURCE_NAMESPACE,
-    BASE_TEST_SOURCE_TABLE_NAME,
+    BASE_TEST_DESTINATION_NAMESPACE,
     BASE_TEST_DESTINATION_TABLE_NAME,
+    BASE_TEST_DESTINATION_TABLE_VERSION,
+    TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
     DEFAULT_MAX_RECORDS_PER_FILE,
@@ -201,14 +197,8 @@ def test_compact_partition_rebase_then_incremental(
     REBASE
     """
 
-    source_table_namespace = BASE_TEST_SOURCE_NAMESPACE
-    source_table_name = BASE_TEST_SOURCE_TABLE_NAME
-    source_table_version = BASE_TEST_SOURCE_TABLE_VERSION
-
-    destination_table_namespace = RAY_COMPACTED_NAMESPACE
-    destination_table_name = (
-        BASE_TEST_DESTINATION_TABLE_NAME + RAY_COMPACTED_NAME_SUFFIX
-    )
+    destination_table_namespace = BASE_TEST_DESTINATION_NAMESPACE
+    destination_table_name = BASE_TEST_DESTINATION_TABLE_NAME
     destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
 
     sort_keys = setup_sort_keys(sort_keys_param)
@@ -287,38 +277,44 @@ def test_compact_partition_rebase_then_incremental(
     """
     INCREMENTAL
     """
-    destination_table_stream: Stream = ds.get_stream(
-        namespace=destination_table_namespace,
-        table_name=destination_table_name,
-        table_version=destination_table_version,
+    compacted_table_stream: Stream = ds.get_stream(
+        namespace=compacted_delta_locator.namespace,
+        table_name=compacted_delta_locator.table_name,
+        table_version=compacted_delta_locator.table_version,
         **ds_mock_kwargs,
-    )
-    destination_partition_locator: PartitionLocator = PartitionLocator.of(
-        destination_table_stream.locator,
-        partition_values_param,
-        None,
     )
     test_table: pa.Table = pa.Table.from_arrays(
         incremental_deltas_arrow_arrays_param,
         names=column_names_param,
     )
     staged_partition: Partition = ds.stage_partition(
-        source_table_stream, partition_values_param, **ds_mock_kwargs
+        compacted_table_stream, partition_values_param, **ds_mock_kwargs
     )
     ds.commit_delta(
         ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
     )
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
     source_table_stream_after_committed: Stream = ds.get_stream(
-        namespace=source_table_namespace,
-        table_name=source_table_name,
-        table_version=source_table_version,
+        namespace=compacted_delta_locator.namespace,
+        table_name=compacted_delta_locator.table_name,
+        table_version=compacted_delta_locator.table_version,
         **ds_mock_kwargs,
     )
     source_partition: Partition = ds.get_partition(
         source_table_stream_after_committed.locator,
         partition_values_param,
         **ds_mock_kwargs,
+    )
+    destination_table_stream: Stream = ds.get_stream(
+        destination_table_namespace,
+        destination_table_name,
+        destination_table_version,
+        **ds_mock_kwargs,
+    )
+    destination_partition_locator: PartitionLocator = PartitionLocator.of(
+        destination_table_stream.locator,
+        partition_values_param,
+        None,
     )
     compact_partition_params = CompactPartitionParams.of(
         {
