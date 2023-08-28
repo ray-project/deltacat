@@ -2,7 +2,7 @@ from typing import Dict, Optional, List, Tuple
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
 from deltacat.storage import (
-    Delta,
+    Manifest,
     ManifestEntry,
     interface as unimplemented_deltacat_storage,
 )
@@ -10,9 +10,6 @@ from deltacat.compute.compactor.model.delta_annotated import DeltaAnnotated
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
-)
-from deltacat.compute.compactor_v2.utils.content_type_params import (
-    append_content_type_params,
 )
 from deltacat.compute.compactor_v2.constants import TOTAL_MEMORY_BUFFER_PERCENTAGE
 
@@ -154,7 +151,7 @@ def merge_resource_options_provider(
     hash_group_size_bytes: Dict[int, int],
     hash_group_num_rows: Dict[int, int],
     round_completion_info: Optional[RoundCompletionInfo] = None,
-    compacted_delta: Optional[Delta] = None,
+    compacted_delta_manifest: Optional[Manifest] = None,
     primary_keys: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict] = {},
@@ -169,8 +166,8 @@ def merge_resource_options_provider(
 
     if (
         round_completion_info
-        and compacted_delta
-        and round_completion_info.hb_index_to_entry_range_both_inclusive
+        and compacted_delta_manifest
+        and round_completion_info.hb_index_to_entry_range
     ):
 
         previous_inflation = (
@@ -188,15 +185,10 @@ def merge_resource_options_provider(
 
         for hb_idx in iterable:
             entry_start, entry_end = round_completion_info.hb_index_to_entry_range[
-                hb_idx
+                str(hb_idx)
             ]
             for entry_index in range(entry_start, entry_end):
-                entry = append_content_type_params(
-                    compacted_delta,
-                    entry_index=entry_index,
-                    deltacat_storage=deltacat_storage,
-                    deltacat_storage_kwargs=deltacat_storage_kwargs,
-                )
+                entry = compacted_delta_manifest.entries[entry_index]
 
                 current_entry_size = estimate_manifest_entry_size_bytes(
                     entry=entry, previous_inflation=previous_inflation

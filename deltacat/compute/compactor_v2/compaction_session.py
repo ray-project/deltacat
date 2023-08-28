@@ -133,7 +133,7 @@ def _execute_compaction(
     # read the results from any previously completed compaction round
     round_completion_info = None
     high_watermark = None
-    previous_compacted_delta = None
+    previous_compacted_delta_manifest = None
 
     if not params.rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
@@ -147,13 +147,11 @@ def _execute_compaction(
             )
         else:
             compacted_delta_locator = round_completion_info.compacted_delta_locator
-            previous_compacted_delta = params.deltacat_storage.get_delta(
-                namespace=compacted_delta_locator.namespace,
-                table_name=compacted_delta_locator.table_name,
-                table_version=compacted_delta_locator.table_version,
-                stream_position=compacted_delta_locator.stream_position,
-                include_manifest=True,
-                **params.deltacat_storage_kwargs,
+
+            previous_compacted_delta_manifest = (
+                params.deltacat_storage.get_delta_manifest(
+                    compacted_delta_locator, **params.deltacat_storage_kwargs
+                )
             )
 
             high_watermark = round_completion_info.high_watermark
@@ -335,7 +333,7 @@ def _execute_compaction(
         hash_group_size_bytes=all_hash_group_idx_to_size_bytes,
         hash_group_num_rows=all_hash_group_idx_to_num_rows,
         round_completion_info=round_completion_info,
-        compacted_delta=previous_compacted_delta,
+        compacted_delta_manifest=previous_compacted_delta_manifest,
         primary_keys=params.primary_keys,
         deltacat_storage=params.deltacat_storage,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,

@@ -286,6 +286,7 @@ def s3_partial_parquet_file_to_table(
         content_type=content_type,
         content_encoding=content_encoding,
         partial_file_download_params=partial_file_download_params,
+        pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
         **s3_client_kwargs,
     )
 
