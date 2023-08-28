@@ -102,6 +102,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "validation_callback_func",
         "validation_callback_func_kwargs",
         "create_table_strategy",
+        "incremental_deltas_arrow_arrays_param",
         "rebase_expected_compact_partition_result",
         "compact_partition_func",
     ],
@@ -121,6 +122,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             validation_callback_func,
             validation_callback_func_kwargs,
             create_table_strategy,
+            incremental_deltas_arrow_arrays_param,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         )
@@ -138,6 +140,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             validation_callback_func,
             validation_callback_func_kwargs,
             create_table_strategy,
+            incremental_deltas_arrow_arrays_param,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
@@ -163,6 +166,7 @@ def test_compact_partition_rebase_then_incremental(
     validation_callback_func: Callable,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
     validation_callback_func_kwargs: Dict[str, Any],
     create_table_strategy: Callable,
+    incremental_deltas_arrow_arrays_param: Dict[str, pa.Array],
     rebase_expected_compact_partition_result: pa.Table,
     compact_partition_func: Callable,
 ):
@@ -272,7 +276,6 @@ def test_compact_partition_rebase_then_incremental(
     """
     INCREMENTAL
     """
-
     destination_table_stream: Stream = ds.get_stream(
         namespace=destination_table_namespace,
         table_name=destination_table_name,
@@ -285,11 +288,7 @@ def test_compact_partition_rebase_then_incremental(
         None,
     )
     test_table: pa.Table = pa.Table.from_arrays(
-        [
-            pa.array([str(i) for i in range(10)]),
-            pa.array([i for i in range(20, 30)]),
-            pa.array(["foo"] * 10),
-        ],
+        incremental_deltas_arrow_arrays_param,
         names=column_names_param,
     )
     staged_partition: Partition = ds.stage_partition(

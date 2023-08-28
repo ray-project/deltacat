@@ -11,9 +11,9 @@ from dataclasses import dataclass, fields
 from deltacat.compute.compactor.compaction_session import (
     compact_partition_from_request as compact_partition_v1,
 )
-from deltacat.tests.compute.test_util_table_create_strategy import (
-    create_table_for_incremental_case_strategy,
-    create_table_for_rebase_then_incremental_strategy,
+from deltacat.tests.compute.test_util_create_table_strategy import (
+    create_src_w_deltas_destination_strategy,
+    create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
 
 ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Callable] = [compact_partition_v1]
@@ -40,7 +40,7 @@ class CompactorTestCase:
     partition_keys_param: Dict[str, str]
     partition_values_param: str
     column_names_param: List[str]
-    input_deltas_arrow_arrays_param: Dict[str, pa.Array]
+    input_deltas_arrow_arrays_param: List[pa.Array]
     expected_terminal_compact_partition_result: pa.Table
     create_placement_group_param: bool
     records_per_compacted_file_param: int
@@ -62,6 +62,7 @@ class IncrementalCompactionTestCase(CompactorTestCase):
 
 @dataclass(frozen=True)
 class RebaseThenIncrementalCompactorTestCase(CompactorTestCase):
+    incremental_deltas_arrow_arrays_param: Dict[str, pa.Array]
     rebase_expected_compact_partition_result: pa.Table
 
 
@@ -82,7 +83,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
@@ -103,7 +104,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
@@ -136,7 +137,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
@@ -169,7 +170,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
@@ -197,7 +198,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
@@ -225,7 +226,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
@@ -253,7 +254,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1", "pk_col_2"},
@@ -283,7 +284,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
@@ -311,12 +312,12 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_incremental_case_strategy,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
 }
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = {
-    "1-rebase-then-incremental": RebaseThenIncrementalCompactorTestCase(
+    "10-rebase-then-incremental-sanity": RebaseThenIncrementalCompactorTestCase(
         primary_keys_param={"pk_col_1"},
         sort_keys_param=[
             {
@@ -332,6 +333,11 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         input_deltas_arrow_arrays_param=[
             pa.array([str(i) for i in range(10)]),
             pa.array([i for i in range(0, 10)]),
+            pa.array(["foo"] * 10),
+        ],
+        incremental_deltas_arrow_arrays_param=[
+            pa.array([str(i) for i in range(10)]),
+            pa.array([i for i in range(20, 30)]),
             pa.array(["foo"] * 10),
         ],
         rebase_expected_compact_partition_result=pa.Table.from_arrays(
@@ -355,7 +361,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         create_placement_group_param=True,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=None,
-        create_table_strategy=create_table_for_rebase_then_incremental_strategy,
+        create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
     )
 }
 
