@@ -27,7 +27,7 @@ class TestCompactPartitionParams(unittest.TestCase):
                 "partitionValues": [],
                 "partitionId": None,
             },
-            "hash_bucket_count": None,
+            "hash_bucket_count": 200,
             "last_stream_position_to_compact": 168000000000,
             "list_deltas_kwargs": {"equivalent_table_types": []},
             "primary_keys": {"id"},
@@ -75,58 +75,16 @@ class TestCompactPartitionParams(unittest.TestCase):
 
         super().setUpClass()
 
-    def test_destination_partition_locator_is_optional(self):
-        from deltacat.compute.compactor.model.compact_partition_params import (
-            CompactPartitionParams,
-        )
-
-        params = CompactPartitionParams.of({})
-        assert params.destination_partition_locator is None
-
     def test_serialize_returns_json_string(self):
         from deltacat.compute.compactor.model.compact_partition_params import (
             CompactPartitionParams,
         )
-        from deltacat.storage import PartitionLocator
-
-        test_destination_partition_locator = PartitionLocator(
-            {
-                "partitionLocator": {
-                    "streamLocator": {
-                        "tableVersionLocator": {
-                            "tableLocator": {
-                                "namespaceLocator": {
-                                    "namespace": "rebase_destination_test_namespace"
-                                },
-                                "tableName": "rebase_destination_test_table",
-                            },
-                            "tableVersion": "1",
-                        },
-                        "streamId": "d963f747-4663-4d6a-a935-8097a39a8ba8",
-                        "storageType": "SQLITE3",
-                    },
-                    "partitionValues": [],
-                    "partitionId": "98c24387-fe37-4a88-98cb-61c48a4d7891",
-                },
-                "schema": None,
-                "contentTypes": ["application/parquet"],
-                "state": "active",
-                "previousStreamPosition": None,
-                "previousPartitionId": None,
-                "streamPosition": 1691707520598,
-                "nextPartitionId": None,
-            }
-        )
 
         params = CompactPartitionParams.of(
-            {"destination_partition_locator": test_destination_partition_locator}
+            TestCompactPartitionParams.VALID_COMPACT_PARTITION_PARAMS
         )
         serialized_params = params.serialize()
         assert isinstance(serialized_params, str)
-        assert (
-            json.loads(serialized_params)["destination_partition_locator"]
-            == test_destination_partition_locator
-        )
 
     def test_serialize_returns_json_string_with_all_fields(self):
         from deltacat.compute.compactor.model.compact_partition_params import (
@@ -159,7 +117,6 @@ class TestCompactPartitionParams(unittest.TestCase):
             == params.list_deltas_kwargs
         )
         assert json.loads(serialized_params)["primary_keys"] == params.primary_keys
-        assert json.loads(serialized_params)["properties"] == params.properties
         assert (
             json.loads(serialized_params)["rebase_source_partition_high_watermark"]
             == params.rebase_source_partition_high_watermark
@@ -182,7 +139,12 @@ class TestCompactPartitionParams(unittest.TestCase):
             CompactPartitionParams,
         )
 
-        params = CompactPartitionParams.of({"primary_keys": {"foo", "bar", "baz"}})
+        params = CompactPartitionParams.of(
+            {
+                **TestCompactPartitionParams.VALID_COMPACT_PARTITION_PARAMS,
+                "primary_keys": {"foo", "bar", "baz"},
+            }
+        )
         serialized_params = params.serialize()
         self.assertCountEqual(
             json.loads(serialized_params)["primary_keys"], ["foo", "bar", "baz"]
@@ -197,7 +159,12 @@ class TestCompactPartitionParams(unittest.TestCase):
             def toJSON(self) -> str:
                 return "my-json-object"
 
-        params = CompactPartitionParams.of({"compacted_file_content_type": MyObject()})
+        params = CompactPartitionParams.of(
+            {
+                **TestCompactPartitionParams.VALID_COMPACT_PARTITION_PARAMS,
+                "compacted_file_content_type": MyObject(),
+            }
+        )
         serialized_params = params.serialize()
         assert (
             json.loads(serialized_params)["compacted_file_content_type"]

@@ -10,11 +10,12 @@ from deltacat.constants import (
 from deltacat.storage import (
     PartitionLocator,
     Delta,
+    ManifestEntry,
     interface as unimplemented_deltacat_storage,
 )
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 from deltacat.compute.compactor import HighWatermark
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -31,8 +32,8 @@ def discover_deltas(
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
-    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
-    **kwargs,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
+    list_deltas_kwargs: Optional[Dict[str, Any]] = {},
 ) -> Tuple[List[Delta], int]:
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
@@ -54,7 +55,7 @@ def discover_deltas(
         ).stream_position,
         deltacat_storage,
         deltacat_storage_kwargs,
-        **kwargs,
+        list_deltas_kwargs,
     )
 
     # Source Two: delta from compacted table for incremental compaction or new deltas from uncompacted table for rebase
@@ -76,7 +77,7 @@ def discover_deltas(
                 previous_last_stream_position_compacted,
                 deltacat_storage,
                 deltacat_storage_kwargs,
-                **kwargs,
+                list_deltas_kwargs,
             )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas)} up to {last_stream_position_to_compact},"
@@ -90,7 +91,7 @@ def discover_deltas(
             last_stream_position_to_compact,
             deltacat_storage,
             deltacat_storage_kwargs,
-            **kwargs,
+            list_deltas_kwargs,
         )
         logger.info(
             f"Length of input deltas from uncompacted table {len(input_deltas_new)} up to {last_stream_position_to_compact},"
@@ -324,8 +325,8 @@ def fit_input_deltas(
     # We assume that the cluster is capable of distributing all tasks
     # correctly. Hence, the correct in-memory size will be in the ratio of
     # in-disk size.
-    def estimate_size(content_length):
-        return (content_length * 1.0 / delta_bytes) * total_memory
+    def estimate_size(manifest_entry: ManifestEntry):
+        return (manifest_entry.meta.content_length * 1.0 / delta_bytes) * total_memory
 
     # Assuming each CPU consumes equal amount of memory
     min_delta_bytes = total_memory / worker_cpus
@@ -359,18 +360,21 @@ def _discover_deltas(
     start_position_exclusive: Optional[int],
     end_position_inclusive: int,
     deltacat_storage=unimplemented_deltacat_storage,
-    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
-    **kwargs,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
+    list_deltas_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[Delta]:
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
+
+    kwargs = {**deltacat_storage_kwargs, **list_deltas_kwargs}
+
     deltas_list_result = deltacat_storage.list_partition_deltas(
         partition_like=source_partition_locator,
         first_stream_position=start_position_exclusive,
         last_stream_position=end_position_inclusive,
         ascending_order=True,
         include_manifest=True,
-        **deltacat_storage_kwargs,
+        **kwargs,
     )
     deltas = deltas_list_result.all_items()
     if not deltas:
