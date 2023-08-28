@@ -227,9 +227,19 @@ def list_partition_deltas(
     if last_stream_position is None:
         last_stream_position = float("inf")
 
+    assert isinstance(partition_like, Partition) or isinstance(
+        partition_like, PartitionLocator
+    ), f"Expected a Partition or PartitionLocator as an input argument but found {partition_like}"
+
+    partition_locator = None
+    if isinstance(partition_like, Partition):
+        partition_locator = partition_like.locator
+    else:
+        partition_locator = partition_like
+
     res = cur.execute(
         "SELECT * FROM deltas WHERE partition_locator = ?",
-        (partition_like.locator.canonical_string(),),
+        (partition_locator.canonical_string(),),
     )
 
     serialized_items = res.fetchall()
