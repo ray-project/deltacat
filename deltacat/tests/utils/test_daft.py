@@ -3,8 +3,10 @@ from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.utils.daft import daft_s3_file_to_table
 
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
-
+from deltacat.types.partial_download import PartialParquetParameters
 import pyarrow as pa
+
+from pyarrow import parquet as pq
 
 
 class TestDaftParquetReader(unittest.TestCase):
@@ -53,6 +55,21 @@ class TestDaftParquetReader(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)
+
+    def test_read_from_s3_single_column_with_row_groups(self):
+
+        metadata = pq.read_metadata(self.MVP_PATH)
+        ppp = PartialParquetParameters.of(pq_metadata=metadata)
+        ppp["row_groups_to_download"] = ppp.row_groups_to_download[1:2]
+        table = daft_s3_file_to_table(
+            self.MVP_PATH,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            column_names=["b"],
+            partial_file_download_params=ppp,
+        )
+        self.assertEqual(table.schema.names, ["b"])
+        self.assertEqual(table.num_rows, 10)
 
 
 if __name__ == "__main__":
