@@ -2,18 +2,12 @@
 from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional
-import pyarrow as pa
 import datetime as dt
 from boto3.resources.base import ServiceResource
 from datetime import timezone
 
 from deltacat.tests.compute.test_util_constant import (
     TEST_S3_RCF_BUCKET_NAME,
-    BASE_TEST_SOURCE_NAMESPACE,
-    BASE_TEST_SOURCE_TABLE_NAME,
-    BASE_TEST_DESTINATION_NAMESPACE,
-    BASE_TEST_DESTINATION_TABLE_NAME,
-    BASE_TEST_DESTINATION_TABLE_VERSION,
 )
 
 

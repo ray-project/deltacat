@@ -1,7 +1,5 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
-import pyarrow as pa
-from boto3.resources.base import ServiceResource
 
 TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
 # REBASE  src = spark compacted table to create an initial version of ray compacted table
