@@ -181,7 +181,13 @@ def list_deltas(
     partition = get_partition(stream.locator, partition_values, *args, **kwargs)
 
     all_deltas = list_partition_deltas(
-        partition, include_manifest, *args, **kwargs
+        partition,
+        first_stream_position=first_stream_position,
+        last_stream_position=last_stream_position,
+        ascending_order=ascending_order,
+        include_manifest=include_manifest,
+        *args,
+        **kwargs,
     ).all_items()
 
     result = []
@@ -202,16 +208,28 @@ def list_deltas(
 
 
 def list_partition_deltas(
-    partition: Partition, include_manifest: bool = False, *args, **kwargs
+    partition_like: Union[Partition, PartitionLocator],
+    first_stream_position: Optional[int] = None,
+    last_stream_position: Optional[int] = None,
+    ascending_order: bool = False,
+    include_manifest: bool = False,
+    *args,
+    **kwargs,
 ) -> ListResult[Delta]:
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
-    if partition is None:
+    if partition_like is None:
         return ListResult.of([], None, None)
+
+    if first_stream_position is None:
+        first_stream_position = 0
+
+    if last_stream_position is None:
+        last_stream_position = float("inf")
 
     res = cur.execute(
         "SELECT * FROM deltas WHERE partition_locator = ?",
-        (partition.locator.canonical_string(),),
+        (partition_like.locator.canonical_string(),),
     )
 
     serialized_items = res.fetchall()
@@ -222,12 +240,19 @@ def list_partition_deltas(
     result = []
     for item in serialized_items:
         current_delta = Delta(json.loads(item[2]))
-        result.append(current_delta)
+        if (
+            first_stream_position
+            <= current_delta.stream_position
+            <= last_stream_position
+        ):
+            result.append(current_delta)
 
         if not include_manifest:
             current_delta.manifest = None
 
-    result.sort(reverse=True, key=lambda d: d.stream_position)
+    result.sort(
+        reverse=True if not ascending_order else False, key=lambda d: d.stream_position
+    )
     return ListResult.of(result, None, None)
 
 
