@@ -102,19 +102,18 @@ def create_uniform_input_deltas(
     input_da_list = []
 
     for delta in input_deltas:
+        if enable_input_split:
+            append_content_type_params(
+                delta=delta,
+                deltacat_storage=deltacat_storage,
+                deltacat_storage_kwargs=deltacat_storage_kwargs,
+            )
+
         manifest_entries = delta.manifest.entries
         delta_manifest_entries += len(manifest_entries)
-        for entry_index in range(len(manifest_entries)):
-            if enable_input_split:
-                entry = append_content_type_params(
-                    delta=delta,
-                    entry_index=entry_index,
-                    deltacat_storage=deltacat_storage,
-                    deltacat_storage_kwargs=deltacat_storage_kwargs,
-                )
-            else:
-                entry = manifest_entries[entry_index]
 
+        for entry_index in range(len(manifest_entries)):
+            entry = manifest_entries[entry_index]
             delta_bytes += entry.meta.content_length
             estimated_da_bytes += estimate_manifest_entry_size_bytes(
                 entry=entry, previous_inflation=previous_inflation

@@ -476,6 +476,10 @@ def table_size(table: pa.Table) -> int:
     return table.nbytes
 
 
+def parquet_file_size(table: papq.ParquetFile) -> int:
+    return table.metadata.serialized_size
+
+
 def table_to_file(
     table: pa.Table,
     base_path: str,

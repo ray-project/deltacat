@@ -134,6 +134,10 @@ def _merge_tables(
     all_tables.append(table)
 
     if not primary_keys or not can_drop_duplicates:
+        logger.info(
+            f"Not dropping duplicates for primary keys={primary_keys} "
+            f"and can_drop_duplicates={can_drop_duplicates}"
+        )
         all_tables[incremental_idx] = _drop_delta_type_rows(
             all_tables[incremental_idx], DeltaType.DELETE
         )
