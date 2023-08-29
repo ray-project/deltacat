@@ -62,6 +62,16 @@ def setup_compaction_artifacts_s3_bucket(setup_s3_resource: ServiceResource):
     yield
 
 
+@pytest.fixture(autouse=True, scope="module")
+def setup_ray_cluster():
+    # module scoped starting up a ray cluster as it can be shared between parametrized test functions without side effects
+    # calling ray.shutdown() ensures that any other ray instance started up by other test suites will not interfere with this one
+    ray.init(local_mode=True)
+    assert ray.is_initialized()
+    yield
+    ray.shutdown()
+
+
 """
 FUNCTION scoped fixtures
 """
@@ -187,9 +197,6 @@ def test_compact_partition_incremental(
         partition_values_param,
         ds_mock_kwargs,
     )
-    ray.shutdown()
-    ray.init(local_mode=True)
-    assert ray.is_initialized()
     source_partition = ds.get_partition(
         source_table_stream.locator,
         partition_values_param,
