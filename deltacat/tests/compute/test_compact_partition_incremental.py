@@ -88,7 +88,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     [
         "test_name",
         "primary_keys_param",
-        "sort_keys_param",
+        "sort_keys",
         "partition_keys_param",
         "partition_values_param",
         "column_names_param",
@@ -107,7 +107,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         (
             test_name,
             primary_keys_param,
-            sort_keys_param,
+            sort_keys,
             partition_keys_param,
             partition_values_param,
             column_names_param,
@@ -124,7 +124,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         )
         for test_name, (
             primary_keys_param,
-            sort_keys_param,
+            sort_keys,
             partition_keys_param,
             partition_values_param,
             column_names_param,
@@ -149,7 +149,7 @@ def test_compact_partition_incremental(
     setup_local_deltacat_storage_conn: Dict[str, Any],
     test_name: str,
     primary_keys_param: Set[str],
-    sort_keys_param: Dict[str, str],
+    sort_keys: Dict[str, str],
     partition_keys_param: Optional[Dict[str, str]],
     partition_values_param: str,
     column_names_param: List[str],
@@ -180,7 +180,6 @@ def test_compact_partition_incremental(
     ds_mock_kwargs = setup_local_deltacat_storage_conn
 
     # setup
-    sort_keys = sort_keys_param
     partition_keys = setup_partition_keys(partition_keys_param)
     delta_type = DeltaType(input_deltas_delta_type)
     # ray.shutdown()
