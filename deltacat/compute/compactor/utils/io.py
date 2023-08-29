@@ -329,7 +329,7 @@ def fit_input_deltas(
         return (manifest_entry.meta.content_length * 1.0 / delta_bytes) * total_memory
 
     # Assuming each CPU consumes equal amount of memory
-    min_delta_bytes = total_memory / max(1, worker_cpus)
+    min_delta_bytes = total_memory / worker_cpus
     rebatched_da_list = DeltaAnnotated.rebatch(
         annotated_deltas=annotated_input_da_list,
         min_delta_bytes=min_delta_bytes,
