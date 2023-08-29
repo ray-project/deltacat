@@ -66,7 +66,7 @@ def setup_compaction_artifacts_s3_bucket(setup_s3_resource: ServiceResource):
     yield
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def setup_ray_cluster():
     #     # module scoped starting up a ray cluster as it can be shared between test functions without side effects
     #     # calling ray.shutdown() ensures that any other ray instance started up by other test suites will not interfere with this one
