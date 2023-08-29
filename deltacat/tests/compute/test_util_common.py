@@ -166,15 +166,6 @@ def setup_partition_keys(partition_keys_param) -> Optional[PartitionKey]:
     return partition_keys
 
 
-def setup_sort_keys(sort_keys_param) -> Optional[Any]:
-    from deltacat.storage.model.sort_key import SortKey
-
-    sort_keys = None
-    if sort_keys_param is not None:
-        sort_keys = [SortKey.of(sort_key["key_name"]) for sort_key in sort_keys_param]
-    return sort_keys
-
-
 def offer_iso8601_timestamp_list(
     periods: int,
     unit_of_time: str,

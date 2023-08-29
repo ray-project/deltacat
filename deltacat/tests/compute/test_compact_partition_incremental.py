@@ -25,15 +25,15 @@ DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
 )
 
 
-@pytest.fixture(autouse=True, scope="package")
-def setup_ray_cluster():
-    ray.init(local_mode=True, ignore_reinit_error=True)
-    yield
-
-
 """
 MODULE scoped fixtures
 """
+
+
+@pytest.fixture(autouse=True, scope="module")
+def setup_ray_cluster():
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    yield
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -87,7 +87,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
 @pytest.mark.parametrize(
     [
         "test_name",
-        "primary_keys_param",
+        "primary_keys",
         "sort_keys",
         "partition_keys_param",
         "partition_values_param",
@@ -106,7 +106,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     [
         (
             test_name,
-            primary_keys_param,
+            primary_keys,
             sort_keys,
             partition_keys_param,
             partition_values_param,
@@ -123,7 +123,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             compact_partition_func,
         )
         for test_name, (
-            primary_keys_param,
+            primary_keys,
             sort_keys,
             partition_keys_param,
             partition_values_param,
@@ -148,7 +148,7 @@ def test_compact_partition_incremental(
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
     test_name: str,
-    primary_keys_param: Set[str],
+    primary_keys: Set[str],
     sort_keys: Dict[str, str],
     partition_keys_param: Optional[Dict[str, str]],
     partition_values_param: str,
@@ -185,7 +185,7 @@ def test_compact_partition_incremental(
     # ray.shutdown()
     # ray.init(local_mode=True, ignore_reinit_error=True)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
-        primary_keys_param,
+        primary_keys,
         sort_keys,
         partition_keys,
         column_names_param,
@@ -223,7 +223,7 @@ def test_compact_partition_incremental(
             "last_stream_position_to_compact": source_partition.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
-            "primary_keys": primary_keys_param,
+            "primary_keys": primary_keys,
             "rebase_source_partition_locator": None,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
