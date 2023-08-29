@@ -190,9 +190,8 @@ def test_compact_partition_incremental(
     sort_keys = setup_sort_keys(sort_keys_param)
     partition_keys = setup_partition_keys(partition_keys_param)
     delta_type = DeltaType(input_deltas_delta_type)
-    # ray.shutdown()
-    # ray.init(local_mode=True, ignore_reinit_error=True)
-    # assert ray.is_initialized()
+    ray.shutdown()
+    ray.init(local_mode=True, ignore_reinit_error=True)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
         primary_keys_param,
         sort_keys,
