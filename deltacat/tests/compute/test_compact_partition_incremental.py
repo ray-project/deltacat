@@ -25,9 +25,8 @@ DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
 )
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(autouse=True, scope="package")
 def setup_ray_cluster():
-    ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
 

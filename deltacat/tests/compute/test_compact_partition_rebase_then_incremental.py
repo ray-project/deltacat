@@ -28,6 +28,13 @@ DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "deltacat/tests/local_deltacat_storage/db_test.sqlite",
 )
 
+
+@pytest.fixture(autouse=True, scope="package")
+def setup_ray_cluster():
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    yield
+
+
 """
 MODULE scoped fixtures
 """
