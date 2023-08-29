@@ -94,7 +94,11 @@ def start_stats_collection(
 
 
 def _get_account_id() -> str:
-    client = client_cache("sts", None)
+    client = client_cache(
+        "sts",
+        region_name="us-east-1",
+        endpoint_url="https://sts.us-east-1.amazonaws.com",
+    )
     account_id = client.get_caller_identity()["Account"]
     return account_id
 
