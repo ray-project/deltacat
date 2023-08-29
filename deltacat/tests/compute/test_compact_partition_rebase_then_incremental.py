@@ -66,7 +66,7 @@ def setup_compaction_artifacts_s3_bucket(setup_s3_resource: ServiceResource):
     yield
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(scope="module")
 def setup_ray_cluster():
     #     # module scoped starting up a ray cluster as it can be shared between test functions without side effects
     #     # calling ray.shutdown() ensures that any other ray instance started up by other test suites will not interfere with this one
@@ -164,6 +164,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
 )
 def test_compact_partition_rebase_then_incremental(
     request: pytest.FixtureRequest,
+    setup_ray_cluster,
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
     test_name: str,
