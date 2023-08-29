@@ -202,7 +202,6 @@ def test_compact_partition_rebase_then_incremental(
     )
 
     ds_mock_kwargs = setup_local_deltacat_storage_conn
-    ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     """
     REBASE

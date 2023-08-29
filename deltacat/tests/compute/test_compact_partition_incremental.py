@@ -3,7 +3,7 @@ from moto import mock_s3
 import pytest
 import os
 import boto3
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.compute.test_util_common import (
@@ -157,7 +157,7 @@ def test_compact_partition_incremental(
     test_name: str,
     primary_keys_param: Set[str],
     sort_keys_param: Dict[str, str],
-    partition_keys_param: Dict[str, str],
+    partition_keys_param: Optional[Dict[str, str]],
     partition_values_param: str,
     column_names_param: List[str],
     input_deltas_arrow_arrays_param: List[pa.Array],
@@ -190,7 +190,6 @@ def test_compact_partition_incremental(
     sort_keys = setup_sort_keys(sort_keys_param)
     partition_keys = setup_partition_keys(partition_keys_param)
     delta_type = DeltaType(input_deltas_delta_type)
-    ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
         primary_keys_param,

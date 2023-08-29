@@ -20,6 +20,9 @@ from deltacat.storage import (
     DeltaType,
 )
 
+ZERO_VALUED_PARTITION_VALUES_PARAM = []
+ZERO_VALUED_PARTITION_KEYS_PARAM = None
+
 ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Callable] = [compact_partition_v1]
 
 
@@ -312,6 +315,35 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         ],
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         partition_values_param=["1"],
+        column_names_param=["pk_col_1", "sk_col_1"],
+        input_deltas_arrow_arrays_param=[
+            pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+            pa.array(reversed([i for i in range(20)])),
+        ],
+        input_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0.1, 0.2, 0.3, 0.4, 0.5]),
+                pa.array([19, 15, 11, 7, 3]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        validation_callback_func=None,
+        validation_callback_func_kwargs=None,
+        create_placement_group_param=True,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count_param=None,
+        create_table_strategy=create_src_w_deltas_destination_strategy,
+    ),
+    "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCase(
+        primary_keys_param={"pk_col_1"},
+        sort_keys_param=[
+            {
+                "key_name": "sk_col_1",
+            },
+        ],
+        partition_keys_param=ZERO_VALUED_PARTITION_KEYS_PARAM,
+        partition_values_param=ZERO_VALUED_PARTITION_KEYS_PARAM,
         column_names_param=["pk_col_1", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
