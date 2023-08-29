@@ -62,12 +62,12 @@ def setup_compaction_artifacts_s3_bucket(setup_s3_resource: ServiceResource):
     yield
 
 
-@pytest.fixture(scope="function")
-def setup_ray_cluster():
-    # module scoped starting up a ray cluster as it can be shared between parametrized test functions without side effects
-    # calling ray.shutdown() ensures that any other ray instance started up by other test suites will not interfere with this one
-    ray.init(local_mode=True, ignore_reinit_error=True)
-    yield
+# @pytest.fixture(scope="function")
+# def setup_ray_cluster():
+#     # module scoped starting up a ray cluster as it can be shared between parametrized test functions without side effects
+#     # calling ray.shutdown() ensures that any other ray instance started up by other test suites will not interfere with this one
+#     ray.init(local_mode=True, ignore_reinit_error=True)
+#     yield
 
 
 """
@@ -147,7 +147,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
 )
 def test_compact_partition_incremental(
     request: pytest.FixtureRequest,
-    setup_ray_cluster,
+    # setup_ray_cluster,
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
     test_name: str,
@@ -181,6 +181,7 @@ def test_compact_partition_incremental(
     )
 
     ds_mock_kwargs = setup_local_deltacat_storage_conn
+    ray.init(local_mode=True, ignore_reinit_error=True)
 
     # setup
     sort_keys = setup_sort_keys(sort_keys_param)
