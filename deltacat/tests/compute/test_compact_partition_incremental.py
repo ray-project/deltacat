@@ -78,7 +78,9 @@ FUNCTION scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
+def setup_local_deltacat_storage_conn(
+    setup_ray_cluster, request: pytest.FixtureRequest
+):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
