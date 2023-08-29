@@ -24,6 +24,14 @@ DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "deltacat/tests/local_deltacat_storage/db_test.sqlite",
 )
 
+
+@pytest.fixture(autouse=True, scope="module")
+def setup_ray_cluster():
+    ray.shutdown()
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    yield
+
+
 """
 MODULE scoped fixtures
 """
@@ -174,11 +182,10 @@ def test_compact_partition_incremental(
 
     # setup
     sort_keys = sort_keys_param
-    # sort_keys = setup_sort_keys(sort_keys_param)
     partition_keys = setup_partition_keys(partition_keys_param)
     delta_type = DeltaType(input_deltas_delta_type)
-    ray.shutdown()
-    ray.init(local_mode=True, ignore_reinit_error=True)
+    # ray.shutdown()
+    # ray.init(local_mode=True, ignore_reinit_error=True)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
         primary_keys_param,
         sort_keys,

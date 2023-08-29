@@ -22,6 +22,7 @@ from deltacat.storage import (
 
 from deltacat.storage.model.sort_key import SortKey
 
+ZERO_VALUED_SORT_KEY = []
 ZERO_VALUED_PARTITION_KEYS_PARAM = None
 ZERO_VALUED_PARTITION_VALUES_PARAM = []
 
@@ -49,7 +50,7 @@ def create_tests_cases_for_enabled_compactor_versions(
 @dataclass(frozen=True)
 class CompactorTestCase:
     primary_keys_param: Dict[str, str]
-    sort_keys_param: Dict[str, str]
+    sort_keys_param: List[SortKey]
     partition_keys_param: List[Dict[str, str]]
     partition_values_param: str
     column_names_param: List[str]
@@ -83,7 +84,7 @@ class RebaseThenIncrementalCompactorTestCase(CompactorTestCase):
 INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "1-incremental-pkstr-sknone-norcf": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
-        sort_keys_param=[],
+        sort_keys_param=ZERO_VALUED_SORT_KEY,
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         partition_values_param=["1"],
         column_names_param=["pk_col_1"],
@@ -102,7 +103,7 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCase(
         primary_keys_param={"pk_col_1"},
-        sort_keys_param=[],
+        sort_keys_param=ZERO_VALUED_SORT_KEY,
         partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1"],
@@ -317,13 +318,13 @@ INCREMENTAL_INDEPENDENT_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         column_names_param=["pk_col_1", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
             pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
-            pa.array(reversed([i for i in range(20)])),
+            pa.array([i for i in range(20)]),
         ],
         input_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([0.1, 0.2, 0.3, 0.4, 0.5]),
-                pa.array([16, 12, 8, 4, 0]),
+                pa.array([3, 7, 11, 15, 19]),
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
