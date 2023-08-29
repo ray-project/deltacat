@@ -16,7 +16,6 @@ from deltacat.tests.compute.test_util_constant import (
 )
 from deltacat.tests.compute.test_util_common import (
     setup_partition_keys,
-    setup_sort_keys,
     get_compacted_delta_locator_from_rcf,
 )
 from deltacat.tests.compute.compact_partition_test_cases import (
@@ -190,6 +189,7 @@ def test_compact_partition_rebase_then_incremental(
     )
 
     ds_mock_kwargs = setup_local_deltacat_storage_conn
+    ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     """
     REBASE
@@ -199,7 +199,7 @@ def test_compact_partition_rebase_then_incremental(
     destination_table_name = BASE_TEST_DESTINATION_TABLE_NAME
     destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
 
-    sort_keys = setup_sort_keys(sort_keys_param)
+    sort_keys = sort_keys_param
     partition_keys = setup_partition_keys(partition_keys_param)
     delta_type = DeltaType(input_deltas_delta_type)
     (
