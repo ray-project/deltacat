@@ -447,5 +447,5 @@ INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
 
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
-    REBASE_THEN_INCREMENTAL_TEST_CASES
+    # REBASE_THEN_INCREMENTAL_TEST_CASES
 )

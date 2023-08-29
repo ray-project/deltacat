@@ -164,7 +164,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
 )
 def test_compact_partition_rebase_then_incremental(
     request: pytest.FixtureRequest,
-    setup_ray_cluster,
     setup_s3_resource: ServiceResource,
     setup_local_deltacat_storage_conn: Dict[str, Any],
     test_name: str,
