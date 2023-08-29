@@ -67,7 +67,7 @@ def setup_ray_cluster():
     # module scoped starting up a ray cluster as it can be shared between parametrized test functions without side effects
     # calling ray.shutdown() ensures that any other ray instance started up by other test suites will not interfere with this one
     ray.shutdown()
-    ray.init(local_mode=True)
+    ray.init()
     assert ray.is_initialized()
     yield
 

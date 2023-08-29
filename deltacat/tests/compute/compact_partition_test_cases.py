@@ -23,7 +23,9 @@ from deltacat.storage import (
 ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Callable] = [compact_partition_v1]
 
 
-def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List] = None):
+def create_tests_cases_for_enabled_compactor_versions(
+    test_cases: Dict[str, List] = None
+):
     if test_cases is None:
         test_cases = {}
     final_cases = {}
@@ -64,7 +66,6 @@ class CompactorTestCase:
 @dataclass(frozen=True)
 class IncrementalCompactionTestCase(CompactorTestCase):
     pass
-    # create_table_strategy = lambda *args, **kwargs: create_table_for_incremental_case_strategy(**kwargs)
 
 
 @dataclass(frozen=True)
@@ -440,11 +441,11 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     ),
 }
 
-INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
+INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
     INCREMENTAL_INDEPENDENT_TEST_CASES
 )
 
 
-REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_all_compactor_versions(
+REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
     REBASE_THEN_INCREMENTAL_TEST_CASES
 )
