@@ -178,6 +178,7 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         self,
         schema: Optional[pa.Schema] = None,
         pq_coerce_int96_timestamp_unit: Optional[str] = None,
+        parquet_reader_type: Optional[str] = None,
     ):
         """
 
@@ -190,6 +191,7 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         """
         self.schema = schema
         self.pq_coerce_int96_timestamp_unit = pq_coerce_int96_timestamp_unit
+        self.parquet_reader_type = parquet_reader_type
 
     def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if content_type in DELIMITED_TEXT_CONTENT_TYPES:
@@ -208,6 +210,11 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
                 kwargs[
                     "coerce_int96_timestamp_unit"
                 ] = self.pq_coerce_int96_timestamp_unit
+
+            if self.parquet_reader_type:
+                kwargs["reader_type"] = self.parquet_reader_type
+            else:
+                kwargs["reader_type"] = "daft"
 
         return kwargs
 
@@ -383,16 +390,18 @@ def s3_file_to_table(
             f"Performing read using parquet reader for encoding={content_encoding} "
             f"and content_type={content_type}"
         )
+        kwargs = {}
+        if pa_read_func_kwargs_provider is not None:
+            kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
-        # TODO(sammy): pass row groups to daft reader as well.
-        # We currently take in the row offset and len rather than the indices of the requested row groups.
-        # Should be a simple change to have the option for both
-        parquet_reader_func = daft_s3_file_to_table
-
-        # if partial_file_download_params and isinstance(
-        #     partial_file_download_params, PartialParquetParameters
-        # ):
-        #     parquet_reader_func = s3_partial_parquet_file_to_table
+        if kwargs.get("reader_type", "daft") == "daft":
+            parquet_reader_func = daft_s3_file_to_table
+        elif partial_file_download_params and isinstance(
+            partial_file_download_params, PartialParquetParameters
+        ):
+            parquet_reader_func = s3_partial_parquet_file_to_table
+        else:
+            parquet_reader_func = s3_parquet_file_to_table
 
         return parquet_reader_func(
             s3_url=s3_url,
