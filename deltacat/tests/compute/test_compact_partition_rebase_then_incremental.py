@@ -183,7 +183,6 @@ def test_compact_partition_rebase_then_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
-        DeltaType,
         Partition,
         PartitionLocator,
         Stream,
@@ -207,7 +206,6 @@ def test_compact_partition_rebase_then_incremental(
     destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
 
     partition_keys = setup_partition_keys(partition_keys_param)
-    delta_type = DeltaType(input_deltas_delta_type)
     (
         source_table_stream,
         destination_table_stream,
@@ -218,7 +216,7 @@ def test_compact_partition_rebase_then_incremental(
         partition_keys,
         column_names_param,
         input_deltas_arrow_arrays_param,
-        delta_type,
+        input_deltas_delta_type,
         partition_values_param,
         ds_mock_kwargs,
     )

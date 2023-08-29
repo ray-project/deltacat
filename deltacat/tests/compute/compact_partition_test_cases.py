@@ -55,7 +55,7 @@ class CompactorTestCase:
     partition_values_param: str
     column_names_param: List[str]
     input_deltas_arrow_arrays_param: List[pa.Array]
-    input_deltas_delta_type: str
+    input_deltas_delta_type: DeltaType
     expected_terminal_compact_partition_result: pa.Table
     create_placement_group_param: bool
     records_per_compacted_file_param: int

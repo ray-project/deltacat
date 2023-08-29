@@ -167,7 +167,6 @@ def test_compact_partition_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
-        DeltaType,
         PartitionLocator,
     )
     from deltacat.compute.compactor.model.compact_partition_params import (
@@ -181,16 +180,13 @@ def test_compact_partition_incremental(
 
     # setup
     partition_keys = setup_partition_keys(partition_keys_param)
-    delta_type = DeltaType(input_deltas_delta_type)
-    # ray.shutdown()
-    # ray.init(local_mode=True, ignore_reinit_error=True)
     source_table_stream, destination_table_stream, _ = create_table_strategy(
         primary_keys,
         sort_keys,
         partition_keys,
         column_names_param,
         input_deltas_arrow_arrays_param,
-        delta_type,
+        input_deltas_delta_type,
         partition_values_param,
         ds_mock_kwargs,
     )
