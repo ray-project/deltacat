@@ -11,3 +11,6 @@ pytest-mock == 3.14.0
 pytest_benchmark == 4.0.0
 ray[default] >= 2.20.0
 requests-mock == 1.11.0
+pyiceberg @ git+https://github.com/apache/iceberg#subdirectory=python
+pydantic == 2.0
+ray[data] ~= 2.6
