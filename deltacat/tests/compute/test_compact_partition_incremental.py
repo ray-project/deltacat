@@ -167,6 +167,7 @@ def test_compact_partition_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
+        DeltaLocator,
         PartitionLocator,
     )
     from deltacat.compute.compactor.model.compact_partition_params import (
@@ -230,7 +231,7 @@ def test_compact_partition_incremental(
     # execute
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
     # validate
-    compacted_delta_locator = get_compacted_delta_locator_from_rcf(
+    compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         setup_s3_resource, rcf_file_s3_uri
     )
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)

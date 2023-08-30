@@ -306,7 +306,7 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
-    compacted_delta_locator = get_compacted_delta_locator_from_rcf(
+    compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         setup_s3_resource, rcf_file_s3_uri
     )
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
