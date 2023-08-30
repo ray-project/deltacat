@@ -6,6 +6,9 @@ import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.compute.test_util_constant import (
+    BASE_TEST_SOURCE_NAMESPACE,
+    BASE_TEST_SOURCE_TABLE_NAME,
+    BASE_TEST_SOURCE_TABLE_VERSION,
     TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
@@ -272,6 +275,17 @@ def test_compact_partition_rebase_then_incremental(
     """
     INCREMENTAL
     """
+    source_table_stream = ds.get_stream(
+        BASE_TEST_SOURCE_NAMESPACE,
+        BASE_TEST_SOURCE_TABLE_NAME,
+        BASE_TEST_SOURCE_TABLE_VERSION,
+        **ds_mock_kwargs,
+    )
+    source_partition: Partition = ds.get_partition(
+        source_table_stream.locator,
+        partition_values_param,
+        **ds_mock_kwargs,
+    )
     incremental_deltas: pa.Table = pa.Table.from_arrays(
         incremental_deltas_arrow_arrays_param,
         names=column_names_param,
