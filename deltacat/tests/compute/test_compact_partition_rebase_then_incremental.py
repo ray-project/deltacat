@@ -6,9 +6,6 @@ import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.tests.compute.test_util_constant import (
-    BASE_TEST_DESTINATION_NAMESPACE,
-    BASE_TEST_DESTINATION_TABLE_NAME,
-    BASE_TEST_DESTINATION_TABLE_VERSION,
     TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
@@ -183,9 +180,10 @@ def test_compact_partition_rebase_then_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
+        Delta,
+        DeltaLocator,
         Partition,
         PartitionLocator,
-        Stream,
     )
     from deltacat.compute.compactor.model.compact_partition_params import (
         CompactPartitionParams,
@@ -200,10 +198,6 @@ def test_compact_partition_rebase_then_incremental(
     """
     REBASE
     """
-
-    destination_table_namespace = BASE_TEST_DESTINATION_NAMESPACE
-    destination_table_name = BASE_TEST_DESTINATION_TABLE_NAME
-    destination_table_version = BASE_TEST_DESTINATION_TABLE_VERSION
 
     partition_keys = setup_partition_keys(partition_keys_param)
     (
@@ -267,7 +261,7 @@ def test_compact_partition_rebase_then_incremental(
     )
     # execute
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
-    compacted_delta_locator = get_compacted_delta_locator_from_rcf(
+    compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         setup_s3_resource, rcf_file_s3_uri
     )
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
@@ -275,42 +269,15 @@ def test_compact_partition_rebase_then_incremental(
     assert compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{compacted_table} does not match {rebase_expected_compact_partition_result}"
-
     """
     INCREMENTAL
     """
-    compacted_table_stream: Stream = ds.get_stream(
-        namespace=compacted_delta_locator.namespace,
-        table_name=compacted_delta_locator.table_name,
-        table_version=compacted_delta_locator.table_version,
-        **ds_mock_kwargs,
-    )
-    test_table: pa.Table = pa.Table.from_arrays(
+    incremental_deltas: pa.Table = pa.Table.from_arrays(
         incremental_deltas_arrow_arrays_param,
         names=column_names_param,
     )
-    staged_partition: Partition = ds.stage_partition(
-        compacted_table_stream, partition_values_param, **ds_mock_kwargs
-    )
-    ds.commit_delta(
-        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
-    )
-    ds.commit_partition(staged_partition, **ds_mock_kwargs)
-    source_table_stream_after_committed: Stream = ds.get_stream(
-        namespace=compacted_delta_locator.namespace,
-        table_name=compacted_delta_locator.table_name,
-        table_version=compacted_delta_locator.table_version,
-        **ds_mock_kwargs,
-    )
-    source_partition: Partition = ds.get_partition(
-        source_table_stream_after_committed.locator,
-        partition_values_param,
-        **ds_mock_kwargs,
-    )
-    destination_table_stream: Stream = ds.get_stream(
-        destination_table_namespace,
-        destination_table_name,
-        destination_table_version,
+    new_delta: Delta = ds.commit_delta(
+        ds.stage_delta(incremental_deltas, source_partition, **ds_mock_kwargs),
         **ds_mock_kwargs,
     )
     destination_partition_locator: PartitionLocator = PartitionLocator.of(
@@ -327,7 +294,7 @@ def test_compact_partition_rebase_then_incremental(
             "deltacat_storage_kwargs": ds_mock_kwargs,
             "destination_partition_locator": destination_partition_locator,
             "hash_bucket_count": hash_bucket_count_param,
-            "last_stream_position_to_compact": source_partition.stream_position,
+            "last_stream_position_to_compact": new_delta.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys,
