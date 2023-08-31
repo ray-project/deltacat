@@ -206,7 +206,6 @@ class TestRepartitionRange(unittest.TestCase):
                 self.destination_partition,
                 self.repartition_args,
                 self.max_records_per_output_file,
-                self.s3_table_writer_kwargs,
                 self.repartitioned_file_content_type,
                 self.deltacat_storage,
             ),

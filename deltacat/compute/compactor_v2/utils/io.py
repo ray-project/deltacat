@@ -91,26 +91,29 @@ def create_uniform_input_deltas(
     min_delta_bytes: Optional[float] = MIN_DELTA_BYTES_IN_BATCH,
     min_file_counts: Optional[float] = MIN_FILES_IN_BATCH,
     previous_inflation: Optional[float] = PYARROW_INFLATION_MULTIPLIER,
+    enable_input_split: Optional[bool] = False,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[DeltaAnnotated]:
 
     delta_bytes = 0
-    delta_manifest_entries = 0
+    delta_manifest_entries_count = 0
     estimated_da_bytes = 0
     input_da_list = []
 
     for delta in input_deltas:
-        manifest_entries = delta.manifest.entries
-        delta_manifest_entries += len(manifest_entries)
-        for entry_index in range(len(manifest_entries)):
-            entry = append_content_type_params(
+        if enable_input_split:
+            append_content_type_params(
                 delta=delta,
-                entry_index=entry_index,
                 deltacat_storage=deltacat_storage,
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
             )
 
+        manifest_entries = delta.manifest.entries
+        delta_manifest_entries_count += len(manifest_entries)
+
+        for entry_index in range(len(manifest_entries)):
+            entry = manifest_entries[entry_index]
             delta_bytes += entry.meta.content_length
             estimated_da_bytes += estimate_manifest_entry_size_bytes(
                 entry=entry, previous_inflation=previous_inflation
@@ -121,7 +124,7 @@ def create_uniform_input_deltas(
 
     logger.info(f"Input deltas to compact this round: " f"{len(input_da_list)}")
     logger.info(f"Input delta bytes to compact: {delta_bytes}")
-    logger.info(f"Input delta files to compact: {delta_manifest_entries}")
+    logger.info(f"Input delta files to compact: {delta_manifest_entries_count}")
 
     if not input_da_list:
         raise RuntimeError("No input deltas to compact!")
@@ -138,7 +141,7 @@ def create_uniform_input_deltas(
     )
 
     compaction_audit.set_input_size_bytes(delta_bytes)
-    compaction_audit.set_input_file_count(delta_manifest_entries)
+    compaction_audit.set_input_file_count(delta_manifest_entries_count)
     compaction_audit.set_estimated_in_memory_size_bytes_during_discovery(
         estimated_da_bytes
     )
