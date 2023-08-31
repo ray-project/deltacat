@@ -8,7 +8,7 @@ from ray.types import ObjectRef
 from deltacat import logs
 from deltacat.aws import s3u as s3_utils
 from deltacat.aws.clients import client_cache
-from deltacat.aws.constants import AWS_REGION, AWS_ENDPOINT_URL_STS
+from deltacat.aws.constants import AWS_REGION
 from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.metastats.utils.io import (
     cache_inflation_rate_data_for_delta_stats_ready,
@@ -95,11 +95,7 @@ def start_stats_collection(
 
 
 def _get_account_id() -> str:
-    client = client_cache(
-        "sts",
-        region_name=AWS_REGION,
-        endpoint_url=AWS_ENDPOINT_URL_STS,
-    )
+    client = client_cache("sts", region_name=AWS_REGION)
     account_id = client.get_caller_identity()["Account"]
     return account_id
 
