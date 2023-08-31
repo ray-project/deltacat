@@ -286,6 +286,7 @@ def s3_partial_parquet_file_to_table(
         content_type=content_type,
         content_encoding=content_encoding,
         partial_file_download_params=partial_file_download_params,
+        pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
         **s3_client_kwargs,
     )
 
@@ -473,6 +474,10 @@ def s3_file_to_parquet(
 
 def table_size(table: pa.Table) -> int:
     return table.nbytes
+
+
+def parquet_file_size(table: papq.ParquetFile) -> int:
+    return table.metadata.serialized_size
 
 
 def table_to_file(
