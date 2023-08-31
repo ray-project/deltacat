@@ -1,4 +1,4 @@
-from deltacat.utils.common import env_string
+from deltacat.utils.common import env_string, env_bool
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -30,6 +30,10 @@ DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME = env_string(
 )
 # A json context which will be logged along with other context args.
 DELTACAT_LOGGER_CONTEXT = env_string("DELTACAT_LOGGER_CONTEXT", None)
+DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
+    "DELTACAT_LOGGER_USE_SINGLE_HANDLER",
+    False,
+)
 
 # Byte Units
 BYTES_PER_KIBIBYTE = 2**10

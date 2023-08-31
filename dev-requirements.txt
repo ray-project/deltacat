@@ -5,12 +5,12 @@ isort == 5.10.1
 memray == 1.6.0; platform_system != "Windows" and sys_platform != "darwin" and platform_machine != "arm64" and platform_machine != "aarch64"
 moto==4.1.12
 pre-commit == 2.20.0
+pydantic == 2.0
+pyiceberg @ git+https://github.com/apache/iceberg#subdirectory=python
 pytest == 7.2.0
 pytest-cov == 4.0.0
 pytest-mock == 3.14.0
 pytest_benchmark == 4.0.0
 ray[default] >= 2.20.0
 requests-mock == 1.11.0
-pyiceberg @ git+https://github.com/apache/iceberg#subdirectory=python
-pydantic == 2.0
-ray[data] ~= 2.6
+requests-mock == 1.11.0

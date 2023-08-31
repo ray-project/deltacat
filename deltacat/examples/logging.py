@@ -1,24 +1,26 @@
 import os
-import sys
 import ray
 import logging
 
 from deltacat import logs
 from deltacat.examples.common.fixtures import create_runtime_environment
 
-logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+# initialize the driver logger
+driver_logger = logs.configure_application_logger(logging.getLogger(__name__))
 
 
 @ray.remote
 def logging_worker(var1, var2):
-    logger.debug(f"Worker System Environment: {os.environ}")
-    logger.debug(f"Worker Variable 1: {var1}")
-    logger.debug(f"Worker Variable 2: {var2}")
+    # for AWS Glue, worker loggers must be initialized within the worker process
+    worker_logger = logs.configure_application_logger(logging.getLogger(__name__))
+    worker_logger.debug(f"Worker System Environment: {os.environ}")
+    worker_logger.info(f"Worker Variable 1: {var1}")
+    worker_logger.info(f"Worker Variable 2: {var2}")
 
 
 def run(var1="default1", var2="default2", **kwargs):
-    logger.debug(f"Driver Variable 1: {var1}")
-    logger.debug(f"Driver Variable 2: {var2}")
+    driver_logger.info(f"Driver Variable 1: {var1}")
+    driver_logger.info(f"Driver Variable 2: {var2}")
     logging_worker.remote(var1, var2)
 
 
