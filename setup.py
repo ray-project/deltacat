@@ -36,6 +36,7 @@ setuptools.setup(
     install_requires=[
         # any changes here should also be reflected in requirements.txt
         "boto3 ~= 1.20",
+        "getdaft == 0.1.15",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
         "pyarrow == 12.0.1",
@@ -47,7 +48,6 @@ setuptools.setup(
         "typing-extensions == 4.4.0",
         "pymemcache == 4.0.0",
         "redis == 4.6.0",
-        "getdaft == 0.1.15",
         "schedule == 1.2.0",
     ],
     setup_requires=["wheel"],

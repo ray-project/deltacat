@@ -45,6 +45,7 @@ Where every instance of $USER will be replaced by the value of `os.environ["USER
 import os
 import argparse
 
+# command line arguments
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "script_path",
@@ -104,7 +105,16 @@ args_mutex.add_argument(
     type=str,
 )
 
+# path constants
 ROOT_DIR = os.path.dirname(__file__)
+
+# logging constants
+GLUE_SYS_LOG_DIR = "/tmp/ray/session_latest/logs/"
+GLUE_SYS_INFO_LOG_BASE_FILE_NAME = "worker-dc.sys.info.out"
+GLUE_SYS_DEBUG_LOG_BASE_FILE_NAME = "worker-dc.sys.debug.out"
+GLUE_APP_LOG_DIR = "/tmp/ray/session_latest/logs/"
+GLUE_APP_INFO_LOG_BASE_FILE_NAME = "worker-dc.app.info.out"
+GLUE_APP_DEBUG_LOG_BASE_FILE_NAME = "worker-dc.app.debug.out"
 
 
 if __name__ == "__main__":
@@ -192,6 +202,7 @@ if __name__ == "__main__":
         "glue",
         region,
     )
+    # create or update a glue job
     try:
         response = glue_client.get_job(JobName=glue_job_name)
         print(f"Found Existing Glue Job `{glue_job_name}`: {response}")
@@ -202,9 +213,8 @@ if __name__ == "__main__":
             JobName=glue_job_name,
             JobUpdate=glue_job_config,
         )
-    except ClientError as e:
+    except ClientError:
         print(f"Glue Job `{glue_job_name}` doesn't exist. Creating it.")
-        # create or update a glue job
         glue_client.create_job(
             Name=glue_job_name,
             **glue_job_config,
@@ -231,12 +241,13 @@ if __name__ == "__main__":
         # set deltacat logging environment variables to be picked up by Glue
         "--DELTACAT_APP_LOG_LEVEL": "DEBUG",
         "--DELTACAT_SYS_LOG_LEVEL": "DEBUG",
-        "--DELTACAT_APP_LOG_DIR": "/home/glue-ray-engine/var/log/",
-        "--DELTACAT_SYS_LOG_DIR": "/home/glue-ray-engine/var/log/",
-        "--DELTACAT_APP_INFO_LOG_BASE_FILE_NAME": "customer_script.log.dc.app.info",
-        "--DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME": "customer_script.log.dc.sys.info",
-        "--DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME": "customer_script.log.dc.app.debug",
-        "--DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME": "customer_script.log.dc.sys.debug",
+        "--DELTACAT_APP_LOG_DIR": GLUE_APP_LOG_DIR,
+        "--DELTACAT_SYS_LOG_DIR": GLUE_SYS_LOG_DIR,
+        "--DELTACAT_APP_INFO_LOG_BASE_FILE_NAME": GLUE_APP_INFO_LOG_BASE_FILE_NAME,
+        "--DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME": GLUE_SYS_INFO_LOG_BASE_FILE_NAME,
+        "--DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME": GLUE_APP_DEBUG_LOG_BASE_FILE_NAME,
+        "--DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME": GLUE_SYS_DEBUG_LOG_BASE_FILE_NAME,
+        "--DELTACAT_LOGGER_USE_SINGLE_HANDLER": "True",
     }
 
     new_package = None
@@ -267,10 +278,10 @@ if __name__ == "__main__":
 
     # print command to tail logs
     print(
-        "Tail real-time Ray driver logs for your job run by running: "
-        "aws logs tail /aws-glue/ray/jobs/script-log --follow"
+        "Tail real-time logs for your job run by running: "
+        "aws logs tail /aws-glue/ray/jobs/ray-worker-out-logs --follow"
     )
     print(
-        "Tail real-time Ray remote worker logs for your job run by running: "
-        "aws logs tail /aws-glue/ray/jobs/ray-worker-out-logs --follow"
+        "Tail Ray driver standard out from your job run by running: "
+        "aws logs tail /aws-glue/ray/jobs/script-log --follow"
     )

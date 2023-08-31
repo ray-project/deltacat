@@ -1,4 +1,4 @@
-from deltacat.utils.common import env_string
+from deltacat.utils.common import env_string, env_bool
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -27,6 +27,10 @@ DELTACAT_APP_INFO_LOG_BASE_FILE_NAME = env_string(
 DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME = env_string(
     "DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME",
     "application.debug.log",
+)
+DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
+    "DELTACAT_LOGGER_USE_SINGLE_HANDLER",
+    False,
 )
 
 # Byte Units
