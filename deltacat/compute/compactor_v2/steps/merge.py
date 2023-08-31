@@ -222,6 +222,10 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     materialize_result_list = []
     hb_index_to_indices = round_completion_info.hb_index_to_entry_range
 
+    if hb_index_copy_by_reference is None:
+        logger.info(f"Nothing to copy by reference. Skipping...")
+        return []
+
     for hb_index in hb_index_copy_by_reference:
         if str(hb_index) not in hb_index_to_indices:
             continue
