@@ -222,7 +222,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     materialize_result_list = []
     hb_index_to_indices = round_completion_info.hb_index_to_entry_range
 
-    if hb_index_copy_by_reference is None:
+    if hb_index_to_indices is None:
         logger.info(f"Nothing to copy by reference. Skipping...")
         return []
 
