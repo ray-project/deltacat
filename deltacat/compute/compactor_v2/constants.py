@@ -32,3 +32,6 @@ TOTAL_MEMORY_BUFFER_PERCENTAGE = 20
 # Since, sorting is nlogn, we ensure that is not performed
 # on a very large dataset for best performance.
 MAX_SIZE_OF_RECORD_BATCH_IN_GIB = 2 * 1024 * 1024 * 1024
+
+# Whether to drop duplicates during merge.
+DROP_DUPLICATES = True

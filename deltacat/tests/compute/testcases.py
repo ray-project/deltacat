@@ -12,13 +12,18 @@ from deltacat.tests.compute.common import (
 from deltacat.compute.compactor.compaction_session import (
     compact_partition_from_request as compact_partition_v1,
 )
+from deltacat.compute.compactor_v2.compaction_session import (
+    compact_partition as compact_partition_v2,
+)
 
 
 def create_tests_cases_for_all_compactor_versions(test_cases: Dict[str, List]):
     final_cases = {}
-    for version, compact_partition_func in enumerate([compact_partition_v1]):
+    for version, compact_partition_func in enumerate(
+        [compact_partition_v1, compact_partition_v2]
+    ):
         for case_name, case_value in test_cases.items():
-            final_cases[f"{case_name}_v{version}"] = [
+            final_cases[f"{case_name}_v{version + 1}"] = [
                 *case_value,
                 compact_partition_func,
             ]
