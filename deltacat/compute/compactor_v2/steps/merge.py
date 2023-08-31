@@ -418,6 +418,9 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     input.deltacat_storage_kwargs,
                 )
             )
+            logger.info(
+                f"Copying {len(referenced_materialized_results)} manifest files by reference..."
+            )
             materialized_results.extend(referenced_materialized_results)
 
         assert total_dfes_found == len(hb_index_to_delta_file_envelopes_list), (

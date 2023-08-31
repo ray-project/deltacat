@@ -97,7 +97,7 @@ def create_uniform_input_deltas(
 ) -> List[DeltaAnnotated]:
 
     delta_bytes = 0
-    delta_manifest_entries = 0
+    delta_manifest_entries_count = 0
     estimated_da_bytes = 0
     input_da_list = []
 
@@ -110,7 +110,7 @@ def create_uniform_input_deltas(
             )
 
         manifest_entries = delta.manifest.entries
-        delta_manifest_entries += len(manifest_entries)
+        delta_manifest_entries_count += len(manifest_entries)
 
         for entry_index in range(len(manifest_entries)):
             entry = manifest_entries[entry_index]
@@ -124,7 +124,7 @@ def create_uniform_input_deltas(
 
     logger.info(f"Input deltas to compact this round: " f"{len(input_da_list)}")
     logger.info(f"Input delta bytes to compact: {delta_bytes}")
-    logger.info(f"Input delta files to compact: {delta_manifest_entries}")
+    logger.info(f"Input delta files to compact: {delta_manifest_entries_count}")
 
     if not input_da_list:
         raise RuntimeError("No input deltas to compact!")
@@ -141,7 +141,7 @@ def create_uniform_input_deltas(
     )
 
     compaction_audit.set_input_size_bytes(delta_bytes)
-    compaction_audit.set_input_file_count(delta_manifest_entries)
+    compaction_audit.set_input_file_count(delta_manifest_entries_count)
     compaction_audit.set_estimated_in_memory_size_bytes_during_discovery(
         estimated_da_bytes
     )
