@@ -1,5 +1,4 @@
 import inspect
-import copy
 from typing import Any, Dict
 
 
@@ -13,7 +12,7 @@ def sanitize_kwargs_to_callable(callable: Any, kwargs: Dict) -> Dict:
     signature = inspect.signature(callable)
     params = signature.parameters
 
-    new_kwargs = copy.copy(kwargs)
+    new_kwargs = {**kwargs}
 
     for key in params:
         if params[key].kind == inspect.Parameter.VAR_KEYWORD:

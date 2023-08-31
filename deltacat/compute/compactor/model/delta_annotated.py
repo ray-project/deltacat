@@ -89,6 +89,11 @@ class DeltaAnnotated(Delta):
         for delta_annotated in annotated_deltas:
             split_annotated_deltas.extend(DeltaAnnotated._split_single(delta_annotated))
 
+        logger.info(
+            f"Split the {len(annotated_deltas)} annotated deltas "
+            f"into {len(split_annotated_deltas)} groups."
+        )
+
         for src_da in split_annotated_deltas:
             src_da_annotations = src_da.annotations
             src_da_entries = src_da.manifest.entries
@@ -280,12 +285,11 @@ class DeltaAnnotated(Delta):
                         )
 
                         result.append(new_da)
+                else:
+                    return [delta_annotated]
 
-        if result:
-            return result
-        else:
-            logger.info(
-                f"Split was not performed on the delta with locator: {delta_annotated.locator}"
-            )
+        logger.info(
+            f"Split was not performed on the delta with locator: {delta_annotated.locator}"
+        )
 
         return [delta_annotated]

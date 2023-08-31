@@ -38,6 +38,7 @@ class PartialParquetParameters(PartialFileDownloadParams):
             num_row_groups = pq_metadata.num_row_groups
             row_groups_to_download = [rg for rg in range(num_row_groups)]
             in_memory_size_bytes = 0.0
+            num_rows = pq_metadata.num_rows
 
             for rg in row_groups_to_download:
                 row_group_meta = pq_metadata.row_group(rg)
