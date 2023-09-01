@@ -33,15 +33,74 @@ from deltacat.types.partial_download import (
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.daft import daft_s3_file_to_table
-from deltacat.utils.arguments import sanitize_kwargs_to_callable
+from deltacat.utils.arguments import (
+    sanitize_kwargs_to_callable,
+    sanitize_kwargs_by_supported_kwargs,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+
+def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Schema:
+
+    target_schema_fields = []
+
+    for column_name in columns:
+        index = schema.get_field_index(column_name)
+
+        if index != -1:
+            target_field = schema.field(index)
+            target_schema_fields.append(target_field)
+
+    target_schema = pa.schema(target_schema_fields, metadata=schema.metadata)
+
+    return target_schema
+
+
+def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
+    try:
+        kwargs = sanitize_kwargs_by_supported_kwargs(
+            ["read_options", "parse_options", "convert_options", "memory_pool"], kwargs
+        )
+        return pacsv.read_csv(*args, **kwargs)
+    except pa.lib.ArrowInvalid as e:
+        if e.__str__() == "Empty CSV file":
+            schema = None
+            if (
+                "convert_options" in kwargs
+                and kwargs["convert_options"].column_types is not None
+            ):
+                schema = kwargs["convert_options"].column_types
+                if not isinstance(schema, pa.Schema):
+                    schema = pa.schema(schema)
+                if kwargs["convert_options"].include_columns:
+                    schema = _filter_schema_for_columns(
+                        schema, kwargs["convert_options"].include_columns
+                    )
+                elif (
+                    kwargs.get("read_options") is not None
+                    and kwargs["read_options"].column_names
+                ):
+                    schema = _filter_schema_for_columns(
+                        schema, kwargs["read_options"].column_names
+                    )
+
+            else:
+                logger.debug(
+                    "Schema not specified in the kwargs."
+                    " Hence, schema could not be inferred from the empty CSV."
+                )
+
+            logger.debug(f"Read CSV empty schema being used: {schema}")
+            return pa.Table.from_pylist([], schema=schema)
+        raise e
+
+
 CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
-    ContentType.UNESCAPED_TSV.value: pacsv.read_csv,
-    ContentType.TSV.value: pacsv.read_csv,
-    ContentType.CSV.value: pacsv.read_csv,
-    ContentType.PSV.value: pacsv.read_csv,
+    ContentType.UNESCAPED_TSV.value: pyarrow_read_csv,
+    ContentType.TSV.value: pyarrow_read_csv,
+    ContentType.CSV.value: pyarrow_read_csv,
+    ContentType.PSV.value: pyarrow_read_csv,
     ContentType.PARQUET.value: papq.read_table,
     ContentType.FEATHER.value: paf.read_table,
     # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
