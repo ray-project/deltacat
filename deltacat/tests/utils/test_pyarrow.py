@@ -6,6 +6,7 @@ from deltacat.utils.pyarrow import (
     content_type_to_reader_kwargs,
     _add_column_kwargs,
     ReadKwargsProviderPyArrowSchemaOverride,
+    RAISE_ON_EMPTY_CSV_KWARG,
 )
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
@@ -323,3 +324,22 @@ class TestReadCSV(TestCase):
         self.assertEqual(len(result.column_names), 1)
         result_schema = result.schema
         self.assertEqual(result_schema.field(0).type, "string")
+
+    def test_read_csv_when_empty_csv_and_raise_on_empty_passed(self):
+
+        schema = pa.schema(
+            [("is_active", pa.string()), ("ship_datetime_utc", pa.timestamp("us"))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(ContentType.UNESCAPED_TSV.value, ["is_active"], None, kwargs)
+
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        self.assertRaises(
+            pa.lib.ArrowInvalid,
+            lambda: pyarrow_read_csv(
+                EMPTY_UTSV_PATH, **{**kwargs, RAISE_ON_EMPTY_CSV_KWARG: True}
+            ),
+        )

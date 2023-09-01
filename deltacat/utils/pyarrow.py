@@ -40,6 +40,8 @@ from deltacat.utils.arguments import (
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+RAISE_ON_EMPTY_CSV_KWARG = "raise_on_empty_csv"
+
 
 def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Schema:
 
@@ -59,12 +61,12 @@ def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Sche
 
 def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
     try:
-        kwargs = sanitize_kwargs_by_supported_kwargs(
+        new_kwargs = sanitize_kwargs_by_supported_kwargs(
             ["read_options", "parse_options", "convert_options", "memory_pool"], kwargs
         )
-        return pacsv.read_csv(*args, **kwargs)
+        return pacsv.read_csv(*args, **new_kwargs)
     except pa.lib.ArrowInvalid as e:
-        if e.__str__() == "Empty CSV file":
+        if e.__str__() == "Empty CSV file" and not kwargs.get(RAISE_ON_EMPTY_CSV_KWARG):
             schema = None
             if (
                 "convert_options" in kwargs
