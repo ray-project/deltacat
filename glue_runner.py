@@ -161,12 +161,17 @@ if __name__ == "__main__":
         if returncode != 0:
             raise RuntimeError(f"Command {cmd} Failed. Exit Code: {returncode}")
 
-    s3_client = boto3.client("s3")
+    region = args.region
+    s3_client = boto3.client("s3", region_name=region)
 
     # upload the example runner script to S3
     bucket_name = f"deltacat-glue-scripts-{stage}"
     print(f"Ensuring Glue Job Script Bucket exists: {bucket_name}")
-    s3_client.create_bucket(Bucket=bucket_name)
+    bucket_location = region if region and str.lower(region) != "us-east-1" else None
+    create_bucket_kwargs = {"Bucket": bucket_name}
+    if region and str.lower(region) != "us-east-1":
+        create_bucket_kwargs["CreateBucketConfiguration":{"LocationConstraint": region}]
+    s3_client.create_bucket(**create_bucket_kwargs)
     print(f"Using Glue Job Script Bucket: {bucket_name}")
 
     # create or update the glue job
@@ -187,7 +192,7 @@ if __name__ == "__main__":
     glue_job_config = {
         "Role": glue_iam_role,
         "GlueVersion": "4.0",
-        "ExecutionProperty": {"MaxConcurrentRuns": 10},
+        "ExecutionProperty": {"MaxConcurrentRuns": 2},
         "WorkerType": "Z.2X",
         "NumberOfWorkers": glue_max_workers,
         "Command": {
@@ -197,15 +202,24 @@ if __name__ == "__main__":
             "ScriptLocation": s3_glue_script_file_path,
         },
     }
-    region = args.region
     glue_client = boto3.client(
         "glue",
-        region,
+        region_name=region,
     )
     # create or update a glue job
     try:
         response = glue_client.get_job(JobName=glue_job_name)
         print(f"Found Existing Glue Job `{glue_job_name}`: {response}")
+        if (
+            job_cmd_name := response.get("Job")
+            and response["Job"].get("Command")
+            and response["Job"]["Command"].get("Name")
+        ):
+            if job_cmd_name != "glueray":
+                raise RuntimeError(
+                    f"Expected Job Type 'glueray' but Found '{job_cmd_name}'"
+                )
+            print(f"Found Expected Job Type: {job_cmd_name}")
         print(f"Updating Existing Glue Job `{glue_job_name}`")
         if not glue_iam_role:
             glue_job_config["Role"] = response["Job"]["Role"]
@@ -213,29 +227,33 @@ if __name__ == "__main__":
             JobName=glue_job_name,
             JobUpdate=glue_job_config,
         )
-    except ClientError:
-        print(f"Glue Job `{glue_job_name}` doesn't exist. Creating it.")
-        glue_client.create_job(
-            Name=glue_job_name,
-            **glue_job_config,
-        )
+    except ClientError as e:
+        if (
+            e.response.get("Error")
+            and e.response["Error"].get("Code") == "EntityNotFoundException"
+        ):
+            print(f"Glue Job `{glue_job_name}` Doesn't Exist. Creating it.")
+            glue_client.create_job(
+                Name=glue_job_name,
+                **glue_job_config,
+            )
+        else:
+            raise RuntimeError(f"Unexpected Error While Getting/Updating Glue Job: {e}")
     print(f"New Glue Job Config: {glue_job_config}")
 
     print(f"Getting Last Job Run Arguments for {glue_job_name}")
     response = glue_client.get_job_runs(
         JobName=glue_job_name,
     )
-    job_runs = response["JobRuns"]
+    job_runs = response.get("JobRuns")
     last_job_run_args = (
         job_runs[0]["Arguments"] if job_runs and "Arguments" in job_runs[0] else {}
     )
     print(f"Last Job Run Args for {glue_job_name}: {last_job_run_args}\n\n")
 
     cli_args = args.example_script_args
-    last_job_run_packages = last_job_run_args.get("--PACKAGE")
     last_job_run_pip = last_job_run_args.get("--pip-install")
     glue_start_job_run_args = {
-        "--PACKAGE": last_job_run_packages,
         "--pip-install": last_job_run_pip,
         "--STAGE": stage,
         # set deltacat logging environment variables to be picked up by Glue
@@ -247,6 +265,7 @@ if __name__ == "__main__":
         "--DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME": GLUE_SYS_INFO_LOG_BASE_FILE_NAME,
         "--DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME": GLUE_APP_DEBUG_LOG_BASE_FILE_NAME,
         "--DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME": GLUE_SYS_DEBUG_LOG_BASE_FILE_NAME,
+        # Glue joins all logs to a single stream, so use a single handler to avoid duplicates
         "--DELTACAT_LOGGER_USE_SINGLE_HANDLER": "True",
     }
 
@@ -255,12 +274,11 @@ if __name__ == "__main__":
         new_package = f"deltacat @ {dc_url}"
     elif dc_version:
         new_package = f"deltacat=={dc_version}"
-    elif not (last_job_run_packages and last_job_run_pip):
+    elif not last_job_run_pip:
         # install the latest version of deltacat
         new_package = "deltacat"
     if new_package:
         glue_start_job_run_args["--pip-install"] = new_package
-        glue_start_job_run_args["--PACKAGE"] = new_package
 
     if cli_args:
         extra_args_dict = json.loads(cli_args)
@@ -278,10 +296,10 @@ if __name__ == "__main__":
 
     # print command to tail logs
     print(
-        "Tail real-time logs for your job run by running: "
-        "aws logs tail /aws-glue/ray/jobs/ray-worker-out-logs --follow"
+        "Tail real-time logs and worker standard out for your job run by running: "
+        f"aws --region {region} logs tail /aws-glue/ray/jobs/ray-worker-out-logs --follow"
     )
     print(
-        "Tail Ray driver standard out from your job run by running: "
-        "aws logs tail /aws-glue/ray/jobs/script-log --follow"
+        "Tail real-time Ray driver standard out from your job run by running: "
+        f"aws --region {region} logs tail /aws-glue/ray/jobs/script-log --follow"
     )
