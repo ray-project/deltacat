@@ -43,7 +43,7 @@ class TestCloudpickleBugFix(unittest.TestCase):
     """
 
     def test_sanity(self):
-        ray.init(local_mode=True)
+        ray.init(local_mode=True, ignore_reinit_error=True)
 
         result = ray.get(calculate_pickled_length.remote(AnyObject()))
 
