@@ -151,10 +151,10 @@ def _resource(name: str, region: Optional[str], **kwargs) -> ServiceResource:
     boto3_session = _get_session_from_kwargs(kwargs)
 
     boto_config = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
+    kwargs = {"config": boto_config, **kwargs}
     return boto3_session.resource(
         name,
         region,
-        config=boto_config,
         **kwargs,
     )
 
@@ -169,10 +169,10 @@ def _client(name: str, region: Optional[str], **kwargs) -> BaseClient:
         boto_config = Config(
             retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"}
         )
+        kwargs = {"config": boto_config, **kwargs}
         return boto3_session.client(
             name,
             region,
-            config=boto_config,
             **kwargs,
         )
 
