@@ -421,6 +421,21 @@ class CompactionSessionAuditInfo(dict):
         return self.get("usedCPUSeconds")
 
     @property
+    def used_memory_gb_seconds(self) -> float:
+        """
+        The used memory in the cluster weighted over time. This
+        determines opportunities for better memory estimation.
+        """
+        return self.get("usedMemoryGBSeconds")
+
+    @property
+    def total_memory_gb_seconds(self) -> float:
+        """
+        Total memory in the cluster weighted over time in GB.
+        """
+        return self.get("totalMemoryGBSeconds")
+
+    @property
     def pyarrow_version(self) -> str:
         """
         The version of PyArrow used.
@@ -741,6 +756,14 @@ class CompactionSessionAuditInfo(dict):
 
     def set_used_cpu_seconds(self, value: float) -> CompactionSessionAuditInfo:
         self["usedCPUSeconds"] = value
+        return self
+
+    def set_used_memory_gb_seconds(self, value: float) -> CompactionSessionAuditInfo:
+        self["usedMemoryGBSeconds"] = value
+        return self
+
+    def set_total_memory_gb_seconds(self, value: float) -> CompactionSessionAuditInfo:
+        self["totalMemoryGBSeconds"] = value
         return self
 
     def set_pyarrow_version(self, value: str) -> CompactionSessionAuditInfo:

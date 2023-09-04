@@ -286,7 +286,13 @@ class DeltaAnnotated(Delta):
 
                         result.append(new_da)
                 else:
+                    logger.info(
+                        f"Split was not performed on correct delta with locator: {delta_annotated.locator}"
+                    )
                     return [delta_annotated]
+
+        if result:
+            return result
 
         logger.info(
             f"Split was not performed on the delta with locator: {delta_annotated.locator}"

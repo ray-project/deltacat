@@ -109,7 +109,7 @@ def block_until_instance_metadata_service_returns_success(
     url=INSTANCE_METADATA_SERVICE_IPV4_URI,
     retry_strategy=RetryIfRetryableHTTPStatusCode,
     wait_strategy=wait_fixed(2),  # wait 2 seconds before retrying,
-    stop_strategy=stop_after_delay(60 * 10),  # stop trying after 10 minutes
+    stop_strategy=stop_after_delay(60 * 30),  # stop trying after 30 minutes
 ) -> Optional[Response]:
     """Blocks until the instance metadata service returns a successful response.
 

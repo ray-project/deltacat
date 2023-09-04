@@ -29,6 +29,7 @@ class MemcachedObjectStore(IObjectStore):
         self.port = port
         self.storage_node_ips = storage_node_ips
         self.hasher = None
+        logger.info(f"The storage node IPs: {self.storage_node_ips}")
         super().__init__()
 
     def initialize_hasher(self):
@@ -129,9 +130,13 @@ class MemcachedObjectStore(IObjectStore):
         base_client = Client((ip_address, self.port))
         client = RetryingClient(
             base_client,
-            attempts=3,
-            retry_delay=0.01,
-            retry_for=[MemcacheUnexpectedCloseError, ConnectionResetError],
+            attempts=15,
+            retry_delay=1,
+            retry_for=[
+                MemcacheUnexpectedCloseError,
+                ConnectionResetError,
+                BrokenPipeError,
+            ],
         )
 
         self.client_cache[ip_address] = client

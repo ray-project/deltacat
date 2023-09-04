@@ -90,6 +90,7 @@ class CompactPartitionParams(dict):
             "hash_group_count", result.hash_bucket_count
         )
         result.drop_duplicates = params.get("drop_duplicates", DROP_DUPLICATES)
+        result.ray_custom_resources = params.get("ray_custom_resources")
 
         if not importlib.util.find_spec("memray"):
             result.enable_profiler = False
@@ -287,6 +288,14 @@ class CompactPartitionParams(dict):
     @property
     def hash_group_count(self) -> int:
         return self["hash_group_count"]
+
+    @property
+    def ray_custom_resources(self) -> Dict:
+        return self["ray_custom_resources"]
+
+    @ray_custom_resources.setter
+    def ray_custom_resources(self, res) -> None:
+        self["ray_custom_resources"] = res
 
     @hash_group_count.setter
     def hash_group_count(self, count: int) -> None:

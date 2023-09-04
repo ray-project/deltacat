@@ -23,10 +23,10 @@ AVERAGE_RECORD_SIZE_BYTES = 1000
 # r5.8xlarge EC2 instances.
 TASK_MAX_PARALLELISM = 5367
 
-# The percentage of memory that needs to be estimated
+# The percentage of memory that needs to be allocated
 # as buffer. This value will ensure the job doesn't run out
 # of memory by considering buffer for uncertainities.
-TOTAL_MEMORY_BUFFER_PERCENTAGE = 20
+TOTAL_MEMORY_BUFFER_PERCENTAGE = 30
 
 # The total size of records that will be hash bucketed at once
 # Since, sorting is nlogn, we ensure that is not performed
@@ -35,3 +35,8 @@ MAX_SIZE_OF_RECORD_BATCH_IN_GIB = 2 * 1024 * 1024 * 1024
 
 # Whether to drop duplicates during merge.
 DROP_DUPLICATES = True
+
+# PARQUET to PYARROW inflation multiplier
+# This is the observed upper bound inflation for parquet
+# size in metadata to pyarrow table size.
+PARQUET_TO_PYARROW_INFLATION = 4
