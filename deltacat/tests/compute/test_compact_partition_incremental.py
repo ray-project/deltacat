@@ -214,6 +214,7 @@ def test_compact_partition_incremental(
             "pg_config": pgm,
             "primary_keys": primary_keys,
             "rebase_source_partition_locator": None,
+            "rebase_source_partition_high_watermark": None,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition.locator,

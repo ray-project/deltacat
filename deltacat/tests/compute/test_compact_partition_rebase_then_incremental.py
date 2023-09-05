@@ -1,4 +1,3 @@
-import daft
 import ray
 import os
 from moto import mock_s3
@@ -10,13 +9,9 @@ from deltacat.tests.compute.test_util_constant import (
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
     BASE_TEST_SOURCE_TABLE_VERSION,
-    BASE_TEST_DESTINATION_NAMESPACE,
-    BASE_TEST_DESTINATION_TABLE_NAME,
-    BASE_TEST_DESTINATION_TABLE_VERSION,
     TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
-    DEFAULT_MAX_RECORDS_PER_FILE,
 )
 from deltacat.tests.compute.test_util_common import (
     setup_partition_keys,
@@ -184,7 +179,6 @@ def test_compact_partition_rebase_then_incremental(
         Partition,
         PartitionLocator,
         Stream,
-        TableVersion,
     )
     from deltacat.compute.compactor.model.compact_partition_params import (
         CompactPartitionParams,
@@ -283,18 +277,11 @@ def test_compact_partition_rebase_then_incremental(
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {expected_terminal_compact_partition_result}"
-    # assert False is True
     """
     INCREMENTAL
     """
-    source_table_stream_2 = ds.get_stream(
-        BASE_TEST_SOURCE_NAMESPACE,
-        BASE_TEST_SOURCE_TABLE_NAME,
-        BASE_TEST_SOURCE_TABLE_VERSION,
-        **ds_mock_kwargs,
-    )
     source_partition_2: Partition = ds.get_partition(
-        source_table_stream_2.locator,
+        source_table_stream.locator,
         partition_values_param,
         **ds_mock_kwargs,
     )
@@ -306,7 +293,7 @@ def test_compact_partition_rebase_then_incremental(
         ds.stage_delta(incremental_deltas, source_partition_2, **ds_mock_kwargs),
         **ds_mock_kwargs,
     )
-    source_table_stream_3 = ds.get_stream(
+    source_table_stream_3: Stream = ds.get_stream(
         BASE_TEST_SOURCE_NAMESPACE,
         BASE_TEST_SOURCE_TABLE_NAME,
         BASE_TEST_SOURCE_TABLE_VERSION,
@@ -317,11 +304,6 @@ def test_compact_partition_rebase_then_incremental(
         partition_values_param,
         **ds_mock_kwargs,
     )
-    destination_partition_locator: PartitionLocator = PartitionLocator.of(
-        destination_table_stream.locator,
-        partition_values_param,
-        None,
-    )
     compact_partition_params = CompactPartitionParams.of(
         {
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -329,13 +311,14 @@ def test_compact_partition_rebase_then_incremental(
             "dd_max_parallelism_ratio": 1.0,
             "deltacat_storage": ds,
             "deltacat_storage_kwargs": ds_mock_kwargs,
-            "destination_partition_locator": destination_partition_locator,
+            "destination_partition_locator": compacted_delta_locator.partition_locator,
             "hash_bucket_count": hash_bucket_count_param,
             "last_stream_position_to_compact": new_delta.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys,
             "rebase_source_partition_locator": None,
+            "rebase_source_partition_high_watermark": None,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition_3.locator,
@@ -343,10 +326,10 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
-    compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
+    compacted_delta_locator_2: DeltaLocator = get_compacted_delta_locator_from_rcf(
         setup_s3_resource, rcf_file_s3_uri
     )
-    tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
+    tables = ds.download_delta(compacted_delta_locator_2, **ds_mock_kwargs)
     actual_compacted_table = pa.concat_tables(tables)
     expected_terminal_compact_partition_result = (
         expected_terminal_compact_partition_result.combine_chunks().sort_by(
