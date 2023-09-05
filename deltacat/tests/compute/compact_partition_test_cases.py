@@ -5,6 +5,7 @@ from deltacat.tests.compute.test_util_common import (
 )
 from deltacat.tests.compute.test_util_constant import (
     DEFAULT_MAX_RECORDS_PER_FILE,
+    DEFAULT_HASH_BUCKET_COUNT,
 )
 from dataclasses import dataclass, fields
 
@@ -19,6 +20,9 @@ from deltacat.tests.compute.test_util_create_deltas_strategy import (
 from deltacat.storage import (
     DeltaType,
 )
+from deltacat.compute.compactor_v2.compaction_session import (
+    compact_partition as compact_partition_v2,
+)
 
 from deltacat.storage.model.sort_key import SortKey
 
@@ -26,7 +30,10 @@ ZERO_VALUED_SORT_KEY = []
 ZERO_VALUED_PARTITION_KEYS_PARAM = None
 ZERO_VALUED_PARTITION_VALUES_PARAM = []
 
-ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Callable] = [compact_partition_v1]
+ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Callable] = [
+    compact_partition_v1,
+    compact_partition_v2,
+]
 
 
 def create_tests_cases_for_enabled_compactor_versions(
@@ -64,8 +71,6 @@ class CompactorTestCase:
         create_placement_group_param: bool - toggles whether to create a pg or not
         records_per_compacted_file_param: int - argument for the records_per_compacted_file parameter in compact_partition
         hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
-        validation_callback_func: Callable
-        validation_callback_func_kwargs: Dict[str, str]
         create_table_strategy: Callable
     """
 
@@ -80,8 +85,6 @@ class CompactorTestCase:
     create_placement_group_param: bool
     records_per_compacted_file_param: int
     hash_bucket_count_param: int
-    validation_callback_func: Callable
-    validation_callback_func_kwargs: Dict[str, str]
     create_table_strategy: Callable
 
     # makes CompactorTestCase iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
@@ -124,11 +127,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             [pa.array([str(i) for i in range(10)])],
             names=["pk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCase(
@@ -146,11 +147,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             [pa.array([str(i) for i in range(10)]), pa.array(["test"] * 10)],
             names=["pk_col_1", "sk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCase(
@@ -176,11 +175,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCase(
@@ -206,11 +203,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCase(
@@ -231,11 +226,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCase(
@@ -256,11 +249,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCase(
@@ -281,11 +272,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCase(
@@ -308,11 +297,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "pk_col_2", "sk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCase(
@@ -333,11 +320,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCase(
@@ -358,11 +343,9 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
     ),
 }
@@ -409,11 +392,9 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
         create_placement_group_param=False,
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
     ),
     # "12-rebase-then-incremental-duplicate-pk": RebaseThenIncrementalCompactorTestCase(

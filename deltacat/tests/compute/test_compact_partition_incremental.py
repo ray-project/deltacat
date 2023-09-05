@@ -98,8 +98,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
-        "validation_callback_func",
-        "validation_callback_func_kwargs",
         "create_table_strategy",
         "compact_partition_func",
     ],
@@ -117,8 +115,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
-            validation_callback_func,
-            validation_callback_func_kwargs,
             create_table_strategy,
             compact_partition_func,
         )
@@ -134,8 +130,6 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
-            validation_callback_func,
-            validation_callback_func_kwargs,
             create_table_strategy,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
@@ -159,8 +153,6 @@ def test_compact_partition_incremental(
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
-    validation_callback_func: Callable,  # use and implement func and func_kwargs if you want to run additional validations apart from the ones in the test
-    validation_callback_func_kwargs: Dict[str, Any],
     create_table_strategy: Callable,
     compact_partition_func: Callable,
 ):
@@ -249,9 +241,4 @@ def test_compact_partition_incremental(
     assert compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{compacted_table} does not match {expected_terminal_compact_partition_result}"
-    if (
-        validation_callback_func is not None
-        and validation_callback_func_kwargs is not None
-    ):
-        validation_callback_func(**validation_callback_func_kwargs)
     return
