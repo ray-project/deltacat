@@ -11,7 +11,10 @@ from deltacat.compute.compactor.model.round_completion_info import RoundCompleti
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
-from deltacat.compute.compactor_v2.constants import TOTAL_MEMORY_BUFFER_PERCENTAGE
+from deltacat.compute.compactor_v2.constants import (
+    TOTAL_MEMORY_BUFFER_PERCENTAGE,
+    PARQUET_TO_PYARROW_INFLATION,
+)
 
 
 def _get_parquet_type_params_if_exist(
@@ -45,7 +48,19 @@ def _calculate_parquet_column_size(
             "Columns not found in the parquet data as "
             f"{columns_found} != {len(columns)}"
         )
-    return column_size
+    return column_size * PARQUET_TO_PYARROW_INFLATION
+
+
+def _get_task_options(
+    cpu: float, memory: float, ray_custom_resources: Optional[Dict] = None
+) -> Dict:
+
+    task_opts = {"num_cpus": cpu, "memory": memory}
+
+    if ray_custom_resources:
+        task_opts["resources"] = ray_custom_resources
+
+    return task_opts
 
 
 def estimate_manifest_entry_size_bytes(
@@ -57,7 +72,7 @@ def estimate_manifest_entry_size_bytes(
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
     if type_params:
-        return type_params.in_memory_size_bytes
+        return type_params.in_memory_size_bytes * PARQUET_TO_PYARROW_INFLATION
 
     return entry.meta.content_length * previous_inflation
 
@@ -103,6 +118,7 @@ def hash_bucket_resource_options_provider(
     previous_inflation: float,
     average_record_size_bytes: float,
     primary_keys: List[str] = None,
+    ray_custom_resources: Optional[Dict] = None,
     **kwargs,
 ) -> Dict:
     size_bytes = 0.0
@@ -141,7 +157,7 @@ def hash_bucket_resource_options_provider(
     # Consider buffer
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
-    return {"num_cpus": 0.01, "memory": total_memory}
+    return _get_task_options(0.01, total_memory, ray_custom_resources)
 
 
 def merge_resource_options_provider(
@@ -152,6 +168,7 @@ def merge_resource_options_provider(
     hash_group_num_rows: Dict[int, int],
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
+    ray_custom_resources: Optional[Dict] = None,
     primary_keys: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict] = {},
@@ -218,4 +235,4 @@ def merge_resource_options_provider(
 
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
-    return {"num_cpus": 0.01, "memory": total_memory}
+    return _get_task_options(0.01, total_memory, ray_custom_resources)
