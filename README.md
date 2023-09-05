@@ -11,8 +11,20 @@ for common table management tasks, including petabyte-scale
 change-data-capture, data consistency checks, and table repair.
 
 ## Getting Started
----
+
 ### Install
+
 ```
 pip install deltacat
+```
+
+### Running Tests
+
+```
+pip3 install virtualenv
+virtualenv test_env
+source test_env/bin/activate
+pip3 install -r requirements.txt
+
+pytest
 ```

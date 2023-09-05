@@ -41,6 +41,7 @@ class TableType(str, Enum):
     PYARROW = "pyarrow"
     PANDAS = "pandas"
     NUMPY = "numpy"
+    PYARROW_PARQUET = "pyarrow_parquet"
 
 
 class SchemaType(str, Enum):

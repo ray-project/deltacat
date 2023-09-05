@@ -21,6 +21,7 @@ from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
 
 TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+    TableType.PYARROW_PARQUET.value: pa_utils.s3_file_to_parquet,
     TableType.PYARROW.value: pa_utils.s3_file_to_table,
     TableType.PANDAS.value: pd_utils.s3_file_to_dataframe,
     TableType.NUMPY.value: np_utils.s3_file_to_ndarray,

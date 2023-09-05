@@ -13,7 +13,6 @@ from deltacat.compute.compactor.model.round_completion_info import (
     RoundCompletionInfo,
     HighWatermark,
 )
-from deltacat.compute.compactor.model.sort_key import SortKey, SortOrder
 
 __all__ = [
     "DeltaAnnotated",
@@ -27,6 +26,4 @@ __all__ = [
     "PyArrowWriteResult",
     "RoundCompletionInfo",
     "HighWatermark",
-    "SortKey",
-    "SortOrder",
 ]

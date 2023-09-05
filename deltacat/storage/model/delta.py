@@ -256,7 +256,8 @@ class Delta(dict):
 class DeltaLocator(Locator, dict):
     @staticmethod
     def of(
-        partition_locator: Optional[PartitionLocator], stream_position: Optional[int]
+        partition_locator: Optional[PartitionLocator] = None,
+        stream_position: Optional[int] = None,
     ) -> DeltaLocator:
         """
         Creates a partition delta locator. Stream Position, if provided, should

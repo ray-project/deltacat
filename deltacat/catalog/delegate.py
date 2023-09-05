@@ -5,7 +5,7 @@ import ray
 
 from deltacat.catalog.model.catalog import Catalog, all_catalogs
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.compute.compactor.model.sort_key import SortKey
+from deltacat.storage.model.sort_key import SortKey
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace
 from deltacat.storage.model.types import (

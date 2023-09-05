@@ -36,15 +36,19 @@ setuptools.setup(
     install_requires=[
         # any changes here should also be reflected in requirements.txt
         "boto3 ~= 1.20",
+        "getdaft == 0.1.15",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
-        "pyarrow == 10.0.1",
-        "pydantic == 1.10.4",
-        "pyiceberg @ git+https://github.com/apache/iceberg#subdirectory=python",
-        "ray[default] ~= 2.0",
+        "pyarrow == 12.0.1",
+        "pydantic >= 1.10.4",
+        "pyiceberg >= 0.4.0",
+        "ray[data] ~= 2.4",
         "s3fs == 2023.1.0",
         "tenacity == 8.1.0",
         "typing-extensions == 4.4.0",
+        "pymemcache == 4.0.0",
+        "redis == 4.6.0",
+        "schedule == 1.2.0",
     ],
     setup_requires=["wheel"],
     package_data={

@@ -1,4 +1,4 @@
-from deltacat.utils.common import env_string
+from deltacat.utils.common import env_string, env_bool
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -28,6 +28,10 @@ DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME = env_string(
     "DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME",
     "application.debug.log",
 )
+DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
+    "DELTACAT_LOGGER_USE_SINGLE_HANDLER",
+    False,
+)
 
 # Byte Units
 BYTES_PER_KIBIBYTE = 2**10
@@ -35,6 +39,9 @@ BYTES_PER_MEBIBYTE = 2**20
 BYTES_PER_GIBIBYTE = 2**30
 BYTES_PER_TEBIBYTE = 2**40
 BYTES_PER_PEBIBYTE = 2**50
+
+SIGNED_INT64_MIN_VALUE = -(2**63)
+SIGNED_INT64_MAX_VALUE = 2**63 - 1
 
 # Inflation multiplier from snappy-compressed parquet to pyarrow.
 # This should be kept larger than actual average inflation multipliers.
@@ -48,9 +55,5 @@ PYARROW_INFLATION_MULTIPLIER = 2.5
 
 # Inflation multiplier from snappy-compressed parquet to pyarrow for all columns.
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
-
-PRIMARY_KEY_INDEX_WRITE_BOTO3_CONFIG = {
-    "retries": {"max_attempts": 25, "mode": "standard"}
-}
 
 MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE

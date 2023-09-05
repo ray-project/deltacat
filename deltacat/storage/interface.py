@@ -2,7 +2,6 @@ from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 import pyarrow as pa
 
-from deltacat import SortKey
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -21,6 +20,7 @@ from deltacat.storage import (
     StreamLocator,
     Table,
     TableVersion,
+    SortKey,
 )
 from deltacat.types.media import ContentType, StorageType, TableType
 from deltacat.utils.common import ReadKwargsProvider
@@ -295,6 +295,8 @@ def update_table(
     description: Optional[str] = None,
     properties: Optional[Dict[str, str]] = None,
     new_table_name: Optional[str] = None,
+    *args,
+    **kwargs
 ) -> None:
     """
     Update table metadata describing the table versions it contains. By default,
@@ -443,7 +445,7 @@ def get_partition(
 
 
 def stage_delta(
-    data: Union[LocalTable, LocalDataset, DistributedDataset],
+    data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
     partition: Partition,
     delta_type: DeltaType = DeltaType.UPSERT,
     max_records_per_entry: Optional[int] = None,

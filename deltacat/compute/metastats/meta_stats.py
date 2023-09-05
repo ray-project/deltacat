@@ -5,7 +5,7 @@ import functools
 import logging
 import os
 import pathlib
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import ray
 from ray.types import ObjectRef
@@ -118,10 +118,12 @@ def collect_from_partition(
     stat_results_s3_bucket: Optional[str] = None,
     metastats_results_s3_bucket: Optional[str] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     *args,
     **kwargs,
 ) -> ObjectRef[Dict[int, DeltaStats]]:
-
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     if not columns:
         columns = deltacat_storage.get_table_version_column_names(
             source_partition_locator.namespace,

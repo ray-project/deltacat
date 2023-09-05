@@ -16,6 +16,7 @@ from deltacat.constants import (
     DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME,
     DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME,
     DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME,
+    DELTACAT_LOGGER_USE_SINGLE_HANDLER,
 )
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -131,21 +132,24 @@ def _configure_logger(
 ) -> Union[Logger, LoggerAdapter]:
     primary_log_level = log_level
     logger.propagate = False
+    needs_handler = True
     if log_level.upper() == "DEBUG":
         if not _file_handler_exists(logger, log_dir, debug_log_base_file_name):
             handler = _create_rotating_file_handler(
                 log_dir, debug_log_base_file_name, "DEBUG"
             )
             _add_logger_handler(logger, handler)
+            needs_handler = not DELTACAT_LOGGER_USE_SINGLE_HANDLER
             primary_log_level = "INFO"
-    if not _file_handler_exists(logger, log_dir, log_base_file_name):
+    if not _file_handler_exists(logger, log_dir, log_base_file_name) and needs_handler:
         handler = _create_rotating_file_handler(
             log_dir, log_base_file_name, primary_log_level
         )
         _add_logger_handler(logger, handler)
-    ray_runtime_ctx = ray.get_runtime_context()
-    if ray_runtime_ctx.worker.connected:
-        logger = RayRuntimeContextLoggerAdapter(logger, ray_runtime_ctx)
+    if ray.is_initialized():
+        ray_runtime_ctx = ray.get_runtime_context()
+        if ray_runtime_ctx.worker.connected:
+            logger = RayRuntimeContextLoggerAdapter(logger, ray_runtime_ctx)
 
     return logger
 

@@ -8,3 +8,7 @@ class NonRetryableError(Exception):
 
 class ConcurrentModificationError(Exception):
     pass
+
+
+class ValidationError(NonRetryableError):
+    pass

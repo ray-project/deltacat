@@ -170,6 +170,10 @@ class ManifestMeta(dict):
     def content_type_parameters(self) -> Optional[List[Dict[str, str]]]:
         return self.get("content_type_parameters")
 
+    @content_type_parameters.setter
+    def content_type_parameters(self, params: List[Dict[str, str]]) -> None:
+        self["content_type_parameters"] = params
+
     @property
     def credentials(self) -> Optional[Dict[str, str]]:
         return self.get("credentials")

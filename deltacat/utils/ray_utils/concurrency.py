@@ -1,7 +1,7 @@
 import copy
 import itertools
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
-
+from deltacat.utils.placement import PlacementGroupConfig
 import ray
 from ray._private.ray_constants import MIN_RESOURCE_GRANULARITY
 from ray.types import ObjectRef
@@ -115,3 +115,28 @@ def round_robin_options_provider(
         resource_key_index = i % len(resource_keys)
         key = resource_keys[resource_key_index]
         return {"resources": {key: resource_amount_provider(resource_key_index)}}
+
+
+def task_resource_options_provider(
+    i: int,
+    item: Any,
+    resource_amount_provider: Callable[[int, Any], Dict] = lambda x: {},
+    pg_config: Optional[PlacementGroupConfig] = None,
+    **kwargs,
+) -> Dict:
+    """
+    Return options that needs to be provided to each task.
+    """
+
+    options = resource_amount_provider(i, item, **kwargs)
+    if pg_config:
+        options_to_append = copy.deepcopy(pg_config.opts)
+        bundle_key_index = i % len(
+            options_to_append["scheduling_strategy"].placement_group.bundle_specs
+        )
+        options_to_append[
+            "scheduling_strategy"
+        ].placement_group_bundle_index = bundle_key_index
+        options = {**options, **options_to_append}
+
+    return options
