@@ -287,7 +287,8 @@ class DeltaAnnotated(Delta):
                         result.append(new_da)
                 else:
                     logger.info(
-                        f"Split was not performed on correct delta with locator: {delta_annotated.locator}"
+                        f"Split was not performed on delta with locator: {delta_annotated.locator} "
+                        "as partial parquet params was not found."
                     )
                     return [delta_annotated]
 
