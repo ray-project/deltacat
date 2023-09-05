@@ -438,14 +438,12 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     #         ],
     #         names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
     #     ),
-    #     validation_callback_func=None,
-    #     validation_callback_func_kwargs=None,
     #     create_placement_group_param=False,
     #     records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-    #     hash_bucket_count_param=None,
+    #     hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
     #     create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
     # ),
-    # "14-rebase-then-incremental-multiple-pk": RebaseThenIncrementalCompactorTestCase(
+    # "13-rebase-then-incremental-multiple-pk": RebaseThenIncrementalCompactorTestCase(
     #     primary_keys={"pk_col_1", "pk_col_2"},
     #     sort_keys=[
     #         SortKey.of(key_name="sk_col_1"),
@@ -506,11 +504,9 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     #         ],
     #         names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
     #     ),
-    #     validation_callback_func=None,
-    #     validation_callback_func_kwargs=None,
     #     create_placement_group_param=False,
     #     records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-    #     hash_bucket_count_param=None,
+    #     hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
     #     create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
     # ),
 }
@@ -521,5 +517,5 @@ INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
 
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
-    # REBASE_THEN_INCREMENTAL_TEST_CASES
+    REBASE_THEN_INCREMENTAL_TEST_CASES
 )
