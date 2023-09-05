@@ -133,7 +133,7 @@ def _execute_compaction(
     # read the results from any previously completed compaction round
     round_completion_info = None
     high_watermark = None
-    previous_compacted_delta = None
+    previous_compacted_delta_manifest = None
 
     if not params.rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
@@ -147,13 +147,11 @@ def _execute_compaction(
             )
         else:
             compacted_delta_locator = round_completion_info.compacted_delta_locator
-            previous_compacted_delta = params.deltacat_storage.get_delta(
-                namespace=compacted_delta_locator.namespace,
-                table_name=compacted_delta_locator.table_name,
-                table_version=compacted_delta_locator.table_version,
-                stream_position=compacted_delta_locator.stream_position,
-                include_manifest=True,
-                **params.deltacat_storage_kwargs,
+
+            previous_compacted_delta_manifest = (
+                params.deltacat_storage.get_delta_manifest(
+                    compacted_delta_locator, **params.deltacat_storage_kwargs
+                )
             )
 
             high_watermark = round_completion_info.high_watermark
@@ -182,7 +180,22 @@ def _execute_compaction(
         params.list_deltas_kwargs,
     )
 
+    uniform_deltas = io.create_uniform_input_deltas(
+        input_deltas=input_deltas,
+        hash_bucket_count=params.hash_bucket_count,
+        compaction_audit=compaction_audit,
+        deltacat_storage=params.deltacat_storage,
+        previous_inflation=params.previous_inflation,
+        min_delta_bytes=params.min_delta_bytes_in_batch,
+        min_file_counts=params.min_files_in_batch,
+        # disable input split during rebase as the rebase files are already uniform
+        enable_input_split=params.rebase_source_partition_locator is None,
+        deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+    )
+
     delta_discovery_end = time.monotonic()
+
+    compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
     compaction_audit.set_delta_discovery_time_in_seconds(
         delta_discovery_end - delta_discovery_start
     )
@@ -197,19 +210,6 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
 
-    uniform_deltas = io.create_uniform_input_deltas(
-        input_deltas=input_deltas,
-        hash_bucket_count=params.hash_bucket_count,
-        compaction_audit=compaction_audit,
-        deltacat_storage=params.deltacat_storage,
-        previous_inflation=params.previous_inflation,
-        min_delta_bytes=params.min_delta_bytes_in_batch,
-        min_file_counts=params.min_files_in_batch,
-        deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-    )
-
-    compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
-
     hb_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
@@ -221,20 +221,21 @@ def _execute_compaction(
 
     hb_start = time.monotonic()
 
-    hash_bucket_input_provider = lambda index, item: {
-        "input": HashBucketInput.of(
-            item,
-            primary_keys=params.primary_keys,
-            num_hash_buckets=params.hash_bucket_count,
-            num_hash_groups=params.hash_group_count,
-            enable_profiler=params.enable_profiler,
-            metrics_config=params.metrics_config,
-            read_kwargs_provider=params.read_kwargs_provider,
-            object_store=params.object_store,
-            deltacat_storage=params.deltacat_storage,
-            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        )
-    }
+    def hash_bucket_input_provider(index, item):
+        return {
+            "input": HashBucketInput.of(
+                item,
+                primary_keys=params.primary_keys,
+                num_hash_buckets=params.hash_bucket_count,
+                num_hash_groups=params.hash_group_count,
+                enable_profiler=params.enable_profiler,
+                metrics_config=params.metrics_config,
+                read_kwargs_provider=params.read_kwargs_provider,
+                object_store=params.object_store,
+                deltacat_storage=params.deltacat_storage,
+                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+            )
+        }
 
     hb_tasks_pending = invoke_parallel(
         items=uniform_deltas,
@@ -332,33 +333,36 @@ def _execute_compaction(
         hash_group_size_bytes=all_hash_group_idx_to_size_bytes,
         hash_group_num_rows=all_hash_group_idx_to_num_rows,
         round_completion_info=round_completion_info,
-        compacted_delta=previous_compacted_delta,
+        compacted_delta_manifest=previous_compacted_delta_manifest,
         primary_keys=params.primary_keys,
         deltacat_storage=params.deltacat_storage,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
     )
 
-    merge_input_provider = lambda index, item: {
-        "input": MergeInput.of(
-            dfe_groups_refs=item[1],
-            write_to_partition=compacted_partition,
-            compacted_file_content_type=params.compacted_file_content_type,
-            primary_keys=params.primary_keys,
-            sort_keys=params.sort_keys,
-            merge_task_index=index,
-            hash_group_index=item[0],
-            num_hash_groups=params.hash_group_count,
-            max_records_per_output_file=params.records_per_compacted_file,
-            enable_profiler=params.enable_profiler,
-            metrics_config=params.metrics_config,
-            s3_table_writer_kwargs=params.s3_table_writer_kwargs,
-            read_kwargs_provider=params.read_kwargs_provider,
-            round_completion_info=round_completion_info,
-            object_store=params.object_store,
-            deltacat_storage=params.deltacat_storage,
-            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        )
-    }
+    def merge_input_provider(index, item):
+        return {
+            "input": MergeInput.of(
+                dfe_groups_refs=item[1],
+                write_to_partition=compacted_partition,
+                compacted_file_content_type=params.compacted_file_content_type,
+                primary_keys=params.primary_keys,
+                sort_keys=params.sort_keys,
+                merge_task_index=index,
+                hash_bucket_count=params.hash_bucket_count,
+                drop_duplicates=params.drop_duplicates,
+                hash_group_index=item[0],
+                num_hash_groups=params.hash_group_count,
+                max_records_per_output_file=params.records_per_compacted_file,
+                enable_profiler=params.enable_profiler,
+                metrics_config=params.metrics_config,
+                s3_table_writer_kwargs=params.s3_table_writer_kwargs,
+                read_kwargs_provider=params.read_kwargs_provider,
+                round_completion_info=round_completion_info,
+                object_store=params.object_store,
+                deltacat_storage=params.deltacat_storage,
+                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+            )
+        }
 
     merge_start = time.monotonic()
 
@@ -399,25 +403,25 @@ def _execute_compaction(
         mat_results, key=lambda m: m.task_index
     )
 
-    deltas = [m.delta for m in mat_results]
-
     hb_id_to_entry_indices_range = {}
     file_index = 0
     previous_task_index = -1
 
-    for m in mat_results:
-        assert m.pyarrow_write_result.files >= 1, "Atleast file must be materialized"
-        assert m.task_index != previous_task_index, (
-            "Multiple materialize results found for a " f"hash bucket: {m.task_index}"
-        )
+    for mat_result in mat_results:
+        assert (
+            mat_result.pyarrow_write_result.files >= 1
+        ), "Atleast one file must be materialized"
+        assert (
+            mat_result.task_index != previous_task_index
+        ), f"Multiple materialize results found for a hash bucket: {mat_result.task_index}"
 
-        hb_id_to_entry_indices_range[str(m.task_index)] = (
+        hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
             file_index,
-            file_index + m.pyarrow_write_result.files - 1,
+            file_index + mat_result.pyarrow_write_result.files,
         )
 
-        file_index += m.pyarrow_write_result.files
-        previous_task_index = m.task_index
+        file_index += mat_result.pyarrow_write_result.files
+        previous_task_index = mat_result.task_index
 
     s3_utils.upload(
         compaction_audit.audit_url,
@@ -425,7 +429,6 @@ def _execute_compaction(
         **params.s3_client_kwargs,
     )
 
-    mat_results = sorted(mat_results, key=lambda m: m.task_index)
     deltas = [m.delta for m in mat_results]
 
     # Note: An appropriate last stream position must be set

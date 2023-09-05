@@ -236,6 +236,16 @@ def test_compact_partition_incremental(
     )
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     compacted_table = pa.concat_tables(tables)
+    # the compacted table may contain multiple files and chunks
+    # and order of records may be incorrect due to multiple files.
+    expected_terminal_compact_partition_result = (
+        expected_terminal_compact_partition_result.combine_chunks().sort_by(
+            [(val, "ascending") for val in primary_keys]
+        )
+    )
+    compacted_table = compacted_table.combine_chunks().sort_by(
+        [(val, "ascending") for val in primary_keys]
+    )
     assert compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{compacted_table} does not match {expected_terminal_compact_partition_result}"

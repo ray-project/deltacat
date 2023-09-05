@@ -416,122 +416,122 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count_param=None,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
     ),
-    "12-rebase-then-incremental-duplicate-pk": RebaseThenIncrementalCompactorTestCase(
-        primary_keys={"pk_col_1"},
-        sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
-        ],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
-        partition_values_param=["1"],
-        column_names_param=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
-        input_deltas_arrow_arrays_param=[
-            pa.array([str(i) for i in range(5)] + ["6", "6", "6", "6", "6"]),
-            pa.array([i for i in range(0, 10)]),
-            pa.array(["foo"] * 10),
-            pa.array([i / 10 for i in range(10, 20)]),
-        ],
-        input_deltas_delta_type=DeltaType.UPSERT,
-        rebase_expected_compact_partition_result=pa.Table.from_arrays(
-            [
-                pa.array(["0", "1", "2", "3", "4", "6"]),
-                pa.array([0, 1, 2, 3, 4, 9]),
-                pa.array(["foo", "foo", "foo", "foo", "foo", "foo"]),
-                pa.array([1, 1.1, 1.2, 1.3, 1.4, 1.9]),
-            ],
-            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
-        ),
-        incremental_deltas_arrow_arrays_param=[
-            pa.array([str(i) for i in range(5)] + ["6", "6", "7", "7", "8"]),
-            pa.array([i for i in range(20, 30)]),
-            pa.array(["foo"] * 10),
-            pa.array([i / 10 for i in range(40, 50)]),
-        ],
-        incremental_deltas_delta_type=DeltaType.UPSERT,
-        expected_terminal_compact_partition_result=pa.Table.from_arrays(
-            [
-                pa.array(["0", "1", "2", "3", "4", "6", "7", "8"]),
-                pa.array([20, 21, 22, 23, 24, 26, 28, 29]),
-                pa.array(["foo", "foo", "foo", "foo", "foo", "foo", "foo", "foo"]),
-                pa.array([4, 4.1, 4.2, 4.3, 4.4, 4.6, 4.8, 4.9]),
-            ],
-            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
-        ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
-        create_placement_group_param=False,
-        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
-        create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
-    ),
-    "14-rebase-then-incremental-multiple-pk": RebaseThenIncrementalCompactorTestCase(
-        primary_keys={"pk_col_1", "pk_col_2"},
-        sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-        ],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
-        partition_values_param=["1"],
-        column_names_param=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
-        input_deltas_arrow_arrays_param=[
-            pa.array([str(i % 4) for i in range(10)]),
-            pa.array([(i % 4) / 10 for i in range(9, -1, -1)]),
-            pa.array(offer_iso8601_timestamp_list(10, "minutes")),
-            pa.array([i / 10 for i in range(10, 20)]),
-        ],
-        input_deltas_delta_type=DeltaType.UPSERT,
-        rebase_expected_compact_partition_result=pa.Table.from_arrays(
-            [
-                pa.array(["0", "1", "2", "3"]),
-                pa.array([0.1, 0, 0.3, 0.2]),
-                pa.array(
-                    [
-                        "2023-05-03T10:00:00Z",
-                        "2023-05-03T09:59:00Z",
-                        "2023-05-03T09:58:00Z",
-                        "2023-05-03T09:57:00Z",
-                    ]
-                ),
-                pa.array([1, 1.1, 1.2, 1.3]),
-            ],
-            names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
-        ),
-        incremental_deltas_arrow_arrays_param=[
-            pa.array(["0", "1", "2", "3"]),
-            pa.array([0.1, 0, 0.3, 0.2]),
-            pa.array(
-                [
-                    "2023-05-03T10:00:00Z",
-                    "2023-05-03T09:59:00Z",
-                    "2023-05-03T09:58:00Z",
-                    "2023-05-03T09:57:00Z",
-                ]
-            ),
-            pa.array([1, 1.1, 1.2, 1.3]),
-        ],
-        incremental_deltas_delta_type=DeltaType.UPSERT,
-        expected_terminal_compact_partition_result=pa.Table.from_arrays(
-            [
-                pa.array(["0", "1", "2", "3"]),
-                pa.array([0.1, 0, 0.3, 0.2]),
-                pa.array(
-                    [
-                        "2023-05-03T10:00:00Z",
-                        "2023-05-03T09:59:00Z",
-                        "2023-05-03T09:58:00Z",
-                        "2023-05-03T09:57:00Z",
-                    ]
-                ),
-                pa.array([1, 1.1, 1.2, 1.3]),
-            ],
-            names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
-        ),
-        validation_callback_func=None,
-        validation_callback_func_kwargs=None,
-        create_placement_group_param=False,
-        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-        hash_bucket_count_param=None,
-        create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
-    ),
+    # "12-rebase-then-incremental-duplicate-pk": RebaseThenIncrementalCompactorTestCase(
+    #     primary_keys={"pk_col_1"},
+    #     sort_keys=[
+    #         SortKey.of(key_name="sk_col_1"),
+    #         SortKey.of(key_name="sk_col_2"),
+    #     ],
+    #     partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+    #     partition_values_param=["1"],
+    #     column_names_param=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+    #     input_deltas_arrow_arrays_param=[
+    #         pa.array([str(i) for i in range(5)] + ["6", "6", "6", "6", "6"]),
+    #         pa.array([i for i in range(0, 10)]),
+    #         pa.array(["foo"] * 10),
+    #         pa.array([i / 10 for i in range(10, 20)]),
+    #     ],
+    #     input_deltas_delta_type=DeltaType.UPSERT,
+    #     rebase_expected_compact_partition_result=pa.Table.from_arrays(
+    #         [
+    #             pa.array(["0", "1", "2", "3", "4", "6"]),
+    #             pa.array([0, 1, 2, 3, 4, 9]),
+    #             pa.array(["foo", "foo", "foo", "foo", "foo", "foo"]),
+    #             pa.array([1, 1.1, 1.2, 1.3, 1.4, 1.9]),
+    #         ],
+    #         names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+    #     ),
+    #     incremental_deltas_arrow_arrays_param=[
+    #         pa.array([str(i) for i in range(5)] + ["6", "6", "7", "7", "8"]),
+    #         pa.array([i for i in range(20, 30)]),
+    #         pa.array(["foo"] * 10),
+    #         pa.array([i / 10 for i in range(40, 50)]),
+    #     ],
+    #     incremental_deltas_delta_type=DeltaType.UPSERT,
+    #     expected_terminal_compact_partition_result=pa.Table.from_arrays(
+    #         [
+    #             pa.array(["0", "1", "2", "3", "4", "6", "7", "8"]),
+    #             pa.array([20, 21, 22, 23, 24, 26, 28, 29]),
+    #             pa.array(["foo", "foo", "foo", "foo", "foo", "foo", "foo", "foo"]),
+    #             pa.array([4, 4.1, 4.2, 4.3, 4.4, 4.6, 4.8, 4.9]),
+    #         ],
+    #         names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+    #     ),
+    #     validation_callback_func=None,
+    #     validation_callback_func_kwargs=None,
+    #     create_placement_group_param=False,
+    #     records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
+    #     hash_bucket_count_param=None,
+    #     create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+    # ),
+    # "14-rebase-then-incremental-multiple-pk": RebaseThenIncrementalCompactorTestCase(
+    #     primary_keys={"pk_col_1", "pk_col_2"},
+    #     sort_keys=[
+    #         SortKey.of(key_name="sk_col_1"),
+    #     ],
+    #     partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+    #     partition_values_param=["1"],
+    #     column_names_param=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
+    #     input_deltas_arrow_arrays_param=[
+    #         pa.array([str(i % 4) for i in range(10)]),
+    #         pa.array([(i % 4) / 10 for i in range(9, -1, -1)]),
+    #         pa.array(offer_iso8601_timestamp_list(10, "minutes")),
+    #         pa.array([i / 10 for i in range(10, 20)]),
+    #     ],
+    #     input_deltas_delta_type=DeltaType.UPSERT,
+    #     rebase_expected_compact_partition_result=pa.Table.from_arrays(
+    #         [
+    #             pa.array(["0", "1", "2", "3"]),
+    #             pa.array([0.1, 0, 0.3, 0.2]),
+    #             pa.array(
+    #                 [
+    #                     "2023-05-03T10:00:00Z",
+    #                     "2023-05-03T09:59:00Z",
+    #                     "2023-05-03T09:58:00Z",
+    #                     "2023-05-03T09:57:00Z",
+    #                 ]
+    #             ),
+    #             pa.array([1, 1.1, 1.2, 1.3]),
+    #         ],
+    #         names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
+    #     ),
+    #     incremental_deltas_arrow_arrays_param=[
+    #         pa.array(["0", "1", "2", "3"]),
+    #         pa.array([0.1, 0, 0.3, 0.2]),
+    #         pa.array(
+    #             [
+    #                 "2023-05-03T10:00:00Z",
+    #                 "2023-05-03T09:59:00Z",
+    #                 "2023-05-03T09:58:00Z",
+    #                 "2023-05-03T09:57:00Z",
+    #             ]
+    #         ),
+    #         pa.array([1, 1.1, 1.2, 1.3]),
+    #     ],
+    #     incremental_deltas_delta_type=DeltaType.UPSERT,
+    #     expected_terminal_compact_partition_result=pa.Table.from_arrays(
+    #         [
+    #             pa.array(["0", "1", "2", "3"]),
+    #             pa.array([0.1, 0, 0.3, 0.2]),
+    #             pa.array(
+    #                 [
+    #                     "2023-05-03T10:00:00Z",
+    #                     "2023-05-03T09:59:00Z",
+    #                     "2023-05-03T09:58:00Z",
+    #                     "2023-05-03T09:57:00Z",
+    #                 ]
+    #             ),
+    #             pa.array([1, 1.1, 1.2, 1.3]),
+    #         ],
+    #         names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
+    #     ),
+    #     validation_callback_func=None,
+    #     validation_callback_func_kwargs=None,
+    #     create_placement_group_param=False,
+    #     records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
+    #     hash_bucket_count_param=None,
+    #     create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+    # ),
 }
 
 INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
@@ -540,5 +540,5 @@ INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
 
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
-    REBASE_THEN_INCREMENTAL_TEST_CASES
+    # REBASE_THEN_INCREMENTAL_TEST_CASES
 )

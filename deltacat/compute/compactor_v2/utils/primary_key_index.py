@@ -31,8 +31,19 @@ def _append_sha1_hash_to_table(table: pa.Table, hash_column: pa.Array) -> pa.Tab
     return sc.append_pk_hash_string_column(table, result)
 
 
-def _is_sha1_desired(hash_column: pa.Array) -> bool:
-    return hash_column.nbytes > TOTAL_BYTES_IN_SHA1_HASH * len(hash_column)
+def _is_sha1_desired(hash_columns: List[pa.Array]) -> bool:
+    total_size = 0
+    total_len = 0
+
+    for hash_column in hash_columns:
+        total_size += hash_column.nbytes
+        total_len += len(hash_column)
+
+    logger.info(
+        f"Found total length of hash column={total_len} and total_size={total_size}"
+    )
+
+    return total_size > TOTAL_BYTES_IN_SHA1_HASH * total_len
 
 
 def _append_table_by_hash_bucket(
@@ -61,7 +72,9 @@ def _append_table_by_hash_bucket(
     for i, group_count in enumerate(group_count_array):
         hb_idx = hb_group_array[i].as_py()
         pyarrow_table = hb_pk_table.slice(offset=result_len, length=group_count.as_py())
-        pyarrow_table = pyarrow_table.drop([sc._HASH_BUCKET_IDX_COLUMN_NAME])
+        pyarrow_table = pyarrow_table.drop(
+            [sc._HASH_BUCKET_IDX_COLUMN_NAME, sc._PK_HASH_STRING_COLUMN_NAME]
+        )
         if hash_bucket_to_table[hb_idx] is None:
             hash_bucket_to_table[hb_idx] = []
         hash_bucket_to_table[hb_idx].append(pyarrow_table)
@@ -142,7 +155,7 @@ def _optimized_group_record_batches_by_hash_bucket(
 def group_by_pk_hash_bucket(
     table: pa.Table, num_buckets: int, primary_keys: List[str]
 ) -> np.ndarray:
-    table = generate_pk_hash_column(table, primary_keys, requires_sha1=True)
+    table = generate_pk_hash_column([table], primary_keys, requires_sha1=True)[0]
 
     # group hash bucket record indices
     result = group_record_indices_by_hash_bucket(
@@ -154,53 +167,73 @@ def group_by_pk_hash_bucket(
 
 
 def generate_pk_hash_column(
-    table: pa.Table,
+    tables: List[pa.Table],
     primary_keys: Optional[List[str]] = None,
     requires_sha1: bool = False,
-) -> pa.Table:
+) -> List[pa.Table]:
     """
-    Returns a new table after generating the primary key hash if desired.
+    Returns a new table list after generating the primary key hash if desired.
 
     1. If there are no primary keys, each hash will be unique uuid/sha1 hex
-    2. If there are more than 0 primary keys, returns a table with new columns appended.
+    2. If there are more than 0 primary keys, returns a table with pk hash column appended.
     """
 
-    start = time.monotonic()
-
-    can_sha1 = False
-    if primary_keys:
+    def _generate_pk_hash(table: pa.Table) -> pa.Array:
         pk_columns = []
         for pk_name in primary_keys:
             pk_columns.append(pc.cast(table[pk_name], pa.string()))
 
         pk_columns.append(PK_DELIMITER)
         hash_column = pc.binary_join_element_wise(*pk_columns)
+        return hash_column
 
-        can_sha1 = requires_sha1 or _is_sha1_desired(hash_column)
-    else:
+    def _generate_uuid(table: pa.Table) -> pa.Array:
         hash_column = pa.array(
             [uuid.uuid4().hex for _ in range(len(table))], pa.string()
         )
+        return hash_column
+
+    start = time.monotonic()
+
+    hash_column_list = []
+
+    can_sha1 = False
+    if primary_keys:
+        hash_column_list = [_generate_pk_hash(table) for table in tables]
+
+        can_sha1 = requires_sha1 or _is_sha1_desired(hash_column_list)
+    else:
+        hash_column_list = [_generate_uuid(table) for table in tables]
 
     logger.info(
-        f"can_generate_sha1={can_sha1} for the table with hash column size"
-        f"={hash_column.nbytes} bytes, num_rows={len(hash_column)}, "
-        f"and requires_sha1={requires_sha1}"
+        f"can_generate_sha1={can_sha1} for the table and requires_sha1={requires_sha1}"
     )
 
-    if can_sha1:
-        table = _append_sha1_hash_to_table(table, hash_column)
-    else:
-        table = table.append_column(sc._PK_HASH_STRING_COLUMN_FIELD, hash_column)
+    result = []
+
+    total_len = 0
+    total_size = 0
+    for index, table in enumerate(tables):
+        if can_sha1:
+            table = _append_sha1_hash_to_table(table, hash_column_list[index])
+        else:
+            table = table.append_column(
+                sc._PK_HASH_STRING_COLUMN_FIELD, hash_column_list[index]
+            )
+
+        total_len += len(table)
+        total_size += hash_column_list[index].nbytes
+
+        result.append(table)
 
     end = time.monotonic()
 
     logger.info(
-        f"Took {end - start}s to generate pk hash of len: {len(hash_column)}"
-        f" and size: {hash_column.nbytes} bytes"
+        f"Took {end - start}s to generate pk hash of len: {total_len}"
+        f" for size: {total_size} bytes"
     )
 
-    return table
+    return result
 
 
 def group_record_indices_by_hash_bucket(
@@ -298,7 +331,7 @@ def hash_group_index_to_hash_bucket_indices(
     if hb_group > num_buckets:
         return []
 
-    return range(hb_group, num_groups, num_buckets)
+    return range(hb_group, num_buckets, num_groups)
 
 
 def pk_digest_to_hash_bucket_index(digest: str, num_buckets: int) -> int:

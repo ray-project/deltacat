@@ -70,7 +70,7 @@ class TestHashBucket(unittest.TestCase):
             hb_result,
             record_count=6,
             num_hash_buckets=3,
-            num_columns=3,
+            num_columns=2,
             object_store=object_store,
         )
 
@@ -101,7 +101,7 @@ class TestHashBucket(unittest.TestCase):
             hb_result,
             record_count=7,
             num_hash_buckets=2,
-            num_columns=3,
+            num_columns=2,
             object_store=object_store,
         )
 
@@ -132,7 +132,7 @@ class TestHashBucket(unittest.TestCase):
             hb_result,
             record_count=6,
             num_hash_buckets=2,
-            num_columns=3,
+            num_columns=2,
             object_store=object_store,
         )
 
@@ -163,7 +163,7 @@ class TestHashBucket(unittest.TestCase):
             hb_result,
             record_count=6,
             num_hash_buckets=2,
-            num_columns=4,
+            num_columns=3,
             object_store=object_store,
         )
 
