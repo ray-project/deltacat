@@ -1,6 +1,5 @@
 import inspect
-import copy
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 def sanitize_kwargs_to_callable(callable: Any, kwargs: Dict) -> Dict:
@@ -13,7 +12,7 @@ def sanitize_kwargs_to_callable(callable: Any, kwargs: Dict) -> Dict:
     signature = inspect.signature(callable)
     params = signature.parameters
 
-    new_kwargs = copy.copy(kwargs)
+    new_kwargs = {**kwargs}
 
     for key in params:
         if params[key].kind == inspect.Parameter.VAR_KEYWORD:
@@ -22,5 +21,24 @@ def sanitize_kwargs_to_callable(callable: Any, kwargs: Dict) -> Dict:
     for key in kwargs.keys():
         if key not in params:
             new_kwargs.pop(key)
+
+    return new_kwargs
+
+
+def sanitize_kwargs_by_supported_kwargs(
+    supported_kwargs: List[str], kwargs: Dict
+) -> Dict:
+    """
+    This method only keeps the kwargs in the list provided above and ignores any other kwargs passed.
+    This method will specifically be useful where signature cannot be automatically determined
+    (say the definition is part C++ implementation).
+
+    Returns: a sanitized dict of kwargs.
+    """
+
+    new_kwargs = {}
+    for key in supported_kwargs:
+        if key in kwargs:
+            new_kwargs[key] = kwargs[key]
 
     return new_kwargs

@@ -1,5 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
+import pyarrow as pa
 import logging
 from deltacat import logs
 from typing import List, Union
@@ -419,6 +420,13 @@ class CompactionSessionAuditInfo(dict):
         """
         return self.get("usedCPUSeconds")
 
+    @property
+    def pyarrow_version(self) -> str:
+        """
+        The version of PyArrow used.
+        """
+        return self.get("pyarrowVersion")
+
     # Setters follow
 
     def set_audit_url(self, audit_url: str) -> CompactionSessionAuditInfo:
@@ -735,6 +743,10 @@ class CompactionSessionAuditInfo(dict):
         self["usedCPUSeconds"] = value
         return self
 
+    def set_pyarrow_version(self, value: str) -> CompactionSessionAuditInfo:
+        self["pyarrowVersion"] = value
+        return self
+
     # High level methods to save stats
     def save_step_stats(
         self,
@@ -863,4 +875,5 @@ class CompactionSessionAuditInfo(dict):
             )
         )
 
+        self.set_pyarrow_version(pa.__version__)
         self.set_telemetry_time_in_seconds(total_telemetry_time)
