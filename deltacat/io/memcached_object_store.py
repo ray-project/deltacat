@@ -3,13 +3,14 @@ from ray import cloudpickle
 from collections import defaultdict
 import time
 from deltacat.io.object_store import IObjectStore
-from typing import Any, List
+from typing import Any, List, Optional
 from deltacat import logs
 import uuid
 import socket
 from pymemcache.client.base import Client
 from pymemcache.client.retrying import RetryingClient
 from pymemcache.exceptions import MemcacheUnexpectedCloseError
+from pymemcache.client.rendezvous import RendezvousHash
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -19,36 +20,47 @@ class MemcachedObjectStore(IObjectStore):
     An implementation of object store that uses Memcached.
     """
 
-    def __init__(self, port=11212) -> None:
+    def __init__(
+        self, storage_node_ips: Optional[List[str]] = None, port: Optional[int] = 11212
+    ) -> None:
         self.client_cache = {}
         self.current_ip = None
         self.SEPARATOR = "_"
         self.port = port
+        self.storage_node_ips = storage_node_ips
+        self.hasher = None
+        logger.info(f"The storage node IPs: {self.storage_node_ips}")
         super().__init__()
 
+    def initialize_hasher(self):
+        if not self.hasher and self.storage_node_ips:
+            self.hasher = RendezvousHash()
+            for n in self.storage_node_ips:
+                self.hasher.add_node(n)
+
     def put_many(self, objects: List[object], *args, **kwargs) -> List[Any]:
-        input = {}
+        input = defaultdict(dict)
         result = []
-        current_ip = self._get_current_ip()
         for obj in objects:
             serialized = cloudpickle.dumps(obj)
             uid = uuid.uuid4()
-            ref = self._create_ref(uid, current_ip)
-            input[uid.__str__()] = serialized
+            create_ref_ip = self._get_create_ref_ip(uid.__str__())
+            ref = self._create_ref(uid, create_ref_ip)
+            input[create_ref_ip][uid.__str__()] = serialized
             result.append(ref)
-
-        client = self._get_client_by_ip(current_ip)
-        if client.set_many(input, noreply=False):
-            raise RuntimeError("Unable to write few keys to cache")
+        for create_ref_ip, uid_to_object in input.items():
+            client = self._get_client_by_ip(create_ref_ip)
+            if client.set_many(uid_to_object, noreply=False):
+                raise RuntimeError("Unable to write few keys to cache")
 
         return result
 
     def put(self, obj: object, *args, **kwargs) -> Any:
         serialized = cloudpickle.dumps(obj)
         uid = uuid.uuid4()
-        current_ip = self._get_current_ip()
-        ref = self._create_ref(uid, current_ip)
-        client = self._get_client_by_ip(current_ip)
+        create_ref_ip = self._get_create_ref_ip(uid.__str__())
+        ref = self._create_ref(uid, create_ref_ip)
+        client = self._get_client_by_ip(create_ref_ip)
 
         if client.set(uid.__str__(), serialized):
             return ref
@@ -99,6 +111,18 @@ class MemcachedObjectStore(IObjectStore):
     def _create_ref(self, uid, ip) -> str:
         return f"{uid}{self.SEPARATOR}{ip}"
 
+    def _get_storage_node_ip(self, key: str):
+        self.initialize_hasher()
+        storage_node_ip = self.hasher.get_node(key)
+        return storage_node_ip
+
+    def _get_create_ref_ip(self, uid: str):
+        if self.storage_node_ips:
+            create_ref_ip = self._get_storage_node_ip(uid)
+        else:
+            create_ref_ip = self._get_current_ip()
+        return create_ref_ip
+
     def _get_client_by_ip(self, ip_address: str):
         if ip_address in self.client_cache:
             return self.client_cache[ip_address]
@@ -106,9 +130,13 @@ class MemcachedObjectStore(IObjectStore):
         base_client = Client((ip_address, self.port))
         client = RetryingClient(
             base_client,
-            attempts=3,
-            retry_delay=0.01,
-            retry_for=[MemcacheUnexpectedCloseError],
+            attempts=15,
+            retry_delay=1,
+            retry_for=[
+                MemcacheUnexpectedCloseError,
+                ConnectionResetError,
+                BrokenPipeError,
+            ],
         )
 
         self.client_cache[ip_address] = client

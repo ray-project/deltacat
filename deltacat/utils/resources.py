@@ -1,15 +1,21 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
+from types import TracebackType
 import ray
 import sys
-from typing import Dict, Any
+import threading
+import time
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from deltacat import logs
 import logging
 from resource import getrusage, RUSAGE_SELF
 import platform
 import psutil
+import schedule
+from deltacat.constants import BYTES_PER_GIBIBYTE
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -56,7 +62,89 @@ class ClusterUtilization:
         )
 
 
-def get_current_node_peak_memory_usage_in_bytes() -> int:
+class ClusterUtilizationOverTimeRange(AbstractContextManager):
+    """
+    This class can be used to compute the cluster utilization metrics
+    which requires us to compute it over time as they change on-demand.
+
+    For example, in an autoscaling cluster, the vCPUs keep changing and hence
+    more important metrics to capture in that scenario is vcpu-seconds.
+    """
+
+    def __init__(self) -> None:
+        self.total_vcpu_seconds = 0.0
+        self.used_vcpu_seconds = 0.0
+        self.total_memory_gb_seconds = 0.0
+        self.used_memory_gb_seconds = 0.0
+
+    def __enter__(self) -> Any:
+        schedule.every().second.do(self._update_resources)
+        self.stop_run_schedules = self._run_schedule()
+        return super().__enter__()
+
+    def __exit__(
+        self,
+        __exc_type: type[BaseException] | None,
+        __exc_value: BaseException | None,
+        __traceback: TracebackType | None,
+    ) -> bool | None:
+        if __exc_value:
+            logger.error(
+                f"Error ocurred while calculating cluster resources: {__exc_value}"
+            )
+        self.stop_run_schedules.set()
+        return super().__exit__(__exc_type, __exc_value, __traceback)
+
+    # It is not truely parallel(due to GIL Ref: https://wiki.python.org/moin/GlobalInterpreterLock)
+    # even if we are using threading library. However, it averages out and gives a very good approximation.
+    def _update_resources(self):
+        cluster_resources = ray.cluster_resources()
+        available_resources = ray.available_resources()
+        if "CPU" not in cluster_resources:
+            return
+
+        if "CPU" in available_resources:
+            self.used_vcpu_seconds = self.used_vcpu_seconds + float(
+                str(cluster_resources["CPU"] - available_resources["CPU"])
+            )
+
+        self.total_vcpu_seconds = self.total_vcpu_seconds + float(
+            str(cluster_resources["CPU"])
+        )
+
+        if "memory" not in cluster_resources:
+            return
+
+        if "memory" in available_resources:
+            self.used_memory_gb_seconds = (
+                self.used_memory_gb_seconds
+                + float(
+                    str(cluster_resources["memory"] - available_resources["memory"])
+                )
+                / BYTES_PER_GIBIBYTE
+            )
+
+        self.total_memory_gb_seconds = (
+            self.total_memory_gb_seconds
+            + float(str(cluster_resources["memory"])) / BYTES_PER_GIBIBYTE
+        )
+
+    def _run_schedule(self, interval: Optional[float] = 1.0):
+        cease_continuous_run = threading.Event()
+
+        class ScheduleThread(threading.Thread):
+            @classmethod
+            def run(cls):
+                while not cease_continuous_run.is_set():
+                    schedule.run_pending()
+                    time.sleep(float(str(interval)))
+
+        continuous_thread = ScheduleThread()
+        continuous_thread.start()
+        return cease_continuous_run
+
+
+def get_current_node_peak_memory_usage_in_bytes():
     """
     Returns the peak memory usage of the node in bytes. This method works across
     Windows, Darwin and Linux platforms.

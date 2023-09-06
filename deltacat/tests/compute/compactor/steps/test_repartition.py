@@ -49,6 +49,7 @@ class TestRepartitionRange(unittest.TestCase):
         self.destination_partition: PartitionLocator = MagicMock()
         self.repartition_args = {"column": "last_updated", "ranges": [1678665487112747]}
         self.max_records_per_output_file = 2
+        self.s3_table_writer_kwargs = {}
         self.repartitioned_file_content_type = ContentType.PARQUET
         self.deltacat_storage = MagicMock()
         self.deltacat_storage_kwargs = MagicMock()
@@ -59,6 +60,7 @@ class TestRepartitionRange(unittest.TestCase):
             self.destination_partition,
             self.repartition_args,
             self.max_records_per_output_file,
+            self.s3_table_writer_kwargs,
             self.repartitioned_file_content_type,
             self.deltacat_storage,
             self.deltacat_storage_kwargs,
@@ -85,6 +87,7 @@ class TestRepartitionRange(unittest.TestCase):
                 self.destination_partition,
                 self.repartition_args,
                 self.max_records_per_output_file,
+                self.s3_table_writer_kwargs,
                 self.repartitioned_file_content_type,
                 self.deltacat_storage,
                 self.deltacat_storage_kwargs,
@@ -98,6 +101,7 @@ class TestRepartitionRange(unittest.TestCase):
                 self.destination_partition,
                 self.repartition_args,
                 self.max_records_per_output_file,
+                self.s3_table_writer_kwargs,
                 self.repartitioned_file_content_type,
                 self.deltacat_storage,
                 self.deltacat_storage_kwargs,
@@ -110,6 +114,7 @@ class TestRepartitionRange(unittest.TestCase):
             self.destination_partition,
             self.repartition_args,
             self.max_records_per_output_file,
+            self.s3_table_writer_kwargs,
             self.repartitioned_file_content_type,
             self.deltacat_storage,
             self.deltacat_storage_kwargs,
@@ -123,6 +128,7 @@ class TestRepartitionRange(unittest.TestCase):
             self.destination_partition,
             self.repartition_args,
             self.max_records_per_output_file,
+            self.s3_table_writer_kwargs,
             self.repartitioned_file_content_type,
             self.deltacat_storage,
             self.deltacat_storage_kwargs,
@@ -137,6 +143,7 @@ class TestRepartitionRange(unittest.TestCase):
             self.destination_partition,
             self.repartition_args,
             self.max_records_per_output_file,
+            self.s3_table_writer_kwargs,
             self.repartitioned_file_content_type,
             self.deltacat_storage,
             self.deltacat_storage_kwargs,
@@ -151,6 +158,7 @@ class TestRepartitionRange(unittest.TestCase):
                 self.destination_partition,
                 self.repartition_args,
                 self.max_records_per_output_file,
+                self.s3_table_writer_kwargs,
                 self.repartitioned_file_content_type,
                 self.deltacat_storage,
                 self.deltacat_storage_kwargs,
@@ -167,6 +175,7 @@ class TestRepartitionRange(unittest.TestCase):
             self.destination_partition,
             self.repartition_args,
             self.max_records_per_output_file,
+            self.s3_table_writer_kwargs,
             self.repartitioned_file_content_type,
             self.deltacat_storage,
             self.deltacat_storage_kwargs,
@@ -180,6 +189,7 @@ class TestRepartitionRange(unittest.TestCase):
             self.destination_partition,
             self.repartition_args,
             self.max_records_per_output_file,
+            self.s3_table_writer_kwargs,
             self.repartitioned_file_content_type,
             self.deltacat_storage,
             self.deltacat_storage_kwargs,
@@ -188,16 +198,19 @@ class TestRepartitionRange(unittest.TestCase):
 
     def test_ranges_with_inf(self):
         self.repartition_args["ranges"] = [1678665487112747, float("inf")]
-        result = repartition_range(
-            self.tables,
-            self.destination_partition,
-            self.repartition_args,
-            self.max_records_per_output_file,
-            self.repartitioned_file_content_type,
-            self.deltacat_storage,
-            self.deltacat_storage_kwargs,
+
+        self.assertRaises(
+            pa.lib.ArrowInvalid,
+            lambda: repartition_range(
+                self.tables,
+                self.destination_partition,
+                self.repartition_args,
+                self.max_records_per_output_file,
+                self.s3_table_writer_kwargs,
+                self.repartitioned_file_content_type,
+                self.deltacat_storage,
+            ),
         )
-        self.assertEqual(len(result.range_deltas), 2)
 
     def test_null_rows_are_not_dropped(self):
         # Add null value to the first table
@@ -220,6 +233,7 @@ class TestRepartitionRange(unittest.TestCase):
             self.destination_partition,
             self.repartition_args,
             self.max_records_per_output_file,
+            self.s3_table_writer_kwargs,
             self.repartitioned_file_content_type,
             self.deltacat_storage,
             self.deltacat_storage_kwargs,

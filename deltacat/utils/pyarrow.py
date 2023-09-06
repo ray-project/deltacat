@@ -7,6 +7,8 @@ import io
 import logging
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional
+from pyarrow.parquet import ParquetFile
+from deltacat.exceptions import ValidationError
 
 import pyarrow as pa
 from fsspec import AbstractFileSystem
@@ -15,6 +17,7 @@ from pyarrow import feather as paf
 from pyarrow import json as pajson
 from pyarrow import parquet as papq
 from ray.data.datasource import BlockWritePathProvider
+from deltacat.utils.s3fs import create_s3_file_system
 
 from deltacat import logs
 from deltacat.types.media import (
@@ -23,17 +26,84 @@ from deltacat.types.media import (
     ContentEncoding,
     ContentType,
 )
+from deltacat.types.partial_download import (
+    PartialFileDownloadParams,
+    PartialParquetParameters,
+)
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
+from deltacat.utils.daft import daft_s3_file_to_table
+from deltacat.utils.arguments import (
+    sanitize_kwargs_to_callable,
+    sanitize_kwargs_by_supported_kwargs,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+RAISE_ON_EMPTY_CSV_KWARG = "raise_on_empty_csv"
+READER_TYPE_KWARG = "reader_type"
+
+
+def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Schema:
+
+    target_schema_fields = []
+
+    for column_name in columns:
+        index = schema.get_field_index(column_name)
+
+        if index != -1:
+            target_field = schema.field(index)
+            target_schema_fields.append(target_field)
+
+    target_schema = pa.schema(target_schema_fields, metadata=schema.metadata)
+
+    return target_schema
+
+
+def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
+    try:
+        new_kwargs = sanitize_kwargs_by_supported_kwargs(
+            ["read_options", "parse_options", "convert_options", "memory_pool"], kwargs
+        )
+        return pacsv.read_csv(*args, **new_kwargs)
+    except pa.lib.ArrowInvalid as e:
+        if e.__str__() == "Empty CSV file" and not kwargs.get(RAISE_ON_EMPTY_CSV_KWARG):
+            schema = None
+            if (
+                "convert_options" in kwargs
+                and kwargs["convert_options"].column_types is not None
+            ):
+                schema = kwargs["convert_options"].column_types
+                if not isinstance(schema, pa.Schema):
+                    schema = pa.schema(schema)
+                if kwargs["convert_options"].include_columns:
+                    schema = _filter_schema_for_columns(
+                        schema, kwargs["convert_options"].include_columns
+                    )
+                elif (
+                    kwargs.get("read_options") is not None
+                    and kwargs["read_options"].column_names
+                ):
+                    schema = _filter_schema_for_columns(
+                        schema, kwargs["read_options"].column_names
+                    )
+
+            else:
+                logger.debug(
+                    "Schema not specified in the kwargs."
+                    " Hence, schema could not be inferred from the empty CSV."
+                )
+
+            logger.debug(f"Read CSV empty schema being used: {schema}")
+            return pa.Table.from_pylist([], schema=schema)
+        raise e
+
 
 CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
-    ContentType.UNESCAPED_TSV.value: pacsv.read_csv,
-    ContentType.TSV.value: pacsv.read_csv,
-    ContentType.CSV.value: pacsv.read_csv,
-    ContentType.PSV.value: pacsv.read_csv,
+    ContentType.UNESCAPED_TSV.value: pyarrow_read_csv,
+    ContentType.TSV.value: pyarrow_read_csv,
+    ContentType.CSV.value: pyarrow_read_csv,
+    ContentType.PSV.value: pyarrow_read_csv,
     ContentType.PARQUET.value: papq.read_table,
     ContentType.FEATHER.value: paf.read_table,
     # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
@@ -104,9 +174,9 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
 
 # TODO (pdames): add deflate and snappy
 ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
-    ContentEncoding.GZIP.value: partial(gzip.GzipFile, mode="rb"),
-    ContentEncoding.BZIP2.value: partial(bz2.BZ2File, mode="rb"),
-    ContentEncoding.IDENTITY.value: lambda fileobj: fileobj,
+    ContentEncoding.GZIP.value: partial(gzip.open, mode="rb"),
+    ContentEncoding.BZIP2.value: partial(bz2.open, mode="rb"),
+    ContentEncoding.IDENTITY.value: lambda s3_file: s3_file,
 }
 
 
@@ -170,6 +240,7 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         self,
         schema: Optional[pa.Schema] = None,
         pq_coerce_int96_timestamp_unit: Optional[str] = None,
+        parquet_reader_type: Optional[str] = None,
     ):
         """
 
@@ -182,6 +253,7 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         """
         self.schema = schema
         self.pq_coerce_int96_timestamp_unit = pq_coerce_int96_timestamp_unit
+        self.parquet_reader_type = parquet_reader_type
 
     def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if content_type in DELIMITED_TEXT_CONTENT_TYPES:
@@ -200,6 +272,11 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
                 kwargs[
                     "coerce_int96_timestamp_unit"
                 ] = self.pq_coerce_int96_timestamp_unit
+
+            if self.parquet_reader_type:
+                kwargs["reader_type"] = self.parquet_reader_type
+            else:
+                kwargs["reader_type"] = "daft"
 
         return kwargs
 
@@ -237,6 +314,78 @@ def _add_column_kwargs(
                 )
 
 
+def _get_compatible_target_schema(
+    table_schema: pa.Schema, input_schema: pa.Schema
+) -> pa.Schema:
+    target_schema_fields = []
+
+    for field in table_schema:
+        index = input_schema.get_field_index(field.name)
+
+        if index != -1:
+            target_field = input_schema.field(index)
+            target_schema_fields.append(target_field)
+        else:
+            target_schema_fields.append(field)
+
+    target_schema = pa.schema(target_schema_fields, metadata=table_schema.metadata)
+
+    return target_schema
+
+
+def s3_partial_parquet_file_to_table(
+    s3_url: str,
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialParquetParameters] = None,
+    **s3_client_kwargs,
+) -> pa.Table:
+
+    assert (
+        partial_file_download_params is not None
+    ), "Partial parquet params must not be None"
+    assert (
+        partial_file_download_params.row_groups_to_download is not None
+    ), "No row groups to download"
+
+    pq_file = s3_file_to_parquet(
+        s3_url=s3_url,
+        content_type=content_type,
+        content_encoding=content_encoding,
+        partial_file_download_params=partial_file_download_params,
+        pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
+        **s3_client_kwargs,
+    )
+
+    table, latency = timed_invocation(
+        pq_file.read_row_groups,
+        partial_file_download_params.row_groups_to_download,
+        columns=include_columns or column_names,
+    )
+
+    logger.debug(f"Successfully read from s3_url={s3_url} in {latency}s")
+
+    kwargs = {}
+
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    # Note: ordering is not guaranteed.
+    if kwargs.get("schema") is not None:
+        input_schema = kwargs.get("schema")
+        table_schema = table.schema
+
+        target_schema = _get_compatible_target_schema(table_schema, input_schema)
+        casted_table = table.cast(target_schema)
+
+        return casted_table
+
+    return table
+
+
 def s3_file_to_table(
     s3_url: str,
     content_type: str,
@@ -244,36 +393,128 @@ def s3_file_to_table(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> pa.Table:
-
-    from deltacat.aws import s3u as s3_utils
 
     logger.debug(
         f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
         f"Encoding: {content_encoding}"
     )
-    s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
-    logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
-    pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]
-    input_file_init = ENCODING_TO_FILE_INIT[content_encoding]
-    input_file = input_file_init(fileobj=io.BytesIO(s3_obj["Body"].read()))
 
-    args = [input_file]
     kwargs = content_type_to_reader_kwargs(content_type)
     _add_column_kwargs(content_type, column_names, include_columns, kwargs)
+
+    if pa_read_func_kwargs_provider is not None:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    if (
+        content_type == ContentType.PARQUET.value
+        and content_encoding == ContentEncoding.IDENTITY.value
+    ):
+        logger.debug(
+            f"Performing read using parquet reader for encoding={content_encoding} "
+            f"and content_type={content_type}"
+        )
+
+        parquet_reader_func = None
+        if kwargs.get(READER_TYPE_KWARG, "daft") == "daft":
+            parquet_reader_func = daft_s3_file_to_table
+        elif partial_file_download_params and isinstance(
+            partial_file_download_params, PartialParquetParameters
+        ):
+            parquet_reader_func = s3_partial_parquet_file_to_table
+
+        if parquet_reader_func is not None:
+            return parquet_reader_func(
+                s3_url=s3_url,
+                content_type=content_type,
+                content_encoding=content_encoding,
+                column_names=column_names,
+                include_columns=include_columns,
+                pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
+                partial_file_download_params=partial_file_download_params,
+                **s3_client_kwargs,
+            )
+
+        if READER_TYPE_KWARG in kwargs:
+            kwargs.pop(READER_TYPE_KWARG)
+
+    filesystem = io
+    if s3_url.startswith("s3://"):
+        filesystem = create_s3_file_system(s3_client_kwargs)
+
+    logger.debug(f"Read S3 object from {s3_url} using filesystem: {filesystem}")
+    input_file_init = ENCODING_TO_FILE_INIT[content_encoding]
+    pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]
+
+    with filesystem.open(s3_url, "rb") as s3_file, input_file_init(
+        s3_file
+    ) as input_file:
+        args = [input_file]
+        logger.debug(f"Reading {s3_url} via {pa_read_func} with kwargs: {kwargs}")
+        table, latency = timed_invocation(pa_read_func, *args, **kwargs)
+        logger.debug(f"Time to read {s3_url} into PyArrow table: {latency}s")
+        return table
+
+
+def s3_file_to_parquet(
+    s3_url: str,
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
+    **s3_client_kwargs,
+) -> ParquetFile:
+    logger.debug(
+        f"Reading {s3_url} to PyArrow ParquetFile. "
+        f"Content type: {content_type}. Encoding: {content_encoding}"
+    )
+
+    if (
+        content_type != ContentType.PARQUET.value
+        or content_encoding != ContentEncoding.IDENTITY
+    ):
+        raise ValidationError(
+            f"S3 file with content type: {content_type} and "
+            f"content encoding: {content_encoding} cannot be read"
+            "into pyarrow.parquet.ParquetFile"
+        )
+
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
+    kwargs = {}
+
+    if s3_url.startswith("s3://"):
+        s3_file_system = create_s3_file_system(s3_client_kwargs)
+        kwargs["filesystem"] = s3_file_system
 
     if pa_read_func_kwargs_provider:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
-    logger.debug(f"Reading {s3_url} via {pa_read_func} with kwargs: {kwargs}")
-    table, latency = timed_invocation(pa_read_func, *args, **kwargs)
-    logger.debug(f"Time to read {s3_url} into PyArrow table: {latency}s")
-    return table
+    logger.debug(f"Pre-sanitize kwargs for {s3_url}: {kwargs}")
+
+    kwargs = sanitize_kwargs_to_callable(ParquetFile.__init__, kwargs)
+
+    logger.debug(
+        f"Reading the file from {s3_url} into ParquetFile with kwargs: {kwargs}"
+    )
+    pqFile, latency = timed_invocation(ParquetFile, s3_url, **kwargs)
+
+    logger.debug(f"Time to get {s3_url} into parquet file: {latency}s")
+
+    return pqFile
 
 
 def table_size(table: pa.Table) -> int:
     return table.nbytes
+
+
+def parquet_file_size(table: papq.ParquetFile) -> int:
+    return table.metadata.serialized_size
 
 
 def table_to_file(

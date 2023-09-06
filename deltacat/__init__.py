@@ -44,7 +44,7 @@ from deltacat.types.tables import TableWriteMode
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "0.1.18b14"
+__version__ = "0.1.19"
 
 
 __all__ = [

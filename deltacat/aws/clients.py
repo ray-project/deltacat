@@ -109,7 +109,7 @@ def block_until_instance_metadata_service_returns_success(
     url=INSTANCE_METADATA_SERVICE_IPV4_URI,
     retry_strategy=RetryIfRetryableHTTPStatusCode,
     wait_strategy=wait_fixed(2),  # wait 2 seconds before retrying,
-    stop_strategy=stop_after_delay(60 * 10),  # stop trying after 10 minutes
+    stop_strategy=stop_after_delay(60 * 30),  # stop trying after 30 minutes
 ) -> Optional[Response]:
     """Blocks until the instance metadata service returns a successful response.
 
@@ -150,11 +150,11 @@ def _get_session_from_kwargs(input_kwargs):
 def _resource(name: str, region: Optional[str], **kwargs) -> ServiceResource:
     boto3_session = _get_session_from_kwargs(kwargs)
 
-    boto_config = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "standard"})
+    boto_config = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
+    kwargs = {"config": boto_config, **kwargs}
     return boto3_session.resource(
         name,
         region,
-        config=boto_config,
         **kwargs,
     )
 
@@ -167,12 +167,12 @@ def _client(name: str, region: Optional[str], **kwargs) -> BaseClient:
         # fall back for clients without an associated resource
         boto3_session = _get_session_from_kwargs(kwargs)
         boto_config = Config(
-            retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "standard"}
+            retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"}
         )
+        kwargs = {"config": boto_config, **kwargs}
         return boto3_session.client(
             name,
             region,
-            config=boto_config,
             **kwargs,
         )
 

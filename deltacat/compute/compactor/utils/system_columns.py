@@ -22,6 +22,13 @@ _PK_HASH_COLUMN_FIELD = pa.field(
     _PK_HASH_COLUMN_TYPE,
 )
 
+_PK_HASH_STRING_COLUMN_NAME = _get_sys_col_name("hash_str")
+_PK_HASH_STRING_COLUMN_TYPE = pa.string()
+_PK_HASH_STRING_COLUMN_FIELD = pa.field(
+    _PK_HASH_STRING_COLUMN_NAME,
+    _PK_HASH_STRING_COLUMN_TYPE,
+)
+
 _DEDUPE_TASK_IDX_COLUMN_NAME = _get_sys_col_name("dedupe_task_idx")
 _DEDUPE_TASK_IDX_COLUMN_TYPE = pa.int32()
 _DEDUPE_TASK_IDX_COLUMN_FIELD = pa.field(
@@ -34,6 +41,12 @@ _PARTITION_STREAM_POSITION_COLUMN_TYPE = pa.int64()
 _PARTITION_STREAM_POSITION_COLUMN_FIELD = pa.field(
     _PARTITION_STREAM_POSITION_COLUMN_NAME,
     _PARTITION_STREAM_POSITION_COLUMN_TYPE,
+)
+
+_HASH_BUCKET_IDX_COLUMN_NAME = _get_sys_col_name("hash_bucket_idx")
+_HASH_BUCKET_IDX_COLUMN_TYPE = pa.int32()
+_HASH_BUCKET_IDX_COLUMN_FIELD = pa.field(
+    _HASH_BUCKET_IDX_COLUMN_NAME, _HASH_BUCKET_IDX_COLUMN_TYPE
 )
 
 _ORDERED_FILE_IDX_COLUMN_NAME = _get_sys_col_name("file_index")
@@ -76,8 +89,16 @@ def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(obj, _PK_HASH_COLUMN_TYPE)
 
 
+def get_pk_hash_string_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+    return pa.array(obj, _PK_HASH_STRING_COLUMN_TYPE)
+
+
 def pk_hash_column_np(table: pa.Table) -> np.ndarray:
     return table[_PK_HASH_COLUMN_NAME].to_numpy()
+
+
+def pk_hash_string_column_np(table: pa.Table) -> np.ndarray:
+    return table[_PK_HASH_STRING_COLUMN_NAME].to_numpy()
 
 
 def pk_hash_column(table: pa.Table) -> pa.ChunkedArray:
@@ -141,6 +162,10 @@ def get_delta_type_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
         obj,
         _DELTA_TYPE_COLUMN_TYPE,
     )
+
+
+def get_hash_bucket_idx_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
+    return pa.array(obj, _HASH_BUCKET_IDX_COLUMN_TYPE)
 
 
 def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
@@ -229,6 +254,24 @@ def append_pk_hash_column(table: pa.Table, pk_hashes) -> pa.Table:
     table = table.append_column(
         _PK_HASH_COLUMN_FIELD, get_pk_hash_column_array(pk_hashes)
     )
+    return table
+
+
+def append_pk_hash_string_column(table: pa.Table, pk_hashes) -> pa.Table:
+
+    table = table.append_column(
+        _PK_HASH_STRING_COLUMN_FIELD, get_pk_hash_string_column_array(pk_hashes)
+    )
+    return table
+
+
+def append_hash_bucket_idx_col(table: pa.Table, hash_bucket_indexes) -> pa.Table:
+
+    table = table.append_column(
+        _HASH_BUCKET_IDX_COLUMN_FIELD,
+        get_hash_bucket_idx_column_array(hash_bucket_indexes),
+    )
+
     return table
 
 
