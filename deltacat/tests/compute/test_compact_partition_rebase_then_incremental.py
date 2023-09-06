@@ -213,12 +213,6 @@ def test_compact_partition_rebase_then_incremental(
         partition_values_param,
         **ds_mock_kwargs,
     )
-    # source_table_partition =
-    # destination_table_partition: Partition = ds.get_partition(
-    #     destination_table_stream,
-    #     partition_values_param,
-    #     **ds_mock_kwargs
-    # )
     destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         partition_values_param,
