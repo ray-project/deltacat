@@ -15,6 +15,7 @@ from resource import getrusage, RUSAGE_SELF
 import platform
 import psutil
 import schedule
+from deltacat.constants import BYTES_PER_GIBIBYTE
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -73,9 +74,11 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
     def __init__(self) -> None:
         self.total_vcpu_seconds = 0.0
         self.used_vcpu_seconds = 0.0
+        self.total_memory_gb_seconds = 0.0
+        self.used_memory_gb_seconds = 0.0
 
     def __enter__(self) -> Any:
-        schedule.every().second.do(self._update_vcpus)
+        schedule.every().second.do(self._update_resources)
         self.stop_run_schedules = self._run_schedule()
         return super().__enter__()
 
@@ -94,7 +97,7 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
 
     # It is not truely parallel(due to GIL Ref: https://wiki.python.org/moin/GlobalInterpreterLock)
     # even if we are using threading library. However, it averages out and gives a very good approximation.
-    def _update_vcpus(self):
+    def _update_resources(self):
         cluster_resources = ray.cluster_resources()
         available_resources = ray.available_resources()
         if "CPU" not in cluster_resources:
@@ -104,13 +107,27 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
             self.used_vcpu_seconds = self.used_vcpu_seconds + float(
                 str(cluster_resources["CPU"] - available_resources["CPU"])
             )
-            self.total_vcpu_seconds = self.total_vcpu_seconds + float(
-                str(cluster_resources["CPU"])
+
+        self.total_vcpu_seconds = self.total_vcpu_seconds + float(
+            str(cluster_resources["CPU"])
+        )
+
+        if "memory" not in cluster_resources:
+            return
+
+        if "memory" in available_resources:
+            self.used_memory_gb_seconds = (
+                self.used_memory_gb_seconds
+                + float(
+                    str(cluster_resources["memory"] - available_resources["memory"])
+                )
+                / BYTES_PER_GIBIBYTE
             )
-        else:
-            self.total_vcpu_seconds = self.total_vcpu_seconds + float(
-                str(cluster_resources["CPU"])
-            )
+
+        self.total_memory_gb_seconds = (
+            self.total_memory_gb_seconds
+            + float(str(cluster_resources["memory"])) / BYTES_PER_GIBIBYTE
+        )
 
     def _run_schedule(self, interval: Optional[float] = 1.0):
         cease_continuous_run = threading.Event()

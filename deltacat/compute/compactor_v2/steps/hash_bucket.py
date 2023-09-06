@@ -109,7 +109,10 @@ def _group_file_records_by_pk_hash_bucket(
     if delta_file_envelopes is None:
         return None, 0, 0
 
-    logger.info(f"Read all delta file envelopes: {len(delta_file_envelopes)}")
+    logger.info(
+        f"Read all delta file envelopes: {len(delta_file_envelopes)} "
+        f"and total_size_bytes={total_size_bytes} and records={total_record_count}"
+    )
 
     # group the data by primary key hash value
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")

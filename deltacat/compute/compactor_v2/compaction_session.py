@@ -217,6 +217,7 @@ def _execute_compaction(
         previous_inflation=params.previous_inflation,
         average_record_size_bytes=params.average_record_size_bytes,
         primary_keys=params.primary_keys,
+        ray_custom_resources=params.ray_custom_resources,
     )
 
     hb_start = time.monotonic()
@@ -337,6 +338,7 @@ def _execute_compaction(
         primary_keys=params.primary_keys,
         deltacat_storage=params.deltacat_storage,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+        ray_custom_resources=params.ray_custom_resources,
     )
 
     def merge_input_provider(index, item):
@@ -479,6 +481,10 @@ def _execute_compaction(
     if cluster_util:
         compaction_audit.set_total_cpu_seconds(cluster_util.total_vcpu_seconds)
         compaction_audit.set_used_cpu_seconds(cluster_util.used_vcpu_seconds)
+        compaction_audit.set_used_memory_gb_seconds(cluster_util.used_memory_gb_seconds)
+        compaction_audit.set_total_memory_gb_seconds(
+            cluster_util.total_memory_gb_seconds
+        )
 
     s3_utils.upload(
         compaction_audit.audit_url,

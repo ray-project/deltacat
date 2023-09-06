@@ -46,3 +46,5 @@ class TestClusterUtilizationOverTimeRange(unittest.TestCase):
             self.assertTrue(
                 cu.total_vcpu_seconds >= cu.used_vcpu_seconds
             )  # total is greater than used
+            self.assertIsNotNone(cu.total_memory_gb_seconds)
+            self.assertIsNotNone(cu.used_memory_gb_seconds)

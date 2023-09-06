@@ -46,7 +46,7 @@ def append_content_type_params(
         pq_files = deltacat_storage.download_delta(
             delta,
             table_type=TableType.PYARROW_PARQUET,
-            storage_type=StorageType.DISTRIBUTED,
+            storage_type=StorageType.LOCAL,
             **deltacat_storage_kwargs,
         )
 
