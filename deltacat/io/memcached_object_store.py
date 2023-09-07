@@ -20,6 +20,9 @@ class MemcachedObjectStore(IObjectStore):
     An implementation of object store that uses Memcached.
     """
 
+    CONNECT_TIMEOUT = 10 * 60
+    FETCH_TIMEOUT = 30 * 60
+
     def __init__(
         self, storage_node_ips: Optional[List[str]] = None, port: Optional[int] = 11212
     ) -> None:
@@ -127,7 +130,13 @@ class MemcachedObjectStore(IObjectStore):
         if ip_address in self.client_cache:
             return self.client_cache[ip_address]
 
-        base_client = Client((ip_address, self.port))
+        base_client = Client(
+            (ip_address, self.port),
+            connect_timeout=self.CONNECT_TIMEOUT,
+            timeout=self.FETCH_TIMEOUT,
+            no_delay=True,
+        )
+
         client = RetryingClient(
             base_client,
             attempts=15,
@@ -136,6 +145,7 @@ class MemcachedObjectStore(IObjectStore):
                 MemcacheUnexpectedCloseError,
                 ConnectionResetError,
                 BrokenPipeError,
+                TimeoutError,
             ],
         )
 
