@@ -442,6 +442,13 @@ class CompactionSessionAuditInfo(dict):
         """
         return self.get("pyarrowVersion")
 
+    @property
+    def compactor_version(self) -> str:
+        """
+        The version of the compactor used to compact.
+        """
+        return self.get("compactorVersion")
+
     # Setters follow
 
     def set_audit_url(self, audit_url: str) -> CompactionSessionAuditInfo:
@@ -768,6 +775,10 @@ class CompactionSessionAuditInfo(dict):
 
     def set_pyarrow_version(self, value: str) -> CompactionSessionAuditInfo:
         self["pyarrowVersion"] = value
+        return self
+
+    def set_compactor_version(self, value: str) -> CompactionSessionAuditInfo:
+        self["compactorVersion"] = value
         return self
 
     # High level methods to save stats

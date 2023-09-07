@@ -48,6 +48,7 @@ from deltacat.compute.compactor_v2.utils.task_options import (
     merge_resource_options_provider,
 )
 from deltacat.utils.resources import ClusterUtilizationOverTimeRange
+from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -114,6 +115,7 @@ def _execute_compaction(
     compaction_audit = CompactionSessionAuditInfo(deltacat.__version__, audit_url)
 
     compaction_audit.set_hash_bucket_count(params.hash_bucket_count)
+    compaction_audit.set_compactor_version(CompactorVersion.V2.value)
 
     compaction_start = time.monotonic()
 
@@ -501,6 +503,7 @@ def _execute_compaction(
         compaction_audit_url=audit_url,
         hash_bucket_count=params.hash_bucket_count,
         hb_index_to_entry_range=hb_id_to_entry_indices_range,
+        compactor_version=CompactorVersion.V2.value,
     )
 
     logger.info(
