@@ -19,9 +19,9 @@ MIN_FILES_IN_BATCH = float("inf")
 AVERAGE_RECORD_SIZE_BYTES = 1000
 
 # Maximum parallelism for the tasks at each BSP step.
-# Default is the number of vCPUs in about 168
+# Default is the number of vCPUs in about 128
 # r5.8xlarge EC2 instances.
-TASK_MAX_PARALLELISM = 5367
+TASK_MAX_PARALLELISM = 4096
 
 # The percentage of memory that needs to be allocated
 # as buffer. This value will ensure the job doesn't run out
