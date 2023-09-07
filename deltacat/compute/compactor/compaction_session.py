@@ -241,8 +241,9 @@ def _execute_compaction_round(
 
     logger.info(f"Compaction audit will be written to {audit_url}")
 
-    compaction_audit = CompactionSessionAuditInfo(deltacat.__version__, audit_url)
-    compaction_audit.set_compactor_version(CompactorVersion.V1.value)
+    compaction_audit = CompactionSessionAuditInfo(
+        deltacat.__version__, audit_url
+    ).set_compactor_version(CompactorVersion.V1.value)
 
     compaction_start = time.monotonic()
 
