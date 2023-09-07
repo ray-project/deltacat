@@ -82,6 +82,6 @@ def daft_s3_file_to_table(
         if include_columns is not None:
             schema = pa.schema([schema.field(col) for col in include_columns])
         daft_schema = Schema.from_pyarrow_schema(schema)
-        return table.cast_to_schema(daft_schema).to_arrow()
+        return table.cast_to_schema(daft_schema).to_arrow(convert_large_arrays=True)
     else:
-        return table.to_arrow()
+        return table.to_arrow(convert_large_arrays=True)

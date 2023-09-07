@@ -20,6 +20,7 @@ class TestDaftParquetReader(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["a", "b"])
         self.assertEqual(table.num_rows, 100)
+        self._util_check_strings_in_schema(table.schema)
 
     def test_read_from_s3_single_column_via_include_columns(self):
         table = daft_s3_file_to_table(
@@ -30,6 +31,7 @@ class TestDaftParquetReader(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)
+        self._util_check_strings_in_schema(table.schema)
 
     def test_read_from_s3_single_column_via_column_names(self):
         table = daft_s3_file_to_table(
@@ -40,6 +42,7 @@ class TestDaftParquetReader(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)
+        self._util_check_strings_in_schema(table.schema)
 
     def test_read_from_s3_single_column_with_schema(self):
         schema = pa.schema([("a", pa.int64()), ("b", pa.string())])
@@ -55,6 +58,7 @@ class TestDaftParquetReader(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)
+        self._util_check_strings_in_schema(table.schema)
 
     def test_read_from_s3_single_column_with_row_groups(self):
 
@@ -70,6 +74,11 @@ class TestDaftParquetReader(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 10)
+        self._util_check_strings_in_schema(table.schema)
+
+    def _util_check_strings_in_schema(self, schema: pa.Schema):
+        for field in schema:
+            self.assertFalse(pa.types.is_large_string(field.type))
 
 
 if __name__ == "__main__":
