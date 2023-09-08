@@ -50,6 +50,7 @@ from deltacat.utils.metrics import MetricsConfig
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
+from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
@@ -240,7 +241,9 @@ def _execute_compaction_round(
 
     logger.info(f"Compaction audit will be written to {audit_url}")
 
-    compaction_audit = CompactionSessionAuditInfo(deltacat.__version__, audit_url)
+    compaction_audit = CompactionSessionAuditInfo(
+        deltacat.__version__, audit_url
+    ).set_compactor_version(CompactorVersion.V1.value)
 
     compaction_start = time.monotonic()
 
@@ -698,6 +701,9 @@ def _execute_compaction_round(
         last_rebase_source_partition_locator,
         compaction_audit.untouched_file_ratio,
         audit_url,
+        hash_bucket_count,
+        None,
+        CompactorVersion.V1.value,
     )
 
     logger.info(
