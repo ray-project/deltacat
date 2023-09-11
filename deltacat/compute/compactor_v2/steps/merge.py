@@ -250,18 +250,17 @@ def _copy_all_manifest_files_from_old_hash_buckets(
             previous_stream_position=write_to_partition.stream_position,
             properties={},
         )
+        referenced_pyarrow_write_result = PyArrowWriteResult.of(
+            len(manifest_entry_referenced_list),
+            manifest.meta.source_content_length,
+            manifest.meta.content_length,
+            manifest.meta.record_count,
+        )
         materialize_result = MaterializeResult.of(
             delta=delta,
             task_index=hb_index,
-            pyarrow_write_result=None,
-            # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
-            #  and in-memory-table-bytes instead of tight coupling to paBytes
-            referenced_pyarrow_write_result=PyArrowWriteResult.of(
-                len(manifest_entry_referenced_list),
-                manifest.meta.source_content_length,
-                manifest.meta.content_length,
-                manifest.meta.record_count,
-            ),
+            pyarrow_write_result=referenced_pyarrow_write_result,
+            referenced_pyarrow_write_result=referenced_pyarrow_write_result,
         )
         materialize_result_list.append(materialize_result)
     return materialize_result_list
@@ -426,6 +425,11 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 f"Copying {len(referenced_materialized_results)} manifest files by reference..."
             )
             materialized_results.extend(referenced_materialized_results)
+
+        logger.info(
+            "Total number of materialized results produced for "
+            f"hash group index: {input.hash_group_index} is {len(materialized_results)}"
+        )
 
         assert total_dfes_found == len(hb_index_to_delta_file_envelopes_list), (
             "The total dfe list does not match the input dfes from hash bucket as "

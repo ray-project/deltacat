@@ -203,6 +203,9 @@ def merge_resource_options_provider(
         )
 
         for hb_idx in iterable:
+            if round_completion_info.hb_index_to_entry_range.get(str(hb_idx)) is None:
+                continue
+
             entry_start, entry_end = round_completion_info.hb_index_to_entry_range[
                 str(hb_idx)
             ]
