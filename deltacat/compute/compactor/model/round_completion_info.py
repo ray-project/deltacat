@@ -46,6 +46,7 @@ class RoundCompletionInfo(dict):
         compaction_audit_url: Optional[str] = None,
         hash_bucket_count: Optional[int] = None,
         hb_index_to_entry_range: Optional[Dict[int, Tuple[int, int]]] = None,
+        compactor_version: Optional[str] = None,
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -60,6 +61,7 @@ class RoundCompletionInfo(dict):
         rci["compactionAuditUrl"] = compaction_audit_url
         rci["hashBucketCount"] = hash_bucket_count
         rci["hbIndexToEntryRange"] = hb_index_to_entry_range
+        rci["compactorVersion"] = compactor_version
         return rci
 
     @property
@@ -113,3 +115,7 @@ class RoundCompletionInfo(dict):
         The start index is inclusive and end index is exclusive by default.
         """
         return self["hbIndexToEntryRange"]
+
+    @property
+    def compactor_version(self) -> Optional[str]:
+        return self.get("compactorVersion")

@@ -179,7 +179,9 @@ def merge_resource_options_provider(
     data_size = hash_group_size_bytes.get(hb_group_idx, 0)
     num_rows = hash_group_num_rows.get(hb_group_idx, 0)
 
-    pk_size_bytes = 0
+    # upper bound for pk size of incremental
+    pk_size_bytes = data_size
+    incremental_index_array_size = num_rows * 4
 
     if (
         round_completion_info
@@ -230,8 +232,15 @@ def merge_resource_options_provider(
                     else:
                         pk_size_bytes += pk_size
 
-    # total data downloaded + primary key hash column + primary key column + dict size for merge
-    total_memory = data_size + pk_size_bytes + num_rows * 20 + num_rows * 20
+    # total data downloaded + primary key hash column + primary key column
+    # + dict size for merge + incremental index array size
+    total_memory = (
+        data_size
+        + pk_size_bytes
+        + num_rows * 20
+        + num_rows * 20
+        + incremental_index_array_size
+    )
 
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
