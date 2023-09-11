@@ -52,7 +52,9 @@ def invoke_parallel(
 
     for i, item in enumerate(items):
         if max_parallelism is not None and len(remaining_refs) > max_parallelism:
-            _, remaining_refs = ray.wait(remaining_refs, num_returns=1)
+            _, remaining_refs = ray.wait(
+                remaining_refs, num_returns=1, fetch_local=False
+            )
 
         opt = {}
         if options_provider:
