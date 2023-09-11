@@ -232,7 +232,8 @@ def merge_resource_options_provider(
                     else:
                         pk_size_bytes += pk_size
 
-    # total data downloaded + primary key hash column + primary key column + dict size for merge
+    # total data downloaded + primary key hash column + primary key column
+    # + dict size for merge + incremental index array size
     total_memory = (
         data_size
         + pk_size_bytes
