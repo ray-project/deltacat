@@ -426,6 +426,11 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             )
             materialized_results.extend(referenced_materialized_results)
 
+        logger.info(
+            "Total number of materialized results produced for "
+            f"hash group index: {input.hash_group_index} is {len(materialized_results)}"
+        )
+
         assert total_dfes_found == len(hb_index_to_delta_file_envelopes_list), (
             "The total dfe list does not match the input dfes from hash bucket as "
             f"{total_dfes_found} != {len(hb_index_to_delta_file_envelopes_list)}"
