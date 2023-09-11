@@ -1,5 +1,4 @@
 import copy
-import itertools
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from deltacat.utils.placement import PlacementGroupConfig
 import ray
@@ -49,20 +48,12 @@ def invoke_parallel(
     if max_parallelism is not None and max_parallelism <= 0:
         raise ValueError(f"Max parallelism ({max_parallelism}) must be > 0.")
     pending_ids = []
+    remaining_refs = []
+
     for i, item in enumerate(items):
-        if max_parallelism is not None and len(pending_ids) > max_parallelism:
-            # Some tasks return multiple values while others have only return one.
-            # For multiple return values we flatten the list of pending futures.
-            # TODO (pdames): Support tasks with an unbound number of return values.
-            if isinstance(pending_ids[0], list):
-                ray.wait(
-                    list(itertools.chain(*pending_ids)),
-                    num_returns=int(
-                        len(pending_ids[0]) * (len(pending_ids) - max_parallelism)
-                    ),
-                )
-            else:
-                ray.wait(pending_ids, num_returns=len(pending_ids) - max_parallelism)
+        if max_parallelism is not None and len(remaining_refs) > max_parallelism:
+            _, remaining_refs = ray.wait(remaining_refs, num_returns=1)
+
         opt = {}
         if options_provider:
             opt = options_provider(i, item)
@@ -72,7 +63,10 @@ def invoke_parallel(
             kwargs_dict = kwargs_provider(i, item)
             kwargs.update(kwargs_dict)
             pending_id = ray_task.options(**opt).remote(*args, **kwargs)
+
         pending_ids.append(pending_id)
+        remaining_refs.append(pending_id)
+
     return pending_ids
 
 

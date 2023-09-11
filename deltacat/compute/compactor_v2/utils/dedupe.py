@@ -16,7 +16,14 @@ def _create_chunked_index_array(array: pa.Array) -> pa.Array:
     chunk_lengths = [
         len(array.chunk(chunk_index)) for chunk_index in range(len(array.chunks))
     ]
-    result = np.array([np.arange(cl) for cl in chunk_lengths], dtype="object")
+
+    # if all chunk lengths are equal, numpy assumes correct shape
+    # which make addition operation append elements instead of adding.
+    result = np.empty((len(chunk_lengths),), dtype="object")
+
+    for index, cl in enumerate(chunk_lengths):
+        result[index] = np.arange(cl, dtype="int32")
+
     chunk_lengths = ([0] + chunk_lengths)[:-1]
     result = pa.chunked_array(result + np.cumsum(chunk_lengths))
     return result
