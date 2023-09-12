@@ -66,10 +66,9 @@ class TestDaftParquetReader(unittest.TestCase):
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            include_columns=["a", "b"],
             pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
         )
-        self.assertEqual(table.schema.names, ["a", "b"])  # NOTE: Order matches `include_columns`
+        self.assertEqual(table.schema.names, ["b", "a"])
         self.assertEqual(table.schema.field("a").type, pa.int8())
         self.assertEqual(table.num_rows, 100)
 
