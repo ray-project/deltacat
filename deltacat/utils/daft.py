@@ -21,7 +21,9 @@ from deltacat.types.partial_download import (
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _apply_schema(table_schema: pa.Schema, input_schema: pa.Schema) -> pa.Schema:
+def _get_compatible_target_schema(
+    table_schema: pa.Schema, input_schema: pa.Schema
+) -> pa.Schema:
     """Applies fields from the specified `input_schema` on the (inferred) `table_schema`
 
     Args:
@@ -108,7 +110,7 @@ def daft_s3_file_to_table(
         input_schema = kwargs["schema"]
 
         table_schema = pa_table.schema
-        target_schema = _apply_schema(table_schema, input_schema)
+        target_schema = _get_compatible_target_schema(table_schema, input_schema)
         return pa_table.cast(target_schema)
     else:
         return pa_table

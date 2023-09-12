@@ -32,7 +32,7 @@ from deltacat.types.partial_download import (
 )
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils.daft import daft_s3_file_to_table
+from deltacat.utils.daft import daft_s3_file_to_table, _get_compatible_target_schema
 from deltacat.utils.arguments import (
     sanitize_kwargs_to_callable,
     sanitize_kwargs_by_supported_kwargs,
@@ -312,25 +312,6 @@ def _add_column_kwargs(
                     f"Ignoring request to include columns {include_columns} "
                     f"for non-tabular content type {content_type}"
                 )
-
-
-def _get_compatible_target_schema(
-    table_schema: pa.Schema, input_schema: pa.Schema
-) -> pa.Schema:
-    target_schema_fields = []
-
-    for field in table_schema:
-        index = input_schema.get_field_index(field.name)
-
-        if index != -1:
-            target_field = input_schema.field(index)
-            target_schema_fields.append(target_field)
-        else:
-            target_schema_fields.append(field)
-
-    target_schema = pa.schema(target_schema_fields, metadata=table_schema.metadata)
-
-    return target_schema
 
 
 def s3_partial_parquet_file_to_table(
