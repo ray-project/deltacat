@@ -79,12 +79,11 @@ def daft_s3_file_to_table(
 
     if kwargs.get("schema") is not None:
         input_schema = kwargs["schema"]
-        input_schema_names = set(input_schema.names)
-
         if include_columns is not None:
             input_schema = pa.schema([input_schema.field(col) for col in include_columns])
         elif column_names is not None:
             input_schema = pa.schema([input_schema.field(col) for col in column_names])
+        input_schema_names = set(input_schema.names)
 
         # Perform casting of types to provided schema's types
         cast_to_schema = [
