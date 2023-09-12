@@ -106,8 +106,7 @@ def daft_s3_file_to_table(
                 columns.append(
                     pa.nulls(len(casted_table), type=input_schema.field(name).type)
                 )
-        return pa.Table.from_arrays(
-            columns, names=input_schema.names, metadata=pa_table.schema.metadata
-        )
+        schema = input_schema.with_metadata(pa_table.schema.metadata)
+        return pa.table(columns, schema=schema)
     else:
         return pa_table
