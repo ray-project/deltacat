@@ -19,7 +19,7 @@ from deltacat.tests.compute.test_util_common import (
 from deltacat.tests.compute.compact_partition_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -157,18 +157,18 @@ def test_compact_partition_rebase_then_incremental(
     setup_local_deltacat_storage_conn: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
-    sort_keys: Dict[str, str],
-    partition_keys_param: Dict[str, str],
-    partition_values_param: str,
+    sort_keys: List[Optional[Any]],
+    partition_keys_param: Optional[List[Any]],
+    partition_values_param: List[Optional[str]],
     column_names_param: List[str],
-    input_deltas_arrow_arrays_param: Dict[str, pa.Array],
+    input_deltas_arrow_arrays_param: List[pa.Array],
     input_deltas_delta_type: str,
     expected_terminal_compact_partition_result: pa.Table,
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
     create_table_strategy: Callable,
-    incremental_deltas_arrow_arrays_param: Dict[str, pa.Array],
+    incremental_deltas_arrow_arrays_param: List[pa.Array],
     incremental_deltas_delta_type: str,
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers,
@@ -261,15 +261,15 @@ def test_compact_partition_rebase_then_incremental(
     )
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     actual_rebase_compacted_table = pa.concat_tables(tables)
+    # if no primary key is specified then sort by sort_key
+    sorting_cols: List[Any] = (
+        [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
+    )
     rebase_expected_compact_partition_result = (
-        rebase_expected_compact_partition_result.combine_chunks().sort_by(
-            [(val, "ascending") for val in primary_keys]
-        )
+        rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)
     )
     actual_rebase_compacted_table = (
-        actual_rebase_compacted_table.combine_chunks().sort_by(
-            [(val, "ascending") for val in primary_keys]
-        )
+        actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
     )
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
@@ -330,11 +330,11 @@ def test_compact_partition_rebase_then_incremental(
     actual_compacted_table = pa.concat_tables(tables)
     expected_terminal_compact_partition_result = (
         expected_terminal_compact_partition_result.combine_chunks().sort_by(
-            [(val, "ascending") for val in primary_keys]
+            sorting_cols
         )
     )
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
-        [(val, "ascending") for val in primary_keys]
+        sorting_cols
     )
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result
