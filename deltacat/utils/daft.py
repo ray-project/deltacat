@@ -1,8 +1,7 @@
 import logging
 from typing import Optional, List
 
-from daft.table import Table, read_parquet_into_pyarrow
-from daft.logical.schema import Schema
+from daft.table import read_parquet_into_pyarrow
 from daft import TimeUnit
 from daft.io import IOConfig, S3Config
 import pyarrow as pa
