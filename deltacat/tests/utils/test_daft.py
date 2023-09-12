@@ -98,7 +98,9 @@ class TestDaftParquetReader(unittest.TestCase):
             content_type=ContentType.PARQUET.value,
             pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
         )
-        self.assertEqual(table.schema.names, ["a", "MISSING"])  # NOTE: "MISSING" is padded as a null array
+        self.assertEqual(
+            table.schema.names, ["a", "MISSING"]
+        )  # NOTE: "MISSING" is padded as a null array
         self.assertEqual(table.schema.field("a").type, pa.int8())
         self.assertEqual(table.schema.field("MISSING").type, pa.string())
         self.assertEqual(table.num_rows, 100)

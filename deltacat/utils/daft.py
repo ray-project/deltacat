@@ -104,9 +104,13 @@ def daft_s3_file_to_table(
                 columns.append(casted_table[name])
             else:
                 if name not in input_schema_names:
-                    raise ValueError(f"Provided column name {name} expected to be found in provided schema: {input_schema}")
+                    raise ValueError(
+                        f"Provided column name {name} expected to be found in provided schema: {input_schema}"
+                    )
                 dtype = input_schema.field(name).type
                 columns.append(pa.nulls(len(casted_table), type=dtype))
-        return pa.Table.from_arrays(columns, names=expected_names, metadata=pa_table.schema.metadata)
+        return pa.Table.from_arrays(
+            columns, names=expected_names, metadata=pa_table.schema.metadata
+        )
     else:
         return pa_table
