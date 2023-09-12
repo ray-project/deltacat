@@ -21,35 +21,6 @@ from deltacat.types.partial_download import (
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _get_compatible_target_schema(
-    table_schema: pa.Schema, input_schema: pa.Schema
-) -> pa.Schema:
-    """Applies fields from the specified `input_schema` on the (inferred) `table_schema`
-
-    Args:
-        table_schema (pa.Schema): Schema inferred from Parquet file
-        input_schema (pa.Schema): Schema specified by deltacat
-
-    Returns:
-        pa.Schema: Schema with fields and metadata from `table_schema` but overridden with fields from
-            `input_schema` where the field names match
-    """
-    target_schema_fields = []
-
-    for field in table_schema:
-        index = input_schema.get_field_index(field.name)
-
-        if index != -1:
-            target_field = input_schema.field(index)
-            target_schema_fields.append(target_field)
-        else:
-            target_schema_fields.append(field)
-
-    target_schema = pa.schema(target_schema_fields, metadata=table_schema.metadata)
-
-    return target_schema
-
-
 def daft_s3_file_to_table(
     s3_url: str,
     content_type: str,
@@ -108,9 +79,34 @@ def daft_s3_file_to_table(
 
     if kwargs.get("schema") is not None:
         input_schema = kwargs["schema"]
+        input_schema_names = set(input_schema.names)
 
-        table_schema = pa_table.schema
-        target_schema = _get_compatible_target_schema(table_schema, input_schema)
-        return pa_table.cast(target_schema)
+        expected_names = input_schema.names
+        if include_columns is not None:
+            expected_names = include_columns
+        elif column_names is not None:
+            expected_names = column_names
+
+        # Perform casting of types to provided schema's types
+        cast_to_schema = [
+            input_schema.field(inferred_field.name)
+            if inferred_field.name in input_schema_names
+            else inferred_field
+            for inferred_field in pa_table.schema
+        ]
+        casted_table = pa_table.cast(pa.schema(cast_to_schema))
+
+        # Reorder and pad columns with a null column where necessary
+        pa_table_column_names = set(casted_table.column_names)
+        columns = []
+        for name in expected_names:
+            if name in pa_table_column_names:
+                columns.append(casted_table[name])
+            else:
+                if name not in input_schema_names:
+                    raise ValueError(f"Provided column name {name} expected to be found in provided schema: {input_schema}")
+                dtype = input_schema.field(name).type
+                columns.append(pa.nulls(len(casted_table), type=dtype))
+        return pa.Table.from_arrays(columns, names=expected_names, metadata=pa_table.schema.metadata)
     else:
         return pa_table
