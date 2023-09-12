@@ -10,7 +10,7 @@ from deltacat import logs
 from deltacat.utils.common import ReadKwargsProvider
 
 from deltacat.types.media import ContentType, ContentEncoding
-from deltacat.aws.constants import BOTO_MAX_RETRIES
+from deltacat.aws.constants import BOTO_MAX_RETRIES, DAFT_MAX_S3_CONNECTIONS_PER_FILE
 from deltacat.utils.performance import timed_invocation
 
 from deltacat.types.partial_download import (
@@ -88,6 +88,7 @@ def daft_s3_file_to_table(
             session_token=s3_client_kwargs.get("aws_session_token"),
             retry_mode="adaptive",
             num_tries=BOTO_MAX_RETRIES,
+            max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
         )
     )
 
