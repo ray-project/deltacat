@@ -81,11 +81,10 @@ def daft_s3_file_to_table(
         input_schema = kwargs["schema"]
         input_schema_names = set(input_schema.names)
 
-        expected_names = input_schema.names
         if include_columns is not None:
-            expected_names = include_columns
+            input_schema = pa.schema([input_schema.field(col) for col in include_columns])
         elif column_names is not None:
-            expected_names = column_names
+            input_schema = pa.schema([input_schema.field(col) for col in column_names])
 
         # Perform casting of types to provided schema's types
         cast_to_schema = [
@@ -99,7 +98,7 @@ def daft_s3_file_to_table(
         # Reorder and pad columns with a null column where necessary
         pa_table_column_names = set(casted_table.column_names)
         columns = []
-        for name in expected_names:
+        for name in input_schema.names:
             if name in pa_table_column_names:
                 columns.append(casted_table[name])
             else:
@@ -110,7 +109,7 @@ def daft_s3_file_to_table(
                 dtype = input_schema.field(name).type
                 columns.append(pa.nulls(len(casted_table), type=dtype))
         return pa.Table.from_arrays(
-            columns, names=expected_names, metadata=pa_table.schema.metadata
+            columns, names=input_schema.names, metadata=pa_table.schema.metadata
         )
     else:
         return pa_table
