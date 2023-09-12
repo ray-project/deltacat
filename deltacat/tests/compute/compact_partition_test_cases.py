@@ -108,8 +108,11 @@ def create_tests_cases_for_enabled_compactor_versions(
 ):
     test_cases = {} if test_cases is None else test_cases
     composite_test_cases = {}
-    for compactor_version, compact_partition_func in ENABLED_COMPACT_PARTITIONS_DRIVERS:
-        for tc_name, tc_params in test_cases.items():
+    for tc_name, tc_params in test_cases.items():
+        for (
+            compactor_version,
+            compact_partition_func,
+        ) in ENABLED_COMPACT_PARTITIONS_DRIVERS:
             # skip creating test case if included in the skip params (e.g. skip_enabled_compact_partition_drivers=[CompactorVersion.V1] will skip creating a compactor version 1 test case)
             if (
                 tc_params.skip_enabled_compact_partition_drivers

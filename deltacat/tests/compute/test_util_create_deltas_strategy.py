@@ -8,13 +8,57 @@ from deltacat.tests.compute.test_util_common import (
 )
 
 from deltacat.storage import (
+    Delta,
     DeltaType,
+    Partition,
+    PartitionLocator,
+    Stream,
 )
 from deltacat.tests.compute.test_util_common import (
     create_src_table,
     create_destination_table,
     create_rebase_table,
 )
+
+
+def create_incremental_deltas_on_source_table(
+    source_namespace: str,
+    source_table_name: str,
+    source_table_version: str,
+    source_table_stream: Stream,
+    partition_values_param,
+    incremental_deltas: List[pa.Array],
+    input_delta_type: DeltaType,
+    column_names_param: List[str],
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[PartitionLocator, Delta]:
+    import deltacat.tests.local_deltacat_storage as ds
+
+    src_partition: Partition = ds.get_partition(
+        source_table_stream.locator,
+        partition_values_param,
+        **ds_mock_kwargs,
+    )
+    incremental_deltas: pa.Table = pa.Table.from_arrays(
+        incremental_deltas,
+        names=column_names_param,
+    )
+    new_delta: Delta = ds.commit_delta(
+        ds.stage_delta(incremental_deltas, src_partition, **ds_mock_kwargs),
+        **ds_mock_kwargs,
+    )
+    src_table_stream_after_committed_delta: Stream = ds.get_stream(
+        source_namespace,
+        source_table_name,
+        source_table_version,
+        **ds_mock_kwargs,
+    )
+    src_partition_after_committed_delta: Partition = ds.get_partition(
+        src_table_stream_after_committed_delta.locator,
+        partition_values_param,
+        **ds_mock_kwargs,
+    )
+    return src_partition_after_committed_delta.locator, new_delta
 
 
 def create_src_w_deltas_destination_strategy(

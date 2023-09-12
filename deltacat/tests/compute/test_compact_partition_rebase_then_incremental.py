@@ -16,6 +16,9 @@ from deltacat.tests.compute.test_util_constant import (
 from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
 )
+from deltacat.tests.compute.test_util_create_deltas_strategy import (
+    create_incremental_deltas_on_source_table,
+)
 from deltacat.tests.compute.compact_partition_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
@@ -177,11 +180,9 @@ def test_compact_partition_rebase_then_incremental(
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
-        Delta,
         DeltaLocator,
         Partition,
         PartitionLocator,
-        Stream,
     )
     from deltacat.compute.compactor.model.compact_partition_params import (
         CompactPartitionParams,
@@ -277,29 +278,19 @@ def test_compact_partition_rebase_then_incremental(
     """
     INCREMENTAL
     """
-    source_partition_2: Partition = ds.get_partition(
-        source_table_stream.locator,
-        partition_values_param,
-        **ds_mock_kwargs,
-    )
-    incremental_deltas: pa.Table = pa.Table.from_arrays(
-        incremental_deltas_arrow_arrays_param,
-        names=column_names_param,
-    )
-    new_delta: Delta = ds.commit_delta(
-        ds.stage_delta(incremental_deltas, source_partition_2, **ds_mock_kwargs),
-        **ds_mock_kwargs,
-    )
-    source_table_stream_3: Stream = ds.get_stream(
+    (
+        source_partition_locator_w_deltas,
+        new_delta,
+    ) = create_incremental_deltas_on_source_table(
         BASE_TEST_SOURCE_NAMESPACE,
         BASE_TEST_SOURCE_TABLE_NAME,
         BASE_TEST_SOURCE_TABLE_VERSION,
-        **ds_mock_kwargs,
-    )
-    source_partition_3: Partition = ds.get_partition(
-        source_table_stream_3.locator,
+        source_table_stream,
         partition_values_param,
-        **ds_mock_kwargs,
+        incremental_deltas_arrow_arrays_param,
+        incremental_deltas_delta_type,
+        column_names_param,
+        ds_mock_kwargs,
     )
     compact_partition_params = CompactPartitionParams.of(
         {
@@ -318,7 +309,7 @@ def test_compact_partition_rebase_then_incremental(
             "rebase_source_partition_high_watermark": None,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
-            "source_partition_locator": source_partition_3.locator,
+            "source_partition_locator": source_partition_locator_w_deltas,
             "sort_keys": sort_keys if sort_keys else None,
         }
     )
