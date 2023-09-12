@@ -22,9 +22,7 @@ from deltacat.types.partial_download import (
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _apply_schema(
-    table_schema: pa.Schema, input_schema: pa.Schema
-) -> pa.Schema:
+def _apply_schema(table_schema: pa.Schema, input_schema: pa.Schema) -> pa.Schema:
     """Applies fields from the specified `input_schema` on the (inferred) `table_schema`
 
     Args:
