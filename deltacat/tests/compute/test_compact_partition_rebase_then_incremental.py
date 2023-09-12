@@ -14,7 +14,6 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.tests.compute.test_util_common import (
-    setup_partition_keys,
     get_compacted_delta_locator_from_rcf,
 )
 from deltacat.tests.compute.compact_partition_test_cases import (
@@ -197,7 +196,7 @@ def test_compact_partition_rebase_then_incremental(
     """
     REBASE
     """
-    partition_keys = setup_partition_keys(partition_keys_param)
+    partition_keys = partition_keys_param
     (
         source_table_stream,
         destination_table_stream,

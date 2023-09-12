@@ -2,6 +2,8 @@ import pyarrow as pa
 from typing import Callable, Dict, List, Optional, Set, Tuple
 from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
+    PartitionKey,
+    PartitionKeyType,
 )
 from deltacat.tests.compute.test_util_constant import (
     DEFAULT_MAX_RECORDS_PER_FILE,
@@ -127,7 +129,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "1-incremental-pkstr-sknone-norcf": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1"],
         input_deltas_arrow_arrays_param=[pa.array([str(i) for i in range(10)])],
@@ -145,7 +147,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
@@ -169,7 +171,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             SortKey.of(key_name="sk_col_1"),
             SortKey.of(key_name="sk_col_2"),
         ],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1", "sk_col_2"],
         input_deltas_arrow_arrays_param=[
@@ -198,7 +200,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
             SortKey.of(key_name="sk_col_1"),
             SortKey.of(key_name="sk_col_2"),
         ],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1", "sk_col_2"],
         input_deltas_arrow_arrays_param=[
@@ -224,7 +226,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[SortKey.of(key_name="sk_col_1")],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
@@ -248,7 +250,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[SortKey.of(key_name="sk_col_1")],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
@@ -272,7 +274,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[SortKey.of(key_name="sk_col_1")],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
@@ -296,7 +298,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1", "pk_col_2"},
         sort_keys=[SortKey.of(key_name="sk_col_1")],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "pk_col_2", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
@@ -322,7 +324,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[SortKey.of(key_name="sk_col_1")],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1"],
         input_deltas_arrow_arrays_param=[
@@ -376,7 +378,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             SortKey.of(key_name="sk_col_1"),
             SortKey.of(key_name="sk_col_2"),
         ],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         input_deltas_arrow_arrays_param=[
@@ -422,7 +424,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         sort_keys=[
             SortKey.of(key_name="sk_col_1"),
         ],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
         input_deltas_arrow_arrays_param=[
@@ -523,7 +525,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "14-rebase-then-incremental-partial-deltas-on-incremental-deltas": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "col_1"],
         input_deltas_arrow_arrays_param=[
@@ -562,7 +564,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             SortKey.of(key_name="sk_col_1"),
             SortKey.of(key_name="sk_col_2"),
         ],
-        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values_param=["1"],
         column_names_param=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         input_deltas_arrow_arrays_param=[
@@ -596,6 +598,49 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
                 pa.array([i / 10 for i in range(40, 52)]),
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        create_placement_group_param=False,
+        records_per_compacted_file_param=10,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT + 10,
+        create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+    ),
+    "16-rebase-then-incremental-no-pk-compactor-v2-only": RebaseThenIncrementalCompactorTestCase(
+        primary_keys={},
+        sort_keys=[
+            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_name="sk_col_2"),
+        ],
+        partition_keys_param=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values_param=["1"],
+        column_names_param=["sk_col_1", "sk_col_2", "col_1"],
+        input_deltas_arrow_arrays_param=[
+            pa.array([str(i) for i in range(12)]),
+            pa.array(["foo"] * 12),
+            pa.array([i / 10 for i in range(10, 22)]),
+        ],
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(12)]),
+                pa.array(["foo"] * 12),
+                pa.array([i / 10 for i in range(10, 22)]),
+            ],
+            names=["sk_col_1", "sk_col_2", "col_1"],
+        ),
+        incremental_deltas_arrow_arrays_param=[
+            pa.array([str(i) for i in range(12)]),
+            pa.array(["foo"] * 12),
+            pa.array([i / 10 for i in range(40, 52)]),
+        ],
+        incremental_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(12)]),
+                pa.array(["foo"] * 12),
+                pa.array([i / 10 for i in range(40, 52)]),
+            ],
+            names=["sk_col_1", "sk_col_2", "col_1"],
         ),
         create_placement_group_param=False,
         records_per_compacted_file_param=10,
