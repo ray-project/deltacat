@@ -103,11 +103,11 @@ class RebaseThenIncrementalCompactorTestCase(CompactorTestCase):
     rebase_expected_compact_partition_result: pa.Table
 
 
-def create_tests_cases_for_enabled_compactor_versions(
+def with_compactor_version_func_test_param(
     test_cases: Dict[str, CompactorTestCase] = None
 ):
     test_cases = {} if test_cases is None else test_cases
-    composite_test_cases = {}
+    enriched_test_cases = {}
     for tc_name, tc_params in test_cases.items():
         for (
             compactor_version,
@@ -120,12 +120,12 @@ def create_tests_cases_for_enabled_compactor_versions(
                 in tc_params.skip_enabled_compact_partition_drivers
             ):
                 continue
-            composite_test_cases[f"{tc_name}_{compactor_version}"] = [
+            enriched_test_cases[f"{tc_name}_{compactor_version}"] = [
                 *tc_params,
                 compact_partition_func,
             ]
 
-    return composite_test_cases
+    return enriched_test_cases
 
 
 INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
@@ -690,11 +690,9 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     ),
 }
 
-INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
-    INCREMENTAL_TEST_CASES
-)
+INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(INCREMENTAL_TEST_CASES)
 
 
-REBASE_THEN_INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
+REBASE_THEN_INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(
     REBASE_THEN_INCREMENTAL_TEST_CASES
 )

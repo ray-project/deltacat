@@ -79,7 +79,7 @@ FUNCTION scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
+def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
@@ -155,9 +155,8 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     indirect=[],
 )
 def test_compact_partition_rebase_then_incremental(
-    request: pytest.FixtureRequest,
     setup_s3_resource: ServiceResource,
-    setup_local_deltacat_storage_conn: Dict[str, Any],
+    offer_local_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: List[Optional[Any]],
@@ -191,7 +190,7 @@ def test_compact_partition_rebase_then_incremental(
         PlacementGroupManager,
     )
 
-    ds_mock_kwargs = setup_local_deltacat_storage_conn
+    ds_mock_kwargs = offer_local_deltacat_storage_kwargs
     ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     """
@@ -262,7 +261,7 @@ def test_compact_partition_rebase_then_incremental(
     )
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     actual_rebase_compacted_table = pa.concat_tables(tables)
-    # if no primary key is specified then sort by sort_key
+    # if no primary key is specified then sort by sort_key for consistent assertion
     sorting_cols: List[Any] = (
         [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
     )
@@ -314,10 +313,10 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
-    compacted_delta_locator_2: DeltaLocator = get_compacted_delta_locator_from_rcf(
-        setup_s3_resource, rcf_file_s3_uri
+    compacted_delta_locator_incremental: DeltaLocator = (
+        get_compacted_delta_locator_from_rcf(setup_s3_resource, rcf_file_s3_uri)
     )
-    tables = ds.download_delta(compacted_delta_locator_2, **ds_mock_kwargs)
+    tables = ds.download_delta(compacted_delta_locator_incremental, **ds_mock_kwargs)
     actual_compacted_table = pa.concat_tables(tables)
     expected_terminal_compact_partition_result = (
         expected_terminal_compact_partition_result.combine_chunks().sort_by(

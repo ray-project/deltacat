@@ -73,7 +73,7 @@ FUNCTION scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
+def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
@@ -140,9 +140,8 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
     indirect=[],
 )
 def test_compact_partition_incremental(
-    request: pytest.FixtureRequest,
     setup_s3_resource: ServiceResource,
-    setup_local_deltacat_storage_conn: Dict[str, Any],
+    offer_local_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: Dict[str, str],
@@ -172,7 +171,7 @@ def test_compact_partition_incremental(
         PlacementGroupManager,
     )
 
-    ds_mock_kwargs = setup_local_deltacat_storage_conn
+    ds_mock_kwargs = offer_local_deltacat_storage_kwargs
 
     # setup
     partition_keys = partition_keys_param
