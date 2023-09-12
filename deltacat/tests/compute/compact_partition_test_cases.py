@@ -31,9 +31,8 @@ from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 from deltacat.storage.model.sort_key import SortKey
 
-ZERO_VALUED_SORT_KEY = []
+ZERO_VALUED_SORT_KEY, ZERO_VALUED_PARTITION_VALUES_PARAM = [], []
 ZERO_VALUED_PARTITION_KEYS_PARAM = None
-ZERO_VALUED_PARTITION_VALUES_PARAM = []
 
 
 ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Tuple[CompactorVersion, Callable]] = [

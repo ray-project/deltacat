@@ -45,7 +45,10 @@ def create_src_w_deltas_destination_strategy(
         source_table_stream, partition_values, **ds_mock_kwargs
     )
     ds.commit_delta(
-        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+        ds.stage_delta(
+            test_table, staged_partition, input_delta_type, **ds_mock_kwargs
+        ),
+        **ds_mock_kwargs,
     )
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
     source_table_stream_after_committed: Stream = ds.get_stream(
@@ -98,7 +101,10 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         source_table_stream, partition_values, **ds_mock_kwargs
     )
     ds.commit_delta(
-        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+        ds.stage_delta(
+            test_table, staged_partition, input_delta_type, **ds_mock_kwargs
+        ),
+        **ds_mock_kwargs,
     )
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
     source_table_stream_after_committed: Stream = ds.get_stream(
