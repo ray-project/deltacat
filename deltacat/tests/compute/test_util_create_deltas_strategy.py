@@ -44,7 +44,9 @@ def create_incremental_deltas_on_source_table(
         names=column_names_param,
     )
     new_delta: Delta = ds.commit_delta(
-        ds.stage_delta(incremental_deltas, src_partition, **ds_mock_kwargs),
+        ds.stage_delta(
+            incremental_deltas, src_partition, input_delta_type, **ds_mock_kwargs
+        ),
         **ds_mock_kwargs,
     )
     src_table_stream_after_committed_delta: Stream = ds.get_stream(

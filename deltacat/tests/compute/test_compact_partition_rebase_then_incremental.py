@@ -273,7 +273,7 @@ def test_compact_partition_rebase_then_incremental(
     )
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
-    ), f"{actual_rebase_compacted_table} does not match {expected_terminal_compact_partition_result}"
+    ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
     """
     INCREMENTAL
     """
