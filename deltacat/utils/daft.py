@@ -8,6 +8,7 @@ import pyarrow as pa
 
 from deltacat import logs
 from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.schema import coerce_pyarrow_table_to_schema
 
 from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.aws.constants import BOTO_MAX_RETRIES, DAFT_MAX_S3_CONNECTIONS_PER_FILE
@@ -89,27 +90,6 @@ def daft_s3_file_to_table(
                 [input_schema.field(col) for col in column_names],
                 metadata=input_schema.metadata,
             )
-        input_schema_names = set(input_schema.names)
-
-        # Perform casting of types to provided schema's types
-        cast_to_schema = [
-            input_schema.field(inferred_field.name)
-            if inferred_field.name in input_schema_names
-            else inferred_field
-            for inferred_field in pa_table.schema
-        ]
-        casted_table = pa_table.cast(pa.schema(cast_to_schema))
-
-        # Reorder and pad columns with a null column where necessary
-        pa_table_column_names = set(casted_table.column_names)
-        columns = []
-        for name in input_schema.names:
-            if name in pa_table_column_names:
-                columns.append(casted_table[name])
-            else:
-                columns.append(
-                    pa.nulls(len(casted_table), type=input_schema.field(name).type)
-                )
-        return pa.table(columns, schema=input_schema)
+        return coerce_pyarrow_table_to_schema(pa_table, input_schema)
     else:
         return pa_table
