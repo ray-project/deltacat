@@ -463,41 +463,41 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
     ),
-    # "13-rebase-then-incremental-no-sk-no-partition-key":RebaseThenIncrementalCompactorTestCase(
-    #     primary_keys={"pk_col_1"},
-    #     sort_keys=ZERO_VALUED_SORT_KEY,
-    #     partition_keys_param=ZERO_VALUED_PARTITION_KEYS_PARAM,
-    #     partition_values_param=ZERO_VALUED_PARTITION_VALUES_PARAM,
-    #     column_names_param=["pk_col_1","col_1"],
-    #     input_deltas_arrow_arrays_param=[
-    #         pa.array([str(i % 4) for i in range(10)]),
-    #         pa.array([i/10 for i in range(10)]),
-    #     ],
-    #     input_deltas_delta_type=DeltaType.UPSERT,
-    #     rebase_expected_compact_partition_result=pa.Table.from_arrays(
-    #         [
-    #         pa.array([str(i % 4) for i in range(4)]),
-    #         pa.array([i/10 for i in range(4)]),
-    #         ],
-    #         names=["pk_col_1","col_1"],
-    #     ),
-    #     incremental_deltas_arrow_arrays_param=[
-    #         pa.array(["8","9"]),
-    #         pa.array([200.0, 100.0]),
-    #     ],
-    #     incremental_deltas_delta_type=DeltaType.UPSERT,
-    #     expected_terminal_compact_partition_result=pa.Table.from_arrays(
-    #         [
-    #             pa.array([str(i) for i in range(10)]),
-    #             pa.array([i/10 for i in range(8)] + [200.0] + [100.0]),
-    #         ],
-    #         names=["pk_col_1", "col_1"],
-    #     ),
-    #     create_placement_group_param=False,
-    #     records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
-    #     hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
-    #     create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
-    # ),
+    "13-rebase-then-incremental-no-sk-no-partition-key": RebaseThenIncrementalCompactorTestCase(
+        primary_keys={"pk_col_1"},
+        sort_keys=ZERO_VALUED_SORT_KEY,
+        partition_keys_param=ZERO_VALUED_PARTITION_KEYS_PARAM,
+        partition_values_param=ZERO_VALUED_PARTITION_VALUES_PARAM,
+        column_names_param=["pk_col_1", "col_1"],
+        input_deltas_arrow_arrays_param=[
+            pa.array([str(i % 4) for i in range(12)]),
+            pa.array([i / 10 for i in range(10, 22)]),
+        ],
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array(["0", "1", "2", "3"]),
+                pa.array([1.8, 1.9, 2.0, 2.1]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        incremental_deltas_arrow_arrays_param=[
+            pa.array(["0", "1", "2", "3"]),
+            pa.array([18.0, 19.0, 20.0, 21.0]),
+        ],
+        incremental_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array(["0", "1", "2", "3"]),
+                pa.array([18.0, 19.0, 20.0, 21.0]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        create_placement_group_param=False,
+        records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
+        create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+    ),
     "14-rebase-then-incremental-partial-deltas-on-incremental-deltas": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[],
