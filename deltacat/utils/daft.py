@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, List
 
-from daft.table import Table
+from daft.table import Table, read_parquet_into_pyarrow
 from daft.logical.schema import Schema
 from daft import TimeUnit
 from daft.io import IOConfig, S3Config
@@ -20,6 +20,35 @@ from deltacat.types.partial_download import (
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+def _apply_schema(
+    table_schema: pa.Schema, input_schema: pa.Schema
+) -> pa.Schema:
+    """Applies fields from the specified `input_schema` on the (inferred) `table_schema`
+
+    Args:
+        table_schema (pa.Schema): Schema inferred from Parquet file
+        input_schema (pa.Schema): Schema specified by deltacat
+
+    Returns:
+        pa.Schema: Schema with fields and metadata from `table_schema` but overridden with fields from
+            `input_schema` where the field names match
+    """
+    target_schema_fields = []
+
+    for field in table_schema:
+        index = input_schema.get_field_index(field.name)
+
+        if index != -1:
+            target_field = input_schema.field(index)
+            target_schema_fields.append(target_field)
+        else:
+            target_schema_fields.append(field)
+
+    target_schema = pa.schema(target_schema_fields, metadata=table_schema.metadata)
+
+    return target_schema
 
 
 def daft_s3_file_to_table(
@@ -65,8 +94,8 @@ def daft_s3_file_to_table(
         )
     )
 
-    table, latency = timed_invocation(
-        Table.read_parquet,
+    pa_table, latency = timed_invocation(
+        read_parquet_into_pyarrow,
         path=s3_url,
         columns=include_columns or column_names,
         row_groups=row_groups,
@@ -78,10 +107,10 @@ def daft_s3_file_to_table(
     logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")
 
     if kwargs.get("schema") is not None:
-        schema = kwargs["schema"]
-        if include_columns is not None:
-            schema = pa.schema([schema.field(col) for col in include_columns])
-        daft_schema = Schema.from_pyarrow_schema(schema)
-        return table.cast_to_schema(daft_schema).to_arrow()
+        input_schema = kwargs["schema"]
+
+        table_schema = pa_table.schema
+        target_schema = _apply_schema(table_schema, input_schema)
+        return pa_table.cast(target_schema)
     else:
-        return table.to_arrow()
+        return pa_table
