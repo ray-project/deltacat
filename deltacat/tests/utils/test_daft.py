@@ -42,7 +42,7 @@ class TestDaftParquetReader(unittest.TestCase):
         self.assertEqual(table.num_rows, 100)
 
     def test_read_from_s3_single_column_with_schema(self):
-        schema = pa.schema([("a", pa.int64()), ("b", pa.string())])
+        schema = pa.schema([("a", pa.int8()), ("b", pa.string())])
         pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
             schema=schema
         )
@@ -50,10 +50,43 @@ class TestDaftParquetReader(unittest.TestCase):
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            include_columns=["b"],
+            include_columns=["a"],
             pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
         )
-        self.assertEqual(table.schema.names, ["b"])
+        self.assertEqual(table.schema.names, ["a"])
+        self.assertEqual(table.schema.field("a").type, pa.int8())
+        self.assertEqual(table.num_rows, 100)
+
+    def test_read_from_s3_single_column_with_schema_reverse_order(self):
+        schema = pa.schema([("b", pa.string()), ("a", pa.int8())])
+        pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
+            schema=schema
+        )
+        table = daft_s3_file_to_table(
+            self.MVP_PATH,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            include_columns=["a", "b"],
+            pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
+        )
+        self.assertEqual(table.schema.names, ["a", "b"])
+        self.assertEqual(table.schema.field("a").type, pa.int8())
+        self.assertEqual(table.num_rows, 100)
+
+    def test_read_from_s3_single_column_with_schema_missing_some(self):
+        schema = pa.schema([("a", pa.int8())])
+        pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
+            schema=schema
+        )
+        table = daft_s3_file_to_table(
+            self.MVP_PATH,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            include_columns=["a", "b"],
+            pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
+        )
+        self.assertEqual(table.schema.names, ["a", "b"])
+        self.assertEqual(table.schema.field("a").type, pa.int8())
         self.assertEqual(table.num_rows, 100)
 
     def test_read_from_s3_single_column_with_row_groups(self):
