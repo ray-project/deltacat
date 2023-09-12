@@ -99,6 +99,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
         "create_table_strategy",
+        "skip_enabled_compact_partition_drivers",
         "compact_partition_func",
     ],
     [
@@ -116,6 +117,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             records_per_compacted_file_param,
             hash_bucket_count_param,
             create_table_strategy,
+            skip_enabled_compact_partition_drivers,
             compact_partition_func,
         )
         for test_name, (
@@ -131,6 +133,7 @@ def setup_local_deltacat_storage_conn(request: pytest.FixtureRequest):
             records_per_compacted_file_param,
             hash_bucket_count_param,
             create_table_strategy,
+            skip_enabled_compact_partition_drivers,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
@@ -154,6 +157,7 @@ def test_compact_partition_incremental(
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
     create_table_strategy: Callable,
+    skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
 ):
     import deltacat.tests.local_deltacat_storage as ds

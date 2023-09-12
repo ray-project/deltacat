@@ -1,5 +1,5 @@
 import pyarrow as pa
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
 )
@@ -24,34 +24,19 @@ from deltacat.compute.compactor_v2.compaction_session import (
     compact_partition as compact_partition_v2,
 )
 
+from deltacat.compute.compactor.model.compactor_version import CompactorVersion
+
 from deltacat.storage.model.sort_key import SortKey
 
 ZERO_VALUED_SORT_KEY = []
 ZERO_VALUED_PARTITION_KEYS_PARAM = None
 ZERO_VALUED_PARTITION_VALUES_PARAM = []
 
-ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Callable] = [
-    compact_partition_v1,
-    compact_partition_v2,
+
+ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Tuple[CompactorVersion, Callable]] = [
+    (CompactorVersion.V1, compact_partition_v1),
+    (CompactorVersion.V2, compact_partition_v2),
 ]
-
-
-def create_tests_cases_for_enabled_compactor_versions(
-    test_cases: Dict[str, List] = None
-):
-    if test_cases is None:
-        test_cases = {}
-    final_cases = {}
-    for version, compact_partition_func in enumerate(
-        ENABLED_COMPACT_PARTITIONS_DRIVERS
-    ):
-        for case_name, case_value in test_cases.items():
-            final_cases[f"{case_name}_v{version + 1}"] = [
-                *case_value,
-                compact_partition_func,
-            ]
-
-    return final_cases
 
 
 @dataclass(frozen=True)
@@ -72,6 +57,7 @@ class CompactorTestCase:
         records_per_compacted_file_param: int - argument for the records_per_compacted_file parameter in compact_partition
         hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
         create_table_strategy: Callable - delta creation strategy
+        skip_enabled_compact_partition_drivers: List[CompactorVersion] - skip whatever enabled_compact_partition_drivers are included in this list
     """
 
     primary_keys: Set[str]
@@ -86,6 +72,7 @@ class CompactorTestCase:
     records_per_compacted_file_param: int
     hash_bucket_count_param: int
     create_table_strategy: Callable
+    skip_enabled_compact_partition_drivers: List[CompactorVersion]
 
     # makes CompactorTestCase iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
     def __iter__(self):
@@ -114,6 +101,28 @@ class RebaseThenIncrementalCompactorTestCase(CompactorTestCase):
     rebase_expected_compact_partition_result: pa.Table
 
 
+def create_tests_cases_for_enabled_compactor_versions(
+    test_cases: Dict[str, CompactorTestCase] = None
+):
+    test_cases = {} if test_cases is None else test_cases
+    composite_test_cases = {}
+    for compactor_version, compact_partition_func in ENABLED_COMPACT_PARTITIONS_DRIVERS:
+        for tc_name, tc_params in test_cases.items():
+            # skip creating test case if included in the skip params (e.g. skip_enabled_compact_partition_drivers=[CompactorVersion.V1] will skip creating a compactor version 1 test case)
+            if (
+                tc_params.skip_enabled_compact_partition_drivers
+                and compactor_version
+                in tc_params.skip_enabled_compact_partition_drivers
+            ):
+                continue
+            composite_test_cases[f"{tc_name}_{compactor_version}"] = [
+                *tc_params,
+                compact_partition_func,
+            ]
+
+    return composite_test_cases
+
+
 INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
     "1-incremental-pkstr-sknone-norcf": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -131,6 +140,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -151,6 +161,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -179,6 +190,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -207,6 +219,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -230,6 +243,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -253,6 +267,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -276,6 +291,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1", "pk_col_2"},
@@ -301,6 +317,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -324,6 +341,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCase(
         primary_keys={"pk_col_1"},
@@ -347,6 +365,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
 }
 
@@ -396,6 +415,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "12-rebase-then-incremental-multiple-pk": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1", "pk_col_2"},
@@ -462,6 +482,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "13-rebase-then-incremental-no-sk-no-partition-key": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
@@ -497,6 +518,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+        skip_enabled_compact_partition_drivers=None,
     ),
     "14-rebase-then-incremental-partial-deltas-on-incremental-deltas": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
@@ -532,11 +554,59 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file_param=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT,
         create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+        skip_enabled_compact_partition_drivers=None,
+    ),
+    "15-rebase-then-incremental-hash-bucket-GT-records-per-compacted-file": RebaseThenIncrementalCompactorTestCase(
+        primary_keys={"pk_col_1"},
+        sort_keys=[
+            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_name="sk_col_2"),
+        ],
+        partition_keys_param=[{"key_name": "region_id", "key_type": "int"}],
+        partition_values_param=["1"],
+        column_names_param=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        input_deltas_arrow_arrays_param=[
+            pa.array([str(i) for i in range(12)]),
+            pa.array([i for i in range(0, 12)]),
+            pa.array(["foo"] * 12),
+            pa.array([i / 10 for i in range(10, 22)]),
+        ],
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(12)]),
+                pa.array([i for i in range(0, 12)]),
+                pa.array(["foo"] * 12),
+                pa.array([i / 10 for i in range(10, 22)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        incremental_deltas_arrow_arrays_param=[
+            pa.array([str(i) for i in range(12)]),
+            pa.array([i for i in range(20, 32)]),
+            pa.array(["foo"] * 12),
+            pa.array([i / 10 for i in range(40, 52)]),
+        ],
+        incremental_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(12)]),
+                pa.array([i for i in range(20, 32)]),
+                pa.array(["foo"] * 12),
+                pa.array([i / 10 for i in range(40, 52)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        create_placement_group_param=False,
+        records_per_compacted_file_param=10,
+        hash_bucket_count_param=DEFAULT_HASH_BUCKET_COUNT + 10,
+        create_table_strategy=create_src_w_deltas_destination_rebase_w_deltas_strategy,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
 }
 
 INCREMENTAL_TEST_CASES = create_tests_cases_for_enabled_compactor_versions(
-    # INCREMENTAL_TEST_CASES
+    INCREMENTAL_TEST_CASES
 )
 
 
