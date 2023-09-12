@@ -81,10 +81,14 @@ def daft_s3_file_to_table(
         input_schema = kwargs["schema"]
         if include_columns is not None:
             input_schema = pa.schema(
-                [input_schema.field(col) for col in include_columns]
+                [input_schema.field(col) for col in include_columns],
+                metadata=input_schema.metadata,
             )
         elif column_names is not None:
-            input_schema = pa.schema([input_schema.field(col) for col in column_names])
+            input_schema = pa.schema(
+                [input_schema.field(col) for col in column_names],
+                metadata=input_schema.metadata,
+            )
         input_schema_names = set(input_schema.names)
 
         # Perform casting of types to provided schema's types
@@ -106,7 +110,6 @@ def daft_s3_file_to_table(
                 columns.append(
                     pa.nulls(len(casted_table), type=input_schema.field(name).type)
                 )
-        schema = input_schema.with_metadata(pa_table.schema.metadata)
-        return pa.table(columns, schema=schema)
+        return pa.table(columns, schema=input_schema)
     else:
         return pa_table
