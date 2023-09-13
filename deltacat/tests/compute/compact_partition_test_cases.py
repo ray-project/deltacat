@@ -892,8 +892,10 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
-        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        skip_enabled_compact_partition_drivers=None,
     ),
+    # TODO: test case for a single hash bucket
+    # TODO: test case for drop_duplication for CompactionVersion.V2
 }
 
 INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(INCREMENTAL_TEST_CASES)
