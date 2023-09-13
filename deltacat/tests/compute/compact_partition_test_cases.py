@@ -380,6 +380,30 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         skip_enabled_compact_partition_drivers=None,
     ),
+    "11-incremental-decimal-hash-bucket-single": IncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=[SortKey.of(key_name="sk_col_1")],
+        partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
+        partition_values=ZERO_VALUED_PARTITION_VALUES_PARAM,
+        column_names=["pk_col_1", "sk_col_1"],
+        input_deltas=[
+            pa.array([0.1] * 4 + [0.2] * 4 + [0.3] * 4 + [0.4] * 4 + [0.5] * 4),
+            pa.array([i for i in range(20)]),
+        ],
+        input_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0.1, 0.2, 0.3, 0.4, 0.5]),
+                pa.array([3, 7, 11, 15, 19]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        skip_enabled_compact_partition_drivers=None,
+    ),
 }
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = {

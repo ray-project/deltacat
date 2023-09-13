@@ -217,6 +217,7 @@ def test_compact_partition_incremental(
             "deltacat_storage": ds,
             "deltacat_storage_kwargs": ds_mock_kwargs,
             "destination_partition_locator": destination_partition_locator,
+            "drop_duplicates": True,
             "hash_bucket_count": hash_bucket_count_param,
             "last_stream_position_to_compact": source_partition.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
