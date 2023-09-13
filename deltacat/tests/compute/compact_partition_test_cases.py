@@ -100,13 +100,12 @@ class RebaseThenIncrementalCompactionTestCaseParams(BaseCompactorTestCase):
 
     Args:
         * (inherited from CompactorTestCase): see CompactorTestCase docstring for details
-        incremental_deltas_arrow_arrays_param: Dict[str, pa.Array]  # argument required for delta creation during compact_partition test setup. Incoming deltas during incremental expressed as a pyarrow array
+        incremental_deltas: pa.Table  # argument required for delta creation during compact_partition test setup. Incoming deltas during incremental expressed as a pyarrow array
         incremental_deltas_delta_type: argument required for delta creation during compact_partition test setup.  Enum of the type of incremental delta to apply (APPEND, UPSERT, DELETE)
         rebase_expected_compact_partition_result: expected table after rebase compaction runs
     """
 
-    incremental_column_names: List[str]
-    incremental_deltas: List[pa.Array]
+    incremental_deltas: pa.Table
     incremental_deltas_delta_type: DeltaType
     rebase_expected_compact_partition_result: pa.Table
 
@@ -409,13 +408,15 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
-        incremental_deltas=[
-            pa.array([str(i) for i in range(10)]),
-            pa.array([i for i in range(20, 30)]),
-            pa.array(["foo"] * 10),
-            pa.array([i / 10 for i in range(40, 50)]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(20, 30)]),
+                pa.array(["foo"] * 10),
+                pa.array([i / 10 for i in range(40, 50)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -463,20 +464,22 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
-        incremental_deltas=[
-            pa.array(["0", "1", "2", "3"]),
-            pa.array([0.1, 0, 0.3, 0.2]),
-            pa.array(
-                [
-                    "2023-05-03T10:00:00Z",
-                    "2023-05-03T09:59:00Z",
-                    "2023-05-03T09:58:00Z",
-                    "2023-05-03T09:57:00Z",
-                ]
-            ),
-            pa.array([1, 1.1, 1.2, 1.3]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array(["0", "1", "2", "3"]),
+                pa.array([0.1, 0, 0.3, 0.2]),
+                pa.array(
+                    [
+                        "2023-05-03T10:00:00Z",
+                        "2023-05-03T09:59:00Z",
+                        "2023-05-03T09:58:00Z",
+                        "2023-05-03T09:57:00Z",
+                    ]
+                ),
+                pa.array([1, 1.1, 1.2, 1.3]),
+            ],
+            names=["pk_col_1", "pk_col_2", "sk_col_1", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -518,11 +521,13 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "col_1"],
-        incremental_deltas=[
-            pa.array(["0", "1", "2", "3"]),
-            pa.array([18.0, 19.0, 20.0, 21.0]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array(["0", "1", "2", "3"]),
+                pa.array([18.0, 19.0, 20.0, 21.0]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -555,11 +560,13 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "col_1"],
-        incremental_deltas=[
-            pa.array(["8", "9"]),
-            pa.array([200.0, 100.0]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array(["8", "9"]),
+                pa.array([200.0, 100.0]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -596,12 +603,14 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "sk_col_1", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "sk_col_1", "col_1"],
-        incremental_deltas=[
-            pa.array([1, 4]),
-            pa.array([4.0, 2.0]),
-            pa.array(["a", "b"]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array([1, 4]),
+                pa.array([4.0, 2.0]),
+                pa.array(["a", "b"]),
+            ],
+            names=["pk_col_1", "sk_col_1", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -642,13 +651,15 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
-        incremental_deltas=[
-            pa.array([str(i) for i in range(12)]),
-            pa.array([i for i in range(20, 32)]),
-            pa.array(["foo"] * 12),
-            pa.array([i / 10 for i in range(40, 52)]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(12)]),
+                pa.array([i for i in range(20, 32)]),
+                pa.array(["foo"] * 12),
+                pa.array([i / 10 for i in range(40, 52)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -685,11 +696,13 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["sk_col_1", "col_1"],
         ),
-        incremental_column_names=["sk_col_1", "col_1"],
-        incremental_deltas=[
-            pa.array([4, 5, 6]),
-            pa.array([10.0, 11.0, 12.0]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array([4, 5, 6]),
+                pa.array([10.0, 11.0, 12.0]),
+            ],
+            names=["sk_col_1", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -722,11 +735,13 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "col_1"],
-        incremental_deltas=[  # delete last two primary keys
-            pa.array([10, 11]),
-            pa.array(["", ""]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [  # delete last two primary keys
+                pa.array([10, 11]),
+                pa.array(["", ""]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.DELETE,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -761,12 +776,14 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "pk_col_2", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "pk_col_2", "col_1"],
-        incremental_deltas=[  # delete last two primary keys
-            pa.array([2, 3]),
-            pa.array([2.0, 1.0]),
-            pa.array(["", ""]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [  # delete last two primary keys
+                pa.array([2, 3]),
+                pa.array([2.0, 1.0]),
+                pa.array(["", ""]),
+            ],
+            names=["pk_col_1", "pk_col_2", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.DELETE,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -802,12 +819,14 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "pk_col_2", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "pk_col_2", "col_1"],
-        incremental_deltas=[  # delete last two primary keys
-            pa.array([0, 1, 2, 3]),
-            pa.array([0.0, 3.0, 2.0, 1.0]),
-            pa.array(["8", "9", "10", "11"]),
-        ],
+        incremental_deltas=pa.Table.from_arrays(
+            [  # delete last two primary keys
+                pa.array([0, 1, 2, 3]),
+                pa.array([0.0, 3.0, 2.0, 1.0]),
+                pa.array(["8", "9", "10", "11"]),
+            ],
+            names=["pk_col_1", "pk_col_2", "col_1"],
+        ),
         incremental_deltas_delta_type=DeltaType.DELETE,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -847,23 +866,20 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "col_1"],
         ),
-        incremental_column_names=["pk_col_1", "col_1"],
-        incremental_deltas=[
-            pyarrow_read_csv(
-                EMPTY_UTSV_PATH,
-                **ReadKwargsProviderPyArrowSchemaOverride(
-                    schema=pa.schema(
-                        [
-                            ("pk_col_1", pa.string()),
-                            ("col_1", pa.float64()),
-                        ]
-                    )
-                )(
-                    ContentType.UNESCAPED_TSV.value,
-                    content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value),
-                ),
-            )
-        ],
+        incremental_deltas=pyarrow_read_csv(
+            EMPTY_UTSV_PATH,
+            **ReadKwargsProviderPyArrowSchemaOverride(
+                schema=pa.schema(
+                    [
+                        ("pk_col_1", pa.string()),
+                        ("col_1", pa.float64()),
+                    ]
+                )
+            )(
+                ContentType.UNESCAPED_TSV.value,
+                content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value),
+            ),
+        ),
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
@@ -880,14 +896,6 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
-        # read_kwargs_provider=ReadKwargsProviderPyArrowSchemaOverride(
-        #     schema=pa.schema(
-        #                 [
-        #                     ("pk_col_1", pa.string()),
-        #                     ("col_1", pa.float64()),
-        #                 ]
-        #             )
-        # ),
         read_kwargs_provider=None,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
