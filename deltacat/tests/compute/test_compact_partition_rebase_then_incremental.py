@@ -16,8 +16,11 @@ from deltacat.tests.compute.test_util_constant import (
 from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
 )
-from deltacat.tests.compute.test_util_create_deltas_strategy import (
+from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     create_incremental_deltas_on_source_table,
+)
+from deltacat.tests.compute.test_util_create_table_deltas_repo import (
+    create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
 from deltacat.tests.compute.compact_partition_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
@@ -103,7 +106,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
-        "create_table_strategy",
         "skip_enabled_compact_partition_drivers",
         "incremental_deltas_arrow_arrays_param",
         "incremental_deltas_delta_type",
@@ -124,7 +126,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
-            create_table_strategy,
             skip_enabled_compact_partition_drivers,
             incremental_deltas_arrow_arrays_param,
             incremental_deltas_delta_type,
@@ -143,7 +144,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
-            create_table_strategy,
             skip_enabled_compact_partition_drivers,
             incremental_deltas_arrow_arrays_param,
             incremental_deltas_delta_type,
@@ -169,7 +169,6 @@ def test_compact_partition_rebase_then_incremental(
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
-    create_table_strategy: Callable,
     incremental_deltas_arrow_arrays_param: List[pa.Array],
     incremental_deltas_delta_type: str,
     rebase_expected_compact_partition_result: pa.Table,
@@ -201,7 +200,7 @@ def test_compact_partition_rebase_then_incremental(
         source_table_stream,
         destination_table_stream,
         rebased_table_stream,
-    ) = create_table_strategy(
+    ) = create_src_w_deltas_destination_rebase_w_deltas_strategy(
         primary_keys,
         sort_keys,
         partition_keys,

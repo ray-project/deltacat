@@ -63,7 +63,7 @@ def create_incremental_deltas_on_source_table(
     return src_partition_after_committed_delta.locator, new_delta
 
 
-def create_src_w_deltas_destination_strategy(
+def create_src_w_deltas_destination_plus_destination(
     primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
@@ -72,7 +72,7 @@ def create_src_w_deltas_destination_strategy(
     input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
-) -> Tuple[Any, Any, Any]:
+) -> Tuple[Stream, Stream, Optional[Stream]]:
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.storage import Partition, Stream
 
@@ -128,7 +128,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
     input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
-):
+) -> Tuple[Stream, Stream, Optional[Stream]]:
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.storage import Partition, Stream
 

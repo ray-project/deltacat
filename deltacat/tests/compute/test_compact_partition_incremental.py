@@ -9,6 +9,9 @@ import pyarrow as pa
 from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
 )
+from deltacat.tests.compute.test_util_create_table_deltas_repo import (
+    create_src_w_deltas_destination_plus_destination,
+)
 from deltacat.tests.compute.compact_partition_test_cases import (
     INCREMENTAL_TEST_CASES,
 )
@@ -97,7 +100,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
-        "create_table_strategy",
         "skip_enabled_compact_partition_drivers",
         "compact_partition_func",
     ],
@@ -115,7 +117,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
-            create_table_strategy,
             skip_enabled_compact_partition_drivers,
             compact_partition_func,
         )
@@ -131,7 +132,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
-            create_table_strategy,
             skip_enabled_compact_partition_drivers,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
@@ -154,7 +154,6 @@ def test_compact_partition_incremental(
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
-    create_table_strategy: Callable,
     skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
 ):
@@ -175,7 +174,11 @@ def test_compact_partition_incremental(
 
     # setup
     partition_keys = partition_keys_param
-    source_table_stream, destination_table_stream, _ = create_table_strategy(
+    (
+        source_table_stream,
+        destination_table_stream,
+        _,
+    ) = create_src_w_deltas_destination_plus_destination(
         primary_keys,
         sort_keys,
         partition_keys,
