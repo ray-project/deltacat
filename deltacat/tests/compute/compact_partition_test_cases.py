@@ -848,7 +848,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "11-incremental-empty-csv-delta-case": RebaseThenIncrementalCompactionTestCaseParams(
+    "11-rebase-then-incremental-empty-csv-delta-case": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
@@ -883,15 +883,10 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         incremental_deltas_delta_type=DeltaType.UPSERT,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
-                pa.array([]),
-                pa.array([]),
+                pa.array(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]),
+                pa.array([1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9]),
             ],
-            schema=pa.schema(
-                [
-                    ("pk_col_1", pa.string()),
-                    ("col_1", pa.float64()),
-                ]
-            ),
+            names=["pk_col_1", "col_1"],
         ),
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
