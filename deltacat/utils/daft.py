@@ -1,17 +1,17 @@
 import logging
 from typing import Optional, List
 
-from daft.table import Table
-from daft.logical.schema import Schema
+from daft.table import read_parquet_into_pyarrow
 from daft import TimeUnit
 from daft.io import IOConfig, S3Config
 import pyarrow as pa
 
 from deltacat import logs
 from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.schema import coerce_pyarrow_table_to_schema
 
 from deltacat.types.media import ContentType, ContentEncoding
-from deltacat.aws.constants import BOTO_MAX_RETRIES
+from deltacat.aws.constants import BOTO_MAX_RETRIES, DAFT_MAX_S3_CONNECTIONS_PER_FILE
 from deltacat.utils.performance import timed_invocation
 
 from deltacat.types.partial_download import (
@@ -62,11 +62,12 @@ def daft_s3_file_to_table(
             session_token=s3_client_kwargs.get("aws_session_token"),
             retry_mode="adaptive",
             num_tries=BOTO_MAX_RETRIES,
+            max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
         )
     )
 
-    table, latency = timed_invocation(
-        Table.read_parquet,
+    pa_table, latency = timed_invocation(
+        read_parquet_into_pyarrow,
         path=s3_url,
         columns=include_columns or column_names,
         row_groups=row_groups,
@@ -78,10 +79,17 @@ def daft_s3_file_to_table(
     logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")
 
     if kwargs.get("schema") is not None:
-        schema = kwargs["schema"]
+        input_schema = kwargs["schema"]
         if include_columns is not None:
-            schema = pa.schema([schema.field(col) for col in include_columns])
-        daft_schema = Schema.from_pyarrow_schema(schema)
-        return table.cast_to_schema(daft_schema).to_arrow()
+            input_schema = pa.schema(
+                [input_schema.field(col) for col in include_columns],
+                metadata=input_schema.metadata,
+            )
+        elif column_names is not None:
+            input_schema = pa.schema(
+                [input_schema.field(col) for col in column_names],
+                metadata=input_schema.metadata,
+            )
+        return coerce_pyarrow_table_to_schema(pa_table, input_schema)
     else:
-        return table.to_arrow()
+        return pa_table
