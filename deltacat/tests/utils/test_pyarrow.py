@@ -85,7 +85,9 @@ class TestS3PartialParquetFileToTable(TestCase):
         self.assertEqual(result_schema.field(2).type, "int64")
         self.assertEqual(result_schema.field(2).name, "MISSING")
 
-    def test_s3_partial_parquet_file_to_table_when_schema_passed_with_include_columns(self):
+    def test_s3_partial_parquet_file_to_table_when_schema_passed_with_include_columns(
+        self,
+    ):
 
         pq_file = ParquetFile(PARQUET_FILE_PATH)
         partial_parquet_params = PartialParquetParameters.of(
