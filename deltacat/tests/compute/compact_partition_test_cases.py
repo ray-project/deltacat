@@ -29,6 +29,9 @@ from deltacat.storage.model.sort_key import SortKey
 
 ZERO_VALUED_SORT_KEY, ZERO_VALUED_PARTITION_VALUES_PARAM = [], []
 ZERO_VALUED_PARTITION_KEYS_PARAM = None
+ZERO_VALUED_PRIMARY_KEY = {}
+
+EMPTY_UTSV_PATH = "deltacat/tests/utils/data/empty.csv"
 
 
 ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Tuple[CompactorVersion, Callable]] = [
@@ -357,10 +360,27 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCase] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=None,
     ),
+    "11-incremental-empty-csv-delta-case": IncrementalCompactionTestCase(
+        primary_keys={"pk_col_1"},
+        sort_keys=ZERO_VALUED_SORT_KEY,
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values=["1"],
+        column_names=["pk_col_1"],
+        input_deltas=[pa.array([str(i) for i in range(10)])],
+        input_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [pa.array([str(i) for i in range(10)])],
+            names=["pk_col_1"],
+        ),
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        skip_enabled_compact_partition_drivers=None,
+    ),
 }
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = {
-    "11-rebase-then-incremental-sanity": RebaseThenIncrementalCompactorTestCase(
+    "1-rebase-then-incremental-sanity": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[
             SortKey.of(key_name="sk_col_1"),
@@ -406,7 +426,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=None,
     ),
-    "12-rebase-then-incremental-pk-multi": RebaseThenIncrementalCompactorTestCase(
+    "2-rebase-then-incremental-pk-multi": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1", "pk_col_2"},
         sort_keys=[
             SortKey.of(key_name="sk_col_1"),
@@ -472,7 +492,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=None,
     ),
-    "13-rebase-then-incremental-no-sk-no-partition-key": RebaseThenIncrementalCompactorTestCase(
+    "3-rebase-then-incremental-no-sk-no-partition-key": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
@@ -507,7 +527,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=None,
     ),
-    "14-rebase-then-incremental-partial-deltas-on-incremental-deltas": RebaseThenIncrementalCompactorTestCase(
+    "4-rebase-then-incremental-partial-deltas-on-incremental-deltas": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
@@ -542,7 +562,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=None,
     ),
-    "15-rebase-then-incremental-partial-deltas-on-incremental-deltas-2": RebaseThenIncrementalCompactorTestCase(
+    "5-rebase-then-incremental-partial-deltas-on-incremental-deltas-2": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[
             SortKey.of(key_name="sk_col_1"),
@@ -583,7 +603,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=None,
     ),
-    "16-rebase-then-incremental-hash-bucket-GT-records-per-compacted-file-v2-only": RebaseThenIncrementalCompactorTestCase(
+    "6-rebase-then-incremental-hash-bucket-GT-records-per-compacted-file-v2-only": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=[
             SortKey.of(key_name="sk_col_1"),
@@ -629,8 +649,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT + 10,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "17-rebase-then-incremental-no-pk-compactor-v2-only": RebaseThenIncrementalCompactorTestCase(
-        primary_keys={},
+    "7-rebase-then-incremental-no-pk-compactor-v2-only": RebaseThenIncrementalCompactorTestCase(
+        primary_keys=ZERO_VALUED_PRIMARY_KEY,
         sort_keys=[
             SortKey.of(key_name="sk_col_1"),
         ],
@@ -663,10 +683,10 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         ),
         do_create_placement_group=False,
         records_per_compacted_file=10,
-        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT + 10,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "18-rebase-then-incremental-delete-type-delta-on-incremental": RebaseThenIncrementalCompactorTestCase(
+    "8-rebase-then-incremental-delete-type-delta-on-incremental": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
@@ -701,7 +721,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=None,
     ),
-    "19-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk": RebaseThenIncrementalCompactorTestCase(
+    "9-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1", "pk_col_2"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
@@ -740,7 +760,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "20-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk-delete-all": RebaseThenIncrementalCompactorTestCase(
+    "10-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk-delete-all": RebaseThenIncrementalCompactorTestCase(
         primary_keys={"pk_col_1", "pk_col_2"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
