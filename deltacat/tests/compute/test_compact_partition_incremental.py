@@ -100,6 +100,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
+        "read_kwargs_provider_param",
         "skip_enabled_compact_partition_drivers",
         "compact_partition_func",
     ],
@@ -117,6 +118,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             compact_partition_func,
         )
@@ -132,6 +134,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
+            read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
@@ -154,6 +157,7 @@ def test_compact_partition_incremental(
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
+    read_kwargs_provider_param: Any,
     skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
 ):
@@ -218,7 +222,7 @@ def test_compact_partition_incremental(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys,
-            "read_kwargs_provider": None,
+            "read_kwargs_provider": read_kwargs_provider_param,
             "rebase_source_partition_locator": None,
             "rebase_source_partition_high_watermark": None,
             "records_per_compacted_file": records_per_compacted_file_param,
