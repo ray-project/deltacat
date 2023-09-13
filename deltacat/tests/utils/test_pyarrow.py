@@ -56,6 +56,45 @@ class TestS3PartialParquetFileToTable(TestCase):
         partial_parquet_params.row_groups_to_download.pop()
 
         schema = pa.schema(
+            [
+                pa.field("n_legs", pa.string()),
+                pa.field("animal", pa.string()),
+                # NOTE: This field is not in the parquet file, but will be added on as an all-null column
+                pa.field("MISSING", pa.int64()),
+            ]
+        )
+
+        pa_kwargs_provider = lambda content_type, kwargs: {"schema": schema}
+
+        result = s3_partial_parquet_file_to_table(
+            PARQUET_FILE_PATH,
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            pa_read_func_kwargs_provider=pa_kwargs_provider,
+            partial_file_download_params=partial_parquet_params,
+        )
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(len(result.column_names), 3)
+
+        result_schema = result.schema
+        self.assertEqual(result_schema.field(0).type, "string")
+        self.assertEqual(result_schema.field(0).name, "n_legs")
+        self.assertEqual(result_schema.field(1).type, "string")
+        self.assertEqual(result_schema.field(1).name, "animal")
+        self.assertEqual(result_schema.field(2).type, "int64")
+        self.assertEqual(result_schema.field(2).name, "MISSING")
+
+    def test_s3_partial_parquet_file_to_table_when_schema_passed_with_include_columns(self):
+
+        pq_file = ParquetFile(PARQUET_FILE_PATH)
+        partial_parquet_params = PartialParquetParameters.of(
+            pq_metadata=pq_file.metadata
+        )
+        # only first row group to be downloaded
+        partial_parquet_params.row_groups_to_download.pop()
+
+        schema = pa.schema(
             [pa.field("animal", pa.string()), pa.field("n_legs", pa.string())]
         )
 
