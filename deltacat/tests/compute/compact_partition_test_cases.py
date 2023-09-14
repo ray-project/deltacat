@@ -65,6 +65,7 @@ class BaseCompactorTestCase:
         records_per_compacted_file_param: int - argument for the records_per_compacted_file parameter in compact_partition
         hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
         read_kwargs_provider: ReadKwargsProvider - argument for read_kwargs_provider parameter in compact_partition
+        drop_duplicates: bool - argument for drop_duplicates parameter in compact_partition. Only recognized by compactor v2.
         skip_enabled_compact_partition_drivers: List[CompactorVersion] - skip whatever enabled_compact_partition_drivers are included in this list
     """
 
@@ -79,6 +80,7 @@ class BaseCompactorTestCase:
     records_per_compacted_file: int
     hash_bucket_count: int
     read_kwargs_provider: Optional[ReadKwargsProvider]
+    drop_duplicates: bool
     skip_enabled_compact_partition_drivers: List[CompactorVersion]
 
     # makes CompactorTestCase iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
@@ -153,6 +155,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCaseParams(
@@ -176,6 +179,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCaseParams(
@@ -208,6 +212,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCaseParams(
@@ -239,6 +244,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCaseParams(
@@ -265,6 +271,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCaseParams(
@@ -291,6 +298,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCaseParams(
@@ -317,6 +325,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCaseParams(
@@ -345,6 +354,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCaseParams(
@@ -371,6 +381,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCaseParams(
@@ -397,6 +408,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "11-incremental-decimal-hash-bucket-single": IncrementalCompactionTestCaseParams(
@@ -423,6 +435,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
 }
@@ -478,6 +491,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "2-rebase-then-incremental-pk-multi": RebaseThenIncrementalCompactionTestCaseParams(
@@ -550,6 +564,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "3-rebase-then-incremental-no-sk-no-partition-key": RebaseThenIncrementalCompactionTestCaseParams(
@@ -591,6 +606,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "4-rebase-then-incremental-partial-deltas-on-incremental-deltas": RebaseThenIncrementalCompactionTestCaseParams(
@@ -632,6 +648,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "5-rebase-then-incremental-partial-deltas-on-incremental-deltas-2": RebaseThenIncrementalCompactionTestCaseParams(
@@ -679,6 +696,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "6-rebase-then-incremental-hash-bucket-GT-records-per-compacted-file-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
@@ -731,6 +749,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=10,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT + 10,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
     "7-rebase-then-incremental-no-pk-compactor-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
@@ -774,6 +793,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=10,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
     "8-rebase-then-incremental-delete-type-delta-on-incremental": RebaseThenIncrementalCompactionTestCaseParams(
@@ -815,6 +835,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "9-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk": RebaseThenIncrementalCompactionTestCaseParams(
@@ -860,6 +881,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
     "10-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk-delete-all": RebaseThenIncrementalCompactionTestCaseParams(
@@ -911,6 +933,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
     "11-rebase-then-incremental-empty-csv-delta-case": RebaseThenIncrementalCompactionTestCaseParams(
@@ -959,6 +982,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     "12-rebase-then-incremental-single-hash-bucket": RebaseThenIncrementalCompactionTestCaseParams(
@@ -1011,6 +1035,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=1,
         read_kwargs_provider=None,
+        drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
     # TODO: test case for drop_duplication for CompactionVersion.V2
