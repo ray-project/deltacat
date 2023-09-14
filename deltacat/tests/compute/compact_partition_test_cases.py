@@ -1038,7 +1038,54 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
-    # TODO: test case for drop_duplication for CompactionVersion.V2
+    "13-rebase-then-incremental-drop-duplicates-false-on-incremental-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=[
+            SortKey.of(key_name="sk_col_1"),
+        ],
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values=["1"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([(i % 4) for i in range(8)]),
+                pa.array([(i % 2) for i in range(8)]),
+                pa.array([i / 10 for i in range(10, 18)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3]),
+                pa.array([0, 1, 0, 1]),
+                pa.array([1.4, 1.5, 1.6, 1.7]),
+            ],
+            names=["pk_col_1", "sk_col_1", "col_1"],
+        ),
+        incremental_deltas=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3, 1]),
+                pa.array([0, 1, 0, 1, 0]),
+                pa.array([i / 10 for i in range(20, 25)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "col_1"],
+        ),
+        incremental_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0, 0, 1, 1, 1, 2, 2, 3, 3]),
+                pa.array([0, 0, 1, 0, 1, 0, 0, 1, 1]),
+                pa.array([1.4, 2, 1.5, 2.4, 2.1, 1.6, 2.2, 1.7, 2.3]),
+            ],
+            names=["pk_col_1", "sk_col_1", "col_1"],
+        ),
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=False,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+    ),
 }
 
 INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(INCREMENTAL_TEST_CASES)

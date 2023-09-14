@@ -243,7 +243,6 @@ def test_compact_partition_rebase_then_incremental(
             "dd_max_parallelism_ratio": 1.0,
             "deltacat_storage": ds,
             "deltacat_storage_kwargs": ds_mock_kwargs,
-            "drop_duplicates": drop_duplicates_param,
             "destination_partition_locator": destination_partition_locator,
             "hash_bucket_count": hash_bucket_count_param,
             "last_stream_position_to_compact": source_partition.stream_position,
