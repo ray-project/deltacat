@@ -8,7 +8,8 @@ def coerce_pyarrow_table_to_schema(
 
     1. For each field in `pa_table`, cast it to the field in `input_schema` if one with a matching name
         is available
-    2. Reorder the fields in the casted table to the supplied schema
+    2. Reorder the fields in the casted table to the supplied schema, dropping any fields in `pa_table`
+        that do not exist in the supplied schema
     3. If any fields in the supplied schema are not present, add a null array of the correct type
 
     Args:

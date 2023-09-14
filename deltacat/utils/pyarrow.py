@@ -33,6 +33,7 @@ from deltacat.types.partial_download import (
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.daft import daft_s3_file_to_table
+from deltacat.utils.schema import coerce_pyarrow_table_to_schema
 from deltacat.utils.arguments import (
     sanitize_kwargs_to_callable,
     sanitize_kwargs_by_supported_kwargs,
@@ -314,25 +315,6 @@ def _add_column_kwargs(
                 )
 
 
-def _get_compatible_target_schema(
-    table_schema: pa.Schema, input_schema: pa.Schema
-) -> pa.Schema:
-    target_schema_fields = []
-
-    for field in table_schema:
-        index = input_schema.get_field_index(field.name)
-
-        if index != -1:
-            target_field = input_schema.field(index)
-            target_schema_fields.append(target_field)
-        else:
-            target_schema_fields.append(field)
-
-    target_schema = pa.schema(target_schema_fields, metadata=table_schema.metadata)
-
-    return target_schema
-
-
 def s3_partial_parquet_file_to_table(
     s3_url: str,
     content_type: str,
@@ -373,15 +355,20 @@ def s3_partial_parquet_file_to_table(
     if pa_read_func_kwargs_provider:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
-    # Note: ordering is not guaranteed.
+    # Note: ordering is consistent with the `input_schema` if provided
     if kwargs.get("schema") is not None:
         input_schema = kwargs.get("schema")
-        table_schema = table.schema
-
-        target_schema = _get_compatible_target_schema(table_schema, input_schema)
-        casted_table = table.cast(target_schema)
-
-        return casted_table
+        if include_columns is not None:
+            input_schema = pa.schema(
+                [input_schema.field(col) for col in include_columns],
+                metadata=input_schema.metadata,
+            )
+        elif column_names is not None:
+            input_schema = pa.schema(
+                [input_schema.field(col) for col in column_names],
+                metadata=input_schema.metadata,
+            )
+        return coerce_pyarrow_table_to_schema(table, input_schema)
 
     return table
 
