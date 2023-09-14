@@ -33,9 +33,7 @@ class CompactPartitionParams(dict):
 
     @staticmethod
     def of(params: Optional[Dict]) -> CompactPartitionParams:
-        if params is None:
-            params = {}
-
+        params = {} if params is None else params
         assert (
             params.get("destination_partition_locator") is not None
         ), "destination_partition_locator is a required arg"
