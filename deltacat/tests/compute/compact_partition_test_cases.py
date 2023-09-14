@@ -41,7 +41,6 @@ ZERO_VALUED_PRIMARY_KEY = {}
 
 EMPTY_UTSV_PATH = "deltacat/tests/utils/data/empty.csv"
 
-
 ENABLED_COMPACT_PARTITIONS_DRIVERS: List[Tuple[CompactorVersion, Callable]] = [
     (CompactorVersion.V1, compact_partition_v1),
     (CompactorVersion.V2, compact_partition_v2),
@@ -54,17 +53,17 @@ class BaseCompactorTestCase:
     A pytest parameterized test case for the `compact_partition` function.
 
     Args:
-        primary_keys: Set[str] - argument for the primary_keys parameter in compact_partition
-        sort_keys: List[SortKey] - argument for the sort_keys parameter in compact_partition
-        partition_keys_param: List[Dict[str, str]] - argument needed for table version creation required for compact_partition tests
-        partition_values_param: List[Optional[str]] - argument needed for partition staging in compact_partition test setup
-        input_deltas: List[pa.Array] - argument required for delta creation during compact_partition test setup. Actual incoming deltas expressed as a pyarrow array
-        input_deltas_delta_type: DeltaType - argument required for delta creation during compact_partition test setup. Enum of the type of delta to apply (APPEND, UPSERT, DELETE)
-        expected_terminal_compact_partition_result: pa.Table - expected table after compaction runs
-        create_placement_group_param: bool - toggles whether to create a pg or not
-        records_per_compacted_file_param: int - argument for the records_per_compacted_file parameter in compact_partition
-        hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
-        read_kwargs_provider: ReadKwargsProvider - argument for read_kwargs_provider parameter in compact_partition
+        primary_keys: Set[str] - argument for the primary_keys parameter in compact_partition. Also needed for table/delta creation
+        sort_keys: List[SortKey] - argument for the sort_keys parameter in compact_partition. Also needed for table/delta creation
+        partition_keys_param: List[PartitionKey] - argument for the partition_keys parameter. Needed for table/delta creation
+        partition_values_param: List[Optional[str]] - argument for the partition_valued parameter. Needed for table/delta creation
+        input_deltas: List[pa.Array] - argument required for delta creation during compact_partition test setup. Actual incoming deltas expressed as a PyArrow array (https://arrow.apache.org/docs/python/generated/pyarrow.array.html)
+        input_deltas_delta_type: DeltaType - enumerated argument required for delta creation during compact_partition test setup. Available values are (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE). DeltaType.APPEND is not supported by compactor v1 or v2
+        expected_terminal_compact_partition_result: pa.Table - expected PyArrow table after compaction (i.e,. the state of the table after applying all row UPDATES/DELETES/INSERTS)
+        do_create_placement_group: bool - toggles whether to create a placement group (https://docs.ray.io/en/latest/ray-core/scheduling/placement-group.html) or not
+        records_per_compacted_file: int - argument for the records_per_compacted_file parameter in compact_partition
+        hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition. Needs to be > 1
+        read_kwargs_provider: Optional[ReadKwargsProvider] - argument for read_kwargs_provider parameter in compact_partition. If None then no ReadKwargsProvider is provided to compact_partition_params
         drop_duplicates: bool - argument for drop_duplicates parameter in compact_partition. Only recognized by compactor v2.
         skip_enabled_compact_partition_drivers: List[CompactorVersion] - skip whatever enabled_compact_partition_drivers are included in this list
     """
@@ -100,9 +99,9 @@ class RebaseThenIncrementalCompactionTestCaseParams(BaseCompactorTestCase):
 
     Args:
         * (inherited from CompactorTestCase): see CompactorTestCase docstring for details
-        incremental_deltas: pa.Table  # argument required for delta creation during compact_partition test setup. Incoming deltas during incremental expressed as a pyarrow array
-        incremental_deltas_delta_type: argument required for delta creation during compact_partition test setup.  Enum of the type of incremental delta to apply (APPEND, UPSERT, DELETE)
-        rebase_expected_compact_partition_result: expected table after rebase compaction runs
+        incremental_deltas: pa.Table - argument required for delta creation during the incremental phase of compact_partition test setup. Incoming deltas during incremental expressed as a pyarrow array
+        incremental_deltas_delta_type: DeltaType -  argument required for delta creation during the incremental phase of compact_partition test setup. Available values are (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE). DeltaType.APPEND is not supported by compactor v1 or v2
+        rebase_expected_compact_partition_result: pa.Table - expected table after rebase compaction runs. An output that is asserted on in Rebase then Incremental unit tests
     """
 
     incremental_deltas: pa.Table
