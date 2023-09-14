@@ -62,7 +62,6 @@ def create_src_w_deltas_destination_plus_destination(
     primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
-    column_names: List[str],
     input_deltas: List[pa.Array],
     input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
@@ -81,13 +80,12 @@ def create_src_w_deltas_destination_plus_destination(
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    test_table: pa.Table = pa.Table.from_arrays(input_deltas, names=column_names)
     staged_partition: Partition = ds.stage_partition(
         source_table_stream, partition_values, **ds_mock_kwargs
     )
     ds.commit_delta(
         ds.stage_delta(
-            test_table, staged_partition, input_delta_type, **ds_mock_kwargs
+            input_deltas, staged_partition, input_delta_type, **ds_mock_kwargs
         ),
         **ds_mock_kwargs,
     )
@@ -118,7 +116,6 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
     primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
-    column_names: List[str],
     input_deltas: List[pa.Array],
     input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
@@ -137,13 +134,12 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    test_table: pa.Table = pa.Table.from_arrays(input_deltas, names=column_names)
     staged_partition: Partition = ds.stage_partition(
         source_table_stream, partition_values, **ds_mock_kwargs
     )
     ds.commit_delta(
         ds.stage_delta(
-            test_table, staged_partition, input_delta_type, **ds_mock_kwargs
+            input_deltas, staged_partition, input_delta_type, **ds_mock_kwargs
         ),
         **ds_mock_kwargs,
     )
@@ -174,12 +170,12 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         table_version=rebase_table_version,
         **ds_mock_kwargs,
     )
-    test_table: pa.Table = pa.Table.from_arrays(input_deltas, names=column_names)
     staged_partition: Partition = ds.stage_partition(
         rebasing_table_stream, partition_values, **ds_mock_kwargs
     )
     ds.commit_delta(
-        ds.stage_delta(test_table, staged_partition, **ds_mock_kwargs), **ds_mock_kwargs
+        ds.stage_delta(input_deltas, staged_partition, **ds_mock_kwargs),
+        **ds_mock_kwargs,
     )
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
 
