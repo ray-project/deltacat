@@ -76,6 +76,7 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
         self.used_vcpu_seconds = 0.0
         self.total_memory_gb_seconds = 0.0
         self.used_memory_gb_seconds = 0.0
+        self.max_cpu = 0.0
 
     def __enter__(self) -> Any:
         schedule.every().second.do(self._update_resources)
@@ -111,6 +112,7 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
         self.total_vcpu_seconds = self.total_vcpu_seconds + float(
             str(cluster_resources["CPU"])
         )
+        self.max_cpu = max(self.max_cpu, float(str(cluster_resources["CPU"])))
 
         if "memory" not in cluster_resources:
             return

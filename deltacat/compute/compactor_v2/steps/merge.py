@@ -404,7 +404,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
                 logger.info(
                     f"[Merge task index {input.merge_task_index}] Merged "
-                    f"record count: {len(table)}, took: {merge_time}s"
+                    f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
                 )
 
                 materialized_results.append(_materialize(hb_idx, [table]))
