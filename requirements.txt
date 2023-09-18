@@ -9,7 +9,7 @@ pydantic == 1.10.4
 pymemcache == 4.0.0
 ray[default] ~= 2.0
 redis == 4.6.0
-s3fs == 2022.2.0
+s3fs == 2023.6.0
 schedule == 1.2.0
 tenacity == 8.1.0
 typing-extensions == 4.4.0
