@@ -4,7 +4,7 @@ import logging
 
 from deltacat import logs
 from enum import Enum
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable
 from deltacat.aws.clients import resource_cache
 from datetime import datetime
 
@@ -73,8 +73,8 @@ def _emit_metrics(
     assert isinstance(
         metrics_target, MetricsTarget
     ), f"{metrics_target} is not a valid supported metrics target type! "
-    if metrics_target == MetricsTarget.CLOUDWATCH:
-        _emit_cloudwatch_metrics(
+    if metrics_target in METRICS_TARGET_TO_EMITTER_DICT:
+        METRICS_TARGET_TO_EMITTER_DICT.get(metrics_target)(
             metrics_name=metrics_name,
             metrics_type=metrics_type,
             metrics_config=metrics_config,
@@ -115,6 +115,11 @@ def _emit_cloudwatch_metrics(
             f"Failed to publish Cloudwatch metrics with name: {metrics_name}, "
             f"type: {metrics_type}, with exception: {e}, response: {response}"
         )
+
+
+METRICS_TARGET_TO_EMITTER_DICT: Dict[str, Callable] = {
+    MetricsTarget.CLOUDWATCH: _emit_cloudwatch_metrics,
+}
 
 
 def emit_timer_metrics(metrics_name, value, metrics_config, **kwargs):
