@@ -368,7 +368,16 @@ def s3_partial_parquet_file_to_table(
                 [input_schema.field(col) for col in column_names],
                 metadata=input_schema.metadata,
             )
-        return coerce_pyarrow_table_to_schema(table, input_schema)
+        coerced_table, coerce_latency = timed_invocation(
+            coerce_pyarrow_table_to_schema, table, input_schema
+        )
+
+        logger.debug(
+            f"Coercing the PyArrow table of len {len(coerced_table)} "
+            f"into passed schema took {coerce_latency}s"
+        )
+
+        return coerced_table
 
     return table
 

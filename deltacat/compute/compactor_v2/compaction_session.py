@@ -130,7 +130,6 @@ def _execute_compaction(
         cluster_cpus = cluster_resources["CPU"]
         cluster_memory = cluster_resources["memory"]
         task_max_parallelism = cluster_cpus
-        compaction_audit.set_cluster_cpu_max(cluster_cpus)
         compaction_audit.set_total_cluster_memory_bytes(cluster_memory)
 
     # read the results from any previously completed compaction round
@@ -488,11 +487,37 @@ def _execute_compaction(
         compaction_audit.set_total_memory_gb_seconds(
             cluster_util.total_memory_gb_seconds
         )
+        compaction_audit.set_cluster_cpu_max(cluster_util.max_cpu)
 
     s3_utils.upload(
         compaction_audit.audit_url,
         str(json.dumps(compaction_audit)),
         **params.s3_client_kwargs,
+    )
+
+    input_inflation = None
+    input_average_record_size_bytes = None
+    if (
+        compaction_audit.input_size_bytes
+        and compaction_audit.hash_bucket_processed_size_bytes
+    ):
+        input_inflation = (
+            compaction_audit.hash_bucket_processed_size_bytes
+            / compaction_audit.input_size_bytes
+        )
+
+    if (
+        compaction_audit.hash_bucket_processed_size_bytes
+        and compaction_audit.input_records
+    ):
+        input_average_record_size_bytes = (
+            compaction_audit.hash_bucket_processed_size_bytes
+            / compaction_audit.input_records
+        )
+
+    logger.info(
+        f"The inflation of input deltas={input_inflation}"
+        f" and average record size={input_average_record_size_bytes}"
     )
 
     new_round_completion_info = RoundCompletionInfo.of(
@@ -505,6 +530,8 @@ def _execute_compaction(
         hash_bucket_count=params.hash_bucket_count,
         hb_index_to_entry_range=hb_id_to_entry_indices_range,
         compactor_version=CompactorVersion.V2.value,
+        input_inflation=input_inflation,
+        input_average_record_size_bytes=input_average_record_size_bytes,
     )
 
     logger.info(
