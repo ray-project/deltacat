@@ -35,6 +35,7 @@ setuptools.setup(
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     install_requires=[
         # any changes here should also be reflected in requirements.txt
+        "aws-embedded-metrics == 3.1.1",
         "boto3 ~= 1.20",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
