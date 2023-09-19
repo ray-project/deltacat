@@ -47,6 +47,8 @@ class RoundCompletionInfo(dict):
         hash_bucket_count: Optional[int] = None,
         hb_index_to_entry_range: Optional[Dict[int, Tuple[int, int]]] = None,
         compactor_version: Optional[str] = None,
+        input_inflation: Optional[float] = None,
+        input_average_record_size_bytes: Optional[float] = None,
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -62,6 +64,8 @@ class RoundCompletionInfo(dict):
         rci["hashBucketCount"] = hash_bucket_count
         rci["hbIndexToEntryRange"] = hb_index_to_entry_range
         rci["compactorVersion"] = compactor_version
+        rci["inputInflation"] = input_inflation
+        rci["inputAverageRecordSizeBytes"] = input_average_record_size_bytes
         return rci
 
     @property
@@ -119,3 +123,11 @@ class RoundCompletionInfo(dict):
     @property
     def compactor_version(self) -> Optional[str]:
         return self.get("compactorVersion")
+
+    @property
+    def input_inflation(self) -> Optional[float]:
+        return self.get("inputInflation")
+
+    @property
+    def input_average_record_size_bytes(self) -> Optional[float]:
+        return self.get("inputAverageRecordSizeBytes")

@@ -48,3 +48,4 @@ class TestClusterUtilizationOverTimeRange(unittest.TestCase):
             )  # total is greater than used
             self.assertIsNotNone(cu.total_memory_gb_seconds)
             self.assertIsNotNone(cu.used_memory_gb_seconds)
+            self.assertIsNotNone(cu.max_cpu)
