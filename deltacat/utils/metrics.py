@@ -136,12 +136,13 @@ def _emit_cloudwatch_emf_metrics(
     metrics_config: MetricsConfig,
     value: str,
 ) -> None:
+    ct = datetime.now()
     dimensions = dict(
         [(dim["Name"], dim["Value"]) for dim in metrics_config.metrics_dimensions]
     )
     metrics_name_with_type = _build_metrics_name(metrics_type, metrics_name)
     try:
-        # TODO: Check if use_default should be set to false
+        metrics.set_timestamp(ct)
         metrics.set_dimensions(dimensions)
         metrics.set_namespace(metrics_config.metrics_namespace)
 
