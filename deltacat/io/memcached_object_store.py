@@ -29,6 +29,7 @@ class MemcachedObjectStore(IObjectStore):
         port: Optional[int] = 11212,
         connect_timeout: float = CONNECT_TIMEOUT,
         timeout: float = FETCH_TIMEOUT,
+        noreply: bool = False,
     ) -> None:
         self.client_cache = {}
         self.current_ip = None
@@ -38,6 +39,7 @@ class MemcachedObjectStore(IObjectStore):
         self.hasher = None
         self.connect_timeout = connect_timeout
         self.timeout = timeout
+        self.noreply = noreply
         logger.info(f"The storage node IPs: {self.storage_node_ips}")
         super().__init__()
 
@@ -59,7 +61,7 @@ class MemcachedObjectStore(IObjectStore):
             result.append(ref)
         for create_ref_ip, uid_to_object in input.items():
             client = self._get_client_by_ip(create_ref_ip)
-            if client.set_many(uid_to_object, noreply=False):
+            if client.set_many(uid_to_object, noreply=self.noreply):
                 raise RuntimeError("Unable to write few keys to cache")
 
         return result
@@ -71,7 +73,7 @@ class MemcachedObjectStore(IObjectStore):
         ref = self._create_ref(uid, create_ref_ip)
         client = self._get_client_by_ip(create_ref_ip)
 
-        if client.set(uid.__str__(), serialized):
+        if client.set(uid.__str__(), serialized, noreply=self.noreply):
             return ref
         else:
             raise RuntimeError("Unable to write to cache")
