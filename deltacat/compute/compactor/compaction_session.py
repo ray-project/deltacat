@@ -402,6 +402,10 @@ def _execute_compaction_round(
 
     compaction_audit.set_uniform_deltas_created(len(uniform_deltas))
 
+    if not uniform_deltas:
+        logger.info("No uniform deltas found to compact.")
+        return None, None, None
+
     assert hash_bucket_count is not None and hash_bucket_count > 0, (
         f"Expected hash bucket count to be a positive integer, but found "
         f"`{hash_bucket_count}`"

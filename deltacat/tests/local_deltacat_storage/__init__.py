@@ -86,6 +86,31 @@ def _get_manifest_entry_uri(manifest_entry_id: str) -> str:
     return f"cloudpickle://{manifest_entry_id}"
 
 
+def _create_empty_delta(
+    partition: Partition,
+    manifest_entry_id: str,
+    delta_type: DeltaType,
+    author: Optional[str],
+    properties: Optional[Dict[str, str]] = None,
+) -> Delta:
+    stream_position = current_time_ms()
+    delta_locator = DeltaLocator.of(partition.locator, stream_position=stream_position)
+    manifest = Manifest.of(
+        entries=[],
+        author=author,
+        uuid=manifest_entry_id,
+    )
+
+    return Delta.of(
+        delta_locator,
+        delta_type=delta_type,
+        meta=ManifestMeta(),
+        properties=properties,
+        manifest=manifest,
+        previous_stream_position=partition.stream_position,
+    )
+
+
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     cur, con = _get_sqlite3_cursor_con(kwargs)
     res = cur.execute("SELECT * FROM namespaces")
@@ -879,6 +904,16 @@ def stage_delta(
     cur, con = _get_sqlite3_cursor_con(kwargs)
     manifest_entry_id = uuid.uuid4().__str__()
     uri = _get_manifest_entry_uri(manifest_entry_id)
+
+    if data is None:
+        delta = _create_empty_delta(
+            partition, manifest_entry_id, delta_type, author, properties
+        )
+        cur.execute("INSERT OR IGNORE INTO data VALUES (?, ?)", (uri, None))
+        params = (delta.locator.canonical_string(), "staged_delta", json.dumps(delta))
+        cur.execute("INSERT OR IGNORE INTO deltas VALUES (?, ?, ?)", params)
+        con.commit()
+        return delta
 
     serialized_data = None
     if content_type == ContentType.PARQUET:

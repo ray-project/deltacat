@@ -1,6 +1,6 @@
 import pyarrow as pa
 import string
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple, Union
 from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
     PartitionKey,
@@ -72,7 +72,7 @@ class BaseCompactorTestCase:
     sort_keys: List[Optional[SortKey]]
     partition_keys: Optional[List[PartitionKey]]
     partition_values: List[Optional[str]]
-    input_deltas: List[pa.Array]
+    input_deltas: Union[List[pa.Array], pa.Table, None]
     input_deltas_delta_type: DeltaType
     expected_terminal_compact_partition_result: pa.Table
     do_create_placement_group: bool
@@ -107,6 +107,11 @@ class RebaseThenIncrementalCompactionTestCaseParams(BaseCompactorTestCase):
     incremental_deltas: pa.Table
     incremental_deltas_delta_type: DeltaType
     rebase_expected_compact_partition_result: pa.Table
+
+
+@dataclass(frozen=True)
+class NoRCFOutputCompactionTestCaseParams(BaseCompactorTestCase):
+    pass
 
 
 def with_compactor_version_func_test_param(
@@ -1087,9 +1092,31 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     ),
 }
 
-INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(INCREMENTAL_TEST_CASES)
 
+NO_RCF_OUTPUT_TEST_CASES: Dict[str, NoRCFOutputCompactionTestCaseParams] = {
+    "1-incremental-delta-empty-files": NoRCFOutputCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=[SortKey.of(key_name="sk_col_1")],
+        partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
+        partition_values=ZERO_VALUED_PARTITION_VALUES_PARAM,
+        input_deltas=None,
+        input_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=[],
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        skip_enabled_compact_partition_drivers=None,
+    )
+}
+
+INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(INCREMENTAL_TEST_CASES)
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(
     REBASE_THEN_INCREMENTAL_TEST_CASES
+)
+
+NO_RCF_OUTPUT_TEST_CASES = with_compactor_version_func_test_param(
+    NO_RCF_OUTPUT_TEST_CASES
 )

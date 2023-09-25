@@ -212,6 +212,10 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
 
+    if not uniform_deltas:
+        logger.info("No uniform deltas found to compact.")
+        return None, None, None
+
     hb_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
