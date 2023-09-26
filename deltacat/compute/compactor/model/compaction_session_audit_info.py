@@ -796,13 +796,6 @@ class CompactionSessionAuditInfo(dict):
         Saves the stats by calling individual setters and returns the cluster telemetry time.
         """
 
-        last_task_completed_at = max(
-            result.task_completed_at for result in task_results
-        )
-
-        self[f"{step_name}ResultWaitTimeInSeconds"] = (
-            task_results_retrieved_at - last_task_completed_at.item()
-        )
         self[f"{step_name}TimeInSeconds"] = task_time_in_seconds
         self[f"{step_name}InvokeTimeInSeconds"] = invoke_time_in_seconds
 
@@ -827,15 +820,25 @@ class CompactionSessionAuditInfo(dict):
             f"{step_name}PostObjectStoreMemoryUsedBytes"
         ] = cluster_utilization_after_task.used_object_store_memory_bytes
 
-        peak_task_memory = max(
-            result.peak_memory_usage_bytes for result in task_results
-        )
+        telemetry_time = 0
+        if task_results:
+            last_task_completed_at = max(
+                result.task_completed_at for result in task_results
+            )
 
-        telemetry_time = sum(
-            result.telemetry_time_in_seconds for result in task_results
-        )
+            self[f"{step_name}ResultWaitTimeInSeconds"] = (
+                task_results_retrieved_at - last_task_completed_at.item()
+            )
 
-        self[f"{step_name}TaskPeakMemoryUsedBytes"] = peak_task_memory.item()
+            peak_task_memory = max(
+                result.peak_memory_usage_bytes for result in task_results
+            )
+
+            telemetry_time = sum(
+                result.telemetry_time_in_seconds for result in task_results
+            )
+
+            self[f"{step_name}TaskPeakMemoryUsedBytes"] = peak_task_memory.item()
 
         return cluster_util_after_task_latency + telemetry_time
 

@@ -6,6 +6,8 @@ import sqlite3
 from sqlite3 import Cursor, Connection
 import uuid
 import io
+
+from deltacat.tests.test_utils.storage import create_empty_delta
 from deltacat.utils.common import current_time_ms
 
 from deltacat.storage import (
@@ -84,31 +86,6 @@ def _get_sqlite3_cursor_con(kwargs) -> Tuple[Cursor, Connection]:
 
 def _get_manifest_entry_uri(manifest_entry_id: str) -> str:
     return f"cloudpickle://{manifest_entry_id}"
-
-
-def _create_empty_delta(
-    partition: Partition,
-    manifest_entry_id: str,
-    delta_type: DeltaType,
-    author: Optional[str],
-    properties: Optional[Dict[str, str]] = None,
-) -> Delta:
-    stream_position = current_time_ms()
-    delta_locator = DeltaLocator.of(partition.locator, stream_position=stream_position)
-    manifest = Manifest.of(
-        entries=[],
-        author=author,
-        uuid=manifest_entry_id,
-    )
-
-    return Delta.of(
-        delta_locator,
-        delta_type=delta_type,
-        meta=ManifestMeta(),
-        properties=properties,
-        manifest=manifest,
-        previous_stream_position=partition.stream_position,
-    )
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
@@ -906,8 +883,12 @@ def stage_delta(
     uri = _get_manifest_entry_uri(manifest_entry_id)
 
     if data is None:
-        delta = _create_empty_delta(
-            partition, manifest_entry_id, delta_type, author, properties
+        delta = create_empty_delta(
+            partition,
+            delta_type,
+            author,
+            properties=properties,
+            manifest_entry_id=manifest_entry_id,
         )
         cur.execute("INSERT OR IGNORE INTO data VALUES (?, ?)", (uri, None))
         params = (delta.locator.canonical_string(), "staged_delta", json.dumps(delta))
