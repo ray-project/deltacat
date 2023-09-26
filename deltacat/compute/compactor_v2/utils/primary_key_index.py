@@ -317,6 +317,10 @@ def group_hash_bucket_indices(
             hash_group_to_num_rows[hb_group],
         )
         del object_ref
+
+    _, close_latency = timed_invocation(object_store.close)
+    logger.info(f"Active connections to the object store closed in {close_latency}")
+
     return hash_bucket_group_to_obj_id_size_tuple
 
 
