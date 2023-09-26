@@ -49,3 +49,10 @@ class IObjectStore:
         """
         Clears the object store and all the associated data in it.
         """
+
+    def close(self, *args, **kwargs) -> None:
+        ...
+        """
+        Closes all the active connections to object store without clearing
+        the data in the object store.
+        """
