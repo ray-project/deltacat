@@ -73,7 +73,7 @@ class MemcachedObjectStore(IObjectStore):
             if client.set(uid.__str__(), serialized, noreply=self.noreply):
                 return ref
             else:
-                raise RuntimeError("Unable to write to cache")
+                raise RuntimeError(f"Unable to write {ref} to cache")
         except BaseException as e:
             raise RuntimeError(
                 f"Received {e} while writing ref={ref} and obj size={len(serialized)}"
