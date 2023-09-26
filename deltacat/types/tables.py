@@ -4,6 +4,7 @@ from typing import Callable, Dict, Type, Union
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as papq
 from ray.data.dataset import Dataset
 from ray.data.read_api import (
     from_arrow,
@@ -21,6 +22,7 @@ from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
 
 TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+    TableType.PYARROW_PARQUET.value: pa_utils.s3_file_to_parquet,
     TableType.PYARROW.value: pa_utils.s3_file_to_table,
     TableType.PANDAS.value: pd_utils.s3_file_to_dataframe,
     TableType.NUMPY.value: np_utils.s3_file_to_ndarray,
@@ -48,6 +50,7 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable
 ] = {
     pa.Table: pa_utils.table_size,
+    papq.ParquetFile: pa_utils.parquet_file_size,
     pd.DataFrame: pd_utils.dataframe_size,
     np.ndarray: np_utils.ndarray_size,
     Dataset: ds_utils.dataset_size,
@@ -55,18 +58,21 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
 
 TABLE_CLASS_TO_TABLE_TYPE: Dict[Type[dcs.LocalTable], str] = {
     pa.Table: TableType.PYARROW.value,
+    papq.ParquetFile: TableType.PYARROW_PARQUET.value,
     pd.DataFrame: TableType.PANDAS.value,
     np.ndarray: TableType.NUMPY.value,
 }
 
 TABLE_TYPE_TO_DATASET_CREATE_FUNC: Dict[str, Callable] = {
     TableType.PYARROW.value: from_arrow,
+    TableType.PYARROW_PARQUET.value: from_arrow,
     TableType.NUMPY.value: from_numpy,
     TableType.PANDAS.value: from_pandas,
 }
 
 TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
     TableType.PYARROW.value: from_arrow_refs,
+    TableType.PYARROW_PARQUET.value: from_arrow_refs,
     TableType.NUMPY.value: from_numpy,
     TableType.PANDAS.value: from_pandas_refs,
 }

@@ -54,6 +54,7 @@ def repartition(
     pg_config: Optional[PlacementGroupConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     s3_client_kwargs: Optional[Dict[str, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
@@ -91,7 +92,7 @@ def repartition(
             source_partition_locator.partition_values,
         ).stream_position,
         deltacat_storage,
-        **list_deltas_kwargs,
+        list_deltas_kwargs,
     )
 
     uniform_deltas = []
@@ -131,6 +132,7 @@ def repartition(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
         repartitioned_file_content_type=repartitioned_file_content_type,
         deltacat_storage=deltacat_storage,
     )
@@ -162,6 +164,7 @@ def repartition(
         source_partition_locator,
         sort_keys,
         deltacat_storage,
+        deltacat_storage_kwargs={},
     )
     repartition_completion_info = RoundCompletionInfo.of(
         last_stream_position_to_compact,

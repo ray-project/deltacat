@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pyarrow as pa
 
 from deltacat.storage import DeltaType, LocalTable
 
@@ -37,8 +38,6 @@ class DeltaFileEnvelope(dict):
         """
         if stream_position is None:
             raise ValueError("Missing delta file envelope stream position.")
-        if file_index is None:
-            raise ValueError("Missing delta file envelope file index.")
         if delta_type is None:
             raise ValueError("Missing Delta file envelope delta type.")
         if table is None:
@@ -75,3 +74,16 @@ class DeltaFileEnvelope(dict):
     @property
     def file_record_count(self) -> int:
         return self["file_record_count"]
+
+    @property
+    def table_size_bytes(self) -> int:
+        if isinstance(self.table, pa.Table):
+            return self.table.nbytes
+        else:
+            raise ValueError(
+                f"Table type: {type(self.table)} not for supported for size method."
+            )
+
+    @property
+    def table_num_rows(self) -> int:
+        return len(self.table)

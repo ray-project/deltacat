@@ -171,6 +171,7 @@ def collect_stats_by_columns(
     delta_annotated: DeltaAnnotated,
     columns_to_compute: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Materializes one manifest entry at a time to save memory usage and calculate stats from each of its columns.
 
@@ -182,6 +183,8 @@ def collect_stats_by_columns(
     Returns:
         A delta wide stats container
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     total_tables_size = 0
 
     # Mapping of column_name -> [stats_file_idx_1, stats_file_idx_2, ... stats_file_idx_n]
@@ -198,6 +201,7 @@ def collect_stats_by_columns(
                 TableType.PYARROW,
                 columns_to_compute,
                 equivalent_table_types="uncompacted",
+                **deltacat_storage_kwargs,
             )
         )
         assert isinstance(entry_pyarrow_table, pyarrow.Table), (

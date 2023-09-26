@@ -9,6 +9,8 @@ def validate_sort_keys(
     source_partition_locator: PartitionLocator,
     sort_keys: List[SortKey],
     deltacat_storage,
+    deltacat_storage_kwargs,
+    **kwargs,
 ) -> int:
     """
     Validates the input sort keys to ensure that they are unique, are using
@@ -16,6 +18,8 @@ def validate_sort_keys(
     sum of bit widths across sort key data types is less-than-or-equal-to
     256. Returns the sum of bit widths across all sort keys.
     """
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
     total_sort_keys_bit_width = 0
     if sort_keys:
         sort_key_names = [key.key_name for key in sort_keys]
@@ -27,6 +31,7 @@ def validate_sort_keys(
             stream_locator.namespace,
             stream_locator.table_name,
             stream_locator.table_version,
+            **deltacat_storage_kwargs,
         )
         if isinstance(table_version_schema, pa.Schema):
             for sort_key_name in sort_key_names:
