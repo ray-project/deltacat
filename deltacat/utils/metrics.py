@@ -57,7 +57,7 @@ def _build_cloudwatch_metrics(
     value: str,
     metrics_dimensions: List[Dict[str, str]],
     timestamp: datetime,
-    **metrics_kwargs,
+    **kwargs,
 ) -> Dict[str, Any]:
     metrics_name_with_type = _build_metrics_name(metrics_type, metrics_name)
     return [
@@ -66,7 +66,7 @@ def _build_cloudwatch_metrics(
             "Dimensions": metrics_dimensions,
             "Timestamp": timestamp,
             "Value": value,
-            **metrics_kwargs,
+            **kwargs,
         }
     ]
 
@@ -76,6 +76,7 @@ def _emit_metrics(
     metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
+    **kwargs,
 ) -> None:
     metrics_target = metrics_config.metrics_target
     assert isinstance(
@@ -87,6 +88,7 @@ def _emit_metrics(
             metrics_type=metrics_type,
             metrics_config=metrics_config,
             value=value,
+            **kwargs,
         )
     else:
         logger.warning(f"{metrics_target} is not a supported metrics target type.")
@@ -97,8 +99,9 @@ def _emit_cloudwatch_metrics(
     metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
+    **kwargs,
 ) -> None:
-    ct = datetime.now()
+    current_time = datetime.now()
     current_instance_region = metrics_config.region
     cloudwatch_resource = resource_cache("cloudwatch", current_instance_region)
     cloudwatch_client = cloudwatch_resource.meta.client
@@ -111,8 +114,9 @@ def _emit_cloudwatch_metrics(
         metrics_type,
         value,
         metrics_dimensions,
-        ct,
+        current_time,
         **metrics_config.metrics_kwargs,
+        **kwargs,
     )
 
     response = None
@@ -135,28 +139,39 @@ def _emit_cloudwatch_emf_metrics(
     metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
+    **kwargs,
 ) -> None:
-    ct = datetime.now()
+    """
+    Publishes CloudWatch EMF logs, which are metrics embedded in CloudWatch logs.
+
+    There are multiple possible metrics_kwargs keys that can be expected in this method.
+    The documentation can be found here: github.com/awslabs/aws-embedded-metrics-python
+
+    Keyword arguments currently being checked for:
+     - log_group_name (str): specifies the CloudWatch log group name
+     - log_stream_name (callable): specifies the log stream name to be used within the log group
+    """
+    current_time = datetime.now()
     dimensions = dict(
         [(dim["Name"], dim["Value"]) for dim in metrics_config.metrics_dimensions]
     )
     metrics_name_with_type = _build_metrics_name(metrics_type, metrics_name)
     try:
-        metrics.set_timestamp(ct)
+        metrics.set_timestamp(current_time)
         metrics.set_dimensions(dimensions)
         metrics.set_namespace(metrics_config.metrics_namespace)
 
         metrics_kwargs = metrics_config.metrics_kwargs
 
-        Config = get_config()
-        Config.log_group_name = (
+        emf_config = get_config()
+        emf_config.log_group_name = (
             metrics_kwargs["log_group_name"]
             if "log_group_name" in metrics_kwargs
             else DEFAULT_DELTACAT_LOG_GROUP_NAME
         )
 
         # use a callable to differentiate many possible log streams
-        Config.log_stream_name = (
+        emf_config.log_stream_name = (
             metrics_kwargs["log_stream_name"]()
             if "log_stream_name" in metrics_kwargs
             else DEFAULT_DELTACAT_LOG_STREAM_CALLABLE
@@ -182,4 +197,5 @@ def emit_timer_metrics(metrics_name, value, metrics_config, **kwargs):
         metrics_type=MetricsType.TIMER,
         metrics_config=metrics_config,
         value=value,
+        **kwargs,
     )
