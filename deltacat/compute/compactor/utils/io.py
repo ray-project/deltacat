@@ -378,13 +378,15 @@ def _discover_deltas(
     )
     deltas = deltas_list_result.all_items()
     if not deltas:
-        raise RuntimeError(
+        logger.info(
             f"Unexpected Error: Couldn't find any deltas to "
             f"compact in delta stream position range "
             f"('{start_position_exclusive}', "
             f"'{end_position_inclusive}']. Source partition: "
             f"{source_partition_locator}"
         )
+        return []
+
     if start_position_exclusive == deltas[0].stream_position:
         first_delta = deltas.pop(0)
         logger.info(
