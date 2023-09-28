@@ -68,7 +68,7 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
         )
 
     @patch("deltacat.aws.clients.requests.get")
-    def test_retrying_on_initial_http_failures(self, requests_mock_get):
+    def test_retrying_on_initial_failures(self, requests_mock_get):
         from deltacat.aws.clients import (
             block_until_instance_metadata_service_returns_success,
         )
@@ -88,11 +88,14 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
             )
             mock_errors.append(mock_error_response)
 
+        mock_connection_error_response = requests.exceptions.ConnectionError()
+        mock_errors.append(mock_connection_error_response)
+
         requests_mock_get.side_effect = [*mock_errors, mock_success_response]
         self.assertEqual(
             block_until_instance_metadata_service_returns_success().status_code, 200
         )
-        self.assertEqual(requests_mock_get.call_count, 4)
+        self.assertEqual(requests_mock_get.call_count, 5)
 
     @patch("deltacat.aws.clients.requests")
     def test_retrying_status_on_shortlist_returns_early(self, requests_mock):

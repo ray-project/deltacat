@@ -46,9 +46,9 @@ class RetryIfRetryableHTTPStatusCode(retry_if_exception):
 
     def __init__(self):
         def is_retryable_error(exception):
-            return (
+            return isinstance(exception, requests.exceptions.ConnectionError) or (
                 isinstance(exception, requests.exceptions.HTTPError)
-                and exception.response.status_code in RETRYABLE_HTTP_STATUS_CODES
+                and exception.response.status_code in RETRYABLE_HTTP_STATUS_CODES,
             )
 
         super().__init__(predicate=is_retryable_error)
