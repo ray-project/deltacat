@@ -1,5 +1,6 @@
 # setup.py install_requires
 # any changes here should also be reflected in setup.py "install_requires"
+aws-embedded-metrics == 3.1.1
 boto3 ~= 1.20
 getdaft==0.1.17
 numpy == 1.21.5
