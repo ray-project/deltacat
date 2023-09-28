@@ -126,9 +126,6 @@ def create_uniform_input_deltas(
     logger.info(f"Input delta bytes to compact: {delta_bytes}")
     logger.info(f"Input delta files to compact: {delta_manifest_entries_count}")
 
-    if not input_da_list:
-        raise RuntimeError("No input deltas to compact!")
-
     size_estimation_function = functools.partial(
         estimate_manifest_entry_size_bytes, previous_inflation=previous_inflation
     )

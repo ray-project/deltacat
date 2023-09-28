@@ -18,7 +18,7 @@ from deltacat.types.media import ContentType
 
 from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
-    stage_partition_from_csv_file,
+    stage_partition_from_file_paths,
     commit_delta_to_staged_partition,
 )
 
@@ -55,7 +55,7 @@ class TestMerge(unittest.TestCase):
     def test_merge_multiple_hash_group_string_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
-        partition = stage_partition_from_csv_file(
+        partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
             **self.kwargs,
@@ -95,7 +95,7 @@ class TestMerge(unittest.TestCase):
     def test_merge_multiple_hash_group_multiple_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
-        partition = stage_partition_from_csv_file(
+        partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
             **self.kwargs,
@@ -139,7 +139,7 @@ class TestMerge(unittest.TestCase):
     def test_merge_multiple_hash_group_no_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
-        partition = stage_partition_from_csv_file(
+        partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.NO_PK_TABLE],
             **self.kwargs,
@@ -184,7 +184,7 @@ class TestMerge(unittest.TestCase):
     def test_merge_multiple_hash_group_with_can_duplicate_false(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
-        partition = stage_partition_from_csv_file(
+        partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
             **self.kwargs,
@@ -229,7 +229,7 @@ class TestMerge(unittest.TestCase):
     def test_merge_when_delete_type_deltas_are_merged(self):
         number_of_hash_group = 1
         number_of_hash_bucket = 1
-        partition = stage_partition_from_csv_file(
+        partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
             **self.kwargs,
@@ -298,7 +298,7 @@ class TestMerge(unittest.TestCase):
     def test_merge_incrementa_copy_by_reference_date_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 10
-        partition = stage_partition_from_csv_file(
+        partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK],
             **self.kwargs,
