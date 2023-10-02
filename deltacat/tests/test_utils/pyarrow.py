@@ -7,7 +7,7 @@ import deltacat.tests.local_deltacat_storage as ds
 def create_delta_from_csv_file(
     namespace: str, file_paths: List[str], *args, **kwargs
 ) -> Delta:
-    staged_partition = stage_partition_from_csv_file(
+    staged_partition = stage_partition_from_file_paths(
         namespace, file_paths, *args, **kwargs
     )
 
@@ -18,7 +18,7 @@ def create_delta_from_csv_file(
     return committed_delta
 
 
-def stage_partition_from_csv_file(
+def stage_partition_from_file_paths(
     namespace: str, file_paths: List[str], *args, **kwargs
 ) -> Partition:
     ds.create_namespace(namespace, {}, **kwargs)

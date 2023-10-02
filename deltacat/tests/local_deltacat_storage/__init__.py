@@ -6,6 +6,8 @@ import sqlite3
 from sqlite3 import Cursor, Connection
 import uuid
 import io
+
+from deltacat.tests.test_utils.storage import create_empty_delta
 from deltacat.utils.common import current_time_ms
 
 from deltacat.storage import (
@@ -879,6 +881,20 @@ def stage_delta(
     cur, con = _get_sqlite3_cursor_con(kwargs)
     manifest_entry_id = uuid.uuid4().__str__()
     uri = _get_manifest_entry_uri(manifest_entry_id)
+
+    if data is None:
+        delta = create_empty_delta(
+            partition,
+            delta_type,
+            author,
+            properties=properties,
+            manifest_entry_id=manifest_entry_id,
+        )
+        cur.execute("INSERT OR IGNORE INTO data VALUES (?, ?)", (uri, None))
+        params = (delta.locator.canonical_string(), "staged_delta", json.dumps(delta))
+        cur.execute("INSERT OR IGNORE INTO deltas VALUES (?, ?, ?)", params)
+        con.commit()
+        return delta
 
     serialized_data = None
     if content_type == ContentType.PARQUET:

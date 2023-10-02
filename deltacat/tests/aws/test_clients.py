@@ -1,7 +1,8 @@
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import unittest
 from http import HTTPStatus
 import requests
+from requests import HTTPError
 
 HAPPY_RESPONSE = {
     "AccessKeyId": "ASIA123456789",
@@ -65,6 +66,36 @@ class TestBlockUntilInstanceMetadataServiceReturnsSuccess(unittest.TestCase):
         self.assertEqual(
             block_until_instance_metadata_service_returns_success().status_code, 200
         )
+
+    @patch("deltacat.aws.clients.requests.get")
+    def test_retrying_on_initial_failures(self, requests_mock_get):
+        from deltacat.aws.clients import (
+            block_until_instance_metadata_service_returns_success,
+        )
+
+        mock_success_response = Mock()
+        mock_success_response.raise_for_status.return_value = None
+        mock_success_response.status_code = 200
+
+        mock_service_unavailable_response = Mock()
+        mock_service_unavailable_response.status_code = 503
+
+        mock_errors = []
+        for err in range(3):
+            mock_error_response = Mock()
+            mock_error_response.raise_for_status.side_effect = HTTPError(
+                response=mock_service_unavailable_response
+            )
+            mock_errors.append(mock_error_response)
+
+        mock_connection_error_response = requests.exceptions.ConnectionError()
+        mock_errors.append(mock_connection_error_response)
+
+        requests_mock_get.side_effect = [*mock_errors, mock_success_response]
+        self.assertEqual(
+            block_until_instance_metadata_service_returns_success().status_code, 200
+        )
+        self.assertEqual(requests_mock_get.call_count, 5)
 
     @patch("deltacat.aws.clients.requests")
     def test_retrying_status_on_shortlist_returns_early(self, requests_mock):
