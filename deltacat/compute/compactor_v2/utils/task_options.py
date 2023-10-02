@@ -1,3 +1,4 @@
+import botocore
 from typing import Dict, Optional, List, Tuple
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
@@ -51,7 +52,7 @@ def _calculate_parquet_column_size(
     return column_size * PARQUET_TO_PYARROW_INFLATION
 
 
-def _get_task_options(
+def get_task_options(
     cpu: float, memory: float, ray_custom_resources: Optional[Dict] = None
 ) -> Dict:
 
@@ -59,6 +60,17 @@ def _get_task_options(
 
     if ray_custom_resources:
         task_opts["resources"] = ray_custom_resources
+
+    task_opts["max_retries"] = 3
+
+    # List of possible botocore exceptions are available at
+    # https://github.com/boto/botocore/blob/develop/botocore/exceptions.py
+    task_opts["retry_exceptions"] = [
+        botocore.exceptions.ConnectionError,
+        botocore.exceptions.HTTPClientError,
+        ConnectionError,
+        TimeoutError,
+    ]
 
     return task_opts
 
@@ -157,7 +169,7 @@ def hash_bucket_resource_options_provider(
     # Consider buffer
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
-    return _get_task_options(0.01, total_memory, ray_custom_resources)
+    return get_task_options(0.01, total_memory, ray_custom_resources)
 
 
 def merge_resource_options_provider(
@@ -247,4 +259,4 @@ def merge_resource_options_provider(
 
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
 
-    return _get_task_options(0.01, total_memory, ray_custom_resources)
+    return get_task_options(0.01, total_memory, ray_custom_resources)
