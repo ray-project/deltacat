@@ -26,6 +26,7 @@ def _append_sha1_hash_to_table(table: pa.Table, hash_column: pa.Array) -> pa.Tab
 
     result = []
     for hash_value in hash_column_np:
+        assert hash_value is not None, f"Expected non-null primary key in "
         result.append(hashlib.sha1(hash_value.encode("utf-8")).hexdigest())
 
     return sc.append_pk_hash_string_column(table, result)
