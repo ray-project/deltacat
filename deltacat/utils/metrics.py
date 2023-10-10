@@ -134,11 +134,11 @@ def _emit_cloudwatch_metrics(
 
 @metric_scope
 def _emit_cloudwatch_emf_metrics(
-    metrics: MetricsLogger,
     metrics_name: str,
     metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
+    metrics: MetricsLogger,
     **kwargs,
 ) -> None:
     """
@@ -174,7 +174,7 @@ def _emit_cloudwatch_emf_metrics(
         emf_config.log_stream_name = (
             metrics_kwargs["log_stream_name"]()
             if "log_stream_name" in metrics_kwargs
-            else DEFAULT_DELTACAT_LOG_STREAM_CALLABLE
+            else DEFAULT_DELTACAT_LOG_STREAM_CALLABLE()
         )
 
         metrics.put_metric(metrics_name_with_type, value)
