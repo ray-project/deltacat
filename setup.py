@@ -25,7 +25,7 @@ with open(os.path.join(ROOT_DIR, "README.md"), "r", encoding="utf-8") as fh:
 
 
 setuptools.setup(
-    name="deltacat-fork",
+    name="deltacat",
     version=find_version("deltacat", "__init__.py"),
     author="Ray Team",
     description="A scalable, fast, ACID-compliant Data Catalog powered by Ray.",
