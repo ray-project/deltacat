@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Callable
 from deltacat.aws.clients import resource_cache
 from datetime import datetime
 
-from ray._private.services import get_node_ip_address
+from ray.util import get_node_ip_address
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
