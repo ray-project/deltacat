@@ -90,6 +90,8 @@ class CompactPartitionParams(dict):
         result.drop_duplicates = params.get("drop_duplicates", DROP_DUPLICATES)
         result.ray_custom_resources = params.get("ray_custom_resources")
 
+        result.metrics_config = params.get("metrics_config")
+
         if not importlib.util.find_spec("memray"):
             result.enable_profiler = False
 
