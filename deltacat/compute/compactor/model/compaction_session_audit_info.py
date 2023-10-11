@@ -40,7 +40,7 @@ class CompactionSessionAuditInfo(dict):
     @property
     def ray_version(self) -> str:
         """
-        The ray version used to run compaction job.
+        The ray distribution version used to run compaction job.
         """
         return self.get("rayVersion")
 
@@ -465,6 +465,10 @@ class CompactionSessionAuditInfo(dict):
 
     def set_deltacat_version(self, version: str) -> CompactionSessionAuditInfo:
         self["deltacatVersion"] = version
+        return self
+
+    def set_ray_version(self, version: str) -> CompactionSessionAuditInfo:
+        self["rayVersion"] = version
         return self
 
     def set_input_records(self, input_records: int) -> CompactionSessionAuditInfo:
