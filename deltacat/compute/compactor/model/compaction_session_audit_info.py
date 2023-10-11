@@ -21,8 +21,9 @@ class CompactionSessionAuditInfo(dict):
     HASH_BUCKET_STEP_NAME = "hashBucket"
     MERGE_STEP_NAME = "merge"
 
-    def __init__(self, deltacat_version: str, audit_url: str):
+    def __init__(self, deltacat_version: str, ray_version: str, audit_url: str):
         self.set_deltacat_version(deltacat_version)
+        self.set_ray_version(ray_version)
         self.set_audit_url(audit_url)
 
     @property
@@ -35,6 +36,13 @@ class CompactionSessionAuditInfo(dict):
         The deltacat version used to run compaction job.
         """
         return self.get("deltacatVersion")
+
+    @property
+    def ray_version(self) -> str:
+        """
+        The ray version used to run compaction job.
+        """
+        return self.get("rayVersion")
 
     @property
     def input_records(self) -> int:

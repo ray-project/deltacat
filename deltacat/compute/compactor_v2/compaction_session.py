@@ -113,7 +113,7 @@ def _execute_compaction(
     audit_url = f"{base_audit_url}.json"
     logger.info(f"Compaction audit will be written to {audit_url}")
     compaction_audit = (
-        CompactionSessionAuditInfo(deltacat.__version__, audit_url)
+        CompactionSessionAuditInfo(deltacat.__version__, ray.__version__, audit_url)
         .set_hash_bucket_count(params.hash_bucket_count)
         .set_compactor_version(CompactorVersion.V2.value)
     )
