@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Callable
 from deltacat.aws.clients import resource_cache
 from datetime import datetime
 
-from ray._private.services import get_node_ip_address
+from ray.util import get_node_ip_address
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -134,11 +134,11 @@ def _emit_cloudwatch_metrics(
 
 @metric_scope
 def _emit_cloudwatch_emf_metrics(
-    metrics: MetricsLogger,
     metrics_name: str,
     metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
+    metrics: MetricsLogger,
     **kwargs,
 ) -> None:
     """
@@ -174,7 +174,7 @@ def _emit_cloudwatch_emf_metrics(
         emf_config.log_stream_name = (
             metrics_kwargs["log_stream_name"]()
             if "log_stream_name" in metrics_kwargs
-            else DEFAULT_DELTACAT_LOG_STREAM_CALLABLE
+            else DEFAULT_DELTACAT_LOG_STREAM_CALLABLE()
         )
 
         metrics.put_metric(metrics_name_with_type, value)

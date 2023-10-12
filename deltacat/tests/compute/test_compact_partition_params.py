@@ -7,6 +7,7 @@ class TestCompactPartitionParams(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from deltacat.types.media import ContentType
+        from deltacat.utils.metrics import MetricsConfig, MetricsTarget
 
         cls.VALID_COMPACT_PARTITION_PARAMS = {
             "compaction_artifact_s3_bucket": "foobar",
@@ -71,6 +72,7 @@ class TestCompactPartitionParams(unittest.TestCase):
                 "partitionValues": [],
                 "partitionId": "79612ea39ac5493eae925abe60767d42",
             },
+            "metrics_config": MetricsConfig("us-east-1", MetricsTarget.CLOUDWATCH_EMF),
         }
 
         super().setUpClass()
@@ -132,6 +134,10 @@ class TestCompactPartitionParams(unittest.TestCase):
         assert (
             json.loads(serialized_params)["destination_partition_locator"]
             == params.destination_partition_locator
+        )
+        assert (
+            json.loads(serialized_params)["metrics_config"]["metrics_target"]
+            == params.metrics_config.metrics_target
         )
 
     def test_serialize_handles_sets(self):

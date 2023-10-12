@@ -23,7 +23,7 @@ class TestFitInputDeltas(unittest.TestCase):
             DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
         }
 
-        cls.COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "test")
+        cls.COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "2.3", "test")
 
         super().setUpClass()
 
