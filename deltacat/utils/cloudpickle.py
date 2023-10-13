@@ -1,4 +1,5 @@
 import io
+from collections import deque
 from typing import List, Any
 from ray import cloudpickle
 
@@ -18,7 +19,7 @@ def dump_into_chunks(obj: Any, max_size_bytes: int) -> List[bytes]:
         return [bytes_io.getvalue()]
 
     bytes_io.seek(0, 2)  # seek to end
-    result = []
+    result = deque()
     observed_total_size = 0
     current_size = bytes_io.tell()
 
@@ -29,13 +30,11 @@ def dump_into_chunks(obj: Any, max_size_bytes: int) -> List[bytes]:
         observed_total_size += len(cur)
         bytes_io.seek(-to_read_size, 1)
         bytes_io.truncate()
-        result.append(cur)
+        result.appendleft(cur)
         current_size = bytes_io.tell()
 
     assert (
         observed_total_size == total_size
     ), f"Not all bytes were split as {observed_total_size} != {total_size}"
 
-    result.reverse()
-
-    return result
+    return list(result)
