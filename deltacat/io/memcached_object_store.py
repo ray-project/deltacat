@@ -137,15 +137,21 @@ class MemcachedObjectStore(IObjectStore):
                 assert (
                     chunk
                 ), f"Serialized chunks were not present for ref={current_ref}"
+                chunks_by_refs.pop(current_ref)
                 chunks.append(chunk)
 
+            assert chunk_count == len(
+                chunks
+            ), f"The chunk count must be equal for ref={ref}"
             if chunk_count == 1:
                 # avoids moving each byte
                 serialized = chunks[0]
             else:
                 serialized = bytearray()
-                for chunk in chunks:
+                for chunk_index in range(chunk_count):
+                    chunk = chunks[chunk_index]
                     serialized.extend(chunk)
+                    chunks[chunk_index] = None
 
             deserialized = cloudpickle.loads(serialized)
             result.append(deserialized)
