@@ -11,6 +11,7 @@ from pymemcache.client.base import Client
 from pymemcache.client.retrying import RetryingClient
 from pymemcache.exceptions import MemcacheUnexpectedCloseError
 from pymemcache.client.rendezvous import RendezvousHash
+from deltacat.utils.cloudpickle import dump_into_chunks
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -22,6 +23,7 @@ class MemcachedObjectStore(IObjectStore):
 
     CONNECT_TIMEOUT = 10 * 60
     FETCH_TIMEOUT = 30 * 60
+    MAX_ITEM_SIZE_BYTES = 1000000000
 
     def __init__(
         self,
@@ -30,16 +32,22 @@ class MemcachedObjectStore(IObjectStore):
         connect_timeout: float = CONNECT_TIMEOUT,
         timeout: float = FETCH_TIMEOUT,
         noreply: bool = False,
+        max_item_size_bytes: int = MAX_ITEM_SIZE_BYTES,
     ) -> None:
         self.client_cache = {}
         self.current_ip = None
         self.SEPARATOR = "_"
         self.port = port
-        self.storage_node_ips = storage_node_ips
+        self.storage_node_ips = storage_node_ips or []
+        for ip in self.storage_node_ips:
+            assert (
+                self.SEPARATOR not in ip
+            ), f"IP address should not contain {self.SEPARATOR}"
         self.hasher = RendezvousHash(nodes=self.storage_node_ips, seed=0)
         self.connect_timeout = connect_timeout
         self.timeout = timeout
         self.noreply = noreply
+        self.max_item_size_bytes = max_item_size_bytes
         logger.info(
             f"The storage node IPs: {self.storage_node_ips} with noreply: {self.noreply}"
         )
@@ -49,75 +57,126 @@ class MemcachedObjectStore(IObjectStore):
         input = defaultdict(dict)
         result = []
         for obj in objects:
-            serialized = cloudpickle.dumps(obj)
+            serialized_list = dump_into_chunks(
+                obj, max_size_bytes=self.max_item_size_bytes
+            )
             uid = uuid.uuid4()
             create_ref_ip = self._get_create_ref_ip(uid.__str__())
-            ref = self._create_ref(uid, create_ref_ip)
-            input[create_ref_ip][uid.__str__()] = serialized
-            result.append(ref)
-        for create_ref_ip, uid_to_object in input.items():
+
+            for chunk_index, chunk in enumerate(serialized_list):
+                ref = self._create_ref(uid, create_ref_ip, chunk_index)
+                input[create_ref_ip][ref] = chunk
+
+            return_ref = self._create_ref(uid, create_ref_ip, len(serialized_list))
+            result.append(return_ref)
+        for create_ref_ip, ref_to_object in input.items():
             client = self._get_client_by_ip(create_ref_ip)
-            if client.set_many(uid_to_object, noreply=self.noreply):
+            if client.set_many(ref_to_object, noreply=self.noreply):
                 raise RuntimeError("Unable to write few keys to cache")
 
         return result
 
     def put(self, obj: object, *args, **kwargs) -> Any:
-        serialized = cloudpickle.dumps(obj)
+        serialized_list = dump_into_chunks(obj, max_size_bytes=self.max_item_size_bytes)
         uid = uuid.uuid4()
         create_ref_ip = self._get_create_ref_ip(uid.__str__())
-        ref = self._create_ref(uid, create_ref_ip)
         client = self._get_client_by_ip(create_ref_ip)
 
-        try:
-            if client.set(uid.__str__(), serialized, noreply=self.noreply):
-                return ref
-            else:
-                raise RuntimeError(f"Unable to write {ref} to cache")
-        except BaseException as e:
-            raise RuntimeError(
-                f"Received {e} while writing ref={ref} and obj size={len(serialized)}"
-            )
+        for chunk_index, chunk in enumerate(serialized_list):
+            ref = self._create_ref(uid, create_ref_ip, chunk_index)
+
+            try:
+                if not client.set(ref, chunk, noreply=self.noreply):
+                    raise RuntimeError(f"Unable to write {ref} to cache")
+            except BaseException as e:
+                raise RuntimeError(
+                    f"Received {e} while writing ref={ref} and obj size={len(chunk)}"
+                )
+
+        return self._create_ref(uid, create_ref_ip, len(serialized_list))
 
     def get_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         result = []
-        uid_per_ip = defaultdict(lambda: [])
+        refs_per_ip = defaultdict(lambda: [])
+        chunks_by_refs = defaultdict(lambda: [])
 
         start = time.monotonic()
         for ref in refs:
-            uid, ip = ref.split(self.SEPARATOR)
-            uid_per_ip[ip].append(uid)
+            uid, ip, chunk_count = ref.split(self.SEPARATOR)
+            chunk_count = int(chunk_count)
+            for chunk_index in range(chunk_count):
+                current_ref = self._create_ref(uid, ip, chunk_index)
+                refs_per_ip[ip].append(current_ref)
 
-        for (ip, uids) in uid_per_ip.items():
+        total_ref_count = 0
+        for (ip, current_refs) in refs_per_ip.items():
             client = self._get_client_by_ip(ip)
-            cache_result = client.get_many(uids)
+            cache_result = client.get_many(current_refs)
             assert len(cache_result) == len(
-                uids
-            ), f"Not all values were returned from cache from {ip} as {len(cache_result)} != {len(uids)}"
+                current_refs
+            ), f"Not all values were returned from cache from {ip} as {len(cache_result)} != {len(current_refs)}"
+            total_ref_count += len(cache_result)
+            chunks_by_refs.update(cache_result)
 
-            values = cache_result.values()
-            total_bytes = 0
+        assert len(chunks_by_refs) == total_ref_count, (
+            "Total refs retrieved from memcached doesn't "
+            f"match as {len(chunks_by_refs)} != {total_ref_count}"
+        )
+
+        for ref in refs:
+            uid, ip, chunk_count = ref.split(self.SEPARATOR)
+            chunk_count = int(chunk_count)
 
             deserialize_start = time.monotonic()
-            for serialized in values:
-                deserialized = cloudpickle.loads(serialized)
-                total_bytes += len(serialized)
-                result.append(deserialized)
+
+            chunks = []
+
+            for chunk_index in range(chunk_count):
+                current_ref = self._create_ref(uid, ip, chunk_index)
+                chunk = chunks_by_refs[current_ref]
+                assert (
+                    chunk
+                ), f"Serialized chunks were not present for ref={current_ref}"
+                chunks.append(chunk)
+
+            if chunk_count == 1:
+                # avoids moving each byte
+                serialized = chunks[0]
+            else:
+                serialized = bytearray()
+                for chunk in chunks:
+                    serialized.extend(chunk)
+
+            deserialized = cloudpickle.loads(serialized)
+            result.append(deserialized)
 
             deserialize_end = time.monotonic()
             logger.debug(
-                f"The time taken to deserialize {total_bytes} bytes is: {deserialize_end - deserialize_start}",
+                f"The time taken to deserialize {len(serialized)} bytes"
+                f" and {chunk_count} chunks is: {deserialize_end - deserialize_start}",
             )
 
         end = time.monotonic()
 
         logger.info(f"The total time taken to read all objects is: {end - start}")
+
+        assert len(result) == len(
+            refs
+        ), f"The total number of refs must be equal as {len(result)} != {len(refs)}"
         return result
 
     def get(self, ref: Any, *args, **kwargs) -> object:
-        uid, ip = ref.split(self.SEPARATOR)
+        uid, ip, chunk_count = ref.split(self.SEPARATOR)
+        chunk_count = int(chunk_count)
+
         client = self._get_client_by_ip(ip)
-        serialized = client.get(uid)
+        serialized = bytearray()
+
+        for chunk_index in range(chunk_count):
+            ref = self._create_ref(uid, ip, chunk_index)
+            chunk = client.get(ref)
+            serialized.extend(chunk)
+
         return cloudpickle.loads(serialized)
 
     def close(self) -> None:
@@ -126,8 +185,8 @@ class MemcachedObjectStore(IObjectStore):
 
         self.client_cache.clear()
 
-    def _create_ref(self, uid, ip) -> str:
-        return f"{uid}{self.SEPARATOR}{ip}"
+    def _create_ref(self, uid, ip, chunk_index) -> str:
+        return f"{uid}{self.SEPARATOR}{ip}{self.SEPARATOR}{chunk_index}"
 
     def _get_storage_node_ip(self, key: str):
         storage_node_ip = self.hasher.get_node(key)
