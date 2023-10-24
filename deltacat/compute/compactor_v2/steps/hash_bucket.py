@@ -25,8 +25,11 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.performance import timed_invocation
-from deltacat.utils.metrics import emit_timer_metrics
+from deltacat.utils.metrics import (
+    emit_timer_metrics,
+    MetricsConfig,
+    MetricsConfigSingleton,
+)
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
@@ -141,7 +144,10 @@ def _group_file_records_by_pk_hash_bucket(
     return hb_to_delta_file_envelopes, total_record_count, total_size_bytes
 
 
-def _timed_hash_bucket(input: HashBucketInput):
+@emit_timer_metrics(metrics_name="hash_bucket")
+def _timed_hash_bucket(input: HashBucketInput) -> HashBucketResult:
+    logger.info(f"Starting hash bucket task...")
+
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -167,40 +173,25 @@ def _timed_hash_bucket(input: HashBucketInput):
         )
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+
+        logger.info(f"Finished hash bucket task...")
+
         return HashBucketResult(
             hash_bucket_group_to_obj_id_tuple,
             np.int64(total_size_bytes),
             np.int64(total_record_count),
             np.double(peak_memory_usage_bytes),
-            np.double(0.0),
             np.double(time.time()),
         )
 
 
 @ray.remote
-def hash_bucket(input: HashBucketInput) -> HashBucketResult:
+def hash_bucket(
+    input: HashBucketInput,
+    metrics_config: Optional[MetricsConfig] = None,
+) -> HashBucketResult:
+    # initialize singleton on new process
+    if metrics_config:
+        MetricsConfigSingleton.instance(metrics_config)
 
-    logger.info(f"Starting hash bucket task...")
-    hash_bucket_result, duration = timed_invocation(
-        func=_timed_hash_bucket, input=input
-    )
-
-    emit_metrics_time = 0.0
-    if input.metrics_config:
-        emit_result, latency = timed_invocation(
-            func=emit_timer_metrics,
-            metrics_name="hash_bucket",
-            value=duration,
-            metrics_config=input.metrics_config,
-        )
-        emit_metrics_time = latency
-
-    logger.info(f"Finished hash bucket task...")
-    return HashBucketResult(
-        hash_bucket_result[0],
-        hash_bucket_result[1],
-        hash_bucket_result[2],
-        hash_bucket_result[3],
-        np.double(emit_metrics_time),
-        hash_bucket_result[5],
-    )
+    return _timed_hash_bucket(input)

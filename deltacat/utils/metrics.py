@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import functools
+import time
 
 import logging
 
@@ -10,6 +12,7 @@ from enum import Enum
 from typing import Dict, Any, List, Callable
 from deltacat.aws.clients import resource_cache
 from datetime import datetime
+import pyrsistent
 
 from ray.util import get_node_ip_address
 
@@ -25,6 +28,7 @@ class MetricsTarget(str, Enum):
     CLOUDWATCH_EMF = "cloudwatch_emf"
 
 
+# All fields should be considered read-only
 @dataclass
 class MetricsConfig:
     def __init__(
@@ -38,8 +42,63 @@ class MetricsConfig:
         self.region = region
         self.metrics_target = metrics_target
         self.metrics_namespace = metrics_namespace
-        self.metrics_dimensions = metrics_dimensions
-        self.metrics_kwargs = metrics_kwargs
+
+        # Pyrsistent is unable to enforce immutability on nested objects
+        # Please avoid modifying stored objects to preserve read-only status
+        self.metrics_dimensions = pyrsistent.v(*metrics_dimensions)
+        self.metrics_kwargs = pyrsistent.m(**metrics_kwargs)
+
+    # Enforce fields to be read-only after initialization
+    def __setattr__(self, __name: str, __value: Any) -> None:
+        if __name not in self.__dict__:
+            self.__dict__[__name] = __value
+        else:
+            raise RuntimeError(f"Tried to set immutable property {__name}!")
+
+
+# Global access point for a singleton metrics_config object
+# It is important to re-initialize the MetricsConfigSingleton class in functions decorated with @ray.remote
+class MetricsConfigSingleton(object):
+    _instance = None
+    _total_telemetry_time = 0
+
+    def __init__(self):
+        raise RuntimeError(
+            "Tried to directly initialize MetricsConfigSingleton object, call instance() instead"
+        )
+
+    @classmethod
+    def instance(cls, metrics_config: MetricsConfig = None):
+        if cls._instance is None:
+            assert metrics_config, (
+                f"metrics_config cannot be {metrics_config} when "
+                "initializing MetricsConfigSingleton instance."
+            )
+            cls._instance = cls.__new__(cls)
+            # Put any initialization here.
+            cls._metrics_config = metrics_config
+        else:
+            if metrics_config:
+                logger.warning(
+                    "MetricsConfigSingleton.instance() called with non-null metrics_config. "
+                    "Passed-in metrics_config will be ignored in favor of using pre-existing value."
+                )
+        return cls._instance
+
+    # The metrics_config should be considered immutable and read-only
+    @property
+    def metrics_config(self):
+        assert (
+            self._metrics_config
+        ), "Private attribute _metrics_config must be initialized before accessing!"
+        return self._metrics_config
+
+    @property
+    def total_telemetry_time(self):
+        return self._total_telemetry_time
+
+    def increment_telemetry_time(self, telemetry_time_in_seconds):
+        self._total_telemetry_time += telemetry_time_in_seconds
 
 
 class MetricsType(str, Enum):
@@ -191,11 +250,33 @@ METRICS_TARGET_TO_EMITTER_DICT: Dict[str, Callable] = {
 }
 
 
-def emit_timer_metrics(metrics_name, value, metrics_config, **kwargs):
-    _emit_metrics(
-        metrics_name=metrics_name,
-        metrics_type=MetricsType.TIMER,
-        metrics_config=metrics_config,
-        value=value,
-        **kwargs,
-    )
+def emit_timer_metrics(metrics_name, **metrics_kwargs):
+    def decorator_emit_timer_metrics(func):
+        @functools.wraps(func)
+        def wrapper_emit_timer_metrics(*args, **kwargs):
+            metrics_config_singleton = None
+            try:
+                metrics_config_singleton = MetricsConfigSingleton.instance()
+            except Exception as e:
+                logger.warn(f"Skipping emitting timer metrics due to exception: {e}")
+            start = time.perf_counter()
+            result = func(*args, **kwargs)
+            stop = time.perf_counter()
+            if metrics_config_singleton:
+                telemetry_start = time.perf_counter()
+                _emit_metrics(
+                    metrics_name=metrics_name,
+                    metrics_type=MetricsType.TIMER,
+                    metrics_config=metrics_config_singleton.metrics_config,
+                    value=stop - start,
+                    **metrics_kwargs,
+                )
+                telemetry_stop = time.perf_counter()
+                metrics_config_singleton.increment_telemetry_time(
+                    telemetry_stop - telemetry_start
+                )
+            return result
+
+        return wrapper_emit_timer_metrics
+
+    return decorator_emit_timer_metrics

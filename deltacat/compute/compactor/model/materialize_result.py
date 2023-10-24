@@ -16,7 +16,6 @@ class MaterializeResult(dict):
         pyarrow_write_result: PyArrowWriteResult,
         referenced_pyarrow_write_result: Optional[PyArrowWriteResult] = None,
         peak_memory_usage_bytes: Optional[np.double] = None,
-        telemetry_time_in_seconds: Optional[np.double] = None,
         task_completed_at: Optional[np.double] = None,
     ) -> MaterializeResult:
         materialize_result = MaterializeResult()
@@ -25,7 +24,6 @@ class MaterializeResult(dict):
         materialize_result["paWriteResult"] = pyarrow_write_result
         materialize_result["referencedPaWriteResult"] = referenced_pyarrow_write_result
         materialize_result["peakMemoryUsageBytes"] = peak_memory_usage_bytes
-        materialize_result["telemetryTimeInSeconds"] = telemetry_time_in_seconds
         materialize_result["taskCompletedAt"] = task_completed_at
         return materialize_result
 
@@ -43,10 +41,6 @@ class MaterializeResult(dict):
     @property
     def peak_memory_usage_bytes(self) -> Optional[np.double]:
         return self["peakMemoryUsageBytes"]
-
-    @property
-    def telemetry_time_in_seconds(self) -> Optional[np.double]:
-        return self["telemetryTimeInSeconds"]
 
     @property
     def pyarrow_write_result(self) -> PyArrowWriteResult:

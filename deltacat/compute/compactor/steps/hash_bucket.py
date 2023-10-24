@@ -29,8 +29,11 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.performance import timed_invocation
-from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.utils.metrics import (
+    emit_timer_metrics,
+    MetricsConfig,
+    MetricsConfigSingleton,
+)
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
@@ -181,6 +184,7 @@ def _read_delta_file_envelopes(
     return delta_file_envelopes, total_record_count
 
 
+@emit_timer_metrics("hash_bucket")
 def _timed_hash_bucket(
     annotated_delta: DeltaAnnotated,
     round_completion_info: Optional[RoundCompletionInfo],
@@ -189,12 +193,13 @@ def _timed_hash_bucket(
     num_buckets: int,
     num_groups: int,
     enable_profiler: bool,
-    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    object_store: Optional[IObjectStore] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider],
+    object_store: Optional[IObjectStore],
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
-):
+) -> HashBucketResult:
+    logger.info(f"Starting hash bucket task...")
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
     task_id = get_current_ray_task_id()
@@ -229,11 +234,11 @@ def _timed_hash_bucket(
         )
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+        logger.info(f"Finished hash bucket task...")
         return HashBucketResult(
             hash_bucket_group_to_obj_id,
             np.int64(total_record_count),
             np.double(peak_memory_usage_bytes),
-            np.double(0.0),
             np.double(time.time()),
         )
 
@@ -247,18 +252,18 @@ def hash_bucket(
     num_buckets: int,
     num_groups: int,
     enable_profiler: bool,
-    metrics_config: MetricsConfig,
     read_kwargs_provider: Optional[ReadKwargsProvider],
     object_store: Optional[IObjectStore],
     deltacat_storage=unimplemented_deltacat_storage,
+    metrics_config: Optional[MetricsConfig] = None,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> HashBucketResult:
-    if deltacat_storage_kwargs is None:
-        deltacat_storage_kwargs = {}
-    logger.info(f"Starting hash bucket task...")
-    hash_bucket_result, duration = timed_invocation(
-        func=_timed_hash_bucket,
+    # initialize singleton on new process
+    if metrics_config:
+        MetricsConfigSingleton.instance(metrics_config)
+
+    return _timed_hash_bucket(
         annotated_delta=annotated_delta,
         round_completion_info=round_completion_info,
         primary_keys=primary_keys,
@@ -271,23 +276,4 @@ def hash_bucket(
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
         **kwargs,
-    )
-
-    emit_metrics_time = 0.0
-    if metrics_config:
-        emit_result, latency = timed_invocation(
-            func=emit_timer_metrics,
-            metrics_name="hash_bucket",
-            value=duration,
-            metrics_config=metrics_config,
-        )
-        emit_metrics_time = latency
-
-    logger.info(f"Finished hash bucket task...")
-    return HashBucketResult(
-        hash_bucket_result[0],
-        hash_bucket_result[1],
-        hash_bucket_result[2],
-        np.double(emit_metrics_time),
-        hash_bucket_result[4],
     )

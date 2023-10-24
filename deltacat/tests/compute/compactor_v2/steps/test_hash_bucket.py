@@ -180,7 +180,6 @@ class TestHashBucket(unittest.TestCase):
         self.assertIsNotNone(hb_result)
         self.assertIsNotNone(hb_result.peak_memory_usage_bytes)
         self.assertIsNotNone(hb_result.task_completed_at)
-        self.assertIsNotNone(hb_result.telemetry_time_in_seconds)
 
         hb_index_to_dfes = defaultdict(list)
         total_records_in_result = 0

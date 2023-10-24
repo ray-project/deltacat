@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Any
-from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -16,7 +15,6 @@ class HashBucketInput(Dict):
         num_hash_buckets: int,
         num_hash_groups: int,
         enable_profiler: Optional[bool] = False,
-        metrics_config: Optional[MetricsConfig] = None,
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         object_store: Optional[IObjectStore] = None,
         deltacat_storage=unimplemented_deltacat_storage,
@@ -29,7 +27,6 @@ class HashBucketInput(Dict):
         result["num_hash_buckets"] = num_hash_buckets
         result["num_hash_groups"] = num_hash_groups
         result["enable_profiler"] = enable_profiler
-        result["metrics_config"] = metrics_config
         result["read_kwargs_provider"] = read_kwargs_provider
         result["object_store"] = object_store
         result["deltacat_storage"] = deltacat_storage
@@ -56,10 +53,6 @@ class HashBucketInput(Dict):
     @property
     def enable_profiler(self) -> Optional[bool]:
         return self.get("enable_profiler")
-
-    @property
-    def metrics_config(self) -> Optional[MetricsConfig]:
-        return self.get("metrics_config")
 
     @property
     def read_kwargs_provider(self) -> Optional[ReadKwargsProvider]:

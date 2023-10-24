@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from ray.types import ObjectRef
 from typing import Dict, List, Optional, Any
-from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
 from deltacat.storage import (
@@ -34,7 +33,6 @@ class MergeInput(Dict):
         merge_task_index: Optional[int] = 0,
         max_records_per_output_file: Optional[int] = MAX_RECORDS_PER_COMPACTED_FILE,
         enable_profiler: Optional[bool] = False,
-        metrics_config: Optional[MetricsConfig] = None,
         s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         round_completion_info: Optional[RoundCompletionInfo] = None,
@@ -56,7 +54,6 @@ class MergeInput(Dict):
         result["merge_task_index"] = merge_task_index
         result["max_records_per_output_file"] = max_records_per_output_file
         result["enable_profiler"] = enable_profiler
-        result["metrics_config"] = metrics_config
         result["s3_table_writer_kwargs"] = s3_table_writer_kwargs or {}
         result["read_kwargs_provider"] = read_kwargs_provider
         result["round_completion_info"] = round_completion_info
@@ -113,10 +110,6 @@ class MergeInput(Dict):
     @property
     def enable_profiler(self) -> bool:
         return self.get("enable_profiler")
-
-    @property
-    def metrics_config(self) -> Optional[MetricsConfig]:
-        return self.get("metrics_config")
 
     @property
     def s3_table_writer_kwargs(self) -> Optional[Dict[str, Any]]:

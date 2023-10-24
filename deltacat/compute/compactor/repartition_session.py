@@ -30,7 +30,7 @@ from deltacat.storage import (
     PartitionLocator,
     interface as unimplemented_deltacat_storage,
 )
-from deltacat.utils.metrics import MetricsConfig
+from deltacat.utils.metrics import MetricsConfig, MetricsConfigSingleton
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -59,6 +59,9 @@ def repartition(
     deltacat_storage=unimplemented_deltacat_storage,
     **kwargs,
 ) -> Optional[str]:
+    # Initialize MetricsConfigSingleton
+    if metrics_config:
+        MetricsConfigSingleton.instance(metrics_config)
 
     node_resource_keys = None
     if pg_config:  # use resource in each placement group
@@ -130,7 +133,6 @@ def repartition(
         max_records_per_output_file=records_per_repartitioned_file,
         destination_partition=partition,
         enable_profiler=enable_profiler,
-        metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
         s3_table_writer_kwargs=s3_table_writer_kwargs,
         repartitioned_file_content_type=repartitioned_file_content_type,

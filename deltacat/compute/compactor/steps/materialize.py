@@ -43,7 +43,11 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
 )
-from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.utils.metrics import (
+    emit_timer_metrics,
+    MetricsConfig,
+    MetricsConfigSingleton,
+)
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
@@ -52,8 +56,8 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@ray.remote
-def materialize(
+@emit_timer_metrics(metrics_name="materialize")
+def _timed_materialize(
     source_partition_locator: PartitionLocator,
     round_completion_info: Optional[RoundCompletionInfo],
     partition: Partition,
@@ -63,7 +67,6 @@ def materialize(
     compacted_file_content_type: ContentType,
     enable_manifest_entry_copy_by_reference: bool,
     enable_profiler: bool,
-    metrics_config: MetricsConfig,
     schema: Optional[pa.Schema] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
@@ -150,7 +153,6 @@ def materialize(
     with memray.Tracker(
         f"dedupe_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
-        start = time.time()
         logger.info(f"Resolved materialize task obj refs...")
         dedupe_task_indices, obj_refs = zip(*dedupe_task_idx_and_obj_id_tuples)
         # this depends on `ray.get` result order matching input order, as per the
@@ -300,19 +302,6 @@ def materialize(
         )
 
         logger.info(f"Finished materialize task...")
-        end = time.time()
-        duration = end - start
-
-        emit_metrics_time = 0.0
-        if metrics_config:
-            emit_result, latency = timed_invocation(
-                func=emit_timer_metrics,
-                metrics_name="materialize",
-                value=duration,
-                metrics_config=metrics_config,
-            )
-            emit_metrics_time = latency
-        logger.info(f"Materialize task ended in {end - start}s")
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
 
@@ -323,8 +312,49 @@ def materialize(
             write_result,
             referenced_write_result,
             np.double(peak_memory_usage_bytes),
-            np.double(emit_metrics_time),
             np.double(time.time()),
         )
 
         return merged_materialize_result
+
+
+@ray.remote
+def materialize(
+    source_partition_locator: PartitionLocator,
+    round_completion_info: Optional[RoundCompletionInfo],
+    partition: Partition,
+    mat_bucket_index: int,
+    dedupe_task_idx_and_obj_id_tuples: List[DedupeTaskIndexWithObjectId],
+    max_records_per_output_file: int,
+    compacted_file_content_type: ContentType,
+    enable_manifest_entry_copy_by_reference: bool,
+    enable_profiler: bool,
+    schema: Optional[pa.Schema] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    object_store: Optional[IObjectStore] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    metrics_config: Optional[MetricsConfig] = None,
+):
+    # initialize singleton on new process
+    if metrics_config:
+        MetricsConfigSingleton.instance(metrics_config)
+
+    return _timed_materialize(
+        source_partition_locator=source_partition_locator,
+        round_completion_info=round_completion_info,
+        partition=partition,
+        mat_bucket_index=mat_bucket_index,
+        dedupe_task_idx_and_obj_id_tuples=dedupe_task_idx_and_obj_id_tuples,
+        max_records_per_output_file=max_records_per_output_file,
+        compacted_file_content_type=compacted_file_content_type,
+        enable_manifest_entry_copy_by_reference=enable_manifest_entry_copy_by_reference,
+        enable_profiler=enable_profiler,
+        schema=schema,
+        read_kwargs_provider=read_kwargs_provider,
+        s3_table_writer_kwargs=s3_table_writer_kwargs,
+        object_store=object_store,
+        deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
+    )

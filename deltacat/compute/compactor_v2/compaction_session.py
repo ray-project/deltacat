@@ -48,6 +48,7 @@ from deltacat.compute.compactor_v2.utils.task_options import (
     merge_resource_options_provider,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
+from deltacat.utils.metrics import MetricsConfigSingleton
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -61,6 +62,10 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
     assert (
         params.hash_bucket_count is not None and params.hash_bucket_count >= 1
     ), "hash_bucket_count is a required arg for compactor v2"
+
+    # Initialize MetricsConfigSingleton, if passed in
+    if params.metrics_config:
+        MetricsConfigSingleton.instance(params.metrics_config)
 
     with memray.Tracker(
         f"compaction_partition.bin"
@@ -230,7 +235,6 @@ def _execute_compaction(
                 num_hash_buckets=params.hash_bucket_count,
                 num_hash_groups=params.hash_group_count,
                 enable_profiler=params.enable_profiler,
-                metrics_config=params.metrics_config,
                 read_kwargs_provider=params.read_kwargs_provider,
                 object_store=params.object_store,
                 deltacat_storage=params.deltacat_storage,
@@ -244,6 +248,7 @@ def _execute_compaction(
         max_parallelism=task_max_parallelism,
         options_provider=hb_options_provider,
         kwargs_provider=hash_bucket_input_provider,
+        metrics_config=params.metrics_config,
     )
 
     hb_invoke_end = time.monotonic()
@@ -258,7 +263,8 @@ def _execute_compaction(
     # to compare time.time()s captured in different nodes.
     hb_results_retrieved_at = time.time()
 
-    telemetry_time_hb = compaction_audit.save_step_stats(
+    cluster_util_after_task_latency = 0
+    cluster_util_after_task_latency += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.HASH_BUCKET_STEP_NAME,
         hb_results,
         hb_results_retrieved_at,
@@ -356,7 +362,6 @@ def _execute_compaction(
                 num_hash_groups=params.hash_group_count,
                 max_records_per_output_file=params.records_per_compacted_file,
                 enable_profiler=params.enable_profiler,
-                metrics_config=params.metrics_config,
                 s3_table_writer_kwargs=params.s3_table_writer_kwargs,
                 read_kwargs_provider=params.read_kwargs_provider,
                 round_completion_info=round_completion_info,
@@ -374,6 +379,7 @@ def _execute_compaction(
         max_parallelism=task_max_parallelism,
         options_provider=merge_options_provider,
         kwargs_provider=merge_input_provider,
+        metrics_config=params.metrics_config,
     )
 
     merge_invoke_end = time.monotonic()
@@ -387,7 +393,7 @@ def _execute_compaction(
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in merge_results])
     logger.info(f"Deduped {total_dd_record_count} records...")
 
-    telemetry_time_merge = compaction_audit.save_step_stats(
+    cluster_util_after_task_latency += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.MERGE_STEP_NAME,
         merge_results,
         merge_results_retrieved_at,
@@ -472,8 +478,15 @@ def _execute_compaction(
         session_peak_memory
     )
 
+    metrics_telemetry_time = 0
+    try:
+        metrics_telemetry_time = MetricsConfigSingleton.instance().total_telemetry_time
+    except Exception as e:
+        logger.warn(
+            f"Skipping calculating metrics telemetry time due to exception: {e}"
+        )
     compaction_audit.save_round_completion_stats(
-        mat_results, telemetry_time_hb + telemetry_time_merge
+        mat_results, cluster_util_after_task_latency + metrics_telemetry_time
     )
 
     input_inflation = None

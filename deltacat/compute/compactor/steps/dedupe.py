@@ -23,7 +23,11 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.utils.metrics import (
+    emit_timer_metrics,
+    MetricsConfig,
+    MetricsConfigSingleton,
+)
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
 
@@ -100,6 +104,7 @@ def delta_file_locator_to_mat_bucket_index(
     return int.from_bytes(digest, "big") % materialize_bucket_count
 
 
+@emit_timer_metrics(metrics_name="dedupe")
 def _timed_dedupe(
     object_ids: List[Any],
     sort_keys: List[SortKey],
@@ -108,7 +113,8 @@ def _timed_dedupe(
     enable_profiler: bool,
     object_store: Optional[IObjectStore],
     **kwargs,
-):
+) -> DedupeResult:
+    logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -229,11 +235,11 @@ def _timed_dedupe(
         )
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+        logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
         return DedupeResult(
             mat_bucket_to_dd_idx_obj_id,
             np.int64(total_deduped_records),
             np.double(peak_memory_usage_bytes),
-            np.double(0.0),
             np.double(time.time()),
         )
 
@@ -245,13 +251,15 @@ def dedupe(
     num_materialize_buckets: int,
     dedupe_task_index: int,
     enable_profiler: bool,
-    metrics_config: MetricsConfig,
     object_store: Optional[IObjectStore],
+    metrics_config: Optional[MetricsConfig] = None,
     **kwargs,
 ) -> DedupeResult:
-    logger.info(f"[Dedupe task {dedupe_task_index}] Starting dedupe task...")
-    dedupe_result, duration = timed_invocation(
-        func=_timed_dedupe,
+    # initialize singleton on new process
+    if metrics_config:
+        MetricsConfigSingleton.instance(metrics_config)
+
+    return _timed_dedupe(
         object_ids=object_ids,
         sort_keys=sort_keys,
         num_materialize_buckets=num_materialize_buckets,
@@ -259,23 +267,4 @@ def dedupe(
         enable_profiler=enable_profiler,
         object_store=object_store,
         **kwargs,
-    )
-
-    emit_metrics_time = 0.0
-    if metrics_config:
-        emit_result, latency = timed_invocation(
-            func=emit_timer_metrics,
-            metrics_name="dedupe",
-            value=duration,
-            metrics_config=metrics_config,
-        )
-        emit_metrics_time = latency
-
-    logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
-    return DedupeResult(
-        dedupe_result[0],
-        dedupe_result[1],
-        dedupe_result[2],
-        np.double(emit_metrics_time),
-        dedupe_result[4],
     )

@@ -784,7 +784,6 @@ class CompactionSessionAuditInfo(dict):
             f"{step_name}PostObjectStoreMemoryUsedBytes"
         ] = cluster_utilization_after_task.used_object_store_memory_bytes
 
-        telemetry_time = 0
         if task_results:
             last_task_completed_at = max(
                 result.task_completed_at for result in task_results
@@ -798,13 +797,9 @@ class CompactionSessionAuditInfo(dict):
                 result.peak_memory_usage_bytes for result in task_results
             )
 
-            telemetry_time = sum(
-                result.telemetry_time_in_seconds for result in task_results
-            )
-
             self[f"{step_name}TaskPeakMemoryUsedBytes"] = peak_task_memory.item()
 
-        return cluster_util_after_task_latency + telemetry_time
+        return cluster_util_after_task_latency
 
     def save_round_completion_stats(
         self, mat_results: List[MaterializeResult], total_telemetry_time: float

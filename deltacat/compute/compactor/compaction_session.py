@@ -53,6 +53,7 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
 from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.metrics import MetricsConfigSingleton
 
 
 if importlib.util.find_spec("memray"):
@@ -139,6 +140,10 @@ def compact_partition(
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
+    if metrics_config:
+        # Initialize MetricsConfigSingleton
+        MetricsConfigSingleton.instance(metrics_config)
+
     # memray official documentation link:
     # https://bloomberg.github.io/memray/getting_started.html
     with memray.Tracker(
@@ -166,7 +171,6 @@ def compact_partition(
             rebase_source_partition_locator,
             rebase_source_partition_high_watermark,
             enable_profiler,
-            metrics_config,
             list_deltas_kwargs,
             read_kwargs_provider,
             s3_table_writer_kwargs,
@@ -217,7 +221,6 @@ def _execute_compaction_round(
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
     enable_profiler: Optional[bool],
-    metrics_config: Optional[MetricsConfig],
     list_deltas_kwargs: Optional[Dict[str, Any]],
     read_kwargs_provider: Optional[ReadKwargsProvider],
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
@@ -234,6 +237,13 @@ def _execute_compaction_round(
         if rebase_source_partition_locator
         else source_partition_locator
     )
+
+    # We need to pass in metrics_config to each step, as they are run on separate processes
+    try:
+        metrics_config = MetricsConfigSingleton.instance().metrics_config
+    except Exception:
+        metrics_config = None
+
     base_audit_url = rcf_source_partition_locator.path(
         f"s3://{compaction_artifact_s3_bucket}/compaction-audit"
     )
@@ -437,11 +447,11 @@ def _execute_compaction_round(
         num_buckets=hash_bucket_count,
         num_groups=max_parallelism,
         enable_profiler=enable_profiler,
-        metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
+        metrics_config=metrics_config,
         **kwargs,
     )
     hb_invoke_end = time.monotonic()
@@ -452,7 +462,8 @@ def _execute_compaction_round(
     hb_end = time.monotonic()
     hb_results_retrieved_at = time.time()
 
-    telemetry_time_hb = compaction_audit.save_step_stats(
+    cluster_util_after_task_latency = 0
+    cluster_util_after_task_latency += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.HASH_BUCKET_STEP_NAME,
         hb_results,
         hb_results_retrieved_at,
@@ -527,8 +538,8 @@ def _execute_compaction_round(
         sort_keys=sort_keys,
         num_materialize_buckets=num_materialize_buckets,
         enable_profiler=enable_profiler,
-        metrics_config=metrics_config,
         object_store=object_store,
+        metrics_config=metrics_config,
     )
 
     dedupe_invoke_end = time.monotonic()
@@ -545,7 +556,7 @@ def _execute_compaction_round(
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in dd_results])
     logger.info(f"Deduped {total_dd_record_count} records...")
 
-    telemetry_time_dd = compaction_audit.save_step_stats(
+    cluster_util_after_task_latency += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.DEDUPE_STEP_NAME,
         dd_results,
         dedupe_results_retrieved_at,
@@ -604,12 +615,12 @@ def _execute_compaction_round(
         max_records_per_output_file=records_per_compacted_file,
         compacted_file_content_type=compacted_file_content_type,
         enable_profiler=enable_profiler,
-        metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
         s3_table_writer_kwargs=s3_table_writer_kwargs,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
+        metrics_config=metrics_config,
     )
 
     materialize_invoke_end = time.monotonic()
@@ -622,7 +633,7 @@ def _execute_compaction_round(
     materialize_end = time.monotonic()
     materialize_results_retrieved_at = time.time()
 
-    telemetry_time_materialize = compaction_audit.save_step_stats(
+    cluster_util_after_task_latency += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.MATERIALIZE_STEP_NAME,
         mat_results,
         materialize_results_retrieved_at,
@@ -684,8 +695,15 @@ def _execute_compaction_round(
         session_peak_memory
     )
 
+    metrics_telemetry_time = 0
+    try:
+        metrics_telemetry_time = MetricsConfigSingleton.instance().total_telemetry_time
+    except Exception as e:
+        logger.warn(
+            f"Skipping calculating metrics telemetry time due to exception: {e}"
+        )
     compaction_audit.save_round_completion_stats(
-        mat_results, telemetry_time_hb + telemetry_time_dd + telemetry_time_materialize
+        mat_results, cluster_util_after_task_latency + metrics_telemetry_time
     )
 
     s3_utils.upload(
