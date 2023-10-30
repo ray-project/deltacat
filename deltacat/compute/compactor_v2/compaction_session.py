@@ -497,6 +497,7 @@ def _execute_compaction(
 
     input_inflation = None
     input_average_record_size_bytes = None
+    # Note: we only consider inflation for incremental delta
     if (
         compaction_audit.input_size_bytes
         and compaction_audit.hash_bucket_processed_size_bytes
@@ -519,6 +520,22 @@ def _execute_compaction(
         f"The inflation of input deltas={input_inflation}"
         f" and average record size={input_average_record_size_bytes}"
     )
+
+    # After all incremental delta related calculations, we update
+    # the input sizes to accomodate the compacted table
+    if round_completion_info:
+        compaction_audit.set_input_file_count(
+            (compaction_audit.input_file_count or 0)
+            + round_completion_info.compacted_pyarrow_write_result.files
+        )
+        compaction_audit.set_input_size_bytes(
+            (compaction_audit.input_size_bytes or 0.0)
+            + round_completion_info.compacted_pyarrow_write_result.file_bytes
+        )
+        compaction_audit.set_input_records(
+            (compaction_audit.input_records or 0)
+            + round_completion_info.compacted_pyarrow_write_result.records
+        )
 
     new_round_completion_info = RoundCompletionInfo.of(
         high_watermark=params.last_stream_position_to_compact,
