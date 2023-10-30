@@ -447,10 +447,16 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
         logger.info(f"Finished merge task...")
 
+        try:
+            telemetry_time = MetricsConfigSingleton.instance().total_telemetry_time
+        except Exception:
+            telemetry_time = 0
+
         return MergeResult(
             materialized_results,
             np.int64(total_deduped_records),
             np.double(peak_memory_usage_bytes),
+            np.double(telemetry_time),
             np.double(time.time()),
         )
 

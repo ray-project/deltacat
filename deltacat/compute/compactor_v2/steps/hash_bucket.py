@@ -176,11 +176,17 @@ def _timed_hash_bucket(input: HashBucketInput) -> HashBucketResult:
 
         logger.info(f"Finished hash bucket task...")
 
+        try:
+            telemetry_time = MetricsConfigSingleton.instance().total_telemetry_time
+        except Exception:
+            telemetry_time = 0
+
         return HashBucketResult(
             hash_bucket_group_to_obj_id_tuple,
             np.int64(total_size_bytes),
             np.int64(total_record_count),
             np.double(peak_memory_usage_bytes),
+            np.double(telemetry_time),
             np.double(time.time()),
         )
 

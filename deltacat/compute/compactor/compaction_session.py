@@ -462,8 +462,8 @@ def _execute_compaction_round(
     hb_end = time.monotonic()
     hb_results_retrieved_at = time.time()
 
-    cluster_util_after_task_latency = 0
-    cluster_util_after_task_latency += compaction_audit.save_step_stats(
+    worker_telemetry_time = 0
+    worker_telemetry_time += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.HASH_BUCKET_STEP_NAME,
         hb_results,
         hb_results_retrieved_at,
@@ -556,7 +556,7 @@ def _execute_compaction_round(
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in dd_results])
     logger.info(f"Deduped {total_dd_record_count} records...")
 
-    cluster_util_after_task_latency += compaction_audit.save_step_stats(
+    worker_telemetry_time += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.DEDUPE_STEP_NAME,
         dd_results,
         dedupe_results_retrieved_at,
@@ -633,7 +633,7 @@ def _execute_compaction_round(
     materialize_end = time.monotonic()
     materialize_results_retrieved_at = time.time()
 
-    cluster_util_after_task_latency += compaction_audit.save_step_stats(
+    worker_telemetry_time += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.MATERIALIZE_STEP_NAME,
         mat_results,
         materialize_results_retrieved_at,
@@ -703,7 +703,7 @@ def _execute_compaction_round(
             f"Skipping calculating metrics telemetry time due to exception: {e}"
         )
     compaction_audit.save_round_completion_stats(
-        mat_results, cluster_util_after_task_latency + metrics_telemetry_time
+        mat_results, worker_telemetry_time + metrics_telemetry_time
     )
 
     s3_utils.upload(

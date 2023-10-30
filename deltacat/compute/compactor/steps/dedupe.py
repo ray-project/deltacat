@@ -236,10 +236,16 @@ def _timed_dedupe(
 
         peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
         logger.info(f"[Dedupe task index {dedupe_task_index}] Finished dedupe task...")
+
+        try:
+            telemetry_time = MetricsConfigSingleton.instance().total_telemetry_time
+        except Exception:
+            telemetry_time = 0
         return DedupeResult(
             mat_bucket_to_dd_idx_obj_id,
             np.int64(total_deduped_records),
             np.double(peak_memory_usage_bytes),
+            np.double(telemetry_time),
             np.double(time.time()),
         )
 

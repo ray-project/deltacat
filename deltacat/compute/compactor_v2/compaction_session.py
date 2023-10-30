@@ -263,8 +263,8 @@ def _execute_compaction(
     # to compare time.time()s captured in different nodes.
     hb_results_retrieved_at = time.time()
 
-    cluster_util_after_task_latency = 0
-    cluster_util_after_task_latency += compaction_audit.save_step_stats(
+    worker_telemetry_time = 0
+    worker_telemetry_time += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.HASH_BUCKET_STEP_NAME,
         hb_results,
         hb_results_retrieved_at,
@@ -393,7 +393,7 @@ def _execute_compaction(
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in merge_results])
     logger.info(f"Deduped {total_dd_record_count} records...")
 
-    cluster_util_after_task_latency += compaction_audit.save_step_stats(
+    worker_telemetry_time += compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.MERGE_STEP_NAME,
         merge_results,
         merge_results_retrieved_at,
@@ -486,7 +486,7 @@ def _execute_compaction(
             f"Skipping calculating metrics telemetry time due to exception: {e}"
         )
     compaction_audit.save_round_completion_stats(
-        mat_results, cluster_util_after_task_latency + metrics_telemetry_time
+        mat_results, worker_telemetry_time + metrics_telemetry_time
     )
 
     input_inflation = None
