@@ -12,7 +12,6 @@ from enum import Enum
 from typing import Dict, Any, List, Callable
 from deltacat.aws.clients import resource_cache
 from datetime import datetime
-import pyrsistent
 
 from ray.util import get_node_ip_address
 
@@ -45,8 +44,8 @@ class MetricsConfig:
 
         # Pyrsistent is unable to enforce immutability on nested objects
         # Please avoid modifying stored objects to preserve read-only status
-        self.metrics_dimensions = pyrsistent.v(*metrics_dimensions)
-        self.metrics_kwargs = pyrsistent.m(**metrics_kwargs)
+        self.metrics_dimensions = metrics_dimensions
+        self.metrics_kwargs = metrics_kwargs
 
     # Enforce fields to be read-only after initialization
     def __setattr__(self, __name: str, __value: Any) -> None:

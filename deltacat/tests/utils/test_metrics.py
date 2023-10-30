@@ -57,9 +57,3 @@ class TestS3PartialParquetFileToTable(TestCase):
             metrics_config.metrics_target = MetricsTarget.CLOUDWATCH
         with self.assertRaises(Exception):
             metrics_config.metrics_namespace = "test_namespace"
-        with self.assertRaises(Exception):
-            metrics_config.metrics_dimensions = []
-        with self.assertRaises(Exception):
-            metrics_config.metrics_dimensions[0] = {"Name": "Value"}
-        with self.assertRaises(Exception):
-            metrics_config.metrics_kwargs["test"] = "test"
