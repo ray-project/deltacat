@@ -47,7 +47,6 @@ from deltacat.compute.compactor_v2.utils.task_options import (
     hash_bucket_resource_options_provider,
     merge_resource_options_provider,
 )
-from deltacat.utils.resources import ClusterUtilizationOverTimeRange
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 if importlib.util.find_spec("memray"):
@@ -65,10 +64,9 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
 
     with memray.Tracker(
         f"compaction_partition.bin"
-    ) if params.enable_profiler else nullcontext(), ClusterUtilizationOverTimeRange() as cluster_util:
+    ) if params.enable_profiler else nullcontext():
         (new_partition, new_rci, new_rcf_partition_locator,) = _execute_compaction(
             params,
-            cluster_util=cluster_util,
             **kwargs,
         )
 
@@ -477,17 +475,6 @@ def _execute_compaction(
     compaction_audit.save_round_completion_stats(
         mat_results, telemetry_time_hb + telemetry_time_merge
     )
-
-    cluster_util: ClusterUtilizationOverTimeRange = kwargs.get("cluster_util")
-
-    if cluster_util:
-        compaction_audit.set_total_cpu_seconds(cluster_util.total_vcpu_seconds)
-        compaction_audit.set_used_cpu_seconds(cluster_util.used_vcpu_seconds)
-        compaction_audit.set_used_memory_gb_seconds(cluster_util.used_memory_gb_seconds)
-        compaction_audit.set_total_memory_gb_seconds(
-            cluster_util.total_memory_gb_seconds
-        )
-        compaction_audit.set_cluster_cpu_max(cluster_util.max_cpu)
 
     s3_utils.upload(
         compaction_audit.audit_url,
