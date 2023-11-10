@@ -489,12 +489,6 @@ def _execute_compaction(
         )
         compaction_audit.set_cluster_cpu_max(cluster_util.max_cpu)
 
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **params.s3_client_kwargs,
-    )
-
     input_inflation = None
     input_average_record_size_bytes = None
     # Note: we only consider inflation for incremental delta
@@ -536,6 +530,12 @@ def _execute_compaction(
             (compaction_audit.input_records or 0)
             + round_completion_info.compacted_pyarrow_write_result.records
         )
+
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **params.s3_client_kwargs,
+    )
 
     new_round_completion_info = RoundCompletionInfo.of(
         high_watermark=params.last_stream_position_to_compact,
