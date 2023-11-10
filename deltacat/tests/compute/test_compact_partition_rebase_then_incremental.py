@@ -14,6 +14,10 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.tests.compute.test_util_common import (
+    get_rcf,
+)
+from deltacat.tests.test_utils.utils import read_s3_contents
+from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
 )
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
@@ -192,6 +196,9 @@ def test_compact_partition_rebase_then_incremental(
     from deltacat.utils.placement import (
         PlacementGroupManager,
     )
+    from deltacat.compute.compactor.model.compaction_session_audit_info import (
+        CompactionSessionAuditInfo,
+    )
 
     ds_mock_kwargs = offer_local_deltacat_storage_kwargs
     ray.shutdown()
@@ -317,9 +324,20 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+    round_completion_info = get_rcf(setup_s3_resource, rcf_file_s3_uri)
     compacted_delta_locator_incremental: DeltaLocator = (
-        get_compacted_delta_locator_from_rcf(setup_s3_resource, rcf_file_s3_uri)
+        round_completion_info.compacted_delta_locator
     )
+    audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
+        "s3://", ""
+    ).split("/", 1)
+    compaction_audit_obj: dict = read_s3_contents(
+        setup_s3_resource, audit_bucket, audit_key
+    )
+    compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
+        **compaction_audit_obj
+    )
+
     tables = ds.download_delta(compacted_delta_locator_incremental, **ds_mock_kwargs)
     actual_compacted_table = pa.concat_tables(tables)
     expected_terminal_compact_partition_result = (
@@ -330,6 +348,14 @@ def test_compact_partition_rebase_then_incremental(
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
         sorting_cols
     )
+
+    assert compaction_audit.input_records == (
+        len(incremental_deltas) if incremental_deltas else 0
+    ) + len(actual_rebase_compacted_table), (
+        "Total input records must be equal to incremental deltas"
+        "+ previous compacted table size"
+    )
+
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
