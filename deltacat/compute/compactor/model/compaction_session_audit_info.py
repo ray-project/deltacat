@@ -99,14 +99,6 @@ class CompactionSessionAuditInfo(dict):
         return self.get("hashBucketCount")
 
     @property
-    def cluster_cpu_max(self) -> float:
-        """
-        Total cluster cpu allocated for the compaction job. If it is autoscaling cluster,
-        max cpu at any time will be reported.
-        """
-        return self.get("clusterCpuMax")
-
-    @property
     def compaction_time_in_seconds(self) -> float:
         """
         The total time taken by the compaction session to complete.
@@ -424,35 +416,6 @@ class CompactionSessionAuditInfo(dict):
         return self.get("hashBucketProcessedSizeBytes")
 
     @property
-    def total_cpu_seconds(self) -> float:
-        """
-        Total number of vCPUs provisioned in the cluster weighted over time.
-        """
-        return self.get("totalCPUSeconds")
-
-    @property
-    def used_cpu_seconds(self) -> float:
-        """
-        Total used vCPU in the cluster weighted over time.
-        """
-        return self.get("usedCPUSeconds")
-
-    @property
-    def used_memory_gb_seconds(self) -> float:
-        """
-        The used memory in the cluster weighted over time. This
-        determines opportunities for better memory estimation.
-        """
-        return self.get("usedMemoryGBSeconds")
-
-    @property
-    def total_memory_gb_seconds(self) -> float:
-        """
-        Total memory in the cluster weighted over time in GB.
-        """
-        return self.get("totalMemoryGBSeconds")
-
-    @property
     def pyarrow_version(self) -> str:
         """
         The version of PyArrow used.
@@ -508,10 +471,6 @@ class CompactionSessionAuditInfo(dict):
         self, hash_bucket_count: int
     ) -> CompactionSessionAuditInfo:
         self["hashBucketCount"] = hash_bucket_count
-        return self
-
-    def set_cluster_cpu_max(self, cluster_cpu_max: float) -> CompactionSessionAuditInfo:
-        self["clusterCpuMax"] = cluster_cpu_max
         return self
 
     def set_compaction_time_in_seconds(
@@ -776,22 +735,6 @@ class CompactionSessionAuditInfo(dict):
         self, size: int
     ) -> CompactionSessionAuditInfo:
         self["hashBucketProcessedSizeBytes"] = size
-        return self
-
-    def set_total_cpu_seconds(self, value: float) -> CompactionSessionAuditInfo:
-        self["totalCPUSeconds"] = value
-        return self
-
-    def set_used_cpu_seconds(self, value: float) -> CompactionSessionAuditInfo:
-        self["usedCPUSeconds"] = value
-        return self
-
-    def set_used_memory_gb_seconds(self, value: float) -> CompactionSessionAuditInfo:
-        self["usedMemoryGBSeconds"] = value
-        return self
-
-    def set_total_memory_gb_seconds(self, value: float) -> CompactionSessionAuditInfo:
-        self["totalMemoryGBSeconds"] = value
         return self
 
     def set_pyarrow_version(self, value: str) -> CompactionSessionAuditInfo:

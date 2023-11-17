@@ -293,7 +293,6 @@ def _execute_compaction_round(
             f"{node_resource_keys}"
         )
 
-    compaction_audit.set_cluster_cpu_max(cluster_cpus)
     # create a remote options provider to round-robin tasks across all nodes or allocated bundles
     logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
     round_robin_opt_provider = functools.partial(
