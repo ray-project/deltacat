@@ -11,6 +11,8 @@ from pyarrow.parquet import ParquetFile
 from deltacat.exceptions import ValidationError
 
 import pyarrow as pa
+import numpy as np
+import pyarrow.compute as pc
 from fsspec import AbstractFileSystem
 from pyarrow import csv as pacsv
 from pyarrow import feather as paf
@@ -38,6 +40,7 @@ from deltacat.utils.arguments import (
     sanitize_kwargs_to_callable,
     sanitize_kwargs_by_supported_kwargs,
 )
+from functools import lru_cache
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -738,3 +741,68 @@ class RecordBatchTables:
         """
         self._remaining_tables.clear()
         self._remaining_record_count = 0
+
+
+@lru_cache
+def _int_max_string_len() -> int:
+    PA_UINT64_MAX_STR_BYTES = pc.binary_length(
+        pc.cast(pa.scalar(2**64 - 1, type=pa.uint64()), pa.string())
+    ).as_py()
+    PA_INT64_MAX_STR_BYTES = pc.binary_length(
+        pc.cast(pa.scalar(-(2**63), type=pa.int64()), pa.string())
+    ).as_py()
+    return max(PA_UINT64_MAX_STR_BYTES, PA_INT64_MAX_STR_BYTES)
+
+
+@lru_cache
+def _float_max_string_len() -> int:
+    PA_POS_FLOAT64_MAX_STR_BYTES = pc.binary_length(
+        pc.cast(pa.scalar(np.finfo(np.float64).max, type=pa.float64()), pa.string())
+    ).as_py()
+    PA_NEG_FLOAT64_MAX_STR_BYTES = pc.binary_length(
+        pc.cast(pa.scalar(np.finfo(np.float64).min, type=pa.float64()), pa.string())
+    ).as_py()
+    return max(PA_POS_FLOAT64_MAX_STR_BYTES, PA_NEG_FLOAT64_MAX_STR_BYTES)
+
+
+def _max_decimal128_string_len():
+    return 40  # "-" + 38 digits + decimal
+
+
+def _max_decimal256_string_len():
+    return 78  # "-" + 76 digits + decimal
+
+
+def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
+    """performs slicing of a pyarrow array prior casting to a string.
+    This prevents a pyarrow from allocating too large of an array causing a failure.
+    Issue: https://github.com/apache/arrow/issues/38835
+    """
+    dtype = array.type
+    MAX_BYTES = 2147483646
+    max_str_len = None
+    if pa.types.is_integer(dtype):
+        max_str_len = _int_max_string_len()
+    elif pa.types.is_floating(dtype):
+        max_str_len = _float_max_string_len()
+    elif pa.types.is_decimal128(dtype):
+        max_str_len = _max_decimal128_string_len()
+    elif pa.types.is_decimal256(dtype):
+        max_str_len = _max_decimal256_string_len()
+
+    if max_str_len is not None:
+        max_elems_per_chunk = MAX_BYTES // (2 * max_str_len)  # safety factor of 2
+        all_chunks = []
+        for chunk in array.chunks:
+            if len(chunk) < max_elems_per_chunk:
+                all_chunks.append(chunk)
+            else:
+                curr_pos = 0
+                total_len = len(chunk)
+                while curr_pos < total_len:
+                    sliced = chunk.slice(curr_pos, max_elems_per_chunk)
+                    curr_pos += len(sliced)
+                    all_chunks.append(sliced)
+        array = pa.chunked_array(all_chunks, type=dtype)
+
+    return pc.cast(array, pa.string())
