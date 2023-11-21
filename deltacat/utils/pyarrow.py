@@ -743,7 +743,7 @@ class RecordBatchTables:
         self._remaining_record_count = 0
 
 
-@lru_cache
+@lru_cache(maxsize=1)
 def _int_max_string_len() -> int:
     PA_UINT64_MAX_STR_BYTES = pc.binary_length(
         pc.cast(pa.scalar(2**64 - 1, type=pa.uint64()), pa.string())
@@ -754,7 +754,7 @@ def _int_max_string_len() -> int:
     return max(PA_UINT64_MAX_STR_BYTES, PA_INT64_MAX_STR_BYTES)
 
 
-@lru_cache
+@lru_cache(maxsize=1)
 def _float_max_string_len() -> int:
     PA_POS_FLOAT64_MAX_STR_BYTES = pc.binary_length(
         pc.cast(pa.scalar(np.finfo(np.float64).max, type=pa.float64()), pa.string())
