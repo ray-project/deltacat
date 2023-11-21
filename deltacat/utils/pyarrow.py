@@ -777,6 +777,7 @@ def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
     """performs slicing of a pyarrow array prior casting to a string.
     This prevents a pyarrow from allocating too large of an array causing a failure.
     Issue: https://github.com/apache/arrow/issues/38835
+    TODO: deprecate this function when pyarrow performs proper ChunkedArray -> ChunkedArray casting
     """
     dtype = array.type
     MAX_BYTES = 2147483646
