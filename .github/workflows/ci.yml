@@ -47,7 +47,18 @@ jobs:
             - name: Install dependencies
               run: |
                   python -m pip install --upgrade pip
-                  if [ -f dev-requirements.txt ]; then pip install -r dev-requirements.txt; fi
+                  if [ -f benchmark-requirements.txt ]; then pip install -r benchmark-requirements.txt; fi
             - name: Run unit tests
               run: >-
-                  python -m pytest
+                  python -m pytest --benchmark-json output.json
+            - name: Store benchmark results
+              uses: benchmark-action/github-action-benchmark@v1
+              with:
+                tool: 'pytest'
+                output-file-path: output.json
+                # GitHub API token to make a commit comment
+                github-token: ${{ secrets.GITHUB_TOKEN }}
+                # Enable alert commit comment
+                comment-on-alert: true
+                # Enable Job Summary for PRs
+                summary-always: true

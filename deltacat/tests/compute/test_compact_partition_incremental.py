@@ -6,6 +6,8 @@ import boto3
 from typing import Any, Callable, Dict, List, Optional, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
+from pytest_benchmark.fixture import BenchmarkFixture
+
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
 )
@@ -161,6 +163,7 @@ def test_compact_partition_incremental(
     read_kwargs_provider_param: Any,
     skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
+    benchmark: BenchmarkFixture,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
@@ -235,8 +238,22 @@ def test_compact_partition_incremental(
             "sort_keys": sort_keys if sort_keys else None,
         }
     )
+
     # execute
-    rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+    def _incremental_compaction_setup():
+        """
+        This callable is run right before invoking the benchmark target function.
+        It ensures that each retry runs on a clean environment by cleaning up
+        any RCF generated from prior successful test runs.
+
+        Returns: list of args (tuple), kwargs
+        """
+        setup_s3_resource.Bucket(TEST_S3_RCF_BUCKET_NAME).objects.all().delete()
+        return (compact_partition_params,), {}
+
+    rcf_file_s3_uri = benchmark.pedantic(
+        compact_partition_func, setup=_incremental_compaction_setup
+    )
     # validate
     round_completion_info = get_rcf(setup_s3_resource, rcf_file_s3_uri)
     compacted_delta_locator: DeltaLocator = (
