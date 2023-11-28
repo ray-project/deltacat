@@ -5,6 +5,8 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
+from pytest_benchmark.fixture import BenchmarkFixture
+
 from deltacat.tests.compute.test_util_constant import (
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
@@ -182,6 +184,7 @@ def test_compact_partition_rebase_then_incremental(
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
+    benchmark: BenchmarkFixture,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
@@ -265,7 +268,7 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     # execute
-    rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+    rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
     compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         setup_s3_resource, rcf_file_s3_uri
     )
