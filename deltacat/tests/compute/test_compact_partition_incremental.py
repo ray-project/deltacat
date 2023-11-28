@@ -242,9 +242,9 @@ def test_compact_partition_incremental(
     # execute
     def _incremental_compaction_setup():
         """
-        This callable runs right before invoking the benchmark target function.
-        It ensures that each retry runs on a clean test environment by removing
-        any RCF generated from prior test runs.
+        This callable runs right before invoking the benchmark target function (compaction).
+        This is needed as the benchmark module will invoke the target function multiple times
+        in a single test run, which can lead to non-idempotent behavior if RCFs are generated.
 
         Returns: args, kwargs
         """
