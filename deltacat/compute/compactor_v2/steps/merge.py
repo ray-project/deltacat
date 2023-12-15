@@ -44,7 +44,13 @@ from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
-
+from deltacat.exceptions import RetryableError
+from tenacity import (
+    Retrying,
+    retry_if_exception_type,
+    stop_after_delay,
+    wait_random_exponential,
+)
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -277,7 +283,16 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             # TODO (pdames): compare performance to pandas-native materialize path
             df = compacted_table.to_pandas(split_blocks=True, self_destruct=True)
             compacted_table = df
+
+        # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
+        retrying = Retrying(
+            wait=wait_random_exponential(multiplier=1, max=60),
+            stop=stop_after_delay(30 * 60),
+            retry=retry_if_exception_type(RetryableError),
+        )
+
         delta, stage_delta_time = timed_invocation(
+            retrying,
             input.deltacat_storage.stage_delta,
             compacted_table,
             input.write_to_partition,
