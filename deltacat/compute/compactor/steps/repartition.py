@@ -17,8 +17,11 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.performance import timed_invocation
-from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
+from deltacat.utils.metrics import (
+    emit_timer_metrics,
+    MetricsConfig,
+    MetricsConfigSingleton,
+)
 from deltacat.storage import Delta
 from enum import Enum
 
@@ -160,6 +163,7 @@ def repartition_range(
     )
 
 
+@emit_timer_metrics(metrics_name="repartition")
 def _timed_repartition(
     annotated_delta: DeltaAnnotated,
     destination_partition: Partition,
@@ -174,6 +178,8 @@ def _timed_repartition(
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> RepartitionResult:
+    logger.info(f"Starting repartition task...")
+
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
     task_id = get_current_ray_task_id()
@@ -211,19 +217,19 @@ def repartition(
     repartition_args: dict,
     max_records_per_output_file: int,
     enable_profiler: bool,
-    metrics_config: Optional[MetricsConfig],
     read_kwargs_provider: Optional[ReadKwargsProvider],
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    metrics_config: Optional[MetricsConfig] = None,
     **kwargs,
 ) -> RepartitionResult:
-    if deltacat_storage_kwargs is None:
-        deltacat_storage_kwargs = {}
-    logger.info(f"Starting repartition task...")
-    repartition_result, duration = timed_invocation(
-        func=_timed_repartition,
+    # initialize singleton on new process
+    if metrics_config:
+        MetricsConfigSingleton.instance(metrics_config)
+
+    return _timed_repartition(
         annotated_delta=annotated_delta,
         destination_partition=destination_partition,
         repartition_type=repartition_type,
@@ -235,9 +241,5 @@ def repartition(
         repartitioned_file_content_type=repartitioned_file_content_type,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
+        **kwargs,
     )
-    if metrics_config:
-        emit_timer_metrics(
-            metrics_name="repartition", value=duration, metrics_config=metrics_config
-        )
-    return repartition_result
