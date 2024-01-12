@@ -27,7 +27,11 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics
-from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.resources import (
+    get_current_process_peak_memory_usage_in_bytes,
+    ProcessUtilizationOverTimeRange,
+)
+from deltacat.constants import BYTES_PER_GIBIBYTE
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -166,7 +170,10 @@ def _timed_hash_bucket(input: HashBucketInput):
             object_store=input.object_store,
         )
 
-        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
+        logger.info(
+            f"Peak memory usage in bytes after hash bucketing: {peak_memory_usage_bytes}"
+        )
         return HashBucketResult(
             hash_bucket_group_to_obj_id_tuple,
             np.int64(total_size_bytes),
@@ -179,28 +186,38 @@ def _timed_hash_bucket(input: HashBucketInput):
 
 @ray.remote
 def hash_bucket(input: HashBucketInput) -> HashBucketResult:
+    with ProcessUtilizationOverTimeRange() as process_util:
+        logger.info(f"Starting hash bucket task...")
 
-    logger.info(f"Starting hash bucket task...")
-    hash_bucket_result, duration = timed_invocation(
-        func=_timed_hash_bucket, input=input
-    )
+        # Log node peak memory utilization every 10 seconds
+        def log_peak_memory():
+            logger.debug(
+                f"Process peak memory utilization so far: {process_util.max_memory} bytes "
+                f"({process_util.max_memory/BYTES_PER_GIBIBYTE} GB)"
+            )
 
-    emit_metrics_time = 0.0
-    if input.metrics_config:
-        emit_result, latency = timed_invocation(
-            func=emit_timer_metrics,
-            metrics_name="hash_bucket",
-            value=duration,
-            metrics_config=input.metrics_config,
+        process_util.schedule_callback(log_peak_memory, 10)
+
+        hash_bucket_result, duration = timed_invocation(
+            func=_timed_hash_bucket, input=input
         )
-        emit_metrics_time = latency
 
-    logger.info(f"Finished hash bucket task...")
-    return HashBucketResult(
-        hash_bucket_result[0],
-        hash_bucket_result[1],
-        hash_bucket_result[2],
-        hash_bucket_result[3],
-        np.double(emit_metrics_time),
-        hash_bucket_result[5],
-    )
+        emit_metrics_time = 0.0
+        if input.metrics_config:
+            emit_result, latency = timed_invocation(
+                func=emit_timer_metrics,
+                metrics_name="hash_bucket",
+                value=duration,
+                metrics_config=input.metrics_config,
+            )
+            emit_metrics_time = latency
+
+        logger.info(f"Finished hash bucket task...")
+        return HashBucketResult(
+            hash_bucket_result[0],
+            hash_bucket_result[1],
+            hash_bucket_result[2],
+            hash_bucket_result[3],
+            np.double(emit_metrics_time),
+            hash_bucket_result[5],
+        )

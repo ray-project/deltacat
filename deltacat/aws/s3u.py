@@ -383,6 +383,12 @@ def upload_table(
                 # s3fs may swallow S3 errors - we were probably throttled
                 raise RetryableError(f"Retry table upload to: {s3_url}") from e
             raise NonRetryableError(f"Failed table upload to: {s3_url}") from e
+        except BaseException as e:
+            logger.warn(
+                f"Upload has failed for {s3_url} and content_type={content_type}. Error: {e}",
+                exc_info=True,
+            )
+            raise e
     return manifest_entries
 
 

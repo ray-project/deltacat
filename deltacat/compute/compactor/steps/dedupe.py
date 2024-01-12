@@ -25,7 +25,7 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 from deltacat.io.object_store import IObjectStore
-from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.resources import get_current_process_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -228,7 +228,7 @@ def _timed_dedupe(
             f"{len(mat_bucket_to_dd_idx_obj_id)}"
         )
 
-        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
         return DedupeResult(
             mat_bucket_to_dd_idx_obj_id,
             np.int64(total_deduped_records),

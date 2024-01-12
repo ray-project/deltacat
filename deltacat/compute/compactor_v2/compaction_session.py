@@ -41,7 +41,7 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.utils.resources import (
-    get_current_node_peak_memory_usage_in_bytes,
+    get_current_process_peak_memory_usage_in_bytes,
 )
 from deltacat.compute.compactor_v2.utils.task_options import (
     hash_bucket_resource_options_provider,
@@ -467,7 +467,7 @@ def _execute_compaction(
         [m.pyarrow_write_result for m in mat_results]
     )
 
-    session_peak_memory = get_current_node_peak_memory_usage_in_bytes()
+    session_peak_memory = get_current_process_peak_memory_usage_in_bytes()
     compaction_audit.set_peak_memory_used_bytes_by_compaction_session_process(
         session_peak_memory
     )

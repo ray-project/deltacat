@@ -44,7 +44,7 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
-from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.resources import get_current_process_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -314,7 +314,7 @@ def materialize(
             emit_metrics_time = latency
         logger.info(f"Materialize task ended in {end - start}s")
 
-        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
 
         # Merge all new deltas into one for this materialize bucket index
         merged_materialize_result = MaterializeResult.of(
