@@ -32,7 +32,7 @@ from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 from deltacat.io.object_store import IObjectStore
-from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.resources import get_current_process_peak_memory_usage_in_bytes
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -228,7 +228,7 @@ def _timed_hash_bucket(
             delta_file_envelope_groups, num_buckets, num_groups, object_store
         )
 
-        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
         return HashBucketResult(
             hash_bucket_group_to_obj_id,
             np.int64(total_record_count),

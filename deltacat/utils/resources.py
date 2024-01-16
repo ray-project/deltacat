@@ -77,6 +77,7 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
         self.total_memory_gb_seconds = 0.0
         self.used_memory_gb_seconds = 0.0
         self.max_cpu = 0.0
+        self.max_memory = 0.0
 
     def __enter__(self) -> Any:
         schedule.every().second.do(self._update_resources)
@@ -131,6 +132,11 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
             + float(str(cluster_resources["memory"])) / BYTES_PER_GIBIBYTE
         )
 
+        self.max_memory = max(
+            self.max_memory,
+            float(str(cluster_resources["memory"] - available_resources["memory"])),
+        )
+
     def _run_schedule(self, interval: Optional[float] = 1.0):
         cease_continuous_run = threading.Event()
 
@@ -146,9 +152,9 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
         return cease_continuous_run
 
 
-def get_current_node_peak_memory_usage_in_bytes():
+def get_current_process_peak_memory_usage_in_bytes():
     """
-    Returns the peak memory usage of the node in bytes. This method works across
+    Returns the peak memory usage of the process in bytes. This method works across
     Windows, Darwin and Linux platforms.
     """
     current_platform = platform.system()
@@ -172,3 +178,53 @@ def get_size_of_object_in_bytes(obj: object) -> float:
     if isinstance(obj, (list, tuple, set, frozenset)):
         return size + sum(map(get_size_of_object_in_bytes, obj))
     return size
+
+
+class ProcessUtilizationOverTimeRange(AbstractContextManager):
+    """
+    This class can be used to compute the process utilization metrics
+    which requires us to compute it over time as memory utilization changes.
+    """
+
+    def __init__(self) -> None:
+        self.max_memory = 0.0
+
+    def __enter__(self) -> Any:
+        schedule.every().second.do(self._update_resources)
+        self.stop_run_schedules = self._run_schedule()
+        return super().__enter__()
+
+    def __exit__(
+        self,
+        __exc_type: type[BaseException] | None,
+        __exc_value: BaseException | None,
+        __traceback: TracebackType | None,
+    ) -> bool | None:
+        if __exc_value:
+            logger.error(
+                f"Error ocurred while calculating process resources: {__exc_value}"
+            )
+        self.stop_run_schedules.set()
+        return super().__exit__(__exc_type, __exc_value, __traceback)
+
+    def schedule_callback(self, callback, callback_frequency_in_seconds) -> None:
+        schedule.every(callback_frequency_in_seconds).seconds.do(callback)
+
+    # It is not truely parallel(due to GIL Ref: https://wiki.python.org/moin/GlobalInterpreterLock)
+    # even if we are using threading library. However, it averages out and gives a very good approximation.
+    def _update_resources(self):
+        self.max_memory = get_current_process_peak_memory_usage_in_bytes()
+
+    def _run_schedule(self, interval: Optional[float] = 1.0):
+        cease_continuous_run = threading.Event()
+
+        class ScheduleThread(threading.Thread):
+            @classmethod
+            def run(cls):
+                while not cease_continuous_run.is_set():
+                    schedule.run_pending()
+                    time.sleep(float(str(interval)))
+
+        continuous_thread = ScheduleThread()
+        continuous_thread.start()
+        return cease_continuous_run
