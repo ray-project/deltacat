@@ -5,15 +5,18 @@ from typing import Any, Dict, Optional
 
 from deltacat.storage.model.locator import Locator
 
+NamespaceProperties = Dict[str, Any]
+
 
 class Namespace(dict):
     @staticmethod
     def of(
-        locator: Optional[NamespaceLocator], permissions: Optional[Dict[str, Any]]
+        locator: Optional[NamespaceLocator],
+        properties: Optional[NamespaceProperties],
     ) -> Namespace:
         namespace = Namespace()
         namespace.locator = locator
-        namespace.permissions = permissions
+        namespace.properties = properties
         return namespace
 
     @property
@@ -35,12 +38,12 @@ class Namespace(dict):
         return None
 
     @property
-    def permissions(self) -> Optional[Dict[str, Any]]:
-        return self.get("permissions")
+    def properties(self) -> Optional[NamespaceProperties]:
+        return self.get("properties")
 
-    @permissions.setter
-    def permissions(self, permissions: Optional[Dict[str, Any]]) -> None:
-        self["permissions"] = permissions
+    @properties.setter
+    def properties(self, properties: Optional[NamespaceProperties]) -> None:
+        self["properties"] = properties
 
 
 class NamespaceLocator(Locator, dict):

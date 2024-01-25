@@ -1,11 +1,12 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Union
 
-import pyarrow as pa
-from deltacat.storage.model.partition_spec import PartitionValues
+from typing import Any, Dict, List, Optional
+
+from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.partition_spec import PartitionValues
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
@@ -17,7 +18,7 @@ class Partition(dict):
     @staticmethod
     def of(
         locator: Optional[PartitionLocator],
-        schema: Optional[Union[pa.Schema, str, bytes]],
+        schema: Optional[Schema],
         content_types: Optional[List[ContentType]],
         state: Optional[CommitState] = None,
         previous_stream_position: Optional[int] = None,
@@ -48,11 +49,11 @@ class Partition(dict):
         self["partitionLocator"] = partition_locator
 
     @property
-    def schema(self) -> Optional[Union[pa.Schema, str, bytes]]:
+    def schema(self) -> Optional[Schema]:
         return self.get("schema")
 
     @schema.setter
-    def schema(self, schema: Optional[Union[pa.Schema, str, bytes]]) -> None:
+    def schema(self, schema: Optional[Schema]) -> None:
         self["schema"] = schema
 
     @property
@@ -333,3 +334,83 @@ class PartitionLocator(Locator, dict):
         partition_vals = str(self.partition_values)
         partition_id = self.partition_id
         return f"{sl_hexdigest}|{partition_vals}|{partition_id}"
+
+
+class PartitionKey(dict):
+    @staticmethod
+    def of(
+        key_name: Optional[str],
+        key_type: Optional[str],
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+        transform: Optional[Any] = None,
+        native_object: Optional[Any] = None,
+    ) -> PartitionKey:
+        return PartitionKey(
+            {
+                "keyName": key_name,
+                "keyType": key_type,
+                "name": name,
+                "id": id,
+                "transform": transform,
+                "nativeObject": native_object,
+            }
+        )
+
+    @property
+    def key_name(self) -> Optional[str]:
+        return self.get("keyName")
+
+    @property
+    def key_type(self) -> Optional[str]:
+        return self.get("keyType")
+
+    @property
+    def name(self) -> Optional[str]:
+        return self.get("name")
+
+    @property
+    def id(self) -> Optional[str]:
+        return self.get("id")
+
+    @property
+    def transform(self) -> Optional[Any]:
+        return self.get("transform")
+
+    @property
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")
+
+
+class PartitionScheme(dict):
+    @staticmethod
+    def of(
+        keys: Optional[List[PartitionKey]],
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+        native_object: Optional[Any] = None,
+    ) -> PartitionScheme:
+        return PartitionScheme(
+            {
+                "keys": keys,
+                "name": name,
+                "id": id,
+                "nativeObject": native_object,
+            }
+        )
+
+    @property
+    def keys(self) -> Optional[List[PartitionKey]]:
+        return self.get("keys")
+
+    @property
+    def name(self) -> Optional[str]:
+        return self.get("name")
+
+    @property
+    def id(self) -> Optional[str]:
+        return self.get("id")
+
+    @property
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")

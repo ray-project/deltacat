@@ -34,14 +34,18 @@ function cleanup()
   fi
 }
 
-# fail fast on any error as a best practice, for more information see:
+# fail fast on relevant errors (unbound variables are permitted), for more information see:
 # https://buildkite.com/docs/pipelines/writing-build-scripts#configuring-bash
-set -euo pipefail
+set -eo pipefail
 
 # ensure that we always cleanup if the script is interrupted
 trap cleanup EXIT SIGINT SIGTERM
 
-S3_PACKAGE_BUCKET_NAME="deltacat-packages-$USER"
+if [[ -z "${DELTACAT_STAGE}" ]]; then
+  S3_PACKAGE_BUCKET_NAME="deltacat-packages-$USER"
+else
+  S3_PACKAGE_BUCKET_NAME="deltacat-packages-$DELTACAT_STAGE"
+fi
 S3_PACKAGE_BUCKET_URL="s3://$S3_PACKAGE_BUCKET_NAME"
 CURRENT_UNIX_TIME=$(date +"%s")
 

@@ -1,10 +1,14 @@
+import logging
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
+from pyiceberg.typedef import Identifier, EMPTY_DICT
+from pyiceberg.table import Table as IcebergTable
+
+from deltacat import logs
+from deltacat.exceptions import TableVersionNotFoundError, StreamNotFoundError
 from deltacat.storage import (
-    DeleteParameters,
     Delta,
     DeltaLocator,
-    DeltaPartitionSpec,
     DeltaProperties,
     DeltaType,
     DistributedDataset,
@@ -15,30 +19,115 @@ from deltacat.storage import (
     Manifest,
     ManifestAuthor,
     Namespace,
-    NamespaceProperties,
     Partition,
-    PartitionFilter,
-    PartitionLocator,
     PartitionScheme,
-    PartitionValues,
     Schema,
     SchemaConsistencyType,
-    SortScheme,
     Stream,
     StreamLocator,
-    StreamPartitionSpec,
     Table,
     TableProperties,
     TableVersion,
     TableVersionProperties,
+    SortScheme,
+    NamespaceLocator,
+    NamespaceProperties,
 )
-from deltacat.types.media import (
-    ContentType,
-    DistributedDatasetType,
-    StorageType,
-    TableType,
+from deltacat.storage.iceberg.model import (
+    SchemaMapper,
+    PartitionSchemeMapper,
+    SortSchemeMapper,
+    StreamMapper,
+    TableVersionMapper,
+    NamespaceMapper,
+    TableMapper,
 )
+from deltacat.types.media import ContentType, StorageType, TableType
 from deltacat.utils.common import ReadKwargsProvider
+
+from pyiceberg.catalog import Catalog
+from pyiceberg.partitioning import UNPARTITIONED_PARTITION_SPEC
+from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+def _get_native_catalog(**kwargs) -> Catalog:
+    catalog: Catalog = kwargs.get("catalog")
+    if not isinstance(catalog, Catalog):
+        err_msg = (
+            f"unsupported `catalog` param type: `{type(Catalog)}`. "
+            f"expected `catalog` param type: {Catalog}"
+        )
+        raise TypeError(err_msg)
+    return catalog
+
+
+def _to_identifier(namespace: str, table_name: str) -> Identifier:
+    return tuple(namespace.split(".")) + (table_name,)
+
+
+def _try_get_namespace(catalog: Catalog, namespace: str) -> Optional[Namespace]:
+    try:
+        properties = catalog.load_namespace_properties(namespace)
+    except Exception as e:
+        # NoSuchNamespaceError may be a child of another error like RESTError
+        if "NoSuchNamespaceError" in str(repr(e)):
+            logger.debug(f"Namespace `{namespace}` not found: {repr(e)}")
+            return None
+        raise e
+    return Namespace.of(
+        locator=NamespaceLocator.of(namespace=namespace),
+        properties=properties,
+    )
+
+
+def _try_load_iceberg_table(
+    catalog: Catalog, namespace: str, table_name: str
+) -> Optional[IcebergTable]:
+    identifier = _to_identifier(namespace, table_name)
+    try:
+        return catalog.load_table(identifier)
+    except Exception as e:
+        # NoSuchTableError may be a child of another error like RESTError
+        if "NoSuchTableError" in str(repr(e)):
+            logger.debug(f"Table `{namespace}.{table_name}` not found: {repr(e)}")
+            return None
+        raise e
+
+
+def _try_get_table_version(
+    table: Optional[IcebergTable],
+    table_version: Optional[str] = None,
+    catalog_properties: Dict[str, str] = EMPTY_DICT,
+) -> Optional[TableVersion]:
+    try:
+        return TableVersionMapper.map(
+            obj=table,
+            timestamp=int(table_version) if table_version else None,
+            catalog_properties=catalog_properties,
+        )
+    except TableVersionNotFoundError as e:
+        logger.debug(f"Table version `{table_version}` not found.", e)
+        return None
+
+
+def _try_get_stream(
+    table: Optional[IcebergTable],
+    table_version: Optional[str] = None,
+    stream_id: Optional[str] = None,
+    catalog_properties: Dict[str, str] = EMPTY_DICT,
+) -> Optional[TableVersion]:
+    try:
+        return StreamMapper.map(
+            obj=table,
+            metadata_timestamp=int(table_version) if table_version else None,
+            snapsbhot_id=int(stream_id) if stream_id else None,
+            catalog_properties=catalog_properties,
+        )
+    except StreamNotFoundError as e:
+        logger.debug(f"Stream `{table_version}.{stream_id}` not found.", e)
+        return None
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
@@ -46,7 +135,13 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     Lists a page of table namespaces. Namespaces are returned as list result
     items.
     """
-    raise NotImplementedError("list_namespaces not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    namespace = kwargs.get("namespace") or ()
+    return ListResult.of(
+        items=[NamespaceMapper.map(n) for n in catalog.list_namespaces(namespace)],
+        pagination_key=None,
+        next_page_provider=None,
+    )
 
 
 def list_tables(namespace: str, *args, **kwargs) -> ListResult[Table]:
@@ -73,7 +168,7 @@ def list_partitions(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> ListResult[Partition]:
     """
     Lists a page of partitions for the given table version. Partitions are
@@ -94,15 +189,14 @@ def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partit
 def list_deltas(
     namespace: str,
     table_name: str,
-    partition_values: Optional[PartitionValues] = None,
+    partition_values: Optional[List[Any]] = None,
     table_version: Optional[str] = None,
     first_stream_position: Optional[int] = None,
     last_stream_position: Optional[int] = None,
     ascending_order: Optional[bool] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> ListResult[Delta]:
     """
     Lists a page of deltas for the given table version and committed partition.
@@ -116,21 +210,12 @@ def list_deltas(
     To conserve memory, the deltas returned do not include manifests by
     default. The manifests can either be optionally retrieved as part of this
     call or lazily loaded via subsequent calls to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("list_deltas not implemented")
 
 
 def list_partition_deltas(
-    partition_like: Union[Partition, PartitionLocator],
-    first_stream_position: Optional[int] = None,
-    last_stream_position: Optional[int] = None,
-    ascending_order: bool = False,
-    include_manifest: bool = False,
-    *args,
-    **kwargs
+    partition: Partition, include_manifest: bool = False, *args, **kwargs
 ) -> ListResult[Delta]:
     """
     Lists a page of deltas committed to the given partition.
@@ -146,12 +231,11 @@ def get_delta(
     namespace: str,
     table_name: str,
     stream_position: int,
-    partition_values: Optional[PartitionValues] = None,
+    partition_values: Optional[List[Any]] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Delta]:
     """
     Gets the delta for the given table version, partition, and stream position.
@@ -162,9 +246,6 @@ def get_delta(
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("get_delta not implemented")
 
@@ -172,12 +253,11 @@ def get_delta(
 def get_latest_delta(
     namespace: str,
     table_name: str,
-    partition_values: Optional[PartitionValues] = None,
+    partition_values: Optional[List[Any]] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Delta]:
     """
     Gets the latest delta (i.e. the delta with the greatest stream position) for
@@ -189,9 +269,6 @@ def get_latest_delta(
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("get_latest_delta not implemented")
 
@@ -204,21 +281,15 @@ def download_delta(
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
-    distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
-) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
+    **kwargs,
+) -> Union[LocalDataset, DistributedDataset]:
     """
     Download the given delta or delta locator into either a list of
     tables resident in the local node's memory, or into a dataset distributed
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
     the contents of ordered delta manifest entry N.
-
-    partition_filter is an optional parameter which determines which files to
-    download from the delta manifest. A delta manifest contains all the data files
-    for a given delta.
     """
     raise NotImplementedError("download_delta not implemented")
 
@@ -230,15 +301,13 @@ def download_delta_manifest_entry(
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> LocalTable:
     """
     Downloads a single manifest entry into the specified table type for the
     given delta or delta locator. If a delta is provided with a non-empty
     manifest, then the entry is downloaded from this manifest. Otherwise, the
     manifest is first retrieved then the given entry index downloaded.
-
-    NOTE: The entry will be downloaded in the current node's memory.
     """
     raise NotImplementedError("download_delta_manifest_entry not implemented")
 
@@ -261,15 +330,20 @@ def create_namespace(
     Creates a table namespace with the given name and properties. Returns
     the created namespace.
     """
-    raise NotImplementedError("create_namespace not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    catalog.create_namespace(namespace, properties=properties)
+    return Namespace.of(
+        NamespaceLocator.of(namespace),
+        properties=properties,
+    )
 
 
 def update_namespace(
     namespace: str,
-    properties: NamespaceProperties = None,
+    properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Updates a table namespace's name and/or properties. Raises an error if the
@@ -292,9 +366,8 @@ def create_table_version(
     table_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     supported_content_types: Optional[List[ContentType]] = None,
-    partition_spec: Optional[StreamPartitionSpec] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Stream:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
@@ -321,14 +394,45 @@ def create_table_version(
     Validate: Raise an error for any fields that don't fit the schema. An
     explicit subset of column names to validate may optionally be specified.
 
-<<<<<<< HEAD
-    Either partition_keys or partition_spec must be specified but not both.
-=======
     Returns the stream for the created table version.
     Raises an error if the given namespace does not exist.
->>>>>>> e90114b ([WIP] First working version of Iceberg bucketed partition writeback using Daft.)
     """
-    raise NotImplementedError("create_table_version not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    location = kwargs.get("location")
+    case_sensitive_col_names = kwargs.get("case_sensitive_column_names") or True
+    if not isinstance(case_sensitive_col_names, bool):
+        err_msg = (
+            f"unsupported `case_sensitive_column_names` param type: "
+            f"`{type(case_sensitive_col_names)}`. "
+            f"expected `case_sensitive_column_names` param type: `{bool}`"
+        )
+        raise TypeError(err_msg)
+
+    # TODO: ensure catalog.create_table() is idempotent
+    # TODO: get table and commit new metadata if table already exists?
+    identifier = _to_identifier(namespace, table_name)
+    iceberg_schema = SchemaMapper.unmap(schema)
+    sort_order = SortSchemeMapper.unmap(
+        obj=sort_keys,
+        schema=iceberg_schema,
+        case_sensitive=case_sensitive_col_names,
+    )
+    partition_spec = PartitionSchemeMapper.unmap(
+        obj=partition_keys,
+        schema=iceberg_schema,
+        case_sensitive=case_sensitive_col_names,
+    )
+    table = catalog.create_table(
+        identifier=identifier,
+        schema=iceberg_schema,
+        location=location,
+        partition_spec=partition_spec or UNPARTITIONED_PARTITION_SPEC,
+        sort_order=sort_order or UNSORTED_SORT_ORDER,
+        properties=table_properties or EMPTY_DICT,
+    )
+    logger.info(f"Created table: {table}")
+    # no snapshot is committed on table creation, so return an undefined stream
+    return Stream.of(locator=None, partition_keys=None)
 
 
 def update_table(
@@ -338,7 +442,7 @@ def update_table(
     properties: Optional[TableProperties] = None,
     new_table_name: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Update table metadata describing the table versions it contains. By default,
@@ -359,7 +463,7 @@ def update_table_version(
     description: Optional[str] = None,
     properties: Optional[TableVersionProperties] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Update a table version. Notably, updating an unreleased table version's
@@ -378,7 +482,7 @@ def stage_stream(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Stream:
     """
     Stages a new delta stream for the given table version. Resolves to the
@@ -402,7 +506,7 @@ def delete_stream(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Deletes the delta stream currently registered with the given table version.
@@ -417,18 +521,25 @@ def get_stream(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Stream]:
     """
     Gets the most recently committed stream for the given table version and
     partition key values. Resolves to the latest active table version if no
     table version is given. Returns None if the table version does not exist.
     """
-    raise NotImplementedError("get_stream not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    table = _try_load_iceberg_table(catalog, namespace, table_name)
+    return _try_get_stream(
+        table=table,
+        table_version=table_version,
+        stream_id=None,
+        catalog_properties=catalog.properties,
+    )
 
 
 def stage_partition(
-    stream: Stream, partition_values: Optional[PartitionValues] = None, *args, **kwargs
+    stream: Stream, partition_values: Optional[List[Any]] = None, *args, **kwargs
 ) -> Partition:
     """
     Stages a new partition for the given stream and partition values. Returns
@@ -436,25 +547,15 @@ def stage_partition(
     with the same partition values, then it will have its previous partition ID
     set to the ID of the partition being replaced. Partition keys should not be
     specified for unpartitioned tables.
-
-    The partition_values must represents the results of transforms in a partition
-    spec specified in the stream.
     """
     raise NotImplementedError("stage_partition not implemented")
 
 
-def commit_partition(
-    partition: Partition,
-    previous_partition: Optional[Partition] = None,
-    *args,
-    **kwargs
-) -> Partition:
+def commit_partition(partition: Partition, *args, **kwargs) -> Partition:
     """
     Commits the given partition to its associated table version stream,
-    replacing any previous partition (i.e., "partition being replaced") registered for the same stream and
-    partition values.
-    If the previous_partition is passed as an argument, the specified previous_partition will be the partition being replaced, otherwise it will be retrieved.
-    Returns the registered partition. If the partition's
+    replacing any previous partition registered for the same stream and
+    partition values. Returns the registered partition. If the partition's
     previous delta stream position is specified, then the commit will
     be rejected if it does not match the actual previous stream position of
     the partition being replaced. If the partition's previous partition ID is
@@ -468,9 +569,9 @@ def delete_partition(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
-    partition_values: Optional[PartitionValues] = None,
+    partition_values: Optional[List[Any]] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Deletes the given partition from the specified table version. Resolves to
@@ -483,9 +584,9 @@ def delete_partition(
 
 def get_partition(
     stream_locator: StreamLocator,
-    partition_values: Optional[PartitionValues] = None,
+    partition_values: Optional[List[Any]] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Partition]:
     """
     Gets the most recently committed partition for the given stream locator and
@@ -505,23 +606,13 @@ def stage_delta(
     properties: Optional[DeltaProperties] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
-    delete_parameters: Optional[DeleteParameters] = None,
-    partition_spec: Optional[DeltaPartitionSpec] = None,
-    partition_values: Optional[PartitionValues] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Delta:
     """
     Writes the given table to 1 or more S3 files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
     schema consistency policies configured for the parent table version.
-
-    The partition spec will be used to split the input table into
-    multiple files. Optionally, partition_values can be provided to avoid
-    this method to recompute partition_values from the provided data.
-
-    Raises an error if the provided data does not conform to a unique ordered
-    list of partition_values
     """
     raise NotImplementedError("stage_delta not implemented")
 
@@ -543,14 +634,16 @@ def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     Gets table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist.
     """
-    raise NotImplementedError("get_namespace not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    return _try_get_namespace(catalog, namespace)
 
 
 def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     """
     Returns True if the given table namespace exists, False if not.
     """
-    raise NotImplementedError("namespace_exists not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    return True if _try_get_namespace(catalog, namespace) else False
 
 
 def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Table]:
@@ -558,14 +651,17 @@ def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Tabl
     Gets table metadata for the specified table. Returns None if the given
     table does not exist.
     """
-    raise NotImplementedError("get_table not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    table = _try_load_iceberg_table(catalog, namespace, table_name)
+    return TableMapper.map(table)
 
 
 def table_exists(namespace: str, table_name: str, *args, **kwargs) -> bool:
     """
     Returns True if the given table exists, False if not.
     """
-    raise NotImplementedError("table_exists not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    return True if _try_load_iceberg_table(catalog, namespace, table_name) else False
 
 
 def get_table_version(
@@ -575,7 +671,9 @@ def get_table_version(
     Gets table version metadata for the specified table version. Returns None
     if the given table version does not exist.
     """
-    raise NotImplementedError("get_table_version not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    table = _try_load_iceberg_table(catalog, namespace, table_name)
+    return _try_get_table_version(table, table_version, catalog.properties)
 
 
 def get_latest_table_version(
@@ -585,7 +683,9 @@ def get_latest_table_version(
     Gets table version metadata for the latest version of the specified table.
     Returns None if no table version exists for the given table.
     """
-    raise NotImplementedError("get_latest_table_version not implemented")
+    catalog = _get_native_catalog(**kwargs)
+    table = _try_load_iceberg_table(catalog, namespace, table_name)
+    return _try_get_table_version(table, None, catalog.properties)
 
 
 def get_latest_active_table_version(
@@ -595,7 +695,7 @@ def get_latest_active_table_version(
     Gets table version metadata for the latest active version of the specified
     table. Returns None if no active table version exists for the given table.
     """
-    raise NotImplementedError("get_latest_active_table_version not implemented")
+    return get_latest_table_version(namespace, table_name, **kwargs)
 
 
 def get_table_version_column_names(
@@ -603,7 +703,7 @@ def get_table_version_column_names(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[List[str]]:
     """
     Gets a list of column names for the specified table version, or for the
@@ -621,7 +721,7 @@ def get_table_version_schema(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Schema]:
     """
     Gets the schema for the specified table version, or for the latest active
@@ -638,17 +738,3 @@ def table_version_exists(
     Returns True if the given table version exists, False if not.
     """
     raise NotImplementedError("table_version_exists not implemented")
-
-
-def can_categorize(e: BaseException, *args, **kwargs) -> bool:
-    """
-    Return whether input error is from storage implementation layer.
-    """
-    raise NotImplementedError
-
-
-def raise_categorized_error(e: BaseException, *args, **kwargs):
-    """
-    Raise and handle storage implementation layer specific errors.
-    """
-    raise NotImplementedError

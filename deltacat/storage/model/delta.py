@@ -14,6 +14,8 @@ from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage.model.partition_spec import DeltaPartitionSpec, PartitionValues
 
+DeltaProperties = Dict[str, Any]
+
 
 class Delta(dict):
     @staticmethod
@@ -21,7 +23,7 @@ class Delta(dict):
         locator: Optional[DeltaLocator],
         delta_type: Optional[DeltaType],
         meta: Optional[ManifestMeta],
-        properties: Optional[Dict[str, str]],
+        properties: Optional[DeltaProperties],
         manifest: Optional[Manifest],
         previous_stream_position: Optional[int] = None,
         delete_parameters: Optional[DeleteParameters] = None,
@@ -48,7 +50,7 @@ class Delta(dict):
         deltas: List[Delta],
         manifest_author: Optional[ManifestAuthor] = None,
         stream_position: Optional[int] = None,
-        properties: Optional[Dict[str, str]] = None,
+        properties: Optional[DeltaProperties] = None,
     ) -> Delta:
         """
         Merges the input list of deltas into a single delta. All input deltas to
@@ -148,11 +150,11 @@ class Delta(dict):
         self["meta"] = meta
 
     @property
-    def properties(self) -> Optional[Dict[str, str]]:
+    def properties(self) -> Optional[DeltaProperties]:
         return self.get("properties")
 
     @properties.setter
-    def properties(self, properties: Optional[Dict[str, str]]) -> None:
+    def properties(self, properties: Optional[DeltaProperties]) -> None:
         self["properties"] = properties
 
     @property

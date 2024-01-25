@@ -1,0 +1,44 @@
+cluster_name: deltacat-pdames
+
+max_workers: 2
+
+provider:
+  type: aws
+  region: us-east-1
+  availability_zone: us-east-1a
+  security_group:
+    GroupName: RayClusterSecurityGroupUsEast1Pdames
+  cache_stopped_nodes: False
+
+auth:
+  ssh_user: ubuntu
+
+available_node_types:
+  ray.head.default:
+    resources: {}
+    node_config:
+      ImageId: ami-0bf10f2188858b770  # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.0.1 (Ubuntu 20.04)
+      InstanceType: r5n.8xlarge
+      IamInstanceProfile:
+        Arn: arn:aws:iam::571184238014:instance-profile/RayClusterInstanceProfilePdames
+      
+
+  ray.worker.default:
+    min_workers: 0
+    max_workers: 2
+    resources: {}
+    node_config:
+      ImageId: ami-0bf10f2188858b770  # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.0.1 (Ubuntu 20.04)
+      InstanceType: r5n.8xlarge
+      IamInstanceProfile:
+        Arn: arn:aws:iam::571184238014:instance-profile/RayClusterInstanceProfilePdames
+
+head_node_type: ray.head.default
+
+file_mounts: {
+    "~/deltacat-0.1.18b15-py3-none-any.whl": "./dist/deltacat-0.1.18b15-py3-none-any.whl"
+}
+
+setup_commands:
+  - pip uninstall deltacat --yes
+  - pip install -U ~/deltacat-0.1.18b15-py3-none-any.whl[iceberg]

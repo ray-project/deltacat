@@ -22,22 +22,25 @@ build: venv
 rebuild: clean-build build
 
 deploy-s3:
-	./s3-build-and-deploy.sh
+	./dev/deploy/aws/scripts/s3-build-and-deploy.sh
 
 install: venv
 	venv/bin/pip install --upgrade pip
 	venv/bin/pip install -r dev-requirements.txt
 
-lint: venv
+lint: install
 	venv/bin/pre-commit run --all-files
+
+test: install
+	venv/bin/pytest -m "not integration"
 
 test-integration: install
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml rm -f
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml up -d
-	sleep 10
+	sleep 3
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml exec -T spark-iceberg ipython ./provision.py
-	venv/bin/python -m pytest deltacat/tests/integ
+	venv/bin/python -m pytest deltacat/tests/integ -v -m integration
 
 test-integration-rebuild:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill

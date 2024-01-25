@@ -1,6 +1,8 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import deltacat.storage.model.partition as partition
+
 from typing import Any, Dict, List, Optional
 
 from deltacat.storage.model.locator import Locator
@@ -15,17 +17,19 @@ class Stream(dict):
     @staticmethod
     def of(
         locator: Optional[StreamLocator],
-        partition_keys: Optional[List[Dict[str, Any]]],
+        partition_keys: Optional[partition.PartitionScheme],
         state: Optional[CommitState] = None,
-        previous_stream_digest: Optional[bytes] = None,
+        previous_stream_id: Optional[bytes] = None,
         partition_spec: Optional[StreamPartitionSpec] = None,
+        native_object: Optional[Any] = None,
     ) -> Stream:
         stream = Stream()
         stream.locator = locator
         stream.partition_keys = partition_keys
         stream.state = state
-        stream.previous_stream_digest = previous_stream_digest
+        stream.previous_stream_id = previous_stream_id
         stream.partition_spec = partition_spec
+        stream.native_object = native_object
         return stream
 
     @property
@@ -40,31 +44,22 @@ class Stream(dict):
         self["streamLocator"] = stream_locator
 
     @property
-    def partition_keys(self) -> Optional[List[Dict[str, Any]]]:
-        """
-        Ordered list of unique column names in the table schema on
-        which the underlying data is partitioned. Either partition_spec
-        or partition_keys must be specified but not both.
-
-        (Deprecated): Partition keys will be deprecated in the favor
-        of partition_spec in future releases.
-        """
+    def partition_keys(self) -> Optional[partition.PartitionScheme]:
         return self.get("partitionKeys")
 
     @partition_keys.setter
-    def partition_keys(self, partition_keys: Optional[List[Dict[str, Any]]]) -> None:
+    def partition_keys(
+        self, partition_keys: Optional[partition.PartitionScheme]
+    ) -> None:
         self["partitionKeys"] = partition_keys
 
     @property
-    def previous_stream_digest(self) -> Optional[str]:
-        """
-        Previous stream digest
-        """
-        return self.get("previousStreamDigest")
+    def previous_stream_id(self) -> Optional[str]:
+        return self.get("previousStreamId")
 
-    @previous_stream_digest.setter
-    def previous_stream_digest(self, previous_stream_digest: Optional[str]) -> None:
-        self["previousStreamDigest"] = previous_stream_digest
+    @previous_stream_id.setter
+    def previous_stream_id(self, previous_stream_id: Optional[str]) -> None:
+        self["previousStreamId"] = previous_stream_id
 
     @property
     def state(self) -> Optional[CommitState]:
@@ -97,6 +92,13 @@ class Stream(dict):
     @partition_spec.setter
     def partition_spec(self, spec: StreamPartitionSpec) -> None:
         self["partitionSpec"] = spec
+
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")
+
+    @native_object.setter
+    def native_object(self, native_object: Optional[Any]) -> None:
+        self["nativeObject"] = native_object
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:

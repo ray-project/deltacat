@@ -1,28 +1,32 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-import pyarrow as pa
+import deltacat.storage.model.partition as partition
 
+from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.types.media import ContentType
-from deltacat.storage.model.sort_key import SortKey
+from deltacat.storage.model.sort_key import SortScheme
+
+TableVersionProperties = Dict[str, Any]
 
 
 class TableVersion(dict):
     @staticmethod
     def of(
         locator: Optional[TableVersionLocator],
-        schema: Optional[Union[pa.Schema, str, bytes]],
-        partition_keys: Optional[List[Dict[str, Any]]] = None,
+        schema: Optional[Schema],
+        partition_keys: Optional[partition.PartitionScheme] = None,
         primary_key_columns: Optional[List[str]] = None,
         description: Optional[str] = None,
-        properties: Optional[Dict[str, str]] = None,
+        properties: Optional[TableVersionProperties] = None,
         content_types: Optional[List[ContentType]] = None,
-        sort_keys: Optional[List[SortKey]] = None,
+        sort_keys: Optional[SortScheme] = None,
+        native_object: Optional[Any] = None,
     ) -> TableVersion:
         table_version = TableVersion()
         table_version.locator = locator
@@ -33,6 +37,7 @@ class TableVersion(dict):
         table_version.properties = properties
         table_version.content_types = content_types
         table_version.sort_keys = sort_keys
+        table_version.native_object = native_object
         return table_version
 
     @property
@@ -47,27 +52,29 @@ class TableVersion(dict):
         self["tableVersionLocator"] = table_version_locator
 
     @property
-    def schema(self) -> Optional[Union[pa.Schema, str, bytes]]:
+    def schema(self) -> Optional[Schema]:
         return self.get("schema")
 
     @schema.setter
-    def schema(self, schema: Optional[Union[pa.Schema, str, bytes]]) -> None:
+    def schema(self, schema: Optional[Schema]) -> None:
         self["schema"] = schema
 
     @property
-    def sort_keys(self) -> Optional[List[SortKey]]:
+    def sort_keys(self) -> Optional[SortScheme]:
         return self.get("sortKeys")
 
     @sort_keys.setter
-    def sort_keys(self, sort_keys: Optional[List[SortKey]]) -> None:
+    def sort_keys(self, sort_keys: Optional[SortScheme]) -> None:
         self["sortKeys"] = sort_keys
 
     @property
-    def partition_keys(self) -> Optional[List[Dict[str, Any]]]:
+    def partition_keys(self) -> Optional[partition.PartitionScheme]:
         return self.get("partitionKeys")
 
     @partition_keys.setter
-    def partition_keys(self, partition_keys: Optional[List[Dict[str, Any]]]) -> None:
+    def partition_keys(
+        self, partition_keys: Optional[partition.PartitionScheme]
+    ) -> None:
         self["partitionKeys"] = partition_keys
 
     @property
@@ -87,11 +94,11 @@ class TableVersion(dict):
         self["description"] = description
 
     @property
-    def properties(self) -> Optional[Dict[str, str]]:
+    def properties(self) -> Optional[TableVersionProperties]:
         return self.get("properties")
 
     @properties.setter
-    def properties(self, properties: Optional[Dict[str, str]]) -> None:
+    def properties(self, properties: Optional[TableVersionProperties]) -> None:
         self["properties"] = properties
 
     @property
@@ -106,6 +113,14 @@ class TableVersion(dict):
     @content_types.setter
     def content_types(self, content_types: Optional[List[ContentType]]) -> None:
         self["contentTypes"] = content_types
+
+    @property
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")
+
+    @native_object.setter
+    def native_object(self, native_object: Optional[Any]) -> None:
+        self["nativeObject"] = native_object
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:

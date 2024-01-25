@@ -64,6 +64,13 @@ class DeltaCatErrorNames(str, Enum):
     UNCLASSIFIED_DELTACAT_ERROR = "UnclassifiedDeltaCatError"
     UNRECOGNIZED_RAY_TASK_ERROR = "UnrecognizedRayTaskError"
 
+    NAMESPACE_NOT_FOUND_ERROR = "NamespaceNotFoundError"
+    TABLE_NOT_FOUND_ERROR = "TableNotFoundError"
+    TABLE_VERSION_NOT_FOUND_ERROR = "TableVersionNotFoundError"
+    STREAM_NOT_FOUND_ERROR = "StreamNotFoundError"
+    DELTA_NOT_FOUND_ERROR = "DeltaNotFoundError"
+    TABLE_ALREADY_EXISTS_ERROR = "TableAlreadyExistsError"
+
 
 class DeltaCatError(Exception):
     def __init__(self, *args, **kwargs):
@@ -204,6 +211,29 @@ class DeltaCatSystemError(NonRetryableError):
 
 class UnrecognizedRayTaskError(NonRetryableError):
     error_name = DeltaCatErrorNames.UNRECOGNIZED_RAY_TASK_ERROR.value
+
+class NamespaceNotFoundError(NonRetryableError):
+    error_name = DeltaCatErrorNames.NAMESPACE_NOT_FOUND_ERROR.value
+
+
+class TableNotFoundError(NonRetryableError):
+    error_name = DeltaCatErrorNames.TABLE_NOT_FOUND_ERROR.value
+
+
+class TableVersionNotFoundError(NonRetryableError):
+    error_name = DeltaCatErrorNames.TABLE_VERSION_NOT_FOUND_ERROR.value
+
+
+class StreamNotFoundError(NonRetryableError):
+    error_name = DeltaCatErrorNames.STREAM_NOT_FOUND_ERROR.value
+
+
+class DeltaNotFoundError(NonRetryableError):
+    error_name = DeltaCatErrorNames.DELTA_NOT_FOUND_ERROR.value
+
+
+class TableAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
 
 
 def categorize_errors(func: Callable):

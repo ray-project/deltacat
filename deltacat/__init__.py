@@ -26,7 +26,9 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     Catalogs,
     all_catalogs,
     init,
+    get_catalog,
 )
+from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage import (
     DistributedDataset,
@@ -35,9 +37,14 @@ from deltacat.storage import (
     LocalDataset,
     LocalTable,
     Namespace,
+    NullOrder,
+    PartitionKey,
+    PartitionScheme,
+    Schema,
     SchemaConsistencyType,
     SortKey,
     SortOrder,
+    SortScheme,
 )
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode
@@ -68,19 +75,26 @@ __all__ = [
     "default_namespace",
     "write_to_table",
     "read_table",
+    "get_catalog",
     "init",
     "Catalog",
     "ContentType",
     "ContentEncoding",
     "DistributedDataset",
+    "IcebergCatalog",
     "LifecycleState",
     "ListResult",
     "LocalDataset",
     "LocalTable",
     "Namespace",
+    "NullOrder",
+    "PartitionKey",
+    "PartitionScheme",
+    "Schema",
     "SchemaConsistencyType",
     "SortKey",
     "SortOrder",
+    "SortScheme",
     "TableDefinition",
     "TableType",
     "TableWriteMode",

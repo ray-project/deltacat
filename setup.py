@@ -33,6 +33,10 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/ray-project/deltacat",
     packages=setuptools.find_packages(where=".", include="deltacat*"),
+    extras_require={
+        # "iceberg": ["pyiceberg >= 0.5.0"],  # TODO: uncomment!
+        "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
+    },
     install_requires=[
         # any changes here should also be reflected in requirements.txt
         "aws-embedded-metrics == 3.2.0",
@@ -42,12 +46,11 @@ setuptools.setup(
         "pandas == 1.3.5",
         "pyarrow == 12.0.1",
         "pydantic == 1.10.4",
-        "pyiceberg >= 0.4.0",
         "pymemcache == 4.0.0",
         "ray >= 2.20.0",
         "s3fs == 2024.5.0",
         "tenacity == 8.1.0",
-        "typing-extensions == 4.4.0",
+        "typing-extensions == 4.6.1",
         "redis == 4.6.0",
         "schedule == 1.2.0",
     ],

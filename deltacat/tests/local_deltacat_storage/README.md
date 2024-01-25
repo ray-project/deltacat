@@ -26,7 +26,7 @@ result = ds.create_namespace("hash_bucket_test", {}, **kwargs)
 
 list_result = ds.list_namespaces(**kwargs).all_items()
 
-# [{'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'permissions': {}}]
+# [{'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'properties': {}}]
 ```
 
 ### Examples
@@ -45,7 +45,7 @@ ds.namespace_exists('hash_bucket_test', **kwargs)
 # True
 
 ds.get_namespace('hash_bucket_test', **kwargs)
-# {'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'permissions': {}}
+# {'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'properties': {}}
 ```
 
 -   Update a namespace:
@@ -60,7 +60,7 @@ ds.update_namespace("hash_bucket_test", {"abcd": "efgh"}, **kwargs)
 ds.create_table_version('hash_bucket_test', 'test_table', '1', **kwargs)
 
 ds.list_tables('hash_bucket_test', **kwargs).all_items()
-# [{'tableLocator': {'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'tableName': 'test_table'}, 'permissions': None, 'description': None, 'properties': None}]
+# [{'tableLocator': {'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'tableName': 'test_table'}, 'description': None, 'properties': None}]
 
 ds.list_table_versions('hash_bucket_test', 'test_table', **kwargs).all_items()
 # [{'tableVersionLocator': {'tableLocator': {'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'tableName': 'test_table'}, 'tableVersion': '1'}, 'schema': None, 'partitionKeys': None, 'primaryKeys': None, 'description': None, 'properties': {'stream_id': '8cf227aa-bc56-4728-8e6a-b993752337c9'}, 'contentTypes': None, 'sort_keys': None}]
@@ -106,10 +106,10 @@ ds.update_table_version('hash_bucket_test', 'test_table', '1', **kwargs)
 -   Update a table
 
 ```python
-ds.update_table('hash_bucket_test', 'test_table', permissions={'acd': 'bcf'}, **kwargs)
+ds.update_table('hash_bucket_test', 'test_table', properties={'acd': 'bcf'}, **kwargs)
 
 ds.get_table('hash_bucket_test', 'test_table', **kwargs)
-# {'tableLocator': {'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'tableName': 'test_table'}, 'permissions': {'acd': 'bcf'}, 'description': None, 'properties': None}
+# {'tableLocator': {'namespaceLocator': {'namespace': 'hash_bucket_test'}, 'tableName': 'test_table'}, 'properties': {'acd': 'bcf'}, 'description': None}
 ```
 
 -   Stage and commit a new stream for the table version (notice the stream IDs)
