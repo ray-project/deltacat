@@ -41,13 +41,12 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.utils.resources import (
-    get_current_node_peak_memory_usage_in_bytes,
+    get_current_process_peak_memory_usage_in_bytes,
 )
 from deltacat.compute.compactor_v2.utils.task_options import (
     hash_bucket_resource_options_provider,
     merge_resource_options_provider,
 )
-from deltacat.utils.resources import ClusterUtilizationOverTimeRange
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 if importlib.util.find_spec("memray"):
@@ -65,10 +64,9 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
 
     with memray.Tracker(
         f"compaction_partition.bin"
-    ) if params.enable_profiler else nullcontext(), ClusterUtilizationOverTimeRange() as cluster_util:
+    ) if params.enable_profiler else nullcontext():
         (new_partition, new_rci, new_rcf_partition_locator,) = _execute_compaction(
             params,
-            cluster_util=cluster_util,
             **kwargs,
         )
 
@@ -469,30 +467,13 @@ def _execute_compaction(
         [m.pyarrow_write_result for m in mat_results]
     )
 
-    session_peak_memory = get_current_node_peak_memory_usage_in_bytes()
+    session_peak_memory = get_current_process_peak_memory_usage_in_bytes()
     compaction_audit.set_peak_memory_used_bytes_by_compaction_session_process(
         session_peak_memory
     )
 
     compaction_audit.save_round_completion_stats(
         mat_results, telemetry_time_hb + telemetry_time_merge
-    )
-
-    cluster_util: ClusterUtilizationOverTimeRange = kwargs.get("cluster_util")
-
-    if cluster_util:
-        compaction_audit.set_total_cpu_seconds(cluster_util.total_vcpu_seconds)
-        compaction_audit.set_used_cpu_seconds(cluster_util.used_vcpu_seconds)
-        compaction_audit.set_used_memory_gb_seconds(cluster_util.used_memory_gb_seconds)
-        compaction_audit.set_total_memory_gb_seconds(
-            cluster_util.total_memory_gb_seconds
-        )
-        compaction_audit.set_cluster_cpu_max(cluster_util.max_cpu)
-
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **params.s3_client_kwargs,
     )
 
     input_inflation = None
@@ -536,6 +517,12 @@ def _execute_compaction(
             (compaction_audit.input_records or 0)
             + round_completion_info.compacted_pyarrow_write_result.records
         )
+
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **params.s3_client_kwargs,
+    )
 
     new_round_completion_info = RoundCompletionInfo.of(
         high_watermark=params.last_stream_position_to_compact,

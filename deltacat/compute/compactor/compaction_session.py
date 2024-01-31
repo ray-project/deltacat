@@ -52,7 +52,7 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
-from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.resources import get_current_process_peak_memory_usage_in_bytes
 
 
 if importlib.util.find_spec("memray"):
@@ -293,7 +293,6 @@ def _execute_compaction_round(
             f"{node_resource_keys}"
         )
 
-    compaction_audit.set_cluster_cpu_max(cluster_cpus)
     # create a remote options provider to round-robin tasks across all nodes or allocated bundles
     logger.info(f"Setting round robin scheduling with node id:{node_resource_keys}")
     round_robin_opt_provider = functools.partial(
@@ -680,7 +679,7 @@ def _execute_compaction_round(
         [m.pyarrow_write_result for m in mat_results]
     )
 
-    session_peak_memory = get_current_node_peak_memory_usage_in_bytes()
+    session_peak_memory = get_current_process_peak_memory_usage_in_bytes()
     compaction_audit.set_peak_memory_used_bytes_by_compaction_session_process(
         session_peak_memory
     )

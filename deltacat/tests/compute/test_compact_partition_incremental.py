@@ -6,9 +6,12 @@ import boto3
 from typing import Any, Callable, Dict, List, Optional, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
+from pytest_benchmark.fixture import BenchmarkFixture
+
 from deltacat.tests.compute.test_util_common import (
-    get_compacted_delta_locator_from_rcf,
+    get_rcf,
 )
+from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     create_src_w_deltas_destination_plus_destination,
 )
@@ -160,12 +163,16 @@ def test_compact_partition_incremental(
     read_kwargs_provider_param: Any,
     skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
+    benchmark: BenchmarkFixture,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
     from deltacat.storage import (
         DeltaLocator,
         PartitionLocator,
+    )
+    from deltacat.compute.compactor.model.compaction_session_audit_info import (
+        CompactionSessionAuditInfo,
     )
     from deltacat.compute.compactor.model.compact_partition_params import (
         CompactPartitionParams,
@@ -231,12 +238,37 @@ def test_compact_partition_incremental(
             "sort_keys": sort_keys if sort_keys else None,
         }
     )
+
     # execute
-    rcf_file_s3_uri = compact_partition_func(compact_partition_params)
-    # validate
-    compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-        setup_s3_resource, rcf_file_s3_uri
+    def _incremental_compaction_setup():
+        """
+        This callable runs right before invoking the benchmark target function (compaction).
+        This is needed as the benchmark module will invoke the target function multiple times
+        in a single test run, which can lead to non-idempotent behavior if RCFs are generated.
+
+        Returns: args, kwargs
+        """
+        setup_s3_resource.Bucket(TEST_S3_RCF_BUCKET_NAME).objects.all().delete()
+        return (compact_partition_params,), {}
+
+    rcf_file_s3_uri = benchmark.pedantic(
+        compact_partition_func, setup=_incremental_compaction_setup
     )
+    # validate
+    round_completion_info = get_rcf(setup_s3_resource, rcf_file_s3_uri)
+    compacted_delta_locator: DeltaLocator = (
+        round_completion_info.compacted_delta_locator
+    )
+    audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
+        "s3://", ""
+    ).split("/", 1)
+    compaction_audit_obj: dict = read_s3_contents(
+        setup_s3_resource, audit_bucket, audit_key
+    )
+    compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
+        **compaction_audit_obj
+    )
+
     tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
     actual_compacted_table = pa.concat_tables(tables)
     sorting_cols: List[Any] = [(val, "ascending") for val in primary_keys]
@@ -250,6 +282,11 @@ def test_compact_partition_incremental(
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
         sorting_cols
     )
+
+    assert compaction_audit.input_records == len(
+        input_deltas
+    ), "The input_records must be equal to total records in the input"
+
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"

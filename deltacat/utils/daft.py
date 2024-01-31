@@ -66,6 +66,8 @@ def daft_s3_file_to_table(
         )
     )
 
+    logger.debug(f"Preparing to read S3 object from {s3_url} into daft table")
+
     pa_table, latency = timed_invocation(
         read_parquet_into_pyarrow,
         path=s3_url,

@@ -30,7 +30,10 @@ from deltacat.compute.compactor.utils import system_columns as sc
 
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics
-from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.resources import (
+    get_current_process_peak_memory_usage_in_bytes,
+    ProcessUtilizationOverTimeRange,
+)
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
     hash_group_index_to_hash_bucket_indices,
@@ -44,6 +47,7 @@ from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
+from deltacat.constants import BYTES_PER_GIBIBYTE
 
 
 if importlib.util.find_spec("memray"):
@@ -436,7 +440,10 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             f"{total_dfes_found} != {len(hb_index_to_delta_file_envelopes_list)}"
         )
 
-        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
+        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
+        logger.info(
+            f"Peak memory usage in bytes after merge: {peak_memory_usage_bytes}"
+        )
 
         return MergeResult(
             materialized_results,
@@ -449,25 +456,35 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
 @ray.remote
 def merge(input: MergeInput) -> MergeResult:
+    with ProcessUtilizationOverTimeRange() as process_util:
+        logger.info(f"Starting merge task...")
 
-    logger.info(f"Starting merge task...")
-    merge_result, duration = timed_invocation(func=_timed_merge, input=input)
+        # Log node peak memory utilization every 10 seconds
+        def log_peak_memory():
+            logger.debug(
+                f"Process peak memory utilization so far: {process_util.max_memory} bytes "
+                f"({process_util.max_memory/BYTES_PER_GIBIBYTE} GB)"
+            )
 
-    emit_metrics_time = 0.0
-    if input.metrics_config:
-        emit_result, latency = timed_invocation(
-            func=emit_timer_metrics,
-            metrics_name="merge",
-            value=duration,
-            metrics_config=input.metrics_config,
+        process_util.schedule_callback(log_peak_memory, 10)
+
+        merge_result, duration = timed_invocation(func=_timed_merge, input=input)
+
+        emit_metrics_time = 0.0
+        if input.metrics_config:
+            emit_result, latency = timed_invocation(
+                func=emit_timer_metrics,
+                metrics_name="merge",
+                value=duration,
+                metrics_config=input.metrics_config,
+            )
+            emit_metrics_time = latency
+
+        logger.info(f"Finished merge task...")
+        return MergeResult(
+            merge_result[0],
+            merge_result[1],
+            merge_result[2],
+            np.double(emit_metrics_time),
+            merge_result[4],
         )
-        emit_metrics_time = latency
-
-    logger.info(f"Finished merge task...")
-    return MergeResult(
-        merge_result[0],
-        merge_result[1],
-        merge_result[2],
-        np.double(emit_metrics_time),
-        merge_result[4],
-    )
