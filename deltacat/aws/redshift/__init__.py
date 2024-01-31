@@ -1,4 +1,6 @@
 from deltacat.aws.redshift.model.manifest import (
+    DeleteType,
+    DeleteManifest,
     Manifest,
     ManifestAuthor,
     ManifestEntry,
@@ -7,6 +9,8 @@ from deltacat.aws.redshift.model.manifest import (
 )
 
 __all__ = [
+    "DeleteType",
+    "DeleteManifest",
     "Manifest",
     "ManifestAuthor",
     "ManifestEntry",

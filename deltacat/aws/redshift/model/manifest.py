@@ -5,6 +5,7 @@ import itertools
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+from enum import Enum
 
 from deltacat import logs
 
@@ -284,3 +285,35 @@ class ManifestEntryList(List[ManifestEntry]):
         if val is not None and not isinstance(val, ManifestEntry):
             self[item] = val = ManifestEntry(val)
         return val
+
+
+class DeleteType(str, Enum):
+    UNSPECIFIED_DELETE = "unspecified_delete"  # the default value
+    POSITIONAL_DELETE = "positional_delete"
+    EQUALITY_DELETE = "equality_delete"
+
+    @classmethod
+    def list(cls):
+        return [c.value for c in DeleteType]
+
+
+class DeleteManifest(Manifest):
+    """
+    Subclass to represent a manifest pointing to delete files.
+    """
+
+    @classmethod
+    def of(
+        cls,
+        entries: ManifestEntryList,
+        author: Optional[ManifestAuthor] = None,
+        uuid: str = None,
+        delete_type: DeleteType = DeleteType.UNSPECIFIED_DELETE,
+    ) -> DeleteManifest:
+        manifest: DeleteManifest = DeleteManifest(super().of(entries, author, uuid))
+        manifest["delete_type"] = delete_type
+        return manifest
+
+    @property
+    def delete_type(self) -> DeleteType:
+        return DeleteType(self["delete_type"])
