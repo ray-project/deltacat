@@ -13,20 +13,21 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class DeleteTypeArgs(dict):
-    @classmethod
+    @staticmethod
     def of(
         cls,
-        canonical_column_ids: Optional[List[str]],
-        file_path: Optional[str],
-        deleted_row_ordinal_pos: Optional[int],
+        canonical_column_ids: Optional[List[str]] = None,
+        file_path: Optional[str] = None,
+        deleted_row_ordinal_pos: Optional[int] = None,
     ):
+        delete_type_args = DeleteTypeArgs()
         if canonical_column_ids is not None:
-            cls["canonical_column_ids"] = canonical_column_ids
+            delete_type_args["canonical_column_ids"] = canonical_column_ids
         if file_path is not None:
-            cls["file_path"] = file_path
+            delete_type_args["file_path"] = file_path
         if deleted_row_ordinal_pos is not None:
-            cls["deleted_row_ordinal_pos"] = deleted_row_ordinal_pos
-        return cls
+            delete_type_args["deleted_row_ordinal_pos"] = deleted_row_ordinal_pos
+        return delete_type_args
 
 
 class ContentFileCategory(str, Enum):
