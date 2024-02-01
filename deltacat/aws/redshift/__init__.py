@@ -1,6 +1,6 @@
 from deltacat.aws.redshift.model.manifest import (
     EntryFileParams,
-    EntryContentType,
+    EntryType,
     Manifest,
     ManifestAuthor,
     ManifestEntry,
@@ -10,7 +10,7 @@ from deltacat.aws.redshift.model.manifest import (
 
 __all__ = [
     "EntryFileParams",
-    "EntryContentType",
+    "EntryType",
     "Manifest",
     "ManifestAuthor",
     "ManifestEntry",
