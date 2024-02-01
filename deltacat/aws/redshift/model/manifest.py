@@ -15,7 +15,6 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 class DeleteTypeArgs(dict):
     @staticmethod
     def of(
-        cls,
         canonical_column_ids: Optional[List[str]] = None,
         file_path: Optional[str] = None,
         deleted_row_ordinal_pos: Optional[int] = None,
