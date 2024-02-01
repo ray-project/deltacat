@@ -45,7 +45,7 @@ class EntryFileParams(dict):
         equality_column_names: Optional[List[str]] = None,
         url: Optional[str] = None,
         position: Optional[int] = None,
-    ):
+    ) -> EntryFileParams:
         entry_file_params = EntryFileParams()
         if entry_type is not None:
             entry_file_params["entry_type"] = entry_type.value
@@ -65,15 +65,15 @@ class EntryFileParams(dict):
         return val
 
     @property
-    def equality_column_names(self) -> List[str]:
+    def equality_column_names(self) -> Optional[List[str]]:
         return self.get("equality_column_names")
 
     @property
-    def url(self) -> str:
+    def url(self) -> Optional[str]:
         return self.get("url")
 
     @property
-    def position(self) -> int:
+    def position(self) -> Optional[int]:
         return self.get("position")
 
 
