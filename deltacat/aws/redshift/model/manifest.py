@@ -59,8 +59,10 @@ class EntryFileParams(dict):
 
     @property
     def entry_type(self) -> Optional[EntryType]:
-        if self.get("entry_type") is not None:
+        val = self.get("entry_type")
+        if val is not None:
             return EntryType(self["entry_type"])
+        return val
 
     @property
     def equality_column_names(self) -> List[str]:
@@ -146,6 +148,7 @@ class Manifest(dict):
             content_type,
             content_encoding,
             total_source_content_length,
+            entry_type=entry_type,
         )
         manifest = Manifest._build_manifest(meta, entries, author, uuid, entry_type)
         return manifest
@@ -196,6 +199,7 @@ class ManifestMeta(dict):
         source_content_length: Optional[int] = None,
         credentials: Optional[Dict[str, str]] = None,
         content_type_parameters: Optional[List[Dict[str, str]]] = None,
+        entry_type: Optional[EntryType] = None,
     ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
@@ -212,6 +216,8 @@ class ManifestMeta(dict):
             manifest_meta["content_encoding"] = content_encoding
         if credentials is not None:
             manifest_meta["credentials"] = credentials
+        if entry_type is not None:
+            manifest_meta["entry_type"] = entry_type.value
         return manifest_meta
 
     @property
@@ -245,6 +251,13 @@ class ManifestMeta(dict):
     @property
     def credentials(self) -> Optional[Dict[str, str]]:
         return self.get("credentials")
+
+    @property
+    def entry_type(self) -> Optional[EntryType]:
+        val = self.get("entry_type")
+        if val is not None:
+            return EntryType(self["entry_type"])
+        return val
 
 
 class ManifestAuthor(dict):
