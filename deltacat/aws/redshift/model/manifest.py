@@ -41,7 +41,7 @@ class EntryFileParams(dict):
 
     @staticmethod
     def of(
-        entry_type: Optional[EntryType] = EntryType.get_default(),
+        entry_type: Optional[EntryType] = None,
         equality_column_names: Optional[List[str]] = None,
         url: Optional[str] = None,
         position: Optional[int] = None,
@@ -82,7 +82,7 @@ class Manifest(dict):
         entries: Optional[ManifestEntryList],
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
-        entry_type: Optional[EntryType] = EntryType.get_default(),
+        entry_type: Optional[EntryType] = None,
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -103,7 +103,7 @@ class Manifest(dict):
         entries: ManifestEntryList,
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
-        entry_type: Optional[EntryType] = EntryType.get_default(),
+        entry_type: Optional[EntryType] = None,
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
