@@ -137,12 +137,6 @@ class Manifest(dict):
                         f"'{entry_content_encoding}'"
                     )
                     raise ValueError(msg)
-                if entry.entry_type != entry_type:
-                    msg = (
-                        f"Expected all manifest entries to have entry type "
-                        f"'{entry_type}' but found '{entry.entry_type}'"
-                    )
-                    raise ValueError(msg)
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
                 total_source_content_length += meta.source_content_length or 0
@@ -190,11 +184,6 @@ class Manifest(dict):
         if val is not None and not isinstance(val, ManifestAuthor):
             self["author"] = val = ManifestAuthor(val)
         return val
-
-    @property
-    def entry_type(self) -> Optional[EntryType]:
-        if self.get("entry_type") is not None:
-            return EntryType(self["entry_type"])
 
 
 class ManifestMeta(dict):
