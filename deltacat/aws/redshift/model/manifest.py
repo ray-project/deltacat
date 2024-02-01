@@ -305,6 +305,12 @@ class ManifestEntry(dict):
         if entry_type is not None:
             manifest_entry["entry_type"] = entry_type.value
         if entry_file_params is not None:
+            if entry_file_params.get("url") != manifest_entry.get("url"):
+                msg = (
+                    f"Expected manifest entry url: {manifest_entry.url}"
+                    f" and entry_file_params: '{entry_file_params.url}' to match"
+                )
+                raise ValueError(msg)
             manifest_entry["entry_file_params"] = entry_file_params
         return manifest_entry
 
