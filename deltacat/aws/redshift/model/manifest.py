@@ -12,6 +12,33 @@ from deltacat import logs
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+class DeleteTypeArgs(dict):
+    @classmethod
+    def of(
+        cls,
+        canonical_column_ids: Optional[List[str]],
+        file_path: Optional[str],
+        deleted_row_ordinal_pos: Optional[int],
+    ):
+        if canonical_column_ids is not None:
+            cls["canonical_column_ids"] = canonical_column_ids
+        if file_path is not None:
+            cls["file_path"] = file_path
+        if deleted_row_ordinal_pos is not None:
+            cls["deleted_row_ordinal_pos"] = deleted_row_ordinal_pos
+        return cls
+
+
+class ContentFileCategory(str, Enum):
+    DATA = "data"  # the default value
+    POSITIONAL_DELETE = "positional_delete"
+    EQUALITY_DELETE = "equality_delete"
+
+    @classmethod
+    def list(cls):
+        return [c.value for c in ContentFileCategory]
+
+
 class Manifest(dict):
     @staticmethod
     def _build_manifest(
@@ -207,6 +234,8 @@ class ManifestEntry(dict):
         mandatory: bool = True,
         uri: Optional[str] = None,
         uuid: Optional[str] = None,
+        content_file_category: Optional[ContentFileCategory] = ContentFileCategory.DATA,
+        delete_type_args: Optional[DeleteTypeArgs] = None,
     ) -> ManifestEntry:
         manifest_entry = ManifestEntry()
         if not (uri or url):
@@ -223,6 +252,10 @@ class ManifestEntry(dict):
             manifest_entry["mandatory"] = mandatory
         if uuid is not None:
             manifest_entry["id"] = uuid
+        if content_file_category is not None:
+            manifest_entry["content_file_category"] = content_file_category
+        if delete_type_args is not None:
+            manifest_entry["delete_type_args"] = delete_type_args
         return manifest_entry
 
     @staticmethod
@@ -269,6 +302,17 @@ class ManifestEntry(dict):
     def id(self) -> Optional[str]:
         return self.get("id")
 
+    @property
+    def content_file_category(self) -> Optional[ContentFileCategory]:
+        return ContentFileCategory(self.get("content_file_category"))
+
+    @property
+    def delete_type_args(self) -> Optional[DeleteTypeArgs]:
+        val: Dict[str, Any] = self.get("delete_type_args")
+        if val is not None and not isinstance(val, DeleteTypeArgs):
+            self["delete_type_args"] = val = DeleteTypeArgs(val)
+        return val
+
 
 class ManifestEntryList(List[ManifestEntry]):
     @staticmethod
@@ -285,35 +329,3 @@ class ManifestEntryList(List[ManifestEntry]):
         if val is not None and not isinstance(val, ManifestEntry):
             self[item] = val = ManifestEntry(val)
         return val
-
-
-class DeleteType(str, Enum):
-    UNSPECIFIED_DELETE = "unspecified_delete"  # the default value
-    POSITIONAL_DELETE = "positional_delete"
-    EQUALITY_DELETE = "equality_delete"
-
-    @classmethod
-    def list(cls):
-        return [c.value for c in DeleteType]
-
-
-class DeleteManifest(Manifest):
-    """
-    Subclass to represent a manifest pointing to delete files.
-    """
-
-    @classmethod
-    def of(
-        cls,
-        entries: ManifestEntryList,
-        author: Optional[ManifestAuthor] = None,
-        uuid: str = None,
-        delete_type: DeleteType = DeleteType.UNSPECIFIED_DELETE,
-    ) -> DeleteManifest:
-        manifest: DeleteManifest = DeleteManifest(super().of(entries, author, uuid))
-        manifest["delete_type"] = delete_type
-        return manifest
-
-    @property
-    def delete_type(self) -> DeleteType:
-        return DeleteType(self["delete_type"])
