@@ -12,31 +12,66 @@ from deltacat import logs
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-class DeleteTypeArgs(dict):
-    @staticmethod
-    def of(
-        canonical_column_ids: Optional[List[str]] = None,
-        file_path: Optional[str] = None,
-        deleted_row_ordinal_pos: Optional[int] = None,
-    ):
-        delete_type_args = DeleteTypeArgs()
-        if canonical_column_ids is not None:
-            delete_type_args["canonical_column_ids"] = canonical_column_ids
-        if file_path is not None:
-            delete_type_args["file_path"] = file_path
-        if deleted_row_ordinal_pos is not None:
-            delete_type_args["deleted_row_ordinal_pos"] = deleted_row_ordinal_pos
-        return delete_type_args
+class EntryType(str, Enum):
+    """
+    Enum representing all possible content categories of an manifest entry file
+    """
 
-
-class ContentFileCategory(str, Enum):
-    DATA = "data"  # the default value
+    DATA = "data"
     POSITIONAL_DELETE = "positional_delete"
     EQUALITY_DELETE = "equality_delete"
 
     @classmethod
+    def get_default(cls):
+        return EntryType.DATA
+
+    @classmethod
     def list(cls):
-        return [c.value for c in ContentFileCategory]
+        return [c.value for c in EntryType]
+
+
+class EntryFileParams(dict):
+    """
+    Represents parameters relevant to the underlying contents of manifest entry. Contains all parameters required to support DELETEs
+    equality_column_names: List of column names that would be used to determine row equality for equality deletes.  Relevant only to equality deletes
+    url: Full URI for content file. Should be equal to ManifestEntry URI.  Relevant only to positional deletes
+    position: Ordinal position of a deleted row in the target data file identified by uri, starting at 0. Relevant only to positional deletes
+    """
+
+    @staticmethod
+    def of(
+        entry_type: Optional[EntryType] = EntryType.get_default(),
+        equality_column_names: Optional[List[str]] = None,
+        url: Optional[str] = None,
+        position: Optional[int] = None,
+    ):
+        entry_file_params = EntryFileParams()
+        if entry_type is not None:
+            entry_file_params["entry_type"] = entry_type.value
+        if equality_column_names is not None:
+            entry_file_params["equality_column_names"] = equality_column_names
+        if url is not None:
+            entry_file_params["url"] = url
+        if position is not None:
+            entry_file_params["position"] = position
+        return entry_file_params
+
+    @property
+    def entry_type(self) -> Optional[EntryType]:
+        if self.get("entry_type") is not None:
+            return EntryType(self["entry_type"])
+
+    @property
+    def equality_column_names(self) -> List[str]:
+        return self.get("equality_column_names")
+
+    @property
+    def url(self) -> str:
+        return self.get("url")
+
+    @property
+    def position(self) -> int:
+        return self.get("position")
 
 
 class Manifest(dict):
@@ -46,6 +81,7 @@ class Manifest(dict):
         entries: Optional[ManifestEntryList],
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
+        entry_type: Optional[EntryType] = EntryType.get_default(),
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -57,6 +93,8 @@ class Manifest(dict):
             manifest["entries"] = entries
         if author is not None:
             manifest["author"] = author
+        if entry_type is not None:
+            manifest["entry_type"] = entry_type.value
         return manifest
 
     @staticmethod
@@ -64,6 +102,7 @@ class Manifest(dict):
         entries: ManifestEntryList,
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
+        entry_type: Optional[EntryType] = EntryType.get_default(),
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -97,6 +136,12 @@ class Manifest(dict):
                         f"'{entry_content_encoding}'"
                     )
                     raise ValueError(msg)
+                if entry.entry_type != entry_type:
+                    msg = (
+                        f"Expected all manifest entries to have entry type "
+                        f"'{entry_type}' but found '{entry.entry_type}'"
+                    )
+                    raise ValueError(msg)
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
                 total_source_content_length += meta.source_content_length or 0
@@ -107,7 +152,7 @@ class Manifest(dict):
             content_encoding,
             total_source_content_length,
         )
-        manifest = Manifest._build_manifest(meta, entries, author, uuid)
+        manifest = Manifest._build_manifest(meta, entries, author, uuid, entry_type)
         return manifest
 
     @staticmethod
@@ -144,6 +189,11 @@ class Manifest(dict):
         if val is not None and not isinstance(val, ManifestAuthor):
             self["author"] = val = ManifestAuthor(val)
         return val
+
+    @property
+    def entry_type(self) -> Optional[EntryType]:
+        if self.get("entry_type") is not None:
+            return EntryType(self["entry_type"])
 
 
 class ManifestMeta(dict):
@@ -234,8 +284,8 @@ class ManifestEntry(dict):
         mandatory: bool = True,
         uri: Optional[str] = None,
         uuid: Optional[str] = None,
-        content_file_category: Optional[ContentFileCategory] = ContentFileCategory.DATA,
-        delete_type_args: Optional[DeleteTypeArgs] = None,
+        entry_type: Optional[EntryType] = EntryType.get_default(),
+        entry_file_params: Optional[EntryFileParams] = None,
     ) -> ManifestEntry:
         manifest_entry = ManifestEntry()
         if not (uri or url):
@@ -252,10 +302,10 @@ class ManifestEntry(dict):
             manifest_entry["mandatory"] = mandatory
         if uuid is not None:
             manifest_entry["id"] = uuid
-        if content_file_category is not None:
-            manifest_entry["content_file_category"] = content_file_category
-        if delete_type_args is not None:
-            manifest_entry["delete_type_args"] = delete_type_args
+        if entry_type is not None:
+            manifest_entry["entry_type"] = entry_type.value
+        if entry_file_params is not None:
+            manifest_entry["entry_file_params"] = entry_file_params
         return manifest_entry
 
     @staticmethod
@@ -303,14 +353,15 @@ class ManifestEntry(dict):
         return self.get("id")
 
     @property
-    def content_file_category(self) -> Optional[ContentFileCategory]:
-        return ContentFileCategory(self.get("content_file_category"))
+    def entry_type(self) -> Optional[EntryType]:
+        if self.get("entry_type") is not None:
+            return EntryType(self["entry_type"])
 
     @property
-    def delete_type_args(self) -> Optional[DeleteTypeArgs]:
-        val: Dict[str, Any] = self.get("delete_type_args")
-        if val is not None and not isinstance(val, DeleteTypeArgs):
-            self["delete_type_args"] = val = DeleteTypeArgs(val)
+    def entry_file_params(self) -> Optional[EntryFileParams]:
+        val: Dict[str, Any] = self.get("entry_file_params")
+        if val is not None and not isinstance(val, EntryFileParams):
+            self["entry_file_params"] = val = EntryFileParams(val)
         return val
 
 
