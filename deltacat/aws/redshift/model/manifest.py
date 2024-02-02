@@ -34,21 +34,17 @@ class EntryFileParams(dict):
     """
     Represents parameters relevant to the underlying contents of manifest entry. Contains all parameters required to support DELETEs
     equality_column_names: List of column names that would be used to determine row equality for equality deletes.  Relevant only to equality deletes
-    url: Full URI for content file. Should be equal to ManifestEntry URI.  Relevant only to positional deletes
     position: Ordinal position of a deleted row in the target data file identified by uri, starting at 0. Relevant only to positional deletes
     """
 
     @staticmethod
     def of(
         equality_column_names: Optional[List[str]] = None,
-        url: Optional[str] = None,
         position: Optional[int] = None,
     ) -> EntryFileParams:
         entry_file_params = EntryFileParams()
         if equality_column_names is not None:
             entry_file_params["equality_column_names"] = equality_column_names
-        if url is not None:
-            entry_file_params["url"] = url
         if position is not None:
             entry_file_params["position"] = position
         return entry_file_params
