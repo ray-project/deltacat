@@ -5,10 +5,61 @@ import itertools
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+from enum import Enum
 
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+class EntryType(str, Enum):
+    """
+    Enum representing all possible content categories of an manifest entry file
+    """
+
+    DATA = "data"
+    POSITIONAL_DELETE = "positional_delete"
+    EQUALITY_DELETE = "equality_delete"
+
+    @classmethod
+    def get_default(cls):
+        return EntryType.DATA
+
+    @classmethod
+    def list(cls):
+        return [c.value for c in EntryType]
+
+
+class EntryFileParams(dict):
+    """
+    Represents parameters relevant to the underlying contents of manifest entry. Contains all parameters required to support DELETEs
+    equality_column_names: List of column names that would be used to determine row equality for equality deletes.  Relevant only to equality deletes
+    position: Ordinal position of a deleted row in the target data file identified by uri, starting at 0. Relevant only to positional deletes
+    """
+
+    @staticmethod
+    def of(
+        equality_column_names: Optional[List[str]] = None,
+        position: Optional[int] = None,
+    ) -> EntryFileParams:
+        entry_file_params = EntryFileParams()
+        if equality_column_names is not None:
+            entry_file_params["equality_column_names"] = equality_column_names
+        if position is not None:
+            entry_file_params["position"] = position
+        return entry_file_params
+
+    @property
+    def equality_column_names(self) -> Optional[List[str]]:
+        return self.get("equality_column_names")
+
+    @property
+    def url(self) -> Optional[str]:
+        return self.get("url")
+
+    @property
+    def position(self) -> Optional[int]:
+        return self.get("position")
 
 
 class Manifest(dict):
@@ -18,6 +69,7 @@ class Manifest(dict):
         entries: Optional[ManifestEntryList],
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
+        entry_type: Optional[EntryType] = None,
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -29,6 +81,8 @@ class Manifest(dict):
             manifest["entries"] = entries
         if author is not None:
             manifest["author"] = author
+        if entry_type is not None:
+            manifest["entry_type"] = entry_type.value
         return manifest
 
     @staticmethod
@@ -36,6 +90,7 @@ class Manifest(dict):
         entries: ManifestEntryList,
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
+        entry_type: Optional[EntryType] = None,
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -78,8 +133,9 @@ class Manifest(dict):
             content_type,
             content_encoding,
             total_source_content_length,
+            entry_type=entry_type,
         )
-        manifest = Manifest._build_manifest(meta, entries, author, uuid)
+        manifest = Manifest._build_manifest(meta, entries, author, uuid, entry_type)
         return manifest
 
     @staticmethod
@@ -128,6 +184,7 @@ class ManifestMeta(dict):
         source_content_length: Optional[int] = None,
         credentials: Optional[Dict[str, str]] = None,
         content_type_parameters: Optional[List[Dict[str, str]]] = None,
+        entry_type: Optional[EntryType] = None,
     ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
@@ -144,6 +201,8 @@ class ManifestMeta(dict):
             manifest_meta["content_encoding"] = content_encoding
         if credentials is not None:
             manifest_meta["credentials"] = credentials
+        if entry_type is not None:
+            manifest_meta["entry_type"] = entry_type.value
         return manifest_meta
 
     @property
@@ -178,6 +237,13 @@ class ManifestMeta(dict):
     def credentials(self) -> Optional[Dict[str, str]]:
         return self.get("credentials")
 
+    @property
+    def entry_type(self) -> Optional[EntryType]:
+        val = self.get("entry_type")
+        if val is not None:
+            return EntryType(self["entry_type"])
+        return val
+
 
 class ManifestAuthor(dict):
     @staticmethod
@@ -206,6 +272,8 @@ class ManifestEntry(dict):
         mandatory: bool = True,
         uri: Optional[str] = None,
         uuid: Optional[str] = None,
+        entry_type: Optional[EntryType] = None,
+        entry_file_params: Optional[EntryFileParams] = None,
     ) -> ManifestEntry:
         manifest_entry = ManifestEntry()
         if not (uri or url):
@@ -222,6 +290,16 @@ class ManifestEntry(dict):
             manifest_entry["mandatory"] = mandatory
         if uuid is not None:
             manifest_entry["id"] = uuid
+        if entry_type is not None:
+            manifest_entry["entry_type"] = entry_type.value
+        if entry_file_params is not None:
+            if entry_file_params.get("url") != manifest_entry.get("url"):
+                msg = (
+                    f"Expected manifest entry url: {manifest_entry.url}"
+                    f" and entry_file_params: '{entry_file_params.url}' to match"
+                )
+                raise ValueError(msg)
+            manifest_entry["entry_file_params"] = entry_file_params
         return manifest_entry
 
     @staticmethod
@@ -267,6 +345,20 @@ class ManifestEntry(dict):
     @property
     def id(self) -> Optional[str]:
         return self.get("id")
+
+    @property
+    def entry_type(self) -> Optional[EntryType]:
+        val = self.get("entry_type")
+        if val is not None:
+            return EntryType(self["entry_type"])
+        return val
+
+    @property
+    def entry_file_params(self) -> Optional[EntryFileParams]:
+        val: Dict[str, Any] = self.get("entry_file_params")
+        if val is not None and not isinstance(val, EntryFileParams):
+            self["entry_file_params"] = val = EntryFileParams(val)
+        return val
 
 
 class ManifestEntryList(List[ManifestEntry]):
