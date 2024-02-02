@@ -33,7 +33,6 @@ class EntryType(str, Enum):
 class EntryFileParams(dict):
     """
     Represents parameters relevant to the underlying contents of manifest entry. Contains all parameters required to support DELETEs
-    entry_type: enumerated type manifest entry file content category.
     equality_column_names: List of column names that would be used to determine row equality for equality deletes.  Relevant only to equality deletes
     url: Full URI for content file. Should be equal to ManifestEntry URI.  Relevant only to positional deletes
     position: Ordinal position of a deleted row in the target data file identified by uri, starting at 0. Relevant only to positional deletes
@@ -41,14 +40,11 @@ class EntryFileParams(dict):
 
     @staticmethod
     def of(
-        entry_type: Optional[EntryType] = None,
         equality_column_names: Optional[List[str]] = None,
         url: Optional[str] = None,
         position: Optional[int] = None,
     ) -> EntryFileParams:
         entry_file_params = EntryFileParams()
-        if entry_type is not None:
-            entry_file_params["entry_type"] = entry_type.value
         if equality_column_names is not None:
             entry_file_params["equality_column_names"] = equality_column_names
         if url is not None:
@@ -56,13 +52,6 @@ class EntryFileParams(dict):
         if position is not None:
             entry_file_params["position"] = position
         return entry_file_params
-
-    @property
-    def entry_type(self) -> Optional[EntryType]:
-        val = self.get("entry_type")
-        if val is not None:
-            return EntryType(self["entry_type"])
-        return val
 
     @property
     def equality_column_names(self) -> Optional[List[str]]:
@@ -287,6 +276,7 @@ class ManifestEntry(dict):
         mandatory: bool = True,
         uri: Optional[str] = None,
         uuid: Optional[str] = None,
+        entry_type: Optional[EntryType] = None,
         entry_file_params: Optional[EntryFileParams] = None,
     ) -> ManifestEntry:
         manifest_entry = ManifestEntry()
@@ -304,6 +294,8 @@ class ManifestEntry(dict):
             manifest_entry["mandatory"] = mandatory
         if uuid is not None:
             manifest_entry["id"] = uuid
+        if entry_type is not None:
+            manifest_entry["entry_type"] = entry_type.value
         if entry_file_params is not None:
             if entry_file_params.get("url") != manifest_entry.get("url"):
                 msg = (
@@ -357,6 +349,13 @@ class ManifestEntry(dict):
     @property
     def id(self) -> Optional[str]:
         return self.get("id")
+
+    @property
+    def entry_type(self) -> Optional[EntryType]:
+        val = self.get("entry_type")
+        if val is not None:
+            return EntryType(self["entry_type"])
+        return val
 
     @property
     def entry_file_params(self) -> Optional[EntryFileParams]:
