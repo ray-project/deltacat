@@ -178,6 +178,9 @@ def hash_bucket_resource_options_provider(
     debug_memory_params["total_pk_size"] = total_pk_size
     debug_memory_params["total_memory"] = total_memory
 
+    debug_memory_params["previous_inflation"] = previous_inflation
+    debug_memory_params["average_record_size_bytes"] = average_record_size_bytes
+
     # Consider buffer
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
     debug_memory_params["total_memory_with_buffer"] = total_memory
