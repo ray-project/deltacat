@@ -108,7 +108,6 @@ def create_uniform_input_deltas(
                 deltacat_storage=deltacat_storage,
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
             )
-
         manifest_entries = delta.manifest.entries
         delta_manifest_entries_count += len(manifest_entries)
 

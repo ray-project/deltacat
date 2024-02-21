@@ -6,11 +6,37 @@ import numpy as np
 import pyarrow as pa
 import ray
 from deltacat import logs
+from deltacat.storage import (
+    Delta,
+    DeltaLocator,
+    DeltaType,
+    DistributedDataset,
+    LifecycleState,
+    ListResult,
+    LocalDataset,
+    LocalTable,
+    Manifest,
+    ManifestAuthor,
+    Namespace,
+    Partition,
+    SchemaConsistencyType,
+    Stream,
+    StreamLocator,
+    Table,
+    TableVersion,
+    SortKey,
+    PartitionLocator,
+)
 from deltacat.compute.compactor import (
     DeltaAnnotated,
     DeltaFileEnvelope,
 )
+import pyarrow.compute as pc
+from deltacat.storage import (
+    DeltaType,
+)
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
+from deltacat.compute.compactor_v2.model.prepare_delete_input import PrepareDeleteInput
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     group_hash_bucket_indices,
@@ -29,7 +55,6 @@ from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
 )
-from typing import Optional
 from deltacat.constants import BYTES_PER_GIBIBYTE
 
 if importlib.util.find_spec("memray"):
@@ -51,35 +76,150 @@ deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 """
 
 
-def prepare_delete(
-    annotated_delta: DeltaAnnotated,
-    read_kwargs_provider: Optional[ReadKwargsProvider],
-    deltacat_storage=unimplemented_deltacat_storage,
-    deltacat_storage_kwargs: Optional[dict] = None,
-    **kwargs) -> Any:
+def append_spos_col(table: pa.Table, delta_stream_position: int) -> pa.Table:
+    table = table.append_column(
+        "spos", pa.array(np.repeat(delta_stream_position, len(table)))
+    )
+    return table
+
+
+def drop_earlier_duplicates(table: pa.Table, on: str, sort_col_name: str) -> pa.Table:
+    """
+    It is important to not combine the chunks for performance reasons.
+    """
+    logger.info(f"pdebug: drop_earlier_duplicates: {dict(locals())}")
+    if not (on in table.column_names or sort_col_name in table.column_names):
+        return table
+
+    selector = table.group_by([on]).aggregate([(sort_col_name, "max")])
+
+    table = table.filter(
+        pc.is_in(
+            table[sort_col_name],
+            value_set=selector[f"{sort_col_name}_max"],
+        )
+    )
+    logger.info(f"pdebug: drop_earlier_duplicates: {dict(locals())}")
+    return table
+
+
+def prepare_delete(input: PrepareDeleteInput) -> Any:
     """
     go through every file
-        build table
+        build table of primary keys and delete columns
 
     put into object store
 
     go through annotated delta
     go through compacted table
     """
-    logger.info(f"prepare delete: {kwargs=}")
     logger.info(f"pdebug: prepare_delete: {dict(locals())}")
-    tables = deltacat_storage.download_delta(
-        annotated_delta,
-        max_parallelism=1,
-        file_reader_kwargs_provider=read_kwargs_provider,
-        storage_type=StorageType.LOCAL,
-        **deltacat_storage_kwargs,
+    all_upserts = []
+    all_deletes = []
+    for i, annotated_delta in enumerate(input.annotated_deltas):
+        annotations = annotated_delta.annotations
+        delta_stream_position = annotations[0].annotation_stream_position
+        delta_type = annotations[0].annotation_delta_type
+        logger.info(
+            f"pdebug:prepare_delete:{i=}: {annotations=} {delta_stream_position=}, {delta_type.value=}"
+        )
+        if delta_type is DeltaType.UPSERT:
+            incremental_tables = input.deltacat_storage.download_delta(
+                annotated_delta,
+                max_parallelism=1,
+                file_reader_kwargs_provider=input.read_kwargs_provider,
+                columns=input.primary_keys + input.delete_columns,
+                storage_type=StorageType.LOCAL,
+                **input.deltacat_storage_kwargs,
+            )
+            for i, table in enumerate(incremental_tables):
+                incremental_tables[i] = append_spos_col(table, delta_stream_position)
+            logger.info(
+                f"pdebug: {i}. incremental table -> {incremental_tables=}, type-> {type(incremental_tables)=}"
+            )
+            all_upserts.extend(incremental_tables)
+        elif delta_type is DeltaType.DELETE:
+            delete_tables = input.deltacat_storage.download_delta(
+                annotated_delta,
+                max_parallelism=1,
+                file_reader_kwargs_provider=input.read_kwargs_provider,
+                columns=input.delete_columns,
+                storage_type=StorageType.LOCAL,
+                **input.deltacat_storage_kwargs,
+            )
+            logger.info(f"pdebug: {i}. delete_incremental table -> {delete_tables=}")
+            for i, table in enumerate(delete_tables):
+                delete_tables[i] = append_spos_col(table, delta_stream_position)
+            all_deletes.extend(delete_tables)
+    logger.info(f"pdebug: {all_upserts=}")
+    logger.info(f"pdebug: {all_deletes=}")
+    if not all_upserts:
+        return
+    if not all_deletes:
+        return
+    upsert_concat_table: pa.Table = pa.concat_tables(all_upserts)
+    delete_concat_table: pa.Table = pa.concat_tables(all_deletes)
+    logger.info(
+        f"pdebug: {upsert_concat_table.to_pydict()=} {delete_concat_table.to_pydict()=}"
     )
-    dmfe = deltacat_storage.download_delta_manifest_entry(
-            annotated_delta,
-            entry_index=0,
-            file_reader_kwargs_provider=read_kwargs_provider,
-            **deltacat_storage_kwargs,
+    delete_concat_table = drop_earlier_duplicates(
+        delete_concat_table, input.delete_columns[0], "spos"
     )
-    logger.info(f"pdebug:{tables=}, {dmfe=}")
+    logger.info(
+        f"pdebug: {upsert_concat_table.to_pydict()=} {delete_concat_table.to_pydict()=}"
+    )
 
+    # drop_earlier_duplicates(delete_concat_table, input.delete_columns,"spos")
+    # logger.info(f"pdebug: {upsert_concat_table.to_pydict()=} {delete_concat_table.to_pydict()=}")
+    # round_completion_info = input.round_completion_info
+    # table_acc = []
+    # if round_completion_info:
+    #     compacted_delta_locator = round_completion_info.compacted_delta_locator
+    #     stream_pos = round_completion_info.compacted_delta_locator.stream_position
+    #     previous_compacted_delta_manifest = (
+    #         input.deltacat_storage.get_delta_manifest(
+    #             compacted_delta_locator, **input.deltacat_storage_kwargs,
+    #         )
+    #     )
+    #     logger.info(f"pdebug: compacted_stream_pos: {stream_pos=}")
+    #     for file_idx, _ in enumerate(previous_compacted_delta_manifest.entries):
+    #         table = input.deltacat_storage.download_delta_manifest_entry(
+    #             compacted_delta_locator,
+    #             entry_index=file_idx,
+    #             file_reader_kwargs_provider=input.read_kwargs_provider,
+    #             **input.deltacat_storage_kwargs,
+    #         )
+    #         table_acc.append(table)
+    #         logger.info(f"pdebug: {file_idx=}, {table=}")
+    # compacted_table = pa.concat_tables(table_acc)
+    # annotated_delta = input.annotated_deltas
+    # logger.info(f"pdebug: prepare_delete: {input.annotated_deltas=}, {type(input.annotated_deltas)=}")
+    # annotations = input.annotated_deltas.annotations
+    # delta_stream_position = annotations[0].annotation_stream_position
+    # delta_type = annotations[0].annotation_delta_type
+    # if delta_type != DeltaType.DELETE:
+    #     logger.info("pdebug: noop - didn't find a delete:")
+    # else:
+    #     delete_columns = ["col_1"]
+    #     all_tables = []
+    #     incremental_delete_table = deltacat_storage.download_delta(
+    #         annotated_delta,
+    #         max_parallelism=1,
+    #         file_reader_kwargs_provider=read_kwargs_provider,
+    #         columns=delete_columns,
+    #         storage_type=StorageType.LOCAL,
+    #         **deltacat_storage_kwargs,
+    #     )
+
+    #     logger.info(f"pdebug: incremental table -> {incremental_delete_table=}, {round_completion_info=}")
+    #     logger.info(f"pdebug:{annotations=}")
+    #     logger.info(f"pdebug: {compacted_table=}, {type(compacted_table)=}, {type(inc_table)=}, {compacted_table['col_1']=}, {inc_table=}")
+    #     delete_table = compacted_table.filter(
+    #         pc.is_in(
+    #             compacted_table['col_1'],
+    #             value_set=inc_table['col_1'],
+    #             skip_nulls=True
+    #         )
+    #     )
+    #     delete_table = delete_table.append_column("spos",pa.array(np.repeat(delta_stream_position, len(delete_table))))
+    #     logger.info(f"pdebug:{delete_table=}")

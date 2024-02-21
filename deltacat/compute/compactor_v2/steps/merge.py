@@ -76,6 +76,7 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
     return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
 
+# TODO: Also operate on compacted table
 def _build_incremental_table(
     hash_bucket_index: int,
     df_envelopes_list: List[List[DeltaFileEnvelope]],
@@ -100,6 +101,7 @@ def _build_incremental_table(
         ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
+            # TODO: apply delete here itself.
 
     for df_envelope in df_envelopes:
         table = df_envelope.table
@@ -136,7 +138,7 @@ def _merge_tables(
         all_tables.append(compacted_table)
 
     all_tables.append(table)
-
+    logger.info(f"pdebug:_merge_tables:{incremental_idx=}, {all_tables=}")
     if not primary_keys or not can_drop_duplicates:
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "

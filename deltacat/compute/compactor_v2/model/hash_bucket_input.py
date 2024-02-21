@@ -21,6 +21,7 @@ class HashBucketInput(Dict):
         object_store: Optional[IObjectStore] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+        round_completion_info: Optional = None,
     ) -> HashBucketInput:
 
         result = HashBucketInput()
@@ -34,7 +35,7 @@ class HashBucketInput(Dict):
         result["object_store"] = object_store
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
-
+        result["round_completion_info"] = round_completion_info
         return result
 
     @property
@@ -76,3 +77,7 @@ class HashBucketInput(Dict):
     @property
     def deltacat_storage_kwargs(self) -> Optional[Dict[str, Any]]:
         return self.get("deltacat_storage_kwargs")
+
+    @property
+    def round_completion_info(self):
+        return self.get("round_completion_info")

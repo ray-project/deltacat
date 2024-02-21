@@ -32,6 +32,7 @@ from deltacat.utils.resources import (
     ProcessUtilizationOverTimeRange,
 )
 from deltacat.constants import BYTES_PER_GIBIBYTE
+from deltacat.compute.compactor_v2.steps.prepare_delete import prepare_delete
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -146,11 +147,18 @@ def _group_file_records_by_pk_hash_bucket(
 
 
 def _timed_hash_bucket(input: HashBucketInput):
+    print(
+        f"pdebug:hash_bucket: {input.annotated_delta=}, {type(input.annotated_delta)=}"
+    )
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
         f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
+        # prepare_delete(input.annotated_delta,
+        #                input.read_kwargs_provider,
+        #                input.deltacat_storage,
+        #                input.deltacat_storage_kwargs, input.round_completion_info)
         (
             delta_file_envelope_groups,
             total_record_count,
@@ -162,6 +170,9 @@ def _timed_hash_bucket(input: HashBucketInput):
             read_kwargs_provider=input.read_kwargs_provider,
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+        )
+        logger.info(
+            f"pdebug:{delta_file_envelope_groups=}, {total_record_count=}, {total_size_bytes=}"
         )
         hash_bucket_group_to_obj_id_tuple = group_hash_bucket_indices(
             hash_bucket_object_groups=delta_file_envelope_groups,

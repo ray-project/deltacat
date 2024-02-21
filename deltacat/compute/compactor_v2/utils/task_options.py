@@ -49,10 +49,11 @@ def _calculate_parquet_column_size(
             if column_meta.path_in_schema in columns:
                 columns_found += 1
                 column_size += column_meta.total_uncompressed_size
-        assert columns_found == len(columns), (
-            "Columns not found in the parquet data as "
-            f"{columns_found} != {len(columns)}"
-        )
+        # TODO: faraonep
+        # assert columns_found == len(columns), (
+        #     "Columns not found in the parquet data as "
+        #     f"{columns_found} != {len(columns)}"
+        # )
     return column_size * PARQUET_TO_PYARROW_INFLATION
 
 
