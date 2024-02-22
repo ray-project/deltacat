@@ -94,16 +94,13 @@ def _build_incremental_table(
     hb_tables = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes = [d for dfe_list in df_envelopes_list for d in dfe_list]
-    logger.info(
-        f"pdebug:_build_incremental_table {len(df_envelopes)=} :{df_envelopes=}"
-    )
     df_envelopes = sorted(
         df_envelopes,
         key=lambda df: (df.stream_position, df.file_index),
         reverse=False,  # ascending
     )
     is_delete = False
-    retrieved_deletes= []
+    retrieved_deletes = []
     sposs = []
 
     deletes_to_apply_to_prev_upserts = None
@@ -115,8 +112,9 @@ def _build_incremental_table(
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
             if spos_to_obj_ref:
-                deletes_to_apply_to_prev_upserts: pa.Table = ray.get([spos_to_obj_ref[df_envelope.stream_position]])[0]
-                logger.info(f"pdebug:{deletes_to_apply_to_prev_upserts.to_pydict()=}")
+                deletes_to_apply_to_prev_upserts: pa.Table = ray.get(
+                    [spos_to_obj_ref[df_envelope.stream_position]]
+                )[0]
                 retrieved_deletes.append(deletes_to_apply_to_prev_upserts)
                 sposs.append(df_envelope.stream_position)
     for df_envelope in df_envelopes:
@@ -125,32 +123,28 @@ def _build_incremental_table(
         # delta_type = df_envelope.delta_type
         if sposs and retrieved_deletes:
             idx_deletes = bisect.bisect_left(sposs, upsert_stream_position)
-            logger.info(f"pdebug:_build_incremental_table:df_envelope:{idx_deletes=}")
             if idx_deletes == len(retrieved_deletes):
                 deletes_to_apply_to_prev_upserts = None
             else:
                 deletes_to_apply_to_prev_upserts = retrieved_deletes[idx_deletes]
         if is_delete and df_envelope.delta_type is DeltaType.UPSERT:
-            deletes_that_are_earlier_then_current_upsert_spos = deletes_to_apply_to_prev_upserts.filter(
-                (pc.field("spos") == pc.scalar(upsert_stream_position)) 
+            deletes_that_are_earlier_then_current_upsert_spos = (
+                deletes_to_apply_to_prev_upserts.filter(
+                    (pc.field("spos") == pc.scalar(upsert_stream_position))
+                )
             )
-            logger.info(f"pdebug:beforefilter:upsert_case{rows_to_keep.to_pydict()=} w spos {upsert_stream_position=}, {deletes_that_are_earlier_then_current_upsert_spos.to_pydict()=}")
             rows_to_keep = rows_to_keep.filter(
                 pc.invert(
                     pc.is_in(
                         rows_to_keep[delete_columns[0]],
-                        value_set=deletes_that_are_earlier_then_current_upsert_spos[delete_columns[0]],
+                        value_set=deletes_that_are_earlier_then_current_upsert_spos[
+                            delete_columns[0]
+                        ],
                     )
                 )
             )
-            logger.info(f"pdebug:afterfilter:upsert_case{rows_to_keep.to_pydict()=}")
-        # if is_delete:
-        #     rows_to_keep = _append_delta_type_column(
-        #         rows_to_keep, np.bool_(sc.delta_type_to_field(df_envelope.delta_type))
-        #     )
         hb_tables.append(rows_to_keep)
     result = pa.concat_tables(hb_tables)
-    logger.info(f"pdebug:end_of_build{result.to_pydict()=}")
     return result
 
 
@@ -169,12 +163,9 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
-    logger.info(f"pdebug: _merge_tables: {dict(locals())}")
     all_tables = []
     incremental_idx = 0
-
     if compacted_table:
-        logger.info(f"pdebug:if compacted_table: {compacted_table=}, {spos_to_obj_ref=}, {compacted_table_spos=}, {delete_columns=}")
         incremental_idx = 1
         all_deletes = []
         all_delete_bundles = []
@@ -182,7 +173,6 @@ def _merge_tables(
             for _, obj_ref in spos_to_obj_ref.items():
                 all_delete_bundles.append(ray.get(obj_ref))
             all_deletes = pa.concat_tables(all_delete_bundles)
-            logger.info(f"pdebug:_merge_tables:BEFORE:{spos_to_obj_ref=},\n\n {all_deletes=},\n\n {compacted_table=}")
             compacted_table = compacted_table.filter(
                 pc.invert(
                     pc.is_in(
@@ -191,20 +181,14 @@ def _merge_tables(
                     )
                 )
             )
-            logger.info(f"pdebug:_merge_tables:AFTER:{spos_to_obj_ref=}, \n\n {all_deletes=}, \n\n {compacted_table=}")
         all_tables.append(compacted_table)
 
     all_tables.append(table)
-    logger.info(f"pdebug:_merge_tables:{incremental_idx=}, {all_tables=}")
     if not primary_keys or not can_drop_duplicates:
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "
             f"and can_drop_duplicates={can_drop_duplicates}"
         )
-        # all_tables[incremental_idx] = _drop_delta_type_rows(
-        #     all_tables[incremental_idx], DeltaType.DELETE
-        # )
-        # we need not drop duplicates
         return pa.concat_tables(all_tables)
 
     all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
@@ -242,7 +226,7 @@ def _download_compacted_table(
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
-) -> pa.Table :
+) -> pa.Table:
     tables = []
     hb_index_to_indices = rcf.hb_index_to_entry_range
 
@@ -468,7 +452,9 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     can_drop_duplicates=input.drop_duplicates,
                     compacted_table=compacted_table,
                     spos_to_obj_ref=input.spos_to_obj_ref,
-                    compacted_table_spos=input.round_completion_info.compacted_delta_locator.stream_position if compacted_table else None,
+                    compacted_table_spos=input.round_completion_info.compacted_delta_locator.stream_position
+                    if compacted_table
+                    else None,
                     delete_columns=["col_1"],
                 )
                 total_deduped_records += hb_table_record_count - len(table)
