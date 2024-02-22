@@ -1,7 +1,11 @@
+import logging
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
 from deltacat.storage.model.types import DistributedDataset
 from deltacat.types.media import TableType, DistributedDatasetType
 from deltacat.compute.merge_on_read.utils.delta import create_df_from_all_deltas
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def merge(params: MergeOnReadParams, **kwargs) -> DistributedDataset:
@@ -20,8 +24,10 @@ def merge(params: MergeOnReadParams, **kwargs) -> DistributedDataset:
         reader_kwargs=params.reader_kwargs,
         deltacat_storage=params.deltacat_storage,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        **kwargs
+        **kwargs,
     )
+
+    logger.info(f"Merging {len(delta_dfs)} delta dfs...")
 
     # TODO: This code should be optimized from daft side
     result = None

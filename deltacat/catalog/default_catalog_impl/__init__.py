@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Optional, Set, Union, Tuple
-import math
 import pyarrow as pa
 import logging
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -57,7 +56,7 @@ def read_table(
         DistributedDatasetType
     ] = DistributedDatasetType.RAY_DATASET,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
-    stream_position_range_inclusive: Optional[Tuple[int, int]] = (0, math.inf),
+    stream_position_range_inclusive: Optional[Tuple[int, int]] = None,
     merge_on_read: Optional[bool] = False,
     reader_kwargs: Optional[Dict[Any, Any]] = None,
     deltacat_storage_kwargs: Optional[Dict[Any, Any]] = None,
@@ -65,6 +64,13 @@ def read_table(
     **kwargs,
 ) -> DistributedDataset:  # type: ignore
     """Read a table into a distributed dataset."""
+
+    if reader_kwargs is None:
+        reader_kwargs = {}
+
+    if deltacat_storage_kwargs is None:
+        deltacat_storage_kwargs = {}
+
     _validate_read_table_args(
         namespace=namespace,
         table_type=table_type,
@@ -350,8 +356,11 @@ def _get_deltas_from_partition_filter(
 
         for delta in deltas:
             if (
-                delta.stream_position >= start_stream_position
-                or delta.stream_position < end_stream_position
+                start_stream_position is None
+                or delta.stream_position >= start_stream_position
+            ) and (
+                end_stream_position is None
+                or delta.stream_position <= end_stream_position
             ):
                 if delta.type == DeltaType.DELETE:
                     raise ValueError("DELETE type deltas are not supported")

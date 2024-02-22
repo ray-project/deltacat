@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Callable
 import daft
 import ray
 from daft.table import read_parquet_into_pyarrow
@@ -30,12 +30,13 @@ def s3_files_to_dataframe(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    ray_options_provider: Optional[Dict[str, Any]] = None,
+    ray_options_provider: Optional[Callable[[int, Any], Dict[str, Any]]] = None,
     s3_client_kwargs: Optional[Any] = None,
+    ray_init_options: Optional[Dict[str, Any]] = None,
 ) -> DataFrame:
 
-    if ray_options_provider is None:
-        ray_options_provider = {}
+    if ray_init_options is None:
+        ray_init_options = {}
 
     assert (
         content_type == ContentType.PARQUET.value
@@ -46,11 +47,9 @@ def s3_files_to_dataframe(
     ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
 
     if not ray.is_initialized():
-        ray.init(**ray_options_provider)
+        ray.init(address="auto", ignore_reinit_error=True, **ray_init_options)
 
-    daft.context.set_runner_ray(
-        address=ray_options_provider.get("address"), noop_if_initialized=True
-    )
+    daft.context.set_runner_ray(noop_if_initialized=True)
 
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
@@ -75,6 +74,8 @@ def s3_files_to_dataframe(
     logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
 
     columns_to_read = include_columns or column_names
+
+    logger.debug(f"Taking columns {len(columns_to_read)} from the daft df.")
 
     if columns_to_read:
         return df.select(*columns_to_read)

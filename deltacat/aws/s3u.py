@@ -412,6 +412,11 @@ def download_manifest_entry(
     return table
 
 
+@ray.remote
+def download_manifest_entry_ray(*args, **kwargs) -> ObjectRef[LocalTable]:
+    return download_manifest_entry(*args, **kwargs)
+
+
 def download_manifest_entries(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
@@ -466,9 +471,10 @@ def download_manifest_entries_distributed(
         "include_columns": include_columns,
         "file_reader_kwargs_provider": file_reader_kwargs_provider,
         "ray_options_provider": ray_options_provider,
+        "distributed_dataset_type": distributed_dataset_type,
     }
 
-    if distributed_dataset_type == DistributedDatasetType.DAFT:
+    if distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
         return _download_manifest_entries_ray_data_distributed(**params)
     elif distributed_dataset_type is not None:
         return _download_manifest_entries_any_distributed(**params)
@@ -634,7 +640,7 @@ def _download_manifest_entries_ray_data_distributed(
     if manifest_entries:
         table_pending_ids = invoke_parallel(
             manifest_entries,
-            download_manifest_entry,
+            download_manifest_entry_ray,
             token_holder,
             table_type,
             column_names,
@@ -699,7 +705,7 @@ def _download_manifest_entries_any_distributed(
     )
 
     if distributed_dataset_type in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
-        DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
+        return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
             uris=uris,
             content_type=entry_content_type,
             content_encoding=entry_content_encoding,

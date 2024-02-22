@@ -366,9 +366,9 @@ def download_delta(
         )
 
     if storage_type == StorageType.DISTRIBUTED:
-        if distributed_dataset_type == DistributedDatasetType.DAFT:
+        if distributed_dataset_type is DistributedDatasetType.DAFT:
             return daft.from_arrow(result)
-        elif distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
+        elif distributed_dataset_type is DistributedDatasetType.RAY_DATASET:
             return ray.data.from_arrow(result)
         else:
             raise ValueError(f"Dataset type {distributed_dataset_type} not supported!")

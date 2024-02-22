@@ -129,7 +129,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_options_provider={"local_mode": True},
+            ray_init_options={"local_mode": True},
         )
 
         table = df.to_arrow()
@@ -141,7 +141,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_options_provider={"local_mode": True},
+            ray_init_options={"local_mode": True},
         )
 
         self.assertRaises(RuntimeError, lambda: len(df))
@@ -156,7 +156,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
                 uris=[self.MVP_PATH],
                 content_encoding=ContentEncoding.IDENTITY.value,
                 content_type=ContentType.UNESCAPED_TSV.value,
-                ray_options_provider={"local_mode": True},
+                ray_init_options={"local_mode": True},
             ),
         )
 
