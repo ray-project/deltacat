@@ -152,10 +152,6 @@ def _timed_hash_bucket(input: HashBucketInput):
     with memray.Tracker(
         f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
-        # prepare_delete(input.annotated_delta,
-        #                input.read_kwargs_provider,
-        #                input.deltacat_storage,
-        #                input.deltacat_storage_kwargs, input.round_completion_info)
         (
             delta_file_envelope_groups,
             total_record_count,
