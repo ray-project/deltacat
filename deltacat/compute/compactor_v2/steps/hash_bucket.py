@@ -135,7 +135,7 @@ def _timed_hash_bucket(input: HashBucketInput):
 @ray.remote
 def hash_bucket(input: HashBucketInput) -> HashBucketResult:
     with ProcessUtilizationOverTimeRange() as process_util:
-        logger.info(f"Starting hash bucket task...")
+        logger.info(f"Starting hash bucket task {input.hb_task_index}...")
 
         # Log node peak memory utilization every 10 seconds
         def log_peak_memory():
@@ -160,7 +160,7 @@ def hash_bucket(input: HashBucketInput) -> HashBucketResult:
             )
             emit_metrics_time = latency
 
-        logger.info(f"Finished hash bucket task...")
+        logger.info(f"Finished hash bucket task {input.hb_task_index}...")
         return HashBucketResult(
             hash_bucket_result[0],
             hash_bucket_result[1],

@@ -260,6 +260,7 @@ def _execute_compaction(
                 "input": HashBucketInput.of(
                     item,
                     primary_keys=params.primary_keys,
+                    hb_task_index=index,
                     num_hash_buckets=params.hash_bucket_count,
                     num_hash_groups=params.hash_group_count,
                     enable_profiler=params.enable_profiler,
