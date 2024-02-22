@@ -75,7 +75,7 @@ def s3_files_to_dataframe(
 
     columns_to_read = include_columns or column_names
 
-    logger.debug(f"Taking columns {len(columns_to_read)} from the daft df.")
+    logger.debug(f"Taking columns {columns_to_read} from the daft df.")
 
     if columns_to_read:
         return df.select(*columns_to_read)
