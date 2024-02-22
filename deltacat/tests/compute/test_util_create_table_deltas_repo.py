@@ -43,7 +43,7 @@ def create_incremental_deltas_on_source_table(
     delete_delta_2 = pa.Table.from_arrays(
         [  # delete last two primary keys
             pa.array([2]),
-            pa.array(["997"]),
+            pa.array(["999"]),
         ],
         names=["pk_col_1", "col_1"],
     )
