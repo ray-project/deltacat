@@ -6,6 +6,7 @@ from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.compute.compactor import DeltaAnnotated
+from deltacat.io.object_store import IObjectStore
 
 
 class PrepareDeleteInput(Dict):
@@ -18,6 +19,7 @@ class PrepareDeleteInput(Dict):
         round_completion_info=None,
         delete_columns: Optional[List[str]] = None,
         primary_keys: List[str] = None,
+        object_store: Optional[IObjectStore] = None,
     ) -> PrepareDeleteInput:
 
         result = PrepareDeleteInput()
@@ -28,6 +30,7 @@ class PrepareDeleteInput(Dict):
         result["round_completion_info"] = round_completion_info
         result["delete_columns"] = delete_columns
         result["primary_keys"] = primary_keys
+        result["object_store"] = object_store
         return result
 
     @property
@@ -57,3 +60,7 @@ class PrepareDeleteInput(Dict):
     @property
     def primary_keys(self) -> List[str]:
         return self.get("primary_keys")
+
+    @property
+    def object_store(self) -> Optional[IObjectStore]:
+        return self.get("object_store")

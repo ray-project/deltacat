@@ -217,13 +217,14 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
 
-    foo = []
+    spos_to_obj_ref = defaultdict(list)
     window_start = 0
     window_end = 0
     while window_end < len(uniform_deltas):
         annotated_delta = uniform_deltas[window_end]
         annotations = annotated_delta.annotations
-        if annotations[0].annotation_delta_type is DeltaType.UPSERT:
+        annotation_delta_type = annotations[0].annotation_delta_type
+        if annotation_delta_type is DeltaType.UPSERT:
             window_end += 1
             continue
         while (
@@ -236,7 +237,7 @@ def _execute_compaction(
         logger.info(
             f"pdebug:compaction_session:{window_start=}:{window_end=},{len(deltas_to_pass)=}, {deltas_to_pass=}"
         )
-        res = pd.prepare_delete(
+        obj_ref, spos = pd.prepare_delete(
             PrepareDeleteInput.of(
                 annotated_deltas=deltas_to_pass,
                 read_kwargs_provider=params.read_kwargs_provider,
@@ -247,32 +248,10 @@ def _execute_compaction(
                 primary_keys=params.primary_keys,
             )
         )
-        # foo.append(res)
+        for spo in spos:
+            spos_to_obj_ref[spo] = obj_ref
         window_start = window_end
         window_end += 1
-    # [U, U, D, D, U, D]
-    # for window_end, annotated_delta in enumerate(uniform_deltas):
-    #     annotations = annotated_delta.annotations
-    #     if annotations[0].annotation_delta_type is DeltaType.UPSERT:
-    #         continue
-    #     while window_end < len(uniform_deltas) and window_end is DeltaType.DELETE:
-    #         window_end += 1
-    #     deltas_to_pass = uniform_deltas[window_start : window_end+1]
-    #     logger.info(f"pdebug:compaction_session:{window_start=}:{window_end=},{len(deltas_to_pass)=}, {deltas_to_pass=}")
-    #     window_start = window_end + 1
-    # res = pd.prepare_delete(
-    #     PrepareDeleteInput.of(
-    #         annotated_deltas=deltas_to_pass,
-    #         read_kwargs_provider=params.read_kwargs_provider,
-    #         deltacat_storage=params.deltacat_storage,
-    #         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-    #         round_completion_info=round_completion_info,
-    #         delete_columns=["col_1"],
-    #         primary_keys=params.primary_keys,
-    #     )
-    # )
-    #
-    # foo.append(res)
 
     hb_options_provider = functools.partial(
         task_resource_options_provider,
@@ -299,7 +278,6 @@ def _execute_compaction(
                 object_store=params.object_store,
                 deltacat_storage=params.deltacat_storage,
                 deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-                round_completion_info=round_completion_info,
             )
         }
 
@@ -428,6 +406,7 @@ def _execute_compaction(
                 object_store=params.object_store,
                 deltacat_storage=params.deltacat_storage,
                 deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                spos_to_obj_ref=spos_to_obj_ref,
             )
         }
 

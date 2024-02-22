@@ -4,7 +4,9 @@ from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import numpy as np
 import pyarrow as pa
 import ray
+from typing import Dict, Any
 import time
+from deltacat.io.object_store import IObjectStore
 import pyarrow.compute as pc
 from uuid import uuid4
 from collections import defaultdict
@@ -80,6 +82,12 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 def _build_incremental_table(
     hash_bucket_index: int,
     df_envelopes_list: List[List[DeltaFileEnvelope]],
+    object_store: IObjectStore = None,
+    spos_to_obj_ref: Optional[Dict[str, Any]] = None,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
 
     logger.info(
@@ -89,28 +97,36 @@ def _build_incremental_table(
     hb_tables = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes = [d for dfe_list in df_envelopes_list for d in dfe_list]
+    logger.info(
+        f"pdebug:_build_incremental_table {len(df_envelopes)=} :{df_envelopes=}"
+    )
     df_envelopes = sorted(
         df_envelopes,
         key=lambda df: (df.stream_position, df.file_index),
         reverse=False,  # ascending
     )
     is_delete = False
+    compacted_table = None
     for df_envelope in df_envelopes:
         assert (
             df_envelope.delta_type != DeltaType.APPEND
         ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
-            # TODO: apply delete here itself.
-
+            if spos_to_obj_ref:
+                new_delete_table = ray.get([spos_to_obj_ref[df_envelope.stream_position]])
+                logger.info(f"pdebug:spos_to_obj_ref=True. delete_table {new_delete_table=}, {round_completion_info=}")
     for df_envelope in df_envelopes:
-        table = df_envelope.table
+        logger.info(f"pdebug:df_envelope:{df_envelope=}")
+        delete_table = df_envelope.table
         if is_delete:
-            table = _append_delta_type_column(
-                table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type))
+            logger.info(f"pdebug:is_delete=True:before {delete_table=}, {compacted_table=}")
+            delete_table = _append_delta_type_column(
+                delete_table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type))
             )
+            logger.info(f"pdebug:is_delete=True:after {delete_table=}, {compacted_table=}")
 
-        hb_tables.append(table)
+        hb_tables.append(delete_table)
 
     result = pa.concat_tables(hb_tables)
 
@@ -362,8 +378,17 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             dfe_list = hb_index_to_delta_file_envelopes_list.get(hb_idx)
 
             if dfe_list:
+                table = _build_incremental_table(
+                    hb_idx,
+                    dfe_list,
+                    input.object_store,
+                    input.spos_to_obj_ref,
+                    input.round_completion_info,
+                    input.read_kwargs_provider,
+                    input.deltacat_storage,
+                    input.deltacat_storage_kwargs,
+                )
                 total_dfes_found += 1
-                table = _build_incremental_table(hb_idx, dfe_list)
 
                 incremental_len = len(table)
                 logger.info(

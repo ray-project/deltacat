@@ -289,9 +289,9 @@ def test_compact_partition_rebase_then_incremental(
     actual_rebase_compacted_table = (
         actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
     )
-    # assert actual_rebase_compacted_table.equals(
-    #     rebase_expected_compact_partition_result
-    # ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
+    assert actual_rebase_compacted_table.equals(
+        rebase_expected_compact_partition_result
+    ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
     """
     INCREMENTAL
     """
