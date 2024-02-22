@@ -114,10 +114,9 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
     go through annotated delta
     go through compacted table
     """
-    logger.info(f"pdebug: prepare_delete: {dict(locals())}")
-    delete_delta_spos = []
+    delete_delta_spos_list = []
     all_upserts = []
-    all_deletes = []
+    spos_of_deltas_affected_by_deletes_and_delete_bundle = []
     round_completion_info = input.round_completion_info
     ret_val = []
     for i, annotated_delta in enumerate(input.annotated_deltas):
@@ -132,7 +131,7 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
                 annotated_delta,
                 max_parallelism=1,
                 file_reader_kwargs_provider=input.read_kwargs_provider,
-                columns=input.primary_keys + input.delete_columns,
+                columns=input.delete_columns,
                 storage_type=StorageType.LOCAL,
                 **input.deltacat_storage_kwargs,
             )
@@ -151,27 +150,23 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
                 storage_type=StorageType.LOCAL,
                 **input.deltacat_storage_kwargs,
             )
-            logger.info(f"pdebug: {i}. delete_incremental table -> {delete_tables=}")
+            logger.info(
+                f"pdebug: {i}. delete_incremental table -> {delete_tables=}"
+            )
             for i, table in enumerate(delete_tables):
                 delete_tables[i] = append_spos_col(table, delta_stream_position)
-            delete_delta_spos.append(delta_stream_position)
-            all_deletes.extend(delete_tables)
+            delete_delta_spos_list.append(delta_stream_position)
+            spos_of_deltas_affected_by_deletes_and_delete_bundle.extend(delete_tables)
     logger.info(f"pdebug: {all_upserts=}")
-    logger.info(f"pdebug: {all_deletes=}")
+    logger.info(f"pdebug: {spos_of_deltas_affected_by_deletes_and_delete_bundle=}")
     if not all_upserts:
         return
-    if not all_deletes:
+    if not spos_of_deltas_affected_by_deletes_and_delete_bundle:
         return
     upsert_concat_table: pa.Table = pa.concat_tables(all_upserts)
-    delete_concat_table: pa.Table = pa.concat_tables(all_deletes)
+    delete_concat_table: pa.Table = pa.concat_tables(spos_of_deltas_affected_by_deletes_and_delete_bundle)
     logger.info(
-        f"pdebug: {upsert_concat_table.to_pydict()=} {delete_concat_table.to_pydict()=}"
-    )
-    delete_concat_table = drop_earlier_duplicates(
-        delete_concat_table, input.delete_columns[0], "spos"
-    )
-    logger.info(
-        f"pdebug: {upsert_concat_table.to_pydict()=} {delete_concat_table.to_pydict()=}"
+        f"pdebug: {upsert_concat_table.to_pydict()=} \n\n {delete_concat_table.to_pydict()=}"
     )
     upsert_concat_table = upsert_concat_table.filter(
         pc.is_in(
@@ -181,7 +176,7 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
         )
     )
     logger.info(
-        f"pdebug: {upsert_concat_table.to_pydict()=} {delete_concat_table.to_pydict()=}"
+        f"pdebug:after_filter {upsert_concat_table.to_pydict()=} \n\n {delete_concat_table.to_pydict()=}"
     )
     ret_val.append(upsert_concat_table)
     if round_completion_info:
@@ -199,6 +194,7 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
             compacted_table = input.deltacat_storage.download_delta_manifest_entry(
                 compacted_delta_locator,
                 entry_index=file_idx,
+                columns=input.delete_columns,
                 file_reader_kwargs_provider=input.read_kwargs_provider,
                 **input.deltacat_storage_kwargs,
             )
@@ -218,11 +214,39 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
             )
         )
         ret_val.append(compacted_concat_table)
-    all_deletes = pa.concat_tables(ret_val)
-    logger.info(f"pdebug: {all_deletes=}")
+    spos_of_deltas_affected_by_deletes_and_delete_bundle = pa.concat_tables(ret_val)
+    logger.info(f"pdebug: {spos_of_deltas_affected_by_deletes_and_delete_bundle=}")
+    obj_ref = ray.put(spos_of_deltas_affected_by_deletes_and_delete_bundle)
+    return obj_ref, delete_delta_spos_list
+
+
+def prepare_delete2(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
+    logger.info(f"pdebug: prepare_delete: {dict(locals())}")
+    delete_delta_spos = []
+    all_deletes = []
+    for i, annotated_delta in enumerate(input.annotated_deltas):
+        annotations = annotated_delta.annotations
+        delta_stream_position = annotations[0].annotation_stream_position
+        delta_type = annotations[0].annotation_delta_type
+        logger.info(
+            f"pdebug:prepare_delete:{i=}: {annotations=} {delta_stream_position=}, {delta_type.value=}"
+        )
+        delete_tables = input.deltacat_storage.download_delta(
+            annotated_delta,
+            max_parallelism=1,
+            file_reader_kwargs_provider=input.read_kwargs_provider,
+            columns=input.delete_columns,
+            storage_type=StorageType.LOCAL,
+            **input.deltacat_storage_kwargs,
+        )
+        logger.info(f"pdebug: {i}. delete_incremental table -> {delete_tables=}")
+        for i, table in enumerate(delete_tables):
+            delete_tables[i] = append_spos_col(table, delta_stream_position)
+        delete_delta_spos.append(delta_stream_position)
+        all_deletes.extend(delete_tables)
+    all_deletes = pa.concat_tables(all_deletes)
     obj_ref = ray.put(all_deletes)
     return obj_ref, delete_delta_spos
-
     # compacted_table = pa.concat_tables(table_acc)
     # annotated_delta = input.annotated_deltas
     # logger.info(f"pdebug: prepare_delete: {input.annotated_deltas=}, {type(input.annotated_deltas)=}")

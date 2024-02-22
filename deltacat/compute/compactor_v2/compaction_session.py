@@ -217,7 +217,36 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
 
-    spos_to_obj_ref = defaultdict(list)
+    delete_spos_to_obj_ref = defaultdict()
+    # lo = 0
+    # hi = 0
+    # while hi < len(uniform_deltas):
+    #     annotated_delta = uniform_deltas[hi]
+    #     if annotated_delta.annotations[0].annotation_delta_type is DeltaType.UPSERT:
+    #         lo += 1
+    #         hi += 1
+    #         continue
+    #     while hi < len(uniform_deltas) and uniform_deltas[hi].annotations[0].annotation_delta_type is DeltaType.DELETE:
+    #         hi += 1
+    #     logger.info(f"pdebug:{lo=}, {hi=}")
+    #     deltas_to_pass = uniform_deltas[lo:hi]
+    #     logger.info(f"pdebug:{deltas_to_pass=}, {annotated_delta.annotations[0].annotation_stream_position=}")
+    #     obj_ref, spos = pd.prepare_delete2(
+    #         PrepareDeleteInput.of(
+    #             annotated_deltas=deltas_to_pass,
+    #             read_kwargs_provider=params.read_kwargs_provider,
+    #             deltacat_storage=params.deltacat_storage,
+    #             deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+    #             round_completion_info=round_completion_info,
+    #             delete_columns=["col_1"],
+    #             primary_keys=params.primary_keys,
+    #         )
+    #     )
+    #     for spo in spos:
+    #         spos_to_obj_ref[spo] = obj_ref
+    #     logger.info(f"pdebug:{lo=}, {hi=}, {spos=}, {spos_to_obj_ref=}")
+    #     lo = hi       
+
     window_start = 0
     window_end = 0
     while window_end < len(uniform_deltas):
@@ -232,11 +261,14 @@ def _execute_compaction(
             and uniform_deltas[window_end].annotations[0].annotation_delta_type
             is DeltaType.DELETE
         ):
+            # window_end will be 1 greater than last delete_index
             window_end += 1
         deltas_to_pass = uniform_deltas[window_start:window_end]
         logger.info(
-            f"pdebug:compaction_session:{window_start=}:{window_end=},{len(deltas_to_pass)=}, {deltas_to_pass=}"
+            f"pdebug:compaction_session:{window_start=}:{window_end=},{len(deltas_to_pass)=}"
         )
+        for i, delta in enumerate(deltas_to_pass):
+            logger.info(f"pdebug:compaction_session:[{window_start=}][{window_end=}]:{i}:{delta.annotations[0].annotation_delta_type}")
         obj_ref, spos = pd.prepare_delete(
             PrepareDeleteInput.of(
                 annotated_deltas=deltas_to_pass,
@@ -249,7 +281,7 @@ def _execute_compaction(
             )
         )
         for spo in spos:
-            spos_to_obj_ref[spo] = obj_ref
+            delete_spos_to_obj_ref[spo] = obj_ref
         window_start = window_end
         window_end += 1
 
@@ -406,7 +438,7 @@ def _execute_compaction(
                 object_store=params.object_store,
                 deltacat_storage=params.deltacat_storage,
                 deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-                spos_to_obj_ref=spos_to_obj_ref,
+                spos_to_obj_ref=delete_spos_to_obj_ref,
             )
         }
 
