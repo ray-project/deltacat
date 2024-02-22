@@ -1,6 +1,6 @@
 import unittest
 from deltacat.types.media import ContentEncoding, ContentType
-from deltacat.utils.daft import daft_s3_file_to_table
+from deltacat.utils.daft import daft_s3_file_to_table, s3_files_to_dataframe
 
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from deltacat.types.partial_download import PartialParquetParameters
@@ -9,7 +9,7 @@ import pyarrow as pa
 from pyarrow import parquet as pq
 
 
-class TestDaftParquetReader(unittest.TestCase):
+class TestDaftS3FileToTable(unittest.TestCase):
     MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
 
     def test_read_from_s3_all_columns(self):
@@ -119,6 +119,46 @@ class TestDaftParquetReader(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 10)
+
+
+class TestDaftS3FilesToDataFrame(unittest.TestCase):
+    MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
+
+    def test_read_from_s3_all_columns(self):
+        df = s3_files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            ray_options_provider={"local_mode": True},
+        )
+
+        table = df.to_arrow()
+        self.assertEqual(table.schema.names, ["a", "b"])
+        self.assertEqual(table.num_rows, 100)
+
+    def test_does_not_read_from_s3_if_not_materialized(self):
+        df = s3_files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            ray_options_provider={"local_mode": True},
+        )
+
+        self.assertRaises(RuntimeError, lambda: len(df))
+        df.collect()
+        self.assertEqual(len(df), 100)
+
+    def test_raises_error_if_not_supported_content_type(self):
+
+        self.assertRaises(
+            AssertionError,
+            lambda: s3_files_to_dataframe(
+                uris=[self.MVP_PATH],
+                content_encoding=ContentEncoding.IDENTITY.value,
+                content_type=ContentType.UNESCAPED_TSV.value,
+                ray_options_provider={"local_mode": True},
+            ),
+        )
 
 
 if __name__ == "__main__":

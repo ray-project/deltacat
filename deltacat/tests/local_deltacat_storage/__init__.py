@@ -1,10 +1,12 @@
 from typing import Any, Callable, Dict, List, Optional, Set, Union, Tuple
 
 import pyarrow as pa
+import daft
 import json
 import sqlite3
 from sqlite3 import Cursor, Connection
 import uuid
+import ray
 import io
 
 from deltacat.tests.test_utils.storage import create_empty_delta
@@ -38,7 +40,13 @@ from deltacat.storage import (
     ManifestEntry,
     ManifestEntryList,
 )
-from deltacat.types.media import ContentType, StorageType, TableType, ContentEncoding
+from deltacat.types.media import (
+    ContentType,
+    StorageType,
+    TableType,
+    ContentEncoding,
+    DistributedDatasetType,
+)
 from deltacat.utils.common import ReadKwargsProvider
 
 SQLITE_CUR_ARG = "sqlite3_cur"
@@ -337,9 +345,10 @@ def download_delta(
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
     *args,
     **kwargs,
-) -> Union[LocalDataset, DistributedDataset]:
+) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     result = []
     manifest = get_delta_manifest(delta_like, *args, **kwargs)
 
@@ -355,6 +364,14 @@ def download_delta(
                 **kwargs,
             )
         )
+
+    if storage_type == StorageType.DISTRIBUTED:
+        if distributed_dataset_type == DistributedDatasetType.DAFT:
+            return daft.from_arrow(result)
+        elif distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
+            return ray.data.from_arrow(result)
+        else:
+            raise ValueError(f"Dataset type {distributed_dataset_type} not supported!")
 
     return result
 

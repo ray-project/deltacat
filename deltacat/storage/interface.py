@@ -23,7 +23,12 @@ from deltacat.storage import (
     SortKey,
     PartitionLocator,
 )
-from deltacat.types.media import ContentType, StorageType, TableType
+from deltacat.types.media import (
+    ContentType,
+    StorageType,
+    TableType,
+    DistributedDatasetType,
+)
 from deltacat.utils.common import ReadKwargsProvider
 
 
@@ -178,9 +183,10 @@ def download_delta(
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
     *args,
     **kwargs
-) -> Union[LocalDataset, DistributedDataset]:
+) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
     Download the given delta or delta locator into either a list of
     tables resident in the local node's memory, or into a dataset distributed
@@ -205,6 +211,8 @@ def download_delta_manifest_entry(
     given delta or delta locator. If a delta is provided with a non-empty
     manifest, then the entry is downloaded from this manifest. Otherwise, the
     manifest is first retrieved then the given entry index downloaded.
+
+    NOTE: The entry will be downloaded in the current node's memory.
     """
     raise NotImplementedError("download_delta_manifest_entry not implemented")
 

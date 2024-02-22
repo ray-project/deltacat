@@ -1,8 +1,9 @@
 import logging
-from typing import Optional, List
-
+from typing import Optional, List, Any, Dict
+import daft
+import ray
 from daft.table import read_parquet_into_pyarrow
-from daft import TimeUnit
+from daft import TimeUnit, DataFrame
 from daft.io import IOConfig, S3Config
 import pyarrow as pa
 
@@ -20,6 +21,65 @@ from deltacat.types.partial_download import (
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+def s3_files_to_dataframe(
+    uris: List[str],
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Optional[Dict[str, Any]] = None,
+    s3_client_kwargs: Optional[Any] = None,
+) -> DataFrame:
+
+    if ray_options_provider is None:
+        ray_options_provider = {}
+
+    assert (
+        content_type == ContentType.PARQUET.value
+    ), f"daft native reader currently only supports parquet, got {content_type}"
+
+    assert (
+        content_encoding == ContentEncoding.IDENTITY.value
+    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
+
+    if not ray.is_initialized():
+        ray.init(**ray_options_provider)
+
+    daft.context.set_runner_ray(
+        address=ray_options_provider.get("address"), noop_if_initialized=True
+    )
+
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
+    kwargs = {}
+    if read_func_kwargs_provider is not None:
+        kwargs = read_func_kwargs_provider(content_type, kwargs)
+
+    # TODO(raghumdani): pass in coerce_int96_timestamp arg
+    # https://github.com/Eventual-Inc/Daft/issues/1894
+
+    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
+
+    logger.debug(
+        f"Preparing to read S3 object from {len(uris)} files into daft dataframe"
+    )
+
+    df, latency = timed_invocation(
+        daft.read_parquet, path=uris, io_config=io_config, use_native_downloader=True
+    )
+
+    logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
+
+    columns_to_read = include_columns or column_names
+
+    if columns_to_read:
+        return df.select(*columns_to_read)
+    else:
+        return df
 
 
 def daft_s3_file_to_table(
@@ -55,16 +115,7 @@ def daft_s3_file_to_table(
     ):
         row_groups = partial_file_download_params.row_groups_to_download
 
-    io_config = IOConfig(
-        s3=S3Config(
-            key_id=s3_client_kwargs.get("aws_access_key_id"),
-            access_key=s3_client_kwargs.get("aws_secret_access_key"),
-            session_token=s3_client_kwargs.get("aws_session_token"),
-            retry_mode="adaptive",
-            num_tries=BOTO_MAX_RETRIES,
-            max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
-        )
-    )
+    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
 
     logger.debug(f"Preparing to read S3 object from {s3_url} into daft table")
 
@@ -95,3 +146,16 @@ def daft_s3_file_to_table(
         return coerce_pyarrow_table_to_schema(pa_table, input_schema)
     else:
         return pa_table
+
+
+def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
+    return IOConfig(
+        s3=S3Config(
+            key_id=s3_client_kwargs.get("aws_access_key_id"),
+            access_key=s3_client_kwargs.get("aws_secret_access_key"),
+            session_token=s3_client_kwargs.get("aws_session_token"),
+            retry_mode="adaptive",
+            num_tries=BOTO_MAX_RETRIES,
+            max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
+        )
+    )
