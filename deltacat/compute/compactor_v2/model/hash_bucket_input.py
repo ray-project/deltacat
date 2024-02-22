@@ -15,6 +15,7 @@ class HashBucketInput(Dict):
         primary_keys: List[str],
         num_hash_buckets: int,
         num_hash_groups: int,
+        hb_task_index: Optional[int] = 0,
         enable_profiler: Optional[bool] = False,
         metrics_config: Optional[MetricsConfig] = None,
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -26,6 +27,7 @@ class HashBucketInput(Dict):
         result = HashBucketInput()
         result["annotated_delta"] = annotated_delta
         result["primary_keys"] = primary_keys
+        result["hb_task_index"] = hb_task_index
         result["num_hash_buckets"] = num_hash_buckets
         result["num_hash_groups"] = num_hash_groups
         result["enable_profiler"] = enable_profiler
@@ -44,6 +46,10 @@ class HashBucketInput(Dict):
     @property
     def primary_keys(self) -> List[str]:
         return self["primary_keys"]
+
+    @property
+    def hb_task_index(self) -> List[str]:
+        return self["hb_task_index"]
 
     @property
     def num_hash_buckets(self) -> int:

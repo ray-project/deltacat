@@ -457,7 +457,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 @ray.remote
 def merge(input: MergeInput) -> MergeResult:
     with ProcessUtilizationOverTimeRange() as process_util:
-        logger.info(f"Starting merge task...")
+        logger.info(f"Starting merge task {input.merge_task_index}...")
 
         # Log node peak memory utilization every 10 seconds
         def log_peak_memory():
@@ -480,7 +480,7 @@ def merge(input: MergeInput) -> MergeResult:
             )
             emit_metrics_time = latency
 
-        logger.info(f"Finished merge task...")
+        logger.info(f"Finished merge task {input.merge_task_index}...")
         return MergeResult(
             merge_result[0],
             merge_result[1],
