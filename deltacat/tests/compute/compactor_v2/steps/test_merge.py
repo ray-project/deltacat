@@ -6,8 +6,8 @@ from typing import List
 from collections import defaultdict
 
 from deltacat.compute.compactor_v2.model.merge_file_group import (
-    RemoteMergeFileGroupsFactory,
-    LocalMergeFileGroupsFactory,
+    RemoteMergeFileGroupsProvider,
+    LocalMergeFileGroupsProvider,
 )
 from deltacat.compute.compactor_v2.utils.delta import read_delta_file_envelopes
 from deltacat.storage import Delta, DeltaType
@@ -80,7 +80,7 @@ class TestMerge(unittest.TestCase):
             merge_input_list.append(
                 MergeInput.of(
                     compacted_file_content_type=ContentType.PARQUET,
-                    merge_file_groups_factory=RemoteMergeFileGroupsFactory(
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
                         hash_group_index=hg_index,
                         dfe_groups_refs=dfes,
                         hash_bucket_count=number_of_hash_bucket,
@@ -127,7 +127,7 @@ class TestMerge(unittest.TestCase):
             merge_input_list.append(
                 MergeInput.of(
                     compacted_file_content_type=ContentType.PARQUET,
-                    merge_file_groups_factory=RemoteMergeFileGroupsFactory(
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
                         hash_group_index=hg_index,
                         dfe_groups_refs=dfes,
                         hash_bucket_count=number_of_hash_bucket,
@@ -174,7 +174,7 @@ class TestMerge(unittest.TestCase):
             merge_input_list.append(
                 MergeInput.of(
                     compacted_file_content_type=ContentType.PARQUET,
-                    merge_file_groups_factory=RemoteMergeFileGroupsFactory(
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
                         hash_group_index=hg_index,
                         dfe_groups_refs=dfes,
                         hash_bucket_count=number_of_hash_bucket,
@@ -222,7 +222,7 @@ class TestMerge(unittest.TestCase):
             merge_input_list.append(
                 MergeInput.of(
                     compacted_file_content_type=ContentType.PARQUET,
-                    merge_file_groups_factory=RemoteMergeFileGroupsFactory(
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
                         hash_group_index=hg_index,
                         dfe_groups_refs=dfes,
                         hash_bucket_count=number_of_hash_bucket,
@@ -278,14 +278,14 @@ class TestMerge(unittest.TestCase):
             hb_index_to_entry_range=hb_id_to_entry_indices_range,
         )
 
-        new_da = DeltaAnnotated.of(new_delta)
-        dfes = self._prepare_merge_inputs_single_hb(new_da)
-
         merge_input = MergeInput.of(
             round_completion_info=rcf,
             compacted_file_content_type=ContentType.PARQUET,
-            merge_file_groups_factory=LocalMergeFileGroupsFactory(
-                delta_file_envelopes=dfes
+            merge_file_groups_provider=LocalMergeFileGroupsProvider(
+                uniform_deltas=[DeltaAnnotated.of(new_delta)],
+                read_kwargs_provider=None,
+                deltacat_storage=ds,
+                deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk1"],
@@ -352,7 +352,7 @@ class TestMerge(unittest.TestCase):
                 MergeInput.of(
                     round_completion_info=rcf,
                     compacted_file_content_type=ContentType.PARQUET,
-                    merge_file_groups_factory=RemoteMergeFileGroupsFactory(
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
                         hash_group_index=hg_index,
                         dfe_groups_refs=dfes,
                         hash_bucket_count=number_of_hash_bucket,
@@ -391,8 +391,11 @@ class TestMerge(unittest.TestCase):
 
         merge_input = MergeInput.of(
             compacted_file_content_type=ContentType.PARQUET,
-            merge_file_groups_factory=LocalMergeFileGroupsFactory(
-                delta_file_envelopes=dfes_groups
+            merge_file_groups_provider=LocalMergeFileGroupsProvider(
+                uniform_deltas=[DeltaAnnotated.of(old_delta)],
+                read_kwargs_provider=None,
+                deltacat_storage=ds,
+                deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk"],
@@ -420,8 +423,11 @@ class TestMerge(unittest.TestCase):
         dfes_groups, _, _ = self._extract_dfes_from_delta(new_delta)
         merge_input = MergeInput.of(
             compacted_file_content_type=ContentType.PARQUET,
-            merge_file_groups_factory=LocalMergeFileGroupsFactory(
-                delta_file_envelopes=dfes_groups
+            merge_file_groups_provider=LocalMergeFileGroupsProvider(
+                uniform_deltas=[DeltaAnnotated.of(new_delta)],
+                read_kwargs_provider=None,
+                deltacat_storage=ds,
+                deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk1", "pk2"],

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Any
 
 from deltacat.compute.compactor_v2.model.merge_file_group import (
-    MergeFileGroupsFactory,
+    MergeFileGroupsProvider,
 )
 from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
@@ -24,7 +24,7 @@ from deltacat.compute.compactor.model.round_completion_info import RoundCompleti
 class MergeInput(Dict):
     @staticmethod
     def of(
-        merge_file_groups_factory: MergeFileGroupsFactory,
+        merge_file_groups_provider: MergeFileGroupsProvider,
         write_to_partition: Partition,
         compacted_file_content_type: ContentType,
         primary_keys: List[str],
@@ -43,7 +43,7 @@ class MergeInput(Dict):
     ) -> MergeInput:
 
         result = MergeInput()
-        result["merge_file_groups_factory"] = merge_file_groups_factory
+        result["merge_file_groups_provider"] = merge_file_groups_provider
         result["write_to_partition"] = write_to_partition
         result["compacted_file_content_type"] = compacted_file_content_type
         result["primary_keys"] = primary_keys
@@ -63,8 +63,8 @@ class MergeInput(Dict):
         return result
 
     @property
-    def merge_file_groups_factory(self) -> MergeFileGroupsFactory:
-        return self["merge_file_groups_factory"]
+    def merge_file_groups_provider(self) -> MergeFileGroupsProvider:
+        return self["merge_file_groups_provider"]
 
     @property
     def write_to_partition(self) -> Partition:

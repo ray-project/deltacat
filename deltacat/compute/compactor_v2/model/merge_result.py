@@ -6,6 +6,7 @@ import numpy as np
 
 class MergeResult(NamedTuple):
     materialize_results: List[MaterializeResult]
+    input_record_count: np.int64
     deduped_record_count: np.int64
     peak_memory_usage_bytes: np.double
     telemetry_time_in_seconds: np.double

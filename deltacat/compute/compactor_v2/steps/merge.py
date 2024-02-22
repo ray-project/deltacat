@@ -1,22 +1,15 @@
 import logging
 import importlib
-
-from deltacat.compute.compactor_v2.model.merge_file_group import (
-    RemoteMergeFileGroupsFactory,
-    LocalMergeFileGroupsFactory,
-)
 from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import numpy as np
 import pyarrow as pa
 import ray
 import time
 import pyarrow.compute as pc
+import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
 from typing import List, Optional, Tuple
-from deltacat.compute.compactor_v2.utils.merge import (
-    materialize,
-)
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
@@ -265,18 +258,17 @@ def _copy_all_manifest_files_from_old_hash_buckets(
 
 
 def _compact_tables(
-    input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: Optional[int]
-) -> Tuple[pa.Table, int]:
-    hb_prefix_log_statement = f"[Hash bucket index {hb_idx}]" if hb_idx else "[Local]"
+    input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
+) -> Tuple[pa.Table, int, int]:
     logger.info(
-        f"{hb_prefix_log_statement} Reading dedupe input for "
+        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
     table = _build_incremental_table(dfe_list)
 
     incremental_len = len(table)
     logger.info(
-        f"{hb_prefix_log_statement}Got the incremental table of length {incremental_len}"
+        f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
     )
 
     if input.sort_keys:
@@ -288,15 +280,7 @@ def _compact_tables(
 
     compacted_table = None
 
-    if input.round_completion_info and hb_idx is None:
-        compacted_dataset = input.deltacat_storage.download_delta(
-            input.round_completion_info.compacted_delta_locator,
-            file_reader_kwargs_provider=input.read_kwargs_provider,
-            **input.deltacat_storage_kwargs,
-        )
-        if compacted_dataset:
-            compacted_table = pa.concat_tables(compacted_dataset)
-    elif (
+    if (
         input.round_completion_info
         and input.round_completion_info.hb_index_to_entry_range
         and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
@@ -328,7 +312,7 @@ def _compact_tables(
         f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
     )
 
-    return table, total_deduped_records
+    return table, incremental_len, total_deduped_records
 
 
 def _copy_previous_compacted_table(input: MergeInput) -> List[MaterializeResult]:
@@ -365,18 +349,15 @@ def _copy_previous_compacted_table(input: MergeInput) -> List[MaterializeResult]
     return materialized_results
 
 
-def _copy_manifests_from_hash_bucketing(input: MergeInput) -> List[MaterializeResult]:
+def _copy_manifests_from_hash_bucketing(
+    input: MergeInput, hb_index_copy_by_reference_ids: List[int]
+) -> List[MaterializeResult]:
     materialized_results: List[MaterializeResult] = []
-    hb_dfp_factory = input.merge_file_groups_factory
 
-    if (
-        input.round_completion_info
-        and isinstance(hb_dfp_factory, RemoteMergeFileGroupsFactory)
-        and hb_dfp_factory.hb_index_copy_by_reference_ids
-    ):
+    if input.round_completion_info:
         referenced_materialized_results = (
             _copy_all_manifest_files_from_old_hash_buckets(
-                hb_dfp_factory.hb_index_copy_by_reference_ids,
+                hb_index_copy_by_reference_ids,
                 input.round_completion_info,
                 input.write_to_partition,
                 input.deltacat_storage,
@@ -397,45 +378,36 @@ def _timed_merge(input: MergeInput) -> MergeResult:
     with memray.Tracker(
         f"merge_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
-        total_deduped_records = 0
-        total_dfes_found = 0
+        total_input_records, total_deduped_records = 0, 0
         materialized_results: List[MaterializeResult] = []
-        merge_file_groups = input.merge_file_groups_factory.create()
-        hash_group_index = None
+        merge_file_groups = input.merge_file_groups_provider.create()
+        hb_index_copy_by_ref_ids = []
 
         for merge_file_group in merge_file_groups:
-            total_dfes_found += 1
-            table, deduped_records = _compact_tables(
+            if not merge_file_group.dfe_groups:
+                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
+                continue
+
+            table, input_records, deduped_records = _compact_tables(
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
+            total_input_records += input_records
             total_deduped_records += deduped_records
-            merge_task_index = (
-                merge_file_group.hb_index
-                if merge_file_group.hb_index is not None
-                else input.merge_task_index
+            materialized_results.append(
+                merge_utils.materialize(input, merge_file_group.hb_index, [table])
             )
-            materialized_results.append(materialize(input, merge_task_index, [table]))
 
-        if (
-            isinstance(input.merge_file_groups_factory, LocalMergeFileGroupsFactory)
-            and not merge_file_groups
-        ):
+        if not merge_file_groups:
             materialized_results.extend(_copy_previous_compacted_table(input))
 
-        if isinstance(input.merge_file_groups_factory, RemoteMergeFileGroupsFactory):
-            hash_group_index = input.merge_file_groups_factory.hash_group_index
-            materialized_results.extend(_copy_manifests_from_hash_bucketing(input))
+        if hb_index_copy_by_ref_ids:
+            materialized_results.extend(
+                _copy_manifests_from_hash_bucketing(input, hb_index_copy_by_ref_ids)
+            )
 
-        hg_prefix_log_statement = (
-            f"[Hash group index: {hash_group_index}]" if hash_group_index else "[Local]"
-        )
         logger.info(
-            f"{hg_prefix_log_statement} Total number of materialized results produced: {len(materialized_results)} "
-        )
-
-        assert total_dfes_found == len(merge_file_groups), (
-            "The total dfe list does not match the input dfes "
-            f"{total_dfes_found} != {len(merge_file_groups)}"
+            f"[Hash group index: {input.merge_file_groups_provider.hash_group_index}]"
+            f" Total number of materialized results produced: {len(materialized_results)} "
         )
 
         peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
@@ -445,6 +417,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
         return MergeResult(
             materialized_results,
+            np.int64(total_input_records),
             np.int64(total_deduped_records),
             np.double(peak_memory_usage_bytes),
             np.double(0.0),
@@ -483,6 +456,7 @@ def merge(input: MergeInput) -> MergeResult:
             merge_result[0],
             merge_result[1],
             merge_result[2],
+            merge_result[3],
             np.double(emit_metrics_time),
             merge_result[4],
         )

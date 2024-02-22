@@ -8,7 +8,7 @@ import time
 import json
 
 from deltacat.compute.compactor_v2.model.merge_file_group import (
-    RemoteMergeFileGroupsFactory,
+    RemoteMergeFileGroupsProvider,
 )
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 
@@ -21,7 +21,6 @@ from deltacat.compute.compactor import PyArrowWriteResult, RoundCompletionInfo
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
-from deltacat.compute.compactor_v2.utils.delta import get_local_delta_file_envelopes
 from deltacat.compute.compactor_v2.utils.merge import (
     generate_local_merge_input,
 )
@@ -245,19 +244,13 @@ def _execute_compaction(
     total_hb_record_count = np.int64(0)
     telemetry_time_hb = 0
     if params.hash_bucket_count == 1:
-        local_dfe_list, input_records_count = get_local_delta_file_envelopes(
-            uniform_deltas,
-            params.read_kwargs_provider,
-            params.deltacat_storage,
-            params.deltacat_storage_kwargs,
-        )
-
-        total_input_records_count += input_records_count
         merge_start = time.monotonic()
         local_merge_input = generate_local_merge_input(
-            params, local_dfe_list, compacted_partition, round_completion_info
+            params, uniform_deltas, compacted_partition, round_completion_info
         )
-        merge_results = ray.get([mg.merge.remote(local_merge_input)])
+        local_merge_result = ray.get(mg.merge.remote(local_merge_input))
+        total_input_records_count += local_merge_result.input_record_count
+        merge_results = [local_merge_result]
         merge_invoke_end = time.monotonic()
     else:
         hb_start = time.monotonic()
@@ -369,7 +362,7 @@ def _execute_compaction(
         def merge_input_provider(index, item):
             return {
                 "input": MergeInput.of(
-                    merge_file_groups_factory=RemoteMergeFileGroupsFactory(
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
                         hash_group_index=item[0],
                         dfe_groups_refs=item[1],
                         hash_bucket_count=params.hash_bucket_count,

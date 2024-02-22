@@ -4,7 +4,7 @@ from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 from deltacat.compute.compactor_v2.model.merge_file_group import (
-    LocalMergeFileGroupsFactory,
+    LocalMergeFileGroupsProvider,
 )
 from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import pyarrow as pa
@@ -14,7 +14,10 @@ from typing import List, Optional
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
-from deltacat.compute.compactor import RoundCompletionInfo, DeltaFileEnvelope
+from deltacat.compute.compactor import (
+    RoundCompletionInfo,
+    DeltaAnnotated,
+)
 
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 
@@ -80,7 +83,7 @@ def materialize(
 
 def generate_local_merge_input(
     params: CompactPartitionParams,
-    delta_file_envelopes: List[DeltaFileEnvelope],
+    annotated_deltas: List[DeltaAnnotated],
     compacted_partition: Partition,
     round_completion_info: Optional[RoundCompletionInfo],
 ):
@@ -90,7 +93,7 @@ def generate_local_merge_input(
 
     Args:
         params: parameters for compacting a partition
-        delta_file_envelopes: a list of delta file envelopes
+        annotated_deltas: a list of annotated deltas
         compacted_partition: the compacted partition to write to
         round_completion_info: keeps track of high watermarks and other metadata from previous compaction rounds
 
@@ -100,7 +103,12 @@ def generate_local_merge_input(
     """
 
     return MergeInput.of(
-        merge_file_groups_factory=LocalMergeFileGroupsFactory(delta_file_envelopes),
+        merge_file_groups_provider=LocalMergeFileGroupsProvider(
+            annotated_deltas,
+            read_kwargs_provider=params.read_kwargs_provider,
+            deltacat_storage=params.deltacat_storage,
+            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+        ),
         write_to_partition=compacted_partition,
         compacted_file_content_type=params.compacted_file_content_type,
         primary_keys=params.primary_keys,
