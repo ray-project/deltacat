@@ -86,7 +86,6 @@ def _build_incremental_table(
     object_store: IObjectStore = None,
     spos_to_obj_ref: Optional[Dict[str, Any]] = None,
 ) -> pa.Table:
-
     logger.info(
         f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
         f"{len(df_envelopes_list)} delta file envelope lists..."
@@ -105,7 +104,8 @@ def _build_incremental_table(
 
     deletes_to_apply_to_prev_upserts = None
     delete_columns = ["col_1"]
-    for df_envelope in df_envelopes:
+    for i, df_envelope in enumerate(df_envelopes):
+        logger.info(f"pdebug:first:for df_envelope in df_envelopes {i=}:{df_envelope=}, {spos_to_obj_ref=}")
         assert (
             df_envelope.delta_type != DeltaType.APPEND
         ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
@@ -117,33 +117,54 @@ def _build_incremental_table(
                 )[0]
                 retrieved_deletes.append(deletes_to_apply_to_prev_upserts)
                 sposs.append(df_envelope.stream_position)
-    for df_envelope in df_envelopes:
+    for i, df_envelope in enumerate(df_envelopes):
         rows_to_keep = df_envelope.table
         upsert_stream_position = df_envelope.stream_position
-        # delta_type = df_envelope.delta_type
-        if sposs and retrieved_deletes:
-            idx_deletes = bisect.bisect_left(sposs, upsert_stream_position)
-            if idx_deletes == len(retrieved_deletes):
-                deletes_to_apply_to_prev_upserts = None
-            else:
-                deletes_to_apply_to_prev_upserts = retrieved_deletes[idx_deletes]
+        delete_type = df_envelope.delta_type
+        logger.info(f"pdebug:second: for df_envelope in df_envelopes {i=}:{df_envelope=}, {spos_to_obj_ref=}, {deletes_to_apply_to_prev_upserts=}")
         if is_delete and df_envelope.delta_type is DeltaType.UPSERT:
-            deletes_that_are_earlier_then_current_upsert_spos = (
+            relevent_delete = (
                 deletes_to_apply_to_prev_upserts.filter(
                     (pc.field("spos") == pc.scalar(upsert_stream_position))
                 )
             )
+            logger.info(f"pdebug:{i=}  {relevent_delete=}.BEFORE: rows_to_keep = {rows_to_keep=}")
             rows_to_keep = rows_to_keep.filter(
-                pc.invert(
-                    pc.is_in(
-                        rows_to_keep[delete_columns[0]],
-                        value_set=deletes_that_are_earlier_then_current_upsert_spos[
-                            delete_columns[0]
-                        ],
+                    pc.invert(
+                        pc.is_in(
+                            rows_to_keep[delete_columns[0]],
+                            value_set=relevent_delete[delete_columns[0]],
+                        )
                     )
-                )
             )
+            logger.info(f"pdebug:{i=} {relevent_delete=}.AFTER: rows_to_keep = {rows_to_keep=}")
+            
+        #     # if sposs and retrieved_deletes:
+        #     #     idx_deletes = bisect.bisect_left(sposs, upsert_stream_position)
+        #     #     if idx_deletes == len(retrieved_deletes):
+        #     #         deletes_to_apply_to_prev_upserts = None
+        #     #     else:
+        #     #         deletes_to_apply_to_prev_upserts = retrieved_deletes[idx_deletes]
+        # else:
+        #     if is_delete and df_envelope.delta_type is DeltaType.UPSERT:
+        #         deletes_that_are_earlier_then_current_upsert_spos = (
+        #             deletes_to_apply_to_prev_upserts.filter(
+        #                 (pc.field("spos") == pc.scalar(upsert_stream_position))
+        #             )
+        #         )
+        #         rows_to_keep = rows_to_keep.filter(
+        #             pc.invert(
+        #                 pc.is_in(
+        #                     rows_to_keep[delete_columns[0]],
+        #                     value_set=deletes_that_are_earlier_then_current_upsert_spos[
+        #                         delete_columns[0]
+        #                     ],
+        #                 )
+        #             )
+        #         )
+        logger.info(f"pdebug:{i=}:BEFOREAPPEND {hb_tables=}")
         hb_tables.append(rows_to_keep)
+        logger.info(f"pdebug:{i=}:AFTERAPPEND {hb_tables=}")
     result = pa.concat_tables(hb_tables)
     return result
 
@@ -169,6 +190,7 @@ def _merge_tables(
         incremental_idx = 1
         all_deletes = []
         all_delete_bundles = []
+        logger.info(f"pdebug:if compacted_table:{table=} {compacted_table=}")
         if spos_to_obj_ref:
             for _, obj_ref in spos_to_obj_ref.items():
                 all_delete_bundles.append(ray.get(obj_ref))
@@ -201,22 +223,18 @@ def _merge_tables(
 
     if compacted_table:
         compacted_table = all_tables[0]
-
+        logger.info(f"pdebug:if compacted_table:{table=} {compacted_table=}")
         records_to_keep = pc.invert(
             pc.is_in(
                 compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
                 incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
             )
         )
-
         result_table_list.append(compacted_table.filter(records_to_keep))
 
-    # incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
     result_table_list.append(incremental_table)
-
     final_table = pa.concat_tables(result_table_list)
     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
-
     return final_table
 
 

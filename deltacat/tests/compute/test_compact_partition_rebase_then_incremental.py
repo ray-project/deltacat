@@ -292,6 +292,16 @@ def test_compact_partition_rebase_then_incremental(
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
+
+    """
+    rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3]),
+                pa.array(["996", "997", "999", "999"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+    """
     """
     INCREMENTAL
     """
@@ -357,19 +367,12 @@ def test_compact_partition_rebase_then_incremental(
         expected_terminal_compact_partition_result.combine_chunks().sort_by(
             sorting_cols
         )
-    )
+)
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
         sorting_cols
     )
 
-    # assert compaction_audit.input_records == (
-    #     len(incremental_deltas) if incremental_deltas else 0
-    # ) + len(actual_rebase_compacted_table), (
-    #     "Total input records must be equal to incremental deltas"
-    #     "+ previous compacted table size"
-    # )
-
-    # assert actual_compacted_table.equals(
-    #     expected_terminal_compact_partition_result
-    # ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
-    # return
+    assert actual_compacted_table.equals(
+        expected_terminal_compact_partition_result
+    ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
+    return

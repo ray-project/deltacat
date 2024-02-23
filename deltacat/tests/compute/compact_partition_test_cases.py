@@ -1142,8 +1142,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         partition_values=["2022-01-01T00:00:00.000Z"],
         input_deltas=pa.Table.from_arrays(
             [
-                pa.array([(i % 4) for i in range(1000)] + [2]),
-                pa.array([str(i) for i in range(0, 1000)] + ["999"]),
+                pa.array([(i % 4) for i in range(1000)]),
+                pa.array([str(i) for i in range(0, 1000)]),
             ],
             names=["pk_col_1", "col_1"],
         ),
@@ -1151,22 +1151,22 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         rebase_expected_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([0, 1, 2, 3]),
-                pa.array(["996", "997", "999", "999"]),
+                pa.array(["996", "997", "998", "999"]),
             ],
             names=["pk_col_1", "col_1"],
         ),
         incremental_deltas=pa.Table.from_arrays(
-            [  # delete last two pripmary keys
+            [
                 pa.array([2]),
-                pa.array(["999"]),
+                pa.array(["998"]),
             ],
             names=["pk_col_1", "col_1"],
         ),
         incremental_deltas_delta_type=DeltaType.DELETE,
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
-                pa.array([0, 1]),
-                pa.array(["8", "9"]),
+                pa.array([0, 1, 3]),
+                pa.array(["a", "997", "999"]),
             ],
             names=["pk_col_1", "col_1"],
         ),

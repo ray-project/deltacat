@@ -217,6 +217,21 @@ def _execute_compaction(
 
     delete_spos_to_obj_ref = defaultdict()
     window_start, window_end = 0, 0
+    """
+    run prepare deletes if delete delta found
+         COL_1
+    U1:   2
+    U2:   4
+    U3:   3
+    D1:   COL_1=2 -> 
+
+
+    [SPOS, DELETE_ID]
+      1      2
+
+
+
+    """
     while window_end < len(uniform_deltas):
         annotated_delta = uniform_deltas[window_end]
         annotations = annotated_delta.annotations
@@ -229,7 +244,6 @@ def _execute_compaction(
             and uniform_deltas[window_end].annotations[0].annotation_delta_type
             is DeltaType.DELETE
         ):
-            # window_end will be 1 greater than last delete_index
             window_end += 1
         deltas_to_pass = uniform_deltas[window_start:window_end]
         for i, delta in enumerate(deltas_to_pass):
