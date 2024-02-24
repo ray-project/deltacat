@@ -6,11 +6,11 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 from ray.data.dataset import Dataset
-from daft import DataFrame
+from daft import DataFrame as DaftDataFrame
 
 LocalTable = Union[pa.Table, pd.DataFrame, np.ndarray, ParquetFile]
 LocalDataset = List[LocalTable]
-DistributedDataset = Union[Dataset, DataFrame]
+DistributedDataset = Union[Dataset, DaftDataFrame]
 
 
 class DeltaType(str, Enum):

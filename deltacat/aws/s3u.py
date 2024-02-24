@@ -357,17 +357,7 @@ def download_manifest_entry(
     content_encoding: Optional[ContentEncoding] = None,
 ) -> LocalTable:
 
-    conf = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
-    s3_client_kwargs = (
-        {
-            "aws_access_key_id": token_holder["accessKeyId"],
-            "aws_secret_access_key": token_holder["secretAccessKey"],
-            "aws_session_token": token_holder["sessionToken"],
-            "config": conf,
-        }
-        if token_holder
-        else {"config": conf}
-    )
+    s3_client_kwargs = _get_s3_client_kwargs_from_token(token_holder=token_holder)
     if not content_type:
         content_type = manifest_entry.meta.content_type
         assert (
@@ -477,7 +467,7 @@ def download_manifest_entries_distributed(
     if distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
         return _download_manifest_entries_ray_data_distributed(**params)
     elif distributed_dataset_type is not None:
-        return _download_manifest_entries_any_distributed(**params)
+        return _download_manifest_entries_all_dataset_distributed(**params)
     else:
         raise ValueError(
             f"Distributed dataset type {distributed_dataset_type} not supported."
@@ -579,6 +569,20 @@ def _block_metadata(block: Block) -> BlockMetadata:
     )
 
 
+def _get_s3_client_kwargs_from_token(token_holder) -> Dict[Any, Any]:
+    conf = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
+    return (
+        {
+            "aws_access_key_id": token_holder["accessKeyId"],
+            "aws_secret_access_key": token_holder["secretAccessKey"],
+            "aws_session_token": token_holder["sessionToken"],
+            "config": conf,
+        }
+        if token_holder
+        else {"config": conf}
+    )
+
+
 def _get_metadata(
     table: Union[LocalTable, DistributedDataset],
     write_paths: List[str],
@@ -652,7 +656,7 @@ def _download_manifest_entries_ray_data_distributed(
     return TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS[table_type](table_pending_ids)
 
 
-def _download_manifest_entries_any_distributed(
+def _download_manifest_entries_all_dataset_distributed(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
     table_type: TableType = TableType.PYARROW,
@@ -692,17 +696,7 @@ def _download_manifest_entries_any_distributed(
         entry_content_encoding = entry.meta.content_encoding
         uris.append(entry.uri)
 
-    conf = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
-    s3_client_kwargs = (
-        {
-            "aws_access_key_id": token_holder["accessKeyId"],
-            "aws_secret_access_key": token_holder["secretAccessKey"],
-            "aws_session_token": token_holder["sessionToken"],
-            "config": conf,
-        }
-        if token_holder
-        else {"config": conf}
-    )
+    s3_client_kwargs = _get_s3_client_kwargs_from_token(token_holder=token_holder)
 
     if distributed_dataset_type in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
         return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](

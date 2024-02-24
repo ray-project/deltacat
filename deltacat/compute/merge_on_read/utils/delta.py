@@ -18,7 +18,7 @@ def create_df_from_all_deltas(
     **kwargs
 ) -> List[DistributedDataset]:  # type: ignore
     """
-    This method creates a distributed dataframe for each delta and returns their references.
+    This method creates a distributed dataset for each delta and returns their references.
     """
 
     if reader_kwargs is None:
