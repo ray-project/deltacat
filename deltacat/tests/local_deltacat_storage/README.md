@@ -237,7 +237,9 @@ ds.get_delta('hash_bucket_test', 'test_table', 1691182796009, [], '1', True, **k
 
 ```python
 import pyarrow as pa
-tables = ds.download_delta(committed_delta, **kwargs)
+from deltacat.types.media import StorageType
+
+tables = ds.download_delta(committed_delta, storage_type=StorageType.LOCAL **kwargs)
 
 assert len(tables) == 2
 

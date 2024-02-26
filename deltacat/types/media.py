@@ -44,6 +44,11 @@ class TableType(str, Enum):
     PYARROW_PARQUET = "pyarrow_parquet"
 
 
+class DistributedDatasetType(str, Enum):
+    DAFT = "daft"
+    RAY_DATASET = "ray_dataset"
+
+
 class SchemaType(str, Enum):
     ARROW = "arrow"
 

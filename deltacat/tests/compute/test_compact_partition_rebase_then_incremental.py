@@ -32,6 +32,7 @@ from deltacat.tests.compute.compact_partition_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Optional, Set
+from deltacat.types.media import StorageType
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -272,7 +273,9 @@ def test_compact_partition_rebase_then_incremental(
     compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         setup_s3_resource, rcf_file_s3_uri
     )
-    tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
+    tables = ds.download_delta(
+        compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+    )
     actual_rebase_compacted_table = pa.concat_tables(tables)
     # if no primary key is specified then sort by sort_key for consistent assertion
     sorting_cols: List[Any] = (
@@ -341,7 +344,11 @@ def test_compact_partition_rebase_then_incremental(
         **compaction_audit_obj
     )
 
-    tables = ds.download_delta(compacted_delta_locator_incremental, **ds_mock_kwargs)
+    tables = ds.download_delta(
+        compacted_delta_locator_incremental,
+        storage_type=StorageType.LOCAL,
+        **ds_mock_kwargs,
+    )
     actual_compacted_table = pa.concat_tables(tables)
     expected_terminal_compact_partition_result = (
         expected_terminal_compact_partition_result.combine_chunks().sort_by(
