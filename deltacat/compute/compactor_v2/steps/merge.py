@@ -315,40 +315,6 @@ def _compact_tables(
     return table, incremental_len, total_deduped_records
 
 
-def _copy_previous_compacted_table(input: MergeInput) -> List[MaterializeResult]:
-    materialized_results: List[MaterializeResult] = []
-    if input.round_completion_info:
-        old_manifest = input.deltacat_storage.get_delta_manifest(
-            input.round_completion_info.compacted_delta_locator,
-            **input.deltacat_storage_kwargs,
-        )
-
-        new_manifest = Manifest.of(entries=old_manifest.entries, uuid=str(uuid4()))
-        delta = Delta.of(
-            locator=DeltaLocator.of(input.write_to_partition.locator),
-            delta_type=DeltaType.UPSERT,
-            meta=new_manifest.meta,
-            manifest=new_manifest,
-            previous_stream_position=input.write_to_partition.stream_position,
-            properties={},
-        )
-        referenced_pyarrow_write_result = PyArrowWriteResult.of(
-            len(new_manifest.entries),
-            new_manifest.meta.source_content_length,
-            new_manifest.meta.content_length,
-            new_manifest.meta.record_count,
-        )
-        materialize_result = MaterializeResult.of(
-            delta=delta,
-            task_index=input.merge_task_index,
-            pyarrow_write_result=referenced_pyarrow_write_result,
-            referenced_pyarrow_write_result=referenced_pyarrow_write_result,
-        )
-
-        materialized_results.append(materialize_result)
-    return materialized_results
-
-
 def _copy_manifests_from_hash_bucketing(
     input: MergeInput, hb_index_copy_by_reference_ids: List[int]
 ) -> List[MaterializeResult]:
@@ -396,9 +362,6 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             materialized_results.append(
                 merge_utils.materialize(input, merge_file_group.hb_index, [table])
             )
-
-        if not merge_file_groups:
-            materialized_results.extend(_copy_previous_compacted_table(input))
 
         if hb_index_copy_by_ref_ids:
             materialized_results.extend(

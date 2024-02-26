@@ -129,9 +129,6 @@ class LocalMergeFileGroupsProvider(MergeFileGroupsProvider):
         if not self._loaded_deltas:
             self._read_deltas_locally()
 
-        if not self._dfe_groups:
-            return []
-
         # Since hash bucketing is skipped for local merges, we use a fixed index here.
         return [
             MergeFileGroup.of(
