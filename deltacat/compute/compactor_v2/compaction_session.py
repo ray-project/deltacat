@@ -7,8 +7,13 @@ import ray
 import time
 import json
 from deltacat.aws import s3u as s3_utils
+import pyarrow.compute as pc
+from deltacat.types.media import StorageType
+import pyarrow as pa
 import deltacat
 from deltacat import logs
+from deltacat.compute.compactor.utils import system_columns as sc
+
 from deltacat.storage import (
     DeltaType,
 )
@@ -26,6 +31,10 @@ from deltacat.storage import (
     Delta,
     DeltaLocator,
     Partition,
+)
+from deltacat.compute.compactor import (
+    DeltaAnnotated,
+    DeltaFileEnvelope,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -101,6 +110,11 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
         )
         return round_completion_file_s3_url
 
+def append_spos_col(table: pa.Table, delta_stream_position: int) -> pa.Table:
+    table = table.append_column(
+        "spos", pa.array(np.repeat(delta_stream_position, len(table)))
+    )
+    return table
 
 def _execute_compaction(
     params: CompactPartitionParams, **kwargs
@@ -216,55 +230,36 @@ def _execute_compaction(
         return None, None, None
 
     delete_spos_to_obj_ref = defaultdict()
-    window_start, window_end = 0, 0
-    """
-    run prepare deletes if delete delta found
-         COL_1
-    U1:   2
-    U2:   4
-    U3:   3
-    D1:   COL_1=2 -> 
-
-
-    [SPOS, DELETE_ID]
-      1      2
-
-
-
-    """
-    while window_end < len(uniform_deltas):
-        annotated_delta = uniform_deltas[window_end]
+    delete_annotated_deltas_only: List[DeltaAnnotated] = []
+    delete_columns = ['col_1']
+    for i, annotated_delta in enumerate(uniform_deltas):
         annotations = annotated_delta.annotations
         annotation_delta_type = annotations[0].annotation_delta_type
-        if annotation_delta_type is DeltaType.UPSERT:
-            window_end += 1
-            continue
-        while (
-            window_end < len(uniform_deltas)
-            and uniform_deltas[window_end].annotations[0].annotation_delta_type
-            is DeltaType.DELETE
-        ):
-            window_end += 1
-        deltas_to_pass = uniform_deltas[window_start:window_end]
-        for i, delta in enumerate(deltas_to_pass):
-            logger.info(
-                f"pdebug:compaction_session:[{window_start=}][{window_end=}]:{i}:{delta.annotations[0].annotation_delta_type}"
-            )
-        obj_ref, delete_spos = pd.prepare_delete(
-            PrepareDeleteInput.of(
-                annotated_deltas=deltas_to_pass,
-                read_kwargs_provider=params.read_kwargs_provider,
-                deltacat_storage=params.deltacat_storage,
-                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-                round_completion_info=round_completion_info,
-                delete_columns=["col_1"],
-                primary_keys=params.primary_keys,
-            )
+        if annotation_delta_type is DeltaType.DELETE:
+            delete_annotated_deltas_only.append(annotated_delta)
+    delete_table = []
+    all_deletes_and_spos = None
+    # logger.info(f"pdebug: {delete_annotated_deltas_only=}")
+    for delete_annotated_delta in delete_annotated_deltas_only:
+        # logger.info(f"pdebug: {delete_annotated_delta=}")
+        del_delta = params.deltacat_storage.download_delta(
+            delete_annotated_delta,
+            max_parallelism=1,
+            file_reader_kwargs_provider=params.read_kwargs_provider,
+            columns=delete_columns,
+            storage_type=StorageType.LOCAL,
+            **params.deltacat_storage_kwargs,
         )
-        for delete_spo in delete_spos:
-            delete_spos_to_obj_ref[delete_spo] = obj_ref
-        window_start = window_end
-        window_end += 1
+        for idx, table in enumerate(del_delta):
+            del_delta[idx] = sc.append_stream_position_column(table,(pa.array(np.repeat(delete_annotated_delta.stream_position, len(table)))))
+        delete_table.extend(del_delta)
+    if len(delete_table) > 0:
+        # logger.info(f"pdebug: {delete_table=}")
+        all_deletes_and_spos = pa.concat_tables(delete_table)
+    for delete_annotated_delta in delete_annotated_deltas_only:
+        spos = annotated_delta.stream_position
+        if all_deletes_and_spos:
+            delete_spos_to_obj_ref[spos] = ray.put(all_deletes_and_spos)
 
     hb_options_provider = functools.partial(
         task_resource_options_provider,

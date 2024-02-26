@@ -106,6 +106,7 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
     delete_delta_spos_list = []
     upserts_in_interval = []
     deletes_in_interval = []
+    all_upserts_affected_by_deletes_by_spos = []
     for idx, annotated_delta in enumerate(input.annotated_deltas):
         annotations = annotated_delta.annotations
         delta_stream_position = annotations[0].annotation_stream_position
@@ -133,6 +134,10 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
         return
     upserts_affected_by_deletes: pa.Table = pa.concat_tables(upserts_in_interval)
     deletes_affected_by_deletes: pa.Table = pa.concat_tables(deletes_in_interval)
+    logger.info(
+        f"pdebug:before_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
+    )
+    # filter out deletes
     upserts_affected_by_deletes = upserts_affected_by_deletes.filter(
         pc.is_in(
             upserts_affected_by_deletes[input.delete_columns[0]],
@@ -140,7 +145,14 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
             skip_nulls=True,
         )
     )
-    all_deletes = pa.concat_tables([upserts_affected_by_deletes, deletes_affected_by_deletes])
+    logger.info(
+        f"pdebug:after_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
+    )
+    all_upserts_affected_by_deletes_by_spos.append(upserts_affected_by_deletes)
+    all_upserts_affected_by_deletes_by_spos.append(deletes_affected_by_deletes)
+    spos_table_of_all_deltas_affected_by_deletes = pa.concat_tables(
+        all_upserts_affected_by_deletes_by_spos
+    )
     for idx, annotated_delta in enumerate(input.annotated_deltas):
         annotations = annotated_delta.annotations
         delta_stream_position = annotations[0].annotation_stream_position
@@ -154,7 +166,78 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
             **input.deltacat_storage_kwargs,
         )
         logger.info(
-            f"pdebug:prepare_delete:{idx=}, {delta_type=}, {delta_stream_position=} {all_deletes.to_pydict()=}, {delta_tables=}"
+            f"pdebug:prepare_delete:{idx=}, {delta_type=}, {delta_stream_position=} {spos_table_of_all_deltas_affected_by_deletes.to_pydict()=}, {delta_tables=}"
         )
-    obj_ref = ray.put(all_deletes)
+    obj_ref = ray.put(spos_table_of_all_deltas_affected_by_deletes)
     return obj_ref, delete_delta_spos_list
+
+
+def prepare_delete3(input: PrepareDeleteInput) -> Any:
+    pass
+    # delete_delta_spos_list = []
+    # upserts_in_interval = []
+    # deletes_in_interval = []
+    # all_upserts_affected_by_deletes_by_spos = []
+    # for idx, annotated_delta in enumerate(input.annotated_deltas):
+    #     annotations = annotated_delta.annotations
+    #     delta_stream_position = annotations[0].annotation_stream_position
+    #     delta_type = annotations[0].annotation_delta_type
+    #     delta_tables = input.deltacat_storage.download_delta(
+    #         annotated_delta,
+    #         max_parallelism=1,
+    #         file_reader_kwargs_provider=input.read_kwargs_provider,
+    #         columns=input.delete_columns,
+    #         storage_type=StorageType.LOCAL,
+    #         **input.deltacat_storage_kwargs,
+    #     )
+    #     if delta_type is DeltaType.UPSERT:
+    #         for idx, table in enumerate(delta_tables):
+    #             delta_tables[idx] = append_spos_col(table, delta_stream_position)
+    #         upserts_in_interval.extend(delta_tables)
+    #     elif delta_type is DeltaType.DELETE:
+    #         for idx, table in enumerate(delta_tables):
+    #             delta_tables[idx] = append_spos_col(table, delta_stream_position)
+    #         delete_delta_spos_list.append(delta_stream_position)
+    #         deletes_in_interval.extend(delta_tables)
+    # if not upserts_in_interval:
+    #     return
+    # if not deletes_in_interval:
+    #     return
+    # upserts_affected_by_deletes: pa.Table = pa.concat_tables(upserts_in_interval)
+    # deletes_affected_by_deletes: pa.Table = pa.concat_tables(deletes_in_interval)
+    # logger.info(
+    #     f"pdebug:before_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
+    # )
+    # # filter out deletes
+    # upserts_affected_by_deletes = upserts_affected_by_deletes.filter(
+    #     pc.is_in(
+    #         upserts_affected_by_deletes[input.delete_columns[0]],
+    #         value_set=deletes_affected_by_deletes[input.delete_columns[0]],
+    #         skip_nulls=True,
+    #     )
+    # )
+    # logger.info(
+    #     f"pdebug:after_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
+    # )
+    # all_upserts_affected_by_deletes_by_spos.append(upserts_affected_by_deletes)
+    # all_upserts_affected_by_deletes_by_spos.append(deletes_affected_by_deletes)
+    # spos_table_of_all_deltas_affected_by_deletes = pa.concat_tables(
+    #     all_upserts_affected_by_deletes_by_spos
+    # )
+    # for idx, annotated_delta in enumerate(input.annotated_deltas):
+    #     annotations = annotated_delta.annotations
+    #     delta_stream_position = annotations[0].annotation_stream_position
+    #     delta_type = annotations[0].annotation_delta_type
+    #     delta_tables = input.deltacat_storage.download_delta(
+    #         annotated_delta,
+    #         max_parallelism=1,
+    #         file_reader_kwargs_provider=input.read_kwargs_provider,
+    #         columns=input.delete_columns,
+    #         storage_type=StorageType.LOCAL,
+    #         **input.deltacat_storage_kwargs,
+    #     )
+    #     logger.info(
+    #         f"pdebug:prepare_delete:{idx=}, {delta_type=}, {delta_stream_position=} {spos_table_of_all_deltas_affected_by_deletes.to_pydict()=}, {delta_tables=}"
+    #     )
+    # obj_ref = ray.put(spos_table_of_all_deltas_affected_by_deletes)
+    # return obj_ref, delete_delta_spos_list

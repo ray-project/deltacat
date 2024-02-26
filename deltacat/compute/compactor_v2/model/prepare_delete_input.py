@@ -12,7 +12,7 @@ from deltacat.io.object_store import IObjectStore
 class PrepareDeleteInput(Dict):
     @staticmethod
     def of(
-        annotated_deltas: List[DeltaAnnotated],
+        annotated_deltas: DeltaAnnotated,
         read_kwargs_provider: Optional[ReadKwargsProvider],
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[dict] = None,
@@ -23,7 +23,7 @@ class PrepareDeleteInput(Dict):
     ) -> PrepareDeleteInput:
 
         result = PrepareDeleteInput()
-        result["annotated_deltas"] = annotated_deltas
+        result["annotated_delta"] = annotated_delta
         result["read_kwargs_provider"] = read_kwargs_provider
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
@@ -34,8 +34,8 @@ class PrepareDeleteInput(Dict):
         return result
 
     @property
-    def annotated_deltas(self) -> List[DeltaAnnotated]:
-        return self["annotated_deltas"]
+    def annotated_delta(self) -> DeltaAnnotated:
+        return self["annotated_delta"]
 
     @property
     def deltacat_storage(self) -> unimplemented_deltacat_storage:

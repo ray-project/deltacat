@@ -212,6 +212,8 @@ def generate_pk_hash_column(
     )
 
     result = []
+    if len(tables) == 0:
+        return result
 
     total_len = 0
     total_size = 0

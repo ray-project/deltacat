@@ -32,20 +32,44 @@ def create_incremental_deltas_on_source_table(
     ds_mock_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[PartitionLocator, Delta]:
     import deltacat.tests.local_deltacat_storage as ds
+    """
+    rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3]),
+                pa.array(["996", "997", "998", "999"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+    
+    """
     incremental_deltas_1 = pa.Table.from_arrays(
         [  # delete last two primary keys
-            pa.array([0]),
-            pa.array(["a"]),
+            pa.array([0,1,2,3]),
+            pa.array(["a","b","c","d"]),
         ],
         names=["pk_col_1", "col_1"],
     )
+    # incremental_deltas_2 = pa.Table.from_arrays(
+    #     [  # delete last two primary keys
+    #         pa.array([1]),
+    #         pa.array(["b"]),
+    #     ],
+    #     names=["pk_col_1", "col_1"],
+    # )
     delete_delta_1 = pa.Table.from_arrays(
         [  
-            pa.array([0]),
-            pa.array(["a"]),
+            pa.array([0,1]),
+            pa.array(["a","b"]),
         ],
         names=["pk_col_1", "col_1"],
     )
+    # incremental_deltas_2 = pa.Table.from_arrays(
+    #     [  # delete last two primary keys
+    #         pa.array([1]),
+    #         pa.array(["b"]),
+    #     ],
+    #     names=["pk_col_1", "col_1"],
+    # )
     src_partition: Partition = ds.get_partition(
         source_table_stream.locator,
         partition_values_param,
@@ -57,6 +81,12 @@ def create_incremental_deltas_on_source_table(
         ),
         **ds_mock_kwargs,
     )
+    # new_delta: Delta = ds.commit_delta(
+    #     ds.stage_delta(
+    #         incremental_deltas_2, src_partition, DeltaType.UPSERT, **ds_mock_kwargs
+    #     ),
+    #     **ds_mock_kwargs,
+    # )
     new_delta: Delta = ds.commit_delta(
         ds.stage_delta(
             delete_delta_1,
@@ -67,6 +97,12 @@ def create_incremental_deltas_on_source_table(
         ),
         **ds_mock_kwargs,
     )
+    # new_delta: Delta = ds.commit_delta(
+    #     ds.stage_delta(
+    #         incremental_deltas_2, src_partition, DeltaType.UPSERT, **ds_mock_kwargs
+    #     ),
+    #     **ds_mock_kwargs,
+    # )
     # new_delta: Delta = ds.commit_delta(
     #     ds.stage_delta(
     #         incremental_deltas_2, src_partition, DeltaType.UPSERT, **ds_mock_kwargs
