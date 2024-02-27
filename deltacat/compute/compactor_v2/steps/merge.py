@@ -98,6 +98,7 @@ def _build_incremental_table(
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
             if spos_to_obj_ref:
+                logger.info(f"pdebug:if spos_to_obj_ref: {spos_to_obj_ref=}")
                 deletes_to_apply_to_prev_upserts: pa.Table = ray.get(
                     [spos_to_obj_ref[df_envelope.stream_position]]
                 )[0]
@@ -308,7 +309,7 @@ def _compact_tables(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
-    table = _build_incremental_table(dfe_list)
+    table = _build_incremental_table(dfe_list, input.spos_to_obj_ref)
 
     incremental_len = len(table)
     logger.info(

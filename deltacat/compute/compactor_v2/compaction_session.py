@@ -548,6 +548,7 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                    spos_to_obj_ref=delete_spos_to_obj_ref,
                 )
             }
 
