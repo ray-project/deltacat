@@ -117,13 +117,6 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
         return round_completion_file_s3_url
 
 
-def append_spos_col(table: pa.Table, delta_stream_position: int) -> pa.Table:
-    table = table.append_column(
-        "spos", pa.array(np.repeat(delta_stream_position, len(table)))
-    )
-    return table
-
-
 def _execute_compaction(
     params: CompactPartitionParams, **kwargs
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -239,7 +232,6 @@ def _execute_compaction(
 
     delete_spos_to_obj_ref = defaultdict()
     delete_annotated_deltas_only: List[DeltaAnnotated] = []
-    # delete_columns = ["col_1"]
     for i, annotated_delta in enumerate(uniform_deltas):
         annotations = annotated_delta.annotations
         annotation_delta_type = annotations[0].annotation_delta_type

@@ -77,13 +77,6 @@ deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 """
 
 
-def append_spos_col(table: pa.Table, delta_stream_position: int) -> pa.Table:
-    table = table.append_column(
-        "spos", pa.array(np.repeat(delta_stream_position, len(table)))
-    )
-    return table
-
-
 def drop_earlier_duplicates(table: pa.Table, on: str, sort_col_name: str) -> pa.Table:
     """
     It is important to not combine the chunks for performance reasons.
