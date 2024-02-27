@@ -97,7 +97,6 @@ _IS_DELETED_COLUMN_FIELD = pa.field(
 )
 
 
-
 def get_pk_hash_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return pa.array(obj, _PK_HASH_COLUMN_TYPE)
 
@@ -186,6 +185,7 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
         obj,
         _IS_SOURCE_COLUMN_TYPE,
     )
+
 
 def get_is_deleted_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     return obj.cast(pa.bool_())
@@ -341,28 +341,30 @@ def append_file_record_count_col(table: pa.Table, file_record_count):
     return table
 
 
-def append_is_deleted_column(table: pa.Table, booleans: Union[pa.Array, pa.ChunkedArray]):
+def append_is_deleted_column(
+    table: pa.Table, booleans: Union[pa.Array, pa.ChunkedArray]
+):
     table = table.append_column(
         _IS_DELETED_COLUMN_FIELD,
         get_is_deleted_array(booleans),
     )
     return table
 
+
 def append_is_deleted_column2(table: pa.Table):
     table = table.append_column(
-        _IS_DELETED_COLUMN_FIELD,
-        pa.array(np.repeat(False, len(table)))
+        _IS_DELETED_COLUMN_FIELD, pa.array(np.repeat(False, len(table)))
     )
     return table
+
 
 def drop_is_deleted_type_rows(table: pa.Table):
     if _IS_DELETED_COLUMN_NAME not in table.column_names:
         return table
-    table = table.filter(
-        pc.not_equal(table[_IS_DELETED_COLUMN_NAME], True)
-    )
+    table = table.filter(pc.not_equal(table[_IS_DELETED_COLUMN_NAME], True))
     table = table.drop([_IS_DELETED_COLUMN_NAME])
     return table
+
 
 def get_minimal_hb_schema() -> pa.schema:
     return pa.schema(

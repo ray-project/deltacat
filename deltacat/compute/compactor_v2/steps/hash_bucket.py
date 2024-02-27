@@ -5,7 +5,6 @@ from contextlib import nullcontext
 from typing import List, Optional, Tuple
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 import numpy as np
-import pyarrow as pa
 import ray
 from deltacat import logs
 from deltacat.compute.compactor import (
@@ -14,12 +13,12 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
+from deltacat.compute.compactor_v2.utils.delta import read_delta_file_envelopes
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     group_hash_bucket_indices,
     group_by_pk_hash_bucket,
 )
 from deltacat.storage import interface as unimplemented_deltacat_storage
-from deltacat.types.media import StorageType
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
@@ -40,57 +39,6 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _read_delta_file_envelopes(
-    annotated_delta: DeltaAnnotated,
-    read_kwargs_provider: Optional[ReadKwargsProvider],
-    deltacat_storage=unimplemented_deltacat_storage,
-    deltacat_storage_kwargs: Optional[dict] = None,
-) -> Tuple[Optional[List[DeltaFileEnvelope]], int, int]:
-
-    tables = deltacat_storage.download_delta(
-        annotated_delta,
-        max_parallelism=1,
-        file_reader_kwargs_provider=read_kwargs_provider,
-        storage_type=StorageType.LOCAL,
-        **deltacat_storage_kwargs,
-    )
-    annotations = annotated_delta.annotations
-    assert (
-        len(tables) == len(annotations),
-        f"Unexpected Error: Length of downloaded delta manifest tables "
-        f"({len(tables)}) doesn't match the length of delta manifest "
-        f"annotations ({len(annotations)}).",
-    )
-    if not tables:
-        return None, 0, 0
-
-    delta_stream_position = annotations[0].annotation_stream_position
-    delta_type = annotations[0].annotation_delta_type
-
-    for annotation in annotations:
-        assert annotation.annotation_stream_position == delta_stream_position, (
-            f"Annotation stream position does not match - {annotation.annotation_stream_position} "
-            f"!= {delta_stream_position}"
-        )
-        assert annotation.annotation_delta_type == delta_type, (
-            f"Annotation delta type does not match - {annotation.annotation_delta_type} "
-            f"!= {delta_type}"
-        )
-
-    delta_file_envelopes = []
-    table = pa.concat_tables(tables)
-    total_record_count = len(table)
-    total_size_bytes = int(table.nbytes)
-
-    delta_file = DeltaFileEnvelope.of(
-        stream_position=delta_stream_position,
-        delta_type=delta_type,
-        table=table,
-    )
-    delta_file_envelopes.append(delta_file)
-    return delta_file_envelopes, total_record_count, total_size_bytes
-
-
 def _group_file_records_by_pk_hash_bucket(
     annotated_delta: DeltaAnnotated,
     num_hash_buckets: int,
@@ -104,7 +52,7 @@ def _group_file_records_by_pk_hash_bucket(
         delta_file_envelopes,
         total_record_count,
         total_size_bytes,
-    ) = _read_delta_file_envelopes(
+    ) = read_delta_file_envelopes(
         annotated_delta,
         read_kwargs_provider,
         deltacat_storage,
@@ -188,7 +136,7 @@ def _timed_hash_bucket(input: HashBucketInput):
 @ray.remote
 def hash_bucket(input: HashBucketInput) -> HashBucketResult:
     with ProcessUtilizationOverTimeRange() as process_util:
-        logger.info(f"Starting hash bucket task...")
+        logger.info(f"Starting hash bucket task {input.hb_task_index}...")
 
         # Log node peak memory utilization every 10 seconds
         def log_peak_memory():
@@ -213,7 +161,7 @@ def hash_bucket(input: HashBucketInput) -> HashBucketResult:
             )
             emit_metrics_time = latency
 
-        logger.info(f"Finished hash bucket task...")
+        logger.info(f"Finished hash bucket task {input.hb_task_index}...")
         return HashBucketResult(
             hash_bucket_result[0],
             hash_bucket_result[1],

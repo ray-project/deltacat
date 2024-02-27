@@ -32,6 +32,7 @@ def create_incremental_deltas_on_source_table(
     ds_mock_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[PartitionLocator, Delta]:
     import deltacat.tests.local_deltacat_storage as ds
+
     """
     rebase_expected_compact_partition_result=pa.Table.from_arrays(
             [
@@ -40,12 +41,12 @@ def create_incremental_deltas_on_source_table(
             ],
             names=["pk_col_1", "col_1"],
         ),
-    
+
     """
     incremental_deltas_1 = pa.Table.from_arrays(
         [  # delete last two primary keys
-            pa.array([0,1,3]),
-            pa.array(["a","b","d"]),
+            pa.array([0, 1, 3]),
+            pa.array(["a", "b", "d"]),
         ],
         names=["pk_col_1", "col_1"],
     )
@@ -57,9 +58,9 @@ def create_incremental_deltas_on_source_table(
     #     names=["pk_col_1", "col_1"],
     # )
     delete_delta_1 = pa.Table.from_arrays(
-        [  
-            pa.array([0,1,2]),
-            pa.array(["a","b","998"]),
+        [
+            pa.array([0, 1, 2]),
+            pa.array(["a", "b", "998"]),
         ],
         names=["pk_col_1", "col_1"],
     )

@@ -171,13 +171,23 @@ def hash_bucket_resource_options_provider(
             else:
                 total_pk_size += pk_size
 
-    # total size + pk size + pk hash column + hash bucket index column
+    # total size + pk size + pyarrow-to-numpy conversion + pk hash column + hashlib inefficiency + hash bucket index column
     # Refer to hash_bucket step for more details.
-    total_memory = size_bytes + total_pk_size + num_rows * 20 + num_rows * 4
+    total_memory = (
+        size_bytes
+        + total_pk_size
+        + total_pk_size
+        + num_rows * 20
+        + num_rows * 20
+        + num_rows * 4
+    )
     debug_memory_params["size_bytes"] = size_bytes
     debug_memory_params["num_rows"] = num_rows
     debug_memory_params["total_pk_size"] = total_pk_size
     debug_memory_params["total_memory"] = total_memory
+
+    debug_memory_params["previous_inflation"] = previous_inflation
+    debug_memory_params["average_record_size_bytes"] = average_record_size_bytes
 
     # Consider buffer
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
@@ -270,11 +280,13 @@ def merge_resource_options_provider(
                     else:
                         pk_size_bytes += pk_size
 
-    # total data downloaded + primary key hash column + primary key column
-    # + dict size for merge + incremental index array size
+    # total data downloaded + primary key hash column + pyarrow-to-numpy conversion
+    # + primary key column + hashlib inefficiency + dict size for merge + incremental index array size
     total_memory = (
         data_size
         + pk_size_bytes
+        + pk_size_bytes
+        + num_rows * 20
         + num_rows * 20
         + num_rows * 20
         + incremental_index_array_size

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from ray.types import ObjectRef
 from typing import Dict, List, Optional, Any
+
+from deltacat.compute.compactor_v2.model.merge_file_group import (
+    MergeFileGroupsProvider,
+)
 from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
@@ -16,19 +19,15 @@ from deltacat.compute.compactor_v2.constants import (
 )
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
-from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 
 
 class MergeInput(Dict):
     @staticmethod
     def of(
-        dfe_groups_refs: List[ObjectRef[DeltaFileEnvelopeGroups]],
+        merge_file_groups_provider: MergeFileGroupsProvider,
         write_to_partition: Partition,
         compacted_file_content_type: ContentType,
         primary_keys: List[str],
-        hash_group_index: int,
-        num_hash_groups: int,
-        hash_bucket_count: int,
         drop_duplicates: Optional[bool] = DROP_DUPLICATES,
         sort_keys: Optional[List[SortKey]] = None,
         merge_task_index: Optional[int] = 0,
@@ -45,13 +44,10 @@ class MergeInput(Dict):
     ) -> MergeInput:
 
         result = MergeInput()
-        result["dfe_groups_refs"] = dfe_groups_refs
+        result["merge_file_groups_provider"] = merge_file_groups_provider
         result["write_to_partition"] = write_to_partition
         result["compacted_file_content_type"] = compacted_file_content_type
         result["primary_keys"] = primary_keys
-        result["hash_group_index"] = hash_group_index
-        result["num_hash_groups"] = num_hash_groups
-        result["hash_bucket_count"] = hash_bucket_count
         result["drop_duplicates"] = drop_duplicates
         result["sort_keys"] = sort_keys
         result["merge_task_index"] = merge_task_index
@@ -69,8 +65,8 @@ class MergeInput(Dict):
         return result
 
     @property
-    def dfe_groups_refs(self) -> List[ObjectRef[DeltaFileEnvelopeGroups]]:
-        return self["dfe_groups_refs"]
+    def merge_file_groups_provider(self) -> MergeFileGroupsProvider:
+        return self["merge_file_groups_provider"]
 
     @property
     def write_to_partition(self) -> Partition:
@@ -83,18 +79,6 @@ class MergeInput(Dict):
     @property
     def primary_keys(self) -> List[str]:
         return self["primary_keys"]
-
-    @property
-    def hash_group_index(self) -> int:
-        return self["hash_group_index"]
-
-    @property
-    def num_hash_groups(self) -> int:
-        return self["num_hash_groups"]
-
-    @property
-    def hash_bucket_count(self) -> int:
-        return self["hash_bucket_count"]
 
     @property
     def drop_duplicates(self) -> int:

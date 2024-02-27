@@ -15,10 +15,11 @@ from ray.data.read_api import (
 )
 
 import deltacat.storage as dcs
-from deltacat.types.media import TableType
+from deltacat.types.media import TableType, DistributedDatasetType
 from deltacat.utils import numpy as np_utils
 from deltacat.utils import pandas as pd_utils
 from deltacat.utils import pyarrow as pa_utils
+from deltacat.utils import daft as daft_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
 
 TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
@@ -75,6 +76,11 @@ TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
     TableType.PYARROW_PARQUET.value: from_arrow_refs,
     TableType.NUMPY.value: from_numpy,
     TableType.PANDAS.value: from_pandas_refs,
+}
+
+
+DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+    DistributedDatasetType.DAFT.value: daft_utils.s3_files_to_dataframe
 }
 
 

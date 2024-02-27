@@ -36,7 +36,7 @@ def drop_duplicates(table: pa.Table, on: str) -> pa.Table:
 
     if on not in table.column_names:
         return table
-    
+
     if table.num_rows == 0:
         return table
 

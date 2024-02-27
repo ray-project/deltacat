@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from pytest_benchmark.fixture import BenchmarkFixture
+from deltacat.types.media import StorageType
 
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
@@ -269,7 +270,9 @@ def test_compact_partition_incremental(
         **compaction_audit_obj
     )
 
-    tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
+    tables = ds.download_delta(
+        compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+    )
     actual_compacted_table = pa.concat_tables(tables)
     sorting_cols: List[Any] = [(val, "ascending") for val in primary_keys]
     # the compacted table may contain multiple files and chunks
