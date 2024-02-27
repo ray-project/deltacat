@@ -188,7 +188,6 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     )
 
 def get_is_deleted_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
-    # logger.info(f"pdebug:get_is_deleted_array: {obj=}, {type(obj)=}")
     return obj.cast(pa.bool_())
 
 
@@ -249,7 +248,6 @@ def project_delta_file_metadata_on_table(
 
 
 def append_stream_position_column(table: pa.Table, stream_positions):
-
     table = table.append_column(
         _PARTITION_STREAM_POSITION_COLUMN_FIELD,
         get_stream_position_column_array(stream_positions),
@@ -344,12 +342,10 @@ def append_file_record_count_col(table: pa.Table, file_record_count):
 
 
 def append_is_deleted_column(table: pa.Table, booleans: Union[pa.Array, pa.ChunkedArray]):
-    # logger.info(f"pdebug:BEFORE:append_is_deleted_column: {table=}, {booleans=}, {type(booleans)=}")
     table = table.append_column(
         _IS_DELETED_COLUMN_FIELD,
         get_is_deleted_array(booleans),
     )
-    # logger.info(f"pdebug:AFTER:append_is_deleted_column: {table=}, {booleans=}, {type(booleans)=}")
     return table
 
 def append_is_deleted_column2(table: pa.Table):
@@ -362,21 +358,11 @@ def append_is_deleted_column2(table: pa.Table):
 def drop_is_deleted_type_rows(table: pa.Table):
     if _IS_DELETED_COLUMN_NAME not in table.column_names:
         return table
-    # logger.info(f"pdebug:_drop_is_deleted_type_rows:BEFORE{table.to_pydict()=}")
     table = table.filter(
         pc.not_equal(table[_IS_DELETED_COLUMN_NAME], True)
     )
-    # logger.info(f"pdebug:_drop_is_deleted_type_rows:AFTERFILTER{table.to_pydict()=}")
     table = table.drop([_IS_DELETED_COLUMN_NAME])
-    # logger.info(f"pdebug:_drop_is_deleted_type_rows:AFTERDROP{table.to_pydict()=}")
     return table
-    #  delta_type_value = sc.delta_type_to_field(delta_type)
-
-    # result = table.filter(
-    #     pc.not_equal(table[sc._DELTA_TYPE_COLUMN_NAME], delta_type_value)
-    # )
-
-    # return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
 def get_minimal_hb_schema() -> pa.schema:
     return pa.schema(

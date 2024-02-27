@@ -78,47 +78,6 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 
     return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
-"""
-def _build_incremental_table(
-    hash_bucket_index: int,
-    df_envelopes_list: List[List[DeltaFileEnvelope]],
-) -> pa.Table:
-
-    logger.info(
-        f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
-        f"{len(df_envelopes_list)} delta file envelope lists..."
-    )
-    hb_tables = []
-    # sort by delta file stream position now instead of sorting every row later
-    df_envelopes = [d for dfe_list in df_envelopes_list for d in dfe_list]
-    df_envelopes = sorted(
-        df_envelopes,
-        key=lambda df: (df.stream_position, df.file_index),
-        reverse=False,  # ascending
-    )
-    is_delete = False
-    for df_envelope in df_envelopes:
-        assert (
-            df_envelope.delta_type != DeltaType.APPEND
-        ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
-        if df_envelope.delta_type == DeltaType.DELETE:
-            is_delete = True
-
-    for df_envelope in df_envelopes:
-        table = df_envelope.table
-        if is_delete:
-            table = _append_delta_type_column(
-                table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type))
-            )
-
-        hb_tables.append(table)
-
-    result = pa.concat_tables(hb_tables)
-
-    return result
-
-"""
-
 
 def _build_incremental_table(
     hash_bucket_index: int,
@@ -153,12 +112,12 @@ def _build_incremental_table(
         table = df_envelope.table
         upsert_stream_position = df_envelope.stream_position
         delta_type = df_envelope.delta_type 
-        condition = pa.array(np.repeat(False, len(table))) # do not delete anything
+        condition = pa.array(np.repeat(False, len(table)))
         if delta_type is DeltaType.UPSERT:
             if is_delete:
                 deletes_earlier_than_upsert = (
                     deletes_to_apply_to_prev_upserts.filter(
-                        pc.scalar(upsert_stream_position) < pc.field(sc._PARTITION_STREAM_POSITION_COLUMN_NAME)
+                        (pc.scalar(upsert_stream_position) < pc.field(sc._PARTITION_STREAM_POSITION_COLUMN_NAME))
                     )
                 )
                 condition = pc.is_in(
@@ -170,8 +129,6 @@ def _build_incremental_table(
         table = append_is_deleted_column(table, condition)
         logger.info(f"pdebug:{is_delete=}:{delta_type=}:{table.to_pydict()=}")
         hb_tables.append(table)
-    for i, hb_table in enumerate(hb_tables):
-        logger.info(f"pdebug:_build_incremental_table:{i=}:{hb_table=}")
     result = pa.concat_tables(hb_tables)
     return result
 
@@ -181,6 +138,7 @@ def _merge_tables(
     primary_keys: List[str],
     can_drop_duplicates: bool,
     compacted_table: Optional[pa.Table] = None,
+    spos_to_obj_ref = None
 ) -> pa.Table:
     """
     Merges the table with compacted table dropping duplicates where necessary.
@@ -188,15 +146,31 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
-    logger.info(f"pdebug: {table.to_pydict()=}")
     all_tables = []
     incremental_idx = 0
-    logger.info(f"pdebug:_merge_tables:BEFORE {table=}")
     table = sc.drop_is_deleted_type_rows(table)
-    logger.info(f"pdebug:_merge_tables:AFTER {table=}")
+    delete_columns = ["col_1"]
     if compacted_table:
-        incremental_idx = 1
-        all_tables.append(compacted_table)
+        all_deletes = []
+        all_delete_bundles = []
+        if spos_to_obj_ref:
+            for _, obj_ref in spos_to_obj_ref.items():
+                all_delete_bundles.append(ray.get(obj_ref))
+            all_deletes = pa.concat_tables(all_delete_bundles)
+            logger.info(f"pdebug:if spos_to_obj_ref:BEFORE {table=}")
+            logger.info(f"pdebug:if spos_to_obj_ref:BEFORE {compacted_table=}")
+            compacted_table = compacted_table.filter(
+                    pc.invert(
+                        pc.is_in(
+                            compacted_table[delete_columns[0]],
+                            value_set=all_deletes[delete_columns[0]],
+                        )
+                    )
+                )
+            logger.info(f"pdebug:if spos_to_obj_ref:AFTER {compacted_table=}")
+        if compacted_table and compacted_table.num_rows > 0:
+            incremental_idx = 1
+            all_tables.append(compacted_table)
 
     all_tables.append(table)
 
@@ -239,80 +213,80 @@ def _merge_tables(
 
     return final_table
 
-def _merge_tables2(
-    table: Optional[pa.Table] = None,
-    primary_keys: List[str] = None,
-    can_drop_duplicates: bool = None,
-    compacted_table: Optional[pa.Table] = None,
-    spos_to_obj_ref: Optional[Dict[str, Any]] = None,
-) -> pa.Table:
-    """
-    Merges the table with compacted table dropping duplicates where necessary.
+# def _merge_tables2(
+#     table: Optional[pa.Table] = None,
+#     primary_keys: List[str] = None,
+#     can_drop_duplicates: bool = None,
+#     compacted_table: Optional[pa.Table] = None,
+#     spos_to_obj_ref: Optional[Dict[str, Any]] = None,
+# ) -> pa.Table:
+#     """
+#     Merges the table with compacted table dropping duplicates where necessary.
 
-    This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
-    appended to the table.
-    """
+#     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
+#     appended to the table.
+#     """
 
-    all_tables = []
-    delete_columns = ["col_1"]
-    incremental_idx = 0
-    if compacted_table:
-        incremental_idx = 1 if table else 0
-        all_deletes = []
-        all_delete_bundles = []
-        if spos_to_obj_ref:
-            for _, obj_ref in spos_to_obj_ref.items():
-                all_delete_bundles.append(ray.get(obj_ref))
-            all_deletes = pa.concat_tables(all_delete_bundles)
-            compacted_table = compacted_table.filter(
-                pc.invert(
-                    pc.is_in(
-                        compacted_table[delete_columns[0]],
-                        value_set=all_deletes[delete_columns[0]],
-                    )
-                )
-            )
-        if compacted_table.num_rows != 0:
-            all_tables.append(compacted_table)
-    if table:
-        all_tables.append(table)
-    logger.info(f"pdebug:{table=}, {compacted_table=}, {all_tables=}")
-    if not primary_keys or not can_drop_duplicates:
-        logger.info(
-            f"Not dropping duplicates for primary keys={primary_keys} "
-            f"and can_drop_duplicates={can_drop_duplicates}"
-        )
-        all_tables[incremental_idx] = _drop_delta_type_rows(
-            all_tables[incremental_idx], DeltaType.DELETE
-        )
-        # we need not drop duplicates
-        return pa.concat_tables(all_tables)
-    all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
+#     all_tables = []
+#     delete_columns = ["col_1"]
+#     incremental_idx = 0
+#     if compacted_table:
+#         incremental_idx = 1 if table else 0
+#         all_deletes = []
+#         all_delete_bundles = []
+#         if spos_to_obj_ref:
+#             for _, obj_ref in spos_to_obj_ref.items():
+#                 all_delete_bundles.append(ray.get(obj_ref))
+#             all_deletes = pa.concat_tables(all_delete_bundles)
+#             compacted_table = compacted_table.filter(
+#                 pc.invert(
+#                     pc.is_in(
+#                         compacted_table[delete_columns[0]],
+#                         value_set=all_deletes[delete_columns[0]],
+#                     )
+#                 )
+#             )
+#         if compacted_table.num_rows != 0:
+#             all_tables.append(compacted_table)
+#     if table:
+#         all_tables.append(table)
+#     logger.info(f"pdebug:{table=}, {compacted_table=}, {all_tables=}")
+#     if not primary_keys or not can_drop_duplicates:
+#         logger.info(
+#             f"Not dropping duplicates for primary keys={primary_keys} "
+#             f"and can_drop_duplicates={can_drop_duplicates}"
+#         )
+#         all_tables[incremental_idx] = _drop_delta_type_rows(
+#             all_tables[incremental_idx], DeltaType.DELETE
+#         )
+#         # we need not drop duplicates
+#         return pa.concat_tables(all_tables)
+#     all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
 
-    result_table_list = []
+#     result_table_list = []
 
-    incremental_table = drop_duplicates(
-        all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
-    )
+#     incremental_table = drop_duplicates(
+#         all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
+#     )
 
-    if compacted_table:
-        compacted_table = all_tables[0]
+#     if compacted_table:
+#         compacted_table = all_tables[0]
 
-        records_to_keep = pc.invert(
-            pc.is_in(
-                compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
-                incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
-            )
-        )
+#         records_to_keep = pc.invert(
+#             pc.is_in(
+#                 compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
+#                 incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
+#             )
+#         )
 
-        result_table_list.append(compacted_table.filter(records_to_keep))
+#         result_table_list.append(compacted_table.filter(records_to_keep))
 
-    result_table_list.append(incremental_table)
+#     result_table_list.append(incremental_table)
 
-    final_table = pa.concat_tables(result_table_list)
-    final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
+#     final_table = pa.concat_tables(result_table_list)
+#     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
 
-    return final_table
+#     return final_table
 
 
 def _download_compacted_table(
@@ -538,7 +512,6 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 hb_table_record_count = len(table) + (
                     len(compacted_table) if compacted_table else 0
                 )
-                # logger.info(f"pdebug:{table=}, {total_dfes_found=}")
 
                 table, merge_time = timed_invocation(
                     func=_merge_tables,
@@ -546,7 +519,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     primary_keys=input.primary_keys,
                     can_drop_duplicates=input.drop_duplicates,
                     compacted_table=compacted_table,
-                    # spos_to_obj_ref=input.spos_to_obj_ref,
+                    spos_to_obj_ref=input.spos_to_obj_ref,
                     # compacted_table_spos=input.round_completion_info.compacted_delta_locator.stream_position
                     # if compacted_table
                     # else None,

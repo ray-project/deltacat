@@ -1166,7 +1166,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([0, 1, 3]),
-                pa.array(["a", "997", "999"]),
+                pa.array(["996", "997","d"]),
             ],
             names=["pk_col_1", "col_1"],
         ),

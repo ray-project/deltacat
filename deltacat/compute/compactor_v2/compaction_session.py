@@ -239,9 +239,7 @@ def _execute_compaction(
             delete_annotated_deltas_only.append(annotated_delta)
     delete_table = []
     all_deletes_and_spos = None
-    # logger.info(f"pdebug: {delete_annotated_deltas_only=}")
     for delete_annotated_delta in delete_annotated_deltas_only:
-        # logger.info(f"pdebug: {delete_annotated_delta=}")
         del_delta = params.deltacat_storage.download_delta(
             delete_annotated_delta,
             max_parallelism=1,
@@ -254,7 +252,6 @@ def _execute_compaction(
             del_delta[idx] = sc.append_stream_position_column(table,(pa.array(np.repeat(delete_annotated_delta.stream_position, len(table)))))
         delete_table.extend(del_delta)
     if len(delete_table) > 0:
-        # logger.info(f"pdebug: {delete_table=}")
         all_deletes_and_spos = pa.concat_tables(delete_table)
     for delete_annotated_delta in delete_annotated_deltas_only:
         spos = annotated_delta.stream_position
