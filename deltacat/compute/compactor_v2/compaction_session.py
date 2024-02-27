@@ -245,7 +245,7 @@ def _execute_compaction(
     for delete_annotated_delta in delete_annotated_deltas_only:
         properties: Optional[Dict[str, str]] = delete_annotated_delta.properties
         delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
-        del_delta = params.deltacat_storage.download_delta(
+        delete_dataset = params.deltacat_storage.download_delta(
             delete_annotated_delta,
             max_parallelism=params.task_max_parallelism
             if params.task_max_parallelism
@@ -255,8 +255,8 @@ def _execute_compaction(
             storage_type=StorageType.LOCAL,
             **params.deltacat_storage_kwargs,
         )
-        for idx, table in enumerate(del_delta):
-            del_delta[idx] = sc.append_stream_position_column(
+        for idx, table in enumerate(delete_dataset):
+            delete_dataset[idx] = sc.append_stream_position_column(
                 table,
                 (
                     pa.array(
@@ -264,7 +264,7 @@ def _execute_compaction(
                     )
                 ),
             )
-        delete_table.extend(del_delta)
+        delete_table.extend(delete_dataset)
     if len(delete_table) > 0:
         all_deletes_and_spos = pa.concat_tables(delete_table)
     for delete_annotated_delta in delete_annotated_deltas_only:
