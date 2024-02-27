@@ -89,6 +89,7 @@ def _group_file_records_by_pk_hash_bucket(
                         file_index=dfe.file_index,
                         delta_type=dfe.delta_type,
                         table=table,
+                        delete_columns=dfe.delete_columns,
                     )
                 )
     return hb_to_delta_file_envelopes, total_record_count, total_size_bytes

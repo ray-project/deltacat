@@ -134,9 +134,9 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
         return
     upserts_affected_by_deletes: pa.Table = pa.concat_tables(upserts_in_interval)
     deletes_affected_by_deletes: pa.Table = pa.concat_tables(deletes_in_interval)
-    logger.info(
-        f"pdebug:before_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
-    )
+    # logger.info(
+    #     f"pdebug:before_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
+    # )
     # filter out deletes
     upserts_affected_by_deletes = upserts_affected_by_deletes.filter(
         pc.is_in(
@@ -145,9 +145,9 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
             skip_nulls=True,
         )
     )
-    logger.info(
-        f"pdebug:after_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
-    )
+    # logger.info(
+    #     f"pdebug:after_filter_out_deletes {upserts_affected_by_deletes.to_pydict()=} \n\n {deletes_affected_by_deletes.to_pydict()=}"
+    # )
     all_upserts_affected_by_deletes_by_spos.append(upserts_affected_by_deletes)
     all_upserts_affected_by_deletes_by_spos.append(deletes_affected_by_deletes)
     spos_table_of_all_deltas_affected_by_deletes = pa.concat_tables(
@@ -165,9 +165,9 @@ def prepare_delete(input: PrepareDeleteInput) -> Tuple[Any, List[str]]:
             storage_type=StorageType.LOCAL,
             **input.deltacat_storage_kwargs,
         )
-        logger.info(
-            f"pdebug:prepare_delete:{idx=}, {delta_type=}, {delta_stream_position=} {spos_table_of_all_deltas_affected_by_deletes.to_pydict()=}, {delta_tables=}"
-        )
+        # logger.info(
+        #     f"pdebug:prepare_delete:{idx=}, {delta_type=}, {delta_stream_position=} {spos_table_of_all_deltas_affected_by_deletes.to_pydict()=}, {delta_tables=}"
+        # )
     obj_ref = ray.put(spos_table_of_all_deltas_affected_by_deletes)
     return obj_ref, delete_delta_spos_list
 

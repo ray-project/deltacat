@@ -60,7 +60,7 @@ from deltacat.compute.compactor_v2.steps import prepare_delete as pd
 from deltacat.compute.compactor_v2.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -244,18 +244,25 @@ def _execute_compaction(
 
     delete_spos_to_obj_ref = defaultdict()
     delete_annotated_deltas_only: List[DeltaAnnotated] = []
-    delete_columns = ["col_1"]
+    # delete_columns = ["col_1"]
     for i, annotated_delta in enumerate(uniform_deltas):
         annotations = annotated_delta.annotations
         annotation_delta_type = annotations[0].annotation_delta_type
         if annotation_delta_type is DeltaType.DELETE:
+            assert (
+                annotated_delta.properties is not None
+            ), "Annotated Delta should have a non-null properties attribute if delete type"
             delete_annotated_deltas_only.append(annotated_delta)
     delete_table = []
-    all_deletes_and_spos = None
+    all_deletes_and_spos: Optional[Dict[str, Any]] = None
     for delete_annotated_delta in delete_annotated_deltas_only:
+        properties: Optional[Dict[str, str]] = delete_annotated_delta.properties
+        delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
         del_delta = params.deltacat_storage.download_delta(
             delete_annotated_delta,
-            max_parallelism=1,
+            max_parallelism=params.task_max_parallelism
+            if params.task_max_parallelism
+            else 1,
             file_reader_kwargs_provider=params.read_kwargs_provider,
             columns=delete_columns,
             storage_type=StorageType.LOCAL,
