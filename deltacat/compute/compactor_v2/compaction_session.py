@@ -15,7 +15,6 @@ from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInpu
 from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 
 from deltacat.aws import s3u as s3_utils
-import pyarrow.compute as pc
 from deltacat.types.media import StorageType
 import pyarrow as pa
 import deltacat
@@ -29,12 +28,9 @@ from deltacat.compute.compactor import (
     PyArrowWriteResult,
     RoundCompletionInfo,
 )
-from deltacat.compute.compactor_v2.model.merge_input import MergeInput
-from deltacat.compute.compactor import PyArrowWriteResult, RoundCompletionInfo
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
-from deltacat.compute.compactor_v2.model.prepare_delete_input import PrepareDeleteInput
 from deltacat.compute.compactor_v2.utils.merge import (
     generate_local_merge_input,
 )
@@ -45,7 +41,6 @@ from deltacat.storage import (
 )
 from deltacat.compute.compactor import (
     DeltaAnnotated,
-    DeltaFileEnvelope,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,

@@ -56,7 +56,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     delete_table_by_stream_position: Optional[Dict[str, Any]] = None,
-) -> pa.Table:
+) -> Tuple[pa.Table, List[str]]:
     hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes: List[DeltaFileEnvelope] = [
@@ -113,7 +113,7 @@ def _build_incremental_table(
         table = append_is_deleted_col(table, to_delete_column)
         hb_tables.append(table)
     result = pa.concat_tables(hb_tables)
-    return result
+    return result, delete_columns
 
 
 def _merge_tables(
@@ -122,10 +122,10 @@ def _merge_tables(
     can_drop_duplicates: bool,
     compacted_table: Optional[pa.Table] = None,
     spos_to_obj_ref: Optional[Dict[str, Any]] = None,
+    delete_columns: Optional[List[str]] = None,
 ) -> pa.Table:
     """
     Merges the table with compacted table dropping duplicates where necessary.
-
 
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
@@ -133,7 +133,6 @@ def _merge_tables(
     all_tables = []
     incremental_idx = 0
     table = sc.drop_is_deleted_type_rows(table)
-    delete_columns = ["col_1"]
     if compacted_table:
         all_deletes = []
         all_delete_bundles = []
@@ -141,17 +140,15 @@ def _merge_tables(
             for _, obj_ref in spos_to_obj_ref.items():
                 all_delete_bundles.append(ray.get(obj_ref))
             all_deletes = pa.concat_tables(all_delete_bundles)
-            # logger.info(f"pdebug:if spos_to_obj_ref:BEFORE {table=}")
-            # logger.info(f"pdebug:if spos_to_obj_ref:BEFORE {compacted_table=}")
-            compacted_table = compacted_table.filter(
-                pc.invert(
-                    pc.is_in(
-                        compacted_table[delete_columns[0]],
-                        value_set=all_deletes[delete_columns[0]],
+            for delete_col in delete_columns:
+                compacted_table = compacted_table.filter(
+                    pc.invert(
+                        pc.is_in(
+                            compacted_table[delete_col],
+                            value_set=all_deletes[delete_col],
+                        )
                     )
                 )
-            )
-            # logger.info(f"pdebug:if spos_to_obj_ref:AFTER {compacted_table=}")
         if compacted_table and compacted_table.num_rows > 0:
             incremental_idx = 1
             all_tables.append(compacted_table)
@@ -293,7 +290,7 @@ def _compact_tables(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
-    table: pa.Table = _build_incremental_table(dfe_list, input.spos_to_obj_ref)
+    table, delete_columns = _build_incremental_table(dfe_list, input.spos_to_obj_ref)
 
     incremental_len = len(table)
     logger.info(
@@ -333,6 +330,7 @@ def _compact_tables(
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=compacted_table,
         spos_to_obj_ref=input.spos_to_obj_ref,
+        delete_columns=delete_columns,
     )
     total_deduped_records = hb_table_record_count - len(table)
 
