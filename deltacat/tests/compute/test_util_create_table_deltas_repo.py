@@ -68,7 +68,6 @@ def create_src_w_deltas_destination_plus_destination(
     ds_mock_kwargs: Optional[Dict[str, Any]],
 ) -> Tuple[Stream, Stream, Optional[Stream]]:
     import deltacat.tests.local_deltacat_storage as ds
-    from deltacat.storage import Partition, Stream
 
     source_namespace, source_table_name, source_table_version = create_src_table(
         primary_keys, sort_keys, partition_keys, ds_mock_kwargs

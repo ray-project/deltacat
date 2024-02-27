@@ -22,7 +22,7 @@ from tenacity import (
     stop_after_delay,
     wait_random_exponential,
 )
-
+from deltacat.utils.ray_utils.concurrency import invoke_parallel
 import deltacat.aws.clients as aws_utils
 from deltacat import logs
 from deltacat.aws.constants import TIMEOUT_ERROR_CODES
@@ -35,10 +35,17 @@ from deltacat.storage import (
     ManifestEntry,
     ManifestEntryList,
 )
-from deltacat.types.media import ContentEncoding, ContentType, TableType
+from deltacat.types.media import (
+    ContentEncoding,
+    ContentType,
+    TableType,
+    DistributedDatasetType,
+)
 from deltacat.types.tables import (
     TABLE_CLASS_TO_SIZE_FUNC,
     TABLE_TYPE_TO_READER_FUNC,
+    TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS,
+    DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC,
     get_table_length,
 )
 from deltacat.types.partial_download import PartialFileDownloadParams
@@ -284,11 +291,295 @@ def upload_sliced_table(
     return manifest_entries
 
 
+def upload_table(
+    table: Union[LocalTable, DistributedDataset],
+    s3_base_url: str,
+    s3_file_system: s3fs.S3FileSystem,
+    s3_table_writer_func: Callable,
+    s3_table_writer_kwargs: Optional[Dict[str, Any]],
+    content_type: ContentType = ContentType.PARQUET,
+    **s3_client_kwargs,
+) -> ManifestEntryList:
+    """
+    Writes the given table to 1 or more S3 files and return Redshift
+    manifest entries describing the uploaded files.
+    """
+    if s3_table_writer_kwargs is None:
+        s3_table_writer_kwargs = {}
+
+    capture_object = CapturedBlockWritePaths()
+    block_write_path_provider = UuidBlockWritePathProvider(capture_object)
+    s3_table_writer_func(
+        table,
+        s3_base_url,
+        s3_file_system,
+        block_write_path_provider,
+        content_type.value,
+        **s3_table_writer_kwargs,
+    )
+    # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
+    del block_write_path_provider
+    block_refs = capture_object.block_refs()
+    write_paths = capture_object.write_paths()
+    metadata = _get_metadata(table, write_paths, block_refs)
+    manifest_entries = ManifestEntryList()
+    for block_idx, s3_url in enumerate(write_paths):
+        try:
+            manifest_entry = ManifestEntry.from_s3_obj_url(
+                s3_url,
+                metadata[block_idx].num_rows,
+                metadata[block_idx].size_bytes,
+                **s3_client_kwargs,
+            )
+            manifest_entries.append(manifest_entry)
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                # s3fs may swallow S3 errors - we were probably throttled
+                raise RetryableError(f"Retry table upload to: {s3_url}") from e
+            raise NonRetryableError(f"Failed table upload to: {s3_url}") from e
+        except BaseException as e:
+            logger.warn(
+                f"Upload has failed for {s3_url} and content_type={content_type}. Error: {e}",
+                exc_info=True,
+            )
+            raise e
+    return manifest_entries
+
+
+def download_manifest_entry(
+    manifest_entry: ManifestEntry,
+    token_holder: Optional[Dict[str, Any]] = None,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    content_type: Optional[ContentType] = None,
+    content_encoding: Optional[ContentEncoding] = None,
+) -> LocalTable:
+
+    s3_client_kwargs = _get_s3_client_kwargs_from_token(token_holder=token_holder)
+    if not content_type:
+        content_type = manifest_entry.meta.content_type
+        assert (
+            content_type
+        ), f"Unknown content type for manifest entry: {manifest_entry}"
+        content_type = ContentType(content_type)
+    if not content_encoding:
+        content_encoding = manifest_entry.meta.content_encoding
+        assert (
+            content_encoding
+        ), f"Unknown content encoding for manifest entry: {manifest_entry}"
+        content_encoding = ContentEncoding(content_encoding)
+    s3_url = manifest_entry.uri
+    if s3_url is None:
+        s3_url = manifest_entry.url
+
+    partial_file_download_params = None
+    if manifest_entry.meta and manifest_entry.meta.content_type_parameters:
+        for type_params in manifest_entry.meta.content_type_parameters:
+            if isinstance(type_params, PartialFileDownloadParams):
+                partial_file_download_params = type_params
+                break
+
+    # @retry decorator can't be pickled by Ray, so wrap download in Retrying
+    retrying = Retrying(
+        wait=wait_random_exponential(multiplier=1, max=60),
+        stop=stop_after_delay(30 * 60),
+        retry=retry_if_not_exception_type(NonRetryableError),
+    )
+    table = retrying(
+        read_file,
+        s3_url,
+        content_type,
+        content_encoding,
+        table_type,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+        partial_file_download_params,
+        **s3_client_kwargs,
+    )
+    return table
+
+
+@ray.remote
+def download_manifest_entry_ray(*args, **kwargs) -> ObjectRef[LocalTable]:
+    return download_manifest_entry(*args, **kwargs)
+
+
+def download_manifest_entries(
+    manifest: Manifest,
+    token_holder: Optional[Dict[str, Any]] = None,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = 1,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+) -> LocalDataset:
+
+    if max_parallelism and max_parallelism <= 1:
+        return _download_manifest_entries(
+            manifest,
+            token_holder,
+            table_type,
+            column_names,
+            include_columns,
+            file_reader_kwargs_provider,
+        )
+    else:
+        return _download_manifest_entries_parallel(
+            manifest,
+            token_holder,
+            table_type,
+            max_parallelism,
+            column_names,
+            include_columns,
+            file_reader_kwargs_provider,
+        )
+
+
+def download_manifest_entries_distributed(
+    manifest: Manifest,
+    token_holder: Optional[Dict[str, Any]] = None,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = 1000,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+) -> DistributedDataset:
+
+    params = {
+        "manifest": manifest,
+        "token_holder": token_holder,
+        "table_type": table_type,
+        "max_parallelism": max_parallelism,
+        "column_names": column_names,
+        "include_columns": include_columns,
+        "file_reader_kwargs_provider": file_reader_kwargs_provider,
+        "ray_options_provider": ray_options_provider,
+        "distributed_dataset_type": distributed_dataset_type,
+    }
+
+    if distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
+        return _download_manifest_entries_ray_data_distributed(**params)
+    elif distributed_dataset_type is not None:
+        return _download_manifest_entries_all_dataset_distributed(**params)
+    else:
+        raise ValueError(
+            f"Distributed dataset type {distributed_dataset_type} not supported."
+        )
+
+
+def upload(s3_url: str, body, **s3_client_kwargs) -> Dict[str, Any]:
+
+    # TODO (pdames): add tenacity retrying
+    parsed_s3_url = parse_s3_url(s3_url)
+    s3 = s3_client_cache(None, **s3_client_kwargs)
+    return s3.put_object(
+        Body=body,
+        Bucket=parsed_s3_url.bucket,
+        Key=parsed_s3_url.key,
+    )
+
+
+def download(
+    s3_url: str, fail_if_not_found: bool = True, **s3_client_kwargs
+) -> Optional[Dict[str, Any]]:
+
+    # TODO (pdames): add tenacity retrying
+    parsed_s3_url = parse_s3_url(s3_url)
+    s3 = s3_client_cache(None, **s3_client_kwargs)
+    try:
+        return s3.get_object(
+            Bucket=parsed_s3_url.bucket,
+            Key=parsed_s3_url.key,
+        )
+    except ClientError as e:
+        if fail_if_not_found:
+            raise
+        else:
+            if e.response["Error"]["Code"] != "404":
+                if e.response["Error"]["Code"] != "NoSuchKey":
+                    raise
+            logger.info(f"file not found: {s3_url}")
+    except s3.exceptions.NoSuchKey:
+        if fail_if_not_found:
+            raise
+        else:
+            logger.info(f"file not found: {s3_url}")
+    return None
+
+
+def _download_manifest_entries_parallel(
+    manifest: Manifest,
+    token_holder: Optional[Dict[str, Any]] = None,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+) -> LocalDataset:
+
+    tables = []
+    pool = multiprocessing.Pool(max_parallelism)
+    downloader = partial(
+        download_manifest_entry,
+        token_holder=token_holder,
+        table_type=table_type,
+        column_names=column_names,
+        include_columns=include_columns,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
+    )
+    for table in pool.map(downloader, [e for e in manifest.entries]):
+        tables.append(table)
+    return tables
+
+
+def _download_manifest_entries(
+    manifest: Manifest,
+    token_holder: Optional[Dict[str, Any]] = None,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+) -> LocalDataset:
+
+    return [
+        download_manifest_entry(
+            manifest_entry=e,
+            token_holder=token_holder,
+            table_type=table_type,
+            column_names=column_names,
+            include_columns=include_columns,
+            file_reader_kwargs_provider=file_reader_kwargs_provider,
+        )
+        for e in manifest.entries
+    ]
+
+
 @ray.remote
 def _block_metadata(block: Block) -> BlockMetadata:
     return BlockAccessor.for_block(block).get_metadata(
         input_files=None,
         exec_stats=None,
+    )
+
+
+def _get_s3_client_kwargs_from_token(token_holder) -> Dict[Any, Any]:
+    conf = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
+    return (
+        {
+            "aws_access_key_id": token_holder["accessKeyId"],
+            "aws_secret_access_key": token_holder["secretAccessKey"],
+            "aws_session_token": token_holder["sessionToken"],
+            "config": conf,
+        }
+        if token_holder
+        else {"config": conf}
     )
 
 
@@ -337,234 +628,88 @@ def _get_metadata(
     return metadata
 
 
-def upload_table(
-    table: Union[LocalTable, DistributedDataset],
-    s3_base_url: str,
-    s3_file_system: s3fs.S3FileSystem,
-    s3_table_writer_func: Callable,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]],
-    content_type: ContentType = ContentType.PARQUET,
-    **s3_client_kwargs,
-) -> ManifestEntryList:
-    """
-    Writes the given table to 1 or more S3 files and return Redshift
-    manifest entries describing the uploaded files.
-    """
-    if s3_table_writer_kwargs is None:
-        s3_table_writer_kwargs = {}
-
-    capture_object = CapturedBlockWritePaths()
-    block_write_path_provider = UuidBlockWritePathProvider(capture_object)
-    s3_table_writer_func(
-        table,
-        s3_base_url,
-        s3_file_system,
-        block_write_path_provider,
-        content_type.value,
-        **s3_table_writer_kwargs,
-    )
-    # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
-    del block_write_path_provider
-    block_refs = capture_object.block_refs()
-    write_paths = capture_object.write_paths()
-    metadata = _get_metadata(table, write_paths, block_refs)
-    manifest_entries = ManifestEntryList()
-    for block_idx, s3_url in enumerate(write_paths):
-        try:
-            manifest_entry = ManifestEntry.from_s3_obj_url(
-                s3_url,
-                metadata[block_idx].num_rows,
-                metadata[block_idx].size_bytes,
-                **s3_client_kwargs,
-            )
-            manifest_entries.append(manifest_entry)
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "NoSuchKey":
-                # s3fs may swallow S3 errors - we were probably throttled
-                raise RetryableError(f"Retry table upload to: {s3_url}") from e
-            raise NonRetryableError(f"Failed table upload to: {s3_url}") from e
-    return manifest_entries
-
-
-def download_manifest_entry(
-    manifest_entry: ManifestEntry,
-    token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    content_type: Optional[ContentType] = None,
-    content_encoding: Optional[ContentEncoding] = None,
-) -> LocalTable:
-
-    conf = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
-    s3_client_kwargs = (
-        {
-            "aws_access_key_id": token_holder["accessKeyId"],
-            "aws_secret_access_key": token_holder["secretAccessKey"],
-            "aws_session_token": token_holder["sessionToken"],
-            "config": conf,
-        }
-        if token_holder
-        else {"config": conf}
-    )
-    if not content_type:
-        content_type = manifest_entry.meta.content_type
-        assert (
-            content_type
-        ), f"Unknown content type for manifest entry: {manifest_entry}"
-        content_type = ContentType(content_type)
-    if not content_encoding:
-        content_encoding = manifest_entry.meta.content_encoding
-        assert (
-            content_encoding
-        ), f"Unknown content encoding for manifest entry: {manifest_entry}"
-        content_encoding = ContentEncoding(content_encoding)
-    s3_url = manifest_entry.uri
-    if s3_url is None:
-        s3_url = manifest_entry.url
-
-    partial_file_download_params = None
-    if manifest_entry.meta and manifest_entry.meta.content_type_parameters:
-        for type_params in manifest_entry.meta.content_type_parameters:
-            if isinstance(type_params, PartialFileDownloadParams):
-                partial_file_download_params = type_params
-                break
-
-    # @retry decorator can't be pickled by Ray, so wrap download in Retrying
-    retrying = Retrying(
-        wait=wait_random_exponential(multiplier=1, max=60),
-        stop=stop_after_delay(30 * 60),
-        retry=retry_if_not_exception_type(NonRetryableError),
-    )
-    table = retrying(
-        read_file,
-        s3_url,
-        content_type,
-        content_encoding,
-        table_type,
-        column_names,
-        include_columns,
-        file_reader_kwargs_provider,
-        partial_file_download_params,
-        **s3_client_kwargs,
-    )
-    return table
-
-
-def _download_manifest_entries(
+def _download_manifest_entries_ray_data_distributed(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
     table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-) -> LocalDataset:
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+) -> DistributedDataset:
 
-    return [
-        download_manifest_entry(
-            e,
+    table_pending_ids = []
+    manifest_entries = manifest.entries
+    if manifest_entries:
+        table_pending_ids = invoke_parallel(
+            manifest_entries,
+            download_manifest_entry_ray,
             token_holder,
             table_type,
             column_names,
             include_columns,
             file_reader_kwargs_provider,
+            max_parallelism=max_parallelism,
+            options_provider=ray_options_provider,
         )
-        for e in manifest.entries
-    ]
+    return TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS[table_type](table_pending_ids)
 
 
-def _download_manifest_entries_parallel(
+def _download_manifest_entries_all_dataset_distributed(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
     table_type: TableType = TableType.PYARROW,
-    max_parallelism: Optional[int] = None,
+    max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-) -> LocalDataset:
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+) -> DistributedDataset:
 
-    tables = []
-    pool = multiprocessing.Pool(max_parallelism)
-    downloader = partial(
-        download_manifest_entry,
-        token_holder=token_holder,
-        table_type=table_type,
-        column_names=column_names,
-        include_columns=include_columns,
-        file_reader_kwargs_provider=file_reader_kwargs_provider,
-    )
-    for table in pool.map(downloader, [e for e in manifest.entries]):
-        tables.append(table)
-    return tables
+    entry_content_type = None
+    entry_content_encoding = None
+    uris = []
+    for entry in manifest.entries or []:
+        if (
+            entry_content_type is not None
+            and entry_content_type != entry.meta.content_type
+        ):
+            raise ValueError(
+                f"Mixed content types of ({entry_content_type},"
+                f" {entry.meta.content_type}) is not supported."
+            )
 
+        if (
+            entry_content_encoding is not None
+            and entry_content_encoding != entry.meta.content_encoding
+        ):
+            raise ValueError(
+                f"Mixed content encoding of {entry_content_encoding},"
+                f" {entry.meta.content_encoding} is not supported."
+            )
 
-def download_manifest_entries(
-    manifest: Manifest,
-    token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
-    max_parallelism: Optional[int] = 1,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-) -> LocalDataset:
+        entry_content_type = entry.meta.content_type
+        entry_content_encoding = entry.meta.content_encoding
+        uris.append(entry.uri)
 
-    if max_parallelism and max_parallelism <= 1:
-        return _download_manifest_entries(
-            manifest,
-            token_holder,
-            table_type,
-            column_names,
-            include_columns,
-            file_reader_kwargs_provider,
+    s3_client_kwargs = _get_s3_client_kwargs_from_token(token_holder=token_holder)
+
+    if distributed_dataset_type in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
+        return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
+            uris=uris,
+            content_type=entry_content_type,
+            content_encoding=entry_content_encoding,
+            column_names=column_names,
+            include_columns=include_columns,
+            read_func_kwargs_provider=file_reader_kwargs_provider,
+            ray_options_provider=ray_options_provider,
+            s3_client_kwargs=s3_client_kwargs,
         )
     else:
-        return _download_manifest_entries_parallel(
-            manifest,
-            token_holder,
-            table_type,
-            max_parallelism,
-            column_names,
-            include_columns,
-            file_reader_kwargs_provider,
+        raise ValueError(
+            f"Unsupported distributed dataset type={distributed_dataset_type}"
         )
-
-
-def upload(s3_url: str, body, **s3_client_kwargs) -> Dict[str, Any]:
-
-    # TODO (pdames): add tenacity retrying
-    parsed_s3_url = parse_s3_url(s3_url)
-    s3 = s3_client_cache(None, **s3_client_kwargs)
-    return s3.put_object(
-        Body=body,
-        Bucket=parsed_s3_url.bucket,
-        Key=parsed_s3_url.key,
-    )
-
-
-def download(
-    s3_url: str, fail_if_not_found: bool = True, **s3_client_kwargs
-) -> Optional[Dict[str, Any]]:
-
-    # TODO (pdames): add tenacity retrying
-    parsed_s3_url = parse_s3_url(s3_url)
-    s3 = s3_client_cache(None, **s3_client_kwargs)
-    try:
-        return s3.get_object(
-            Bucket=parsed_s3_url.bucket,
-            Key=parsed_s3_url.key,
-        )
-    except ClientError as e:
-        if fail_if_not_found:
-            raise
-        else:
-            if e.response["Error"]["Code"] != "404":
-                if e.response["Error"]["Code"] != "NoSuchKey":
-                    raise
-            logger.info(f"file not found: {s3_url}")
-    except s3.exceptions.NoSuchKey:
-        if fail_if_not_found:
-            raise
-        else:
-            logger.info(f"file not found: {s3_url}")
-    return None

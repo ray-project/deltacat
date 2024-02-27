@@ -1,4 +1,7 @@
+import botocore
+import logging
 from typing import Dict, Optional, List, Tuple
+from deltacat import logs
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
 from deltacat.storage import (
@@ -15,6 +18,8 @@ from deltacat.compute.compactor_v2.constants import (
     TOTAL_MEMORY_BUFFER_PERCENTAGE,
     PARQUET_TO_PYARROW_INFLATION,
 )
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _get_parquet_type_params_if_exist(
@@ -51,7 +56,7 @@ def _calculate_parquet_column_size(
     return column_size * PARQUET_TO_PYARROW_INFLATION
 
 
-def _get_task_options(
+def get_task_options(
     cpu: float, memory: float, ray_custom_resources: Optional[Dict] = None
 ) -> Dict:
 
@@ -59,6 +64,17 @@ def _get_task_options(
 
     if ray_custom_resources:
         task_opts["resources"] = ray_custom_resources
+
+    task_opts["max_retries"] = 3
+
+    # List of possible botocore exceptions are available at
+    # https://github.com/boto/botocore/blob/develop/botocore/exceptions.py
+    task_opts["retry_exceptions"] = [
+        botocore.exceptions.ConnectionError,
+        botocore.exceptions.HTTPClientError,
+        ConnectionError,
+        TimeoutError,
+    ]
 
     return task_opts
 
@@ -121,11 +137,15 @@ def hash_bucket_resource_options_provider(
     ray_custom_resources: Optional[Dict] = None,
     **kwargs,
 ) -> Dict:
+    debug_memory_params = {"hash_bucket_task_index": index}
     size_bytes = 0.0
     num_rows = 0
     total_pk_size = 0
 
     if not item.manifest or not item.manifest.entries:
+        logger.debug(
+            f"[Hash bucket task {index}]: No manifest entries, skipping memory allocation calculation"
+        )
         return {"CPU": 0.01}
 
     for entry in item.manifest.entries:
@@ -150,14 +170,32 @@ def hash_bucket_resource_options_provider(
             else:
                 total_pk_size += pk_size
 
-    # total size + pk size + pk hash column + hash bucket index column
+    # total size + pk size + pyarrow-to-numpy conversion + pk hash column + hashlib inefficiency + hash bucket index column
     # Refer to hash_bucket step for more details.
-    total_memory = size_bytes + total_pk_size + num_rows * 20 + num_rows * 4
+    total_memory = (
+        size_bytes
+        + total_pk_size
+        + total_pk_size
+        + num_rows * 20
+        + num_rows * 20
+        + num_rows * 4
+    )
+    debug_memory_params["size_bytes"] = size_bytes
+    debug_memory_params["num_rows"] = num_rows
+    debug_memory_params["total_pk_size"] = total_pk_size
+    debug_memory_params["total_memory"] = total_memory
+
+    debug_memory_params["previous_inflation"] = previous_inflation
+    debug_memory_params["average_record_size_bytes"] = average_record_size_bytes
 
     # Consider buffer
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
+    debug_memory_params["total_memory_with_buffer"] = total_memory
+    logger.debug(
+        f"[Hash bucket task {index}]: Params used for calculating hash bucketing memory: {debug_memory_params}"
+    )
 
-    return _get_task_options(0.01, total_memory, ray_custom_resources)
+    return get_task_options(0.01, total_memory, ray_custom_resources)
 
 
 def merge_resource_options_provider(
@@ -174,10 +212,13 @@ def merge_resource_options_provider(
     deltacat_storage_kwargs: Optional[Dict] = {},
     **kwargs,
 ) -> Dict:
+    debug_memory_params = {"merge_task_index": index}
     hb_group_idx = item[0]
 
     data_size = hash_group_size_bytes.get(hb_group_idx, 0)
     num_rows = hash_group_num_rows.get(hb_group_idx, 0)
+    debug_memory_params["data_size_from_hash_group"] = data_size
+    debug_memory_params["num_rows_from_hash_group"] = num_rows
 
     # upper bound for pk size of incremental
     pk_size_bytes = data_size
@@ -193,10 +234,13 @@ def merge_resource_options_provider(
             round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
             / round_completion_info.compacted_pyarrow_write_result.file_bytes
         )
+        debug_memory_params["previous_inflation"] = previous_inflation
+
         average_record_size = (
             round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
             / round_completion_info.compacted_pyarrow_write_result.records
         )
+        debug_memory_params["average_record_size"] = average_record_size
 
         iterable = hash_group_index_to_hash_bucket_indices(
             hb_group_idx, round_completion_info.hash_bucket_count, num_hash_groups
@@ -235,16 +279,27 @@ def merge_resource_options_provider(
                     else:
                         pk_size_bytes += pk_size
 
-    # total data downloaded + primary key hash column + primary key column
-    # + dict size for merge + incremental index array size
+    # total data downloaded + primary key hash column + pyarrow-to-numpy conversion
+    # + primary key column + hashlib inefficiency + dict size for merge + incremental index array size
     total_memory = (
         data_size
         + pk_size_bytes
+        + pk_size_bytes
+        + num_rows * 20
         + num_rows * 20
         + num_rows * 20
         + incremental_index_array_size
     )
+    debug_memory_params["data_size"] = data_size
+    debug_memory_params["num_rows"] = num_rows
+    debug_memory_params["pk_size_bytes"] = pk_size_bytes
+    debug_memory_params["incremental_index_array_size"] = incremental_index_array_size
+    debug_memory_params["total_memory"] = total_memory
 
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
+    debug_memory_params["total_memory_with_buffer"] = total_memory
+    logger.debug(
+        f"[Merge task {index}]: Params used for calculating merge memory: {debug_memory_params}"
+    )
 
-    return _get_task_options(0.01, total_memory, ray_custom_resources)
+    return get_task_options(0.01, total_memory, ray_custom_resources)

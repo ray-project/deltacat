@@ -4,9 +4,6 @@ from __future__ import annotations
 from typing import Tuple
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
-from deltacat.compute.compactor.model.compaction_session_audit_info import (
-    CompactionSessionAuditInfo,
-)
 from typing import Any, Dict, Optional
 
 
@@ -98,8 +95,8 @@ class RoundCompletionInfo(dict):
         return self["sortKeysBitWidth"]
 
     @property
-    def compaction_audit(self) -> Optional[CompactionSessionAuditInfo]:
-        return self.get("compactionAudit")
+    def compaction_audit_url(self) -> Optional[str]:
+        return self.get("compactionAuditUrl")
 
     @property
     def rebase_source_partition_locator(self) -> Optional[PartitionLocator]:

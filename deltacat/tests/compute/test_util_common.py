@@ -134,20 +134,29 @@ def create_rebase_table(
     )
 
 
-def get_compacted_delta_locator_from_rcf(
-    s3_resource: ServiceResource, rcf_file_s3_uri: str
-):
+def get_rcf(s3_resource, rcf_file_s3_uri: str):
     from deltacat.tests.test_utils.utils import read_s3_contents
     from deltacat.compute.compactor import (
         RoundCompletionInfo,
     )
-    from deltacat.storage import DeltaLocator
 
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(
         s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
     )
-    round_completion_info: RoundCompletionInfo = RoundCompletionInfo(**rcf_file_output)
+    return RoundCompletionInfo(**rcf_file_output)
+
+
+def get_compacted_delta_locator_from_rcf(
+    s3_resource: ServiceResource, rcf_file_s3_uri: str
+):
+    from deltacat.storage import DeltaLocator
+    from deltacat.compute.compactor import (
+        RoundCompletionInfo,
+    )
+
+    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
+
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )

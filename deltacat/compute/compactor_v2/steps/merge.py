@@ -6,34 +6,29 @@ import pyarrow as pa
 import ray
 import time
 import pyarrow.compute as pc
+import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
-from collections import defaultdict
 from deltacat import logs
-from typing import List, Optional
-from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES
+from typing import List, Optional, Tuple
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
-from deltacat.compute.compactor import (
-    RoundCompletionInfo,
-    DeltaFileEnvelope,
-)
+from deltacat.compute.compactor import RoundCompletionInfo, DeltaFileEnvelope
 from deltacat.utils.common import ReadKwargsProvider
-
 from contextlib import nullcontext
-from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
 )
 from deltacat.compute.compactor.utils import system_columns as sc
-
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics
-from deltacat.utils.resources import get_current_node_peak_memory_usage_in_bytes
+from deltacat.utils.resources import (
+    get_current_process_peak_memory_usage_in_bytes,
+    ProcessUtilizationOverTimeRange,
+)
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
-    hash_group_index_to_hash_bucket_indices,
 )
 from deltacat.storage import (
     Delta,
@@ -44,6 +39,7 @@ from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
+from deltacat.constants import BYTES_PER_GIBIBYTE
 
 
 if importlib.util.find_spec("memray"):
@@ -73,14 +69,9 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 
 
 def _build_incremental_table(
-    hash_bucket_index: int,
     df_envelopes_list: List[List[DeltaFileEnvelope]],
 ) -> pa.Table:
 
-    logger.info(
-        f"[Hash bucket index {hash_bucket_index}] Reading dedupe input for "
-        f"{len(df_envelopes_list)} delta file envelope lists..."
-    )
     hb_tables = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes = [d for dfe_list in df_envelopes_list for d in dfe_list]
@@ -266,180 +257,130 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     return materialize_result_list
 
 
-def _timed_merge(input: MergeInput) -> MergeResult:
-    def _materialize(
-        hash_bucket_index,
-        compacted_tables: List[pa.Table],
-    ) -> MaterializeResult:
-        compacted_table = pa.concat_tables(compacted_tables)
-        if input.compacted_file_content_type in DELIMITED_TEXT_CONTENT_TYPES:
-            # TODO (rkenmi): Investigate if we still need to convert this table to pandas DataFrame
-            # TODO (pdames): compare performance to pandas-native materialize path
-            df = compacted_table.to_pandas(split_blocks=True, self_destruct=True)
-            compacted_table = df
-        delta, stage_delta_time = timed_invocation(
-            input.deltacat_storage.stage_delta,
-            compacted_table,
-            input.write_to_partition,
-            max_records_per_entry=input.max_records_per_output_file,
-            content_type=input.compacted_file_content_type,
-            s3_table_writer_kwargs=input.s3_table_writer_kwargs,
-            **input.deltacat_storage_kwargs,
-        )
-        compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](
-            compacted_table
-        )
-        logger.debug(
-            f"Time taken for materialize task"
-            f" to upload {len(compacted_table)} records"
-            f" of size {compacted_table_size} is: {stage_delta_time}s"
-        )
-        manifest = delta.manifest
-        manifest_records = manifest.meta.record_count
-        assert manifest_records == len(compacted_table), (
-            f"Unexpected Error: Materialized delta manifest record count "
-            f"({manifest_records}) does not equal compacted table record count "
-            f"({len(compacted_table)})"
-        )
-        materialize_result = MaterializeResult.of(
-            delta=delta,
-            task_index=hash_bucket_index,
-            # TODO (pdames): Generalize WriteResult to contain in-memory-table-type
-            #  and in-memory-table-bytes instead of tight coupling to paBytes
-            pyarrow_write_result=PyArrowWriteResult.of(
-                len(manifest.entries),
-                TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](compacted_table),
-                manifest.meta.content_length,
-                len(compacted_table),
-            ),
-        )
-        logger.info(f"Materialize result: {materialize_result}")
-        return materialize_result
+def _compact_tables(
+    input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
+) -> Tuple[pa.Table, int, int]:
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
+        f"{len(dfe_list)} delta file envelope lists..."
+    )
+    table = _build_incremental_table(dfe_list)
 
+    incremental_len = len(table)
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
+    )
+
+    if input.sort_keys:
+        # Incremental is sorted and merged, as sorting
+        # on non event based sort key does not produce consistent
+        # compaction results. E.g., compaction(delta1, delta2, delta3)
+        # will not be equal to compaction(compaction(delta1, delta2), delta3).
+        table = table.sort_by(input.sort_keys)
+
+    compacted_table = None
+
+    if (
+        input.round_completion_info
+        and input.round_completion_info.hb_index_to_entry_range
+        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
+        is not None
+    ):
+        compacted_table = _download_compacted_table(
+            hb_index=hb_idx,
+            rcf=input.round_completion_info,
+            read_kwargs_provider=input.read_kwargs_provider,
+            deltacat_storage=input.deltacat_storage,
+            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+        )
+
+    hb_table_record_count = len(table) + (
+        len(compacted_table) if compacted_table else 0
+    )
+
+    table, merge_time = timed_invocation(
+        func=_merge_tables,
+        table=table,
+        primary_keys=input.primary_keys,
+        can_drop_duplicates=input.drop_duplicates,
+        compacted_table=compacted_table,
+    )
+    total_deduped_records = hb_table_record_count - len(table)
+
+    logger.info(
+        f"[Merge task index {input.merge_task_index}] Merged "
+        f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
+    )
+
+    return table, incremental_len, total_deduped_records
+
+
+def _copy_manifests_from_hash_bucketing(
+    input: MergeInput, hb_index_copy_by_reference_ids: List[int]
+) -> List[MaterializeResult]:
+    materialized_results: List[MaterializeResult] = []
+
+    if input.round_completion_info:
+        referenced_materialized_results = (
+            _copy_all_manifest_files_from_old_hash_buckets(
+                hb_index_copy_by_reference_ids,
+                input.round_completion_info,
+                input.write_to_partition,
+                input.deltacat_storage,
+                input.deltacat_storage_kwargs,
+            )
+        )
+        logger.info(
+            f"Copying {len(referenced_materialized_results)} manifest files by reference..."
+        )
+        materialized_results.extend(referenced_materialized_results)
+
+    return materialized_results
+
+
+def _timed_merge(input: MergeInput) -> MergeResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
         f"merge_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
-        # In V2, we need to mitigate risk of running out of memory here in cases of
-        #  severe skew of primary key updates in deltas. By severe skew, we mean
-        #  one hash bucket require more memory than a worker instance have.
-        logger.info(
-            f"[Merge task {input.merge_task_index}] Getting delta file envelope "
-            f"groups for {len(input.dfe_groups_refs)} object refs..."
-        )
-
-        delta_file_envelope_groups_list = input.object_store.get_many(
-            input.dfe_groups_refs
-        )
-        hb_index_to_delta_file_envelopes_list = defaultdict(list)
-        for delta_file_envelope_groups in delta_file_envelope_groups_list:
-            assert input.hash_bucket_count == len(delta_file_envelope_groups), (
-                f"The hash bucket count must match the dfe size as {input.hash_bucket_count}"
-                f" != {len(delta_file_envelope_groups)}"
-            )
-
-            for hb_idx, dfes in enumerate(delta_file_envelope_groups):
-                if dfes:
-                    hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
-
-        valid_hb_indices_iterable = hash_group_index_to_hash_bucket_indices(
-            input.hash_group_index, input.hash_bucket_count, input.num_hash_groups
-        )
-
-        total_deduped_records = 0
-        total_dfes_found = 0
-
+        total_input_records, total_deduped_records = 0, 0
         materialized_results: List[MaterializeResult] = []
-        hb_index_copy_by_reference = []
-        for hb_idx in valid_hb_indices_iterable:
-            dfe_list = hb_index_to_delta_file_envelopes_list.get(hb_idx)
+        merge_file_groups = input.merge_file_groups_provider.create()
+        hb_index_copy_by_ref_ids = []
 
-            if dfe_list:
-                total_dfes_found += 1
-                table = _build_incremental_table(hb_idx, dfe_list)
+        for merge_file_group in merge_file_groups:
+            if not merge_file_group.dfe_groups:
+                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
+                continue
 
-                incremental_len = len(table)
-                logger.info(
-                    f"Got the incremental table of length {incremental_len} for hash bucket {hb_idx}"
-                )
-
-                if input.sort_keys:
-                    # Incremental is sorted and merged, as sorting
-                    # on non event based sort key does not produce consistent
-                    # compaction results. E.g., compaction(delta1, delta2, delta3)
-                    # will not be equal to compaction(compaction(delta1, delta2), delta3).
-                    table = table.sort_by(input.sort_keys)
-
-                compacted_table = None
-                if (
-                    input.round_completion_info
-                    and input.round_completion_info.hb_index_to_entry_range
-                    and input.round_completion_info.hb_index_to_entry_range.get(
-                        str(hb_idx)
-                    )
-                    is not None
-                ):
-
-                    compacted_table = _download_compacted_table(
-                        hb_index=hb_idx,
-                        rcf=input.round_completion_info,
-                        read_kwargs_provider=input.read_kwargs_provider,
-                        deltacat_storage=input.deltacat_storage,
-                        deltacat_storage_kwargs=input.deltacat_storage_kwargs,
-                    )
-
-                hb_table_record_count = len(table) + (
-                    len(compacted_table) if compacted_table else 0
-                )
-
-                table, merge_time = timed_invocation(
-                    func=_merge_tables,
-                    table=table,
-                    primary_keys=input.primary_keys,
-                    can_drop_duplicates=input.drop_duplicates,
-                    compacted_table=compacted_table,
-                )
-                total_deduped_records += hb_table_record_count - len(table)
-
-                logger.info(
-                    f"[Merge task index {input.merge_task_index}] Merged "
-                    f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
-                )
-
-                materialized_results.append(_materialize(hb_idx, [table]))
-            else:
-                hb_index_copy_by_reference.append(hb_idx)
-
-        if input.round_completion_info and hb_index_copy_by_reference:
-            referenced_materialized_results = (
-                _copy_all_manifest_files_from_old_hash_buckets(
-                    hb_index_copy_by_reference,
-                    input.round_completion_info,
-                    input.write_to_partition,
-                    input.deltacat_storage,
-                    input.deltacat_storage_kwargs,
-                )
+            table, input_records, deduped_records = _compact_tables(
+                input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
-            logger.info(
-                f"Copying {len(referenced_materialized_results)} manifest files by reference..."
+            total_input_records += input_records
+            total_deduped_records += deduped_records
+            materialized_results.append(
+                merge_utils.materialize(input, merge_file_group.hb_index, [table])
             )
-            materialized_results.extend(referenced_materialized_results)
+
+        if hb_index_copy_by_ref_ids:
+            materialized_results.extend(
+                _copy_manifests_from_hash_bucketing(input, hb_index_copy_by_ref_ids)
+            )
 
         logger.info(
-            "Total number of materialized results produced for "
-            f"hash group index: {input.hash_group_index} is {len(materialized_results)}"
+            f"[Hash group index: {input.merge_file_groups_provider.hash_group_index}]"
+            f" Total number of materialized results produced: {len(materialized_results)} "
         )
 
-        assert total_dfes_found == len(hb_index_to_delta_file_envelopes_list), (
-            "The total dfe list does not match the input dfes from hash bucket as "
-            f"{total_dfes_found} != {len(hb_index_to_delta_file_envelopes_list)}"
+        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
+        logger.info(
+            f"Peak memory usage in bytes after merge: {peak_memory_usage_bytes}"
         )
-
-        peak_memory_usage_bytes = get_current_node_peak_memory_usage_in_bytes()
 
         return MergeResult(
             materialized_results,
+            np.int64(total_input_records),
             np.int64(total_deduped_records),
             np.double(peak_memory_usage_bytes),
             np.double(0.0),
@@ -449,25 +390,36 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
 @ray.remote
 def merge(input: MergeInput) -> MergeResult:
+    with ProcessUtilizationOverTimeRange() as process_util:
+        logger.info(f"Starting merge task {input.merge_task_index}...")
 
-    logger.info(f"Starting merge task...")
-    merge_result, duration = timed_invocation(func=_timed_merge, input=input)
+        # Log node peak memory utilization every 10 seconds
+        def log_peak_memory():
+            logger.debug(
+                f"Process peak memory utilization so far: {process_util.max_memory} bytes "
+                f"({process_util.max_memory/BYTES_PER_GIBIBYTE} GB)"
+            )
 
-    emit_metrics_time = 0.0
-    if input.metrics_config:
-        emit_result, latency = timed_invocation(
-            func=emit_timer_metrics,
-            metrics_name="merge",
-            value=duration,
-            metrics_config=input.metrics_config,
+        process_util.schedule_callback(log_peak_memory, 10)
+
+        merge_result, duration = timed_invocation(func=_timed_merge, input=input)
+
+        emit_metrics_time = 0.0
+        if input.metrics_config:
+            emit_result, latency = timed_invocation(
+                func=emit_timer_metrics,
+                metrics_name="merge",
+                value=duration,
+                metrics_config=input.metrics_config,
+            )
+            emit_metrics_time = latency
+
+        logger.info(f"Finished merge task {input.merge_task_index}...")
+        return MergeResult(
+            merge_result[0],
+            merge_result[1],
+            merge_result[2],
+            merge_result[3],
+            np.double(emit_metrics_time),
+            merge_result[4],
         )
-        emit_metrics_time = latency
-
-    logger.info(f"Finished merge task...")
-    return MergeResult(
-        merge_result[0],
-        merge_result[1],
-        merge_result[2],
-        np.double(emit_metrics_time),
-        merge_result[4],
-    )

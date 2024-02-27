@@ -49,3 +49,24 @@ class TestClusterUtilizationOverTimeRange(unittest.TestCase):
             self.assertIsNotNone(cu.total_memory_gb_seconds)
             self.assertIsNotNone(cu.used_memory_gb_seconds)
             self.assertIsNotNone(cu.max_cpu)
+
+
+class TestProcessUtilizationOverTimeRange(unittest.TestCase):
+    def test_sanity(self):
+        from deltacat.utils.resources import ProcessUtilizationOverTimeRange
+
+        with ProcessUtilizationOverTimeRange() as nu:
+            time.sleep(3)
+            self.assertIsNotNone(nu.max_memory)
+
+    def test_callback(self):
+        from deltacat.utils.resources import ProcessUtilizationOverTimeRange
+
+        with ProcessUtilizationOverTimeRange() as nu:
+
+            def test_callback():
+                nu.test_field_set = True
+
+            nu.schedule_callback(test_callback, 1)
+            time.sleep(3)
+            self.assertTrue(nu.test_field_set)

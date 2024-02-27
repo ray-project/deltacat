@@ -6,18 +6,24 @@ import logging
 import ray
 import time
 import json
+
+from deltacat.compute.compactor_v2.model.merge_file_group import (
+    RemoteMergeFileGroupsProvider,
+)
+from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
+
+from deltacat.compute.compactor_v2.model.merge_input import MergeInput
+
 from deltacat.aws import s3u as s3_utils
 import deltacat
 from deltacat import logs
-from deltacat.compute.compactor import (
-    PyArrowWriteResult,
-    RoundCompletionInfo,
-)
-from deltacat.compute.compactor_v2.model.merge_input import MergeInput
+from deltacat.compute.compactor import PyArrowWriteResult, RoundCompletionInfo
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
-from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
+from deltacat.compute.compactor_v2.utils.merge import (
+    generate_local_merge_input,
+)
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -41,13 +47,12 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.utils.resources import (
-    get_current_node_peak_memory_usage_in_bytes,
+    get_current_process_peak_memory_usage_in_bytes,
 )
 from deltacat.compute.compactor_v2.utils.task_options import (
     hash_bucket_resource_options_provider,
     merge_resource_options_provider,
 )
-from deltacat.utils.resources import ClusterUtilizationOverTimeRange
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 if importlib.util.find_spec("memray"):
@@ -65,10 +70,9 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
 
     with memray.Tracker(
         f"compaction_partition.bin"
-    ) if params.enable_profiler else nullcontext(), ClusterUtilizationOverTimeRange() as cluster_util:
+    ) if params.enable_profiler else nullcontext():
         (new_partition, new_rci, new_rcf_partition_locator,) = _execute_compaction(
             params,
-            cluster_util=cluster_util,
             **kwargs,
         )
 
@@ -113,7 +117,7 @@ def _execute_compaction(
     audit_url = f"{base_audit_url}.json"
     logger.info(f"Compaction audit will be written to {audit_url}")
     compaction_audit = (
-        CompactionSessionAuditInfo(deltacat.__version__, audit_url)
+        CompactionSessionAuditInfo(deltacat.__version__, ray.__version__, audit_url)
         .set_hash_bucket_count(params.hash_bucket_count)
         .set_compactor_version(CompactorVersion.V2.value)
     )
@@ -212,107 +216,6 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
 
-    hb_options_provider = functools.partial(
-        task_resource_options_provider,
-        pg_config=params.pg_config,
-        resource_amount_provider=hash_bucket_resource_options_provider,
-        previous_inflation=params.previous_inflation,
-        average_record_size_bytes=params.average_record_size_bytes,
-        primary_keys=params.primary_keys,
-        ray_custom_resources=params.ray_custom_resources,
-    )
-
-    hb_start = time.monotonic()
-
-    def hash_bucket_input_provider(index, item):
-        return {
-            "input": HashBucketInput.of(
-                item,
-                primary_keys=params.primary_keys,
-                num_hash_buckets=params.hash_bucket_count,
-                num_hash_groups=params.hash_group_count,
-                enable_profiler=params.enable_profiler,
-                metrics_config=params.metrics_config,
-                read_kwargs_provider=params.read_kwargs_provider,
-                object_store=params.object_store,
-                deltacat_storage=params.deltacat_storage,
-                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-            )
-        }
-
-    hb_tasks_pending = invoke_parallel(
-        items=uniform_deltas,
-        ray_task=hb.hash_bucket,
-        max_parallelism=task_max_parallelism,
-        options_provider=hb_options_provider,
-        kwargs_provider=hash_bucket_input_provider,
-    )
-
-    hb_invoke_end = time.monotonic()
-
-    logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
-    hb_results: List[HashBucketResult] = ray.get(hb_tasks_pending)
-    logger.info(f"Got {len(hb_results)} hash bucket results.")
-    hb_end = time.monotonic()
-
-    # we use time.time() here because time.monotonic() has no reference point
-    # whereas time.time() measures epoch seconds. Hence, it will be reasonable
-    # to compare time.time()s captured in different nodes.
-    hb_results_retrieved_at = time.time()
-
-    telemetry_time_hb = compaction_audit.save_step_stats(
-        CompactionSessionAuditInfo.HASH_BUCKET_STEP_NAME,
-        hb_results,
-        hb_results_retrieved_at,
-        hb_invoke_end - hb_start,
-        hb_end - hb_start,
-    )
-
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **params.s3_client_kwargs,
-    )
-
-    all_hash_group_idx_to_obj_id = defaultdict(list)
-    all_hash_group_idx_to_size_bytes = defaultdict(int)
-    all_hash_group_idx_to_num_rows = defaultdict(int)
-    hb_data_processed_size_bytes = np.int64(0)
-    total_hb_record_count = np.int64(0)
-
-    # initialize all hash groups
-    for hb_group in range(params.hash_group_count):
-        all_hash_group_idx_to_num_rows[hb_group] = 0
-        all_hash_group_idx_to_obj_id[hb_group] = []
-        all_hash_group_idx_to_size_bytes[hb_group] = 0
-
-    for hb_result in hb_results:
-        hb_data_processed_size_bytes += hb_result.hb_size_bytes
-        total_hb_record_count += hb_result.hb_record_count
-
-        for hash_group_index, object_id_size_tuple in enumerate(
-            hb_result.hash_bucket_group_to_obj_id_tuple
-        ):
-            if object_id_size_tuple:
-                all_hash_group_idx_to_obj_id[hash_group_index].append(
-                    object_id_size_tuple[0]
-                )
-                all_hash_group_idx_to_size_bytes[
-                    hash_group_index
-                ] += object_id_size_tuple[1].item()
-                all_hash_group_idx_to_num_rows[
-                    hash_group_index
-                ] += object_id_size_tuple[2].item()
-
-    logger.info(
-        f"Got {total_hb_record_count} hash bucket records from hash bucketing step..."
-    )
-
-    compaction_audit.set_input_records(total_hb_record_count.item())
-    compaction_audit.set_hash_bucket_processed_size_bytes(
-        hb_data_processed_size_bytes.item()
-    )
-
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
     compacted_stream = params.deltacat_storage.get_stream(
@@ -327,60 +230,176 @@ def _execute_compaction(
         **params.deltacat_storage_kwargs,
     )
 
-    # BSP Step 2: Merge
-    merge_options_provider = functools.partial(
+    hb_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
-        resource_amount_provider=merge_resource_options_provider,
-        num_hash_groups=params.hash_group_count,
-        hash_group_size_bytes=all_hash_group_idx_to_size_bytes,
-        hash_group_num_rows=all_hash_group_idx_to_num_rows,
-        round_completion_info=round_completion_info,
-        compacted_delta_manifest=previous_compacted_delta_manifest,
+        resource_amount_provider=hash_bucket_resource_options_provider,
+        previous_inflation=params.previous_inflation,
+        average_record_size_bytes=params.average_record_size_bytes,
         primary_keys=params.primary_keys,
-        deltacat_storage=params.deltacat_storage,
-        deltacat_storage_kwargs=params.deltacat_storage_kwargs,
         ray_custom_resources=params.ray_custom_resources,
     )
 
-    def merge_input_provider(index, item):
-        return {
-            "input": MergeInput.of(
-                dfe_groups_refs=item[1],
-                write_to_partition=compacted_partition,
-                compacted_file_content_type=params.compacted_file_content_type,
-                primary_keys=params.primary_keys,
-                sort_keys=params.sort_keys,
-                merge_task_index=index,
-                hash_bucket_count=params.hash_bucket_count,
-                drop_duplicates=params.drop_duplicates,
-                hash_group_index=item[0],
-                num_hash_groups=params.hash_group_count,
-                max_records_per_output_file=params.records_per_compacted_file,
-                enable_profiler=params.enable_profiler,
-                metrics_config=params.metrics_config,
-                s3_table_writer_kwargs=params.s3_table_writer_kwargs,
-                read_kwargs_provider=params.read_kwargs_provider,
-                round_completion_info=round_completion_info,
-                object_store=params.object_store,
-                deltacat_storage=params.deltacat_storage,
-                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-            )
-        }
+    total_input_records_count = np.int64(0)
+    total_hb_record_count = np.int64(0)
+    telemetry_time_hb = 0
+    if params.hash_bucket_count == 1:
+        merge_start = time.monotonic()
+        local_merge_input = generate_local_merge_input(
+            params, uniform_deltas, compacted_partition, round_completion_info
+        )
+        local_merge_result = ray.get(mg.merge.remote(local_merge_input))
+        total_input_records_count += local_merge_result.input_record_count
+        merge_results = [local_merge_result]
+        merge_invoke_end = time.monotonic()
+    else:
+        hb_start = time.monotonic()
 
-    merge_start = time.monotonic()
+        def hash_bucket_input_provider(index, item):
+            return {
+                "input": HashBucketInput.of(
+                    item,
+                    primary_keys=params.primary_keys,
+                    hb_task_index=index,
+                    num_hash_buckets=params.hash_bucket_count,
+                    num_hash_groups=params.hash_group_count,
+                    enable_profiler=params.enable_profiler,
+                    metrics_config=params.metrics_config,
+                    read_kwargs_provider=params.read_kwargs_provider,
+                    object_store=params.object_store,
+                    deltacat_storage=params.deltacat_storage,
+                    deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                )
+            }
 
-    merge_tasks_pending = invoke_parallel(
-        items=all_hash_group_idx_to_obj_id.items(),
-        ray_task=mg.merge,
-        max_parallelism=task_max_parallelism,
-        options_provider=merge_options_provider,
-        kwargs_provider=merge_input_provider,
-    )
+        all_hash_group_idx_to_obj_id = defaultdict(list)
+        all_hash_group_idx_to_size_bytes = defaultdict(int)
+        all_hash_group_idx_to_num_rows = defaultdict(int)
+        hb_tasks_pending = invoke_parallel(
+            items=uniform_deltas,
+            ray_task=hb.hash_bucket,
+            max_parallelism=task_max_parallelism,
+            options_provider=hb_options_provider,
+            kwargs_provider=hash_bucket_input_provider,
+        )
 
-    merge_invoke_end = time.monotonic()
-    logger.info(f"Getting {len(merge_tasks_pending)} merge results...")
-    merge_results: List[MergeResult] = ray.get(merge_tasks_pending)
+        hb_invoke_end = time.monotonic()
+
+        logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
+        hb_results: List[HashBucketResult] = ray.get(hb_tasks_pending)
+        logger.info(f"Got {len(hb_results)} hash bucket results.")
+        hb_end = time.monotonic()
+
+        # we use time.time() here because time.monotonic() has no reference point
+        # whereas time.time() measures epoch seconds. Hence, it will be reasonable
+        # to compare time.time()s captured in different nodes.
+        hb_results_retrieved_at = time.time()
+
+        telemetry_time_hb = compaction_audit.save_step_stats(
+            CompactionSessionAuditInfo.HASH_BUCKET_STEP_NAME,
+            hb_results,
+            hb_results_retrieved_at,
+            hb_invoke_end - hb_start,
+            hb_end - hb_start,
+        )
+
+        s3_utils.upload(
+            compaction_audit.audit_url,
+            str(json.dumps(compaction_audit)),
+            **params.s3_client_kwargs,
+        )
+
+        hb_data_processed_size_bytes = np.int64(0)
+
+        # initialize all hash groups
+        for hb_group in range(params.hash_group_count):
+            all_hash_group_idx_to_num_rows[hb_group] = 0
+            all_hash_group_idx_to_obj_id[hb_group] = []
+            all_hash_group_idx_to_size_bytes[hb_group] = 0
+
+        for hb_result in hb_results:
+            hb_data_processed_size_bytes += hb_result.hb_size_bytes
+            total_input_records_count += hb_result.hb_record_count
+
+            for hash_group_index, object_id_size_tuple in enumerate(
+                hb_result.hash_bucket_group_to_obj_id_tuple
+            ):
+                if object_id_size_tuple:
+                    all_hash_group_idx_to_obj_id[hash_group_index].append(
+                        object_id_size_tuple[0],
+                    )
+                    all_hash_group_idx_to_size_bytes[
+                        hash_group_index
+                    ] += object_id_size_tuple[1].item()
+                    all_hash_group_idx_to_num_rows[
+                        hash_group_index
+                    ] += object_id_size_tuple[2].item()
+
+        logger.info(
+            f"Got {total_input_records_count} hash bucket records from hash bucketing step..."
+        )
+
+        total_hb_record_count = total_input_records_count
+        compaction_audit.set_hash_bucket_processed_size_bytes(
+            hb_data_processed_size_bytes.item()
+        )
+
+        # BSP Step 2: Merge
+        merge_options_provider = functools.partial(
+            task_resource_options_provider,
+            pg_config=params.pg_config,
+            resource_amount_provider=merge_resource_options_provider,
+            num_hash_groups=params.hash_group_count,
+            hash_group_size_bytes=all_hash_group_idx_to_size_bytes,
+            hash_group_num_rows=all_hash_group_idx_to_num_rows,
+            round_completion_info=round_completion_info,
+            compacted_delta_manifest=previous_compacted_delta_manifest,
+            primary_keys=params.primary_keys,
+            deltacat_storage=params.deltacat_storage,
+            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+            ray_custom_resources=params.ray_custom_resources,
+        )
+
+        def merge_input_provider(index, item):
+            return {
+                "input": MergeInput.of(
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
+                        hash_group_index=item[0],
+                        dfe_groups_refs=item[1],
+                        hash_bucket_count=params.hash_bucket_count,
+                        num_hash_groups=params.hash_group_count,
+                        object_store=params.object_store,
+                    ),
+                    write_to_partition=compacted_partition,
+                    compacted_file_content_type=params.compacted_file_content_type,
+                    primary_keys=params.primary_keys,
+                    sort_keys=params.sort_keys,
+                    merge_task_index=index,
+                    drop_duplicates=params.drop_duplicates,
+                    max_records_per_output_file=params.records_per_compacted_file,
+                    enable_profiler=params.enable_profiler,
+                    metrics_config=params.metrics_config,
+                    s3_table_writer_kwargs=params.s3_table_writer_kwargs,
+                    read_kwargs_provider=params.read_kwargs_provider,
+                    round_completion_info=round_completion_info,
+                    object_store=params.object_store,
+                    deltacat_storage=params.deltacat_storage,
+                    deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                )
+            }
+
+        merge_start = time.monotonic()
+        merge_tasks_pending = invoke_parallel(
+            items=all_hash_group_idx_to_obj_id.items(),
+            ray_task=mg.merge,
+            max_parallelism=task_max_parallelism,
+            options_provider=merge_options_provider,
+            kwargs_provider=merge_input_provider,
+        )
+        merge_invoke_end = time.monotonic()
+        logger.info(f"Getting {len(merge_tasks_pending)} merge results...")
+        merge_results: List[MergeResult] = ray.get(merge_tasks_pending)
+
     logger.info(f"Got {len(merge_results)} merge results.")
 
     merge_results_retrieved_at = time.time()
@@ -388,6 +407,8 @@ def _execute_compaction(
 
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in merge_results])
     logger.info(f"Deduped {total_dd_record_count} records...")
+
+    compaction_audit.set_input_records(total_input_records_count.item())
 
     telemetry_time_merge = compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.MERGE_STEP_NAME,
@@ -469,7 +490,7 @@ def _execute_compaction(
         [m.pyarrow_write_result for m in mat_results]
     )
 
-    session_peak_memory = get_current_node_peak_memory_usage_in_bytes()
+    session_peak_memory = get_current_process_peak_memory_usage_in_bytes()
     compaction_audit.set_peak_memory_used_bytes_by_compaction_session_process(
         session_peak_memory
     )
@@ -478,25 +499,9 @@ def _execute_compaction(
         mat_results, telemetry_time_hb + telemetry_time_merge
     )
 
-    cluster_util: ClusterUtilizationOverTimeRange = kwargs.get("cluster_util")
-
-    if cluster_util:
-        compaction_audit.set_total_cpu_seconds(cluster_util.total_vcpu_seconds)
-        compaction_audit.set_used_cpu_seconds(cluster_util.used_vcpu_seconds)
-        compaction_audit.set_used_memory_gb_seconds(cluster_util.used_memory_gb_seconds)
-        compaction_audit.set_total_memory_gb_seconds(
-            cluster_util.total_memory_gb_seconds
-        )
-        compaction_audit.set_cluster_cpu_max(cluster_util.max_cpu)
-
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **params.s3_client_kwargs,
-    )
-
     input_inflation = None
     input_average_record_size_bytes = None
+    # Note: we only consider inflation for incremental delta
     if (
         compaction_audit.input_size_bytes
         and compaction_audit.hash_bucket_processed_size_bytes
@@ -518,6 +523,28 @@ def _execute_compaction(
     logger.info(
         f"The inflation of input deltas={input_inflation}"
         f" and average record size={input_average_record_size_bytes}"
+    )
+
+    # After all incremental delta related calculations, we update
+    # the input sizes to accomodate the compacted table
+    if round_completion_info:
+        compaction_audit.set_input_file_count(
+            (compaction_audit.input_file_count or 0)
+            + round_completion_info.compacted_pyarrow_write_result.files
+        )
+        compaction_audit.set_input_size_bytes(
+            (compaction_audit.input_size_bytes or 0.0)
+            + round_completion_info.compacted_pyarrow_write_result.file_bytes
+        )
+        compaction_audit.set_input_records(
+            (compaction_audit.input_records or 0)
+            + round_completion_info.compacted_pyarrow_write_result.records
+        )
+
+    s3_utils.upload(
+        compaction_audit.audit_url,
+        str(json.dumps(compaction_audit)),
+        **params.s3_client_kwargs,
     )
 
     new_round_completion_info = RoundCompletionInfo.of(

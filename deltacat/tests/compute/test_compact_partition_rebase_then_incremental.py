@@ -5,6 +5,8 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
+from pytest_benchmark.fixture import BenchmarkFixture
+
 from deltacat.tests.compute.test_util_constant import (
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
@@ -13,6 +15,10 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
+from deltacat.tests.compute.test_util_common import (
+    get_rcf,
+)
+from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
 )
@@ -26,6 +32,7 @@ from deltacat.tests.compute.compact_partition_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Optional, Set
+from deltacat.types.media import StorageType
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -178,6 +185,7 @@ def test_compact_partition_rebase_then_incremental(
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
+    benchmark: BenchmarkFixture,
 ):
     import deltacat.tests.local_deltacat_storage as ds
     from deltacat.types.media import ContentType
@@ -191,6 +199,9 @@ def test_compact_partition_rebase_then_incremental(
     )
     from deltacat.utils.placement import (
         PlacementGroupManager,
+    )
+    from deltacat.compute.compactor.model.compaction_session_audit_info import (
+        CompactionSessionAuditInfo,
     )
 
     ds_mock_kwargs = offer_local_deltacat_storage_kwargs
@@ -258,11 +269,13 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     # execute
-    rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+    rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
     compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         setup_s3_resource, rcf_file_s3_uri
     )
-    tables = ds.download_delta(compacted_delta_locator, **ds_mock_kwargs)
+    tables = ds.download_delta(
+        compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+    )
     actual_rebase_compacted_table = pa.concat_tables(tables)
     # if no primary key is specified then sort by sort_key for consistent assertion
     sorting_cols: List[Any] = (
@@ -317,10 +330,25 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+    round_completion_info = get_rcf(setup_s3_resource, rcf_file_s3_uri)
     compacted_delta_locator_incremental: DeltaLocator = (
-        get_compacted_delta_locator_from_rcf(setup_s3_resource, rcf_file_s3_uri)
+        round_completion_info.compacted_delta_locator
     )
-    tables = ds.download_delta(compacted_delta_locator_incremental, **ds_mock_kwargs)
+    audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
+        "s3://", ""
+    ).split("/", 1)
+    compaction_audit_obj: dict = read_s3_contents(
+        setup_s3_resource, audit_bucket, audit_key
+    )
+    compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
+        **compaction_audit_obj
+    )
+
+    tables = ds.download_delta(
+        compacted_delta_locator_incremental,
+        storage_type=StorageType.LOCAL,
+        **ds_mock_kwargs,
+    )
     actual_compacted_table = pa.concat_tables(tables)
     expected_terminal_compact_partition_result = (
         expected_terminal_compact_partition_result.combine_chunks().sort_by(
@@ -330,6 +358,14 @@ def test_compact_partition_rebase_then_incremental(
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
         sorting_cols
     )
+
+    assert compaction_audit.input_records == (
+        len(incremental_deltas) if incremental_deltas else 0
+    ) + len(actual_rebase_compacted_table), (
+        "Total input records must be equal to incremental deltas"
+        "+ previous compacted table size"
+    )
+
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"

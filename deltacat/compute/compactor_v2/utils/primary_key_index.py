@@ -17,6 +17,7 @@ from deltacat import logs
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.performance import timed_invocation
+from deltacat.utils.pyarrow import sliced_string_cast
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -26,6 +27,7 @@ def _append_sha1_hash_to_table(table: pa.Table, hash_column: pa.Array) -> pa.Tab
 
     result = []
     for hash_value in hash_column_np:
+        assert hash_value is not None, f"Expected non-null primary key"
         result.append(hashlib.sha1(hash_value.encode("utf-8")).hexdigest())
 
     return sc.append_pk_hash_string_column(table, result)
@@ -181,7 +183,7 @@ def generate_pk_hash_column(
     def _generate_pk_hash(table: pa.Table) -> pa.Array:
         pk_columns = []
         for pk_name in primary_keys:
-            pk_columns.append(pc.cast(table[pk_name], pa.string()))
+            pk_columns.append(sliced_string_cast(table[pk_name]))
 
         pk_columns.append(PK_DELIMITER)
         hash_column = pc.binary_join_element_wise(*pk_columns)
