@@ -40,7 +40,7 @@ class MergeInput(Dict):
         object_store: Optional[IObjectStore] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
-        spos_to_obj_ref: Optional[Dict[str, Any]] = None,
+        delete_global_table_ref: Optional[Dict[str, Any]] = None,
     ) -> MergeInput:
 
         result = MergeInput()
@@ -60,8 +60,7 @@ class MergeInput(Dict):
         result["object_store"] = object_store
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
-        result["spos_to_obj_ref"] = spos_to_obj_ref or {}
-
+        result["delete_global_table_ref"] = delete_global_table_ref
         return result
 
     @property
@@ -129,5 +128,5 @@ class MergeInput(Dict):
         return self.get("deltacat_storage_kwargs")
 
     @property
-    def spos_to_obj_ref(self) -> Optional[Dict[str, Any]]:
-        return self.get("spos_to_obj_ref")
+    def delete_global_table_ref(self) -> Optional[str]:
+        return self.get("delete_global_table_ref")

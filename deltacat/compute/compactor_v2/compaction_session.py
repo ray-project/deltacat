@@ -230,7 +230,7 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-
+    delete_global_table_ref = None
     delete_spos_to_obj_ref = IntegerRangeDict()
     delete_annotated_deltas_only: List[DeltaAnnotated] = []
     for i, annotated_delta in enumerate(uniform_deltas):
@@ -242,7 +242,7 @@ def _execute_compaction(
             ), "Annotated Delta should have a non-null properties attribute if delete type"
             delete_annotated_deltas_only.append(annotated_delta)
     delete_table = []
-    all_deletes_and_spos: Optional[Dict[str, Any]] = None
+    string_positions_and_deletes: Optional[pa.Table] = None
     for delete_annotated_delta in delete_annotated_deltas_only:
         properties: Optional[Dict[str, str]] = delete_annotated_delta.properties
         delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
@@ -267,12 +267,15 @@ def _execute_compaction(
             )
         delete_table.extend(delete_dataset)
     if len(delete_table) > 0:
-        all_deletes_and_spos = pa.concat_tables(delete_table)
-    for delete_annotated_delta in delete_annotated_deltas_only:
-        spos = annotated_delta.stream_position
-        if all_deletes_and_spos:
-            obj_id = ray.put(all_deletes_and_spos)
-            delete_spos_to_obj_ref[spos] = obj_id
+        string_positions_and_deletes = pa.concat_tables(delete_table)
+        delete_global_table_ref = ray.put(string_positions_and_deletes)
+
+    # for delete_annotated_delta in delete_annotated_deltas_only:
+    #     spos = annotated_delta.stream_position
+    #     if string_positions_and_deletes:
+    #         obj_id = ray.put(string_positions_and_deletes)
+    #         delete_spos_to_obj_ref[spos] = obj_id
+    #         delete_global_table = obj_id
 
     hb_options_provider = functools.partial(
         task_resource_options_provider,
@@ -544,7 +547,7 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-                    spos_to_obj_ref=delete_spos_to_obj_ref,
+                    delete_global_table_ref=delete_global_table_ref,
                 )
             }
 

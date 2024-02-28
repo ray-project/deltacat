@@ -341,6 +341,8 @@ def append_file_record_count_col(table: pa.Table, file_record_count):
     return table
 
 def get_delete_column_names(table: pa.Table) -> List[str]:
+    if table.num_rows == 0:
+        return []
     delete_column_names = [name for name in table.column_names if name != _PARTITION_STREAM_POSITION_COLUMN_NAME]
     return delete_column_names
 
