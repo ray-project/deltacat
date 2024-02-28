@@ -76,7 +76,7 @@ def _group_file_records_by_pk_hash_bucket(
             dfe.table,
             num_hash_buckets,
             primary_keys,
-            # dfe.delta_type
+            dfe.delta_type
         )
         group_end = time.monotonic()
         logger.info(f"Grouping took: {group_end - start}")
