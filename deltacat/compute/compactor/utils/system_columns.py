@@ -1,5 +1,5 @@
 from itertools import repeat
-from typing import Union
+from typing import List, Union
 import logging
 from deltacat import logs
 
@@ -340,6 +340,9 @@ def append_file_record_count_col(table: pa.Table, file_record_count):
     )
     return table
 
+def get_delete_column_names(table: pa.Table) -> List[str]:
+    delete_column_names = [name for name in table.column_names if name != _PARTITION_STREAM_POSITION_COLUMN_NAME]
+    return delete_column_names
 
 def append_is_deleted_col(table: pa.Table, booleans: Union[pa.Array, pa.ChunkedArray]):
     table = table.append_column(

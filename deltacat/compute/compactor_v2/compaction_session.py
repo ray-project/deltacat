@@ -28,6 +28,7 @@ from deltacat.compute.compactor import (
     PyArrowWriteResult,
     RoundCompletionInfo,
 )
+from deltacat.utils.rangedictionary import IntegerRangeDict
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -230,7 +231,7 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
 
-    delete_spos_to_obj_ref = defaultdict()
+    delete_spos_to_obj_ref = IntegerRangeDict()
     delete_annotated_deltas_only: List[DeltaAnnotated] = []
     for i, annotated_delta in enumerate(uniform_deltas):
         annotations = annotated_delta.annotations
@@ -270,7 +271,8 @@ def _execute_compaction(
     for delete_annotated_delta in delete_annotated_deltas_only:
         spos = annotated_delta.stream_position
         if all_deletes_and_spos:
-            delete_spos_to_obj_ref[spos] = ray.put(all_deletes_and_spos)
+            obj_id = ray.put(all_deletes_and_spos)
+            delete_spos_to_obj_ref[spos] = obj_id
 
     hb_options_provider = functools.partial(
         task_resource_options_provider,

@@ -75,26 +75,36 @@ def _build_incremental_table(
         assert (
             df_envelope.delta_type != DeltaType.APPEND
         ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
+        logger.info(f"pdebug: {i=} {df_envelope.delta_type=}, {df_envelope.delete_columns=}, {df_envelope.table=}")
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
+            assert(df_envelope.delete_columns is not None), "Delete columns are expected."
             delete_columns.extend(df_envelope.delete_columns)
             if delete_table_by_stream_position:
                 logger.info(
-                    f"pdebug:if spos_to_obj_ref: {delete_table_by_stream_position=}, {df_envelope.delete_columns=}"
+                    f"pdebug:df_envelope.delta_type == DeltaType.DELETE {delete_table_by_stream_position=}, {df_envelope.delete_columns=}"
                 )
-                deletes_and_spos_table = ray.get(
-                    [delete_table_by_stream_position[stream_position]]
-                )[0]
+                deletes_and_spos_table = ray.get([delete_table_by_stream_position[stream_position]])[0]
+        elif df_envelope.delta_type == DeltaType.UPSERT:
+            if delete_table_by_stream_position:
+                logger.info(
+                    f"pdebug:elif df_envelope.delta_type == DeltaType.UPSERT {delete_table_by_stream_position=}, {df_envelope.delete_columns=}"
+                )
+                deletes_and_spos_table = ray.get([delete_table_by_stream_position[stream_position]])[0]
     for i, df_envelope in enumerate(df_envelopes):
         table = df_envelope.table
         upsert_stream_position = df_envelope.stream_position
         delta_type = df_envelope.delta_type
         to_delete_column: pa.Array = sc.IS_DELETED_DELETE_NONE(table)
         if delta_type is DeltaType.UPSERT:
+            # if deletes_and_spos_table:
             if is_delete:
                 for delete_col in delete_columns:
                     logger.info(
                         f"pdebug:for delete_col in delete_columns: {deletes_and_spos_table.select([sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_col])=}"
+                    )
+                    logger.info(
+                        f"pdebug:for delete_col in delete_columns: {sc.get_delete_column_names(deletes_and_spos_table)}"
                     )
                     deletes_earlier_than_upsert = deletes_and_spos_table.select(
                         [sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_col]
