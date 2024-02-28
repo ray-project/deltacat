@@ -340,11 +340,17 @@ def append_file_record_count_col(table: pa.Table, file_record_count):
     )
     return table
 
+
 def get_delete_column_names(table: pa.Table) -> List[str]:
     if table.num_rows == 0:
         return []
-    delete_column_names = [name for name in table.column_names if name != _PARTITION_STREAM_POSITION_COLUMN_NAME]
+    delete_column_names = [
+        name
+        for name in table.column_names
+        if name != _PARTITION_STREAM_POSITION_COLUMN_NAME
+    ]
     return delete_column_names
+
 
 def append_is_deleted_col(table: pa.Table, booleans: Union[pa.Array, pa.ChunkedArray]):
     table = table.append_column(
@@ -364,8 +370,8 @@ def drop_is_deleted_type_rows(table: pa.Table):
     return table
 
 
-IS_DELETED_DELETE_NONE = lambda table: pa.array(np.repeat(False, len(table)))
-IS_DELETED_DELETE_ALL = lambda table: pa.array(np.repeat(True, len(table)))
+IS_DELETED_COL_DELETE_NONE = lambda table: pa.array(np.repeat(False, len(table)))
+IS_DELETED_COL_DELETE_ALL = lambda table: pa.array(np.repeat(True, len(table)))
 
 
 def get_minimal_hb_schema() -> pa.schema:
@@ -379,3 +385,7 @@ def get_minimal_hb_schema() -> pa.schema:
             _IS_SOURCE_COLUMN_FIELD,
         ]
     )
+
+
+def fix_schema(table, expected_schema: List[str], to_keep: List[str]) -> pa.table:
+    null_arrays = [pa.array([], pa.null()) for _ in column_names]

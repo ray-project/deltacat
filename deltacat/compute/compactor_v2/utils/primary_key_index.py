@@ -156,9 +156,14 @@ def _optimized_group_record_batches_by_hash_bucket(
 
 
 def group_by_pk_hash_bucket(
-    table: pa.Table, num_buckets: int, primary_keys: List[str], delta_type: DeltaType = None,
+    table: pa.Table,
+    num_buckets: int,
+    primary_keys: List[str],
+    delta_type: DeltaType = None,
 ) -> np.ndarray:
-    table = generate_pk_hash_column([table], primary_keys, requires_sha1=True, delta_type=delta_type)[0]
+    table = generate_pk_hash_column(
+        [table], primary_keys, requires_sha1=True, delta_type=delta_type
+    )[0]
 
     # group hash bucket record indices
     result = group_record_indices_by_hash_bucket(
@@ -203,7 +208,9 @@ def generate_pk_hash_column(
 
     can_sha1: bool = False
     if primary_keys and delta_type is not DeltaType.DELETE:
-        hash_column_list: List[pa.Array] = [_generate_pk_hash(table) for table in tables]
+        hash_column_list: List[pa.Array] = [
+            _generate_pk_hash(table) for table in tables
+        ]
         can_sha1: bool = requires_sha1 or _is_sha1_desired(hash_column_list)
     else:
         hash_column_list: List[pa.Array] = [_generate_uuid(table) for table in tables]

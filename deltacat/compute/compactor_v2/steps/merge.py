@@ -52,10 +52,29 @@ if importlib.util.find_spec("memray"):
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+def _append_delta_type_column(table: pa.Table, value: np.bool_):
+    return table.append_column(
+        sc._DELTA_TYPE_COLUMN_FIELD,
+        pa.array(np.repeat(value, len(table)), sc._DELTA_TYPE_COLUMN_TYPE),
+    )
+
+
+def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
+    if sc._DELTA_TYPE_COLUMN_NAME not in table.column_names:
+        return table
+
+    delta_type_value = sc.delta_type_to_field(delta_type)
+
+    result = table.filter(
+        pc.not_equal(table[sc._DELTA_TYPE_COLUMN_NAME], delta_type_value)
+    )
+
+    return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
+
 
 def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
-    delete_table: Optional[pa.Table] = None,
+    deletes_to_apply: Optional[pa.Table] = None,
 ) -> Tuple[pa.Table, List[str]]:
     hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
@@ -68,13 +87,10 @@ def _build_incremental_table(
         reverse=False,  # ascending
     )
     delete_columns = []
-    if delete_table:
-        delete_columns.extend(sc.get_delete_column_names(delete_table))
-    for i, df_envelope in enumerate(df_envelopes):
-        stream_position = df_envelope.stream_position
-        assert (
-            df_envelope.delta_type != DeltaType.APPEND
-        ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
+    if deletes_to_apply:
+        delete_columns.extend(sc.get_delete_column_names(deletes_to_apply))
+    # for i, df_envelope in enumerate(df_envelopes):
+    #     stream_position = df_envelope.stream_position
         # logger.info(f"pdebug: {i=} {df_envelope.delta_type=}, {df_envelope.delete_columns=}, {df_envelope.table=}")
         # if df_envelope.delta_type == DeltaType.DELETE:
         #     is_delete = True
@@ -91,32 +107,36 @@ def _build_incremental_table(
         #             f"pdebug:elif df_envelope.delta_type == DeltaType.UPSERT {delete_table=}, {df_envelope.delete_columns=}"
         #         )
         #         deletes_and_spos_table = ray.get([delete_table[stream_position]])[0]
-    for i, df_envelope in enumerate(df_envelopes):
-        table = df_envelope.table
-        upsert_stream_position = df_envelope.stream_position
-        delta_type = df_envelope.delta_type
-        to_delete_column: pa.Array = sc.IS_DELETED_DELETE_NONE(table)
-        if delta_type is DeltaType.UPSERT:
-            if delete_table:
-                for delete_col in delete_columns:
-                    logger.info(
-                        f"pdebug:for delete_col in delete_columns: {delete_table.select([sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_col])=}"
-                    )
-                    deletes_earlier_than_upsert = delete_table.select(
-                        [sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_col]
-                    ).filter(
+        def check_and_apply_deletes(table: pa.Table, deletes_to_apply: pa.Table, delete_column: str, stream_position: int):
+            deletes_earlier_than_upsert = deletes_to_apply.select([sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_column]).filter(
                         (
-                            pc.scalar(upsert_stream_position)
+                            pc.scalar(df_stream_position)
                             < pc.field(sc._PARTITION_STREAM_POSITION_COLUMN_NAME)
                         )
                     )
-                    to_delete_column = pc.is_in(
-                        table[delete_col],
-                        value_set=deletes_earlier_than_upsert[delete_col],
+            deletable_selection_filter = pc.is_in(
+                table[delete_col],
+                value_set=deletes_earlier_than_upsert[delete_col],
+            )
+            return deletable_selection_filter
+    for i, df_envelope in enumerate(df_envelopes):
+        table = df_envelope.table
+        df_stream_position = df_envelope.stream_position
+        assert (
+            df_envelope.delta_type != DeltaType.APPEND
+        ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
+        deletable_selection_filter: pa.Array = sc.IS_DELETED_COL_DELETE_NONE(table) # before checking if any of the upserts are affected by deletes then deletes by default not applied
+        if df_envelope.delta_type is DeltaType.UPSERT:
+            if deletes_to_apply:
+                for delete_col in delete_columns:
+                    logger.info(
+                        f"pdebug:for delete_col in delete_columns: {deletes_to_apply.select([sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_col])=}"
                     )
-        if delta_type is DeltaType.DELETE:
-            to_delete_column = sc.IS_DELETED_DELETE_ALL(table)
-        table = append_is_deleted_col(table, to_delete_column)
+                    deletable_selection_filter = check_and_apply_deletes(table, deletes_to_apply, delete_col, df_envelope.stream_position)
+        if df_envelope.delta_type is DeltaType.DELETE:
+            deletable_selection_filter = sc.IS_DELETED_COL_DELETE_ALL(table)
+        table = _append_delta_type_column(table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type)))
+        table = append_is_deleted_col(table, deletable_selection_filter)
         hb_tables.append(table)
     result = pa.concat_tables(hb_tables)
     return result, delete_columns
@@ -127,7 +147,7 @@ def _merge_tables(
     primary_keys: List[str],
     can_drop_duplicates: bool,
     compacted_table: Optional[pa.Table] = None,
-    delete_table: Optional[pa.Table] = None,
+    deletes_to_apply: Optional[pa.Table] = None,
     delete_columns: Optional[List[str]] = None,
 ) -> pa.Table:
     """
@@ -138,15 +158,17 @@ def _merge_tables(
     """
     all_tables = []
     incremental_idx = 0
+    # table_type = 
+    # TODO: figure out table type
     table = sc.drop_is_deleted_type_rows(table)
     if compacted_table:
-        if delete_table:
+        if deletes_to_apply:
             for delete_col in delete_columns:
                 compacted_table = compacted_table.filter(
                     pc.invert(
                         pc.is_in(
                             compacted_table[delete_col],
-                            value_set=delete_table[delete_col],
+                            value_set=deletes_to_apply[delete_col],
                         )
                     )
                 )
@@ -183,6 +205,9 @@ def _merge_tables(
         )
 
         result_table_list.append(compacted_table.filter(records_to_keep))
+    # incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.UPSERT)
+    # incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
+    incremental_table = incremental_table.drop([sc._DELTA_TYPE_COLUMN_NAME])
     result_table_list.append(incremental_table)
 
     final_table = pa.concat_tables(result_table_list)

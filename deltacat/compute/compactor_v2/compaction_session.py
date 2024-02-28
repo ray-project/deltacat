@@ -56,7 +56,7 @@ from deltacat.compute.compactor_v2.steps import prepare_delete as pd
 from deltacat.compute.compactor_v2.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
