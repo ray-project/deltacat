@@ -4,7 +4,7 @@ from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import numpy as np
 import pyarrow as pa
 import ray
-from typing import Dict, Any
+from typing import Any
 import time
 from deltacat.io.object_store import IObjectStore
 import pyarrow.compute as pc
@@ -52,6 +52,7 @@ if importlib.util.find_spec("memray"):
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
     return table.append_column(
         sc._DELTA_TYPE_COLUMN_FIELD,
@@ -72,11 +73,36 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
     return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
 
+def _filter_out_deletes(df_envelopes_list: List[List[DeltaFileEnvelope]]):
+    for df_envelopes in df_envelopes_list:
+        pass
+
+
 def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     deletes_to_apply: Optional[pa.Table] = None,
 ) -> Tuple[pa.Table, List[str]]:
-    hb_tables: List[Any] = []
+    def check_and_apply_deletes(
+        table: pa.Table,
+        deletes_to_apply: pa.Table,
+        delete_column: str,
+        stream_position: int,
+    ) -> pa.array:
+        deletes_earlier_than_upsert = deletes_to_apply.select(
+            [sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_column]
+        ).filter(
+            (
+                pc.scalar(stream_position)
+                < pc.field(sc._PARTITION_STREAM_POSITION_COLUMN_NAME)
+            )
+        )
+        deletable_selection_filter = pc.is_in(
+            table[delete_col],
+            value_set=deletes_earlier_than_upsert[delete_col],
+        )
+        return deletable_selection_filter
+
+    incremental_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes: List[DeltaFileEnvelope] = [
         d for dfe_list in df_envelopes_list for d in dfe_list
@@ -89,56 +115,24 @@ def _build_incremental_table(
     delete_columns = []
     if deletes_to_apply:
         delete_columns.extend(sc.get_delete_column_names(deletes_to_apply))
-    # for i, df_envelope in enumerate(df_envelopes):
-    #     stream_position = df_envelope.stream_position
-        # logger.info(f"pdebug: {i=} {df_envelope.delta_type=}, {df_envelope.delete_columns=}, {df_envelope.table=}")
-        # if df_envelope.delta_type == DeltaType.DELETE:
-        #     is_delete = True
-        #     assert(df_envelope.delete_columns is not None), "Delete columns are expected."
-        #     delete_columns.extend(df_envelope.delete_columns)
-        #     if delete_table:
-        #         logger.info(
-        #             f"pdebug:df_envelope.delta_type == DeltaType.DELETE {delete_table=}, {df_envelope.delete_columns=}"
-        #         )
-        #         deletes_and_spos_table = ray.get([delete_table[stream_position]])[0]
-        # elif df_envelope.delta_type == DeltaType.UPSERT:
-        #     if delete_table:
-        #         logger.info(
-        #             f"pdebug:elif df_envelope.delta_type == DeltaType.UPSERT {delete_table=}, {df_envelope.delete_columns=}"
-        #         )
-        #         deletes_and_spos_table = ray.get([delete_table[stream_position]])[0]
-        def check_and_apply_deletes(table: pa.Table, deletes_to_apply: pa.Table, delete_column: str, stream_position: int):
-            deletes_earlier_than_upsert = deletes_to_apply.select([sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_column]).filter(
-                        (
-                            pc.scalar(df_stream_position)
-                            < pc.field(sc._PARTITION_STREAM_POSITION_COLUMN_NAME)
-                        )
-                    )
-            deletable_selection_filter = pc.is_in(
-                table[delete_col],
-                value_set=deletes_earlier_than_upsert[delete_col],
-            )
-            return deletable_selection_filter
     for i, df_envelope in enumerate(df_envelopes):
         table = df_envelope.table
-        df_stream_position = df_envelope.stream_position
         assert (
             df_envelope.delta_type != DeltaType.APPEND
-        ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
-        deletable_selection_filter: pa.Array = sc.IS_DELETED_COL_DELETE_NONE(table) # before checking if any of the upserts are affected by deletes then deletes by default not applied
+        ), "APPEND type deltas are not supported. Kindly use UPSERT"
+        assert (
+            df_envelope.delta_type != DeltaType.DELETE
+        ), "DELETE type deltas should not be passed to merge step."
+        is_deletable_column: pa.Array = sc.IS_DELETED_COL_DELETE_NONE(table)
         if df_envelope.delta_type is DeltaType.UPSERT:
             if deletes_to_apply:
                 for delete_col in delete_columns:
-                    logger.info(
-                        f"pdebug:for delete_col in delete_columns: {deletes_to_apply.select([sc._PARTITION_STREAM_POSITION_COLUMN_NAME, delete_col])=}"
+                    is_deletable_column = check_and_apply_deletes(
+                        table, deletes_to_apply, delete_col, df_envelope.stream_position
                     )
-                    deletable_selection_filter = check_and_apply_deletes(table, deletes_to_apply, delete_col, df_envelope.stream_position)
-        if df_envelope.delta_type is DeltaType.DELETE:
-            deletable_selection_filter = sc.IS_DELETED_COL_DELETE_ALL(table)
-        table = _append_delta_type_column(table, np.bool_(sc.delta_type_to_field(df_envelope.delta_type)))
-        table = append_is_deleted_col(table, deletable_selection_filter)
-        hb_tables.append(table)
-    result = pa.concat_tables(hb_tables)
+        table = append_is_deleted_col(table, is_deletable_column)
+        incremental_tables.append(table)
+    result = pa.concat_tables(incremental_tables)
     return result, delete_columns
 
 
@@ -158,11 +152,10 @@ def _merge_tables(
     """
     all_tables = []
     incremental_idx = 0
-    # table_type = 
-    # TODO: figure out table type
     table = sc.drop_is_deleted_type_rows(table)
     if compacted_table:
         if deletes_to_apply:
+            logger.info(f"pdebug: {compacted_table=}, {deletes_to_apply=}")
             for delete_col in delete_columns:
                 compacted_table = compacted_table.filter(
                     pc.invert(
@@ -205,9 +198,6 @@ def _merge_tables(
         )
 
         result_table_list.append(compacted_table.filter(records_to_keep))
-    # incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.UPSERT)
-    # incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
-    incremental_table = incremental_table.drop([sc._DELTA_TYPE_COLUMN_NAME])
     result_table_list.append(incremental_table)
 
     final_table = pa.concat_tables(result_table_list)
@@ -225,12 +215,11 @@ def _download_compacted_table(
 ) -> pa.Table:
     tables = []
     hb_index_to_indices = rcf.hb_index_to_entry_range
-
     if str(hb_index) not in hb_index_to_indices:
         return None
 
     indices = hb_index_to_indices[str(hb_index)]
-
+    logger.info(f"pdebug:_download_compacted_table: {hb_index=}, {hb_index_to_indices=}, {indices=}")
     assert (
         indices is not None and len(indices) == 2
     ), "indices should not be none and contains exactly two elements"
@@ -316,12 +305,15 @@ def _compact_tables(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
-    delete_table = None
-    if input.delete_global_table_ref:
-        delete_table = ray.get([input.delete_global_table_ref])[0]
-    table, delete_columns = _build_incremental_table(dfe_list, delete_table)
+    deletes_to_apply = None
+    if input.delete_global_table_obj_ref:
+        deletes_to_apply = ray.get([input.delete_global_table_obj_ref])[0]
 
-    incremental_len = len(table)
+    incremental_table, delete_columns = _build_incremental_table(
+        dfe_list, deletes_to_apply
+    )
+
+    incremental_len = len(incremental_table)
     logger.info(
         f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
     )
@@ -331,7 +323,7 @@ def _compact_tables(
         # on non event based sort key does not produce consistent
         # compaction results. E.g., compaction(delta1, delta2, delta3)
         # will not be equal to compaction(compaction(delta1, delta2), delta3).
-        table = table.sort_by(input.sort_keys)
+        incremental_table = incremental_table.sort_by(input.sort_keys)
 
     compacted_table: Optional[pa.Table] = None
     if (
@@ -348,27 +340,28 @@ def _compact_tables(
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
 
-    hb_table_record_count = len(table) + (
+    hb_table_record_count = len(incremental_table) + (
         len(compacted_table) if compacted_table else 0
     )
+    # TODO: if delete is true, then download entire compacted_table and drop duplicates
 
-    table, merge_time = timed_invocation(
+    incremental_table, merge_time = timed_invocation(
         func=_merge_tables,
-        table=table,
+        table=incremental_table,
         primary_keys=input.primary_keys,
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=compacted_table,
-        delete_table=delete_table,
+        deletes_to_apply=deletes_to_apply,
         delete_columns=delete_columns,
     )
-    total_deduped_records = hb_table_record_count - len(table)
+    total_deduped_records = hb_table_record_count - len(incremental_table)
 
     logger.info(
         f"[Merge task index {input.merge_task_index}] Merged "
-        f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
+        f"record count: {len(incremental_table)}, size={incremental_table.nbytes} took: {merge_time}s"
     )
 
-    return table, incremental_len, total_deduped_records
+    return incremental_table, incremental_len, total_deduped_records
 
 
 def _copy_manifests_from_hash_bucketing(

@@ -24,7 +24,6 @@ def read_delta_file_envelopes(
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int, int]:
-    """ """
     tables = deltacat_storage.download_delta(
         annotated_delta,
         max_parallelism=1,
@@ -39,16 +38,11 @@ def read_delta_file_envelopes(
         f"({len(tables)}) doesn't match the length of delta manifest "
         f"annotations ({len(annotations)}).",
     )
-    delete_columns = None
     if not tables:
         return None, 0, 0
-    if annotated_delta.properties:
-        delete_columns = annotated_delta.properties.get("DELETE_COLUMNS")
 
     delta_stream_position = annotations[0].annotation_stream_position
     delta_type = annotations[0].annotation_delta_type
-    if annotated_delta.properties:
-        delete_columns = annotated_delta.properties.get("DELETE_COLUMNS")
 
     for annotation in annotations:
         assert annotation.annotation_stream_position == delta_stream_position, (
@@ -69,7 +63,6 @@ def read_delta_file_envelopes(
         stream_position=delta_stream_position,
         delta_type=delta_type,
         table=table,
-        delete_columns=delete_columns,
     )
     delta_file_envelopes.append(delta_file)
     return delta_file_envelopes, total_record_count, total_size_bytes

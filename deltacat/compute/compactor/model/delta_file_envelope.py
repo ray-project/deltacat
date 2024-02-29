@@ -6,7 +6,7 @@ import pyarrow as pa
 
 from deltacat.storage import DeltaType, LocalTable
 
-from typing import List, Optional
+from typing import Optional
 
 DeltaFileEnvelopeGroups = np.ndarray
 
@@ -20,7 +20,6 @@ class DeltaFileEnvelope(dict):
         file_index: int = None,
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
-        delete_columns: Optional[List[str]] = None,
     ) -> DeltaFileEnvelope:
         """Static factory builder for a Delta File Envelope
         `
@@ -50,7 +49,6 @@ class DeltaFileEnvelope(dict):
         delta_file_envelope["table"] = table
         delta_file_envelope["is_src_delta"] = is_src_delta
         delta_file_envelope["file_record_count"] = file_record_count
-        delta_file_envelope["delete_columns"] = delete_columns
         return delta_file_envelope
 
     @property
@@ -89,7 +87,3 @@ class DeltaFileEnvelope(dict):
     @property
     def table_num_rows(self) -> int:
         return len(self.table)
-
-    @property
-    def delete_columns(self) -> List[str]:
-        return self["delete_columns"]

@@ -11,6 +11,7 @@ from deltacat.compute.compactor import (
     DeltaAnnotated,
     DeltaFileEnvelope,
 )
+from deltacat.storage.model.delta import DeltaType
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor_v2.utils.delta import read_delta_file_envelopes
@@ -31,7 +32,6 @@ from deltacat.utils.resources import (
     ProcessUtilizationOverTimeRange,
 )
 from deltacat.constants import BYTES_PER_GIBIBYTE
-from deltacat.compute.compactor_v2.steps.prepare_delete import prepare_delete
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -71,12 +71,15 @@ def _group_file_records_by_pk_hash_bucket(
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
         logger.info("Grouping by pk hash bucket")
-        start = time.monotonic()
+        if dfe.delta_type is DeltaType.DELETE:
+            logger.warn(f"Delta File Envelope at stream position: {dfe.stream_position} is delete type. Skipping data grouping")
+            continue
+        group_start = time.monotonic()
         hash_bucket_to_table = group_by_pk_hash_bucket(
-            dfe.table, num_hash_buckets, primary_keys, dfe.delta_type
+            dfe.table, num_hash_buckets, primary_keys
         )
         group_end = time.monotonic()
-        logger.info(f"Grouping took: {group_end - start}")
+        logger.info(f"Grouping took: {group_end - group_start}")
         for hb, table in enumerate(hash_bucket_to_table):
             if table:
                 if hb_to_delta_file_envelopes[hb] is None:
@@ -87,7 +90,6 @@ def _group_file_records_by_pk_hash_bucket(
                         file_index=dfe.file_index,
                         delta_type=dfe.delta_type,
                         table=table,
-                        delete_columns=dfe.delete_columns,
                     )
                 )
     return hb_to_delta_file_envelopes, total_record_count, total_size_bytes

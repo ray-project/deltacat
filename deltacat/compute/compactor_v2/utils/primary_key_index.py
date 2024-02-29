@@ -11,7 +11,6 @@ from deltacat.compute.compactor_v2.constants import (
     PK_DELIMITER,
     MAX_SIZE_OF_RECORD_BATCH_IN_GIB,
 )
-from deltacat.storage.model.delta import DeltaType
 import time
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelope
 from deltacat import logs
@@ -156,14 +155,9 @@ def _optimized_group_record_batches_by_hash_bucket(
 
 
 def group_by_pk_hash_bucket(
-    table: pa.Table,
-    num_buckets: int,
-    primary_keys: List[str],
-    delta_type: DeltaType = None,
+    table: pa.Table, num_buckets: int, primary_keys: List[str]
 ) -> np.ndarray:
-    table = generate_pk_hash_column(
-        [table], primary_keys, requires_sha1=True, delta_type=delta_type
-    )[0]
+    table = generate_pk_hash_column([table], primary_keys, requires_sha1=True)[0]
 
     # group hash bucket record indices
     result = group_record_indices_by_hash_bucket(
@@ -178,7 +172,6 @@ def generate_pk_hash_column(
     tables: List[pa.Table],
     primary_keys: Optional[List[str]] = None,
     requires_sha1: bool = False,
-    delta_type: DeltaType = None,
 ) -> List[pa.Table]:
     """
     Returns a new table list after generating the primary key hash if desired.
@@ -206,22 +199,19 @@ def generate_pk_hash_column(
 
     hash_column_list = []
 
-    can_sha1: bool = False
-    if primary_keys and delta_type is not DeltaType.DELETE:
-        hash_column_list: List[pa.Array] = [
-            _generate_pk_hash(table) for table in tables
-        ]
-        can_sha1: bool = requires_sha1 or _is_sha1_desired(hash_column_list)
+    can_sha1 = False
+    if primary_keys:
+        hash_column_list = [_generate_pk_hash(table) for table in tables]
+
+        can_sha1 = requires_sha1 or _is_sha1_desired(hash_column_list)
     else:
-        hash_column_list: List[pa.Array] = [_generate_uuid(table) for table in tables]
+        hash_column_list = [_generate_uuid(table) for table in tables]
 
     logger.info(
         f"can_generate_sha1={can_sha1} for the table and requires_sha1={requires_sha1}"
     )
 
     result = []
-    if len(tables) == 0:
-        return result
 
     total_len = 0
     total_size = 0

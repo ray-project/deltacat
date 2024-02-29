@@ -128,5 +128,5 @@ class MergeInput(Dict):
         return self.get("deltacat_storage_kwargs")
 
     @property
-    def delete_global_table_ref(self) -> Optional[str]:
+    def delete_global_table_obj_ref(self) -> Optional[str]:
         return self.get("delete_global_table_ref")
