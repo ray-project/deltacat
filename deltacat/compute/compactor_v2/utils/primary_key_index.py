@@ -5,6 +5,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import uuid
+from deltacat.storage.model.delta import DeltaType
 import hashlib
 from deltacat.compute.compactor_v2.constants import (
     TOTAL_BYTES_IN_SHA1_HASH,
@@ -155,10 +156,10 @@ def _optimized_group_record_batches_by_hash_bucket(
 
 
 def group_by_pk_hash_bucket(
-    table: pa.Table, num_buckets: int, primary_keys: List[str]
+    table: pa.Table, num_buckets: int, primary_keys: List[str], delta_type: DeltaType = None,
 ) -> np.ndarray:
-    table = generate_pk_hash_column([table], primary_keys, requires_sha1=True)[0]
-
+    logger.info(f"pdebug:group_by_pk_hash_bucket: {locals()=}")
+    table = generate_pk_hash_column([table], primary_keys, requires_sha1=True, delta_type=delta_type)[0]
     # group hash bucket record indices
     result = group_record_indices_by_hash_bucket(
         table,
@@ -172,6 +173,7 @@ def generate_pk_hash_column(
     tables: List[pa.Table],
     primary_keys: Optional[List[str]] = None,
     requires_sha1: bool = False,
+    delta_type: DeltaType = None,
 ) -> List[pa.Table]:
     """
     Returns a new table list after generating the primary key hash if desired.
@@ -200,9 +202,9 @@ def generate_pk_hash_column(
     hash_column_list = []
 
     can_sha1 = False
-    if primary_keys:
+    logger.info(f"pdebug:generate_pk_hash_column {delta_type=}")
+    if primary_keys and delta_type is not DeltaType.DELETE:
         hash_column_list = [_generate_pk_hash(table) for table in tables]
-
         can_sha1 = requires_sha1 or _is_sha1_desired(hash_column_list)
     else:
         hash_column_list = [_generate_uuid(table) for table in tables]

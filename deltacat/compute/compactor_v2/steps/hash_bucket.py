@@ -71,12 +71,9 @@ def _group_file_records_by_pk_hash_bucket(
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
         logger.info("Grouping by pk hash bucket")
-        if dfe.delta_type is DeltaType.DELETE:
-            logger.warn(f"Delta File Envelope at stream position: {dfe.stream_position} is delete type. Skipping data grouping")
-            continue
         group_start = time.monotonic()
         hash_bucket_to_table = group_by_pk_hash_bucket(
-            dfe.table, num_hash_buckets, primary_keys
+            dfe.table, num_hash_buckets, primary_keys, dfe.delta_type
         )
         group_end = time.monotonic()
         logger.info(f"Grouping took: {group_end - group_start}")

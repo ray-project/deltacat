@@ -103,6 +103,7 @@ def _build_incremental_table(
         return deletable_selection_filter
 
     incremental_tables: List[Any] = []
+    delete_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes: List[DeltaFileEnvelope] = [
         d for dfe_list in df_envelopes_list for d in dfe_list
@@ -120,20 +121,37 @@ def _build_incremental_table(
         assert (
             df_envelope.delta_type != DeltaType.APPEND
         ), "APPEND type deltas are not supported. Kindly use UPSERT"
-        assert (
-            df_envelope.delta_type != DeltaType.DELETE
-        ), "DELETE type deltas should not be passed to merge step."
-        is_deletable_column: pa.Array = sc.IS_DELETED_COL_DELETE_NONE(table)
         if df_envelope.delta_type is DeltaType.UPSERT:
+            is_deletable_column: pa.Array = sc.IS_DELETED_COL_DELETE_NONE(table)
             if deletes_to_apply:
                 for delete_col in delete_columns:
                     is_deletable_column = check_and_apply_deletes(
                         table, deletes_to_apply, delete_col, df_envelope.stream_position
                     )
-        table = append_is_deleted_col(table, is_deletable_column)
-        incremental_tables.append(table)
-    result = pa.concat_tables(incremental_tables)
-    return result, delete_columns
+            table = append_is_deleted_col(table, is_deletable_column)
+            incremental_tables.append(table)
+        elif df_envelope.delta_type is DeltaType.DELETE:
+            is_deletable_column = sc.IS_DELETED_COL_DELETE_ALL(table)
+            table = append_is_deleted_col(table, is_deletable_column)
+            delete_tables.append(table)
+    incremental_res: pa.Table = pa.concat_tables(incremental_tables) if len(incremental_tables) > 0 else []
+    return incremental_res, delete_columns
+
+
+def drop_is_delete_rows(table: Optional[pa.Table], deletes_to_apply: pa.Table, delete_columns: Optional[List[str]] = None):
+    if table.num_rows == 0:
+        return table
+    # acc = []
+    for del_col in delete_columns:
+        table = table.filter(
+            pc.invert(
+                pc.is_in(
+                    table[del_col],
+                    value_set=deletes_to_apply[del_col],
+                )
+            )
+        )
+        return table
 
 
 def _merge_tables(
@@ -153,21 +171,17 @@ def _merge_tables(
     all_tables = []
     incremental_idx = 0
     table = sc.drop_is_deleted_type_rows(table)
-    if compacted_table:
-        if deletes_to_apply:
-            logger.info(f"pdebug: {compacted_table=}, {deletes_to_apply=}")
-            for delete_col in delete_columns:
-                compacted_table = compacted_table.filter(
-                    pc.invert(
-                        pc.is_in(
-                            compacted_table[delete_col],
-                            value_set=deletes_to_apply[delete_col],
-                        )
-                    )
-                )
-        if compacted_table and compacted_table.num_rows > 0:
-            incremental_idx = 1
-            all_tables.append(compacted_table)
+    if len(table) == 0:
+        if compacted_table:
+            table = drop_is_delete_rows(compacted_table, deletes_to_apply, delete_columns)
+            return table
+    else:
+        if compacted_table:
+            compacted_table = drop_is_delete_rows(compacted_table, deletes_to_apply, delete_columns)
+            if compacted_table and compacted_table.num_rows > 0:
+                incremental_idx = 1
+                all_tables.append(compacted_table)
+
 
     all_tables.append(table)
 
@@ -199,10 +213,8 @@ def _merge_tables(
 
         result_table_list.append(compacted_table.filter(records_to_keep))
     result_table_list.append(incremental_table)
-
     final_table = pa.concat_tables(result_table_list)
     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
-
     return final_table
 
 
@@ -219,7 +231,6 @@ def _download_compacted_table(
         return None
 
     indices = hb_index_to_indices[str(hb_index)]
-    logger.info(f"pdebug:_download_compacted_table: {hb_index=}, {hb_index_to_indices=}, {indices=}")
     assert (
         indices is not None and len(indices) == 2
     ), "indices should not be none and contains exactly two elements"
@@ -234,7 +245,9 @@ def _download_compacted_table(
 
         tables.append(table)
 
-    return pa.concat_tables(tables)
+    res = pa.concat_tables(tables)
+    logger.info(f"pdebug:_download_compacted_table: {hb_index=}, {hb_index_to_indices=}, {indices=}, {res=}")
+    return res
 
 
 def _copy_all_manifest_files_from_old_hash_buckets(
@@ -312,18 +325,18 @@ def _compact_tables(
     incremental_table, delete_columns = _build_incremental_table(
         dfe_list, deletes_to_apply
     )
+    if len(incremental_table) > 0:
+        incremental_len = len(incremental_table)
+        logger.info(
+            f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
+        )
 
-    incremental_len = len(incremental_table)
-    logger.info(
-        f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
-    )
-
-    if input.sort_keys:
-        # Incremental is sorted and merged, as sorting
-        # on non event based sort key does not produce consistent
-        # compaction results. E.g., compaction(delta1, delta2, delta3)
-        # will not be equal to compaction(compaction(delta1, delta2), delta3).
-        incremental_table = incremental_table.sort_by(input.sort_keys)
+        if input.sort_keys:
+            # Incremental is sorted and merged, as sorting
+            # on non event based sort key does not produce consistent
+            # compaction results. E.g., compaction(delta1, delta2, delta3)
+            # will not be equal to compaction(compaction(delta1, delta2), delta3).
+            incremental_table = incremental_table.sort_by(input.sort_keys)
 
     compacted_table: Optional[pa.Table] = None
     if (
@@ -399,6 +412,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         hb_index_copy_by_ref_ids = []
 
         for merge_file_group in merge_file_groups:
+            # TODO: pfaraone
             if not merge_file_group.dfe_groups:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
