@@ -134,6 +134,7 @@ def _build_incremental_table(
             is_deletable_column = sc.IS_DELETED_COL_DELETE_ALL(table)
             table = append_is_deleted_col(table, is_deletable_column)
             delete_tables.append(table)
+    logger.info(f"pdebug:_build_incremental_table:{incremental_tables=}, {delete_tables=}")
     incremental_res: pa.Table = pa.concat_tables(incremental_tables) if len(incremental_tables) > 0 else []
     return incremental_res, delete_columns
 
@@ -170,21 +171,24 @@ def _merge_tables(
     """
     all_tables = []
     incremental_idx = 0
-    table = sc.drop_is_deleted_type_rows(table)
+    logger.info(f"pdebug:_merge_tables:beforedrop: {table=},  {compacted_table=}")
     if len(table) == 0:
         if compacted_table:
             table = drop_is_delete_rows(compacted_table, deletes_to_apply, delete_columns)
             return table
+        return []
+        
     else:
+        table = sc.drop_is_deleted_type_rows(table)
         if compacted_table:
             compacted_table = drop_is_delete_rows(compacted_table, deletes_to_apply, delete_columns)
             if compacted_table and compacted_table.num_rows > 0:
                 incremental_idx = 1
                 all_tables.append(compacted_table)
 
-
+    logger.info(f"pdebug:_merge_tables:before: {table=},  {all_tables=}")
     all_tables.append(table)
-
+    logger.info(f"pdebug:_merge_tables:after: {table=} {all_tables=}")
     if not primary_keys or not can_drop_duplicates:
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "
@@ -318,6 +322,7 @@ def _compact_tables(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
+    incremental_len = 0
     deletes_to_apply = None
     if input.delete_global_table_obj_ref:
         deletes_to_apply = ray.get([input.delete_global_table_obj_ref])[0]
@@ -371,7 +376,7 @@ def _compact_tables(
 
     logger.info(
         f"[Merge task index {input.merge_task_index}] Merged "
-        f"record count: {len(incremental_table)}, size={incremental_table.nbytes} took: {merge_time}s"
+        f"record count: {len(incremental_table)}, size={incremental_table.nbytes if len(incremental_table) > 0 else 0} took: {merge_time}s"
     )
 
     return incremental_table, incremental_len, total_deduped_records
@@ -413,6 +418,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
         for merge_file_group in merge_file_groups:
             # TODO: pfaraone
+            logger.info(f"pdebug: {merge_file_group=}")
             if not merge_file_group.dfe_groups:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
@@ -420,6 +426,8 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             table, input_records, deduped_records = _compact_tables(
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
+            if len(table) == 0:
+                continue
             total_input_records += input_records
             total_deduped_records += deduped_records
             materialized_results.append(
