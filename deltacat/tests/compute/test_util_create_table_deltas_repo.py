@@ -33,35 +33,6 @@ def create_incremental_deltas_on_source_table(
 ) -> Tuple[PartitionLocator, Delta]:
     import deltacat.tests.local_deltacat_storage as ds
 
-    """
-    rebase_expected_compact_partition_result=pa.Table.from_arrays(
-            [
-                pa.array([0, 1, 2, 3]),
-                pa.array(["996", "997", "998", "999"]),
-            ],
-            names=["pk_col_1", "col_1"],
-        ),
-
-    """
-    incremental_deltas_1 = pa.Table.from_arrays(
-        [  # delete last two primary keys
-            pa.array([0]),
-            pa.array(["a"]),
-        ],
-        names=["pk_col_1", "col_1"],
-    )
-    delete_delta_1 = pa.Table.from_arrays(
-        [
-            pa.array(["a", "999"]),
-        ],
-        names=["col_1"],
-    )
-    delete_delta_2 = pa.Table.from_arrays(
-        [
-            pa.array(["997"]),
-        ],
-        names=["col_1"],
-    )
     src_partition: Partition = ds.get_partition(
         source_table_stream.locator,
         partition_values_param,
@@ -69,27 +40,7 @@ def create_incremental_deltas_on_source_table(
     )
     new_delta: Delta = ds.commit_delta(
         ds.stage_delta(
-            incremental_deltas_1, src_partition, DeltaType.UPSERT, **ds_mock_kwargs
-        ),
-        **ds_mock_kwargs,
-    )
-    new_delta: Delta = ds.commit_delta(
-        ds.stage_delta(
-            delete_delta_1,
-            src_partition,
-            DeltaType.DELETE,
-            properties={"DELETE_COLUMNS": ["col_1"]},
-            **ds_mock_kwargs,
-        ),
-        **ds_mock_kwargs,
-    )
-    new_delta: Delta = ds.commit_delta(
-        ds.stage_delta(
-            delete_delta_2,
-            src_partition,
-            DeltaType.DELETE,
-            properties={"DELETE_COLUMNS": ["col_1"]},
-            **ds_mock_kwargs,
+            incremental_deltas, src_partition, incremental_delta_type,properties={"DELETE_COLUMNS": ["col_1"]}, **ds_mock_kwargs
         ),
         **ds_mock_kwargs,
     )

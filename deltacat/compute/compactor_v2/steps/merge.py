@@ -88,9 +88,6 @@ def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
 ) -> Tuple[pa.Table]:
-    logger.info(
-        f"pdebug:_build_incremental_table {deletes_to_apply_by_stream_positions=}"
-    )
     incremental_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes: List[DeltaFileEnvelope] = [
