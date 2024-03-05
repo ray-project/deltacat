@@ -6,6 +6,7 @@ import pyarrow as pa
 import ray
 from typing import Any
 import time
+from deltacat.types.media import StorageType
 from deltacat.io.object_store import IObjectStore
 import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
@@ -78,6 +79,73 @@ def _filter_out_deletes(df_envelopes_list: List[List[DeltaFileEnvelope]]):
         pass
 
 
+def handle_deletes(
+    df_envelopes_list: List[List[DeltaFileEnvelope]],
+    hb_index: int,
+    rcf: RoundCompletionInfo,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    delete_table: Optional[pa.Table] = None,
+    deletes_to_apply: Optional[pa.Table] = None,
+    delete_columns: Optional[List[str]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[dict] = None,
+) -> Tuple[pa.Table, List[str]]:
+    df_envelopes: List[DeltaFileEnvelope] = [
+            d for dfe_list in df_envelopes_list for d in dfe_list
+    ]
+    df_envelopes: List[DeltaFileEnvelope] = sorted(
+        df_envelopes,
+        key=lambda df: (df.stream_position, df.file_index),
+        reverse=False,  # ascending
+    )
+    delete_columns = []
+    if deletes_to_apply:
+        delete_columns.extend(sc.get_delete_column_names(deletes_to_apply))
+    for i, df_envelope in enumerate(df_envelopes):
+        table = df_envelope.table
+        assert (
+            df_envelope.delta_type != DeltaType.APPEND
+        ), "APPEND type deltas are not supported. Kindly use UPSERT"
+        if df_envelope.delta_type is DeltaType.UPSERT:
+            continue
+        elif df_envelope.delta_type is DeltaType.DELETE:
+            drop_is_delete_rows()
+            
+    # delete_tables: List[Any] = []
+    # # sort by delta file stream position now instead of sorting every row later
+    # df_envelopes: List[DeltaFileEnvelope] = [
+    #     d for dfe_list in df_envelopes_list for d in dfe_list
+    # ]
+    # df_envelopes: List[DeltaFileEnvelope] = sorted(
+    #     df_envelopes,
+    #     key=lambda df: (df.stream_position, df.file_index),
+    #     reverse=False,  # ascending
+    # )
+    # delete_columns = []
+    # if deletes_to_apply:
+    #     delete_columns.extend(sc.get_delete_column_names(deletes_to_apply))
+    # for i, df_envelope in enumerate(df_envelopes):
+    #     table = df_envelope.table
+    #     assert (
+    #         df_envelope.delta_type != DeltaType.APPEND
+    #     ), "APPEND type deltas are not supported. Kindly use UPSERT"
+    #     if df_envelope.delta_type is DeltaType.UPSERT:
+    #         is_deletable_column: pa.Array = sc.IS_DELETED_COL_DELETE_NONE(table)
+    #         if deletes_to_apply:
+    #             for delete_col in delete_columns:
+    #                 is_deletable_column = check_and_apply_deletes(
+    #                     table, deletes_to_apply, delete_col, df_envelope.stream_position
+    #                 )
+    #         table = append_is_deleted_col(table, is_deletable_column)
+    #         incremental_tables.append(table)
+    #     elif df_envelope.delta_type is DeltaType.DELETE:
+    #         is_deletable_column = sc.IS_DELETED_COL_DELETE_ALL(table)
+    #         table = append_is_deleted_col(table, is_deletable_column)
+    #         delete_tables.append(table)
+    # incremental_res: pa.Table = pa.concat_tables(incremental_tables) if len(incremental_tables) > 0 else []
+    # deletes_res: pa.Table = pa.concat_tables(delete_tables) if len(delete_tables) > 0 else []
+    # return incremental_res, deletes_res, delete_columns
+
 def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     deletes_to_apply: Optional[pa.Table] = None,
@@ -134,15 +202,14 @@ def _build_incremental_table(
             is_deletable_column = sc.IS_DELETED_COL_DELETE_ALL(table)
             table = append_is_deleted_col(table, is_deletable_column)
             delete_tables.append(table)
-    logger.info(f"pdebug:_build_incremental_table:{incremental_tables=}, {delete_tables=}")
     incremental_res: pa.Table = pa.concat_tables(incremental_tables) if len(incremental_tables) > 0 else []
-    return incremental_res, delete_columns
+    deletes_res: pa.Table = pa.concat_tables(delete_tables) if len(delete_tables) > 0 else []
+    return incremental_res, deletes_res, delete_columns
 
 
 def drop_is_delete_rows(table: Optional[pa.Table], deletes_to_apply: pa.Table, delete_columns: Optional[List[str]] = None):
     if table.num_rows == 0:
         return table
-    # acc = []
     for del_col in delete_columns:
         table = table.filter(
             pc.invert(
@@ -171,7 +238,6 @@ def _merge_tables(
     """
     all_tables = []
     incremental_idx = 0
-    logger.info(f"pdebug:_merge_tables:beforedrop: {table=},  {compacted_table=}")
     if len(table) == 0:
         if compacted_table:
             table = drop_is_delete_rows(compacted_table, deletes_to_apply, delete_columns)
@@ -186,9 +252,7 @@ def _merge_tables(
                 incremental_idx = 1
                 all_tables.append(compacted_table)
 
-    logger.info(f"pdebug:_merge_tables:before: {table=},  {all_tables=}")
     all_tables.append(table)
-    logger.info(f"pdebug:_merge_tables:after: {table=} {all_tables=}")
     if not primary_keys or not can_drop_duplicates:
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "
@@ -226,19 +290,40 @@ def _download_compacted_table(
     hb_index: int,
     rcf: RoundCompletionInfo,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    delete_table: Optional[pa.Table] = None,
+    deletes_to_apply: Optional[pa.Table] = None,
+    delete_columns: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
     tables = []
     hb_index_to_indices = rcf.hb_index_to_entry_range
+    # if delete_table:
+    #     for indices in hb_index_to_indices.values():
+    #         # logger.info(f"pdebug:if delete_table:{indices=}")
+    #         for offset in range(indices[1] - indices[0]):
+    #             table = deltacat_storage.download_delta_manifest_entry(
+    #                 rcf.compacted_delta_locator,
+    #                 entry_index=(indices[0] + offset),
+    #                 file_reader_kwargs_provider=read_kwargs_provider,
+    #                 **deltacat_storage_kwargs,
+    #             )
+    #             # logger.info(f"pdebug:if delete_table:{table=}")
+    #             tables.append(table)    
+    #         compacted_table = pa.concat_tables(tables)
+    #         logger.info(f"pdebug:compacted_table:before:{table=}, {deletes_to_apply=}, {delete_columns=}")
+    #         compacted_table = drop_is_delete_rows(compacted_table, deletes_to_apply, delete_columns)
+    #         return 
+            # logger.info(f"pdebug:compacted_table:after:{table=}")
+
+
+
     if str(hb_index) not in hb_index_to_indices:
         return None
-
-    indices = hb_index_to_indices[str(hb_index)]
+    indices = hb_index_to_indices.get(str(hb_index))
     assert (
         indices is not None and len(indices) == 2
     ), "indices should not be none and contains exactly two elements"
-
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
             rcf.compacted_delta_locator,
@@ -250,7 +335,7 @@ def _download_compacted_table(
         tables.append(table)
 
     res = pa.concat_tables(tables)
-    logger.info(f"pdebug:_download_compacted_table: {hb_index=}, {hb_index_to_indices=}, {indices=}, {res=}")
+    # logger.info(f"pdebug:_download_compacted_table {res=}")
     return res
 
 
@@ -327,7 +412,7 @@ def _compact_tables(
     if input.delete_global_table_obj_ref:
         deletes_to_apply = ray.get([input.delete_global_table_obj_ref])[0]
 
-    incremental_table, delete_columns = _build_incremental_table(
+    incremental_table, delete_table, delete_columns = _build_incremental_table(
         dfe_list, deletes_to_apply
     )
     if len(incremental_table) > 0:
@@ -347,15 +432,17 @@ def _compact_tables(
     if (
         input.round_completion_info
         and input.round_completion_info.hb_index_to_entry_range
-        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
-        is not None
     ):
+        logger.info(f"pdebug: {input.round_completion_info.hb_index_to_entry_range=}")
         compacted_table: pa.Table = _download_compacted_table(
             hb_index=hb_idx,
             rcf=input.round_completion_info,
             read_kwargs_provider=input.read_kwargs_provider,
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+            delete_table=None if len(delete_table) == 0 else delete_table,
+            deletes_to_apply=deletes_to_apply,
+            delete_columns=delete_columns,
         )
 
     hb_table_record_count = len(incremental_table) + (
@@ -415,10 +502,10 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         materialized_results: List[MaterializeResult] = []
         merge_file_groups = input.merge_file_groups_provider.create()
         hb_index_copy_by_ref_ids = []
-
+        logger.info(f"pdebug: {input.merge_file_groups_provider=} {len(merge_file_groups)=} {merge_file_groups=}")
         for merge_file_group in merge_file_groups:
+            logger.info(f"pdebug: {merge_file_group=}, {hb_index_copy_by_ref_ids=}")
             # TODO: pfaraone
-            logger.info(f"pdebug: {merge_file_group=}")
             if not merge_file_group.dfe_groups:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue

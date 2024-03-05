@@ -78,6 +78,7 @@ def _group_file_records_by_pk_hash_bucket(
         group_end = time.monotonic()
         logger.info(f"Grouping took: {group_end - group_start}")
         for hb, table in enumerate(hash_bucket_to_table):
+            logger.info(f"pdebug: {hb=} {table=}")
             if table:
                 if hb_to_delta_file_envelopes[hb] is None:
                     hb_to_delta_file_envelopes[hb] = []

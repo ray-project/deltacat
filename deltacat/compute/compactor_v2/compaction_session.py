@@ -266,6 +266,40 @@ def _execute_compaction(
                 ),
             )
         delete_table.extend(delete_dataset)
+    
+
+    window_start = 0
+    window_end = 0
+    my_dict = {}
+    while window_end < len(uniform_deltas):
+        annotated_delta = uniform_deltas[window_end]
+    #     annotations = annotated_delta.annotations
+    #     annotation_delta_type = annotations[0].annotation_delta_type
+        if uniform_deltas[window_end].annotations[0].annotation_delta_type is DeltaType.UPSERT:
+            window_start += 1
+            window_end = window_start
+            continue
+        while (window_end < len(uniform_deltas) and uniform_deltas[window_end].annotations[0].annotation_delta_type is DeltaType.DELETE):
+            window_end += 1
+        delete_deltas_sequence = uniform_deltas[window_start:window_end]
+        deletes_at_this_stream_position = []
+        for delete_delta in delete_deltas_sequence:
+            delete_dataset = params.deltacat_storage.download_delta(
+                delete_delta,
+                file_reader_kwargs_provider=params.read_kwargs_provider,
+                columns=delete_columns,
+                storage_type=StorageType.LOCAL,
+                **params.deltacat_storage_kwargs,
+            )
+            deletes_at_this_stream_position.extend(delete_dataset)
+        logger.info(f"pdebug: {deletes_at_this_stream_position=}")
+        consolidated_deletes = pa.concat_tables(deletes_at_this_stream_position)
+        logger.info(f"pdebug: {consolidated_deletes=}")
+        my_dict[uniform_deltas[window_start].stream_position] = consolidated_deletes
+        window_start = window_end
+        window_end = window_start
+        
+    logger.info(f"pdebug: {my_dict=}")
     if len(delete_table) > 0:
         string_positions_and_deletes = pa.concat_tables(delete_table)
         delete_global_table_ref = ray.put(string_positions_and_deletes)
