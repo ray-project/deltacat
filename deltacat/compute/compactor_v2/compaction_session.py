@@ -230,45 +230,9 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-    delete_global_table_ref = None
-    delete_annotated_deltas_only: List[DeltaAnnotated] = []
-    for i, annotated_delta in enumerate(uniform_deltas):
-        annotations = annotated_delta.annotations
-        annotation_delta_type = annotations[0].annotation_delta_type
-        if annotation_delta_type is DeltaType.DELETE:
-            assert (
-                annotated_delta.properties is not None
-            ), "Annotated Delta should have a non-null properties attribute if delete type"
-            delete_annotated_deltas_only.append(annotated_delta)
     delete_table = []
     string_positions_and_deletes: Optional[pa.Table] = None
-    for delete_annotated_delta in delete_annotated_deltas_only:
-        properties: Optional[Dict[str, str]] = delete_annotated_delta.properties
-        delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
-        delete_dataset = params.deltacat_storage.download_delta(
-            delete_annotated_delta,
-            max_parallelism=params.task_max_parallelism
-            if params.task_max_parallelism
-            else 1,
-            file_reader_kwargs_provider=params.read_kwargs_provider,
-            columns=delete_columns,
-            storage_type=StorageType.LOCAL,
-            **params.deltacat_storage_kwargs,
-        )
-        for idx, table in enumerate(delete_dataset):
-            delete_dataset[idx] = sc.append_stream_position_column(
-                table,
-                (
-                    pa.array(
-                        np.repeat(delete_annotated_delta.stream_position, len(table))
-                    )
-                ),
-            )
-        delete_table.extend(delete_dataset)
-    
-
     window_start, window_end = 0, 0
-    my_dict = {}
     deletes_to_apply_by_stream_position = IntegerRangeDict()
     while window_end < len(uniform_deltas):
         if uniform_deltas[window_end].annotations[0].annotation_delta_type is DeltaType.UPSERT:
@@ -280,6 +244,8 @@ def _execute_compaction(
         delete_deltas_sequence = uniform_deltas[window_start:window_end]
         deletes_at_this_stream_position = []
         for delete_delta in delete_deltas_sequence:
+            properties: Optional[Dict[str, str]] = delete_delta.properties
+            delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
             delete_dataset = params.deltacat_storage.download_delta(
                 delete_delta,
                 file_reader_kwargs_provider=params.read_kwargs_provider,
@@ -292,19 +258,6 @@ def _execute_compaction(
         deletes_to_apply_by_stream_position[uniform_deltas[window_start].stream_position] = ray.put(consolidated_deletes)
         window_start = window_end
         window_end = window_start
-    if len(delete_table) > 0:
-        string_positions_and_deletes = pa.concat_tables(delete_table)
-        delete_global_table_ref = ray.put(string_positions_and_deletes)
-    if deletes_to_apply_by_stream_position:
-        logger.info(f"pdebug: {deletes_to_apply_by_stream_position=}")
-        
-
-    # for delete_annotated_delta in delete_annotated_deltas_only:
-    #     spos = annotated_delta.stream_position
-    #     if string_positions_and_deletes:
-    #         obj_id = ray.put(string_positions_and_deletes)
-    #         delete_spos_to_obj_ref[spos] = obj_id
-    #         delete_global_table = obj_id
 
     hb_options_provider = functools.partial(
         task_resource_options_provider,
@@ -576,7 +529,6 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-                    delete_global_table_ref=delete_global_table_ref,
                     deletes_to_apply_by_stream_positions=deletes_to_apply_by_stream_position,
                 )
             }

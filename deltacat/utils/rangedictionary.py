@@ -1,9 +1,11 @@
 from collections import OrderedDict
 
+
 class IntegerRangeDict(OrderedDict):
     """
     An integer dictionary with range-style access.
-    """  
+    """
+
     def __setitem__(self, key, value):
         if not isinstance(key, int):
             raise ValueError("value must be an int")
@@ -16,4 +18,6 @@ class IntegerRangeDict(OrderedDict):
             if key <= candidate_key:
                 correct_key = ordered_key_list[candidate_idx]
                 return super().__getitem__(correct_key)
-        raise KeyError(f"Could not find {key} or any key greater than {key} in this RangeDict")
+        raise KeyError(
+            f"Could not find {key} or any key greater than {key} in this RangeDict"
+        )

@@ -342,6 +342,8 @@ def append_file_record_count_col(table: pa.Table, file_record_count):
 
 
 def get_delete_column_names(table: pa.Table) -> List[str]:
+    if table is None:
+        return []
     if table.num_rows == 0:
         return []
     delete_column_names = [
