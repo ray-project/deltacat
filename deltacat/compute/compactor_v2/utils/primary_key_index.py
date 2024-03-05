@@ -206,6 +206,7 @@ def generate_pk_hash_column(
     hash_column_list = []
 
     can_sha1 = False
+    # NOTE: delete tables may not have primary keys
     if primary_keys and delta_type is not DeltaType.DELETE:
         hash_column_list = [_generate_pk_hash(table) for table in tables]
         can_sha1 = requires_sha1 or _is_sha1_desired(hash_column_list)

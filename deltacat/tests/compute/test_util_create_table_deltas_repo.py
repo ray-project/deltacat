@@ -40,7 +40,11 @@ def create_incremental_deltas_on_source_table(
     )
     new_delta: Delta = ds.commit_delta(
         ds.stage_delta(
-            incremental_deltas, src_partition, incremental_delta_type,properties={"DELETE_COLUMNS": ["col_1"]}, **ds_mock_kwargs
+            incremental_deltas,
+            src_partition,
+            incremental_delta_type,
+            properties={"DELETE_COLUMNS": ["col_1"]},
+            **ds_mock_kwargs,
         ),
         **ds_mock_kwargs,
     )

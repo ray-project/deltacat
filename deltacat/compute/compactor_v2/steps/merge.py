@@ -88,7 +88,7 @@ def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
 ) -> Tuple[pa.Table]:
-    incremental_tables: List[Any] = []
+    hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes: List[DeltaFileEnvelope] = [
         d for dfe_list in df_envelopes_list for d in dfe_list
@@ -98,11 +98,14 @@ def _build_incremental_table(
         key=lambda df: (df.stream_position, df.file_index),
         reverse=False,  # ascending
     )
-    for i, df_envelope in enumerate(df_envelopes):
+    for df_envelope in df_envelopes:
         table = df_envelope.table
         assert (
             df_envelope.delta_type != DeltaType.APPEND
         ), "APPEND type deltas are not supported. Kindly use UPSERT"
+        assert (
+            df_envelope.delta_type != DeltaType.DELETE
+        ), "DELETE type deltas should not be present when building the incremental table"
         if df_envelope.delta_type is DeltaType.UPSERT:
             if deletes_to_apply_by_stream_positions:
                 try:
@@ -110,12 +113,12 @@ def _build_incremental_table(
                         df_envelope.stream_position
                     ]
                 except KeyError:
-                    incremental_tables.append(table)
+                    hb_tables.append(table)
                     continue
                 delete_table = ray.get([obj_ref])[0]
                 table = drop_rows_affected_by_deletes(table, delete_table)
-            incremental_tables.append(table)
-    incremental_res: pa.Table = pa.concat_tables(incremental_tables)
+            hb_tables.append(table)
+    incremental_res: pa.Table = pa.concat_tables(hb_tables)
     return incremental_res
 
 
@@ -167,7 +170,6 @@ def _merge_tables(
     if compacted_table:
         incremental_idx = 1
         all_tables.append(compacted_table)
-    table = sc.drop_is_deleted_type_rows(table)
     all_tables.append(table)
 
     if not primary_keys or not can_drop_duplicates:
@@ -306,7 +308,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
 def _compact_tables(
     input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
-    # handle case if deletes are present and apply only to compacted table
+    # NOTE: In certain cases the dfe_list may be None. In that case we should just return the compacted table
     if dfe_list is None:
         compacted_table = []
         if (
