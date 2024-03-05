@@ -268,13 +268,9 @@ def _execute_compaction(
         delete_table.extend(delete_dataset)
     
 
-    window_start = 0
-    window_end = 0
+    window_start, window_end = 0, 0
     my_dict = {}
     while window_end < len(uniform_deltas):
-        annotated_delta = uniform_deltas[window_end]
-    #     annotations = annotated_delta.annotations
-    #     annotation_delta_type = annotations[0].annotation_delta_type
         if uniform_deltas[window_end].annotations[0].annotation_delta_type is DeltaType.UPSERT:
             window_start += 1
             window_end = window_start
@@ -292,13 +288,10 @@ def _execute_compaction(
                 **params.deltacat_storage_kwargs,
             )
             deletes_at_this_stream_position.extend(delete_dataset)
-        logger.info(f"pdebug: {deletes_at_this_stream_position=}")
         consolidated_deletes = pa.concat_tables(deletes_at_this_stream_position)
-        logger.info(f"pdebug: {consolidated_deletes=}")
-        my_dict[uniform_deltas[window_start].stream_position] = consolidated_deletes
+        my_dict[uniform_deltas[window_start].stream_position] = ray.put(consolidated_deletes)
         window_start = window_end
         window_end = window_start
-        
     logger.info(f"pdebug: {my_dict=}")
     if len(delete_table) > 0:
         string_positions_and_deletes = pa.concat_tables(delete_table)
