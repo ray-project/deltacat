@@ -60,7 +60,9 @@ class MergeInput(Dict):
         result["object_store"] = object_store
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
-        result["deletes_to_apply_by_stream_positions"] = deletes_to_apply_by_stream_positions
+        result[
+            "deletes_to_apply_by_stream_positions"
+        ] = deletes_to_apply_by_stream_positions
         return result
 
     @property

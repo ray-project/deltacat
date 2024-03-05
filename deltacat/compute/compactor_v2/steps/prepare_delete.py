@@ -1,11 +1,9 @@
 import importlib
 import logging
-from typing import Any
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 import numpy as np
 import pyarrow as pa
 import ray
-from typing import Tuple, List
 from deltacat import logs
 from deltacat.storage import (
     Delta,

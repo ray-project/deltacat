@@ -235,11 +235,18 @@ def _execute_compaction(
     window_start, window_end = 0, 0
     deletes_to_apply_by_stream_position = IntegerRangeDict()
     while window_end < len(uniform_deltas):
-        if uniform_deltas[window_end].annotations[0].annotation_delta_type is DeltaType.UPSERT:
+        if (
+            uniform_deltas[window_end].annotations[0].annotation_delta_type
+            is DeltaType.UPSERT
+        ):
             window_start += 1
             window_end = window_start
             continue
-        while (window_end < len(uniform_deltas) and uniform_deltas[window_end].annotations[0].annotation_delta_type is DeltaType.DELETE):
+        while (
+            window_end < len(uniform_deltas)
+            and uniform_deltas[window_end].annotations[0].annotation_delta_type
+            is DeltaType.DELETE
+        ):
             window_end += 1
         delete_deltas_sequence = uniform_deltas[window_start:window_end]
         deletes_at_this_stream_position = []
@@ -255,7 +262,9 @@ def _execute_compaction(
             )
             deletes_at_this_stream_position.extend(delete_dataset)
         consolidated_deletes = pa.concat_tables(deletes_at_this_stream_position)
-        deletes_to_apply_by_stream_position[uniform_deltas[window_start].stream_position] = ray.put(consolidated_deletes)
+        deletes_to_apply_by_stream_position[
+            uniform_deltas[window_start].stream_position
+        ] = ray.put(consolidated_deletes)
         window_start = window_end
         window_end = window_start
 

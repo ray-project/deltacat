@@ -72,7 +72,9 @@ def _group_file_records_by_pk_hash_bucket(
     for dfe in delta_file_envelopes:
         logger.info("Grouping by pk hash bucket")
         if dfe.delta_type is DeltaType.DELETE:
-            logger.warning(f"Skipping grouping the data for delete type delta: {dfe.table}")
+            logger.warning(
+                f"Skipping grouping the data for delete type delta: {dfe.table}"
+            )
             continue
         group_start = time.monotonic()
         hash_bucket_to_table = group_by_pk_hash_bucket(
