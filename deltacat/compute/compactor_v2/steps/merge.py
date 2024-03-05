@@ -109,12 +109,12 @@ def _build_incremental_table(
                     incremental_tables.append(table)
                     continue
                 delete_table = ray.get([obj_ref])[0]
-                table = drop_is_delete_rows(table, delete_table)
+                table = drop_rows_affected_by_deletes(table, delete_table)
             incremental_tables.append(table)
     incremental_res: pa.Table = pa.concat_tables(incremental_tables)
     return incremental_res
 
-def get_delete_column_names(table: pa.Table) -> List[str]:
+def _get_delete_column_names(table: pa.Table) -> List[str]:
     if table is None:
         return []
     if table.num_rows == 0:
@@ -126,11 +126,11 @@ def get_delete_column_names(table: pa.Table) -> List[str]:
     return delete_column_names
 
 
-def drop_is_delete_rows(table: Optional[pa.Table], deletes_to_apply: pa.Table):
+def drop_rows_affected_by_deletes(table: Optional[pa.Table], deletes_to_apply: pa.Table):
     if table.num_rows == 0:
         return table
     tables = []
-    delete_columns = get_delete_column_names(deletes_to_apply)
+    delete_columns = _get_delete_column_names(deletes_to_apply)
     for del_col in delete_columns:
         table = table.filter(
             pc.invert(
@@ -141,7 +141,7 @@ def drop_is_delete_rows(table: Optional[pa.Table], deletes_to_apply: pa.Table):
             )
         )
         tables.append(table)
-    return tables[0]
+    return pa.concat_tables(tables)
 
 
 def _merge_tables(
@@ -231,7 +231,7 @@ def _download_compacted_table(
         tables.append(table)
     compacted_table = pa.concat_tables(tables)
     if deletes_to_apply_by_stream_positions:
-        compacted_table = drop_is_delete_rows(compacted_table, _get_all_deletes(deletes_to_apply_by_stream_positions))
+        compacted_table = drop_rows_affected_by_deletes(compacted_table, _get_all_deletes(deletes_to_apply_by_stream_positions))
     return compacted_table
 
 
