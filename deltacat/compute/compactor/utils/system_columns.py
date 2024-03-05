@@ -353,6 +353,8 @@ def get_delete_column_names(table: pa.Table) -> List[str]:
 
 
 def append_is_deleted_col(table: pa.Table, booleans: Union[pa.Array, pa.ChunkedArray]):
+    if table.num_rows == 0:
+        return table
     table = table.append_column(
         _IS_DELETED_COLUMN_FIELD,
         get_is_deleted_array(booleans),
@@ -361,9 +363,9 @@ def append_is_deleted_col(table: pa.Table, booleans: Union[pa.Array, pa.ChunkedA
 
 
 def drop_is_deleted_type_rows(table: pa.Table):
-    if _IS_DELETED_COLUMN_NAME not in table.column_names:
-        return table
     if table.num_rows == 0:
+        return table
+    if _IS_DELETED_COLUMN_NAME not in table.column_names:
         return table
     table = table.filter(pc.not_equal(table[_IS_DELETED_COLUMN_NAME], True))
     table = table.drop([_IS_DELETED_COLUMN_NAME])

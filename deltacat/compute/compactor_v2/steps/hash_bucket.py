@@ -71,6 +71,9 @@ def _group_file_records_by_pk_hash_bucket(
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
         logger.info("Grouping by pk hash bucket")
+        if dfe.delta_type is DeltaType.DELETE:
+            logger.warning(f"Skipping grouping the data for delete type delta: {dfe.table}")
+            continue
         group_start = time.monotonic()
         hash_bucket_to_table = group_by_pk_hash_bucket(
             dfe.table, num_hash_buckets, primary_keys, dfe.delta_type
@@ -78,7 +81,6 @@ def _group_file_records_by_pk_hash_bucket(
         group_end = time.monotonic()
         logger.info(f"Grouping took: {group_end - group_start}")
         for hb, table in enumerate(hash_bucket_to_table):
-            logger.info(f"pdebug: {hb=} {table=}")
             if table:
                 if hb_to_delta_file_envelopes[hb] is None:
                     hb_to_delta_file_envelopes[hb] = []

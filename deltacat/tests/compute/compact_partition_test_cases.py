@@ -1291,7 +1291,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([0, 1, 2,4,5]),
-                pa.array(["a", "b", "c","fiz","buz"]),
+                pa.array(["996", "997", "998","fiz","buz"]),
             ],
             names=["pk_col_1", "col_1"],
         ),
@@ -1301,7 +1301,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
-    ),
+),
 }
 
 INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(INCREMENTAL_TEST_CASES)
