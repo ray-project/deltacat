@@ -41,6 +41,7 @@ class MergeInput(Dict):
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
         delete_global_table_ref: Optional[Dict[str, Any]] = None,
+        deletes_to_apply_by_stream_positions: Optional[Dict[str, Any]] = None,
     ) -> MergeInput:
 
         result = MergeInput()
@@ -61,6 +62,7 @@ class MergeInput(Dict):
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
         result["delete_global_table_ref"] = delete_global_table_ref
+        result["deletes_to_apply_by_stream_positions"] = deletes_to_apply_by_stream_positions
         return result
 
     @property
@@ -130,3 +132,7 @@ class MergeInput(Dict):
     @property
     def delete_global_table_obj_ref(self) -> Optional[str]:
         return self.get("delete_global_table_ref")
+
+    @property
+    def deletes_to_apply_by_stream_positions(self) -> Optional[Dict[str, Any]]:
+        return self.get("deletes_to_apply_by_stream_positions")

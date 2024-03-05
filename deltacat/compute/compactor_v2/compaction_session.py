@@ -231,7 +231,6 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
     delete_global_table_ref = None
-    delete_spos_to_obj_ref = IntegerRangeDict()
     delete_annotated_deltas_only: List[DeltaAnnotated] = []
     for i, annotated_delta in enumerate(uniform_deltas):
         annotations = annotated_delta.annotations
@@ -270,6 +269,7 @@ def _execute_compaction(
 
     window_start, window_end = 0, 0
     my_dict = {}
+    deletes_to_apply_by_stream_position = IntegerRangeDict()
     while window_end < len(uniform_deltas):
         if uniform_deltas[window_end].annotations[0].annotation_delta_type is DeltaType.UPSERT:
             window_start += 1
@@ -289,13 +289,15 @@ def _execute_compaction(
             )
             deletes_at_this_stream_position.extend(delete_dataset)
         consolidated_deletes = pa.concat_tables(deletes_at_this_stream_position)
-        my_dict[uniform_deltas[window_start].stream_position] = ray.put(consolidated_deletes)
+        deletes_to_apply_by_stream_position[uniform_deltas[window_start].stream_position] = ray.put(consolidated_deletes)
         window_start = window_end
         window_end = window_start
-    logger.info(f"pdebug: {my_dict=}")
     if len(delete_table) > 0:
         string_positions_and_deletes = pa.concat_tables(delete_table)
         delete_global_table_ref = ray.put(string_positions_and_deletes)
+    if deletes_to_apply_by_stream_position:
+        logger.info(f"pdebug: {deletes_to_apply_by_stream_position=}")
+        
 
     # for delete_annotated_delta in delete_annotated_deltas_only:
     #     spos = annotated_delta.stream_position
@@ -575,6 +577,7 @@ def _execute_compaction(
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
                     delete_global_table_ref=delete_global_table_ref,
+                    deletes_to_apply_by_stream_positions=deletes_to_apply_by_stream_position,
                 )
             }
 

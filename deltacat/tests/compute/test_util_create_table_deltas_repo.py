@@ -56,6 +56,12 @@ def create_incremental_deltas_on_source_table(
         ],
         names=["col_1"],
     )
+    delete_delta_2 = pa.Table.from_arrays(
+        [
+            pa.array(["997"]),
+        ],
+        names=["col_1"],
+    )
     src_partition: Partition = ds.get_partition(
         source_table_stream.locator,
         partition_values_param,
@@ -70,6 +76,16 @@ def create_incremental_deltas_on_source_table(
     new_delta: Delta = ds.commit_delta(
         ds.stage_delta(
             delete_delta_1,
+            src_partition,
+            DeltaType.DELETE,
+            properties={"DELETE_COLUMNS": ["col_1"]},
+            **ds_mock_kwargs,
+        ),
+        **ds_mock_kwargs,
+    )
+    new_delta: Delta = ds.commit_delta(
+        ds.stage_delta(
+            delete_delta_2,
             src_partition,
             DeltaType.DELETE,
             properties={"DELETE_COLUMNS": ["col_1"]},
