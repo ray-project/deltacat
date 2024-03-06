@@ -17,13 +17,14 @@ from deltacat.compute.compactor import (
 def prepare_deletes(
     params: CompactPartitionParams,
     uniform_deltas: List[DeltaAnnotated],
-    deletes_to_apply_by_stream_position: IntegerRangeDict,
+    deletes_to_apply_obj_ref_by_stream_position: IntegerRangeDict,
 ):
     window_start, window_end = 0, 0
     while window_end < len(uniform_deltas):
+        # skip over non-delete type deltas
         if (
             uniform_deltas[window_end].annotations[0].annotation_delta_type
-            is DeltaType.UPSERT
+            is not DeltaType.DELETE
         ):
             window_start += 1
             window_end = window_start
@@ -51,9 +52,9 @@ def prepare_deletes(
             )
             deletes_at_this_stream_position.extend(delete_dataset)
         consolidated_deletes = pa.concat_tables(deletes_at_this_stream_position)
-        deletes_to_apply_by_stream_position[
+        deletes_to_apply_obj_ref_by_stream_position[
             uniform_deltas[window_start].stream_position
         ] = ray.put(consolidated_deletes)
         window_start = window_end
         window_end = window_start
-    return deletes_to_apply_by_stream_position
+    return deletes_to_apply_obj_ref_by_stream_position

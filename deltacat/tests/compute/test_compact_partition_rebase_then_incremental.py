@@ -31,8 +31,11 @@ from deltacat.tests.compute.test_util_create_table_deltas_repo import (
 from deltacat.tests.compute.compact_partition_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from deltacat.types.media import StorageType
+from deltacat.storage import (
+    DeltaType,
+)
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -180,7 +183,7 @@ def test_compact_partition_rebase_then_incremental(
     hash_bucket_count_param: int,
     drop_duplicates_param: bool,
     read_kwargs_provider_param: Any,
-    incremental_deltas: pa.Table,
+    incremental_deltas: List[Tuple[pa.Table, DeltaType]],
     incremental_deltas_delta_type: str,
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers,
