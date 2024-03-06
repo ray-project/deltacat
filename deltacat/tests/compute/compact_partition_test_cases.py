@@ -978,14 +978,20 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
             ],
             names=["pk_col_1", "pk_col_2", "col_1"],
         ),
-        incremental_deltas=[(pa.Table.from_arrays(
-            [  # delete last two primary keys
-                # pa.array([0, 1, 2, 3]),
-                # pa.array([0.0, 3.0, 2.0, 1.0]),
-                pa.array(["8", "9", "10", "11"]),
-            ],
-            names=["col_1"],
-        ), DeltaType.DELETE, {"DELETE_COLUMNS": ["col_1"]})],
+        incremental_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [  # delete last two primary keys
+                        # pa.array([0, 1, 2, 3]),
+                        # pa.array([0.0, 3.0, 2.0, 1.0]),
+                        pa.array(["8", "9", "10", "11"]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            )
+        ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
                 pa.array([]),
