@@ -305,7 +305,6 @@ def _compact_tables(
 ) -> Tuple[pa.Table, int, int]:
     # NOTE: In certain cases the dfe_list may be None. In that case we should just return the compacted table
     if dfe_list is None:
-        compacted_table = []
         if (
             input.round_completion_info
             and input.round_completion_info.hb_index_to_entry_range
@@ -320,9 +319,8 @@ def _compact_tables(
                 deltacat_storage=input.deltacat_storage,
                 deltacat_storage_kwargs=input.deltacat_storage_kwargs,
             )
-            if compacted_table.num_rows != 0:
-                return compacted_table, 0, 0
-            return [], 0, 0
+            return compacted_table, 0, 0
+        return None, 0, 0
 
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
@@ -418,14 +416,14 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             # copy by reference only if deletes are not present
             if (
                 not merge_file_group.dfe_groups
-                and input.deletes_to_apply_by_stream_positions is None
+                and not input.deletes_to_apply_by_stream_positions
             ):
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
             table, input_records, deduped_records = _compact_tables(
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
-            if len(table) == 0:
+            if table is None:
                 continue
             total_input_records += input_records
             total_deduped_records += deduped_records
