@@ -224,7 +224,7 @@ def _download_compacted_table(
     hb_index_to_indices = rcf.hb_index_to_entry_range
     if str(hb_index) not in hb_index_to_indices:
         return None
-    indices = hb_index_to_indices.get(str(hb_index))
+    indices = hb_index_to_indices[str(hb_index)]
     assert (
         indices is not None and len(indices) == 2
     ), "indices should not be none and contains exactly two elements"

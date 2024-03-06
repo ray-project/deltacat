@@ -294,16 +294,6 @@ def test_compact_partition_rebase_then_incremental(
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
-
-    """
-    rebase_expected_compact_partition_result=pa.Table.from_arrays(
-            [
-                pa.array([0, 1, 2, 3]),
-                pa.array(["996", "997", "999", "999"]),
-            ],
-            names=["pk_col_1", "col_1"],
-        ),
-    """
     """
     INCREMENTAL
     """
