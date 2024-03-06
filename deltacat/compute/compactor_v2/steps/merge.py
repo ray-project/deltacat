@@ -24,9 +24,6 @@ from deltacat.utils.ray_utils.runtime import (
     get_current_ray_worker_id,
 )
 from deltacat.compute.compactor.utils import system_columns as sc
-from deltacat.compute.compactor.utils.system_columns import (
-    append_is_deleted_col,
-)
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics
 from deltacat.utils.resources import (

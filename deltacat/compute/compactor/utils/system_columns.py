@@ -1,18 +1,13 @@
 from itertools import repeat
-from typing import List, Union
-import logging
-from deltacat import logs
+from typing import Union
 
 import numpy as np
 import pyarrow as pa
 
 from deltacat.compute.compactor import DeltaFileEnvelope
 from deltacat.storage import DeltaType
-import pyarrow.compute as pc
 
 _SYS_COL_UUID = "4000f124-dfbd-48c6-885b-7b22621a6d41"
-
-logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _get_sys_col_name(suffix):
@@ -87,13 +82,6 @@ _FILE_RECORD_COUNT_COLUMN_TYPE = pa.int64()
 _FILE_RECORD_COUNT_COLUMN_FIELD = pa.field(
     _FILE_RECORD_COUNT_COLUMN_NAME,
     _FILE_RECORD_COUNT_COLUMN_TYPE,
-)
-
-_IS_DELETED_COLUMN_NAME = _get_sys_col_name("is_deleted")
-_IS_DELETED_COLUMN_TYPE = pa.bool_()
-_IS_DELETED_COLUMN_FIELD = pa.field(
-    _IS_DELETED_COLUMN_NAME,
-    _IS_DELETED_COLUMN_TYPE,
 )
 
 
@@ -187,10 +175,6 @@ def get_is_source_column_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
     )
 
 
-def get_is_deleted_array(obj) -> Union[pa.Array, pa.ChunkedArray]:
-    return obj.cast(_IS_DELETED_COLUMN_TYPE)
-
-
 def file_record_count_column_np(table: pa.Table) -> np.ndarray:
     return table[_FILE_RECORD_COUNT_COLUMN_NAME].to_numpy()
 
@@ -248,6 +232,7 @@ def project_delta_file_metadata_on_table(
 
 
 def append_stream_position_column(table: pa.Table, stream_positions):
+
     table = table.append_column(
         _PARTITION_STREAM_POSITION_COLUMN_FIELD,
         get_stream_position_column_array(stream_positions),
@@ -326,6 +311,7 @@ def append_delta_type_col(table: pa.Table, delta_types) -> pa.Table:
 
 
 def append_is_source_col(table: pa.Table, booleans) -> pa.Table:
+
     table = table.append_column(
         _IS_SOURCE_COLUMN_FIELD,
         get_is_source_column_array(booleans),
@@ -341,43 +327,6 @@ def append_file_record_count_col(table: pa.Table, file_record_count):
     return table
 
 
-def get_delete_column_names(table: pa.Table) -> List[str]:
-    if table is None:
-        return []
-    if table.num_rows == 0:
-        return []
-    delete_column_names = [
-        name
-        for name in table.column_names
-        if name != _PARTITION_STREAM_POSITION_COLUMN_NAME
-    ]
-    return delete_column_names
-
-
-def append_is_deleted_col(table: pa.Table, booleans: Union[pa.Array, pa.ChunkedArray]):
-    if table.num_rows == 0:
-        return table
-    table = table.append_column(
-        _IS_DELETED_COLUMN_FIELD,
-        get_is_deleted_array(booleans),
-    )
-    return table
-
-
-def drop_is_deleted_type_rows(table: pa.Table):
-    if table.num_rows == 0:
-        return table
-    if _IS_DELETED_COLUMN_NAME not in table.column_names:
-        return table
-    table = table.filter(pc.not_equal(table[_IS_DELETED_COLUMN_NAME], True))
-    table = table.drop([_IS_DELETED_COLUMN_NAME])
-    return table
-
-
-IS_DELETED_COL_DELETE_NONE = lambda table: pa.array(np.repeat(False, len(table)))
-IS_DELETED_COL_DELETE_ALL = lambda table: pa.array(np.repeat(True, len(table)))
-
-
 def get_minimal_hb_schema() -> pa.schema:
     return pa.schema(
         [
@@ -389,7 +338,3 @@ def get_minimal_hb_schema() -> pa.schema:
             _IS_SOURCE_COLUMN_FIELD,
         ]
     )
-
-
-def fix_schema(table, expected_schema: List[str], to_keep: List[str]) -> pa.table:
-    null_arrays = [pa.array([], pa.null()) for _ in column_names]

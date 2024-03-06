@@ -32,6 +32,7 @@ def prepare_deletes(params: CompactPartitionParams, uniform_deltas: List[DeltaAn
         delete_deltas_sequence = uniform_deltas[window_start:window_end]
         deletes_at_this_stream_position = []
         for delete_delta in delete_deltas_sequence:
+            assert delete_delta.properties is not None, "Delete type deltas are required to have properties defined are required for deletes"
             properties: Optional[Dict[str, str]] = delete_delta.properties
             delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
             delete_dataset = params.deltacat_storage.download_delta(
