@@ -58,8 +58,6 @@ class MergeFileGroup(dict):
     def hb_index(self) -> int:
         return self["hb_index"]
 
-    # TODO: faraonep - delete groups. {ObjRefs, spos}
-
 
 class MergeFileGroupsProvider(ABC):
     @abstractmethod

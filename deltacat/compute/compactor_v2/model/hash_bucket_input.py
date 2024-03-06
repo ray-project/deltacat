@@ -36,6 +36,7 @@ class HashBucketInput(Dict):
         result["object_store"] = object_store
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
+
         return result
 
     @property
