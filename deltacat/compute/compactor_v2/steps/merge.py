@@ -320,7 +320,9 @@ def _compact_tables(
                 deltacat_storage=input.deltacat_storage,
                 deltacat_storage_kwargs=input.deltacat_storage_kwargs,
             )
-        return compacted_table, 0, 0
+            if compacted_table.num_rows != 0:
+                return compacted_table, 0, 0
+            return [], 0, 0
 
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "

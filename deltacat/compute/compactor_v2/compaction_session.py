@@ -537,7 +537,7 @@ def _execute_compaction(
     )
 
     # After all incremental delta related calculations, we update
-    # the input sizes to accomodate the compacted table
+    # the input sizes to accommodate the compacted table
     if round_completion_info:
         compaction_audit.set_input_file_count(
             (compaction_audit.input_file_count or 0)
