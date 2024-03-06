@@ -6,8 +6,6 @@ import pyarrow as pa
 import ray
 from typing import Any
 import time
-from deltacat.types.media import StorageType
-from deltacat.io.object_store import IObjectStore
 import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4

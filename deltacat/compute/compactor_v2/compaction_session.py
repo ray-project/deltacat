@@ -16,15 +16,8 @@ from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInpu
 from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 
 from deltacat.aws import s3u as s3_utils
-from deltacat.types.media import StorageType
-import pyarrow as pa
 import deltacat
 from deltacat import logs
-from deltacat.compute.compactor.utils import system_columns as sc
-
-from deltacat.storage import (
-    DeltaType,
-)
 from deltacat.compute.compactor import (
     PyArrowWriteResult,
     RoundCompletionInfo,
@@ -41,9 +34,7 @@ from deltacat.storage import (
     DeltaLocator,
     Partition,
 )
-from deltacat.compute.compactor import (
-    DeltaAnnotated,
-)
+
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -56,7 +47,7 @@ from deltacat.compute.compactor_v2.steps import hash_bucket as hb
 from deltacat.compute.compactor_v2.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from collections import defaultdict
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -231,43 +222,9 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
     deletes_to_apply_by_stream_position = IntegerRangeDict()
-    # if is_delete:
-    deletes_to_apply_by_stream_position = prepare_deletes(params, uniform_deltas, deletes_to_apply_by_stream_position)
-    # window_start, window_end = 0, 0
-    # deletes_to_apply_by_stream_position = IntegerRangeDict()
-    # while window_end < len(uniform_deltas):
-    #     if (
-    #         uniform_deltas[window_end].annotations[0].annotation_delta_type
-    #         is DeltaType.UPSERT
-    #     ):
-    #         window_start += 1
-    #         window_end = window_start
-    #         continue
-    #     while (
-    #         window_end < len(uniform_deltas)
-    #         and uniform_deltas[window_end].annotations[0].annotation_delta_type
-    #         is DeltaType.DELETE
-    #     ):
-    #         window_end += 1
-    #     delete_deltas_sequence = uniform_deltas[window_start:window_end]
-    #     deletes_at_this_stream_position = []
-    #     for delete_delta in delete_deltas_sequence:
-    #         properties: Optional[Dict[str, str]] = delete_delta.properties
-    #         delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
-    #         delete_dataset = params.deltacat_storage.download_delta(
-    #             delete_delta,
-    #             file_reader_kwargs_provider=params.read_kwargs_provider,
-    #             columns=delete_columns,
-    #             storage_type=StorageType.LOCAL,
-    #             **params.deltacat_storage_kwargs,
-    #         )
-    #         deletes_at_this_stream_position.extend(delete_dataset)
-    #     consolidated_deletes = pa.concat_tables(deletes_at_this_stream_position)
-    #     deletes_to_apply_by_stream_position[
-    #         uniform_deltas[window_start].stream_position
-    #     ] = ray.put(consolidated_deletes)
-    #     window_start = window_end
-    #     window_end = window_start
+    deletes_to_apply_by_stream_position = prepare_deletes(
+        params, uniform_deltas, deletes_to_apply_by_stream_position
+    )
 
     hb_options_provider = functools.partial(
         task_resource_options_provider,
