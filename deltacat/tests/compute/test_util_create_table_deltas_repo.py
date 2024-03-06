@@ -27,8 +27,7 @@ def create_incremental_deltas_on_source_table(
     source_table_version: str,
     source_table_stream: Stream,
     partition_values_param,
-    incremental_deltas: List[Tuple[pa.Table, DeltaType]],
-    incremental_delta_type: DeltaType,
+    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
     ds_mock_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[PartitionLocator, Delta]:
     import deltacat.tests.local_deltacat_storage as ds
@@ -38,13 +37,13 @@ def create_incremental_deltas_on_source_table(
         partition_values_param,
         **ds_mock_kwargs,
     )
-    for incremental_delta in incremental_deltas:
+    for incremental_delta, delta_type, delta_properties in incremental_deltas:
         new_delta: Delta = ds.commit_delta(
             ds.stage_delta(
-                incremental_deltas,
+                incremental_delta,
                 src_partition,
-                incremental_delta_type,
-                properties={"DELETE_COLUMNS": ["col_1"]},
+                delta_type,
+                properties=delta_properties if not None else {},
                 **ds_mock_kwargs,
             ),
             **ds_mock_kwargs,

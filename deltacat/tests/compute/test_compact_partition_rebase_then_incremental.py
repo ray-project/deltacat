@@ -119,7 +119,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
         "incremental_deltas",
-        "incremental_deltas_delta_type",
         "rebase_expected_compact_partition_result",
         "compact_partition_func",
     ],
@@ -140,7 +139,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             incremental_deltas,
-            incremental_deltas_delta_type,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         )
@@ -159,7 +157,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             incremental_deltas,
-            incremental_deltas_delta_type,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
@@ -183,8 +180,7 @@ def test_compact_partition_rebase_then_incremental(
     hash_bucket_count_param: int,
     drop_duplicates_param: bool,
     read_kwargs_provider_param: Any,
-    incremental_deltas: List[Tuple[pa.Table, DeltaType]],
-    incremental_deltas_delta_type: str,
+    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers,
     compact_partition_func: Callable,
@@ -310,7 +306,6 @@ def test_compact_partition_rebase_then_incremental(
         source_table_stream,
         partition_values_param,
         incremental_deltas,
-        incremental_deltas_delta_type,
         ds_mock_kwargs,
     )
     compact_partition_params = CompactPartitionParams.of(
