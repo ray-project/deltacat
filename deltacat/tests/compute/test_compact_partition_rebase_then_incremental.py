@@ -322,7 +322,6 @@ def test_compact_partition_rebase_then_incremental(
             "destination_partition_locator": compacted_delta_locator.partition_locator,
             "drop_duplicates": drop_duplicates_param,
             "hash_bucket_count": hash_bucket_count_param,
-            "hash_group_count": 1000,
             "last_stream_position_to_compact": new_delta.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,

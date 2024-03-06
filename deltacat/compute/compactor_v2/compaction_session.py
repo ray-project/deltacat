@@ -230,8 +230,6 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-    delete_table = []
-    string_positions_and_deletes: Optional[pa.Table] = None
     window_start, window_end = 0, 0
     deletes_to_apply_by_stream_position = IntegerRangeDict()
     while window_end < len(uniform_deltas):
