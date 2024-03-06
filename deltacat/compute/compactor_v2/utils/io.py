@@ -14,6 +14,9 @@ from deltacat.compute.compactor_v2.constants import (
     MIN_FILES_IN_BATCH,
     MIN_DELTA_BYTES_IN_BATCH,
 )
+from deltacat.storage import (
+    DeltaType,
+)
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
@@ -95,7 +98,7 @@ def create_uniform_input_deltas(
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[DeltaAnnotated]:
-
+    # is_delete = False
     delta_bytes = 0
     delta_manifest_entries_count = 0
     estimated_da_bytes = 0
