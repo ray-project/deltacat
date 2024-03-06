@@ -53,7 +53,6 @@ from deltacat.utils.ray_utils.concurrency import (
 )
 from deltacat.compute.compactor_v2.steps import merge as mg
 from deltacat.compute.compactor_v2.steps import hash_bucket as hb
-from deltacat.compute.compactor_v2.steps import prepare_delete as pd
 from deltacat.compute.compactor_v2.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 
