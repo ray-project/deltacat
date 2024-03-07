@@ -112,8 +112,8 @@ def _build_incremental_table(
                 except KeyError:
                     hb_tables.append(table)
                     continue
-                delete_table = ray.get(obj_ref)
-                table = drop_rows_affected_by_deletes(table, delete_table)
+                deletes_to_apply = ray.get(obj_ref)
+                table = drop_rows_affected_by_deletes(table, deletes_to_apply)
             hb_tables.append(table)
     incremental_res: pa.Table = pa.concat_tables(hb_tables)
     return incremental_res
@@ -131,11 +131,15 @@ def _get_delete_column_names(
 
 
 def drop_rows_affected_by_deletes(
-    table: Optional[pa.Table], deletes_to_apply: pa.Table
+    table: Optional[pa.Table],
+    deletes_to_apply: pa.Table,
+    delete_column_names: List[str] = None,
 ):
     if not table:
         return table
-    delete_column_names = _get_delete_column_names(deletes_to_apply)
+    delete_column_names = _get_delete_column_names(
+        deletes_to_apply, delete_column_names
+    )
     drop_masks = [
         pc.is_in(
             table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
