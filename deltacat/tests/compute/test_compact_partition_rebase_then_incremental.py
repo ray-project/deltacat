@@ -248,8 +248,6 @@ def test_compact_partition_rebase_then_incremental(
         ).pgs[0]
     compact_partition_params = CompactPartitionParams.of(
         {
-            "average_record_size_bytes": 75.63433333333333,
-            "bit_width_of_sort_keys": 0,
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
             "compacted_file_content_type": ContentType.PARQUET,
             "dd_max_parallelism_ratio": 1.0,
@@ -268,7 +266,6 @@ def test_compact_partition_rebase_then_incremental(
             "source_partition_locator": rebased_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
             "task_max_parallelism": 4096,
-            "previous_inflation": 3.342830834960038,
         }
     )
     # execute
@@ -312,8 +309,6 @@ def test_compact_partition_rebase_then_incremental(
     )
     compact_partition_params = CompactPartitionParams.of(
         {
-            "average_record_size_bytes": 75.63433333333333,
-            "bit_width_of_sort_keys": 0,
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
             "compacted_file_content_type": ContentType.PARQUET,
             "dd_max_parallelism_ratio": 1.0,
@@ -333,8 +328,6 @@ def test_compact_partition_rebase_then_incremental(
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition_locator_w_deltas,
             "sort_keys": sort_keys if sort_keys else None,
-            "task_max_parallelism": 4096,
-            "previous_inflation": 3.342830834960038,
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)

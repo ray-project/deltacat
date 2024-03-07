@@ -51,12 +51,8 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _get_all_deletes(spos_to_obj_ref: Dict[int, Any]):
-    all_deletes_tables = []
-    all_deletes = []
-    for _, obj_ref in spos_to_obj_ref.items():
-        all_deletes_tables.append(ray.get(obj_ref))
-    all_deletes = pa.concat_tables(all_deletes_tables)
-    return all_deletes
+    all_deletes_tables = [ray.get(obj_ref) for _, obj_ref in spos_to_obj_ref.items()]
+    return all_deletes_tables
 
 
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
@@ -119,11 +115,13 @@ def _build_incremental_table(
     return incremental_res
 
 
-def _get_delete_column_names(table: pa.Table) -> List[str]:
+def _get_delete_column_names(
+    table: pa.Table, column_names: Optional[List[str]] = None
+) -> List[str]:
     if table is None:
         return []
-    if table.num_rows == 0:
-        return []
+    if column_names:
+        return column_names
     delete_column_names = [name for name in table.column_names]
     return delete_column_names
 
@@ -131,21 +129,25 @@ def _get_delete_column_names(table: pa.Table) -> List[str]:
 def drop_rows_affected_by_deletes(
     table: Optional[pa.Table], deletes_to_apply: pa.Table
 ):
+    if not table:
+        return table
     if table.num_rows == 0:
         return table
-    tables = []
-    delete_columns = _get_delete_column_names(deletes_to_apply)
-    for del_col in delete_columns:
-        table = table.filter(
-            pc.invert(
-                pc.is_in(
-                    table[del_col],
-                    value_set=deletes_to_apply[del_col],
-                )
-            )
+    delete_column_names = _get_delete_column_names(deletes_to_apply)
+    drop_masks = [
+        pc.is_in(
+            table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
         )
-        tables.append(table)
-    return pa.concat_tables(tables)
+        for delete_column_name in delete_column_names
+    ]
+    for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
+        curr_drop_mask = drop_masks[i]
+        next_drop_mask = drop_masks[i + 1]
+        result_mask = pa.compute.or_(curr_drop_mask, next_drop_mask)
+        drop_masks[i + 1] = result_mask
+    mask_with_all_droppable = drop_masks[-1]
+    table = table.filter(pc.invert(mask_with_all_droppable))
+    return table
 
 
 def _merge_tables(
@@ -236,9 +238,11 @@ def _download_compacted_table(
         tables.append(table)
     compacted_table = pa.concat_tables(tables)
     if deletes_to_apply_by_stream_positions:
-        compacted_table = drop_rows_affected_by_deletes(
-            compacted_table, _get_all_deletes(deletes_to_apply_by_stream_positions)
-        )
+        for delete_table in _get_all_deletes(deletes_to_apply_by_stream_positions):
+            compacted_table = drop_rows_affected_by_deletes(
+                compacted_table,
+                delete_table,
+            )
     return compacted_table
 
 

@@ -258,16 +258,10 @@ class TestMerge(unittest.TestCase):
             partition, [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK], **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
-        # source_table_partition: Partition = get_partition_from_table(
-        #     f"{self._testMethodName}",
-        #     [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
-        #     **self.kwargs,
-        # )
         incremental_kwargs = {"delta_type": DeltaType.UPSERT, **self.kwargs}
         incremental_delta = create_delta_from_csv_file(
             f"{self._testMethodName}-1",
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
-            # override_partition=source_table_partition,
             **incremental_kwargs,
         )
         # Erase entire base table by appending DELETE type bundle
@@ -279,7 +273,6 @@ class TestMerge(unittest.TestCase):
         delete_delta = create_delta_from_csv_file(
             f"{self._testMethodName}-2",
             [self.DEDUPE_DELETE_DATA],
-            # override_partition=source_table_partition,
             **delete_kwargs,
         )
         ird = IntegerRangeDict()
