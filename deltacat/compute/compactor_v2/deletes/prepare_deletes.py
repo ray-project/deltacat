@@ -64,7 +64,7 @@ def prepare_deletes(
         for delete_delta in delete_deltas_sequence:
             assert (
                 delete_delta.properties is not None
-            ), "Delete type deltas are required to have properties defined are required for deletes"
+            ), "Delete type deltas are required to have properties defined"
             properties: Optional[Dict[str, str]] = delete_delta.properties
             assert (
                 properties.get("DELETE_COLUMNS") is not None
