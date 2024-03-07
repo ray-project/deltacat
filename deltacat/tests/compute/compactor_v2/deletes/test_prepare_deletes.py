@@ -48,6 +48,7 @@ class PrepareDeleteTestCaseParams:
     deletes_to_apply_obj_ref_by_stream_position: IntegerRangeDict
     expected_dictionary_length: int
     expected_delete_table: List[pa.Table]
+    throws_error_type: BaseException
 
     # makes TestCaseParams iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
     def __iter__(self):
@@ -91,6 +92,7 @@ TEST_CASES_PREPARE_DELETE = {
         IntegerRangeDict(),
         0,
         None,
+        None,
     ),
     "2-test-single-upsert-then-delete": PrepareDeleteTestCaseParams(
         [
@@ -128,6 +130,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             )
         ],
+        None,
     ),
     "3-test-upsert-delete-upsert": PrepareDeleteTestCaseParams(
         [
@@ -174,6 +177,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             )
         ],
+        None,
     ),
     "4-test-upsert-delete-upsert-delete": PrepareDeleteTestCaseParams(
         [
@@ -236,6 +240,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             ),
         ],
+        None,
     ),
     "5-test-upsert-deletesequence-upsert-delete": PrepareDeleteTestCaseParams(
         [
@@ -318,6 +323,38 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             ),
         ],
+        None,
+    ),
+    "6-test-exception-thrown-if-properties-not-defined": PrepareDeleteTestCaseParams(
+        [
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([str(i) for i in range(10)]),
+                        pa.array([i for i in range(20, 30)]),
+                        pa.array(["foo"] * 10),
+                        pa.array([i for i in range(40, 50)]),
+                    ],
+                    names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([40]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {},
+            ),
+        ],
+        IntegerRangeDict(),
+        0,
+        None,
+        AssertionError,
     ),
 }
 
@@ -330,6 +367,7 @@ class TestPrepareDeletes:
             "deletes_to_apply_obj_ref_by_stream_position",
             "expected_dictionary_length",
             "expected_delete_tables",
+            "throws_error_type",
         ],
         [
             (
@@ -338,12 +376,14 @@ class TestPrepareDeletes:
                 deletes_to_apply_obj_ref_by_stream_position,
                 expected_dictionary_length,
                 expected_delete_tables,
+                throws_error_type,
             )
             for test_name, (
                 deltas_to_compact,
                 deletes_to_apply_obj_ref_by_stream_position,
                 expected_dictionary_length,
                 expected_delete_tables,
+                throws_error_type,
             ) in TEST_CASES_PREPARE_DELETE.items()
         ],
         ids=[test_name for test_name in TEST_CASES_PREPARE_DELETE],
@@ -356,6 +396,7 @@ class TestPrepareDeletes:
         deletes_to_apply_obj_ref_by_stream_position,
         expected_dictionary_length,
         expected_delete_tables,
+        throws_error_type,
     ):
         from deltacat.compute.compactor_v2.deletes.prepare_deletes import (
             prepare_deletes,
@@ -438,6 +479,14 @@ class TestPrepareDeletes:
             }
         )
         deltas_annotated = [DeltaAnnotated.of(delta) for delta in input_deltas]
+        if throws_error_type:
+            with pytest.raises(throws_error_type):
+                actual_deletes_to_apply_by_spos = prepare_deletes(
+                    params,
+                    deltas_annotated,
+                    deletes_to_apply_obj_ref_by_stream_position,
+                )
+            return
         actual_deletes_to_apply_by_spos = prepare_deletes(
             params,
             deltas_annotated,

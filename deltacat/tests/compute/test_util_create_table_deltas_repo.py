@@ -52,7 +52,7 @@ def create_incremental_deltas_on_source_table(
             ),
             **ds_mock_kwargs,
         )
-        incremental_delta_length += len(incremental_delta)
+        incremental_delta_length += len(incremental_delta) if incremental_delta else 0
     src_table_stream_after_committed_delta: Stream = ds.get_stream(
         source_namespace,
         source_table_name,

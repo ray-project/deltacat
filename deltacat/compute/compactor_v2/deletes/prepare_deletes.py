@@ -19,6 +19,7 @@ def prepare_deletes(
     uniform_deltas: List[DeltaAnnotated],
     deletes_to_apply_obj_ref_by_stream_position: IntegerRangeDict,
 ) -> IntegerRangeDict:
+    """ """
     window_start, window_end = 0, 0
     while window_end < len(uniform_deltas):
         # skip over non-delete type deltas
@@ -42,6 +43,9 @@ def prepare_deletes(
                 delete_delta.properties is not None
             ), "Delete type deltas are required to have properties defined are required for deletes"
             properties: Optional[Dict[str, str]] = delete_delta.properties
+            assert (
+                properties.get("DELETE_COLUMNS") is not None
+            ), "Delete type deltas are required to have a delete column list defined"
             delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
             delete_dataset = params.deltacat_storage.download_delta(
                 delete_delta,
