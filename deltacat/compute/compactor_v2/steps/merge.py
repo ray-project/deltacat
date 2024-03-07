@@ -50,9 +50,11 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _get_all_deletes(spos_to_obj_ref: Dict[int, Any]):
-    all_deletes_tables = [ray.get(obj_ref) for _, obj_ref in spos_to_obj_ref.items()]
-    return all_deletes_tables
+def _get_all_deletes(
+    stream_positions_to_delete_obj_ref: Dict[int, Any]
+) -> List[pa.Table]:
+    for _, obj_ref in stream_positions_to_delete_obj_ref.items():
+        yield ray.get(obj_ref)
 
 
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
@@ -78,7 +80,7 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
-) -> Tuple[pa.Table]:
+) -> pa.Table:
     if not df_envelopes_list:
         return None
     hb_tables: List[Any] = []
@@ -108,7 +110,7 @@ def _build_incremental_table(
                 except KeyError:
                     hb_tables.append(table)
                     continue
-                delete_table = ray.get([obj_ref])[0]
+                delete_table = ray.get(obj_ref)
                 table = drop_rows_affected_by_deletes(table, delete_table)
             hb_tables.append(table)
     incremental_res: pa.Table = pa.concat_tables(hb_tables)
@@ -131,8 +133,6 @@ def drop_rows_affected_by_deletes(
 ):
     if not table:
         return table
-    if table.num_rows == 0:
-        return table
     delete_column_names = _get_delete_column_names(deletes_to_apply)
     drop_masks = [
         pc.is_in(
@@ -143,6 +143,7 @@ def drop_rows_affected_by_deletes(
     for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
         curr_drop_mask = drop_masks[i]
         next_drop_mask = drop_masks[i + 1]
+        # logical OR the mask arrays
         result_mask = pa.compute.or_(curr_drop_mask, next_drop_mask)
         drop_masks[i + 1] = result_mask
     mask_with_all_droppable = drop_masks[-1]
@@ -162,6 +163,7 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
+
     if not compacted_table and not table:
         return None
     if compacted_table and not table:
@@ -174,7 +176,6 @@ def _merge_tables(
         incremental_idx = 1
         all_tables.append(compacted_table)
     all_tables.append(table)
-
     if not primary_keys or not can_drop_duplicates:
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "

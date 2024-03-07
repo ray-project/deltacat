@@ -265,7 +265,6 @@ def test_compact_partition_rebase_then_incremental(
             "s3_client_kwargs": {},
             "source_partition_locator": rebased_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
-            "task_max_parallelism": 4096,
         }
     )
     # execute
@@ -359,6 +358,7 @@ def test_compact_partition_rebase_then_incremental(
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
         sorting_cols
     )
+    # NOTE: if delete type-deltas are present this relationship no longer holds true
     if not has_delete_deltas:
         assert compaction_audit.input_records == (
             incremental_delta_length if incremental_deltas else 0
