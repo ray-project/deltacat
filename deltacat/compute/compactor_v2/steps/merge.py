@@ -441,6 +441,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
             if table is None:
+                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
             total_input_records += input_records
             total_deduped_records += deduped_records

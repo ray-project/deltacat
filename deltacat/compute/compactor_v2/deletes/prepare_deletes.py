@@ -88,5 +88,4 @@ def prepare_deletes(
             stream_position_of_earliest_delete_in_sequence
         ] = ray.put(consolidated_deletes)
         window_start = window_end
-        window_end = window_start
     return deletes_obj_ref_by_stream_position
