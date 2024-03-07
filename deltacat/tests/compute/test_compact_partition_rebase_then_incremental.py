@@ -299,6 +299,8 @@ def test_compact_partition_rebase_then_incremental(
     (
         source_partition_locator_w_deltas,
         new_delta,
+        incremental_delta_length,
+        has_delete_deltas,
     ) = create_incremental_deltas_on_source_table(
         BASE_TEST_SOURCE_NAMESPACE,
         BASE_TEST_SOURCE_TABLE_NAME,
@@ -364,6 +366,13 @@ def test_compact_partition_rebase_then_incremental(
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
         sorting_cols
     )
+    if not has_delete_deltas:
+        assert compaction_audit.input_records == (
+            incremental_delta_length if incremental_deltas else 0
+        ) + len(actual_rebase_compacted_table), (
+            "Total input records must be equal to incremental deltas"
+            "+ previous compacted table size"
+        )
 
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result

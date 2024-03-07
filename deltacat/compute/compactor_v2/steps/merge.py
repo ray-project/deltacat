@@ -83,6 +83,8 @@ def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
 ) -> Tuple[pa.Table]:
+    if not df_envelopes_list:
+        return None
     hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes: List[DeltaFileEnvelope] = [
@@ -158,6 +160,11 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
+    logger.info(f"pdebug: {table=}, {compacted_table=}")
+    if not compacted_table and not table:
+        return None
+    if compacted_table and not table:
+        return compacted_table
 
     all_tables = []
     incremental_idx = 0
@@ -171,9 +178,6 @@ def _merge_tables(
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "
             f"and can_drop_duplicates={can_drop_duplicates}"
-        )
-        all_tables[incremental_idx] = _drop_delta_type_rows(
-            all_tables[incremental_idx], DeltaType.DELETE
         )
         # we need not drop duplicates
         return pa.concat_tables(all_tables)
@@ -198,7 +202,6 @@ def _merge_tables(
 
         result_table_list.append(compacted_table.filter(records_to_keep))
 
-    incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
     result_table_list.append(incremental_table)
 
     final_table = pa.concat_tables(result_table_list)
@@ -319,20 +322,26 @@ def _compact_tables(
                 deltacat_storage=input.deltacat_storage,
                 deltacat_storage_kwargs=input.deltacat_storage_kwargs,
             )
+            logger.info(f"pdebug:_compact_tables{input=}")
+            logger.info(f"pdebug:_compact_tables{dfe_list=}")
+            logger.info(f"pdebug:_compact_tables{hb_idx=}")
+            logger.info(f"pdebug:_compact_tables{compacted_table=}")
             return compacted_table, 0, 0
         return None, 0, 0
-
-    logger.info(
-        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
-        f"{len(dfe_list)} delta file envelope lists..."
-    )
+    hb_table_record_count = 0
+    total_deduped_records = 0
+    if dfe_list:
+        logger.info(
+            f"[Hash bucket index {hb_idx}] Reading dedupe input for "
+            f"{len(dfe_list)} delta file envelope lists..."
+        )
     incremental_len = 0
 
     incremental_table = _build_incremental_table(
         dfe_list,
         input.deletes_to_apply_by_stream_positions,
     )
-    if len(incremental_table) > 0:
+    if incremental_table and len(incremental_table) > 0:
         incremental_len = len(incremental_table)
         logger.info(
             f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
@@ -359,10 +368,10 @@ def _compact_tables(
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-
-    hb_table_record_count = len(incremental_table) + (
-        len(compacted_table) if compacted_table else 0
-    )
+    if incremental_table:
+        hb_table_record_count = len(incremental_table) + (
+            len(compacted_table) if compacted_table else 0
+        )
 
     incremental_table, merge_time = timed_invocation(
         func=_merge_tables,
@@ -371,11 +380,12 @@ def _compact_tables(
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=compacted_table,
     )
-    total_deduped_records = hb_table_record_count - len(incremental_table)
-    logger.info(
-        f"[Merge task index {input.merge_task_index}] Merged "
-        f"record count: {len(incremental_table)}, size={incremental_table.nbytes if len(incremental_table) > 0 else 0} took: {merge_time}s"
-    )
+    if incremental_table:
+        total_deduped_records = hb_table_record_count - len(incremental_table)
+        logger.info(
+            f"[Merge task index {input.merge_task_index}] Merged "
+            f"record count: {len(incremental_table)}, size={incremental_table.nbytes if len(incremental_table) > 0 else 0} took: {merge_time}s"
+        )
     return incremental_table, incremental_len, total_deduped_records
 
 

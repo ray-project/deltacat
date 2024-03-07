@@ -29,15 +29,19 @@ def create_incremental_deltas_on_source_table(
     partition_values_param,
     incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
     ds_mock_kwargs: Optional[Dict[str, Any]] = None,
-) -> Tuple[PartitionLocator, Delta]:
+) -> Tuple[PartitionLocator, Delta, bool]:
     import deltacat.tests.local_deltacat_storage as ds
 
+    incremental_delta_length = 0
+    is_delete = False
     src_partition: Partition = ds.get_partition(
         source_table_stream.locator,
         partition_values_param,
         **ds_mock_kwargs,
     )
     for incremental_delta, delta_type, delta_properties in incremental_deltas:
+        if delta_type is DeltaType.DELETE:
+            is_delete = True
         new_delta: Delta = ds.commit_delta(
             ds.stage_delta(
                 incremental_delta,
@@ -48,6 +52,7 @@ def create_incremental_deltas_on_source_table(
             ),
             **ds_mock_kwargs,
         )
+        incremental_delta_length += len(incremental_delta)
     src_table_stream_after_committed_delta: Stream = ds.get_stream(
         source_namespace,
         source_table_name,
@@ -59,7 +64,12 @@ def create_incremental_deltas_on_source_table(
         partition_values_param,
         **ds_mock_kwargs,
     )
-    return src_partition_after_committed_delta.locator, new_delta
+    return (
+        src_partition_after_committed_delta.locator,
+        new_delta,
+        incremental_delta_length,
+        is_delete,
+    )
 
 
 def create_src_w_deltas_destination_plus_destination(

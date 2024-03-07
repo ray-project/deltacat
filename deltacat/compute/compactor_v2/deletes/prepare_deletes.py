@@ -18,7 +18,7 @@ def prepare_deletes(
     params: CompactPartitionParams,
     uniform_deltas: List[DeltaAnnotated],
     deletes_to_apply_obj_ref_by_stream_position: IntegerRangeDict,
-):
+) -> IntegerRangeDict:
     window_start, window_end = 0, 0
     while window_end < len(uniform_deltas):
         # skip over non-delete type deltas
