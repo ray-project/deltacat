@@ -102,14 +102,15 @@ def _build_incremental_table(
             df_envelope.delta_type != DeltaType.DELETE
         ), "DELETE type deltas should not be present when building the incremental table"
         if df_envelope.delta_type is DeltaType.UPSERT:
-            # if deletes are present apply all the deletes immediately after this upsert based on stream position
-            # before appending it to hb_tables
             if deletes_to_apply_by_stream_positions:
+                # The input delta files contain deletes apply all the deletes immediately after this upsert based on stream position
+                # before appending it to hb_tables
                 try:
                     obj_ref = deletes_to_apply_by_stream_positions[
                         df_envelope.stream_position
                     ]
                 except KeyError:
+                    # the input delta files contain deletes but they are none after this stream position. Append to hb_tables normally
                     hb_tables.append(table)
                     continue
                 deletes_to_apply = ray.get(obj_ref)
