@@ -29,7 +29,7 @@ def create_incremental_deltas_on_source_table(
     partition_values_param,
     incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
     ds_mock_kwargs: Optional[Dict[str, Any]] = None,
-) -> Tuple[PartitionLocator, Delta, bool]:
+) -> Tuple[PartitionLocator, Delta, int, bool]:
     import deltacat.tests.local_deltacat_storage as ds
 
     incremental_delta_length = 0
