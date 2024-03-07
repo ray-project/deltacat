@@ -55,12 +55,6 @@ class PrepareDeleteTestCaseParams:
         return (getattr(self, field.name) for field in fields(self))
 
 
-@pytest.fixture(autouse=True, scope="module")
-def setup_ray_cluster():
-    ray.init(local_mode=True, ignore_reinit_error=True)
-    yield
-
-
 @pytest.fixture(scope="function")
 def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation

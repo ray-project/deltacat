@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 
 class IntegerRangeDict(OrderedDict):
@@ -51,7 +51,7 @@ class IntegerRangeDict(OrderedDict):
         KeyError: If the requested key or the next greater key is not found.
     """
 
-    def __init__(self, items: Union[dict, 'IntegerRangeDict', None] = None):
+    def __init__(self, items: Union[dict, "IntegerRangeDict", None] = None):
         super().__init__(items or {})
 
     def __setitem__(self, key: int, value: Any):
@@ -80,8 +80,8 @@ class IntegerRangeDict(OrderedDict):
         except KeyError:
             return default
 
-    def rebalance(self) -> 'IntegerRangeDict':
-        # NOTE: an explicit rebalancing method to ensure the keys are in sorted order without resorting 
+    def rebalance(self) -> "IntegerRangeDict":
+        # NOTE: an explicit rebalancing method to ensure the keys are in sorted order without resorting
         # to a underlying self-balancing BST tree to maintain O(log(n)) item retrieval. O(n) to rebalance
         # TODO: rebalance automatically
         sorted_keys = sorted(list(super().keys()))
