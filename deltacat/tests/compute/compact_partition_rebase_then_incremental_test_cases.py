@@ -906,7 +906,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
     ),
-    "15-rebase-then-incremental-delete-type-delta-delete-entire-base-table": RebaseThenIncrementalCompactionTestCaseParams(
+    "17-rebase-then-incremental-delete-type-delta-delete-entire-base-table": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
@@ -957,7 +957,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "16-rebase-then-incremental-delete-type-delta-drop-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
+    "18-rebase-then-incremental-delete-type-delta-drop-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
@@ -1036,7 +1036,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "17-rebase-then-incremental-delete-type-delta-UDUD": RebaseThenIncrementalCompactionTestCaseParams(
+    "19-rebase-then-incremental-delete-type-delta-UDUD": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
