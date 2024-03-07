@@ -48,7 +48,7 @@ def commit_delta_to_staged_partition(
     staged_partition, file_paths: List[str], *args, **kwargs
 ) -> Delta:
     committed_delta = commit_delta_to_partition(
-        staged_partition, file_paths=file_paths, *args, **kwargs
+        staged_partition, *args, file_paths=file_paths, **kwargs
     )
     ds.commit_partition(staged_partition, **kwargs)
     return committed_delta

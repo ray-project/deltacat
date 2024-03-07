@@ -32,3 +32,11 @@ repos:
     rev: 5.0.0
     hooks:
     -   id: flake8
+        additional_dependencies: [pep8-naming]
+# -   repo: https://github.com/astral-sh/ruff-pre-commit
+#     rev: v0.3.1
+#     hooks:
+#         # Run the linter.
+#         - id: ruff
+#         # Run the formatter.
+#         - id: ruff-format
