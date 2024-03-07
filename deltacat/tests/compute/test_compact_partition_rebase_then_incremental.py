@@ -28,7 +28,7 @@ from deltacat.tests.compute.test_util_create_table_deltas_repo import (
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
-from deltacat.tests.compute.compact_partition_test_cases import (
+from deltacat.tests.compute.compact_partition_rebase_then_incremental_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
