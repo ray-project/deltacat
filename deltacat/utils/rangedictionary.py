@@ -82,7 +82,7 @@ class IntegerRangeDict(OrderedDict):
 
     def rebalance(self) -> "IntegerRangeDict":
         # NOTE: an explicit rebalancing method to ensure the keys are in sorted order without resorting
-        # to a underlying self-balancing BST tree to maintain O(log(n)) item retrieval.
+        # to a more complex implementation to maintain maximum O(log(n)) item retrieval.
         # This implementation is O(n) to rebalance
         # TODO: rebalance during <k,v> insertion
         sorted_keys = sorted(list(super().keys()))
