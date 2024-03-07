@@ -26,7 +26,7 @@ class IntegerRangeDict(OrderedDict):
                     key_of_next_greater_element = keys[candidate_idx]
                     return super().__getitem__(key_of_next_greater_element)
             raise KeyError(
-                f"{ke}. Could not this key {key} or the next key greater than {key}"
+                f"{ke}. Could not find this key {key} or the next key greater than {key}"
             ) from None
 
     def rebalance(self):

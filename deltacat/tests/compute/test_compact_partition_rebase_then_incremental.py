@@ -92,7 +92,7 @@ FUNCTION scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
+def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
@@ -166,7 +166,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
 )
 def test_compact_partition_rebase_then_incremental(
     setup_s3_resource: ServiceResource,
-    offer_local_deltacat_storage_kwargs: Dict[str, Any],
+    local_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: List[Optional[Any]],
@@ -203,7 +203,7 @@ def test_compact_partition_rebase_then_incremental(
         CompactionSessionAuditInfo,
     )
 
-    ds_mock_kwargs = offer_local_deltacat_storage_kwargs
+    ds_mock_kwargs = local_deltacat_storage_kwargs
     ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     """
