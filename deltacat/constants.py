@@ -4,7 +4,7 @@ from deltacat.utils.common import env_string
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
 DELTACAT_SYS_LOG_DIR = env_string(
     "DELTACAT_SYS_LOG_DIR",
-    "DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME",
+    "/tmp/deltacat/var/output/logs/",
 )
 DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME = env_string(
     "DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME",
@@ -18,7 +18,7 @@ DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME = env_string(
 DELTACAT_APP_LOG_LEVEL = env_string("DELTACAT_APP_LOG_LEVEL", "DEBUG")
 DELTACAT_APP_LOG_DIR = env_string(
     "DELTACAT_APP_LOG_DIR",
-    "/local/home/faraonep/github.com/deltacat",
+    "/tmp/deltacat/var/output/logs/",
 )
 DELTACAT_APP_INFO_LOG_BASE_FILE_NAME = env_string(
     "DELTACAT_APP_INFO_LOG_BASE_FILE_NAME",

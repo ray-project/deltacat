@@ -162,7 +162,6 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
-    logger.info(f"pdebug: {table=}, {compacted_table=}")
     if not compacted_table and not table:
         return None
     if compacted_table and not table:
@@ -326,10 +325,6 @@ def _compact_tables(
                 deltacat_storage=input.deltacat_storage,
                 deltacat_storage_kwargs=input.deltacat_storage_kwargs,
             )
-            logger.info(f"pdebug:_compact_tables{input=}")
-            logger.info(f"pdebug:_compact_tables{dfe_list=}")
-            logger.info(f"pdebug:_compact_tables{hb_idx=}")
-            logger.info(f"pdebug:_compact_tables{compacted_table=}")
             return compacted_table, 0, 0
         return None, 0, 0
     hb_table_record_count = 0

@@ -12,6 +12,9 @@ class IntegerRangeDict(OrderedDict):
     is particularly useful in scenarios where data is organized in a range-based structure,
     such as time series or indexing.
 
+    If <k,v> are inserted in a sorted order then the order will be maintained as it subclasses of OrderedDict
+    which preserves the order in <k,v> are inserted
+
     Example:
         >>> d = IntegerRangeDict()
         >>> d[1] = 'a'
