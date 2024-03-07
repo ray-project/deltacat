@@ -22,10 +22,12 @@ from deltacat.compute.compactor_v2.steps.merge import merge
 from deltacat.utils.common import current_time_ms
 from deltacat.types.media import ContentType
 from deltacat.tests.test_utils.pyarrow import (
+    download_delta,
     create_delta_from_csv_file,
     stage_partition_from_file_paths,
     commit_delta_to_staged_partition,
 )
+from deltacat.utils.rangedictionary import IntegerRangeDict
 
 
 class TestMerge(unittest.TestCase):
@@ -41,6 +43,7 @@ class TestMerge(unittest.TestCase):
     DEDUPE_NO_DUPLICATION_MULTIPLE_PK = "deltacat/tests/compute/compactor_v2/steps/data/dedupe_table_no_duplication_multiple_pk.csv"
     DEDUPE_WITH_DUPLICATION_MULTIPLE_PK = "deltacat/tests/compute/compactor_v2/steps/data/dedupe_table_with_duplication_multiple_pk.csv"
     NO_PK_TABLE = "deltacat/tests/compute/compactor_v2/steps/data/no_pk_table.csv"
+    DEDUPE_DELETE_DATA = "deltacat/tests/compute/compactor_v2/steps/data/dedupe_base_compacted_table_multiple_pk_delete.csv"
 
     @classmethod
     def setUpClass(cls):
@@ -245,61 +248,81 @@ class TestMerge(unittest.TestCase):
         # 10 records, no dedupe
         self._validate_merge_output(merge_res_list, 10)
 
-    # def test_merge_when_delete_type_deltas_are_merged(self):
-    #     partition = stage_partition_from_file_paths(
-    #         self._testMethodName,
-    #         [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
-    #         **self.kwargs,
-    #     )
-    #     old_delta = commit_delta_to_staged_partition(
-    #         partition, [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK], **self.kwargs
-    #     )
+    def test_merge_when_delete_type_deltas_are_merged(self):
+        partition = stage_partition_from_file_paths(
+            self._testMethodName,
+            [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
+            **self.kwargs,
+        )
+        old_delta = commit_delta_to_staged_partition(
+            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK], **self.kwargs
+        )
+        object_store = RayPlasmaObjectStore()
+        # source_table_partition: Partition = get_partition_from_table(
+        #     f"{self._testMethodName}",
+        #     [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
+        #     **self.kwargs,
+        # )
+        incremental_kwargs = {"delta_type": DeltaType.UPSERT, **self.kwargs}
+        incremental_delta = create_delta_from_csv_file(
+            f"{self._testMethodName}-1",
+            [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
+            # override_partition=source_table_partition,
+            **incremental_kwargs,
+        )
+        # Erase entire base table by appending DELETE type bundle
+        delete_kwargs = {
+            "delta_type": DeltaType.DELETE,
+            "properties": {"DELETE_COLUMNS": ["pk1"]},
+            **self.kwargs,
+        }
+        delete_delta = create_delta_from_csv_file(
+            f"{self._testMethodName}-2",
+            [self.DEDUPE_DELETE_DATA],
+            # override_partition=source_table_partition,
+            **delete_kwargs,
+        )
+        ird = IntegerRangeDict()
+        ird[delete_delta.stream_position] = ray.put(
+            download_delta(delete_delta, **self.kwargs)
+        )
 
-    #     object_store = RayPlasmaObjectStore()
+        # Only one hash bucket and one file
+        hb_id_to_entry_indices_range = {"0": (0, 1)}
 
-    #     # Erase entire base table by appending DELETE type bundle
-    #     new_kwargs = {"delta_type": DeltaType.DELETE, **self.kwargs}
-    #     new_delta = create_delta_from_csv_file(
-    #         f"{self._testMethodName}-1",
-    #         [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
-    #         **new_kwargs,
-    #     )
+        # Fake round completion info for old delta, the record will be go to hash bucket #3
+        # Hash bucket #3 is empty for new delta record
+        rcf = RoundCompletionInfo.of(
+            compacted_delta_locator=old_delta.locator,
+            high_watermark=old_delta.stream_position,
+            compacted_pyarrow_write_result=None,
+            sort_keys_bit_width=0,
+            hb_index_to_entry_range=hb_id_to_entry_indices_range,
+        )
 
-    #     # Only one hash bucket and one file
-    #     hb_id_to_entry_indices_range = {"0": (0, 1)}
+        merge_input = MergeInput.of(
+            round_completion_info=rcf,
+            compacted_file_content_type=ContentType.PARQUET,
+            merge_file_groups_provider=LocalMergeFileGroupsProvider(
+                uniform_deltas=[DeltaAnnotated.of(incremental_delta)],
+                read_kwargs_provider=None,
+                deltacat_storage=ds,
+                deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+            ),
+            write_to_partition=partition,
+            primary_keys=["pk1"],
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+            object_store=object_store,
+            deletes_to_apply_by_stream_positions=ird,
+        )
+        merge_res_list = []
+        merge_result_promise = merge.remote(merge_input)
+        merge_result = ray.get(merge_result_promise)
+        merge_res_list.append(merge_result)
 
-    #     # Fake round completion info for old delta, the record will be go to hash bucket #3
-    #     # Hash bucket #3 is empty for new delta record
-    #     rcf = RoundCompletionInfo.of(
-    #         compacted_delta_locator=old_delta.locator,
-    #         high_watermark=old_delta.stream_position,
-    #         compacted_pyarrow_write_result=None,
-    #         sort_keys_bit_width=0,
-    #         hb_index_to_entry_range=hb_id_to_entry_indices_range,
-    #     )
-
-    #     merge_input = MergeInput.of(
-    #         round_completion_info=rcf,
-    #         compacted_file_content_type=ContentType.PARQUET,
-    #         merge_file_groups_provider=LocalMergeFileGroupsProvider(
-    #             uniform_deltas=[DeltaAnnotated.of(new_delta)],
-    #             read_kwargs_provider=None,
-    #             deltacat_storage=ds,
-    #             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
-    #         ),
-    #         write_to_partition=partition,
-    #         primary_keys=["pk1"],
-    #         deltacat_storage=ds,
-    #         deltacat_storage_kwargs=self.deltacat_storage_kwargs,
-    #         object_store=object_store,
-    #     )
-    #     merge_res_list = []
-    #     merge_result_promise = merge.remote(merge_input)
-    #     merge_result = ray.get(merge_result_promise)
-    #     merge_res_list.append(merge_result)
-
-    #     # All records vanish
-    #     self._validate_merge_output(merge_res_list, 0)
+        # Drop 5 records - 6 -> 1
+        self._validate_merge_output(merge_res_list, 1)
 
     def test_merge_incrementa_copy_by_reference_date_pk(self):
         number_of_hash_group = 2

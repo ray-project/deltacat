@@ -479,6 +479,7 @@ class TestPrepareDeletes:
             }
         )
         deltas_annotated = [DeltaAnnotated.of(delta) for delta in input_deltas]
+        # action
         if throws_error_type:
             with pytest.raises(throws_error_type):
                 actual_deletes_to_apply_by_spos = prepare_deletes(
@@ -492,14 +493,14 @@ class TestPrepareDeletes:
             deltas_annotated,
             deletes_to_apply_obj_ref_by_stream_position,
         )
+        # verify
         actual_dictionary_length = len(actual_deletes_to_apply_by_spos)
         assert (
             expected_dictionary_length == actual_dictionary_length
         ), f"{expected_dictionary_length} does not match {actual_dictionary_length}"
         if expected_dictionary_length > 0:
             actual_tables = [
-                ray.get(obj_ref)
-                for _, obj_ref in actual_deletes_to_apply_by_spos.items()
+                ray.get(obj_ref) for obj_ref in actual_deletes_to_apply_by_spos.values()
             ]
             for i, actual_table in enumerate(actual_tables):
                 assert actual_table.equals(expected_delete_tables[i])
