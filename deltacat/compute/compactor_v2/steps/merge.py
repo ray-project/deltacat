@@ -81,8 +81,6 @@ def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
 ) -> pa.Table:
-    if not df_envelopes_list:
-        return None
     hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
     df_envelopes: List[DeltaFileEnvelope] = [
@@ -337,28 +335,24 @@ def _compact_tables(
         return None, 0, 0
     hb_table_record_count = 0
     total_deduped_records = 0
-    if dfe_list:
-        logger.info(
-            f"[Hash bucket index {hb_idx}] Reading dedupe input for "
-            f"{len(dfe_list)} delta file envelope lists..."
-        )
-    incremental_len = 0
-
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
+        f"{len(dfe_list)} delta file envelope lists..."
+    )
     incremental_table = _build_incremental_table(
         dfe_list,
         input.deletes_to_apply_by_stream_positions,
     )
-    if incremental_table and len(incremental_table) > 0:
-        incremental_len = len(incremental_table)
-        logger.info(
-            f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
-        )
-        if input.sort_keys:
-            # Incremental is sorted and merged, as sorting
-            # on non event based sort key does not produce consistent
-            # compaction results. E.g., compaction(delta1, delta2, delta3)
-            # will not be equal to compaction(compaction(delta1, delta2), delta3).
-            incremental_table = incremental_table.sort_by(input.sort_keys)
+    incremental_len = len(incremental_table)
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
+    )
+    if input.sort_keys:
+        # Incremental is sorted and merged, as sorting
+        # on non event based sort key does not produce consistent
+        # compaction results. E.g., compaction(delta1, delta2, delta3)
+        # will not be equal to compaction(compaction(delta1, delta2), delta3).
+        incremental_table = incremental_table.sort_by(input.sort_keys)
 
     compacted_table: Optional[pa.Table] = None
     if (
@@ -375,10 +369,9 @@ def _compact_tables(
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-    if incremental_table:
-        hb_table_record_count = len(incremental_table) + (
-            len(compacted_table) if compacted_table else 0
-        )
+    hb_table_record_count = len(incremental_table) + (
+        len(compacted_table) if compacted_table else 0
+    )
 
     incremental_table, merge_time = timed_invocation(
         func=_merge_tables,
@@ -387,12 +380,11 @@ def _compact_tables(
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=compacted_table,
     )
-    if incremental_table:
-        total_deduped_records = hb_table_record_count - len(incremental_table)
-        logger.info(
-            f"[Merge task index {input.merge_task_index}] Merged "
-            f"record count: {len(incremental_table)}, size={incremental_table.nbytes if len(incremental_table) > 0 else 0} took: {merge_time}s"
-        )
+    total_deduped_records = hb_table_record_count - len(incremental_table)
+    logger.info(
+        f"[Merge task index {input.merge_task_index}] Merged "
+        f"record count: {len(incremental_table)}, size={incremental_table.nbytes if len(incremental_table) > 0 else 0} took: {merge_time}s"
+    )
     return incremental_table, incremental_len, total_deduped_records
 
 
