@@ -120,7 +120,7 @@ def _build_incremental_table(
                 logger.info(
                     f"[Hash bucket index {hb_idx}]. Deletes found to apply to df_envelope"
                     f" {df_envelope.delta_type} table at stream position: {df_envelope.stream_position}"
-                    f" . Dropped {number_of_rows_dropped} row(s)."
+                    f" . Dropped {number_of_rows_dropped} row(s) from incremental table."
                 )
             hb_tables.append(table)
     incremental_res: pa.Table = pa.concat_tables(hb_tables)
