@@ -19,8 +19,6 @@ from deltacat.tests.compute.test_util_common import (
     create_destination_table,
 )
 
-from deltacat.utils.rangedictionary import IntegerRangeDict
-
 from dataclasses import dataclass, fields
 import ray
 import os
@@ -45,9 +43,9 @@ class PrepareDeleteTestCaseParams:
     """
 
     deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]]
-    deletes_to_apply_obj_ref_by_stream_position: IntegerRangeDict
     expected_dictionary_length: int
     expected_delete_table: List[pa.Table]
+    expected_uniform_deltas_length: int
     throws_error_type: BaseException
 
     # makes TestCaseParams iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
@@ -83,9 +81,9 @@ TEST_CASES_PREPARE_DELETE = {
                 None,
             ),
         ],
-        IntegerRangeDict(),
         0,
         None,
+        1,
         None,
     ),
     "2-test-single-upsert-then-delete": PrepareDeleteTestCaseParams(
@@ -114,7 +112,6 @@ TEST_CASES_PREPARE_DELETE = {
                 {"DELETE_COLUMNS": ["col_1"]},
             ),
         ],
-        IntegerRangeDict(),
         1,
         [
             pa.Table.from_arrays(
@@ -124,6 +121,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             )
         ],
+        1,
         None,
     ),
     "3-test-upsert-delete-upsert": PrepareDeleteTestCaseParams(
@@ -161,7 +159,6 @@ TEST_CASES_PREPARE_DELETE = {
                 None,
             ),
         ],
-        IntegerRangeDict(),
         1,
         [
             pa.Table.from_arrays(
@@ -171,6 +168,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             )
         ],
+        2,
         None,
     ),
     "4-test-upsert-delete-upsert-delete": PrepareDeleteTestCaseParams(
@@ -218,7 +216,6 @@ TEST_CASES_PREPARE_DELETE = {
                 {"DELETE_COLUMNS": ["col_1"]},
             ),
         ],
-        IntegerRangeDict(),
         2,
         [
             pa.Table.from_arrays(
@@ -234,6 +231,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             ),
         ],
+        2,
         None,
     ),
     "5-test-upsert-deletesequence-upsert-delete": PrepareDeleteTestCaseParams(
@@ -301,7 +299,6 @@ TEST_CASES_PREPARE_DELETE = {
                 {"DELETE_COLUMNS": ["col_1"]},
             ),
         ],
-        IntegerRangeDict(),
         2,
         [
             pa.Table.from_arrays(
@@ -317,6 +314,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             ),
         ],
+        2,
         None,
     ),
     "6-test-exception-thrown-if-properties-not-defined": PrepareDeleteTestCaseParams(
@@ -345,8 +343,8 @@ TEST_CASES_PREPARE_DELETE = {
                 {},
             ),
         ],
-        IntegerRangeDict(),
         0,
+        None,
         None,
         AssertionError,
     ),
@@ -358,25 +356,25 @@ class TestPrepareDeletes:
         [
             "test_name",
             "deltas_to_compact",
-            "deletes_to_apply_obj_ref_by_stream_position",
             "expected_dictionary_length",
             "expected_delete_tables",
+            "expected_uniform_deltas_length",
             "throws_error_type",
         ],
         [
             (
                 test_name,
                 deltas_to_compact,
-                deletes_to_apply_obj_ref_by_stream_position,
                 expected_dictionary_length,
                 expected_delete_tables,
+                expected_uniform_deltas_length,
                 throws_error_type,
             )
             for test_name, (
                 deltas_to_compact,
-                deletes_to_apply_obj_ref_by_stream_position,
                 expected_dictionary_length,
                 expected_delete_tables,
+                expected_uniform_deltas_length,
                 throws_error_type,
             ) in TEST_CASES_PREPARE_DELETE.items()
         ],
@@ -387,9 +385,9 @@ class TestPrepareDeletes:
         local_deltacat_storage_kwargs: Dict[str, Any],
         test_name,
         deltas_to_compact,
-        deletes_to_apply_obj_ref_by_stream_position,
         expected_dictionary_length,
         expected_delete_tables,
+        expected_uniform_deltas_length,
         throws_error_type,
     ):
         from deltacat.compute.compactor_v2.deletes.prepare_deletes import (
@@ -486,6 +484,7 @@ class TestPrepareDeletes:
             deltas_annotated,
         )
         # verify
+        assert len(actual_uniform_deltas) is expected_uniform_deltas_length
         actual_dictionary_length = len(actual_deletes_to_apply_by_spos)
         assert (
             expected_dictionary_length == actual_dictionary_length
