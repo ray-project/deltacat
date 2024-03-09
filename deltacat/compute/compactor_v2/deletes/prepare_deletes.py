@@ -2,7 +2,7 @@ from deltacat.storage import (
     DeltaType,
 )
 from deltacat.utils.rangedictionary import IntegerRangeDict
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from deltacat.types.media import StorageType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -15,10 +15,8 @@ from deltacat.compute.compactor import (
 
 
 def prepare_deletes(
-    params: CompactPartitionParams,
-    uniform_deltas: List[DeltaAnnotated],
-    deletes_obj_ref_by_stream_position: IntegerRangeDict,
-) -> IntegerRangeDict:
+    params: CompactPartitionParams, uniform_deltas: List[DeltaAnnotated]
+) -> Tuple[List[DeltaAnnotated], IntegerRangeDict]:
     """
     Prepares delete operations for a compaction process.
     This function processes all the annotated deltas and consolidates consecutive delete deltas using a sliding window algorithm
@@ -39,14 +37,17 @@ def prepare_deletes(
         AssertionError: If a delete operation does not have the required properties defined.
     """
     if not uniform_deltas:
-        return deletes_obj_ref_by_stream_position
+        return uniform_deltas, None
+    deletes_obj_ref_by_stream_position = IntegerRangeDict()
     window_start, window_end = 0, 0
+    non_delete_deltas = []
     while window_end < len(uniform_deltas):
         # skip over non-delete type deltas
         if (
             uniform_deltas[window_end].annotations[0].annotation_delta_type
             is not DeltaType.DELETE
         ):
+            non_delete_deltas.append(uniform_deltas[window_end])
             window_start += 1
             window_end = window_start
             continue
@@ -81,11 +82,11 @@ def prepare_deletes(
         consolidated_deletes: pa.Table = pa.concat_tables(
             deletes_at_this_stream_position
         )
-        stream_position_of_earliest_delete_in_sequence: int = uniform_deltas[
-            window_start
+        stream_position_of_earliest_delete_in_sequence: int = delete_deltas_sequence[
+            0
         ].stream_position
         deletes_obj_ref_by_stream_position[
             stream_position_of_earliest_delete_in_sequence
         ] = ray.put(consolidated_deletes)
         window_start = window_end
-    return deletes_obj_ref_by_stream_position
+    return non_delete_deltas, deletes_obj_ref_by_stream_position

@@ -22,7 +22,6 @@ from deltacat.compute.compactor import (
     PyArrowWriteResult,
     RoundCompletionInfo,
 )
-from deltacat.utils.rangedictionary import IntegerRangeDict
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -60,6 +59,7 @@ from deltacat.compute.compactor_v2.utils.task_options import (
     merge_resource_options_provider,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
+from deltacat.compute.compactor import DeltaAnnotated
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -101,7 +101,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                 **params.s3_client_kwargs,
             )
         else:
-            logger.warn("No new partition was committed during compaction.")
+            logger.warning("No new partition was committed during compaction.")
 
         logger.info(
             f"Completed compaction session for: {params.source_partition_locator}"
@@ -181,7 +181,7 @@ def _execute_compaction(
 
     delta_discovery_start = time.monotonic()
 
-    input_deltas = io.discover_deltas(
+    input_deltas: List[Delta] = io.discover_deltas(
         params.source_partition_locator,
         params.last_stream_position_to_compact,
         params.rebase_source_partition_locator,
@@ -192,7 +192,7 @@ def _execute_compaction(
         params.list_deltas_kwargs,
     )
 
-    uniform_deltas = io.create_uniform_input_deltas(
+    uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
         input_deltas=input_deltas,
         hash_bucket_count=params.hash_bucket_count,
         compaction_audit=compaction_audit,
@@ -221,9 +221,8 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-    deletes_to_apply_by_stream_position = IntegerRangeDict()
-    deletes_to_apply_by_stream_position = prepare_deletes(
-        params, uniform_deltas, deletes_to_apply_by_stream_position
+    uniform_deltas, deletes_to_apply_by_stream_position = prepare_deletes(
+        params, uniform_deltas
     )
 
     # create a new stream for this round

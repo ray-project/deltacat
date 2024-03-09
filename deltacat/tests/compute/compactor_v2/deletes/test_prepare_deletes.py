@@ -476,16 +476,14 @@ class TestPrepareDeletes:
         # action
         if throws_error_type:
             with pytest.raises(throws_error_type):
-                actual_deletes_to_apply_by_spos = prepare_deletes(
+                uniform_deltas, actual_deletes_to_apply_by_spos = prepare_deletes(
                     params,
                     deltas_annotated,
-                    deletes_to_apply_obj_ref_by_stream_position,
                 )
             return
-        actual_deletes_to_apply_by_spos = prepare_deletes(
+        actual_uniform_deltas, actual_deletes_to_apply_by_spos = prepare_deletes(
             params,
             deltas_annotated,
-            deletes_to_apply_obj_ref_by_stream_position,
         )
         # verify
         actual_dictionary_length = len(actual_deletes_to_apply_by_spos)

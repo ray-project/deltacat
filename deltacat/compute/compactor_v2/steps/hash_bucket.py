@@ -11,7 +11,6 @@ from deltacat.compute.compactor import (
     DeltaAnnotated,
     DeltaFileEnvelope,
 )
-from deltacat.storage.model.delta import DeltaType
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelopeGroups
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor_v2.utils.delta import read_delta_file_envelopes
@@ -71,14 +70,9 @@ def _group_file_records_by_pk_hash_bucket(
     hb_to_delta_file_envelopes = np.empty([num_hash_buckets], dtype="object")
     for dfe in delta_file_envelopes:
         logger.info("Grouping by pk hash bucket")
-        if dfe.delta_type is DeltaType.DELETE:
-            logger.warning(
-                f"Skipping grouping the data for delete type delta: {dfe.table}"
-            )
-            continue
         group_start = time.monotonic()
         hash_bucket_to_table = group_by_pk_hash_bucket(
-            dfe.table, num_hash_buckets, primary_keys, dfe.delta_type
+            dfe.table, num_hash_buckets, primary_keys
         )
         group_end = time.monotonic()
         logger.info(f"Grouping took: {group_end - group_start}")
