@@ -168,10 +168,8 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
-
-    if not compacted_table and not table:
-        return None
-    if compacted_table and not table:
+    # if all rows are dropped from the table just return the compacted table
+    if not table and compacted_table:
         return compacted_table
 
     all_tables = []
@@ -333,8 +331,6 @@ def _compact_tables(
             )
             return compacted_table, 0, 0
         return None, 0, 0
-    hb_table_record_count = 0
-    total_deduped_records = 0
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
@@ -354,14 +350,14 @@ def _compact_tables(
         # will not be equal to compaction(compaction(delta1, delta2), delta3).
         table = table.sort_by(input.sort_keys)
 
-    compacted_table: Optional[pa.Table] = None
+    compacted_table = None
     if (
         input.round_completion_info
         and input.round_completion_info.hb_index_to_entry_range
         and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
         is not None
     ):
-        compacted_table: pa.Table = _download_compacted_table(
+        compacted_table = _download_compacted_table(
             hb_index=hb_idx,
             rcf=input.round_completion_info,
             read_kwargs_provider=input.read_kwargs_provider,
