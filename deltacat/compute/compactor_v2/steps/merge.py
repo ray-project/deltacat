@@ -50,6 +50,15 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -> bool:
+    return (
+        input.round_completion_info
+        and input.round_completion_info.hb_index_to_entry_range
+        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
+        is not None
+    )
+
+
 def _get_all_deletes(
     stream_positions_to_delete_obj_ref: Dict[int, Any]
 ) -> Iterator[pa.Table]:
@@ -332,23 +341,16 @@ def _compact_tables(
     input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
     # NOTE: In certain cases the dfe_list may be None. In that case we should just return the compacted table
-    if dfe_list is None:
-        if (
-            input.round_completion_info
-            and input.round_completion_info.hb_index_to_entry_range
-            and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
-            is not None
-        ):
-            compacted_table = _download_compacted_table(
-                hb_index=hb_idx,
-                rcf=input.round_completion_info,
-                read_kwargs_provider=input.read_kwargs_provider,
-                deletes_to_apply_by_stream_positions=input.deletes_to_apply_by_stream_positions,
-                deltacat_storage=input.deltacat_storage,
-                deltacat_storage_kwargs=input.deltacat_storage_kwargs,
-            )
-            return compacted_table, 0, 0
-        return None, 0, 0
+    if dfe_list is None and _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
+        compacted_table = _download_compacted_table(
+            hb_index=hb_idx,
+            rcf=input.round_completion_info,
+            read_kwargs_provider=input.read_kwargs_provider,
+            deletes_to_apply_by_stream_positions=input.deletes_to_apply_by_stream_positions,
+            deltacat_storage=input.deltacat_storage,
+            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+        )
+        return compacted_table, 0, 0
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
@@ -370,12 +372,7 @@ def _compact_tables(
         table = table.sort_by(input.sort_keys)
 
     compacted_table = None
-    if (
-        input.round_completion_info
-        and input.round_completion_info.hb_index_to_entry_range
-        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
-        is not None
-    ):
+    if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
         compacted_table = _download_compacted_table(
             hb_index=hb_idx,
             rcf=input.round_completion_info,
@@ -443,16 +440,24 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         hb_index_copy_by_ref_ids = []
         for merge_file_group in merge_file_groups:
             # copy by reference only if deletes are not present
-            if (
+            can_copy_by_ref = (
                 not merge_file_group.dfe_groups
                 and not input.deletes_to_apply_by_stream_positions
-            ):
+            )
+            if can_copy_by_ref:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
+                continue
+            no_compacted_table_and_no_deltas = (
+                not merge_file_group.dfe_groups
+                and not _does_hash_bucket_idx_have_compacted_table(
+                    input, merge_file_group.hb_index
+                )
+            )
+            if no_compacted_table_and_no_deltas:
                 continue
             table, input_records, deduped_records = _compact_tables(
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
-            #
             if table is None:
                 continue
             total_input_records += input_records
