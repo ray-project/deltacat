@@ -79,6 +79,7 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 
 def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
+    hb_idx: int,
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
 ) -> pa.Table:
     hb_tables: List[Any] = []
@@ -91,6 +92,7 @@ def _build_incremental_table(
         key=lambda df: (df.stream_position, df.file_index),
         reverse=False,  # ascending
     )
+
     for df_envelope in df_envelopes:
         table = df_envelope.table
         assert (
@@ -112,6 +114,10 @@ def _build_incremental_table(
                     hb_tables.append(table)
                     continue
                 deletes_to_apply = ray.get(obj_ref)
+                logger.info(
+                    f"[Hash bucket index {hb_idx}]. Deletes found to apply to df_envelope "
+                    f" {df_envelope.delta_type} table at stream position: {df_envelope.stream_position}"
+                )
                 table = drop_rows_affected_by_deletes(table, deletes_to_apply)
             hb_tables.append(table)
     incremental_res: pa.Table = pa.concat_tables(hb_tables)
@@ -168,6 +174,10 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
+    # If all rows are dropped from both the table and compacted_table return None
+    if not (table or compacted_table):
+        return None
+
     # if all rows are dropped from the table just return the compacted table
     if not table and compacted_table:
         return compacted_table
@@ -337,6 +347,7 @@ def _compact_tables(
     )
     table = _build_incremental_table(
         dfe_list,
+        hb_idx,
         input.deletes_to_apply_by_stream_positions,
     )
     incremental_len = len(table)
@@ -376,6 +387,11 @@ def _compact_tables(
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=compacted_table,
     )
+    if not table:
+        logger.warning(
+            f"[Merge task index {input.merge_task_index}] All rows dropped while merging table"
+        )
+        return None, 0, 0
     total_deduped_records = hb_table_record_count - len(table)
     logger.info(
         f"[Merge task index {input.merge_task_index}] Merged "
@@ -428,8 +444,8 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             table, input_records, deduped_records = _compact_tables(
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
+            #
             if table is None:
-                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
             total_input_records += input_records
             total_deduped_records += deduped_records

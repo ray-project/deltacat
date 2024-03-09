@@ -957,7 +957,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "18-rebase-then-incremental-delete-type-delta-drop-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
+    "18-rebase-then-incremental-delete-type-delta-keep-base-table-drop-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
@@ -1036,7 +1036,137 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
-    "19-rebase-then-incremental-delete-type-delta-UDUD": RebaseThenIncrementalCompactionTestCaseParams(
+    "19-rebase-then-incremental-delete-type-delta-drop-only-from-base-table-keep-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=ZERO_VALUED_SORT_KEY,
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
+        partition_values=["2022-01-01T00:00:00.000Z"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([(i % 4) for i in range(1000)] + [4, 5]),
+                pa.array([str(i) for i in range(0, 1000)] + ["fiz", "buz"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3, 4, 5]),
+                pa.array(["996", "997", "998", "999", "fiz", "buz"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        incremental_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([0, 1, 2, 3, 4, 5]),
+                        pa.array(["0", "1", "2", "3", "4", "5"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([0]),
+                        pa.array(["foo"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["996", "997", "998", "999", "fiz", "buz"]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            ),
+        ],
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3, 4, 5]),
+                pa.array(["foo", "1", "2", "3", "4", "5"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        do_create_placement_group=True,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+    ),
+    "20-rebase-then-incremental-delete-type-delta-drop-all-base-table-drop-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=ZERO_VALUED_SORT_KEY,
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
+        partition_values=["2022-01-01T00:00:00.000Z"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([(i % 4) for i in range(1000)] + [4, 5]),
+                pa.array([str(i) for i in range(0, 1000)] + ["fiz", "buz"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3, 4, 5]),
+                pa.array(["996", "997", "998", "999", "fiz", "buz"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        incremental_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([6]),
+                        pa.array(["foo"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["996", "997", "998", "999", "fiz", "buz", "foo"]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            ),
+        ],
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([]),
+                pa.array([]),
+            ],
+            schema=pa.schema(
+                [
+                    ("pk_col_1", pa.int64()),
+                    ("col_1", pa.string()),
+                ]
+            ),
+        ),
+        do_create_placement_group=True,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+    ),
+    "21-rebase-then-incremental-delete-type-delta-UDUD": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
