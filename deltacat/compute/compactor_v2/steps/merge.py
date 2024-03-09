@@ -10,7 +10,7 @@ import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
-from typing import List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
@@ -52,7 +52,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 def _get_all_deletes(
     stream_positions_to_delete_obj_ref: Dict[int, Any]
-) -> List[pa.Table]:
+) -> Iterator[pa.Table]:
     for _, obj_ref in stream_positions_to_delete_obj_ref.items():
         yield ray.get(obj_ref)
 
