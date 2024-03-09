@@ -339,11 +339,11 @@ def _compact_tables(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
-    incremental_table = _build_incremental_table(
+    table = _build_incremental_table(
         dfe_list,
         input.deletes_to_apply_by_stream_positions,
     )
-    incremental_len = len(incremental_table)
+    incremental_len = len(table)
     logger.info(
         f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
     )
@@ -352,7 +352,7 @@ def _compact_tables(
         # on non event based sort key does not produce consistent
         # compaction results. E.g., compaction(delta1, delta2, delta3)
         # will not be equal to compaction(compaction(delta1, delta2), delta3).
-        incremental_table = incremental_table.sort_by(input.sort_keys)
+        table = table.sort_by(input.sort_keys)
 
     compacted_table: Optional[pa.Table] = None
     if (
@@ -369,23 +369,23 @@ def _compact_tables(
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-    hb_table_record_count = len(incremental_table) + (
+    hb_table_record_count = len(table) + (
         len(compacted_table) if compacted_table else 0
     )
 
-    incremental_table, merge_time = timed_invocation(
+    table, merge_time = timed_invocation(
         func=_merge_tables,
-        table=incremental_table,
+        table=table,
         primary_keys=input.primary_keys,
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=compacted_table,
     )
-    total_deduped_records = hb_table_record_count - len(incremental_table)
+    total_deduped_records = hb_table_record_count - len(table)
     logger.info(
         f"[Merge task index {input.merge_task_index}] Merged "
-        f"record count: {len(incremental_table)}, size={incremental_table.nbytes if len(incremental_table) > 0 else 0} took: {merge_time}s"
+        f"record count: {len(table)}, size={table.nbytes if len(table) > 0 else 0} took: {merge_time}s"
     )
-    return incremental_table, incremental_len, total_deduped_records
+    return table, incremental_len, total_deduped_records
 
 
 def _copy_manifests_from_hash_bucketing(
