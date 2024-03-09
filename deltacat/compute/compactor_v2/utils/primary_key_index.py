@@ -155,11 +155,10 @@ def _optimized_group_record_batches_by_hash_bucket(
 
 
 def group_by_pk_hash_bucket(
-    table: pa.Table,
-    num_buckets: int,
-    primary_keys: List[str],
+    table: pa.Table, num_buckets: int, primary_keys: List[str]
 ) -> np.ndarray:
     table = generate_pk_hash_column([table], primary_keys, requires_sha1=True)[0]
+
     # group hash bucket record indices
     result = group_record_indices_by_hash_bucket(
         table,
@@ -201,9 +200,9 @@ def generate_pk_hash_column(
     hash_column_list = []
 
     can_sha1 = False
-    # NOTE: delete tables may not have primary keys
     if primary_keys:
         hash_column_list = [_generate_pk_hash(table) for table in tables]
+
         can_sha1 = requires_sha1 or _is_sha1_desired(hash_column_list)
     else:
         hash_column_list = [_generate_uuid(table) for table in tables]
