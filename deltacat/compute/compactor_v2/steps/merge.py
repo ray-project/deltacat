@@ -114,11 +114,14 @@ def _build_incremental_table(
                     hb_tables.append(table)
                     continue
                 deletes_to_apply = ray.get(obj_ref)
-                logger.info(
-                    f"[Hash bucket index {hb_idx}]. Deletes found to apply to df_envelope "
-                    f" {df_envelope.delta_type} table at stream position: {df_envelope.stream_position}"
+                table, number_of_rows_dropped = drop_rows_affected_by_deletes(
+                    table, deletes_to_apply
                 )
-                table = drop_rows_affected_by_deletes(table, deletes_to_apply)
+                logger.info(
+                    f"[Hash bucket index {hb_idx}]. Deletes found to apply to df_envelope"
+                    f" {df_envelope.delta_type} table at stream position: {df_envelope.stream_position}"
+                    f" . Dropped {number_of_rows_dropped} row(s)."
+                )
             hb_tables.append(table)
     incremental_res: pa.Table = pa.concat_tables(hb_tables)
     return incremental_res
@@ -139,7 +142,7 @@ def drop_rows_affected_by_deletes(
     table: Optional[pa.Table],
     deletes_to_apply: pa.Table,
     delete_column_names: List[str] = None,
-):
+) -> Tuple[Any, int]:
     if not table:
         return table
     delete_column_names = _get_delete_column_names(
@@ -157,9 +160,10 @@ def drop_rows_affected_by_deletes(
         # logical OR the mask arrays
         result_mask = pa.compute.or_(curr_drop_mask, next_drop_mask)
         drop_masks[i + 1] = result_mask
-    mask_with_all_droppable = drop_masks[-1]
+    mask_with_all_droppable = drop_masks[-1].combine_chunks()
+    number_of_rows_dropped: int = mask_with_all_droppable.true_count
     table = table.filter(pc.invert(mask_with_all_droppable))
-    return table
+    return table, number_of_rows_dropped
 
 
 def _merge_tables(
@@ -252,9 +256,13 @@ def _download_compacted_table(
     compacted_table = pa.concat_tables(tables)
     if deletes_to_apply_by_stream_positions:
         for delete_table in _get_all_deletes(deletes_to_apply_by_stream_positions):
-            compacted_table = drop_rows_affected_by_deletes(
+            compacted_table, number_of_rows_dropped = drop_rows_affected_by_deletes(
                 compacted_table,
                 delete_table,
+            )
+            logger.info(
+                f"[Hash bucket index {hb_index}]. Deletes found in input deltas."
+                f" Dropped {number_of_rows_dropped} row(s) from compacted table."
             )
     return compacted_table
 
