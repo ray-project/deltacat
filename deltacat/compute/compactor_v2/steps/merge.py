@@ -340,7 +340,8 @@ def _copy_all_manifest_files_from_old_hash_buckets(
 def _compact_tables(
     input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
-    # NOTE: In certain cases the dfe_list may be None. In that case we should just return the compacted table
+    # NOTE: If there are no incremental deltas and a compacted table corresponds to the hash
+    # bucket then just return the compacted table
     if dfe_list is None and _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
         compacted_table = _download_compacted_table(
             hb_index=hb_idx,
