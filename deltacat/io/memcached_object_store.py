@@ -191,6 +191,12 @@ class MemcachedObjectStore(IObjectStore):
 
         self.client_cache.clear()
 
+    def clear(self, *args, **kwargs) -> bool:
+        for ip in self.storage_node_ips:
+            client = self._get_client_by_ip(ip)
+            client.flush_all(noreply=False)
+        self.client_cache.clear()
+
     def _create_ref(self, uid, ip, chunk_index) -> str:
         return f"{uid}{self.SEPARATOR}{ip}{self.SEPARATOR}{chunk_index}"
 
@@ -205,7 +211,7 @@ class MemcachedObjectStore(IObjectStore):
             create_ref_ip = self._get_current_ip()
         return create_ref_ip
 
-    def _get_client_by_ip(self, ip_address: str):
+    def _get_client_by_ip(self, ip_address: str) -> Client:
         if ip_address in self.client_cache:
             return self.client_cache[ip_address]
 
