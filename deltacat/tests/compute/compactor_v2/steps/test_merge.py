@@ -276,7 +276,7 @@ class TestMerge(unittest.TestCase):
             **delete_kwargs,
         )
         ird = IntegerRangeDict()
-        ird[delete_delta.stream_position] = ray.put(
+        ird[delete_delta.stream_position] = object_store.put(
             download_delta(delete_delta, **self.kwargs)
         )
 

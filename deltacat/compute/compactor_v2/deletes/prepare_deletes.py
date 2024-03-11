@@ -7,7 +7,6 @@ from deltacat.types.media import StorageType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
-import ray
 import pyarrow as pa
 from deltacat.compute.compactor import (
     DeltaAnnotated,
@@ -19,19 +18,22 @@ def prepare_deletes(
 ) -> Tuple[List[DeltaAnnotated], IntegerRangeDict]:
     """
     Prepares delete operations for a compaction process.
-    This function processes all the annotated deltas and consolidates consecutive delete deltas using a sliding window algorithm
+    This function processes all the annotated deltas and consolidates consecutive DELETE deltas using a sliding window algorithm
     It creates a range dictionary of these consolidate delete operations of the earliest stream position of consolidated deletes to the Ray obj references to the delete table
+    Additionally, non-DELETE deltas are accumulated in a separate list.
 
     Args:
         params (CompactPartitionParams): Parameters for the compaction process.
         uniform_deltas (List[DeltaAnnotated]): A list of DeltaAnnotated objects representing
             delete operations.
-        deletes_to_apply_obj_ref_by_stream_position (IntegerRangeDict): A dictionary to store
-            the consolidated delete operations, keyed by stream position.
 
     Returns:
-        IntegerRangeDict: A dictionary containing the consolidated delete operations, with
-            stream positions as keys and Ray object references to PyArrow Tables as values.
+        Tuple[List[DeltaAnnotated], IntegerRangeDict]:
+            - A list of Annotated Deltas excluding all non-delete operations.
+            - A dictionary (IntegerRangeDict) containing consolidated delete operations, where the keys
+              are the earliest stream positions of the consolidated delete operations, and the values
+              are Ray object references to PyArrow Tables representing the consolidated delete tables.
+              If there are no delete operations, this dictionary will be empty
 
     Raises:
         AssertionError: If a delete operation does not have the required properties defined.
@@ -76,6 +78,7 @@ def prepare_deletes(
                 file_reader_kwargs_provider=params.read_kwargs_provider,
                 columns=delete_columns,
                 storage_type=StorageType.LOCAL,
+                max_parallelism=1,
                 **params.deltacat_storage_kwargs,
             )
             deletes_at_this_stream_position.extend(delete_dataset)
@@ -87,6 +90,6 @@ def prepare_deletes(
         ].stream_position
         deletes_obj_ref_by_stream_position[
             stream_position_of_earliest_delete_in_sequence
-        ] = ray.put(consolidated_deletes)
+        ] = params.object_store.put(consolidated_deletes)
         window_start = window_end
     return non_delete_deltas, deletes_obj_ref_by_stream_position

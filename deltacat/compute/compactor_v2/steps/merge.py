@@ -6,6 +6,7 @@ import pyarrow as pa
 import ray
 from typing import Any
 import time
+from deltacat.io.object_store import IObjectStore
 import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
@@ -60,10 +61,11 @@ def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -
 
 
 def _get_all_deletes(
-    stream_positions_to_delete_obj_ref: Dict[int, Any]
+    stream_positions_to_delete_obj_ref: Dict[int, Any],
+    object_store: IObjectStore = None,
 ) -> Iterator[pa.Table]:
     for _, obj_ref in stream_positions_to_delete_obj_ref.items():
-        yield ray.get(obj_ref)
+        yield object_store.get(obj_ref)
 
 
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
@@ -90,6 +92,7 @@ def _build_incremental_table(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
     hb_idx: int,
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
+    object_store: IObjectStore = None,
 ) -> pa.Table:
     hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
@@ -122,7 +125,7 @@ def _build_incremental_table(
                     # the input delta files contain deletes but they are none after this stream position. Append to hb_tables normally
                     hb_tables.append(table)
                     continue
-                deletes_to_apply = ray.get(obj_ref)
+                deletes_to_apply = object_store.get(obj_ref)
                 table, number_of_rows_dropped = drop_rows_affected_by_deletes(
                     table, deletes_to_apply
                 )
@@ -263,16 +266,6 @@ def _download_compacted_table(
         )
         tables.append(table)
     compacted_table = pa.concat_tables(tables)
-    if deletes_to_apply_by_stream_positions:
-        for delete_table in _get_all_deletes(deletes_to_apply_by_stream_positions):
-            compacted_table, number_of_rows_dropped = drop_rows_affected_by_deletes(
-                compacted_table,
-                delete_table,
-            )
-            logger.info(
-                f"[Hash bucket index {hb_index}]. Deletes found in input deltas."
-                f" Dropped {number_of_rows_dropped} row(s) from compacted table."
-            )
     return compacted_table
 
 
@@ -351,6 +344,19 @@ def _compact_tables(
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
+        if input.deletes_to_apply_by_stream_positions:
+            for delete_table in _get_all_deletes(
+                input.deletes_to_apply_by_stream_positions,
+                input.object_store,
+            ):
+                compacted_table, number_of_rows_dropped = drop_rows_affected_by_deletes(
+                    compacted_table,
+                    delete_table,
+                )
+                logger.info(
+                    f"[Hash bucket index {hb_idx}]. Deletes found in input deltas."
+                    f" Dropped {number_of_rows_dropped} row(s) from compacted table."
+                )
         return compacted_table, 0, 0
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
@@ -360,6 +366,7 @@ def _compact_tables(
         dfe_list,
         hb_idx,
         input.deletes_to_apply_by_stream_positions,
+        input.object_store,
     )
     incremental_len = len(table)
     logger.info(
@@ -382,6 +389,19 @@ def _compact_tables(
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
+        if input.deletes_to_apply_by_stream_positions:
+            for delete_table in _get_all_deletes(
+                input.deletes_to_apply_by_stream_positions,
+                input.object_store,
+            ):
+                compacted_table, number_of_rows_dropped = drop_rows_affected_by_deletes(
+                    compacted_table,
+                    delete_table,
+                )
+                logger.info(
+                    f"[Hash bucket index {hb_idx}]. Deletes found in input deltas."
+                    f" Dropped {number_of_rows_dropped} row(s) from compacted table."
+                )
     hb_table_record_count = len(table) + (
         len(compacted_table) if compacted_table else 0
     )

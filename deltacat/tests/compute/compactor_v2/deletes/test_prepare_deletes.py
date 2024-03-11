@@ -18,6 +18,7 @@ from deltacat.tests.compute.test_util_common import (
     create_src_table,
     create_destination_table,
 )
+from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 
 from dataclasses import dataclass, fields
 import ray
@@ -453,6 +454,7 @@ class TestPrepareDeletes:
             table_version=destination_table_version,
             **local_deltacat_storage_kwargs,
         )
+        object_store = RayPlasmaObjectStore()
         params = CompactPartitionParams.of(
             {
                 "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -466,6 +468,7 @@ class TestPrepareDeletes:
                     **local_deltacat_storage_kwargs,
                     **{"equivalent_table_types": []},
                 },
+                "object_store": object_store,
                 "read_kwargs_provider": None,
                 "source_partition_locator": src_partition_after_committed_delta.locator,
             }
@@ -491,7 +494,8 @@ class TestPrepareDeletes:
         ), f"{expected_dictionary_length} does not match {actual_dictionary_length}"
         if expected_dictionary_length > 0:
             actual_tables = [
-                ray.get(obj_ref) for obj_ref in actual_deletes_to_apply_by_spos.values()
+                object_store.get(obj_ref)
+                for obj_ref in actual_deletes_to_apply_by_spos.values()
             ]
             for i, actual_table in enumerate(actual_tables):
                 assert actual_table.equals(expected_delete_tables[i])

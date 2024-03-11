@@ -5,6 +5,7 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
+from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
 
 from deltacat.tests.compute.test_util_constant import (
@@ -257,6 +258,7 @@ def test_compact_partition_rebase_then_incremental(
             "hash_bucket_count": hash_bucket_count_param,
             "last_stream_position_to_compact": source_partition.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+            "object_store": RayPlasmaObjectStore(),
             "pg_config": pgm,
             "primary_keys": primary_keys,
             "read_kwargs_provider": read_kwargs_provider_param,
@@ -318,6 +320,7 @@ def test_compact_partition_rebase_then_incremental(
             "hash_bucket_count": hash_bucket_count_param,
             "last_stream_position_to_compact": new_delta.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+            "object_store": RayPlasmaObjectStore(),
             "pg_config": pgm,
             "primary_keys": primary_keys,
             "read_kwargs_provider": read_kwargs_provider_param,
