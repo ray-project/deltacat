@@ -93,7 +93,15 @@ def retrying_get(
             after=_log_attempt_number,
         ):
             with attempt:
-                resp = _get_url(url)
+                try:
+                    resp = _get_url(url)
+                except requests.exceptions.HTTPError as exception:
+                    # Unauthorized errors imply IMDSv2 is being used
+                    if exception.response.status_code == HTTPStatus.UNAUTHORIZED:
+                        return None
+
+                    raise exception
+
                 return resp
     except RetryError as re:
         logger.error(f"Failed to retry URL: {url} - {re}")
