@@ -297,10 +297,10 @@ def _execute_compaction(
                 file_index + mat_result.pyarrow_write_result.files
             )
         else:
-            hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
+            hb_id_to_entry_indices_range[str(mat_result.task_index)] = [
                 file_index,
                 file_index + mat_result.pyarrow_write_result.files,
-            )
+            ]
 
         file_index += mat_result.pyarrow_write_result.files
 
