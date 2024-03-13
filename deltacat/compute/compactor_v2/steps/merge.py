@@ -115,7 +115,7 @@ def _build_incremental_table(
         ), "DELETE type deltas should not be present when building the incremental table"
         if df_envelope.delta_type is DeltaType.UPSERT:
             if deletes_to_apply_by_stream_positions:
-                # The input delta files contain deletes apply all the deletes immediately after this upsert based on stream position
+                # The input delta files contain deletes to apply immediately after this upsert based on stream position
                 # before appending it to hb_tables
                 try:
                     obj_ref = deletes_to_apply_by_stream_positions[
