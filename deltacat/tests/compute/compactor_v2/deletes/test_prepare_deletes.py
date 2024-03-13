@@ -349,6 +349,62 @@ TEST_CASES_PREPARE_DELETE = {
         None,
         AssertionError,
     ),
+    "7-test-only-deletes": PrepareDeleteTestCaseParams(
+        [
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([i for i in range(40, 50)]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([40]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["a"]),
+                        pa.array([55]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([72]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            ),
+        ],
+        1,
+        [
+            pa.Table.from_arrays(
+                [
+                    pa.array([40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 40, 55, 72]),
+                ],
+                names=["col_1"],
+            ),
+        ],
+        0,
+        None,
+    ),
 }
 
 
@@ -498,5 +554,7 @@ class TestPrepareDeletes:
                 for obj_ref in actual_deletes_to_apply_by_spos.values()
             ]
             for i, actual_table in enumerate(actual_tables):
-                assert actual_table.equals(expected_delete_tables[i])
+                actual_table = actual_table.combine_chunks()
+                expected_delete_table = expected_delete_tables[i].combine_chunks()
+                assert actual_table.equals(expected_delete_table)
         return
