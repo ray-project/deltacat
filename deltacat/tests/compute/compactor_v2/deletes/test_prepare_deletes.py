@@ -112,7 +112,7 @@ TEST_CASES_PREPARE_DELETE = {
         0,
         None,
     ),
-    "2-test-single-upsert-then-delete": PrepareDeleteTestCaseParams(
+    "3-test-single-upsert-then-delete": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
@@ -150,7 +150,7 @@ TEST_CASES_PREPARE_DELETE = {
         1,
         None,
     ),
-    "3-test-upsert-delete-upsert": PrepareDeleteTestCaseParams(
+    "4-test-upsert-delete-upsert": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
@@ -197,7 +197,7 @@ TEST_CASES_PREPARE_DELETE = {
         2,
         None,
     ),
-    "4-test-upsert-delete-upsert-delete": PrepareDeleteTestCaseParams(
+    "5-test-upsert-delete-upsert-delete": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
@@ -260,7 +260,7 @@ TEST_CASES_PREPARE_DELETE = {
         2,
         None,
     ),
-    "5-test-upsert-deletesequence-upsert-delete": PrepareDeleteTestCaseParams(
+    "6-test-upsert-deletesequence-upsert-delete": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
@@ -343,7 +343,7 @@ TEST_CASES_PREPARE_DELETE = {
         2,
         None,
     ),
-    "6-test-exception-thrown-if-properties-not-defined": PrepareDeleteTestCaseParams(
+    "7-test-exception-thrown-if-properties-not-defined": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
@@ -374,7 +374,7 @@ TEST_CASES_PREPARE_DELETE = {
         None,
         AssertionError,
     ),
-    "7-test-only-deletes": PrepareDeleteTestCaseParams(
+    "8-test-only-deletes": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
