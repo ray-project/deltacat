@@ -79,12 +79,37 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
                 ),
                 DeltaType.UPSERT,
-                None,
+                {"DELETE_COLUMNS": ["col_1"]},
             ),
         ],
-        0,
+        1,
         None,
         1,
+        None,
+    ),
+    "2-test-single-delete": PrepareDeleteTestCaseParams(
+        [
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([i / 10 for i in range(40, 50)]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                {"DELETE_COLUMNS": ["col_1"]},
+            ),
+        ],
+        1,
+        [
+            pa.Table.from_arrays(
+                [
+                    pa.array([4.0, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9]),
+                ],
+                names=["col_1"],
+            )
+        ],
+        0,
         None,
     ),
     "2-test-single-upsert-then-delete": PrepareDeleteTestCaseParams(

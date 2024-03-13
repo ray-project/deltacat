@@ -44,7 +44,7 @@ def prepare_deletes(
     assert all(
         uniform_deltas[i].stream_position <= uniform_deltas[i + 1].stream_position
         for i in range(len(uniform_deltas) - 1)
-    ),  "Uniform deltas must be in non-decreasing order by stream position"
+    ), "Uniform deltas must be in non-decreasing order by stream position"
     deletes_obj_ref_by_stream_position = IntegerRangeDict()
     window_start, window_end = 0, 0
     non_delete_deltas = []
