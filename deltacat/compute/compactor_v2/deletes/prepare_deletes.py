@@ -38,8 +38,13 @@ def prepare_deletes(
     Raises:
         AssertionError: If a delete operation does not have the required properties defined.
     """
+
     if not uniform_deltas:
         return uniform_deltas, None
+    assert all(
+        uniform_deltas[i].stream_position <= uniform_deltas[i + 1].stream_position
+        for i in range(len(uniform_deltas) - 1)
+    ),  "Uniform deltas must be in non-decreasing order by stream position"
     deletes_obj_ref_by_stream_position = IntegerRangeDict()
     window_start, window_end = 0, 0
     non_delete_deltas = []
@@ -92,4 +97,5 @@ def prepare_deletes(
             stream_position_of_earliest_delete_in_sequence
         ] = params.object_store.put(consolidated_deletes)
         window_start = window_end
+        # store all_deletes
     return non_delete_deltas, deletes_obj_ref_by_stream_position
