@@ -82,7 +82,7 @@ TEST_CASES_PREPARE_DELETE = {
                 {"DELETE_COLUMNS": ["col_1"]},
             ),
         ],
-        1,
+        0,
         None,
         1,
         None,
