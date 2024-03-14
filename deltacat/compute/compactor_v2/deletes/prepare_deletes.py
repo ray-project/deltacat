@@ -98,4 +98,5 @@ def prepare_deletes(
         ] = params.object_store.put(consolidated_deletes)
         window_start = window_end
         # store all_deletes
+    deletes_obj_ref_by_stream_position.rebalance()
     return non_delete_deltas, deletes_obj_ref_by_stream_position
