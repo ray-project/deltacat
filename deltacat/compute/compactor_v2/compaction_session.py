@@ -221,9 +221,12 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-    uniform_deltas, deletes_to_apply_by_stream_position = prepare_deletes(
-        params, uniform_deltas
-    )
+    (
+        uniform_deltas,
+        deletes_to_apply_by_stream_position,
+        deletes_to_apply_by_stream_position_list,
+    ) = prepare_deletes(params, uniform_deltas)
+    # logger.info(f"PDEBUG: {len(deletes_to_apply_by_stream_position)=} {len(deletes_to_apply_by_stream_position_list)=} {deletes_to_apply_by_stream_position_list=}")
 
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
@@ -395,6 +398,7 @@ def _execute_compaction(
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
                     deletes_to_apply_by_stream_positions=deletes_to_apply_by_stream_position,
+                    deletes_to_apply_by_stream_positions_list=deletes_to_apply_by_stream_position_list,
                 )
             }
 

@@ -558,12 +558,12 @@ class TestPrepareDeletes:
         # action
         if throws_error_type:
             with pytest.raises(throws_error_type):
-                uniform_deltas, actual_deletes_to_apply_by_spos = prepare_deletes(
+                uniform_deltas, actual_deletes_to_apply_by_spos, _ = prepare_deletes(
                     params,
                     deltas_annotated,
                 )
             return
-        actual_uniform_deltas, actual_deletes_to_apply_by_spos = prepare_deletes(
+        actual_uniform_deltas, actual_deletes_to_apply_by_spos, _ = prepare_deletes(
             params,
             deltas_annotated,
         )

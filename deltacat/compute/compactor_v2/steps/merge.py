@@ -88,22 +88,39 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
     return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
 
-def _build_incremental_table(
+def _flatten_df_envelopes_list(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
+) -> List[DeltaFileEnvelope]:
+    return [d for dfe_list in df_envelopes_list for d in dfe_list]
+
+
+def _sort_df_envelopes_list(
+    df_envelopes: List[DeltaFileEnvelope],
+    key: Callable = lambda df: (df.stream_position, df.file_index),
+) -> List[DeltaFileEnvelope]:
+    return sorted(
+        df_envelopes,
+        key=key,
+        reverse=False,  # ascending
+    )
+
+
+def _build_incremental_table(
+    df_envelopes: List[DeltaFileEnvelope],
     hb_idx: int,
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
     object_store: IObjectStore = None,
 ) -> pa.Table:
     hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
-    df_envelopes: List[DeltaFileEnvelope] = [
-        d for dfe_list in df_envelopes_list for d in dfe_list
-    ]
-    df_envelopes: List[DeltaFileEnvelope] = sorted(
-        df_envelopes,
-        key=lambda df: (df.stream_position, df.file_index),
-        reverse=False,  # ascending
-    )
+    # df_envelopes: List[DeltaFileEnvelope] = [
+    #     d for dfe_list in df_envelopes_list for d in dfe_list
+    # ]
+    # df_envelopes: List[DeltaFileEnvelope] = sorted(
+    #     df_envelopes,
+    #     key=lambda df: (df.stream_position, df.file_index),
+    #     reverse=False,  # ascending
+    # )
 
     for df_envelope in df_envelopes:
         table = df_envelope.table
@@ -154,7 +171,7 @@ def drop_rows_affected_by_deletes(
     table: Optional[pa.Table],
     deletes_to_apply: pa.Table,
     delete_column_names: List[str] = None,
-    equality_predicate_operation: Optional[Callable] = pa.compute.and_
+    equality_predicate_operation: Optional[Callable] = pa.compute.and_,
 ) -> Tuple[Any, int]:
     if not table:
         return table
@@ -363,8 +380,12 @@ def _compact_tables(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
+    logger.info(f"pdebug: {input.deletes_to_apply_by_stream_positions_list}")
+    df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
+        _flatten_df_envelopes_list(dfe_list)
+    )
     table = _build_incremental_table(
-        dfe_list,
+        df_envelopes,
         hb_idx,
         input.deletes_to_apply_by_stream_positions,
         input.object_store,

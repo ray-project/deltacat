@@ -46,6 +46,7 @@ def prepare_deletes(
         for i in range(len(uniform_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
     deletes_obj_ref_by_stream_position = IntegerRangeDict()
+    deletes_obj_ref_by_stream_position_2: List[Tuple(int, str)] = []
     window_start, window_end = 0, 0
     non_delete_deltas = []
     while window_end < len(uniform_deltas):
@@ -93,10 +94,18 @@ def prepare_deletes(
         stream_position_of_earliest_delete_in_sequence: int = delete_deltas_sequence[
             0
         ].stream_position
+        obj_ref = params.object_store.put(consolidated_deletes)
         deletes_obj_ref_by_stream_position[
             stream_position_of_earliest_delete_in_sequence
-        ] = params.object_store.put(consolidated_deletes)
+        ] = obj_ref
+        deletes_obj_ref_by_stream_position_2.append(
+            (stream_position_of_earliest_delete_in_sequence, obj_ref)
+        )
         window_start = window_end
         # store all_deletes
     deletes_obj_ref_by_stream_position.rebalance()
-    return non_delete_deltas, deletes_obj_ref_by_stream_position
+    return (
+        non_delete_deltas,
+        deletes_obj_ref_by_stream_position,
+        deletes_obj_ref_by_stream_position_2,
+    )
