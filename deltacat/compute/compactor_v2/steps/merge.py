@@ -4,7 +4,7 @@ from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import numpy as np
 import pyarrow as pa
 import ray
-from typing import Any
+from typing import Any, Callable
 import time
 from deltacat.io.object_store import IObjectStore
 import pyarrow.compute as pc
@@ -154,6 +154,7 @@ def drop_rows_affected_by_deletes(
     table: Optional[pa.Table],
     deletes_to_apply: pa.Table,
     delete_column_names: List[str] = None,
+    equality_predicate_operation: Optional[Callable] = pa.compute.and_
 ) -> Tuple[Any, int]:
     if not table:
         return table
@@ -170,7 +171,7 @@ def drop_rows_affected_by_deletes(
         curr_drop_mask = drop_masks[i]
         next_drop_mask = drop_masks[i + 1]
         # logical OR the mask arrays
-        result_mask = pa.compute.or_(curr_drop_mask, next_drop_mask)
+        result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
         drop_masks[i + 1] = result_mask
     mask_with_all_droppable = drop_masks[-1].combine_chunks()
     number_of_rows_dropped: int = mask_with_all_droppable.true_count
