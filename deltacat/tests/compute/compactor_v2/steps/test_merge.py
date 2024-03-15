@@ -305,7 +305,7 @@ class TestMerge(unittest.TestCase):
             deltacat_storage=ds,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
-            deletes_to_apply_by_stream_positions=ird,
+            deletes_to_apply_by_stream_positions_list=ird,
         )
         merge_res_list = []
         merge_result_promise = merge.remote(merge_input)

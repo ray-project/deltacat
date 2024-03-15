@@ -23,7 +23,7 @@ class Delta(dict):
         properties: Optional[Dict[str, str]],
         manifest: Optional[Manifest],
         previous_stream_position: Optional[int] = None,
-        delete_parameters: Optional[Locator] = None,
+        delete_parameters: Optional[DeleteParameters] = None,
     ) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
@@ -71,7 +71,7 @@ class Delta(dict):
             raise ValueError("No deltas given to merge.")
         manifests = [d.manifest for d in deltas]
         if any(not m for m in manifests):
-            raise ValueError(f"Deltas to merge must have non-empty manifests.")
+            raise ValueError("Deltas to merge must have non-empty manifests.")
         distinct_storage_types = set([d.storage_type for d in deltas])
         if len(distinct_storage_types) > 1:
             raise NotImplementedError(
@@ -94,6 +94,15 @@ class Delta(dict):
             manifests,
             manifest_author,
         )
+        distinct_delta_type = list(distinct_delta_types)[0]
+        merged_delete_parameters = None
+        if distinct_delta_type is DeltaType.DELETE:
+            delete_parameters: List[DeleteParameters] = [
+                d.delete_parameters for d in deltas if d.delete_parameters
+            ]
+            merged_delete_parameters: Optional[
+                DeleteParameters
+            ] = DeleteParameters.merge_delete_parameters(delete_parameters)
         partition_locator = deltas[0].partition_locator
         prev_positions = [d.previous_stream_position for d in deltas]
         prev_position = None if None in prev_positions else max(prev_positions)
@@ -104,6 +113,7 @@ class Delta(dict):
             properties,
             merged_manifest,
             prev_position,
+            merged_delete_parameters,
         )
 
     @property

@@ -22,3 +22,24 @@ class DeleteParameters(dict):
     @property
     def equality_column_names(self) -> Optional[List[str]]:
         return self.get("equality_column_names")
+
+    @staticmethod
+    def merge_delete_parameters(
+        delete_parameters: List[DeleteParameters],
+    ) -> Optional[DeleteParameters]:
+        def _merge_equality_column_names(equality_column_names: List[List[str]]):
+            intersection = set([equality_column_names[0]])
+            for column_name in equality_column_names[1:]:
+                intersection &= set(column_name)
+            return list(intersection)
+
+        if len(delete_parameters) == 0:
+            return None
+        all_equality_column_names = [
+            delete.equality_column_names for delete in delete_parameters
+        ]
+        merged_equality_column_names: List[str] = _merge_equality_column_names(
+            all_equality_column_names
+        )
+        merge_delete_parameters = DeleteParameters.of(merged_equality_column_names)
+        return merge_delete_parameters
