@@ -9,4 +9,4 @@ from deltacat.compute.compactor import (
 @dataclass
 class PrepareDeletesResult:
     uniform_deltas: List[DeltaAnnotated]
-    deletes_obj_ref_by_stream_position: IntegerRangeDict
+    delete_obj_ref_by_stream_position_list: List
