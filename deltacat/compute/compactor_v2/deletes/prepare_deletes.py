@@ -14,7 +14,7 @@ from deltacat.compute.compactor import (
 
 def prepare_deletes(
     params: CompactPartitionParams, uniform_deltas: List[DeltaAnnotated]
-) -> Tuple[List[DeltaAnnotated], List]:
+) -> Tuple[List[DeltaAnnotated], List[Tuple[int, str, List[str]]]]:
     """
     Prepares delete operations for a compaction process.
     This function processes all the annotated deltas and consolidates consecutive DELETE deltas using a sliding window algorithm

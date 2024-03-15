@@ -576,7 +576,7 @@ class TestPrepareDeletes:
         if expected_dictionary_length > 0:
             actual_tables = [
                 object_store.get(obj_ref)
-                for obj_ref in actual_deletes_to_apply_by_spos.values()
+                for _, obj_ref, delete_columns in actual_deletes_to_apply_by_spos
             ]
             for i, actual_table in enumerate(actual_tables):
                 actual_table = actual_table.combine_chunks()
