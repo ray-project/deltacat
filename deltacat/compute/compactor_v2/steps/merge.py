@@ -29,7 +29,6 @@ from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
 )
-from typing import Dict
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
 )
@@ -69,14 +68,6 @@ def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -
 
 
 def _get_all_deletes(
-    stream_positions_to_delete_obj_ref: Dict[int, Any],
-    object_store: IObjectStore = None,
-) -> Iterator[pa.Table]:
-    for _, obj_ref in stream_positions_to_delete_obj_ref.items():
-        yield object_store.get(obj_ref)
-
-
-def _get_all_deletes2(
     deletes_to_apply_by_stream_positions_list: List[Tuple[int, Any, List[str]]],
     object_store: IObjectStore = None,
 ) -> Iterator[Tuple[pa.Table, str]]:
@@ -94,13 +85,10 @@ def _append_delta_type_column(table: pa.Table, value: np.bool_):
 def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
     if sc._DELTA_TYPE_COLUMN_NAME not in table.column_names:
         return table
-
     delta_type_value = sc.delta_type_to_field(delta_type)
-
     result = table.filter(
         pc.not_equal(table[sc._DELTA_TYPE_COLUMN_NAME], delta_type_value)
     )
-
     return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
 
@@ -124,7 +112,6 @@ def _sort_df_envelopes_list(
 def _build_incremental_table(
     df_envelopes: List[DeltaFileEnvelope],
     hb_idx: int,
-    deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
     object_store: IObjectStore = None,
 ) -> pa.Table:
     hb_tables = []
@@ -141,86 +128,44 @@ def _build_incremental_table(
     return incremental_res
 
 
-def _build_incremental_table(
-    df_envelopes: List[DeltaFileEnvelope],
-    hb_idx: int,
-    deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
-    object_store: IObjectStore = None,
-) -> pa.Table:
-    hb_tables: List[Any] = []
-    # sort by delta file stream position now instead of sorting every row later
-    for df_envelope in df_envelopes:
-        table = df_envelope.table
-        assert (
-            df_envelope.delta_type != DeltaType.APPEND
-        ), "APPEND type deltas are not supported. Kindly use UPSERT"
-        assert (
-            df_envelope.delta_type != DeltaType.DELETE
-        ), "DELETE type deltas should not be present when building the incremental table"
-        if df_envelope.delta_type is DeltaType.UPSERT:
-            if deletes_to_apply_by_stream_positions:
-                # The input delta files contain deletes to apply immediately after this upsert based on stream position
-                # before appending it to hb_tables
-                try:
-                    obj_ref = deletes_to_apply_by_stream_positions[
-                        df_envelope.stream_position
-                    ]
-                except KeyError:
-                    # the input delta files contain deletes but they are none after this stream position. Append to hb_tables normally
-                    hb_tables.append(table)
-                    continue
-                deletes_to_apply = object_store.get(obj_ref)
-                table, number_of_rows_dropped = drop_rows_affected_by_deletes(
-                    table, deletes_to_apply
-                )
-                logger.info(
-                    f"[Hash bucket index {hb_idx}]. Deletes found to apply to df_envelope"
-                    f" {df_envelope.delta_type} table at stream position: {df_envelope.stream_position}"
-                    f" . Dropped {number_of_rows_dropped} row(s) from incremental table."
-                )
-            hb_tables.append(table)
-    incremental_res: pa.Table = pa.concat_tables(hb_tables)
-    return incremental_res
+# def _get_delete_column_names(
+#     table: pa.Table, column_names: Optional[List[str]] = None
+# ) -> List[str]:
+#     if table is None:
+#         return []
+#     if column_names:
+#         return column_names
+#     delete_column_names = [name for name in table.column_names]
+#     return delete_column_names
 
 
-def _get_delete_column_names(
-    table: pa.Table, column_names: Optional[List[str]] = None
-) -> List[str]:
-    if table is None:
-        return []
-    if column_names:
-        return column_names
-    delete_column_names = [name for name in table.column_names]
-    return delete_column_names
-
-
-def drop_rows_affected_by_deletes(
-    table: Optional[pa.Table],
-    deletes_to_apply: pa.Table,
-    delete_column_names: List[str] = None,
-    equality_predicate_operation: Optional[Callable] = pa.compute.and_,
-) -> Tuple[Any, int]:
-    if not table:
-        return table
-    delete_column_names = _get_delete_column_names(
-        deletes_to_apply, delete_column_names
-    )
-    drop_masks = [
-        pc.is_in(
-            table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
-        )
-        for delete_column_name in delete_column_names
-    ]
-    for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
-        curr_drop_mask = drop_masks[i]
-        next_drop_mask = drop_masks[i + 1]
-        # logical OR the mask arrays
-        result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
-        drop_masks[i + 1] = result_mask
-    mask_with_all_droppable = drop_masks[-1].combine_chunks()
-    number_of_rows_dropped: int = mask_with_all_droppable.true_count
-    table = table.filter(pc.invert(mask_with_all_droppable))
-    return table, number_of_rows_dropped
+# def drop_rows_affected_by_deletes(
+#     table: Optional[pa.Table],
+#     deletes_to_apply: pa.Table,
+#     delete_column_names: List[str] = None,
+#     equality_predicate_operation: Optional[Callable] = pa.compute.and_,
+# ) -> Tuple[Any, int]:
+#     if not table:
+#         return table
+#     delete_column_names = _get_delete_column_names(
+#         deletes_to_apply, delete_column_names
+#     )
+#     drop_masks = [
+#         pc.is_in(
+#             table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
+#         )
+#         for delete_column_name in delete_column_names
+#     ]
+#     for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
+#         curr_drop_mask = drop_masks[i]
+#         next_drop_mask = drop_masks[i + 1]
+#         # logical OR the mask arrays
+#         result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
+#         drop_masks[i + 1] = result_mask
+#     mask_with_all_droppable = drop_masks[-1].combine_chunks()
+#     number_of_rows_dropped: int = mask_with_all_droppable.true_count
+#     table = table.filter(pc.invert(mask_with_all_droppable))
+#     return table, number_of_rows_dropped
 
 
 def _merge_tables(
@@ -420,7 +365,7 @@ def _compact_tables(
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-        for delete_table, delete_column_name in _get_all_deletes2(
+        for delete_table, delete_column_name in _get_all_deletes(
             input.deletes_to_apply_by_stream_positions_list, input.object_store
         ):
             compacted_table, number_of_rows_dropped = apply_deletes(
@@ -451,24 +396,18 @@ def _compact_tables(
         upsert_sequence_spos_to_delete_index[
             upsert_stream_pos
         ] = delete_stream_position_index
-    split_up_df_envelopes: nd.array = np.split(df_envelopes, delete_indices)
-    contiguous_upsert_seq_list: List[List[DeltaFileEnvelope]] = []
-    for delete_stream_position_index, contiguous_upsert_sequence in enumerate(
-        split_up_df_envelopes
-    ):
-        contiguous_upsert_sequence: List[
-            DeltaFileEnvelope
-        ] = contiguous_upsert_sequence.tolist()
-        if contiguous_upsert_sequence:
-            contiguous_upsert_seq_list.append(contiguous_upsert_sequence)
+    upsert_seq_list: List[List[DeltaFileEnvelope]] = [
+        upsert_sequence.tolist()
+        for upsert_sequence in np.split(df_envelopes, delete_indices)
+        if upsert_sequence.tolist()
+    ]
     prev_table = None
     total_incremental_len = 0
     total_deduped_records = 0
-    for i, df_envelopes in enumerate(contiguous_upsert_seq_list):
+    for i, df_envelopes in enumerate(upsert_seq_list):
         table = _build_incremental_table(
             df_envelopes,
             hb_idx,
-            input.deletes_to_apply_by_stream_positions,
             input.object_store,
         )
         partial_incremental_len = len(table)
@@ -510,7 +449,7 @@ def _compact_tables(
             )
         partial_deduped_records = partial_hb_table_record_count - len(table)
         if upsert_sequence_spos_to_delete_index:
-            spos = df_envelopes[-1].stream_positionAccentu
+            spos = df_envelopes[-1].stream_position
             delete_index = upsert_sequence_spos_to_delete_index[spos]
             (
                 _,
@@ -529,35 +468,6 @@ def _compact_tables(
         f"record count: {len(table)}, size={table.nbytes if len(table) > 0 else 0} took: {merge_time}s"
     )
     return table, total_incremental_len, total_deduped_records
-
-
-def drop_rows_affected_by_deletes2(
-    table: Optional[pa.Table],
-    deletes_to_apply: pa.Table,
-    delete_column_names: List[str] = None,
-    equality_predicate_operation: Optional[Callable] = pa.compute.and_,
-) -> Tuple[Any, int]:
-    if not table:
-        return table
-    delete_column_names = _get_delete_column_names(
-        deletes_to_apply, delete_column_names
-    )
-    drop_masks = [
-        pc.is_in(
-            table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
-        )
-        for delete_column_name in delete_column_names
-    ]
-    for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
-        curr_drop_mask = drop_masks[i]
-        next_drop_mask = drop_masks[i + 1]
-        # logical OR the mask arrays
-        result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
-        drop_masks[i + 1] = result_mask
-    mask_with_all_droppable = drop_masks[-1].combine_chunks()
-    number_of_rows_dropped: int = mask_with_all_droppable.true_count
-    table = table.filter(pc.invert(mask_with_all_droppable))
-    return table, number_of_rows_dropped
 
 
 def _copy_manifests_from_hash_bucketing(

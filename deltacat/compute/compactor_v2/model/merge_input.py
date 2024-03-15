@@ -39,7 +39,6 @@ class MergeInput(Dict):
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         round_completion_info: Optional[RoundCompletionInfo] = None,
         object_store: Optional[IObjectStore] = None,
-        deletes_to_apply_by_stream_positions: Optional[Dict[str, Any]] = None,
         deletes_to_apply_by_stream_positions_list: Optional[List] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
@@ -60,9 +59,6 @@ class MergeInput(Dict):
         result["read_kwargs_provider"] = read_kwargs_provider
         result["round_completion_info"] = round_completion_info
         result["object_store"] = object_store
-        result[
-            "deletes_to_apply_by_stream_positions"
-        ] = deletes_to_apply_by_stream_positions
         result[
             "deletes_to_apply_by_stream_positions_list"
         ] = deletes_to_apply_by_stream_positions_list
@@ -125,10 +121,6 @@ class MergeInput(Dict):
     @property
     def object_store(self) -> Optional[IObjectStore]:
         return self.get("object_store")
-
-    @property
-    def deletes_to_apply_by_stream_positions(self) -> Optional[Dict[str, Any]]:
-        return self.get("deletes_to_apply_by_stream_positions")
 
     @property
     def deletes_to_apply_by_stream_positions_list(

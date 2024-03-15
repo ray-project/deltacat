@@ -397,7 +397,6 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-                    deletes_to_apply_by_stream_positions=deletes_to_apply_by_stream_position,
                     deletes_to_apply_by_stream_positions_list=deletes_to_apply_by_stream_position_list,
                 )
             }

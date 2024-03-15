@@ -8,7 +8,6 @@ from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 import pyarrow as pa
-from collections import deque
 from deltacat.compute.compactor import (
     DeltaAnnotated,
 )
@@ -46,8 +45,8 @@ def prepare_deletes(
         uniform_deltas[i].stream_position <= uniform_deltas[i + 1].stream_position
         for i in range(len(uniform_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
-    deletes_obj_ref_by_stream_position = IntegerRangeDict()
-    deletes_obj_ref_by_stream_position_2: deque[Tuple(int, str)] = []
+    deletes_obj_ref_by_stream_position = {}
+    deletes_obj_ref_by_stream_position_2: List[Tuple(int, str)] = []
     window_start, window_end = 0, 0
     non_delete_deltas = []
     while window_end < len(uniform_deltas):
@@ -96,16 +95,11 @@ def prepare_deletes(
             0
         ].stream_position
         obj_ref = params.object_store.put(consolidated_deletes)
-        deletes_obj_ref_by_stream_position[
-            stream_position_of_earliest_delete_in_sequence
-        ] = obj_ref
-        static_delete_column_name = "col_1"
         deletes_obj_ref_by_stream_position_2.append(
             (stream_position_of_earliest_delete_in_sequence, obj_ref, delete_columns)
         )
         window_start = window_end
         # store all_deletes
-    deletes_obj_ref_by_stream_position.rebalance()
     return (
         non_delete_deltas,
         deletes_obj_ref_by_stream_position,
