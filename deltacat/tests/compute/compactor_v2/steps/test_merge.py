@@ -274,7 +274,6 @@ class TestMerge(unittest.TestCase):
             [self.DEDUPE_DELETE_DATA],
             **delete_kwargs,
         )
-        print(f"{delete_delta=}")
         delete_columns: List[str] = delete_delta.properties.get("DELETE_COLUMNS")
         obj_ref = object_store.put(download_delta(delete_delta, **self.kwargs))
         ird = [(delete_delta.stream_position, obj_ref, delete_columns)]
