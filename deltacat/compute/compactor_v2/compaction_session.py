@@ -226,7 +226,6 @@ def _execute_compaction(
         deletes_to_apply_by_stream_position,
         deletes_to_apply_by_stream_position_list,
     ) = prepare_deletes(params, uniform_deltas)
-    # logger.info(f"PDEBUG: {len(deletes_to_apply_by_stream_position)=} {len(deletes_to_apply_by_stream_position_list)=} {deletes_to_apply_by_stream_position_list=}")
 
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
