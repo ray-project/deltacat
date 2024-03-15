@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import List
 
-from deltacat.utils.rangedictionary import IntegerRangeDict
 from deltacat.compute.compactor import (
     DeltaAnnotated,
 )

@@ -1167,7 +1167,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
-        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        skip_enabled_compact_partition_drivers=None,
     ),
     "21-rebase-then-incremental-delete-type-delta-UDUD": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},

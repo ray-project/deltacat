@@ -330,7 +330,6 @@ def apply_deletes(
         boolean_mask = pc.is_in(
             table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
         )
-        logger.info(f"pdebug: {len(boolean_mask)=}")
         table = table.filter(pc.invert(boolean_mask))
         return table, len(boolean_mask)
 
@@ -372,14 +371,12 @@ def _compact_tables(
                 compacted_table, delete_table, delete_column_name
             )
         return compacted_table, 0, 0
-    logger.info(f"pdebug: {input=}, {dfe_list=}, {hb_idx=}")
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
         _flatten_df_envelopes_list(dfe_list)
     )
     deletes_to_apply_by_stream_positions_list = (
         input.deletes_to_apply_by_stream_positions_list
     )
-    logger.info(f"pdebug: {deletes_to_apply_by_stream_positions_list=}")
     delete_stream_positions = (
         [composite[0] for composite in deletes_to_apply_by_stream_positions_list]
         if deletes_to_apply_by_stream_positions_list

@@ -1,7 +1,6 @@
 from deltacat.storage import (
     DeltaType,
 )
-from deltacat.utils.rangedictionary import IntegerRangeDict
 from typing import Optional, List, Dict, Tuple
 from deltacat.types.media import StorageType
 from deltacat.compute.compactor.model.compact_partition_params import (
@@ -15,7 +14,7 @@ from deltacat.compute.compactor import (
 
 def prepare_deletes(
     params: CompactPartitionParams, uniform_deltas: List[DeltaAnnotated]
-) -> Tuple[List[DeltaAnnotated], IntegerRangeDict, List]:
+) -> Tuple[List[DeltaAnnotated], Dict, List]:
     """
     Prepares delete operations for a compaction process.
     This function processes all the annotated deltas and consolidates consecutive DELETE deltas using a sliding window algorithm

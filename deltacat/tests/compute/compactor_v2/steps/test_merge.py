@@ -27,7 +27,6 @@ from deltacat.tests.test_utils.pyarrow import (
     stage_partition_from_file_paths,
     commit_delta_to_staged_partition,
 )
-from deltacat.utils.rangedictionary import IntegerRangeDict
 
 
 class TestMerge(unittest.TestCase):
@@ -259,7 +258,7 @@ class TestMerge(unittest.TestCase):
         )
         object_store = RayPlasmaObjectStore()
         incremental_kwargs = {"delta_type": DeltaType.UPSERT, **self.kwargs}
-        incremental_delta = create_delta_from_csv_file(
+        incremental_delta: Delta = create_delta_from_csv_file(
             f"{self._testMethodName}-1",
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
             **incremental_kwargs,
@@ -270,15 +269,15 @@ class TestMerge(unittest.TestCase):
             "properties": {"DELETE_COLUMNS": ["pk1"]},
             **self.kwargs,
         }
-        delete_delta = create_delta_from_csv_file(
+        delete_delta: Delta = create_delta_from_csv_file(
             f"{self._testMethodName}-2",
             [self.DEDUPE_DELETE_DATA],
             **delete_kwargs,
         )
-        ird = IntegerRangeDict()
-        ird[delete_delta.stream_position] = object_store.put(
-            download_delta(delete_delta, **self.kwargs)
-        )
+        print(f"{delete_delta=}")
+        delete_columns: List[str] = delete_delta.properties.get("DELETE_COLUMNS")
+        obj_ref = object_store.put(download_delta(delete_delta, **self.kwargs))
+        ird = [(delete_delta.stream_position, obj_ref, delete_columns)]
 
         # Only one hash bucket and one file
         hb_id_to_entry_indices_range = {"0": (0, 1)}
