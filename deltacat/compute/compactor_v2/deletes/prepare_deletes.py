@@ -14,7 +14,7 @@ from deltacat.compute.compactor import (
 
 def prepare_deletes(
     params: CompactPartitionParams, uniform_deltas: List[DeltaAnnotated]
-) -> Tuple[List[DeltaAnnotated], Dict, List]:
+) -> Tuple[List[DeltaAnnotated], List]:
     """
     Prepares delete operations for a compaction process.
     This function processes all the annotated deltas and consolidates consecutive DELETE deltas using a sliding window algorithm
@@ -39,13 +39,12 @@ def prepare_deletes(
     """
 
     if not uniform_deltas:
-        return uniform_deltas, None, None
+        return uniform_deltas, None
     assert all(
         uniform_deltas[i].stream_position <= uniform_deltas[i + 1].stream_position
         for i in range(len(uniform_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
-    deletes_obj_ref_by_stream_position = {}
-    deletes_obj_ref_by_stream_position_2: List[Tuple(int, str)] = []
+    delete_payload_list: List[Tuple(int, str, List[str])] = []
     window_start, window_end = 0, 0
     non_delete_deltas = []
     while window_end < len(uniform_deltas):
@@ -94,13 +93,12 @@ def prepare_deletes(
             0
         ].stream_position
         obj_ref = params.object_store.put(consolidated_deletes)
-        deletes_obj_ref_by_stream_position_2.append(
+        delete_payload_list.append(
             (stream_position_of_earliest_delete_in_sequence, obj_ref, delete_columns)
         )
         window_start = window_end
         # store all_deletes
     return (
         non_delete_deltas,
-        deletes_obj_ref_by_stream_position,
-        deletes_obj_ref_by_stream_position_2,
+        delete_payload_list,
     )

@@ -223,7 +223,6 @@ def _execute_compaction(
         return None, None, None
     (
         uniform_deltas,
-        deletes_to_apply_by_stream_position,
         deletes_to_apply_by_stream_position_list,
     ) = prepare_deletes(params, uniform_deltas)
 

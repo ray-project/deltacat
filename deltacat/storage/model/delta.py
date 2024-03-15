@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from deltacat.aws.redshift import Manifest, ManifestAuthor, ManifestMeta
+from deltacat.storage.model.delete_parameters import DeleteParameters
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.partition import PartitionLocator
@@ -22,6 +23,7 @@ class Delta(dict):
         properties: Optional[Dict[str, str]],
         manifest: Optional[Manifest],
         previous_stream_position: Optional[int] = None,
+        delete_parameters: Optional[Locator] = None,
     ) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
@@ -35,6 +37,7 @@ class Delta(dict):
         delta.properties = properties
         delta.manifest = manifest
         delta.previous_stream_position = previous_stream_position
+        delta.delete_parameters = delete_parameters
         return delta
 
     @staticmethod
@@ -251,6 +254,17 @@ class Delta(dict):
         if delta_locator:
             return delta_locator.stream_position
         return None
+
+    @property
+    def delete_parameters(self) -> Optional[DeleteParameters]:
+        delete_parameters = self.delete_parameters
+        if delete_parameters:
+            return delete_parameters
+        return None
+
+    @delete_parameters.setter
+    def delete_parameters(self, delete_parameters: Optional[DeleteParameters]) -> None:
+        self["delete_parameters"] = delete_parameters
 
 
 class DeltaLocator(Locator, dict):
