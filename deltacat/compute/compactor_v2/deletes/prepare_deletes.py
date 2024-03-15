@@ -8,6 +8,7 @@ from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 import pyarrow as pa
+from collections import deque
 from deltacat.compute.compactor import (
     DeltaAnnotated,
 )
@@ -15,7 +16,7 @@ from deltacat.compute.compactor import (
 
 def prepare_deletes(
     params: CompactPartitionParams, uniform_deltas: List[DeltaAnnotated]
-) -> Tuple[List[DeltaAnnotated], IntegerRangeDict]:
+) -> Tuple[List[DeltaAnnotated], IntegerRangeDict, List]:
     """
     Prepares delete operations for a compaction process.
     This function processes all the annotated deltas and consolidates consecutive DELETE deltas using a sliding window algorithm
@@ -40,13 +41,13 @@ def prepare_deletes(
     """
 
     if not uniform_deltas:
-        return uniform_deltas, None
+        return uniform_deltas, None, None
     assert all(
         uniform_deltas[i].stream_position <= uniform_deltas[i + 1].stream_position
         for i in range(len(uniform_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
     deletes_obj_ref_by_stream_position = IntegerRangeDict()
-    deletes_obj_ref_by_stream_position_2: List[Tuple(int, str)] = []
+    deletes_obj_ref_by_stream_position_2: deque[Tuple(int, str)] = []
     window_start, window_end = 0, 0
     non_delete_deltas = []
     while window_end < len(uniform_deltas):
@@ -98,8 +99,9 @@ def prepare_deletes(
         deletes_obj_ref_by_stream_position[
             stream_position_of_earliest_delete_in_sequence
         ] = obj_ref
+        static_delete_column_name = "col_1"
         deletes_obj_ref_by_stream_position_2.append(
-            (stream_position_of_earliest_delete_in_sequence, obj_ref)
+            (stream_position_of_earliest_delete_in_sequence, obj_ref, delete_columns)
         )
         window_start = window_end
         # store all_deletes

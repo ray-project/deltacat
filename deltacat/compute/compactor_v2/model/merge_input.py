@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     MergeFileGroupsProvider,
 )
 from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
+from collections import deque
 from deltacat.io.object_store import IObjectStore
 from deltacat.storage import (
     Partition,
@@ -130,7 +131,9 @@ class MergeInput(Dict):
         return self.get("deletes_to_apply_by_stream_positions")
 
     @property
-    def deletes_to_apply_by_stream_positions_list(self) -> Optional[Dict[str, Any]]:
+    def deletes_to_apply_by_stream_positions_list(
+        self,
+    ) -> Optional[deque[Tuple[int, Any]]]:
         return self.get("deletes_to_apply_by_stream_positions_list")
 
     @property

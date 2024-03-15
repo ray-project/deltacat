@@ -51,6 +51,14 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+def searchsorted_by_attr(
+    attribute: str, obj_arr, values_to_insert, side="right", post_processing=None
+):
+    return np.searchsorted(
+        [getattr(input, attribute) for input in obj_arr], values_to_insert, side
+    )
+
+
 def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -> bool:
     return (
         input.round_completion_info
@@ -66,6 +74,14 @@ def _get_all_deletes(
 ) -> Iterator[pa.Table]:
     for _, obj_ref in stream_positions_to_delete_obj_ref.items():
         yield object_store.get(obj_ref)
+
+
+def _get_all_deletes2(
+    deletes_to_apply_by_stream_positions_list: List[Tuple[int, Any, List[str]]],
+    object_store: IObjectStore = None,
+) -> Iterator[Tuple[pa.Table, str]]:
+    for _, obj_ref, delete_column in deletes_to_apply_by_stream_positions_list:
+        yield object_store.get(obj_ref), delete_column
 
 
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
@@ -111,17 +127,28 @@ def _build_incremental_table(
     deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
     object_store: IObjectStore = None,
 ) -> pa.Table:
+    hb_tables = []
+    for df_envelope in df_envelopes:
+        table = df_envelope.table
+        assert (
+            df_envelope.delta_type != DeltaType.APPEND
+        ), "APPEND type deltas are not supported. Kindly use UPSERT"
+        assert (
+            df_envelope.delta_type != DeltaType.DELETE
+        ), "DELETE type deltas should not be present when building the incremental table"
+        hb_tables.append(table)
+    incremental_res: pa.Table = pa.concat_tables(hb_tables)
+    return incremental_res
+
+
+def _build_incremental_table(
+    df_envelopes: List[DeltaFileEnvelope],
+    hb_idx: int,
+    deletes_to_apply_by_stream_positions: Optional[Dict[int, str]] = None,
+    object_store: IObjectStore = None,
+) -> pa.Table:
     hb_tables: List[Any] = []
     # sort by delta file stream position now instead of sorting every row later
-    # df_envelopes: List[DeltaFileEnvelope] = [
-    #     d for dfe_list in df_envelopes_list for d in dfe_list
-    # ]
-    # df_envelopes: List[DeltaFileEnvelope] = sorted(
-    #     df_envelopes,
-    #     key=lambda df: (df.stream_position, df.file_index),
-    #     reverse=False,  # ascending
-    # )
-
     for df_envelope in df_envelopes:
         table = df_envelope.table
         assert (
@@ -263,7 +290,6 @@ def _download_compacted_table(
     hb_index: int,
     rcf: RoundCompletionInfo,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    deletes_to_apply_by_stream_positions: Optional[pa.Table] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
@@ -348,6 +374,39 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     return materialize_result_list
 
 
+def apply_deletes(
+    table: pa.Table,
+    deletes_to_apply,
+    delete_column_names: List[str],
+    equality_predicate_operation: Optional[Callable] = pa.compute.and_,
+) -> Tuple[Any, int]:
+    # next = None
+    for i, delete_column_name in enumerate(delete_column_names):
+        boolean_mask = pc.is_in(
+            table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
+        )
+        logger.info(f"pdebug: {len(boolean_mask)=}")
+        table = table.filter(pc.invert(boolean_mask))
+        return table, len(boolean_mask)
+
+    # drop_masks = [
+    #     pc.is_in(
+    #         table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
+    #     )
+    #     for delete_column_name in delete_column_names
+    # ]
+    # for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
+    #     curr_drop_mask = drop_masks[i]
+    #     next_drop_mask = drop_masks[i + 1]
+    #     # logical OR the mask arrays
+    #     result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
+    #     drop_masks[i + 1] = result_mask
+    # mask_with_all_droppable = drop_masks[-1].combine_chunks()
+    # number_of_rows_dropped: int = mask_with_all_droppable.true_count
+    # table = table.filter(pc.invert(mask_with_all_droppable))
+    # return table, number_of_rows_dropped
+
+
 def _compact_tables(
     input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
@@ -358,94 +417,147 @@ def _compact_tables(
             hb_index=hb_idx,
             rcf=input.round_completion_info,
             read_kwargs_provider=input.read_kwargs_provider,
-            deletes_to_apply_by_stream_positions=input.deletes_to_apply_by_stream_positions,
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-        if input.deletes_to_apply_by_stream_positions:
-            for delete_table in _get_all_deletes(
-                input.deletes_to_apply_by_stream_positions,
-                input.object_store,
-            ):
-                compacted_table, number_of_rows_dropped = drop_rows_affected_by_deletes(
-                    compacted_table,
-                    delete_table,
-                )
-                logger.info(
-                    f"[Hash bucket index {hb_idx}]. Deletes found in input deltas."
-                    f" Dropped {number_of_rows_dropped} row(s) from compacted table."
-                )
+        for delete_table, delete_column_name in _get_all_deletes2(
+            input.deletes_to_apply_by_stream_positions_list, input.object_store
+        ):
+            compacted_table, number_of_rows_dropped = apply_deletes(
+                compacted_table, delete_table, delete_column_name
+            )
         return compacted_table, 0, 0
-    logger.info(
-        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
-        f"{len(dfe_list)} delta file envelope lists..."
-    )
-    logger.info(f"pdebug: {input.deletes_to_apply_by_stream_positions_list}")
+    logger.info(f"pdebug: {input=}, {dfe_list=}, {hb_idx=}")
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
         _flatten_df_envelopes_list(dfe_list)
     )
-    table = _build_incremental_table(
-        df_envelopes,
-        hb_idx,
-        input.deletes_to_apply_by_stream_positions,
-        input.object_store,
+    deletes_to_apply_by_stream_positions_list = (
+        input.deletes_to_apply_by_stream_positions_list
     )
-    incremental_len = len(table)
-    logger.info(
-        f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
+    logger.info(f"pdebug: {deletes_to_apply_by_stream_positions_list=}")
+    delete_stream_positions = (
+        [composite[0] for composite in deletes_to_apply_by_stream_positions_list]
+        if deletes_to_apply_by_stream_positions_list
+        else []
     )
-    if input.sort_keys:
-        # Incremental is sorted and merged, as sorting
-        # on non event based sort key does not produce consistent
-        # compaction results. E.g., compaction(delta1, delta2, delta3)
-        # will not be equal to compaction(compaction(delta1, delta2), delta3).
-        table = table.sort_by(input.sort_keys)
-
-    compacted_table = None
-    if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
-        compacted_table = _download_compacted_table(
-            hb_index=hb_idx,
-            rcf=input.round_completion_info,
-            read_kwargs_provider=input.read_kwargs_provider,
-            deletes_to_apply_by_stream_positions=input.deletes_to_apply_by_stream_positions,
-            deltacat_storage=input.deltacat_storage,
-            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+    delete_indices: List[int] = searchsorted_by_attr(
+        "stream_position", df_envelopes, delete_stream_positions
+    )
+    upsert_sequence_spos_to_delete_index = {}
+    for delete_stream_position_index, delete_pos_in_upsert in enumerate(delete_indices):
+        if delete_pos_in_upsert == 0:
+            continue
+        upsert_stream_pos = df_envelopes[delete_pos_in_upsert - 1].stream_position
+        upsert_sequence_spos_to_delete_index[
+            upsert_stream_pos
+        ] = delete_stream_position_index
+    split_up_df_envelopes: nd.array = np.split(df_envelopes, delete_indices)
+    contiguous_upsert_seq_list: List[List[DeltaFileEnvelope]] = []
+    for delete_stream_position_index, contiguous_upsert_sequence in enumerate(
+        split_up_df_envelopes
+    ):
+        contiguous_upsert_sequence: List[
+            DeltaFileEnvelope
+        ] = contiguous_upsert_sequence.tolist()
+        if contiguous_upsert_sequence:
+            contiguous_upsert_seq_list.append(contiguous_upsert_sequence)
+    prev_table = None
+    total_incremental_len = 0
+    total_deduped_records = 0
+    for i, df_envelopes in enumerate(contiguous_upsert_seq_list):
+        table = _build_incremental_table(
+            df_envelopes,
+            hb_idx,
+            input.deletes_to_apply_by_stream_positions,
+            input.object_store,
         )
-        if input.deletes_to_apply_by_stream_positions:
-            for delete_table in _get_all_deletes(
-                input.deletes_to_apply_by_stream_positions,
-                input.object_store,
-            ):
-                compacted_table, number_of_rows_dropped = drop_rows_affected_by_deletes(
-                    compacted_table,
-                    delete_table,
-                )
-                logger.info(
-                    f"[Hash bucket index {hb_idx}]. Deletes found in input deltas."
-                    f" Dropped {number_of_rows_dropped} row(s) from compacted table."
-                )
-    hb_table_record_count = len(table) + (
-        len(compacted_table) if compacted_table else 0
-    )
-
-    table, merge_time = timed_invocation(
-        func=_merge_tables,
-        table=table,
-        primary_keys=input.primary_keys,
-        can_drop_duplicates=input.drop_duplicates,
-        compacted_table=compacted_table,
-    )
-    if not table:
-        logger.warning(
-            f"[Merge task index {input.merge_task_index}] All rows dropped while merging table"
+        partial_incremental_len = len(table)
+        logger.info(
+            f"[Hash bucket index {hb_idx}] Got the incremental table of length {partial_incremental_len}"
         )
-        return None, 0, 0
-    total_deduped_records = hb_table_record_count - len(table)
+        if input.sort_keys:
+            # Incremental is sorted and merged, as sorting
+            # on non event based sort key does not produce consistent
+            # compaction results. E.g., compaction(delta1, delta2, delta3)
+            # will not be equal to compaction(compaction(delta1, delta2), delta3).
+            table = table.sort_by(input.sort_keys)
+        compacted_table = None
+        if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
+            compacted_table = _download_compacted_table(
+                hb_index=hb_idx,
+                rcf=input.round_completion_info,
+                read_kwargs_provider=input.read_kwargs_provider,
+                deltacat_storage=input.deltacat_storage,
+                deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+            )
+        partial_hb_table_record_count = len(table) + (
+            len(prev_table) if prev_table else 0
+        )
+        table, merge_time = timed_invocation(
+            func=_merge_tables,
+            table=table,
+            primary_keys=input.primary_keys,
+            can_drop_duplicates=input.drop_duplicates,
+            compacted_table=compacted_table,
+        )
+        if prev_table:
+            table, merge_time = timed_invocation(
+                func=_merge_tables,
+                table=table,
+                primary_keys=input.primary_keys,
+                can_drop_duplicates=input.drop_duplicates,
+                compacted_table=prev_table,
+            )
+        partial_deduped_records = partial_hb_table_record_count - len(table)
+        if upsert_sequence_spos_to_delete_index:
+            spos = df_envelopes[-1].stream_positionAccentu
+            delete_index = upsert_sequence_spos_to_delete_index[spos]
+            (
+                _,
+                delete_obj_ref,
+                delete_column_names,
+            ) = deletes_to_apply_by_stream_positions_list[delete_index]
+            deletes_to_apply = input.object_store.get(delete_obj_ref)
+            table, number_of_rows_dropped = apply_deletes(
+                table, deletes_to_apply, delete_column_names
+            )
+        prev_table = table
+        total_incremental_len += partial_incremental_len
+        total_deduped_records += partial_deduped_records
     logger.info(
         f"[Merge task index {input.merge_task_index}] Merged "
         f"record count: {len(table)}, size={table.nbytes if len(table) > 0 else 0} took: {merge_time}s"
     )
-    return table, incremental_len, total_deduped_records
+    return table, total_incremental_len, total_deduped_records
+
+
+def drop_rows_affected_by_deletes2(
+    table: Optional[pa.Table],
+    deletes_to_apply: pa.Table,
+    delete_column_names: List[str] = None,
+    equality_predicate_operation: Optional[Callable] = pa.compute.and_,
+) -> Tuple[Any, int]:
+    if not table:
+        return table
+    delete_column_names = _get_delete_column_names(
+        deletes_to_apply, delete_column_names
+    )
+    drop_masks = [
+        pc.is_in(
+            table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
+        )
+        for delete_column_name in delete_column_names
+    ]
+    for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
+        curr_drop_mask = drop_masks[i]
+        next_drop_mask = drop_masks[i + 1]
+        # logical OR the mask arrays
+        result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
+        drop_masks[i + 1] = result_mask
+    mask_with_all_droppable = drop_masks[-1].combine_chunks()
+    number_of_rows_dropped: int = mask_with_all_droppable.true_count
+    table = table.filter(pc.invert(mask_with_all_droppable))
+    return table, number_of_rows_dropped
 
 
 def _copy_manifests_from_hash_bucketing(
@@ -485,7 +597,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             # copy by reference only if deletes are not present
             can_copy_by_ref = (
                 not merge_file_group.dfe_groups
-                and not input.deletes_to_apply_by_stream_positions
+                and not input.deletes_to_apply_by_stream_positions_list
             )
             if can_copy_by_ref:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
