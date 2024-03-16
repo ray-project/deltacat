@@ -18,6 +18,10 @@ from deltacat.compute.compactor_v2.constants import (
     DROP_DUPLICATES,
     MAX_RECORDS_PER_COMPACTED_FILE,
 )
+from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
+from deltacat.compute.compactor_v2.deletes.strategy.noop_delete_strategy import (
+    NOOPDeleteStrategy,
+)
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 
@@ -39,6 +43,7 @@ class MergeInput(Dict):
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         round_completion_info: Optional[RoundCompletionInfo] = None,
         object_store: Optional[IObjectStore] = None,
+        delete_strategy: Optional[DeleteStrategy] = NOOPDeleteStrategy,
         deletes_to_apply_by_stream_positions_list: Optional[List] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
@@ -121,6 +126,12 @@ class MergeInput(Dict):
     @property
     def object_store(self) -> Optional[IObjectStore]:
         return self.get("object_store")
+
+    @property
+    def delete_strategy(
+        self,
+    ) -> DeleteStrategy:
+        return self.get("delete_strategy")
 
     @property
     def deletes_to_apply_by_stream_positions_list(

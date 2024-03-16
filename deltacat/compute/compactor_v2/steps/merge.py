@@ -50,14 +50,6 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def searchsorted_by_attr(
-    attribute: str, obj_arr, values_to_insert, side="right", post_processing=None
-):
-    return np.searchsorted(
-        [getattr(input, attribute) for input in obj_arr], values_to_insert, side
-    )
-
-
 def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -> bool:
     return (
         input.round_completion_info
@@ -374,25 +366,28 @@ def _compact_tables(
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
         _flatten_df_envelopes_list(dfe_list)
     )
-    deletes_to_apply_by_stream_positions_list = (
-        input.deletes_to_apply_by_stream_positions_list
+    delete_indices, spos_to_delete = input.delete_strategy.get_deletes_indices(
+        df_envelopes, input.deletes_to_apply_by_stream_positions_list
     )
-    delete_stream_positions = (
-        [composite[0] for composite in deletes_to_apply_by_stream_positions_list]
-        if deletes_to_apply_by_stream_positions_list
-        else []
-    )
-    delete_indices: List[int] = searchsorted_by_attr(
-        "stream_position", df_envelopes, delete_stream_positions
-    )
-    upsert_sequence_spos_to_delete_index = {}
-    for delete_stream_position_index, delete_pos_in_upsert in enumerate(delete_indices):
-        if delete_pos_in_upsert == 0:
-            continue
-        upsert_stream_pos = df_envelopes[delete_pos_in_upsert - 1].stream_position
-        upsert_sequence_spos_to_delete_index[
-            upsert_stream_pos
-        ] = delete_stream_position_index
+    # deletes_to_apply_by_stream_positions_list = (
+    #     input.deletes_to_apply_by_stream_positions_list
+    # )
+    # delete_stream_positions = (
+    #     [composite[0] for composite in deletes_to_apply_by_stream_positions_list]
+    #     if deletes_to_apply_by_stream_positions_list
+    #     else []
+    # )
+    # delete_indices: List[int] = searchsorted_by_attr(
+    #     "stream_position", df_envelopes, delete_stream_positions
+    # )
+    # upsert_sequence_spos_to_delete_index = {}
+    # for delete_stream_position_index, delete_pos_in_upsert in enumerate(delete_indices):
+    #     if delete_pos_in_upsert == 0:
+    #         continue
+    #     upsert_stream_pos = df_envelopes[delete_pos_in_upsert - 1].stream_position
+    #     upsert_sequence_spos_to_delete_index[
+    #         upsert_stream_pos
+    #     ] = delete_stream_position_index
     upsert_seq_list: List[List[DeltaFileEnvelope]] = [
         upsert_sequence.tolist()
         for upsert_sequence in np.split(df_envelopes, delete_indices)

@@ -8,6 +8,7 @@ from deltacat.tests.compute.test_util_common import (
 )
 
 from deltacat.storage import (
+    DeleteParameters,
     Delta,
     DeltaType,
     Partition,
@@ -39,15 +40,14 @@ def create_incremental_deltas_on_source_table(
         partition_values_param,
         **ds_mock_kwargs,
     )
-    for incremental_delta, delta_type, delta_properties in incremental_deltas:
-        if delta_type is DeltaType.DELETE:
-            is_delete = True
+    for incremental_delta, delta_type, delete_parameters in incremental_deltas:
+        is_delete = True if delta_type is DeltaType.DELETE else False
         new_delta: Delta = ds.commit_delta(
             ds.stage_delta(
                 incremental_delta,
                 src_partition,
                 delta_type,
-                properties=delta_properties if not None else {},
+                delete_parameters=delete_parameters,
                 **ds_mock_kwargs,
             ),
             **ds_mock_kwargs,

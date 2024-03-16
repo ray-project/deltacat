@@ -1,7 +1,12 @@
 from deltacat.storage import (
     DeltaType,
 )
-from typing import Optional, List, Dict, Tuple
+from deltacat.compute.compactor_v2.deletes.model import (
+    DeleteStrategy,
+    PrepareDeleteResult,
+    DeleteEnvelope,
+)
+from typing import Optional, List, Tuple
 from deltacat.types.media import StorageType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -44,7 +49,7 @@ def prepare_deletes(
         uniform_deltas[i].stream_position <= uniform_deltas[i + 1].stream_position
         for i in range(len(uniform_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
-    delete_payload_list: List[Tuple(int, str, List[str])] = []
+    delete_payload_list: List[DeleteEnvelope] = []
     window_start, window_end = 0, 0
     non_delete_deltas = []
     while window_end < len(uniform_deltas):
@@ -70,13 +75,14 @@ def prepare_deletes(
         deletes_at_this_stream_position: List[pa.Table] = []
         for delete_delta in delete_deltas_sequence:
             assert (
-                delete_delta.properties is not None
-            ), "Delete type deltas are required to have properties defined"
-            properties: Optional[Dict[str, str]] = delete_delta.properties
+                delete_delta.delete_parameters is not None
+            ), "Delete type deltas are required to have delete parameters defined"
             assert (
-                properties.get("DELETE_COLUMNS") is not None
-            ), "Delete type deltas are required to have a delete column list defined"
-            delete_columns: Optional[List[str]] = properties.get("DELETE_COLUMNS")
+                delete_delta.delete_parameters is not None
+            ), "Delete type deltas are required to have delete parameters defined"
+            delete_columns: Optional[
+                List[str]
+            ] = delete_delta.delete_parameters.equality_column_names
             delete_dataset = params.deltacat_storage.download_delta(
                 delete_delta,
                 file_reader_kwargs_provider=params.read_kwargs_provider,

@@ -7,6 +7,13 @@ from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
+from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
+from deltacat.compute.compactor_v2.deletes.strategy.noop_delete_strategy import (
+    NOOPDeleteStrategy,
+)
+from deltacat.compute.compactor_v2.deletes.strategy.default_equality_delete_strategy import (
+    DefaultEqualityDeleteStrategy,
+)
 
 from deltacat.tests.compute.test_util_constant import (
     BASE_TEST_SOURCE_NAMESPACE,
@@ -163,7 +170,6 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in REBASE_THEN_INCREMENTAL_TEST_CASES],
-    indirect=[],
 )
 def test_compact_partition_rebase_then_incremental(
     setup_s3_resource: ServiceResource,
@@ -330,6 +336,7 @@ def test_compact_partition_rebase_then_incremental(
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition_locator_w_deltas,
             "sort_keys": sort_keys if sort_keys else None,
+            "delete_strategy": DefaultEqualityDeleteStrategy(),
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)

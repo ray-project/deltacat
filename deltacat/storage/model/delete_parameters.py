@@ -33,8 +33,8 @@ class DeleteParameters(dict):
                 intersection &= set(column_name)
             return list(intersection)
 
-        if len(delete_parameters) == 0:
-            return None
+        if len(delete_parameters) < 2:
+            return delete_parameters
         all_equality_column_names = [
             delete.equality_column_names for delete in delete_parameters
         ]

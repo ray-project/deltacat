@@ -11,6 +11,17 @@ from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.common import ReadKwargsProvider
 
 
+def searchsorted_by_attr(
+    attribute: str, obj_arr, values_to_insert, side="right", post_processing=None
+):
+    """
+    foo
+    """
+    return np.searchsorted(
+        [getattr(input, attribute) for input in obj_arr], values_to_insert, side
+    )
+
+
 def slice_ndarray(np_array: np.ndarray, max_len: Optional[int]) -> List[np.ndarray]:
     """
     Iteratively creates max_len slices from the first dimension of an ndarray.

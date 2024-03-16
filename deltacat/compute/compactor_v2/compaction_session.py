@@ -5,10 +5,15 @@ import functools
 import logging
 import ray
 import time
+import dataclasses
 import json
 
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     RemoteMergeFileGroupsProvider,
+)
+from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
+from deltacat.compute.compactor_v2.deletes.strategy.default_equality_delete_strategy import (
+    DefaultEqualityDeleteStrategy,
 )
 from deltacat.compute.compactor_v2.deletes.prepare_deletes import prepare_deletes
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
@@ -221,10 +226,15 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-    (
-        uniform_deltas,
-        deletes_to_apply_by_stream_position_list,
-    ) = prepare_deletes(params, uniform_deltas)
+    delete_strategy = DefaultEqualityDeleteStrategy()
+    logger.info(f"pdebug: {delete_strategy.name=}")
+    uniform_deltas, deletes_to_apply_by_stream_position_list = dataclasses.astuple(
+        delete_strategy.prepare_deletes(params, uniform_deltas)
+    )
+    # (
+    #     uniform_deltas,
+    #     deletes_to_apply_by_stream_position_list,
+    # ) = params.delete_strategy.prepare_deletes(params, uniform_deltas)
 
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
@@ -396,6 +406,7 @@ def _execute_compaction(
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
                     deletes_to_apply_by_stream_positions_list=deletes_to_apply_by_stream_position_list,
+                    delete_strategy=delete_strategy,
                 )
             }
 

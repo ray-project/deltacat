@@ -1,5 +1,5 @@
 import pyarrow as pa
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
     PartitionKey,
@@ -36,6 +36,7 @@ from deltacat.tests.compute.compact_partition_test_cases import (
     ZERO_VALUED_PRIMARY_KEY,
     EMPTY_UTSV_PATH,
 )
+from deltacat.storage import DeleteParameters
 
 
 @dataclass(frozen=True)
@@ -45,12 +46,11 @@ class RebaseThenIncrementalCompactionTestCaseParams(BaseCompactorTestCase):
 
     Args:
         * (inherited from CompactorTestCase): see CompactorTestCase docstring for details
-        incremental_deltas: pa.Table - argument required for delta creation during the incremental phase of compact_partition test setup. Incoming deltas during incremental expressed as a pyarrow array
-        incremental_deltas_delta_type: DeltaType -  argument required for delta creation during the incremental phase of compact_partition test setup. Available values are (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE). DeltaType.APPEND is not supported by compactor v1 or v2
+        incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]] - argument required for delta creation during the incremental phase of compact_partition test setup. Incoming deltas during incremental expressed as a pyarrow array
         rebase_expected_compact_partition_result: pa.Table - expected table after rebase compaction runs. An output that is asserted on in Rebase then Incremental unit tests
     """
 
-    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]]
+    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
     rebase_expected_compact_partition_result: pa.Table
 
 
@@ -788,7 +788,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["pk_col_1"]},
+                DeleteParameters.of(["pk_col_1"]),
             )
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1167,7 +1167,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
-        skip_enabled_compact_partition_drivers=None,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
     "21-rebase-then-incremental-delete-type-delta-UDUD": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1251,7 +1251,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(
     {
-        **REBASE_THEN_INCREMENTAL_TEST_CASES,
         **REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES,
+        **REBASE_THEN_INCREMENTAL_TEST_CASES,
     },
 )
