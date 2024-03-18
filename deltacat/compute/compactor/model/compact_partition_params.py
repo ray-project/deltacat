@@ -8,6 +8,7 @@ from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
+
 # from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
 # from deltacat.compute.compactor_v2.deletes.strategy.noop_delete_strategy import (
 #     NOOPDeleteStrategy,

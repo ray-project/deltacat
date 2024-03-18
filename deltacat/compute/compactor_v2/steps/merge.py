@@ -61,10 +61,9 @@ def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -
 
 def _get_all_deletes(
     deletes_to_apply_by_stream_positions_list: List[Tuple[int, Any, List[str]]],
-    object_store: IObjectStore = None,
 ) -> Iterator[Tuple[pa.Table, str]]:
     for _, obj_ref, delete_column in deletes_to_apply_by_stream_positions_list:
-        yield object_store.get(obj_ref), delete_column
+        yield ray.get(obj_ref), delete_column
 
 
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
@@ -357,7 +356,7 @@ def _compact_tables(
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
         for delete_table, delete_column_name in _get_all_deletes(
-            input.deletes_to_apply_by_stream_positions_list, input.object_store
+            input.deletes_to_apply_by_stream_positions_list
         ):
             compacted_table, number_of_rows_dropped = apply_deletes(
                 compacted_table, delete_table, delete_column_name
@@ -366,6 +365,7 @@ def _compact_tables(
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
         _flatten_df_envelopes_list(dfe_list)
     )
+    logger.info(f"pdebug:_compact_tables {input.delete_strategy=}")
     delete_indices, spos_to_delete = input.delete_strategy.get_deletes_indices(
         df_envelopes, input.deletes_to_apply_by_stream_positions_list
     )
@@ -393,6 +393,7 @@ def _compact_tables(
         for upsert_sequence in np.split(df_envelopes, delete_indices)
         if upsert_sequence.tolist()
     ]
+    logger.info(f"pdebug: {delete_indices=}, {spos_to_delete=}, {upsert_seq_list=}")
     prev_table = None
     total_incremental_len = 0
     total_deduped_records = 0
@@ -440,14 +441,14 @@ def _compact_tables(
                 compacted_table=prev_table,
             )
         partial_deduped_records = partial_hb_table_record_count - len(table)
-        if upsert_sequence_spos_to_delete_index:
+        if spos_to_delete:
             spos = df_envelopes[-1].stream_position
-            delete_index = upsert_sequence_spos_to_delete_index[spos]
+            delete_index = spos_to_delete[spos]
             (
                 _,
                 delete_obj_ref,
                 delete_column_names,
-            ) = deletes_to_apply_by_stream_positions_list[delete_index]
+            ) = input.deletes_to_apply_by_stream_positions_list[delete_index]
             deletes_to_apply = input.object_store.get(delete_obj_ref)
             table, number_of_rows_dropped = apply_deletes(
                 table, deletes_to_apply, delete_column_names

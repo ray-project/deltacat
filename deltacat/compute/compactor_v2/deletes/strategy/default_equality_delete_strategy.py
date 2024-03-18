@@ -6,6 +6,7 @@ from deltacat.compute.compactor_v2.deletes.model import (
 from deltacat.storage import (
     DeltaType,
 )
+import logging
 
 from deltacat.utils.numpy import searchsorted_by_attr
 import ray
@@ -19,7 +20,7 @@ import pyarrow as pa
 from deltacat.compute.compactor import (
     DeltaAnnotated,
 )
-
+from deltacat import logs
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -27,6 +28,9 @@ from deltacat.compute.compactor import (
     DeltaAnnotated,
     DeltaFileEnvelope,
 )
+
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class DefaultEqualityDeleteStrategy(DeleteStrategy):
@@ -41,7 +45,7 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
         params: CompactPartitionParams,
         input_deltas: List[DeltaAnnotated],
         *args,
-        **kwargs
+        **kwargs,
     ) -> PrepareDeleteResult:
         """
         Prepares delete operations for a compaction process.
@@ -96,9 +100,7 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
             ]
             deletes_at_this_stream_position: List[pa.Table] = []
             for delete_delta in delete_deltas_sequence:
-                assert (
-                    delete_delta.delete_parameters is not None
-                ), "Delete type deltas are required to have delete parameters defined"
+                logger.info(f"pdebug: {delete_delta=}")
                 assert (
                     delete_delta.delete_parameters is not None
                 ), "Delete type deltas are required to have delete parameters defined"
@@ -122,7 +124,7 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
             )
             obj_ref: ObjectRef = ray.put(consolidated_deletes)
             delete_payloads.append(
-                DeletePayload(
+                DeleteEnvelope(
                     stream_position_of_earliest_delete_in_sequence,
                     obj_ref,
                     delete_columns,
@@ -140,8 +142,9 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
         df_envelopes: List[DeltaFileEnvelope],
         deletes: List[DeleteEnvelope],
         *args,
-        **kwargs
+        **kwargs,
     ) -> Tuple[List[int], Dict[int, Any]]:
+        logger.info(f"PDEBUG:get_deletes_indices {locals()=}")
         delete_stream_positions: List[int] = [
             delete.stream_position for delete in deletes
         ]

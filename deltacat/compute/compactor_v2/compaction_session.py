@@ -227,10 +227,10 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
     delete_strategy = DefaultEqualityDeleteStrategy()
-    logger.info(f"pdebug: {delete_strategy.name=}")
     uniform_deltas, deletes_to_apply_by_stream_position_list = dataclasses.astuple(
         delete_strategy.prepare_deletes(params, uniform_deltas)
     )
+    logger.info(f"pdebug: {delete_strategy=}")
     # (
     #     uniform_deltas,
     #     deletes_to_apply_by_stream_position_list,
@@ -379,6 +379,7 @@ def _execute_compaction(
             deltacat_storage_kwargs=params.deltacat_storage_kwargs,
             ray_custom_resources=params.ray_custom_resources,
         )
+        logger.info(f"pdebug: {delete_strategy=}")
 
         def merge_input_provider(index, item):
             return {

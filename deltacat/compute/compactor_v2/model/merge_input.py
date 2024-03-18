@@ -43,7 +43,7 @@ class MergeInput(Dict):
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         round_completion_info: Optional[RoundCompletionInfo] = None,
         object_store: Optional[IObjectStore] = None,
-        delete_strategy: Optional[DeleteStrategy] = NOOPDeleteStrategy,
+        delete_strategy: Optional[DeleteStrategy] = None,
         deletes_to_apply_by_stream_positions_list: Optional[List] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
@@ -67,6 +67,7 @@ class MergeInput(Dict):
         result[
             "deletes_to_apply_by_stream_positions_list"
         ] = deletes_to_apply_by_stream_positions_list
+        result["delete_strategy"] = delete_strategy
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
         return result
@@ -128,16 +129,14 @@ class MergeInput(Dict):
         return self.get("object_store")
 
     @property
-    def delete_strategy(
-        self,
-    ) -> DeleteStrategy:
-        return self.get("delete_strategy")
-
-    @property
     def deletes_to_apply_by_stream_positions_list(
         self,
     ) -> Optional[deque[Tuple[int, Any]]]:
         return self.get("deletes_to_apply_by_stream_positions_list")
+
+    @property
+    def delete_strategy(self) -> Optional[DeleteStrategy]:
+        return self.get("delete_strategy")
 
     @property
     def deltacat_storage(self) -> unimplemented_deltacat_storage:

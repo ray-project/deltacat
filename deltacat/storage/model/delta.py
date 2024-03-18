@@ -267,10 +267,10 @@ class Delta(dict):
 
     @property
     def delete_parameters(self) -> Optional[DeleteParameters]:
-        delete_parameters = self.delete_parameters
-        if delete_parameters:
-            return delete_parameters
-        return None
+        delete_parameters = self.get("delete_parameters")
+        return (
+            None if delete_parameters is None else DeleteParameters(delete_parameters)
+        )
 
     @delete_parameters.setter
     def delete_parameters(self, delete_parameters: Optional[DeleteParameters]) -> None:

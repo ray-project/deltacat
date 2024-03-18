@@ -1,4 +1,3 @@
-
 from abc import abstractmethod, ABC
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -25,6 +24,7 @@ from ray.types import ObjectRef
 from typing import List, Tuple, Any, Dict
 
 from dataclasses import dataclass
+
 
 class DeleteStrategy(ABC):
     @property
@@ -43,10 +43,6 @@ class DeleteStrategy(ABC):
 
     @abstractmethod
     def get_deletes_indices(
-        self,
-        df_envelopes: List[DeltaFileEnvelope],
-        deletes: Any,
-        *args,
-        **kwargs
+        self, df_envelopes: List[DeltaFileEnvelope], deletes: Any, *args, **kwargs
     ) -> Tuple[List[int], Dict[int, Any]]:
         pass
