@@ -783,8 +783,8 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
             (
                 pa.Table.from_arrays(
                     [  # delete last two primary keys
-                        pa.array([10, 11]),
-                        pa.array(["a", "b"]),
+                        pa.array([10, 11, 12, 13]),
+                        pa.array(["a", "b", "c", "d"]),
                     ],
                     names=["pk_col_1", "col_1"],
                 ),
@@ -801,11 +801,21 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                 DeltaType.DELETE,
                 DeleteParameters.of(["pk_col_1"]),
             ),
+            # (
+            #     pa.Table.from_arrays(
+            #         [  # delete last two primary keys
+            #             pa.array(["1", "c"]),
+            #         ],
+            #         names=["col_1"],
+            #     ),
+            #     DeltaType.DELETE,
+            #     DeleteParameters.of(["col_1"]),
+            # ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
-                pa.array([i for i in range(10)]),
-                pa.array([str(i) for i in range(0, 10)]),
+                pa.array([i for i in range(10)] + [11,12,13]),
+                pa.array([str(i) for i in range(0, 10)] + ["b","c","d"]),
             ],
             names=["pk_col_1", "col_1"],
         ),
