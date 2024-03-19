@@ -1,82 +1,73 @@
-from abc import abstractmethod, ABC
-from deltacat.compute.compactor.model.compact_partition_params import (
-    CompactPartitionParams,
-)
 from deltacat.compute.compactor import (
     DeltaAnnotated,
-    DeltaFileEnvelope,
 )
 from ray.types import ObjectRef
 
-from typing import List, Tuple, Any, Dict
+from typing import List, Union
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 import pyarrow as pa
+from abc import ABC, abstractmethod
+import ray
 
 
-@dataclass
+class DeleteTableStorageStrategy(ABC):
+    @abstractmethod
+    def store_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+        pass
+
+    @abstractmethod
+    def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+        pass
+
+
+class DeleteTableNOOPStorageStrategy(DeleteTableStorageStrategy):
+    def store_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+        return delete_table_like
+
+    def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+        return delete_table_like
+
+
+class DeleteTableReferenceStorageStrategy(DeleteTableStorageStrategy):
+    def store_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+        obj_ref = ray.put(delete_table_like)
+        return obj_ref
+
+    def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+        table = ray.get(delete_table_like)
+        return table
+
+
 class DeleteFileEnvelope:
-    stream_position: int
-    object_ref: ObjectRef
-    delete_columns: List[str]
+    def __init__(
+        self,
+        stream_position: int,
+        delete_table: pa.Table,
+        delete_columns: List[str],
+        strategy: DeleteTableStorageStrategy = DeleteTableNOOPStorageStrategy(),
+    ):
+        self.strategy: DeleteTableStorageStrategy = strategy
+        self._stream_position: int = stream_position
+        self._delete_table: Union[pa.Table, ObjectRef] = self.strategy.store_table(
+            delete_table
+        )
+        self._delete_columns: List[str] = delete_columns
 
-    def __iter__(self):
-        return (getattr(self, field.name) for field in fields(self))
+    @property
+    def stream_position(self) -> int:
+        return self._stream_position
+
+    @property
+    def delete_table(self) -> pa.Table:
+        return self.strategy.get_table(self._delete_table)
+
+    @property
+    def delete_columns(self) -> List[str]:
+        return self._delete_columns
 
 
 @dataclass
 class PrepareDeleteResult:
     transformed_deltas: [List[DeltaAnnotated]]
     delete_file_envelopes: List[DeleteFileEnvelope]
-
-
-class DeleteStrategy(ABC):
-    @property
-    def name(self):
-        pass
-
-    @abstractmethod
-    def prepare_deletes(
-        self,
-        params: CompactPartitionParams,
-        input_deltas: List[DeltaAnnotated],
-        *args,
-        **kwargs
-    ) -> PrepareDeleteResult:
-        pass
-
-    @abstractmethod
-    def match_deletes(
-        self,
-        df_envelopes: List[DeltaFileEnvelope],
-        index_identifier: int,
-        deletes: List[DeleteFileEnvelope],
-    ) -> Tuple[List[int], Dict[str, Any]]:
-        pass
-
-    @abstractmethod
-    def split_incrementals(
-        self,
-        df_envelopes: List[DeltaFileEnvelope],
-        index_identifier: int,
-        delete_locations: List[Any],
-    ) -> List[List[DeltaFileEnvelope]]:
-        pass
-
-    @abstractmethod
-    def apply_deletes(
-        self,
-        table,
-        table_stream_pos,
-        delete_envelopes: List[DeleteFileEnvelope],
-        upsert_stream_position_to_delete_table: Dict[str, Any],
-    ) -> Tuple[Any, int]:
-        pass
-
-    @abstractmethod
-    def apply_all_deletes(
-        self,
-        table,
-        all_delete_tables: List[pa.Table],
-    ):
-        pass

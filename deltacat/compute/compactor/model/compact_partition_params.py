@@ -92,7 +92,7 @@ class CompactPartitionParams(dict):
         result.ray_custom_resources = params.get("ray_custom_resources")
 
         result.metrics_config = params.get("metrics_config")
-        # result.delete_strategy = params.get("delete_strategy", NOOPDeleteStrategy)
+        result.delete_strategy = params.get("delete_strategy")
 
         if not importlib.util.find_spec("memray"):
             result.enable_profiler = False

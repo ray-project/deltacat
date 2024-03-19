@@ -27,6 +27,9 @@ from deltacat.tests.test_utils.pyarrow import (
     stage_partition_from_file_paths,
     commit_delta_to_staged_partition,
 )
+from deltacat.compute.compactor_v2.deletes.model import (
+    DeleteFileEnvelope,
+)
 
 
 class TestMerge(unittest.TestCase):
@@ -276,7 +279,9 @@ class TestMerge(unittest.TestCase):
         )
         delete_columns: List[str] = delete_delta.properties.get("DELETE_COLUMNS")
         obj_ref = object_store.put(download_delta(delete_delta, **self.kwargs))
-        ird = [(delete_delta.stream_position, obj_ref, delete_columns)]
+        ird = [
+            DeleteFileEnvelope(delete_delta.stream_position, obj_ref, delete_columns)
+        ]
 
         # Only one hash bucket and one file
         hb_id_to_entry_indices_range = {"0": (0, 1)}
@@ -305,7 +310,7 @@ class TestMerge(unittest.TestCase):
             deltacat_storage=ds,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
-            deletes_to_apply_by_stream_positions_list=ird,
+            delete_file_envelopes=ird,
         )
         merge_res_list = []
         merge_result_promise = merge.remote(merge_input)

@@ -2,8 +2,6 @@ from deltacat.storage import (
     DeltaType,
 )
 from deltacat.compute.compactor_v2.deletes.model import (
-    DeleteStrategy,
-    PrepareDeleteResult,
     DeleteFileEnvelope,
 )
 from typing import Optional, List, Tuple

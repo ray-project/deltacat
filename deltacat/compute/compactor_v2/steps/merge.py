@@ -6,7 +6,6 @@ import pyarrow as pa
 import ray
 from typing import Any, Callable
 import time
-from deltacat.io.object_store import IObjectStore
 import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
@@ -313,36 +312,36 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     return materialize_result_list
 
 
-def apply_deletes(
-    table: pa.Table,
-    deletes_to_apply,
-    delete_column_names: List[str],
-    equality_predicate_operation: Optional[Callable] = pa.compute.and_,
-) -> Tuple[Any, int]:
-    # next = None
-    for i, delete_column_name in enumerate(delete_column_names):
-        boolean_mask = pc.is_in(
-            table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
-        )
-        table = table.filter(pc.invert(boolean_mask))
-        return table, len(boolean_mask)
+# def apply_deletes(
+#     table: pa.Table,
+#     deletes_to_apply,
+#     delete_column_names: List[str],
+#     equality_predicate_operation: Optional[Callable] = pa.compute.and_,
+# ) -> Tuple[Any, int]:
+#     # next = None
+#     for i, delete_column_name in enumerate(delete_column_names):
+#         boolean_mask = pc.is_in(
+#             table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
+#         )
+#         table = table.filter(pc.invert(boolean_mask))
+#         return table, len(boolean_mask)
 
-    # drop_masks = [
-    #     pc.is_in(
-    #         table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
-    #     )
-    #     for delete_column_name in delete_column_names
-    # ]
-    # for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
-    #     curr_drop_mask = drop_masks[i]
-    #     next_drop_mask = drop_masks[i + 1]
-    #     # logical OR the mask arrays
-    #     result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
-    #     drop_masks[i + 1] = result_mask
-    # mask_with_all_droppable = drop_masks[-1].combine_chunks()
-    # number_of_rows_dropped: int = mask_with_all_droppable.true_count
-    # table = table.filter(pc.invert(mask_with_all_droppable))
-    # return table, number_of_rows_dropped
+# drop_masks = [
+#     pc.is_in(
+#         table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
+#     )
+#     for delete_column_name in delete_column_names
+# ]
+# for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
+#     curr_drop_mask = drop_masks[i]
+#     next_drop_mask = drop_masks[i + 1]
+#     # logical OR the mask arrays
+#     result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
+#     drop_masks[i + 1] = result_mask
+# mask_with_all_droppable = drop_masks[-1].combine_chunks()
+# number_of_rows_dropped: int = mask_with_all_droppable.true_count
+# table = table.filter(pc.invert(mask_with_all_droppable))
+# return table, number_of_rows_dropped
 
 
 def _apply_upserts(
@@ -388,14 +387,15 @@ def _apply_upserts(
 
 
 def _compact_tables(
-    input: MergeInput, dfe_list: Optional[List[List[DeltaFileEnvelope]]], 
-    hb_idx: int, 
+    input: MergeInput,
+    dfe_list: Optional[List[List[DeltaFileEnvelope]]],
+    hb_idx: int,
     compacted_table=None,
 ) -> Tuple[pa.Table, int, int]:
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
         _flatten_df_envelopes_list(dfe_list)
     )
-    has_delete = input.delete_file_envelopes 
+    has_delete = input.delete_file_envelopes
     if not has_delete:
         logger.info(
             f"[Hash bucket index {hb_idx}] Reading dedupe input for "
@@ -412,34 +412,33 @@ def _compact_tables(
     if not dfe_list:
         if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
             compacted_table = _download_compacted_table(
-                    hb_index=hb_idx,
-                    rcf=input.round_completion_info,
-                    read_kwargs_provider=input.read_kwargs_provider,
-                    deltacat_storage=input.deltacat_storage,
-                    deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+                hb_index=hb_idx,
+                rcf=input.round_completion_info,
+                read_kwargs_provider=input.read_kwargs_provider,
+                deltacat_storage=input.deltacat_storage,
+                deltacat_storage_kwargs=input.deltacat_storage_kwargs,
             )
             table, dropped_rows = input.delete_strategy.apply_all_deletes(
-                compacted_table, 
-                input.delete_file_envelopes
+                compacted_table, input.delete_file_envelopes
             )
             return table, 0, 0
         return None, 0, 0
     (
         delete_indices,
-        upsert_stream_position_to_delete_table,
+        upsert_stream_position_to_delete_file_envelopes_offset,
     ) = input.delete_strategy.match_deletes(
-        df_envelopes,
         hb_idx,
-        [delete.stream_position for delete in input.delete_file_envelopes]
+        df_envelopes,
+        [delete.stream_position for delete in input.delete_file_envelopes],
     )
-    split_dfe_list = input.delete_strategy.split_incrementals(
-        df_envelopes, hb_idx, delete_indices
+    list_dfe_envelopes = input.delete_strategy.rebatch_df_envelopes(
+        hb_idx, df_envelopes, delete_indices
     )
     table = None
     incremental_len = 0
     deduped_records = 0
     prev_table = None
-    for dfe_envelopes in split_dfe_list:
+    for dfe_envelopes in list_dfe_envelopes:
         (
             table,
             partial_incremental_len,
@@ -456,12 +455,15 @@ def _compact_tables(
                 can_drop_duplicates=input.drop_duplicates,
                 compacted_table=prev_table,
             )
-        table_stream_pos = dfe_envelopes[-1].stream_position
+        upsert_stream_pos = dfe_envelopes[-1].stream_position
+        delete_envelope = input.delete_file_envelopes[
+            upsert_stream_position_to_delete_file_envelopes_offset[upsert_stream_pos]
+        ]
         table, rows_dropped = input.delete_strategy.apply_deletes(
+            hb_idx,
             table,
-            table_stream_pos,
-            input.delete_file_envelopes,
-            upsert_stream_position_to_delete_table,
+            upsert_stream_pos,
+            delete_envelope,
         )
         prev_table = table
         partial_incremental_len -= rows_dropped

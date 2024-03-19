@@ -10,11 +10,8 @@ import json
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     RemoteMergeFileGroupsProvider,
 )
-from deltacat.compute.compactor_v2.deletes.noop_delete_strategy import (
-    NOOPDeleteStrategy,
-)
-from deltacat.compute.compactor_v2.deletes.default_equality_delete_strategy import (
-    DefaultEqualityDeleteStrategy,
+from deltacat.compute.compactor_v2.deletes.equality_delete_strategy import (
+    EqualityDeleteStrategy,
 )
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 
@@ -229,7 +226,7 @@ def _execute_compaction(
     delete_strategy = None
     delete_file_envelopes = None
     if contains_deletes is True:
-        delete_strategy = DefaultEqualityDeleteStrategy()
+        delete_strategy = EqualityDeleteStrategy()
         prepare_delete_results = delete_strategy.prepare_deletes(params, uniform_deltas)
         uniform_deltas = prepare_delete_results.transformed_deltas
         delete_file_envelopes = prepare_delete_results.delete_file_envelopes
