@@ -10,20 +10,24 @@ from ray.types import ObjectRef
 
 from typing import List, Tuple, Any, Dict
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+import pyarrow as pa
 
 
 @dataclass
-class DeleteEnvelope:
+class DeleteFileEnvelope:
     stream_position: int
     object_ref: ObjectRef
     delete_columns: List[str]
 
+    def __iter__(self):
+        return (getattr(self, field.name) for field in fields(self))
+
 
 @dataclass
 class PrepareDeleteResult:
-    uniform_deltas: [List[DeltaAnnotated]]
-    all_deletes: List[DeleteEnvelope]
+    transformed_deltas: [List[DeltaAnnotated]]
+    delete_file_envelopes: List[DeleteFileEnvelope]
 
 
 class DeleteStrategy(ABC):
@@ -35,18 +39,44 @@ class DeleteStrategy(ABC):
     def prepare_deletes(
         self,
         params: CompactPartitionParams,
-        uniform_deltas: List[DeltaAnnotated],
+        input_deltas: List[DeltaAnnotated],
         *args,
         **kwargs
     ) -> PrepareDeleteResult:
         pass
 
     @abstractmethod
-    def get_deletes_indices(
+    def match_deletes(
         self,
         df_envelopes: List[DeltaFileEnvelope],
-        deletes: List[DeleteEnvelope],
-        *args,
-        **kwargs
-    ) -> Tuple[List[int], Dict[int, Any]]:
+        index_identifier: int,
+        deletes: List[DeleteFileEnvelope],
+    ) -> Tuple[List[int], Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def split_incrementals(
+        self,
+        df_envelopes: List[DeltaFileEnvelope],
+        index_identifier: int,
+        delete_locations: List[Any],
+    ) -> List[List[DeltaFileEnvelope]]:
+        pass
+
+    @abstractmethod
+    def apply_deletes(
+        self,
+        table,
+        table_stream_pos,
+        delete_envelopes: List[DeleteFileEnvelope],
+        upsert_stream_position_to_delete_table: Dict[str, Any],
+    ) -> Tuple[Any, int]:
+        pass
+
+    @abstractmethod
+    def apply_all_deletes(
+        self,
+        table,
+        all_delete_tables: List[pa.Table],
+    ):
         pass

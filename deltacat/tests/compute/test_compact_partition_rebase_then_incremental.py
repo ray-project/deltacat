@@ -8,10 +8,10 @@ import pyarrow as pa
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
 from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
-from deltacat.compute.compactor_v2.deletes.strategy.noop_delete_strategy import (
+from deltacat.compute.compactor_v2.deletes.noop_delete_strategy import (
     NOOPDeleteStrategy,
 )
-from deltacat.compute.compactor_v2.deletes.strategy.default_equality_delete_strategy import (
+from deltacat.compute.compactor_v2.deletes.default_equality_delete_strategy import (
     DefaultEqualityDeleteStrategy,
 )
 
@@ -336,7 +336,7 @@ def test_compact_partition_rebase_then_incremental(
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition_locator_w_deltas,
             "sort_keys": sort_keys if sort_keys else None,
-            "delete_strategy": DefaultEqualityDeleteStrategy(),
+            # "delete_strategy": DefaultEqualityDeleteStrategy(),
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)

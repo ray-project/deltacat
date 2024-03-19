@@ -4,7 +4,7 @@ from deltacat.storage import (
 from deltacat.compute.compactor_v2.deletes.model import (
     DeleteStrategy,
     PrepareDeleteResult,
-    DeleteEnvelope,
+    DeleteFileEnvelope,
 )
 from typing import Optional, List, Tuple
 from deltacat.types.media import StorageType
@@ -49,7 +49,7 @@ def prepare_deletes(
         uniform_deltas[i].stream_position <= uniform_deltas[i + 1].stream_position
         for i in range(len(uniform_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
-    delete_payload_list: List[DeleteEnvelope] = []
+    delete_payload_list: List[DeleteFileEnvelope] = []
     window_start, window_end = 0, 0
     non_delete_deltas = []
     while window_end < len(uniform_deltas):

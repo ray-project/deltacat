@@ -1,4 +1,3 @@
-from abc import abstractmethod
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -13,7 +12,7 @@ from typing import List, Tuple, Dict, Any
 from deltacat.compute.compactor_v2.deletes.model import (
     DeleteStrategy,
     PrepareDeleteResult,
-    DeleteEnvelope,
+    DeleteFileEnvelope,
 )
 
 
@@ -24,17 +23,16 @@ class NOOPDeleteStrategy(DeleteStrategy):
     def name(cls):
         return cls._name
 
-    @abstractmethod
     def prepare_deletes(
         self, params: CompactPartitionParams, uniform_deltas: List[DeltaAnnotated]
     ) -> PrepareDeleteResult:
         return PrepareDeleteResult(uniform_deltas, [])
 
-    @abstractmethod
-    def get_deletes_indices(
+    def apply_deletes(
         self,
         df_envelopes: List[DeltaFileEnvelope],
-        deletes: List[DeleteEnvelope],
+        index_identifier: int,
+        deletes: List[DeleteFileEnvelope],
         *args,
         **kwargs
     ) -> Tuple[List[int], Dict[int, Any]]:

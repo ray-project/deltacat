@@ -5,17 +5,17 @@ import functools
 import logging
 import ray
 import time
-import dataclasses
 import json
 
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     RemoteMergeFileGroupsProvider,
 )
-from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
-from deltacat.compute.compactor_v2.deletes.strategy.default_equality_delete_strategy import (
+from deltacat.compute.compactor_v2.deletes.noop_delete_strategy import (
+    NOOPDeleteStrategy,
+)
+from deltacat.compute.compactor_v2.deletes.default_equality_delete_strategy import (
     DefaultEqualityDeleteStrategy,
 )
-from deltacat.compute.compactor_v2.deletes.prepare_deletes import prepare_deletes
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 
 from deltacat.compute.compactor_v2.model.merge_input import MergeInput
@@ -33,6 +33,7 @@ from deltacat.compute.compactor.model.materialize_result import MaterializeResul
 from deltacat.compute.compactor_v2.utils.merge import (
     generate_local_merge_input,
 )
+from deltacat.compute.compactor_v2.utils.delta import contains_delete_deltas
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -164,7 +165,6 @@ def _execute_compaction(
             )
         else:
             compacted_delta_locator = round_completion_info.compacted_delta_locator
-
             previous_compacted_delta_manifest = (
                 params.deltacat_storage.get_delta_manifest(
                     compacted_delta_locator, **params.deltacat_storage_kwargs
@@ -185,7 +185,6 @@ def _execute_compaction(
         logger.info(f"Round completion file: {round_completion_info}")
 
     delta_discovery_start = time.monotonic()
-
     input_deltas: List[Delta] = io.discover_deltas(
         params.source_partition_locator,
         params.last_stream_position_to_compact,
@@ -196,6 +195,7 @@ def _execute_compaction(
         params.deltacat_storage_kwargs,
         params.list_deltas_kwargs,
     )
+    contains_deletes: bool = contains_delete_deltas(input_deltas)
 
     uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
         input_deltas=input_deltas,
@@ -226,16 +226,14 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return None, None, None
-    delete_strategy = DefaultEqualityDeleteStrategy()
-    uniform_deltas, deletes_to_apply_by_stream_position_list = dataclasses.astuple(
-        delete_strategy.prepare_deletes(params, uniform_deltas)
-    )
-    logger.info(f"pdebug: {delete_strategy=}")
-    # (
-    #     uniform_deltas,
-    #     deletes_to_apply_by_stream_position_list,
-    # ) = params.delete_strategy.prepare_deletes(params, uniform_deltas)
-
+    delete_strategy = None
+    delete_file_envelopes = None
+    if contains_deletes is True:
+        delete_strategy = DefaultEqualityDeleteStrategy()
+        prepare_delete_results = delete_strategy.prepare_deletes(params, uniform_deltas)
+        uniform_deltas = prepare_delete_results.transformed_deltas
+        delete_file_envelopes = prepare_delete_results.delete_file_envelopes
+        logger.info(f"pdebug: {delete_file_envelopes=}")
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
     compacted_stream = params.deltacat_storage.get_stream(
@@ -379,7 +377,6 @@ def _execute_compaction(
             deltacat_storage_kwargs=params.deltacat_storage_kwargs,
             ray_custom_resources=params.ray_custom_resources,
         )
-        logger.info(f"pdebug: {delete_strategy=}")
 
         def merge_input_provider(index, item):
             return {
@@ -406,8 +403,8 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-                    deletes_to_apply_by_stream_positions_list=deletes_to_apply_by_stream_position_list,
                     delete_strategy=delete_strategy,
+                    delete_file_envelopes=delete_file_envelopes,
                 )
             }
 

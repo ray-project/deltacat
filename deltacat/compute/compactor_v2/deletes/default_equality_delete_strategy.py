@@ -1,16 +1,18 @@
 from deltacat.compute.compactor_v2.deletes.model import (
     DeleteStrategy,
     PrepareDeleteResult,
-    DeleteEnvelope,
+    DeleteFileEnvelope,
 )
 from deltacat.storage import (
     DeltaType,
 )
+import pyarrow.compute as pc
 import logging
+import numpy as np
 
 from deltacat.utils.numpy import searchsorted_by_attr
 import ray
-from typing import Any, Optional, List, Dict, Tuple
+from typing import Any, Callable, Optional, List, Dict, Tuple
 from deltacat.types.media import StorageType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -21,11 +23,7 @@ from deltacat.compute.compactor import (
     DeltaAnnotated,
 )
 from deltacat import logs
-from deltacat.compute.compactor.model.compact_partition_params import (
-    CompactPartitionParams,
-)
 from deltacat.compute.compactor import (
-    DeltaAnnotated,
     DeltaFileEnvelope,
 )
 
@@ -39,6 +37,22 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
     @property
     def name(cls):
         return cls.name
+
+    def _drop_rows(
+        self,
+        table: pa.Table,
+        deletes_to_apply,
+        delete_column_names: List[str],
+        equality_predicate_operation: Optional[Callable] = pa.compute.and_,
+    ) -> Tuple[Any, int]:
+        # next = None
+        for i, delete_column_name in enumerate(delete_column_names):
+            boolean_mask = pc.is_in(
+                table[delete_column_name],
+                value_set=deletes_to_apply[delete_column_name],
+            )
+            table = table.filter(pc.invert(boolean_mask))
+            return table, len(boolean_mask)
 
     def prepare_deletes(
         self,
@@ -76,7 +90,7 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
             for i in range(len(input_deltas) - 1)
         ), "Uniform deltas must be in non-decreasing order by stream position"
         window_start, window_end = 0, 0
-        delete_payloads: List[DeleteEnvelope] = []
+        delete_payloads: List[DeleteFileEnvelope] = []
         non_delete_deltas: List[DeltaAnnotated] = []
         while window_end < len(input_deltas):
             # skip over non-delete type deltas
@@ -100,7 +114,6 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
             ]
             deletes_at_this_stream_position: List[pa.Table] = []
             for delete_delta in delete_deltas_sequence:
-                logger.info(f"pdebug: {delete_delta=}")
                 assert (
                     delete_delta.delete_parameters is not None
                 ), "Delete type deltas are required to have delete parameters defined"
@@ -123,13 +136,12 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
                 delete_deltas_sequence[0].stream_position
             )
             obj_ref: ObjectRef = ray.put(consolidated_deletes)
-            delete_payloads.append(
-                DeleteEnvelope(
-                    stream_position_of_earliest_delete_in_sequence,
-                    obj_ref,
-                    delete_columns,
-                )
+            delete_envelope = DeleteFileEnvelope(
+                stream_position_of_earliest_delete_in_sequence,
+                obj_ref,
+                delete_columns,
             )
+            delete_payloads.append(delete_envelope)
             window_start = window_end
             # store all_deletes
         return PrepareDeleteResult(
@@ -137,26 +149,73 @@ class DefaultEqualityDeleteStrategy(DeleteStrategy):
             delete_payloads,
         )
 
-    def get_deletes_indices(
+    def match_deletes(
         self,
         df_envelopes: List[DeltaFileEnvelope],
-        deletes: List[DeleteEnvelope],
-        *args,
-        **kwargs,
-    ) -> Tuple[List[int], Dict[int, Any]]:
-        logger.info(f"PDEBUG:get_deletes_indices {locals()=}")
-        delete_stream_positions: List[int] = [
-            delete.stream_position for delete in deletes
-        ]
+        index_identifier: int,
+        delete_stream_positions: List[int],
+    ) -> Tuple[List[int], Dict[str, Any]]:
         delete_indices: List[int] = searchsorted_by_attr(
             "stream_position", df_envelopes, delete_stream_positions
         )
-        spos_to_delete = {}
+        upsert_stream_position_to_delete_table = {}
         for delete_stream_position_index, delete_pos_in_upsert in enumerate(
             delete_indices
         ):
             if delete_pos_in_upsert == 0:
                 continue
             upsert_stream_pos = df_envelopes[delete_pos_in_upsert - 1].stream_position
-            spos_to_delete[upsert_stream_pos] = delete_stream_position_index
-        return delete_indices, spos_to_delete
+            upsert_stream_position_to_delete_table[
+                upsert_stream_pos
+            ] = delete_stream_position_index
+        return delete_indices, upsert_stream_position_to_delete_table
+
+    def split_incrementals(
+        self,
+        df_envelopes: List[DeltaFileEnvelope],
+        index_identifier: int,
+        delete_locations: List[Any],
+    ):
+        df_envelopes: List[List[DeltaFileEnvelope]] = [
+            upsert_sequence.tolist()
+            for upsert_sequence in np.split(df_envelopes, delete_locations)
+            if upsert_sequence.tolist()
+        ]
+        return df_envelopes
+
+    def apply_deletes(
+        self,
+        table,
+        table_stream_pos,
+        delete_envelopes: List[DeleteFileEnvelope],
+        upsert_stream_position_to_delete_table: Dict[str, Any],
+    ) -> Tuple[pa.Table, int]:
+        logger.info(f"pdebug:: {locals()=}")
+        delete_index = upsert_stream_position_to_delete_table[table_stream_pos]
+        (
+            _,
+            delete_obj_ref,
+            delete_column_names,
+        ) = delete_envelopes[delete_index]
+        deletes_to_apply = ray.get(delete_obj_ref)
+        table, number_of_rows_dropped = self._drop_rows(
+            table, deletes_to_apply, delete_column_names
+        )
+        return table, number_of_rows_dropped
+
+    def apply_all_deletes(
+        self,
+        table,
+        all_deletes: List[DeleteFileEnvelope],
+    ):
+        total_dropped_rows = 0
+        for _, obj_ref, delete_column_names in all_deletes:
+            delete_table = ray.get(obj_ref)
+            table, number_of_rows_dropped = self._drop_rows(
+                table, delete_table, delete_column_names
+            )
+            total_dropped_rows += number_of_rows_dropped
+        return table, total_dropped_rows
+
+        
+

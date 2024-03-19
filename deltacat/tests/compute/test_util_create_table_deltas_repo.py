@@ -8,7 +8,6 @@ from deltacat.tests.compute.test_util_common import (
 )
 
 from deltacat.storage import (
-    DeleteParameters,
     Delta,
     DeltaType,
     Partition,
