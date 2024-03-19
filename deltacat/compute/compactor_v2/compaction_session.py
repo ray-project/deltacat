@@ -230,7 +230,6 @@ def _execute_compaction(
         prepare_delete_results = delete_strategy.prepare_deletes(params, uniform_deltas)
         uniform_deltas = prepare_delete_results.transformed_deltas
         delete_file_envelopes = prepare_delete_results.delete_file_envelopes
-        logger.info(f"pdebug: {delete_file_envelopes=}")
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
     compacted_stream = params.deltacat_storage.get_stream(

@@ -46,7 +46,7 @@ class EqualityDeleteStrategy(DeleteStrategy):
         delete_column_names: List[str],
         equality_predicate_operation: Optional[Callable] = pa.compute.and_,
     ) -> Tuple[Any, int]:
-        # next = None
+        rows_dropped = 0
         for i, delete_column_name in enumerate(delete_column_names):
             boolean_mask = pc.is_in(
                 table[delete_column_name],
