@@ -109,7 +109,11 @@ class DeleteStrategy(ABC):
 
     @abstractmethod
     def prepare_deletes(
-        self, params, input_deltas: List[DeltaAnnotated], *args, **kwargs
+        self,
+        params,
+        input_deltas: List[DeltaAnnotated],
+        *args,
+        **kwargs,
     ) -> PrepareDeleteResult:
         pass
 
@@ -120,7 +124,7 @@ class DeleteStrategy(ABC):
         sorted_df_envelopes: List[DeltaFileEnvelope],
         delete_file_envelopes: List[DeleteFileEnvelope],
         *args,
-        **kwargs
+        **kwargs,
     ) -> Tuple[List[int], Dict[str, Any]]:
         pass
 
@@ -131,7 +135,7 @@ class DeleteStrategy(ABC):
         df_envelopes: List[DeltaFileEnvelope],
         delete_locations: List[Any],
         *args,
-        **kwargs
+        **kwargs,
     ) -> List[List[DeltaFileEnvelope]]:
         pass
 
@@ -142,7 +146,7 @@ class DeleteStrategy(ABC):
         table: Optional[pa.Table],
         delete_file_envelope: DeleteFileEnvelope,
         *args,
-        **kwargs
+        **kwargs,
     ) -> Tuple[Any, int]:
         pass
 
@@ -152,6 +156,6 @@ class DeleteStrategy(ABC):
         index_identifier: int,
         delete_file_envelopes: List[DeleteFileEnvelope],
         *args,
-        **kwargs
+        **kwargs,
     ):
         pass

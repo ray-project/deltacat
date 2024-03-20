@@ -6,6 +6,7 @@ from typing import List, Optional
 
 class DeleteParameters(dict):
     """
+    #TODO PFARAONE
     Represents parameters relevant to the underlying contents of manifest entry. Contains all parameters required to support DELETEs
     equality_column_names: List of column names that would be used to determine row equality for equality deletes.  Relevant only to equality deletes
     """

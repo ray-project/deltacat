@@ -382,6 +382,7 @@ def _compact_tables(
     input: MergeInput,
     dfe_list: Optional[List[List[DeltaFileEnvelope]]],
     hb_idx: int,
+    has_deletes: bool = False,
 ) -> Tuple[pa.Table, int, int]:
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         _flatten_dfe_list(dfe_list)
@@ -444,14 +445,12 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         hb_index_copy_by_ref_ids = []
         for merge_file_group in merge_file_groups:
             # copy by reference only if deletes are not present
-            can_copy_by_ref = (
-                not merge_file_group.dfe_groups and not input.delete_file_envelopes
-            )
-            if can_copy_by_ref:
+            has_deletes = (input.delete_file_envelopes and input.delete_strategy)
+            if not (merge_file_group.dfe_groups or has_deletes):
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
             table, input_records, deduped_records = _compact_tables(
-                input, merge_file_group.dfe_groups, merge_file_group.hb_index
+                input, merge_file_group.dfe_groups, merge_file_group.hb_index, has_deletes=has_deletes
             )
             total_input_records += input_records
             total_deduped_records += deduped_records
