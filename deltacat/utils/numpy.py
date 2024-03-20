@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -12,11 +12,15 @@ from deltacat.utils.common import ReadKwargsProvider
 
 
 def searchsorted_by_attr(
-    attribute: str, obj_arr, values_to_insert, side="right", post_processing=None
+    attribute: str, obj_arr: List[Any], values_to_insert, side: str = "right"
 ):
     """
     foo
     """
+    assert side in (
+        "left",
+        "right",
+    ), "side argument should be either 'left' to use bisect_left or 'right' to use bisect_right"
     return np.searchsorted(
         [getattr(input, attribute) for input in obj_arr], values_to_insert, side
     )

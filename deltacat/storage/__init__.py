@@ -31,6 +31,7 @@ __all__ = [
     "Delta",
     "DeltaLocator",
     "Partition",
+    "DeleteParameters",
     "DeltaType",
     "DistributedDataset",
     "LifecycleState",
@@ -55,5 +56,4 @@ __all__ = [
     "TableVersionLocator",
     "SortKey",
     "SortOrder",
-    "DeleteParameters",
 ]

@@ -44,7 +44,7 @@ class PrepareDeleteTestCaseParams:
     """
 
     deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
-    expected_dictionary_length: int
+    delta_file_envelopes_length: int
     expected_delete_table: List[pa.Table]
     expected_uniform_deltas_length: int
     throws_error_type: BaseException
@@ -215,7 +215,17 @@ TEST_CASES_PREPARE_DELETE = {
                     [
                         pa.array(["0"]),
                     ],
-                    names=["col_1"],
+                    names=["pk_col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["pk_col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["1"]),
+                    ],
+                    names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
                 DeleteParameters.of(["pk_col_1"]),
@@ -246,7 +256,7 @@ TEST_CASES_PREPARE_DELETE = {
         [
             pa.Table.from_arrays(
                 [
-                    pa.array([0]),
+                    pa.array(["0", "1"]),
                 ],
                 names=["pk_col_1"],
             ),
@@ -260,7 +270,7 @@ TEST_CASES_PREPARE_DELETE = {
         2,
         None,
     ),
-    "6-test-upsert-deletesequence-upsert-delete": PrepareDeleteTestCaseParams(
+    "6-test-upsert-deletesequence-different-delete-params-upsert-delete": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
@@ -281,14 +291,15 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                DeleteParameters.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
                     [
+                        pa.array(["1"]),
                         pa.array([41]),
                     ],
-                    names=["col_1"],
+                    names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
                 DeleteParameters.of(["pk_col_1", "col_1"]),
@@ -322,16 +333,23 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                DeleteParameters.of(["col_1"]),
             ),
         ],
-        2,
+        4,
         [
             pa.Table.from_arrays(
                 [
-                    pa.array([40, 41, 42]),
+                    pa.array([40]),
                 ],
                 names=["col_1"],
+            ),
+            pa.Table.from_arrays(
+                [
+                    pa.array(["1"]),
+                    pa.array([41]),
+                ],
+                names=["pk_col_1", "col_1"],
             ),
             pa.Table.from_arrays(
                 [
@@ -346,7 +364,7 @@ TEST_CASES_PREPARE_DELETE = {
                 names=["col_1"],
             ),
         ],
-        3,
+        2,
         None,
     ),
     "7-test-exception-thrown-if-properties-not-defined": PrepareDeleteTestCaseParams(
@@ -390,7 +408,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                DeleteParameters.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -400,18 +418,17 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                DeleteParameters.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
                     [
-                        pa.array(["a"]),
                         pa.array([55]),
                     ],
-                    names=["pk_col_1", "col_1"],
+                    names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                DeleteParameters.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -421,7 +438,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                DeleteParameters.of(["col_1"]),
             ),
         ],
         1,
@@ -489,7 +506,7 @@ class TestPrepareDeletes:
         ray.shutdown()
         ray.init(local_mode=True, ignore_reinit_error=True)
         source_namespace, source_table_name, source_table_version = create_src_table(
-            set(["pk_1"]),
+            set(self.TEST_PRIMARY_KEYS),
             None,
             None,
             local_deltacat_storage_kwargs,
@@ -579,6 +596,10 @@ class TestPrepareDeletes:
         actual_delete_file_envelopes = (
             actual_prepare_delete_result.delete_file_envelopes
         )
+        actual_delete_tables = [
+            delete_file_envelope.delete_table
+            for delete_file_envelope in actual_delete_file_envelopes
+        ]
         # verify
         assert len(actual_uniform_deltas) is expected_uniform_deltas_length
         actual_dictionary_length = len(actual_delete_file_envelopes)
@@ -586,12 +607,10 @@ class TestPrepareDeletes:
             expected_dictionary_length == actual_dictionary_length
         ), f"{expected_dictionary_length} does not match {actual_dictionary_length}"
         if expected_dictionary_length > 0:
-            actual_delete_tables = [
-                delete_file_envelope.delete_table
-                for delete_file_envelope in actual_delete_file_envelopes
-            ]
-            for i, actual_table in enumerate(actual_delete_tables):
-                actual_table = actual_table.combine_chunks()
-                expected_delete_table = expected_delete_tables[i].combine_chunks()
+            for i, (actual_delete_table, expected_delete_tables) in enumerate(
+                zip(actual_delete_tables, expected_delete_tables)
+            ):
+                actual_table = actual_delete_table.combine_chunks()
+                expected_delete_table = expected_delete_tables.combine_chunks()
                 assert actual_table.equals(expected_delete_table)
         return
