@@ -13,7 +13,7 @@ from deltacat.utils.common import ReadKwargsProvider
 
 def searchsorted_by_attr(
     attribute: str, obj_arr: List[Any], values_to_insert, side: str = "right"
-):
+) -> List[int]:
     """
     foo
     """

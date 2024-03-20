@@ -39,19 +39,23 @@ def create_incremental_deltas_on_source_table(
         partition_values_param,
         **ds_mock_kwargs,
     )
-    for incremental_delta, delta_type, delete_parameters in incremental_deltas:
-        is_delete = True if delta_type is DeltaType.DELETE else False
-        new_delta: Delta = ds.commit_delta(
+    for (
+        incremental_data,
+        incremental_delta_type,
+        incremental_delete_parameters,
+    ) in incremental_deltas:
+        is_delete = True if incremental_delta_type is DeltaType.DELETE else False
+        incremental_delta: Delta = ds.commit_delta(
             ds.stage_delta(
-                incremental_delta,
+                incremental_data,
                 src_partition,
-                delta_type,
-                delete_parameters=delete_parameters,
+                incremental_delta_type,
+                delete_parameters=incremental_delete_parameters,
                 **ds_mock_kwargs,
             ),
             **ds_mock_kwargs,
         )
-        incremental_delta_length += len(incremental_delta) if incremental_delta else 0
+        incremental_delta_length += len(incremental_data) if incremental_data else 0
     src_table_stream_after_committed_delta: Stream = ds.get_stream(
         source_namespace,
         source_table_name,
@@ -65,7 +69,7 @@ def create_incremental_deltas_on_source_table(
     )
     return (
         src_partition_after_committed_delta.locator,
-        new_delta,
+        incremental_delta,
         incremental_delta_length,
         is_delete,
     )

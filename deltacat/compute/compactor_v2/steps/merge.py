@@ -75,7 +75,7 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
     return result.drop([sc._DELTA_TYPE_COLUMN_NAME])
 
 
-def _flatten_df_envelopes_list(
+def _flatten_dfe_list(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
 ) -> List[DeltaFileEnvelope]:
     if not df_envelopes_list:
@@ -83,7 +83,7 @@ def _flatten_df_envelopes_list(
     return [d for dfe_list in df_envelopes_list for d in dfe_list]
 
 
-def _sort_df_envelopes_list(
+def _sort_df_envelopes(
     df_envelopes: List[DeltaFileEnvelope],
     key: Callable = lambda df: (df.stream_position, df.file_index),
 ) -> List[DeltaFileEnvelope]:
@@ -260,7 +260,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     return materialize_result_list
 
 
-def _apply_upserts(
+def _compact_incremental_table(
     input: MergeInput, dfe_list: List[DeltaFileEnvelope], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
     table = _build_incremental_table(dfe_list, hb_idx)
@@ -308,24 +308,31 @@ def _compact_tables(
     hb_idx: int,
     compacted_table=None,
 ) -> Tuple[pa.Table, int, int]:
-    df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
-        _flatten_df_envelopes_list(dfe_list)
+    df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
+        _flatten_dfe_list(dfe_list)
     )
     has_delete = input.delete_file_envelopes and input.delete_strategy
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
+        f"{len(df_envelopes)} delta file envelopes..."
+    )
     if not has_delete:
-        logger.info(
-            f"[Hash bucket index {hb_idx}] Reading dedupe input for "
-            f"{len(dfe_list)} delta file envelope lists..."
-        )
-        table, incremental_len, deduped_records, merge_time = _apply_upserts(
-            input, df_envelopes, hb_idx
-        )
+        (
+            table,
+            incremental_len,
+            deduped_records,
+            merge_time,
+        ) = _compact_incremental_table(input, df_envelopes, hb_idx)
         logger.info(
             f"[Merge task index {input.merge_task_index}] Merged "
             f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
         )
         return table, incremental_len, deduped_records
-    if not dfe_list:
+    if not df_envelopes:
+        table = None
+        incremental_len = 0
+        deduped_records = 0
+        dropped_rows = 0
         if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
             compacted_table = _download_compacted_table(
                 hb_index=hb_idx,
@@ -337,15 +344,21 @@ def _compact_tables(
             table, dropped_rows = input.delete_strategy.apply_all_deletes(
                 compacted_table, input.delete_file_envelopes
             )
-            return table, 0, 0
-        return None, 0, 0
+            logger.info(
+                f"[Hash bucket index {hb_idx}] No delta file envelopes found for this hash bucket index. "
+                f"Dropped {dropped_rows} from compacted table of record count: {len(table)} size={table.nbytes}..."
+            )
+        return table, incremental_len, deduped_records
     (
         delete_indices,
         upsert_stream_position_to_delete_file_envelopes_offset,
     ) = input.delete_strategy.match_deletes(
         hb_idx,
         df_envelopes,
-        [delete.stream_position for delete in input.delete_file_envelopes],
+        [
+            delete_envelope.stream_position
+            for delete_envelope in input.delete_file_envelopes
+        ],
     )
     list_dfe_envelopes = input.delete_strategy.rebatch_df_envelopes(
         hb_idx, df_envelopes, delete_indices
@@ -360,7 +373,7 @@ def _compact_tables(
             partial_incremental_len,
             partial_deduped_records,
             partial_merge_time,
-        ) = _apply_upserts(input, df_envelopes, hb_idx)
+        ) = _compact_incremental_table(input, df_envelopes, hb_idx)
         incremental_len += partial_incremental_len
         deduped_records += partial_deduped_records
         rows_dropped_for_section = 0

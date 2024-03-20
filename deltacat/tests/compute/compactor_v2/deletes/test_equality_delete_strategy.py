@@ -1,7 +1,5 @@
 import pytest
 
-# import pyarrow as pa
-
 from deltacat.storage import DeltaType
 from deltacat.compute.compactor import (
     DeltaAnnotated,
@@ -44,7 +42,7 @@ class PrepareDeleteTestCaseParams:
     """
 
     deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
-    delta_file_envelopes_length: int
+    expected_delta_file_envelopes_len: int
     expected_delete_table: List[pa.Table]
     expected_uniform_deltas_length: int
     throws_error_type: BaseException
@@ -463,7 +461,7 @@ class TestPrepareDeletes:
         [
             "test_name",
             "deltas_to_compact",
-            "expected_dictionary_length",
+            "expected_delta_file_envelopes_len",
             "expected_delete_tables",
             "expected_uniform_deltas_length",
             "throws_error_type",
@@ -472,14 +470,14 @@ class TestPrepareDeletes:
             (
                 test_name,
                 deltas_to_compact,
-                expected_dictionary_length,
+                expected_delta_file_envelopes_len,
                 expected_delete_tables,
                 expected_uniform_deltas_length,
                 throws_error_type,
             )
             for test_name, (
                 deltas_to_compact,
-                expected_dictionary_length,
+                expected_delta_file_envelopes_len,
                 expected_delete_tables,
                 expected_uniform_deltas_length,
                 throws_error_type,
@@ -490,9 +488,9 @@ class TestPrepareDeletes:
     def test_prepare_deletes_with_deletes(
         self,
         local_deltacat_storage_kwargs: Dict[str, Any],
-        test_name,
-        deltas_to_compact,
-        expected_dictionary_length,
+        test_name: str,
+        deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]],
+        expected_delta_file_envelopes_len: int,
         expected_delete_tables,
         expected_uniform_deltas_length,
         throws_error_type,
@@ -604,9 +602,9 @@ class TestPrepareDeletes:
         assert len(actual_uniform_deltas) is expected_uniform_deltas_length
         actual_dictionary_length = len(actual_delete_file_envelopes)
         assert (
-            expected_dictionary_length == actual_dictionary_length
-        ), f"{expected_dictionary_length} does not match {actual_dictionary_length}"
-        if expected_dictionary_length > 0:
+            expected_delta_file_envelopes_len == actual_dictionary_length
+        ), f"{expected_delta_file_envelopes_len} does not match {actual_dictionary_length}"
+        if expected_delta_file_envelopes_len > 0:
             for i, (actual_delete_table, expected_delete_tables) in enumerate(
                 zip(actual_delete_tables, expected_delete_tables)
             ):
