@@ -16,8 +16,6 @@ from deltacat.compute.compactor import (
 from typing import Tuple, Any, Dict
 
 
-
-
 class DeleteTableStorageStrategy(ABC):
     @abstractmethod
     def store_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
@@ -44,6 +42,7 @@ class DeleteTableReferenceStorageStrategy(DeleteTableStorageStrategy):
     def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
         table = ray.get(delete_table_like)
         return table
+
 
 class DeleteFileEnvelope:
     def __init__(
@@ -86,11 +85,7 @@ class DeleteStrategy(ABC):
 
     @abstractmethod
     def prepare_deletes(
-        self,
-        params,
-        input_deltas: List[DeltaAnnotated],
-        *args,
-        **kwargs
+        self, params, input_deltas: List[DeltaAnnotated], *args, **kwargs
     ) -> PrepareDeleteResult:
         pass
 

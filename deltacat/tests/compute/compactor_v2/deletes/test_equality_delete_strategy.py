@@ -18,7 +18,6 @@ from deltacat.tests.compute.test_util_common import (
     create_src_table,
     create_destination_table,
 )
-from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 
 from dataclasses import dataclass, fields
 import ray
@@ -29,6 +28,7 @@ from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 import pyarrow as pa
+from deltacat.storage import DeleteParameters
 
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
@@ -43,7 +43,7 @@ class PrepareDeleteTestCaseParams:
     A pytest parameterized test case for the `prepare_deletes` function.
     """
 
-    deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]]
+    deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
     expected_dictionary_length: int
     expected_delete_table: List[pa.Table]
     expected_uniform_deltas_length: int
@@ -79,7 +79,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
                 ),
                 DeltaType.UPSERT,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["col_1"]),
             ),
         ],
         0,
@@ -97,7 +97,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["col_1"]),
             ),
         ],
         1,
@@ -135,7 +135,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["col_1"]),
             ),
         ],
         1,
@@ -171,7 +171,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -213,12 +213,12 @@ TEST_CASES_PREPARE_DELETE = {
             (
                 pa.Table.from_arrays(
                     [
-                        pa.array([40]),
+                        pa.array(["0"]),
                     ],
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -239,16 +239,16 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["col_1"]),
             ),
         ],
         2,
         [
             pa.Table.from_arrays(
                 [
-                    pa.array([40]),
+                    pa.array([0]),
                 ],
-                names=["col_1"],
+                names=["pk_col_1"],
             ),
             pa.Table.from_arrays(
                 [
@@ -281,7 +281,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -291,17 +291,17 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
                     [
-                        pa.array([42]),
+                        pa.array(["9"]),
                     ],
-                    names=["col_1"],
+                    names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -322,7 +322,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1", "col_1"]),
             ),
         ],
         2,
@@ -335,12 +335,18 @@ TEST_CASES_PREPARE_DELETE = {
             ),
             pa.Table.from_arrays(
                 [
+                    pa.array(["9"]),
+                ],
+                names=["pk_col_1"],
+            ),
+            pa.Table.from_arrays(
+                [
                     pa.array([72]),
                 ],
                 names=["col_1"],
             ),
         ],
-        2,
+        3,
         None,
     ),
     "7-test-exception-thrown-if-properties-not-defined": PrepareDeleteTestCaseParams(
@@ -366,7 +372,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {},
+                None,
             ),
         ],
         0,
@@ -384,7 +390,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -394,7 +400,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -405,7 +411,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -415,7 +421,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                {"DELETE_COLUMNS": ["col_1"]},
+                DeleteParameters.of(["pk_col_1", "col_1"]),
             ),
         ],
         1,
@@ -434,6 +440,8 @@ TEST_CASES_PREPARE_DELETE = {
 
 
 class TestPrepareDeletes:
+    TEST_PRIMARY_KEYS = ["pk_col_1"]
+
     @pytest.mark.parametrize(
         [
             "test_name",
@@ -472,9 +480,11 @@ class TestPrepareDeletes:
         expected_uniform_deltas_length,
         throws_error_type,
     ):
-        from deltacat.compute.compactor_v2.deletes.prepare_deletes import (
-            prepare_deletes,
+        from deltacat.compute.compactor_v2.deletes.equality_delete_strategy import (
+            EqualityDeleteStrategy,
         )
+
+        eds = EqualityDeleteStrategy()
 
         ray.shutdown()
         ray.init(local_mode=True, ignore_reinit_error=True)
@@ -494,14 +504,14 @@ class TestPrepareDeletes:
             source_table_stream, None, **local_deltacat_storage_kwargs
         )
         input_deltas = []
-        for (incremental_delta, delta_type, delta_properties) in deltas_to_compact:
+        for (incremental_delta, delta_type, delete_parameters) in deltas_to_compact:
             input_deltas.append(
                 ds.commit_delta(
                     ds.stage_delta(
                         incremental_delta,
                         staged_partition,
                         delta_type,
-                        properties=delta_properties if not None else {},
+                        delete_parameters=delete_parameters,
                         **local_deltacat_storage_kwargs,
                     ),
                     **local_deltacat_storage_kwargs,
@@ -524,7 +534,7 @@ class TestPrepareDeletes:
             destination_table_name,
             destination_table_version,
         ) = create_destination_table(
-            set(["pk_1"]),
+            set(self.TEST_PRIMARY_KEYS),
             None,
             None,
             local_deltacat_storage_kwargs,
@@ -535,7 +545,6 @@ class TestPrepareDeletes:
             table_version=destination_table_version,
             **local_deltacat_storage_kwargs,
         )
-        object_store = RayPlasmaObjectStore()
         params = CompactPartitionParams.of(
             {
                 "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -549,7 +558,6 @@ class TestPrepareDeletes:
                     **local_deltacat_storage_kwargs,
                     **{"equivalent_table_types": []},
                 },
-                "object_store": object_store,
                 "read_kwargs_provider": None,
                 "source_partition_locator": src_partition_after_committed_delta.locator,
             }
@@ -558,27 +566,31 @@ class TestPrepareDeletes:
         # action
         if throws_error_type:
             with pytest.raises(throws_error_type):
-                uniform_deltas, actual_deletes_to_apply_by_spos = prepare_deletes(
+                eds.prepare_deletes(
                     params,
                     deltas_annotated,
                 )
             return
-        actual_uniform_deltas, actual_deletes_to_apply_by_spos = prepare_deletes(
+        actual_prepare_delete_result = eds.prepare_deletes(
             params,
             deltas_annotated,
         )
+        actual_uniform_deltas = actual_prepare_delete_result.transformed_deltas
+        actual_delete_file_envelopes = (
+            actual_prepare_delete_result.delete_file_envelopes
+        )
         # verify
         assert len(actual_uniform_deltas) is expected_uniform_deltas_length
-        actual_dictionary_length = len(actual_deletes_to_apply_by_spos)
+        actual_dictionary_length = len(actual_delete_file_envelopes)
         assert (
             expected_dictionary_length == actual_dictionary_length
         ), f"{expected_dictionary_length} does not match {actual_dictionary_length}"
         if expected_dictionary_length > 0:
-            actual_tables = [
-                object_store.get(obj_ref)
-                for _, obj_ref, delete_columns in actual_deletes_to_apply_by_spos
+            actual_delete_tables = [
+                delete_file_envelope.delete_table
+                for delete_file_envelope in actual_delete_file_envelopes
             ]
-            for i, actual_table in enumerate(actual_tables):
+            for i, actual_table in enumerate(actual_delete_tables):
                 actual_table = actual_table.combine_chunks()
                 expected_delete_table = expected_delete_tables[i].combine_chunks()
                 assert actual_table.equals(expected_delete_table)
