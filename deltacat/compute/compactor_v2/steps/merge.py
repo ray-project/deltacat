@@ -436,13 +436,12 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             table, input_records, deduped_records = _compact_tables(
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
-            if table is None:
-                continue
             total_input_records += input_records
             total_deduped_records += deduped_records
-            materialized_results.append(
-                merge_utils.materialize(input, merge_file_group.hb_index, [table])
-            )
+            if table is not None:
+                materialized_results.append(
+                    merge_utils.materialize(input, merge_file_group.hb_index, [table])
+                )
 
         if hb_index_copy_by_ref_ids:
             materialized_results.extend(
