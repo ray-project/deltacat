@@ -193,16 +193,17 @@ class EqualityDeleteStrategy(DeleteStrategy):
         delete_indices: List[int] = searchsorted_by_attr(
             "stream_position", df_envelopes, delete_stream_positions
         )
-        upsert_stream_position_to_delete_table = defaultdict(list)
+        upsert_stream_position_to_delete_tables = defaultdict(list)
         for i, delete_pos_in_upsert in enumerate(delete_indices):
             delete_stream_position_index = i
+            # if the delete position is 0 then it is before any of the upserts in df_envelopes. We can skip these
             if delete_pos_in_upsert == 0:
                 continue
             upsert_stream_pos = df_envelopes[delete_pos_in_upsert - 1].stream_position
-            upsert_stream_position_to_delete_table[upsert_stream_pos].append(
+            upsert_stream_position_to_delete_tables[upsert_stream_pos].append(
                 delete_stream_position_index
             )
-        return delete_indices, upsert_stream_position_to_delete_table
+        return delete_indices, upsert_stream_position_to_delete_tables
 
     def rebatch_df_envelopes(
         self,
@@ -210,6 +211,9 @@ class EqualityDeleteStrategy(DeleteStrategy):
         df_envelopes: List[DeltaFileEnvelope],
         delete_locations: List[Any],
     ) -> List[List[DeltaFileEnvelope]]:
+        """
+        Split the delta file envelopes into subarray sequences of upserts - each bookended by a delete
+        """
         df_envelopes: List[List[DeltaFileEnvelope]] = [
             upsert_sequence.tolist()
             for upsert_sequence in np.split(df_envelopes, delete_locations)
