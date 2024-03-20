@@ -312,6 +312,7 @@ def test_compact_partition_rebase_then_incremental(
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
             "compacted_file_content_type": ContentType.PARQUET,
             "dd_max_parallelism_ratio": 1.0,
+            # "delete_strategy": DefaultEqualityDeleteStrategy(),
             "deltacat_storage": ds,
             "deltacat_storage_kwargs": ds_mock_kwargs,
             "destination_partition_locator": compacted_delta_locator.partition_locator,
@@ -329,7 +330,6 @@ def test_compact_partition_rebase_then_incremental(
             "s3_client_kwargs": {},
             "source_partition_locator": source_partition_locator_w_deltas,
             "sort_keys": sort_keys if sort_keys else None,
-            # "delete_strategy": DefaultEqualityDeleteStrategy(),
         }
     )
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)

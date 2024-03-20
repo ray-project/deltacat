@@ -103,7 +103,10 @@ class EqualityDeleteStrategy(DeleteStrategy):
         delete_spos_to_delete_deltas: Dict[int, List],
     ) -> List[DeleteFileEnvelope]:
         delete_file_envelopes = []
-        for spos, delete_delta_sequence in delete_spos_to_delete_deltas.items():
+        for (
+            stream_position,
+            delete_delta_sequence,
+        ) in delete_spos_to_delete_deltas.items():
             consecutive_delete_tables: List[pa.Table] = []
             for delete_delta in delete_delta_sequence:
                 assert (
@@ -124,7 +127,7 @@ class EqualityDeleteStrategy(DeleteStrategy):
                 consecutive_delete_tables.extend(delete_dataset)
             consolidated_deletes: pa.Table = pa.concat_tables(consecutive_delete_tables)
             delete_envelope = DeleteFileEnvelope(
-                spos,
+                stream_position,
                 consolidated_deletes,
                 delete_columns,
                 DeleteTableReferenceStorageStrategy(),

@@ -30,6 +30,7 @@ from deltacat.tests.test_utils.pyarrow import (
 from deltacat.compute.compactor_v2.deletes.model import (
     DeleteFileEnvelope,
 )
+from deltacat.storage.model.delete_parameters import DeleteParameters
 
 
 class TestMerge(unittest.TestCase):
@@ -251,6 +252,10 @@ class TestMerge(unittest.TestCase):
         self._validate_merge_output(merge_res_list, 10)
 
     def test_merge_when_delete_type_deltas_are_merged(self):
+        from deltacat.compute.compactor_v2.deletes.equality_delete_strategy import (
+            EqualityDeleteStrategy,
+        )
+
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
@@ -267,9 +272,10 @@ class TestMerge(unittest.TestCase):
             **incremental_kwargs,
         )
         # Erase entire base table by appending DELETE type bundle
+        test_delete_parameters = DeleteParameters.of(["pk1"])
         delete_kwargs = {
             "delta_type": DeltaType.DELETE,
-            "properties": {"DELETE_COLUMNS": ["pk1"]},
+            "delete_parameters": test_delete_parameters,
             **self.kwargs,
         }
         delete_delta: Delta = create_delta_from_csv_file(
@@ -277,10 +283,12 @@ class TestMerge(unittest.TestCase):
             [self.DEDUPE_DELETE_DATA],
             **delete_kwargs,
         )
-        delete_columns: List[str] = delete_delta.properties.get("DELETE_COLUMNS")
-        obj_ref = object_store.put(download_delta(delete_delta, **self.kwargs))
+        delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
+        delete_table = download_delta(delete_delta, **delete_kwargs)
         ird = [
-            DeleteFileEnvelope(delete_delta.stream_position, obj_ref, delete_columns)
+            DeleteFileEnvelope(
+                delete_delta.stream_position, delete_table, delete_columns
+            )
         ]
 
         # Only one hash bucket and one file
@@ -310,6 +318,85 @@ class TestMerge(unittest.TestCase):
             deltacat_storage=ds,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            delete_strategy=EqualityDeleteStrategy(),
+            delete_file_envelopes=ird,
+        )
+        merge_res_list = []
+        merge_result_promise = merge.remote(merge_input)
+        merge_result = ray.get(merge_result_promise)
+        merge_res_list.append(merge_result)
+
+        # Drop 5 records - 6 -> 1
+        self._validate_merge_output(merge_res_list, 1)
+
+    def test_merge_when_delete_type_deltas_are_merged_multiple_columns(self):
+        from deltacat.compute.compactor_v2.deletes.equality_delete_strategy import (
+            EqualityDeleteStrategy,
+        )
+
+        partition = stage_partition_from_file_paths(
+            self._testMethodName,
+            [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
+            **self.kwargs,
+        )
+        old_delta = commit_delta_to_staged_partition(
+            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK], **self.kwargs
+        )
+        object_store = RayPlasmaObjectStore()
+        incremental_kwargs = {"delta_type": DeltaType.UPSERT, **self.kwargs}
+        incremental_delta: Delta = create_delta_from_csv_file(
+            f"{self._testMethodName}-1",
+            [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
+            **incremental_kwargs,
+        )
+        # Erase entire base table by appending DELETE type bundle
+        test_delete_parameters = DeleteParameters.of(["pk1", "pk2"])
+        delete_kwargs = {
+            "delta_type": DeltaType.DELETE,
+            "delete_parameters": test_delete_parameters,
+            **self.kwargs,
+        }
+        delete_delta: Delta = create_delta_from_csv_file(
+            f"{self._testMethodName}-2",
+            [self.DEDUPE_DELETE_DATA],
+            **delete_kwargs,
+        )
+        delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
+        delete_table = download_delta(delete_delta, **delete_kwargs)
+        ird = [
+            DeleteFileEnvelope(
+                delete_delta.stream_position, delete_table, delete_columns
+            )
+        ]
+
+        # Only one hash bucket and one file
+        hb_id_to_entry_indices_range = {"0": (0, 1)}
+
+        # Fake round completion info for old delta, the record will be go to hash bucket #3
+        # Hash bucket #3 is empty for new delta record
+        rcf = RoundCompletionInfo.of(
+            compacted_delta_locator=old_delta.locator,
+            high_watermark=old_delta.stream_position,
+            compacted_pyarrow_write_result=None,
+            sort_keys_bit_width=0,
+            hb_index_to_entry_range=hb_id_to_entry_indices_range,
+        )
+
+        merge_input = MergeInput.of(
+            round_completion_info=rcf,
+            compacted_file_content_type=ContentType.PARQUET,
+            merge_file_groups_provider=LocalMergeFileGroupsProvider(
+                uniform_deltas=[DeltaAnnotated.of(incremental_delta)],
+                read_kwargs_provider=None,
+                deltacat_storage=ds,
+                deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+            ),
+            write_to_partition=partition,
+            primary_keys=["pk1"],
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+            object_store=object_store,
+            delete_strategy=EqualityDeleteStrategy(),
             delete_file_envelopes=ird,
         )
         merge_res_list = []

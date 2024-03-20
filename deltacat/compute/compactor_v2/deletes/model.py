@@ -18,28 +18,40 @@ from typing import Tuple, Any, Dict
 
 class DeleteTableStorageStrategy(ABC):
     @abstractmethod
-    def store_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+    def store_table(
+        self, delete_table_like: Union[pa.Table, ObjectRef]
+    ) -> Union[pa.Table, ObjectRef]:
         pass
 
     @abstractmethod
-    def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+    def get_table(
+        self, delete_table_like: Union[pa.Table, ObjectRef]
+    ) -> Union[pa.Table, ObjectRef]:
         pass
 
 
 class DeleteTableNOOPStorageStrategy(DeleteTableStorageStrategy):
-    def store_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+    def store_table(
+        self, delete_table_like: Union[pa.Table, ObjectRef]
+    ) -> Union[pa.Table, ObjectRef]:
         return delete_table_like
 
-    def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+    def get_table(
+        self, delete_table_like: Union[pa.Table, ObjectRef]
+    ) -> Union[pa.Table, ObjectRef]:
         return delete_table_like
 
 
 class DeleteTableReferenceStorageStrategy(DeleteTableStorageStrategy):
-    def store_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
-        obj_ref = ray.put(delete_table_like)
+    def store_table(
+        self, delete_table_like: Union[pa.Table, ObjectRef]
+    ) -> Union[pa.Table, ObjectRef]:
+        obj_ref: ObjectRef = ray.put(delete_table_like)
         return obj_ref
 
-    def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
+    def get_table(
+        self, delete_table_like: Union[pa.Table, ObjectRef]
+    ) -> Union[pa.Table, ObjectRef]:
         table = ray.get(delete_table_like)
         return table
 
