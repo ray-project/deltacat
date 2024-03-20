@@ -57,6 +57,10 @@ class DeleteTableReferenceStorageStrategy(DeleteTableStorageStrategy):
 
 
 class DeleteFileEnvelope:
+    """
+    TODO: pfaraone
+    """
+
     def __init__(
         self,
         stream_position: int,
@@ -86,11 +90,19 @@ class DeleteFileEnvelope:
 
 @dataclass
 class PrepareDeleteResult:
+    """
+    TODO: pfaraone
+    """
+
     transformed_deltas: [List[DeltaAnnotated]]
     delete_file_envelopes: List[DeleteFileEnvelope]
 
 
 class DeleteStrategy(ABC):
+    """
+    TODO: pfaraone
+    """
+
     @property
     def name(self):
         pass

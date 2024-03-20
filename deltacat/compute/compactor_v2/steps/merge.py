@@ -115,7 +115,7 @@ def _build_incremental_table(
 
 
 def _merge_tables(
-    table: pa.Table,
+    table: Optional[pa.Table],
     primary_keys: List[str],
     can_drop_duplicates: bool,
     compacted_table: Optional[pa.Table] = None,
@@ -126,10 +126,6 @@ def _merge_tables(
     This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
     appended to the table.
     """
-    # If all rows are dropped from both the table and compacted_table return None
-    if not (table or compacted_table):
-        return None
-
     # if all rows are dropped from the table just return the compacted table
     if not table and compacted_table:
         return compacted_table
@@ -376,9 +372,9 @@ def _compact_tables(
                 can_drop_duplicates=input.drop_duplicates,
                 compacted_table=prev_table,
             )
-        upsert_stream_pos = dfe_envelopes[-1].stream_position
+        ending_sequence_stream_position = dfe_envelopes[-1].stream_position
         for delete_offset in upsert_stream_position_to_delete_file_envelopes_offset[
-            upsert_stream_pos
+            ending_sequence_stream_position
         ]:
             delete_envelope = input.delete_file_envelopes[delete_offset]
             table, rows_dropped = input.delete_strategy.apply_deletes(
