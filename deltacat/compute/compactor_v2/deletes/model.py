@@ -117,7 +117,7 @@ class DeleteStrategy(ABC):
     def match_deletes(
         self,
         index_identifier: int,
-        df_envelopes: List[DeltaFileEnvelope],
+        sorted_df_envelopes: List[DeltaFileEnvelope],
         deletes: List[DeleteFileEnvelope],
         *args,
         **kwargs

@@ -12,10 +12,42 @@ from deltacat.utils.common import ReadKwargsProvider
 
 
 def searchsorted_by_attr(
-    attribute: str, obj_arr: List[Any], values_to_insert, side: str = "right"
+    attribute: str, obj_arr: List[Any], values_to_insert: List[Any], side: str = "right"
 ) -> List[int]:
     """
-    foo
+    Find the insertion indices for 'values_to_insert' in a sorted array of objects based on a specified attribute.
+    This function takes an attribute name, a list of objects, and a list of values to insert.
+    It sorts the objects by the specified attribute, then finds the appropriate insertion indices
+    for the given values using numpy.searchsorted.
+
+    Args:
+        attribute (str): The name of the attribute to sort the objects by.
+        obj_arr (List[Any]): A list of objects to search.
+        values_to_insert (List[Any]): A list of values to find the insertion indices for.
+        side (str, optional): The side to use for the insertion indices.
+            If 'left', the indices are biased towards the left (lower values).
+            If 'right', the indices are biased towards the right (higher values).
+            Defaults to 'right'.
+
+    Returns:
+        List[int]: A list of insertion indices for each value in 'values_to_insert'.
+
+    Raises:
+        AssertionError: If the `side` argument is not 'left' or 'right'.
+        AttributeError: If the attribute does not exist in the obj_arr
+
+    Example:
+
+        >>> class Point:
+        ...     def __init__(self, x, y):
+        ...         self.x = x
+        ...         self.y = y
+        ...
+        >>> points = [Point(1, 2), Point(3, 4), Point(5, 6)]
+        >>> searchsorted_by_attr('x', points, [0, 2, 4, 6])
+        [0, 1, 2, 3]
+        >>> searchsorted_by_attr('x', points, [0, 2, 4, 6], side='left')
+        [0, 0, 1, 3]
     """
     assert side in (
         "left",

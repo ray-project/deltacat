@@ -302,32 +302,11 @@ def _compact_incremental_table(
     return table, incremental_len, total_deduped_records, merge_time
 
 
-def _compact_tables(
+def _compact_incremental_and_delete_table(
     input: MergeInput,
-    dfe_list: Optional[List[List[DeltaFileEnvelope]]],
+    df_envelopes: Optional[List[DeltaFileEnvelope]],
     hb_idx: int,
-    compacted_table=None,
-) -> Tuple[pa.Table, int, int]:
-    df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
-        _flatten_dfe_list(dfe_list)
-    )
-    has_delete = input.delete_file_envelopes and input.delete_strategy
-    logger.info(
-        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
-        f"{len(df_envelopes)} delta file envelopes..."
-    )
-    if not has_delete:
-        (
-            table,
-            incremental_len,
-            deduped_records,
-            merge_time,
-        ) = _compact_incremental_table(input, df_envelopes, hb_idx)
-        logger.info(
-            f"[Merge task index {input.merge_task_index}] Merged "
-            f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
-        )
-        return table, incremental_len, deduped_records
+):
     if not df_envelopes:
         table = None
         incremental_len = 0
@@ -398,6 +377,37 @@ def _compact_tables(
             rows_dropped_for_section += rows_dropped
         prev_table = table
         partial_incremental_len -= rows_dropped
+    return table, incremental_len, deduped_records
+
+
+def _compact_tables(
+    input: MergeInput,
+    dfe_list: Optional[List[List[DeltaFileEnvelope]]],
+    hb_idx: int,
+) -> Tuple[pa.Table, int, int]:
+    df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
+        _flatten_dfe_list(dfe_list)
+    )
+    has_delete = input.delete_file_envelopes and input.delete_strategy
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
+        f"{len(df_envelopes)} delta file envelopes..."
+    )
+    if not has_delete:
+        (
+            table,
+            incremental_len,
+            deduped_records,
+            merge_time,
+        ) = _compact_incremental_table(input, df_envelopes, hb_idx)
+        logger.info(
+            f"[Merge task index {input.merge_task_index}] Merged "
+            f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
+        )
+        return table, incremental_len, deduped_records
+    table, incremental_len, deduped_records = _compact_incremental_and_delete_table(
+        input, df_envelopes, hb_idx
+    )
     return table, incremental_len, deduped_records
 
 
