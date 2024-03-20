@@ -1212,7 +1212,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
         delete_strategy=EqualityDeleteStrategy,
     ),
-    "21-rebase-then-incremental-delete-type-delta-UDUD": RebaseThenIncrementalCompactionTestCaseParams(
+    "21-rebase-then-incremental-delete-type-delta-UDDUUDD": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
@@ -1310,8 +1310,8 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [
-                pa.array([0, 1, 4, 5, 7]),
-                pa.array(["0", "1", "4", "5", "aaa"]),
+                pa.array([0, 1, 5, 7]),
+                pa.array(["996", "997", "buz", "aaa"]),
             ],
             names=["pk_col_1", "col_1"],
         ),

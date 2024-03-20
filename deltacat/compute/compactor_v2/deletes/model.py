@@ -118,7 +118,7 @@ class DeleteStrategy(ABC):
         self,
         index_identifier: int,
         sorted_df_envelopes: List[DeltaFileEnvelope],
-        deletes: List[DeleteFileEnvelope],
+        delete_file_envelopes: List[DeleteFileEnvelope],
         *args,
         **kwargs
     ) -> Tuple[List[int], Dict[str, Any]]:
@@ -140,7 +140,7 @@ class DeleteStrategy(ABC):
         self,
         index_identifier: int,
         table: Optional[pa.Table],
-        delete_envelope: DeleteFileEnvelope,
+        delete_file_envelope: DeleteFileEnvelope,
         *args,
         **kwargs
     ) -> Tuple[Any, int]:
@@ -150,8 +150,7 @@ class DeleteStrategy(ABC):
     def apply_all_deletes(
         self,
         index_identifier: int,
-        table: Optional[pa.Table],
-        all_delete_tables: List[pa.Table],
+        delete_file_envelopes: List[DeleteFileEnvelope],
         *args,
         **kwargs
     ):

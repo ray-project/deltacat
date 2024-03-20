@@ -17,12 +17,11 @@ def searchsorted_by_attr(
     """
     Find the insertion indices for 'values_to_insert' in a sorted array of objects based on a specified attribute.
     This function takes an attribute name, a list of objects, and a list of values to insert.
-    It sorts the objects by the specified attribute, then finds the appropriate insertion indices
-    for the given values using numpy.searchsorted.
+    It finds the appropriate insertion indices for the given values based on the order of the attribute in obj_arr using numpy.searchsorted.
 
     Args:
-        attribute (str): The name of the attribute to sort the objects by.
-        obj_arr (List[Any]): A list of objects to search.
+        attribute (str): The name of the attribute to bisect search on. The obj arr should be sorted based on that attribute
+        obj_arr (List[Any]): A list of objects to bisect search.
         values_to_insert (List[Any]): A list of values to find the insertion indices for.
         side (str, optional): The side to use for the insertion indices.
             If 'left', the indices are biased towards the left (lower values).

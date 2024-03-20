@@ -10,7 +10,7 @@ import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
@@ -306,12 +306,13 @@ def _compact_incremental_and_delete_table(
     input: MergeInput,
     df_envelopes: Optional[List[DeltaFileEnvelope]],
     hb_idx: int,
-):
+) -> Tuple[Any, int, int]:
+    table = None
+    total_incremental_len = 0
+    total_deduped_records = 0
+    total_dropped_records = 0
+    total_merge_time = 0
     if not df_envelopes:
-        table = None
-        incremental_len = 0
-        deduped_records = 0
-        dropped_rows = 0
         if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
             compacted_table = _download_compacted_table(
                 hb_index=hb_idx,
@@ -320,52 +321,49 @@ def _compact_incremental_and_delete_table(
                 deltacat_storage=input.deltacat_storage,
                 deltacat_storage_kwargs=input.deltacat_storage_kwargs,
             )
-            table, dropped_rows = input.delete_strategy.apply_all_deletes(
+            table, dropped_records = input.delete_strategy.apply_all_deletes(
                 compacted_table, input.delete_file_envelopes
             )
+            total_dropped_records += dropped_records
             logger.info(
                 f"[Hash bucket index {hb_idx}] No delta file envelopes found for this hash bucket index. "
-                f"Dropped {dropped_rows} from compacted table of record count: {len(table)} size={table.nbytes}..."
+                f"Dropped {total_dropped_records} from compacted table of record count: {len(table)} size={table.nbytes}..."
             )
-        return table, incremental_len, deduped_records
+        return table, total_incremental_len, total_deduped_records
     (
         delete_indices,
-        upsert_stream_position_to_delete_file_envelopes_offset,
+        df_envelope_spos_to_delete_file_envelope_offset,
     ) = input.delete_strategy.match_deletes(
         hb_idx,
         df_envelopes,
-        [
-            delete_envelope.stream_position
-            for delete_envelope in input.delete_file_envelopes
-        ],
+        input.delete_file_envelopes,
     )
-    list_dfe_envelopes = input.delete_strategy.rebatch_df_envelopes(
-        hb_idx, df_envelopes, delete_indices
-    )
-    table = None
-    incremental_len = 0
-    deduped_records = 0
+    dfe_envelopes_subarrays_list: List[
+        List[DeltaFileEnvelope]
+    ] = input.delete_strategy.rebatch_df_envelopes(hb_idx, df_envelopes, delete_indices)
     prev_table = None
-    for dfe_envelopes in list_dfe_envelopes:
+    for dfe_envelopes_subarray in dfe_envelopes_subarrays_list:
         (
             table,
             partial_incremental_len,
             partial_deduped_records,
             partial_merge_time,
-        ) = _compact_incremental_table(input, df_envelopes, hb_idx)
-        incremental_len += partial_incremental_len
-        deduped_records += partial_deduped_records
+        ) = _compact_incremental_table(input, dfe_envelopes_subarray, hb_idx)
+        total_incremental_len += partial_incremental_len
+        total_deduped_records += partial_deduped_records
+        total_merge_time += partial_merge_time
         rows_dropped_for_section = 0
         if prev_table:
-            table, merge_time = timed_invocation(
+            table, partial_merge_time = timed_invocation(
                 func=_merge_tables,
                 table=table,
                 primary_keys=input.primary_keys,
                 can_drop_duplicates=input.drop_duplicates,
                 compacted_table=prev_table,
             )
-        ending_sequence_stream_position = dfe_envelopes[-1].stream_position
-        for delete_offset in upsert_stream_position_to_delete_file_envelopes_offset[
+            total_merge_time += partial_merge_time
+        ending_sequence_stream_position = dfe_envelopes_subarray[-1].stream_position
+        for delete_offset in df_envelope_spos_to_delete_file_envelope_offset[
             ending_sequence_stream_position
         ]:
             delete_envelope = input.delete_file_envelopes[delete_offset]
@@ -377,7 +375,7 @@ def _compact_incremental_and_delete_table(
             rows_dropped_for_section += rows_dropped
         prev_table = table
         partial_incremental_len -= rows_dropped
-    return table, incremental_len, deduped_records
+    return table, total_incremental_len, total_deduped_records
 
 
 def _compact_tables(

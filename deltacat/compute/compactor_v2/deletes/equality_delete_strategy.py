@@ -188,8 +188,13 @@ class EqualityDeleteStrategy(DeleteStrategy):
         self,
         index_identifier: int,
         sorted_df_envelopes: List[DeltaFileEnvelope],
-        delete_stream_positions: List[int],
+        delete_file_envelopes: List[DeleteFileEnvelope],
+        *args,
+        **kwargs,
     ) -> Tuple[List[int], Dict[str, Any]]:
+        delete_stream_positions = [
+            delete_envelope.stream_position for delete_envelope in delete_file_envelopes
+        ]
         delete_indices: List[int] = searchsorted_by_attr(
             "stream_position", sorted_df_envelopes, delete_stream_positions
         )
@@ -212,6 +217,8 @@ class EqualityDeleteStrategy(DeleteStrategy):
         index_identifier: int,
         df_envelopes: List[DeltaFileEnvelope],
         delete_locations: List[Any],
+        *args,
+        **kwargs,
     ) -> List[List[DeltaFileEnvelope]]:
         """
         Split the delta file envelopes into subarray sequences of upserts - each bookended by a delete
@@ -225,26 +232,26 @@ class EqualityDeleteStrategy(DeleteStrategy):
 
     def apply_deletes(
         self,
-        index_identifier,
-        table,
-        delete_envelope: DeleteFileEnvelope,
+        index_identifier: int,
+        table: Optional[pa.Table],
+        delete_file_envelope: DeleteFileEnvelope,
+        *args,
+        **kwargs,
     ) -> Tuple[pa.Table, int]:
-        delete_columns = delete_envelope.delete_columns
-        delete_table = delete_envelope.delete_table
+        delete_columns = delete_file_envelope.delete_columns
+        delete_table = delete_file_envelope.delete_table
         table, number_of_rows_dropped = self._drop_rows(
             table, delete_table, delete_columns
         )
         return table, number_of_rows_dropped
 
     def apply_all_deletes(
-        self,
-        table,
-        delete_envelope: List[DeleteFileEnvelope],
+        self, table, delete_file_envelopes: List[DeleteFileEnvelope], *args, **kwargs
     ):
         total_dropped_rows = 0
-        for delete_envelope in delete_envelope:
-            delete_columns = delete_envelope.delete_columns
-            delete_table = delete_envelope.delete_table
+        for delete_file_envelope in delete_file_envelopes:
+            delete_columns = delete_file_envelope.delete_columns
+            delete_table = delete_file_envelope.delete_table
             table, number_of_rows_dropped = self._drop_rows(
                 table, delete_table, delete_columns
             )
