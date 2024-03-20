@@ -55,13 +55,14 @@ def commit_delta_to_staged_partition(
 
 
 def download_delta(delta_like: Union[Delta, DeltaLocator], *args, **kwargs) -> Delta:
-    delete_table = ds.download_delta(
-        delta_like,
-        storage_type=StorageType.LOCAL,
-        *args,
-        **kwargs,
+    return pa.concat_tables(
+        ds.download_delta(
+            delta_like,
+            storage_type=StorageType.LOCAL,
+            *args,
+            **kwargs,
+        )
     )
-    return pa.concat_tables(delete_table)
 
 
 def commit_delta_to_partition(
