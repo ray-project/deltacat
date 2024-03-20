@@ -36,7 +36,7 @@ class DeleteStrategy(ABC):
         self,
         index_identifier: int,
         df_envelopes: List[DeltaFileEnvelope],
-        deletes: List[DeltaFileEnvelope],
+        deletes: List[DeleteFileEnvelope],
     ) -> Tuple[List[int], Dict[str, Any]]:
         pass
 

@@ -58,13 +58,6 @@ def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -
     )
 
 
-def _get_all_deletes(
-    delete_payload: List[Tuple[int, Any, List[str]]],
-) -> Iterator[Tuple[pa.Table, str]]:
-    for _, obj_ref, delete_column in delete_payload:
-        yield ray.get(obj_ref), delete_column
-
-
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
     return table.append_column(
         sc._DELTA_TYPE_COLUMN_FIELD,
@@ -102,7 +95,6 @@ def _sort_df_envelopes_list(
         reverse=False,  # ascending
     )
 
-
 def _build_incremental_table(
     df_envelopes: List[DeltaFileEnvelope],
     hb_idx: int,
@@ -119,46 +111,6 @@ def _build_incremental_table(
         hb_tables.append(table)
     incremental_res: pa.Table = pa.concat_tables(hb_tables)
     return incremental_res
-
-
-# def _get_delete_column_names(
-#     table: pa.Table, column_names: Optional[List[str]] = None
-# ) -> List[str]:
-#     if table is None:
-#         return []
-#     if column_names:
-#         return column_names
-#     delete_column_names = [name for name in table.column_names]
-#     return delete_column_names
-
-
-# def drop_rows_affected_by_deletes(
-#     table: Optional[pa.Table],
-#     deletes_to_apply: pa.Table,
-#     delete_column_names: List[str] = None,
-#     equality_predicate_operation: Optional[Callable] = pa.compute.and_,
-# ) -> Tuple[Any, int]:
-#     if not table:
-#         return table
-#     delete_column_names = _get_delete_column_names(
-#         deletes_to_apply, delete_column_names
-#     )
-#     drop_masks = [
-#         pc.is_in(
-#             table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
-#         )
-#         for delete_column_name in delete_column_names
-#     ]
-#     for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
-#         curr_drop_mask = drop_masks[i]
-#         next_drop_mask = drop_masks[i + 1]
-#         # logical OR the mask arrays
-#         result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
-#         drop_masks[i + 1] = result_mask
-#     mask_with_all_droppable = drop_masks[-1].combine_chunks()
-#     number_of_rows_dropped: int = mask_with_all_droppable.true_count
-#     table = table.filter(pc.invert(mask_with_all_droppable))
-#     return table, number_of_rows_dropped
 
 
 def _merge_tables(
@@ -269,7 +221,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     hb_index_to_indices = round_completion_info.hb_index_to_entry_range
 
     if hb_index_to_indices is None:
-        logger.info(f"Nothing to copy by reference. Skipping...")
+        logger.info("Nothing to copy by reference. Skipping...")
         return []
 
     for hb_index in hb_index_copy_by_reference:
@@ -310,39 +262,6 @@ def _copy_all_manifest_files_from_old_hash_buckets(
         )
         materialize_result_list.append(materialize_result)
     return materialize_result_list
-
-
-# def apply_deletes(
-#     table: pa.Table,
-#     deletes_to_apply,
-#     delete_column_names: List[str],
-#     equality_predicate_operation: Optional[Callable] = pa.compute.and_,
-# ) -> Tuple[Any, int]:
-#     # next = None
-#     for i, delete_column_name in enumerate(delete_column_names):
-#         boolean_mask = pc.is_in(
-#             table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
-#         )
-#         table = table.filter(pc.invert(boolean_mask))
-#         return table, len(boolean_mask)
-
-# drop_masks = [
-#     pc.is_in(
-#         table[delete_column_name], value_set=deletes_to_apply[delete_column_name]
-#     )
-#     for delete_column_name in delete_column_names
-# ]
-# for i, droppable in enumerate(drop_masks[: len(drop_masks) - 1]):
-#     curr_drop_mask = drop_masks[i]
-#     next_drop_mask = drop_masks[i + 1]
-#     # logical OR the mask arrays
-#     result_mask = equality_predicate_operation(curr_drop_mask, next_drop_mask)
-#     drop_masks[i + 1] = result_mask
-# mask_with_all_droppable = drop_masks[-1].combine_chunks()
-# number_of_rows_dropped: int = mask_with_all_droppable.true_count
-# table = table.filter(pc.invert(mask_with_all_droppable))
-# return table, number_of_rows_dropped
-
 
 def _apply_upserts(
     input: MergeInput, dfe_list: List[DeltaFileEnvelope], hb_idx: int
@@ -395,7 +314,7 @@ def _compact_tables(
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes_list(
         _flatten_df_envelopes_list(dfe_list)
     )
-    has_delete = input.delete_file_envelopes
+    has_delete = input.delete_file_envelopes and input.delete_strategy
     if not has_delete:
         logger.info(
             f"[Hash bucket index {hb_idx}] Reading dedupe input for "
@@ -447,6 +366,7 @@ def _compact_tables(
         ) = _apply_upserts(input, df_envelopes, hb_idx)
         incremental_len += partial_incremental_len
         deduped_records += partial_deduped_records
+        rows_dropped_for_section = 0
         if prev_table:
             table, merge_time = timed_invocation(
                 func=_merge_tables,
@@ -456,15 +376,15 @@ def _compact_tables(
                 compacted_table=prev_table,
             )
         upsert_stream_pos = dfe_envelopes[-1].stream_position
-        delete_envelope = input.delete_file_envelopes[
-            upsert_stream_position_to_delete_file_envelopes_offset[upsert_stream_pos]
-        ]
-        table, rows_dropped = input.delete_strategy.apply_deletes(
-            hb_idx,
-            table,
-            upsert_stream_pos,
-            delete_envelope,
-        )
+        for delete_offset in upsert_stream_position_to_delete_file_envelopes_offset[upsert_stream_pos]:
+            delete_envelope = input.delete_file_envelopes[delete_offset]
+            table, rows_dropped = input.delete_strategy.apply_deletes(
+                hb_idx,
+                table,
+                upsert_stream_pos,
+                delete_envelope,
+            )
+            rows_dropped_for_section += rows_dropped
         prev_table = table
         partial_incremental_len -= rows_dropped
     return table, incremental_len, deduped_records

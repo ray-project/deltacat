@@ -40,20 +40,24 @@ class EqualityDeleteStrategy(DeleteStrategy):
 
     def _drop_rows(
         self,
-        # delete_file_envelope: DeleteFileEnvelope,
         table: pa.Table,
         deletes_to_apply,
         delete_column_names: List[str],
         equality_predicate_operation: Optional[Callable] = pa.compute.and_,
     ) -> Tuple[Any, int]:
-        rows_dropped = 0
-        for i, delete_column_name in enumerate(delete_column_names):
-            boolean_mask = pc.is_in(
+        prev_boolean_mask = pa.array(np.ones(len(table), dtype=bool))
+        # all 1s -> all True so wont discard any from the curr_boolean_mask
+        for delete_column_name in delete_column_names:
+            curr_boolean_mask = pc.is_in(
                 table[delete_column_name],
                 value_set=deletes_to_apply[delete_column_name],
             )
-            table = table.filter(pc.invert(boolean_mask))
-            return table, len(boolean_mask)
+            result = equality_predicate_operation(prev_boolean_mask, curr_boolean_mask)
+            prev_boolean_mask = result
+        number_of_rows_before_dropping = len(table)
+        table = table.filter(pc.invert(result))
+        number_of_rows_after_dropping = len(table)
+        return table, number_of_rows_after_dropping - number_of_rows_before_dropping
 
     def _filter_out_non_delete_deltas(
         self, input_deltas: List[DeltaAnnotated]
@@ -185,15 +189,13 @@ class EqualityDeleteStrategy(DeleteStrategy):
         delete_indices: List[int] = searchsorted_by_attr(
             "stream_position", df_envelopes, delete_stream_positions
         )
-        upsert_stream_position_to_delete_table = {}
+        upsert_stream_position_to_delete_table = defaultdict(list)
         for i, delete_pos_in_upsert in enumerate(delete_indices):
             delete_stream_position_index = i
             if delete_pos_in_upsert == 0:
                 continue
             upsert_stream_pos = df_envelopes[delete_pos_in_upsert - 1].stream_position
-            upsert_stream_position_to_delete_table[
-                upsert_stream_pos
-            ] = delete_stream_position_index
+            upsert_stream_position_to_delete_table[upsert_stream_pos].append(delete_stream_position_index)
         return delete_indices, upsert_stream_position_to_delete_table
 
     def rebatch_df_envelopes(
@@ -238,10 +240,3 @@ class EqualityDeleteStrategy(DeleteStrategy):
             )
             total_dropped_rows += number_of_rows_dropped
         return table, total_dropped_rows
-        # for _, obj_ref, delete_column_names in all_deletes:
-        #     delete_table = ray.get(obj_ref)
-        #     table, number_of_rows_dropped = self._drop_rows(
-        #         table, delete_table, delete_column_names
-        #     )
-        #     total_dropped_rows += number_of_rows_dropped
-        # return table, total_dropped_rows
