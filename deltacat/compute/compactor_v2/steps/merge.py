@@ -4,13 +4,13 @@ from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import numpy as np
 import pyarrow as pa
 import ray
-from typing import Any, Callable
+from typing import Callable
 import time
 import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
-from typing import Iterator, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
@@ -94,6 +94,7 @@ def _sort_df_envelopes_list(
         key=key,
         reverse=False,  # ascending
     )
+
 
 def _build_incremental_table(
     df_envelopes: List[DeltaFileEnvelope],
@@ -263,6 +264,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
         materialize_result_list.append(materialize_result)
     return materialize_result_list
 
+
 def _apply_upserts(
     input: MergeInput, dfe_list: List[DeltaFileEnvelope], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
@@ -376,7 +378,9 @@ def _compact_tables(
                 compacted_table=prev_table,
             )
         upsert_stream_pos = dfe_envelopes[-1].stream_position
-        for delete_offset in upsert_stream_position_to_delete_file_envelopes_offset[upsert_stream_pos]:
+        for delete_offset in upsert_stream_position_to_delete_file_envelopes_offset[
+            upsert_stream_pos
+        ]:
             delete_envelope = input.delete_file_envelopes[delete_offset]
             table, rows_dropped = input.delete_strategy.apply_deletes(
                 hb_idx,

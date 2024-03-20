@@ -80,9 +80,9 @@ class EqualityDeleteStrategy(DeleteStrategy):
                 continue
             while (
                 window_end < len(input_deltas)
-                and input_deltas[window_end].type
-                is DeltaType.DELETE
-                is DeltaType.DELETE
+                and input_deltas[window_end].type is DeltaType.DELETE
+                and input_deltas[window_end].delete_parameters
+                == input_deltas[window_start].delete_parameters
             ):
                 window_end += 1
             delete_deltas_sequence: List[DeltaAnnotated] = input_deltas[
@@ -195,7 +195,9 @@ class EqualityDeleteStrategy(DeleteStrategy):
             if delete_pos_in_upsert == 0:
                 continue
             upsert_stream_pos = df_envelopes[delete_pos_in_upsert - 1].stream_position
-            upsert_stream_position_to_delete_table[upsert_stream_pos].append(delete_stream_position_index)
+            upsert_stream_position_to_delete_table[upsert_stream_pos].append(
+                delete_stream_position_index
+            )
         return delete_indices, upsert_stream_position_to_delete_table
 
     def rebatch_df_envelopes(
