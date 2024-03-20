@@ -8,6 +8,7 @@ from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
+from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
 
 from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
@@ -364,13 +365,13 @@ class CompactPartitionParams(dict):
     def metrics_config(self, config: MetricsConfig) -> None:
         self["metrics_config"] = config
 
-    # @property
-    # def delete_strategy(self) -> Optional[DeleteStrategy]:
-    #     return self.get("delete_strategy")
+    @property
+    def delete_strategy(self) -> Optional[DeleteStrategy]:
+        return self.get("delete_strategy")
 
-    # @delete_strategy.setter
-    # def delete_strategy(self, delete_strategy: DeleteStrategy) -> None:
-    #     self["delete_strategy"] = delete_strategy
+    @delete_strategy.setter
+    def delete_strategy(self, delete_strategy: DeleteStrategy) -> None:
+        self["delete_strategy"] = delete_strategy
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

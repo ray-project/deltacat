@@ -200,8 +200,7 @@ def _download_compacted_table(
             **deltacat_storage_kwargs,
         )
         tables.append(table)
-    compacted_table = pa.concat_tables(tables)
-    return compacted_table
+    return pa.concat_tables(tables)
 
 
 def _copy_all_manifest_files_from_old_hash_buckets(
@@ -385,7 +384,6 @@ def _compact_tables(
             table, rows_dropped = input.delete_strategy.apply_deletes(
                 hb_idx,
                 table,
-                upsert_stream_pos,
                 delete_envelope,
             )
             rows_dropped_for_section += rows_dropped

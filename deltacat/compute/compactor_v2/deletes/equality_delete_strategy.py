@@ -3,7 +3,7 @@ from deltacat.compute.compactor_v2.deletes.model import (
     DeleteFileEnvelope,
     DeleteTableReferenceStorageStrategy,
 )
-from deltacat.compute.compactor_v2.deletes.strategy import DeleteStrategy
+from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
 from deltacat.storage import (
     DeltaType,
 )
@@ -217,12 +217,10 @@ class EqualityDeleteStrategy(DeleteStrategy):
         self,
         index_identifier,
         table,
-        table_stream_pos,
         delete_envelope: DeleteFileEnvelope,
     ) -> Tuple[pa.Table, int]:
         delete_columns = delete_envelope.delete_columns
         delete_table = delete_envelope.delete_table
-        logger.info(f"pdebug:apply_deletes {delete_columns=}, {delete_table=}")
         table, number_of_rows_dropped = self._drop_rows(
             table, delete_table, delete_columns
         )

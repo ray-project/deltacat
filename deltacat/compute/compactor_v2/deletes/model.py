@@ -3,12 +3,19 @@ from deltacat.compute.compactor import (
 )
 from ray.types import ObjectRef
 
-from typing import List, Union
+from typing import List, Union, Optional
 
 from dataclasses import dataclass
 import pyarrow as pa
 from abc import ABC, abstractmethod
 import ray
+from deltacat.compute.compactor import (
+    DeltaFileEnvelope,
+)
+
+from typing import Tuple, Any, Dict
+
+
 
 
 class DeleteTableStorageStrategy(ABC):
@@ -37,7 +44,6 @@ class DeleteTableReferenceStorageStrategy(DeleteTableStorageStrategy):
     def get_table(self, delete_table_like) -> Union[pa.Table, ObjectRef]:
         table = ray.get(delete_table_like)
         return table
-
 
 class DeleteFileEnvelope:
     def __init__(
@@ -71,3 +77,63 @@ class DeleteFileEnvelope:
 class PrepareDeleteResult:
     transformed_deltas: [List[DeltaAnnotated]]
     delete_file_envelopes: List[DeleteFileEnvelope]
+
+
+class DeleteStrategy(ABC):
+    @property
+    def name(self):
+        pass
+
+    @abstractmethod
+    def prepare_deletes(
+        self,
+        params,
+        input_deltas: List[DeltaAnnotated],
+        *args,
+        **kwargs
+    ) -> PrepareDeleteResult:
+        pass
+
+    @abstractmethod
+    def match_deletes(
+        self,
+        index_identifier: int,
+        df_envelopes: List[DeltaFileEnvelope],
+        deletes: List[DeleteFileEnvelope],
+        *args,
+        **kwargs
+    ) -> Tuple[List[int], Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def rebatch_df_envelopes(
+        self,
+        index_identifier: int,
+        df_envelopes: List[DeltaFileEnvelope],
+        delete_locations: List[Any],
+        *args,
+        **kwargs
+    ) -> List[List[DeltaFileEnvelope]]:
+        pass
+
+    @abstractmethod
+    def apply_deletes(
+        self,
+        index_identifier: int,
+        table: Optional[pa.Table],
+        delete_envelope: DeleteFileEnvelope,
+        *args,
+        **kwargs
+    ) -> Tuple[Any, int]:
+        pass
+
+    @abstractmethod
+    def apply_all_deletes(
+        self,
+        index_identifier: int,
+        table: Optional[pa.Table],
+        all_delete_tables: List[pa.Table],
+        *args,
+        **kwargs
+    ):
+        pass

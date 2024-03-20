@@ -18,7 +18,7 @@ from deltacat.compute.compactor_v2.constants import (
     DROP_DUPLICATES,
     MAX_RECORDS_PER_COMPACTED_FILE,
 )
-from deltacat.compute.compactor_v2.deletes.strategy import DeleteStrategy
+from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 
