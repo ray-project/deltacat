@@ -10,5 +10,5 @@ from deltacat.compute.compactor_v2.delete.delete_file_envelope import DeleteFile
 
 @dataclass
 class PrepareDeleteResult:
-    non_delete_deltas: [List[Delta]]
+    non_delete_deltas: List[Delta]
     delete_file_envelopes: List[DeleteFileEnvelope]
