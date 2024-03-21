@@ -17,7 +17,6 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
 )
@@ -123,7 +122,6 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "skip_enabled_compact_partition_drivers",
         "incremental_deltas",
         "rebase_expected_compact_partition_result",
-        "delete_strategy",
         "compact_partition_func",
     ],
     [
@@ -144,7 +142,6 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             skip_enabled_compact_partition_drivers,
             incremental_deltas,
             rebase_expected_compact_partition_result,
-            delete_strategy,
             compact_partition_func,
         )
         for test_name, (
@@ -163,7 +160,6 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             skip_enabled_compact_partition_drivers,
             incremental_deltas,
             rebase_expected_compact_partition_result,
-            delete_strategy,
             compact_partition_func,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
     ],
@@ -188,7 +184,6 @@ def test_compact_partition_rebase_then_incremental(
     incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers: List[CompactorVersion],
-    delete_strategy: Optional[DeleteStrategy],
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
@@ -318,7 +313,6 @@ def test_compact_partition_rebase_then_incremental(
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
             "compacted_file_content_type": ContentType.PARQUET,
             "dd_max_parallelism_ratio": 1.0,
-            "delete_strategy": delete_strategy() if delete_strategy else None,
             "deltacat_storage": ds,
             "deltacat_storage_kwargs": ds_mock_kwargs,
             "destination_partition_locator": compacted_delta_locator.partition_locator,
