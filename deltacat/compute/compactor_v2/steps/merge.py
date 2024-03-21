@@ -445,12 +445,15 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         hb_index_copy_by_ref_ids = []
         for merge_file_group in merge_file_groups:
             # copy by reference only if deletes are not present
-            has_deletes = (input.delete_file_envelopes and input.delete_strategy)
+            has_deletes = input.delete_file_envelopes and input.delete_strategy
             if not (merge_file_group.dfe_groups or has_deletes):
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
             table, input_records, deduped_records = _compact_tables(
-                input, merge_file_group.dfe_groups, merge_file_group.hb_index, has_deletes=has_deletes
+                input,
+                merge_file_group.dfe_groups,
+                merge_file_group.hb_index,
+                has_deletes=has_deletes,
             )
             total_input_records += input_records
             total_deduped_records += deduped_records
