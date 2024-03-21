@@ -31,8 +31,10 @@ class DeleteParameters(dict):
             return delete_parameters
         equality_column_names = delete_parameters[0].equality_column_names
         assert all(
-            delete.equality_column_names == delete[0].equality_column_names
-            for delete in delete_parameters
+            delete_prev.equality_column_names == delete_curr.equality_column_names
+            for delete_prev, delete_curr in zip(
+                delete_parameters, delete_parameters[1:]
+            )
         ), "We cannot merge two delete parameters if they equality column names are different."
         merge_delete_parameters = DeleteParameters.of(equality_column_names)
         return merge_delete_parameters

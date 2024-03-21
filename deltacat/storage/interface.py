@@ -467,9 +467,9 @@ def stage_delta(
     max_records_per_entry: Optional[int] = None,
     author: Optional[ManifestAuthor] = None,
     properties: Optional[Dict[str, str]] = None,
-    delete_parameters: Optional[DeleteParameters] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
+    delete_parameters: Optional[DeleteParameters] = None,
     *args,
     **kwargs
 ) -> Delta:

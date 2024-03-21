@@ -24,6 +24,10 @@ class LocalTableStorageStrategy(ABC):
 
 
 class LocalTableNOOPStorageStrategy(LocalTableStorageStrategy):
+    """
+    Stores the table as is without any modifications
+    """
+
     def store_table(
         self, table_like: Union[pa.Table, ObjectRef]
     ) -> Union[pa.Table, ObjectRef]:
@@ -36,6 +40,10 @@ class LocalTableNOOPStorageStrategy(LocalTableStorageStrategy):
 
 
 class LocalTableRayObjectStoreReferenceStorageStrategy(LocalTableStorageStrategy):
+    """
+    Stores the table in the RayPlasmaObjectStore - see deltacat/io/ray_plasma_object_store.py
+    """
+
     def store_table(
         self, table_like: Union[pa.Table, ObjectRef]
     ) -> Union[pa.Table, ObjectRef]:
