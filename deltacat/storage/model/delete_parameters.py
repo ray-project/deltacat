@@ -6,8 +6,7 @@ from typing import List, Optional
 
 class DeleteParameters(dict):
     """
-    #TODO PFARAONE
-    Represents parameters relevant to the underlying contents of manifest entry. Contains all parameters required to support DELETEs
+    Contains all parameters required to support DELETEs
     equality_column_names: List of column names that would be used to determine row equality for equality deletes.  Relevant only to equality deletes
     """
 
@@ -28,19 +27,12 @@ class DeleteParameters(dict):
     def merge_delete_parameters(
         delete_parameters: List[DeleteParameters],
     ) -> Optional[DeleteParameters]:
-        def _merge_equality_column_names(equality_column_names: List[List[str]]):
-            intersection = set([equality_column_names[0]])
-            for column_name in equality_column_names[1:]:
-                intersection &= set(column_name)
-            return list(intersection)
-
         if len(delete_parameters) < 2:
             return delete_parameters
-        all_equality_column_names = [
-            delete.equality_column_names for delete in delete_parameters
-        ]
-        merged_equality_column_names: List[str] = _merge_equality_column_names(
-            all_equality_column_names
-        )
-        merge_delete_parameters = DeleteParameters.of(merged_equality_column_names)
+        equality_column_names = delete_parameters[0].equality_column_names
+        assert all(
+            delete.equality_column_names == delete[0].equality_column_names
+            for delete in delete_parameters
+        ), "We cannot merge two delete parameters if they equality column names are different."
+        merge_delete_parameters = DeleteParameters.of(equality_column_names)
         return merge_delete_parameters
