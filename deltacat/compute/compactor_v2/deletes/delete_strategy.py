@@ -14,7 +14,7 @@ class DeleteStrategy(ABC):
     Encapsulates a strategy for applying row-level deletes on tables during compaction
 
     This abstract base class defines the interface for applying delete operations
-    on intermediate pyarrow tables during compaction. Concrete subclasses must implement the `apply_deletes` and
+    on intermediate in-memory pyarrow tables during compaction. Concrete subclasses must implement the `apply_deletes` and
     `apply_all_deletes` methods, as well as the `name` property.
 
     Example:
