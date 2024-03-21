@@ -1,11 +1,13 @@
-from deltacat.compute.compactor import (
+from deltacat.storage import (
     Delta,
 )
 
 from typing import List
 
 from dataclasses import dataclass
-from deltacat.compute.compactor_v2.delete.delete_file_envelope import DeleteFileEnvelope
+from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
+    DeleteFileEnvelope,
+)
 
 
 @dataclass

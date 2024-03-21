@@ -24,6 +24,14 @@ from deltacat.compute.compactor.model.materialize_result import MaterializeResul
 from deltacat.compute.compactor_v2.utils.merge import (
     generate_local_merge_input,
 )
+from deltacat.compute.compactor import DeltaAnnotated
+from deltacat.compute.compactor_v2.utils.delta import contains_delete_deltas
+from deltacat.compute.compactor_v2.deletes.delete_strategy_equality_delete import (
+    EqualityDeleteStrategy,
+)
+from deltacat.compute.compactor_v2.deletes.delete_strategy import (
+    DeleteStrategy,
+)
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -175,7 +183,7 @@ def _execute_compaction(
 
     delta_discovery_start = time.monotonic()
 
-    input_deltas = io.discover_deltas(
+    input_deltas: List[Delta] = io.discover_deltas(
         params.source_partition_locator,
         params.last_stream_position_to_compact,
         params.rebase_source_partition_locator,
@@ -185,8 +193,16 @@ def _execute_compaction(
         params.deltacat_storage_kwargs,
         params.list_deltas_kwargs,
     )
+    if not input_deltas:
+        logger.info("No input deltas found to compact.")
+        return None, None, None
 
-    uniform_deltas = io.create_uniform_input_deltas(
+    delete_strategy = None
+    delete_file_envelopes = None
+    contains_deletes: bool = contains_delete_deltas(input_deltas)
+    if contains_delete_deltas:
+        delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
+    uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
         input_deltas=input_deltas,
         hash_bucket_count=params.hash_bucket_count,
         compaction_audit=compaction_audit,
@@ -211,10 +227,6 @@ def _execute_compaction(
         str(json.dumps(compaction_audit)),
         **params.s3_client_kwargs,
     )
-
-    if not input_deltas:
-        logger.info("No input deltas found to compact.")
-        return None, None, None
 
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
