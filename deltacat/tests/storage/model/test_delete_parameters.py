@@ -47,9 +47,9 @@ class TestDeleteParameters:
 
     def test_merge_delete_parameters_empty(self):
         merged = DeleteParameters.merge_delete_parameters([])
-        assert merged is None
+        assert merged is []
 
     def test_merge_delete_parameters_single_element(self):
         dp = DeleteParameters.of(equality_column_names=["col1", "col2"])
         merged = DeleteParameters.merge_delete_parameters([dp])
-        assert merged == dp
+        assert merged[0] == dp
