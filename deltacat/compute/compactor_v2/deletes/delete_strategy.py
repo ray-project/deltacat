@@ -21,7 +21,6 @@ class DeleteStrategy(ABC):
     @abstractmethod
     def apply_deletes(
         self,
-        index_identifier: int,
         table: Optional[pa.Table],
         delete_file_envelope: DeleteFileEnvelope,
         *args,
@@ -32,7 +31,6 @@ class DeleteStrategy(ABC):
     @abstractmethod
     def apply_all_deletes(
         self,
-        index_identifier: int,
         delete_file_envelopes: List[DeleteFileEnvelope],
         *args,
         **kwargs,
