@@ -126,6 +126,14 @@ class MergeInput(Dict):
         return self.get("object_store")
 
     @property
+    def deltacat_storage(self) -> unimplemented_deltacat_storage:
+        return self["deltacat_storage"]
+
+    @property
+    def deltacat_storage_kwargs(self) -> Optional[Dict[str, Any]]:
+        return self.get("deltacat_storage_kwargs")
+
+    @property
     def delete_file_envelopes(
         self,
     ) -> Optional[List[DeleteFileEnvelope]]:
@@ -134,11 +142,3 @@ class MergeInput(Dict):
     @property
     def delete_strategy(self) -> Optional[DeleteStrategy]:
         return self.get("delete_strategy")
-
-    @property
-    def deltacat_storage(self) -> unimplemented_deltacat_storage:
-        return self["deltacat_storage"]
-
-    @property
-    def deltacat_storage_kwargs(self) -> Optional[Dict[str, Any]]:
-        return self.get("deltacat_storage_kwargs")

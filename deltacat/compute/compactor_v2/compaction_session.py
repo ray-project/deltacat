@@ -32,6 +32,11 @@ from deltacat.compute.compactor_v2.deletes.delete_strategy_equality_delete impor
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
     DeleteStrategy,
 )
+from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
+from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
+    DeleteFileEnvelope,
+)
+
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -199,9 +204,9 @@ def _execute_compaction(
 
     delete_strategy = None
     delete_file_envelopes = None
-    contains_deletes: bool = contains_delete_deltas(input_deltas)
-    if contains_delete_deltas:
+    if contains_delete_deltas(input_deltas):
         delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
+        input_deltas, delete_file_envelopes = prepare_deletes(params, input_deltas)
     uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
         input_deltas=input_deltas,
         hash_bucket_count=params.hash_bucket_count,
