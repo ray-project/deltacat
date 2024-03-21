@@ -38,7 +38,7 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
                 pointing to a file from the uncompacted source table, False if
                 this Locator is pointing to a file in the compacted destination
                 table.
-
+            table_storage_strategy: The way the table object is stored in the delta file envelope. Defaults to LocalTableRayObjectStoreReferenceStorageStrategy
         Returns:
             A delete file envelope.
 
