@@ -144,7 +144,7 @@ class EqualityDeleteStrategy(DeleteStrategy):
     ) -> PrepareDeleteResult:
         """
         Prepares delete operations for a compaction process.
-        This function processes all the annotated deltas and consolidates consecutive DELETE deltas using a sliding window algorithm
+        This function processes all the annotated deltas and consolidates consecutive DELETE deltas.
         It creates a range dictionary of these consolidated delete operations of the earliest stream position to the Ray obj references to the delete table
         Additionally, non-DELETE deltas are accumulated in a separate list.
 
