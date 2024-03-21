@@ -402,6 +402,8 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                    delete_strategy=delete_strategy,
+                    delete_file_envelopes=delete_file_envelopes,
                 )
             }
 

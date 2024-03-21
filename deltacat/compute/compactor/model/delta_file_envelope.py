@@ -24,7 +24,7 @@ class DeltaFileEnvelope(dict):
         file_index: int = None,
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
-        table_storage_strategy: [LocalTableStorageStrategy] = None,
+        table_storage_strategy: LocalTableStorageStrategy = None,
     ) -> DeltaFileEnvelope:
         """
         Static factory builder for a Delta File Envelope
