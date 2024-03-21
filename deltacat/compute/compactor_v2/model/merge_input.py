@@ -5,7 +5,9 @@ from typing import Dict, List, Optional, Any
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     MergeFileGroupsProvider,
 )
-from deltacat.compute.compactor_v2.deletes.model import DeleteFileEnvelope
+from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
+    DeleteFileEnvelope,
+)
 from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
@@ -18,7 +20,7 @@ from deltacat.compute.compactor_v2.constants import (
     DROP_DUPLICATES,
     MAX_RECORDS_PER_COMPACTED_FILE,
 )
-from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
+from deltacat.compute.compactor_v2.deletes.delete_strategy import DeleteStrategy
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 
