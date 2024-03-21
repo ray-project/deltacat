@@ -43,7 +43,7 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
             A delete file envelope.
 
         """
-        delete_file_envelope = super().of(
+        delete_file_envelope = DeltaFileEnvelope.of(
             stream_position,
             delta_type,
             table,
@@ -52,6 +52,7 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
             file_record_count,
             table_storage_strategy,
         )
+        assert len(delete_columns) > 0, "At least 1 delete column is expected"
         delete_file_envelope["delete_columns"] = delete_columns
         return DeleteFileEnvelope(**delete_file_envelope)
 
