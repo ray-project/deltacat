@@ -1323,6 +1323,69 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
         delete_strategy=EqualityDeleteStrategy,
     ),
+    "22-rebase-then-incremental-delete-type-delta-UDU-U-affects-compacted-and-incremental": RebaseThenIncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=ZERO_VALUED_SORT_KEY,
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.TIMESTAMP)],
+        partition_values=["2022-01-01T00:00:00.000Z"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([0,1]),
+                pa.array(["0","1"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([0,1]),
+                pa.array(["0","1"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        incremental_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([0]),
+                        pa.array(["1"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["1"]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["col_1"]),
+            ),
+        ],
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([]),
+                pa.array([]),
+            ],
+            schema=pa.schema(
+                [
+                    ("pk_col_1", pa.int64()),
+                    ("col_1", pa.string()),
+                ]
+            ),
+        ),
+        do_create_placement_group=True,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        delete_strategy=EqualityDeleteStrategy,
+    ),
 }
 
 REBASE_THEN_INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(
