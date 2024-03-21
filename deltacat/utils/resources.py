@@ -92,7 +92,7 @@ class ClusterUtilizationOverTimeRange(AbstractContextManager):
     ) -> bool | None:
         if __exc_value:
             logger.error(
-                f"Error ocurred while calculating cluster resources: {__exc_value}"
+                f"Error occurred while calculating cluster resources: {__exc_value}"
             )
         self.stop_run_schedules.set()
         return super().__exit__(__exc_type, __exc_value, __traceback)
@@ -202,7 +202,7 @@ class ProcessUtilizationOverTimeRange(AbstractContextManager):
     ) -> bool | None:
         if __exc_value:
             logger.error(
-                f"Error ocurred while calculating process resources: {__exc_value}"
+                f"Error occurred while calculating process resources: {__exc_value}"
             )
         self.stop_run_schedules.set()
         return super().__exit__(__exc_type, __exc_value, __traceback)

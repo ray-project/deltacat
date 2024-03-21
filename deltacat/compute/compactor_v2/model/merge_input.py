@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Any
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     MergeFileGroupsProvider,
 )
+from deltacat.compute.compactor_v2.deletes.model import DeleteFileEnvelope
 from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
@@ -17,6 +18,7 @@ from deltacat.compute.compactor_v2.constants import (
     DROP_DUPLICATES,
     MAX_RECORDS_PER_COMPACTED_FILE,
 )
+from deltacat.compute.compactor_v2.deletes.model import DeleteStrategy
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 
@@ -38,6 +40,8 @@ class MergeInput(Dict):
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         round_completion_info: Optional[RoundCompletionInfo] = None,
         object_store: Optional[IObjectStore] = None,
+        delete_strategy: Optional[DeleteStrategy] = None,
+        delete_file_envelopes: Optional[List] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     ) -> MergeInput:
@@ -57,9 +61,10 @@ class MergeInput(Dict):
         result["read_kwargs_provider"] = read_kwargs_provider
         result["round_completion_info"] = round_completion_info
         result["object_store"] = object_store
+        result["delete_file_envelopes"] = delete_file_envelopes
+        result["delete_strategy"] = delete_strategy
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
-
         return result
 
     @property
@@ -117,6 +122,16 @@ class MergeInput(Dict):
     @property
     def object_store(self) -> Optional[IObjectStore]:
         return self.get("object_store")
+
+    @property
+    def delete_file_envelopes(
+        self,
+    ) -> Optional[List[DeleteFileEnvelope]]:
+        return self.get("delete_file_envelopes")
+
+    @property
+    def delete_strategy(self) -> Optional[DeleteStrategy]:
+        return self.get("delete_strategy")
 
     @property
     def deltacat_storage(self) -> unimplemented_deltacat_storage:

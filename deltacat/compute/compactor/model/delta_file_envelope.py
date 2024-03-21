@@ -21,13 +21,14 @@ class DeltaFileEnvelope(dict):
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
     ) -> DeltaFileEnvelope:
-        """Static factory builder for a Delta File Envelope
+        """
+        Static factory builder for a Delta File Envelope
         `
         Args:
             stream_position: Stream position of a delta.
-            file_index: Manifest file index number of a delta.
             delta_type: A delta type.
             table: The table object that represents the delta file.
+            file_index: Manifest file index number of a delta.
             is_src_delta: True if this Delta File Locator is
                 pointing to a file from the uncompacted source table, False if
                 this Locator is pointing to a file in the compacted destination
