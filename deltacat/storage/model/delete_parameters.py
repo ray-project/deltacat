@@ -35,6 +35,6 @@ class DeleteParameters(dict):
             for delete_prev, delete_curr in zip(
                 delete_parameters, delete_parameters[1:]
             )
-        ), "We cannot merge two delete parameters if they equality column names are different."
+        ), "We cannot merge two delete parameters if their equality column names are different."
         merge_delete_parameters = DeleteParameters.of(equality_column_names)
         return merge_delete_parameters
