@@ -7,6 +7,9 @@ import ray
 import time
 import json
 
+from deltacat.compute.compactor_v2.deletes.equality_delete_strategy import (
+    EqualityDeleteStrategy,
+)
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     RemoteMergeFileGroupsProvider,
 )
@@ -222,8 +225,8 @@ def _execute_compaction(
         return None, None, None
     delete_strategy = None
     delete_file_envelopes = None
-    if contains_deletes and params.delete_strategy is not None:
-        delete_strategy = params.delete_strategy
+    if contains_deletes:
+        delete_strategy = EqualityDeleteStrategy()
         prepare_delete_results = delete_strategy.prepare_deletes(params, uniform_deltas)
         uniform_deltas = prepare_delete_results.transformed_deltas
         delete_file_envelopes = prepare_delete_results.delete_file_envelopes
