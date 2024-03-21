@@ -57,6 +57,7 @@ class CompactPartitionParams(dict):
             "compacted_file_content_type", ContentType.PARQUET
         )
         result.object_store = params.get("object_store", RayPlasmaObjectStore())
+
         result.enable_profiler = params.get("enable_profiler", False)
         result.deltacat_storage = params.get(
             "deltacat_storage", unimplemented_deltacat_storage

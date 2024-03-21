@@ -1,61 +1,23 @@
 from deltacat.compute.compactor import (
     DeltaAnnotated,
 )
-from ray.types import ObjectRef
 
-from typing import List, Union, Optional
+from typing import List, Optional
 
 from dataclasses import dataclass
 import pyarrow as pa
 from abc import ABC, abstractmethod
 from deltacat.storage import DeltaType, LocalTable
-import ray
 from deltacat.compute.compactor import (
     DeltaFileEnvelope,
 )
 import numpy as np
 
 from typing import Tuple, Any, Dict
-
-
-class DeleteTableStorageStrategy(ABC):
-    @abstractmethod
-    def store_table(
-        self, delete_table_like: Union[pa.Table, ObjectRef]
-    ) -> Union[pa.Table, ObjectRef]:
-        pass
-
-    @abstractmethod
-    def get_table(
-        self, delete_table_like: Union[pa.Table, ObjectRef]
-    ) -> Union[pa.Table, ObjectRef]:
-        pass
-
-
-class DeleteTableNOOPStorageStrategy(DeleteTableStorageStrategy):
-    def store_table(
-        self, delete_table_like: Union[pa.Table, ObjectRef]
-    ) -> Union[pa.Table, ObjectRef]:
-        return delete_table_like
-
-    def get_table(
-        self, delete_table_like: Union[pa.Table, ObjectRef]
-    ) -> Union[pa.Table, ObjectRef]:
-        return delete_table_like
-
-
-class DeleteTableReferenceStorageStrategy(DeleteTableStorageStrategy):
-    def store_table(
-        self, delete_table_like: Union[pa.Table, ObjectRef]
-    ) -> Union[pa.Table, ObjectRef]:
-        obj_ref: ObjectRef = ray.put(delete_table_like)
-        return obj_ref
-
-    def get_table(
-        self, delete_table_like: Union[pa.Table, ObjectRef]
-    ) -> Union[pa.Table, ObjectRef]:
-        table = ray.get(delete_table_like)
-        return table
+from deltacat.compute.compactor.model.table_object_store import (
+    LocalTableStorageStrategy,
+    LocalTableRayObjectStoreReferenceStorageStrategy,
+)
 
 
 class DeleteFileEnvelope(DeltaFileEnvelope):
@@ -68,9 +30,12 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
         file_index: int = None,
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
+        table_storage_strategy: [
+            LocalTableStorageStrategy
+        ] = LocalTableRayObjectStoreReferenceStorageStrategy(),
     ) -> DeltaFileEnvelope:
         """
-        Static factory builder for a Delta File Envelope
+        Static factory builder for a DeleteFileEnvelope. Subclasses from DeltaFileEnvelope
         `
         Args:
             stream_position: Stream position of a delta.
@@ -82,6 +47,7 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
                 pointing to a file from the uncompacted source table, False if
                 this Locator is pointing to a file in the compacted destination
                 table.
+
         Returns:
             A delete file envelope.
 
@@ -93,6 +59,7 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
             file_index,
             is_src_delta,
             file_record_count,
+            table_storage_strategy,
         )
         delete_file_envelope["delete_columns"] = delete_columns
         return DeleteFileEnvelope(**delete_file_envelope)

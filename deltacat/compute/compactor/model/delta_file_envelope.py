@@ -5,6 +5,10 @@ import numpy as np
 import pyarrow as pa
 
 from deltacat.storage import DeltaType, LocalTable
+from deltacat.compute.compactor.model.table_object_store import (
+    LocalTableStorageStrategy,
+    LocalTableNOOPStorageStrategy,
+)
 
 from typing import Optional
 
@@ -20,6 +24,7 @@ class DeltaFileEnvelope(dict):
         file_index: int = None,
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
+        table_storage_strategy: [LocalTableStorageStrategy] = None,
     ) -> DeltaFileEnvelope:
         """
         Static factory builder for a Delta File Envelope
@@ -33,6 +38,7 @@ class DeltaFileEnvelope(dict):
                 pointing to a file from the uncompacted source table, False if
                 this Locator is pointing to a file in the compacted destination
                 table.
+            table_storage_strategy: The way the table object is stored in the delta file envelope
         Returns:
             A delta file envelope.
 
@@ -43,11 +49,14 @@ class DeltaFileEnvelope(dict):
             raise ValueError("Missing Delta file envelope delta type.")
         if table is None:
             raise ValueError("Missing Delta file envelope table.")
+        if table_storage_strategy is None:
+            table_storage_strategy = LocalTableNOOPStorageStrategy()
         delta_file_envelope = DeltaFileEnvelope()
         delta_file_envelope["streamPosition"] = stream_position
         delta_file_envelope["fileIndex"] = file_index
         delta_file_envelope["deltaType"] = delta_type.value
-        delta_file_envelope["table"] = table
+        delta_file_envelope["tableStorageStrategy"] = table_storage_strategy
+        delta_file_envelope["table"] = table_storage_strategy.store_table(table)
         delta_file_envelope["is_src_delta"] = is_src_delta
         delta_file_envelope["file_record_count"] = file_record_count
         return delta_file_envelope
@@ -65,8 +74,13 @@ class DeltaFileEnvelope(dict):
         return DeltaType(self["deltaType"])
 
     @property
+    def table_storage_strategy(self) -> LocalTableStorageStrategy:
+        return self["tableStorageStrategy"]
+
+    @property
     def table(self) -> LocalTable:
-        return self["table"]
+        table_storage_strategy = self.table_storage_strategy
+        return table_storage_strategy.get_table(self["table"])
 
     @property
     def is_src_delta(self) -> np.bool_:
