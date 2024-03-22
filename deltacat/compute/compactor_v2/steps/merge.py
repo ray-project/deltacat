@@ -409,10 +409,15 @@ def _compact_table_v2(
             aggregated_incremental_len += partial_incremental_len
             aggregated_deduped_records += partial_deduped_records
         for delete_delta_file_envelope in delete_delta_file_envelopes:
+            table_size_before_delete = table.nbytes
             (
                 table,
                 dropped_rows,
             ) = input.delete_strategy.apply_deletes(table, delete_delta_file_envelope)
+            logger.info(
+                f"[Merge task index {input.merge_task_index}] Dropped "
+                f"record count: {dropped_rows} from size={table_size_before_delete} to size={table.nbytes}"
+            )
             aggregated_dropped_records += dropped_rows
         prev_table = table
     return (
@@ -452,12 +457,12 @@ def _compact_table_with_previously_compacted_table(
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=prev_table,
     )
-    total_deduped_records = hb_table_record_count - len(table)
+    deduped_records = hb_table_record_count - len(table)
     logger.info(
         f"[Merge task index {input.merge_task_index}] Merged "
         f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
     )
-    return table, incremental_len, total_deduped_records
+    return table, incremental_len, deduped_records
 
 
 def _compact_tables(

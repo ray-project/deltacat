@@ -84,11 +84,11 @@ def _get_delete_file_envelopes(
                 **params.deltacat_storage_kwargs,
             )
             consecutive_delete_tables.extend(delete_dataset)
-        consolidated_deletes: pa.Table = pa.concat_tables(consecutive_delete_tables)
+        delete_table: pa.Table = pa.concat_tables(consecutive_delete_tables)
         delete_file_envelope: DeleteFileEnvelope = DeleteFileEnvelope.of(
             stream_position,
             delta_type=DeltaType.DELETE,
-            table=consolidated_deletes,
+            table=delete_table,
             delete_columns=delete_columns,
         )
         delete_file_envelopes.append(delete_file_envelope)

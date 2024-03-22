@@ -51,7 +51,7 @@ class DeleteStrategy(ABC):
         Apply delete operations on the given table using the provided delete file envelope.
 
         Args:
-            table (Optional[pa.Table]): The pyArrow table to apply deletes on.
+            table (Optional[pa.Table]): The pyarrow table to apply deletes on.
             delete_file_envelope (DeleteFileEnvelope): The delete file envelope containing delete parameters.
 
         Returns:

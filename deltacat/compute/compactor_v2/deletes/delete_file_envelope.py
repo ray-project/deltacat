@@ -56,7 +56,12 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
         )
         assert len(delete_columns) > 0, "At least 1 delete column is expected"
         delete_file_envelope["delete_columns"] = delete_columns
+        delete_file_envelope["table_size_bytes"] = table.nbytes
         return DeleteFileEnvelope(**delete_file_envelope)
+
+    @property
+    def table_size_bytes(self) -> int:
+        return self["table_size_bytes"]
 
     @property
     def delete_columns(self) -> List[str]:
