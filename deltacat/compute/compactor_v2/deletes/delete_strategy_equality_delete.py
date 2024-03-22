@@ -21,7 +21,7 @@ class EqualityDeleteStrategy(ABC):
         """
         The name of the delete strategy.
         """
-        self._name
+        return self._name
 
     def _drop_rows(
         self,
