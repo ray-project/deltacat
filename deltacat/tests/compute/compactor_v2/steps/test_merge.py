@@ -286,8 +286,11 @@ class TestMerge(unittest.TestCase):
         delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
         delete_table = download_delta(delete_delta, **delete_kwargs)
         ird = [
-            DeleteFileEnvelope(
-                delete_delta.stream_position, delete_table, delete_columns
+            DeleteFileEnvelope.of(
+                delete_delta.stream_position,
+                DeltaType.DELETE,
+                delete_table,
+                delete_columns,
             )
         ]
 
@@ -364,8 +367,11 @@ class TestMerge(unittest.TestCase):
         delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
         delete_table = download_delta(delete_delta, **delete_kwargs)
         ird = [
-            DeleteFileEnvelope(
-                delete_delta.stream_position, delete_table, delete_columns
+            DeleteFileEnvelope.of(
+                delete_delta.stream_position,
+                DeltaType.DELETE,
+                delete_table,
+                delete_columns,
             )
         ]
 
