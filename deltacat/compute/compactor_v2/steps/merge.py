@@ -70,16 +70,12 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 
 
 def _build_incremental_table(
-    df_envelopes: List[DeltaFileEnvelope],
+    sorted_df_envelopes: List[DeltaFileEnvelope],
 ) -> pa.Table:
 
     hb_tables = []
     # sort by delta file stream position now instead of sorting every row later
-    df_envelopes = sorted(
-        df_envelopes,
-        key=lambda df: (df.stream_position, df.file_index),
-        reverse=False,  # ascending
-    )
+    df_envelopes = sorted_df_envelopes
     is_delete = False
     for df_envelope in df_envelopes:
         assert (
@@ -96,9 +92,7 @@ def _build_incremental_table(
             )
 
         hb_tables.append(table)
-
     result = pa.concat_tables(hb_tables)
-
     return result
 
 
@@ -258,6 +252,16 @@ def _copy_all_manifest_files_from_old_hash_buckets(
 
 
 def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -> bool:
+    """
+    Checks if the given hash bucket index has a compacted table available from the previous compaction round.
+
+    Args:
+        input (MergeInput): The input for the merge operation.
+        hb_idx (int): The hash bucket index to check.
+
+    Returns:
+        bool: True if the hash bucket index has a compacted table available, False otherwise.
+    """
     return (
         input.round_completion_info
         and input.round_completion_info.hb_index_to_entry_range
@@ -269,6 +273,15 @@ def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -
 def _flatten_dfe_list(
     df_envelopes_list: List[List[DeltaFileEnvelope]],
 ) -> List[DeltaFileEnvelope]:
+    """
+    Flattens a list of lists of DeltaFileEnvelope objects into a single list of DeltaFileEnvelope objects.
+
+    Args:
+        df_envelopes_list (List[List[DeltaFileEnvelope]]): A list of lists of DeltaFileEnvelope objects.
+
+    Returns:
+        List[DeltaFileEnvelope]: A flattened list of DeltaFileEnvelope objects.
+    """
     if not df_envelopes_list:
         return []
     return [d for dfe_list in df_envelopes_list for d in dfe_list]
@@ -278,6 +291,17 @@ def _sort_df_envelopes(
     df_envelopes: List[DeltaFileEnvelope],
     key: Callable = lambda df: (df.stream_position, df.file_index),
 ) -> List[DeltaFileEnvelope]:
+    """
+    Sorts a list of DeltaFileEnvelope objects based on a specified key function.
+
+    Args:
+        df_envelopes (List[DeltaFileEnvelope]): A list of DeltaFileEnvelope objects.
+        key (Callable, optional): A function that takes a DeltaFileEnvelope object and returns a key for sorting.
+            Defaults to lambda df: (df.stream_position, df.file_index).
+
+    Returns:
+        List[DeltaFileEnvelope]: A sorted list of DeltaFileEnvelope objects.
+    """
     if not df_envelopes:
         return []
     return sorted(
@@ -291,7 +315,15 @@ def group_by_upsert_delete_sequence(
     df_envelopes: List[DeltaFileEnvelope],
 ) -> Iterator[Tuple[List, List]]:
     """
-    TODO
+    Groups a list of DeltaFileEnvelope objects into sequences of UPSERT and DELETE operations.
+
+    Args:
+        df_envelopes (List[DeltaFileEnvelope]): A list of DeltaFileEnvelope objects.
+
+    Yields:
+        Tuple[List, List]: A tuple containing two lists:
+            1. A list of DeltaFileEnvelope objects representing UPSERT operations.
+            2. A list of DeltaFileEnvelope objects representing DELETE operations.
     """
     iter_df_envelopes = iter(df_envelopes)
     upserts, deletes = [], []
@@ -315,6 +347,22 @@ def _compact_table_v2(
     hb_idx: int,
     has_deletes: bool,
 ) -> Tuple[pa.Table, int, int, int]:
+    """
+    Compacts a list of DeltaFileEnvelope objects into a single PyArrow table.
+
+    Args:
+        input (MergeInput): The input for the merge operation.
+        dfe_list (List[List[DeltaFileEnvelope]]): A list of lists of DeltaFileEnvelope objects.
+        hb_idx (int): The hash bucket index for the compaction.
+        has_deletes (bool): Whether the input data contains DELETE operations.
+
+    Returns:
+        Tuple[pa.Table, int, int, int]: A tuple containing:
+            1. The compacted PyArrow table.
+            2. The total number of records in the incremental data.
+            3. The total number of deduplicated records.
+            4. The total number of dropped records due to DELETE operations.
+    """
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         _flatten_dfe_list(dfe_list)
     )
@@ -323,9 +371,9 @@ def _compact_table_v2(
         delete_file_envelopes + df_envelopes
     )
     prev_table, table = None, None
-    total_incremental_len = 0
-    total_deduped_records = 0
-    total_dropped_records = 0
+    aggregated_incremental_len = 0
+    aggregated_deduped_records = 0
+    aggregated_dropped_records = 0
     if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
         table = _download_compacted_table(
             hb_index=hb_idx,
@@ -338,7 +386,7 @@ def _compact_table_v2(
             table, partial_dropped_rows = input.delete_strategy.apply_all_deletes(
                 table, input.delete_file_envelopes
             )
-            total_dropped_records += partial_dropped_rows
+            aggregated_dropped_records += partial_dropped_rows
     prev_table = table
     for i, (upsert_group, delete_group) in enumerate(
         group_by_upsert_delete_sequence(all_dfes)
@@ -358,20 +406,20 @@ def _compact_table_v2(
             ) = _compact_table_with_previously_compacted_table(
                 input, upsert_delta_file_envelopes, hb_idx, prev_table
             )
-            total_incremental_len += partial_incremental_len
-            total_deduped_records += partial_deduped_records
+            aggregated_incremental_len += partial_incremental_len
+            aggregated_deduped_records += partial_deduped_records
         for delete_delta_file_envelope in delete_delta_file_envelopes:
             (
                 table,
                 dropped_rows,
             ) = input.delete_strategy.apply_deletes(table, delete_delta_file_envelope)
-            total_dropped_records += dropped_rows
+            aggregated_dropped_records += dropped_rows
         prev_table = table
     return (
         table,
-        total_incremental_len,
-        total_deduped_records,
-        total_dropped_records,
+        aggregated_incremental_len,
+        aggregated_deduped_records,
+        aggregated_dropped_records,
     )
 
 
