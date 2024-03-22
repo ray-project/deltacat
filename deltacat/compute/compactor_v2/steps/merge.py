@@ -309,10 +309,12 @@ def group_by_upsert_delete_sequence(
         yield upserts, []
 
 
-def _compact_table_for_deletes(
-    input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
+def _compact_table_v2(
+    input: MergeInput,
+    dfe_list: List[List[DeltaFileEnvelope]],
+    hb_idx: int,
+    has_deletes: bool,
 ) -> Tuple[pa.Table, int, int]:
-    has_deletes = input.delete_strategy and input.delete_file_envelopes
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         _flatten_dfe_list(dfe_list)
     )
@@ -344,10 +346,16 @@ def _compact_table_for_deletes(
         upsert_delta_file_envelopes: List[DeltaFileEnvelope] = list(upsert_group)
         delete_delta_file_envelopes: List[DeltaFileEnvelope] = list(delete_group)
         logger.info(
-            f"Group: {i}. Got upsert sequence of length {len(upsert_delta_file_envelopes)} followed by delete sequence of length {len(delete_delta_file_envelopes)}"
+            f"Group: {i}. "
+            + f"Got upsert sequence of length {len(upsert_delta_file_envelopes)} "
+            + f"followed by delete sequence of length {len(delete_delta_file_envelopes)}"
         )
         if upsert_delta_file_envelopes:
-            table, partial_incremental_len, partial_deduped_records = _compact_tables2(
+            (
+                table,
+                partial_incremental_len,
+                partial_deduped_records,
+            ) = _compact_table_with_previously_compacted_table(
                 input, upsert_delta_file_envelopes, hb_idx, prev_table
             )
             total_incremental_len += partial_incremental_len
@@ -366,7 +374,7 @@ def _compact_table_for_deletes(
     )
 
 
-def _compact_tables2(
+def _compact_table_with_previously_compacted_table(
     input: MergeInput,
     dfe_list: List[DeltaFileEnvelope],
     hb_idx,
@@ -502,17 +510,15 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 input.delete_file_envelopes is not None
                 and input.delete_strategy is not None
             )
-            if has_delete:
-                table, input_records, deduped_records = _compact_table_for_deletes(
-                    input, merge_file_group.dfe_groups, merge_file_group.hb_index
-                )
-            else:
-                if not merge_file_group.dfe_groups:
-                    hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
-                    continue
-                table, input_records, deduped_records = _compact_tables(
-                    input, merge_file_group.dfe_groups, merge_file_group.hb_index
-                )
+            if not has_delete and not merge_file_group.dfe_groups:
+                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
+                continue
+            table, input_records, deduped_records = _compact_table_v2(
+                input,
+                merge_file_group.dfe_groups,
+                merge_file_group.hb_index,
+                has_delete,
+            )
             total_input_records += input_records
             total_deduped_records += deduped_records
             if table is not None:
