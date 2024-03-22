@@ -556,10 +556,9 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         hb_index_copy_by_ref_ids = []
 
         for merge_file_group in merge_file_groups:
-            has_delete = (
-                input.delete_file_envelopes is not None
-                and input.delete_strategy is not None
-            )
+            has_delete = input.delete_file_envelopes is not None
+            if has_delete:
+                assert(input.delete_strategy, "Merge input missing delete_strategy")
             if not has_delete and not merge_file_group.dfe_groups:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
