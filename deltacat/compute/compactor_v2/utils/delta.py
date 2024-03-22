@@ -5,7 +5,10 @@ from deltacat.compute.compactor import (
     DeltaAnnotated,
     DeltaFileEnvelope,
 )
-
+from deltacat.storage import (
+    Delta,
+)
+from deltacat.storage.model.delta import DeltaType
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.types.media import StorageType
 from deltacat.utils.common import ReadKwargsProvider
@@ -16,6 +19,13 @@ import logging
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+def contains_delete_deltas(deltas: List[Delta]) -> bool:
+    for delta in deltas:
+        if delta.type is DeltaType.DELETE:
+            return True
+    return False
 
 
 def read_delta_file_envelopes(

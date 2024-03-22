@@ -95,7 +95,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                 **params.s3_client_kwargs,
             )
         else:
-            logger.warn("No new partition was committed during compaction.")
+            logger.warning("No new partition was committed during compaction.")
 
         logger.info(
             f"Completed compaction session for: {params.source_partition_locator}"
