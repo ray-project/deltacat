@@ -9,7 +9,6 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
     DeleteFileEnvelope,
 )
 from deltacat.compute.compactor.model.table_object_store import (
-    LocalTableNOOPStorageStrategy,
     LocalTableRayObjectStoreReferenceStorageStrategy,
 )
 
@@ -99,17 +98,4 @@ class TestDeleteFileEnvelope:
         assert isinstance(
             delete_file_envelope.table_storage_strategy,
             LocalTableRayObjectStoreReferenceStorageStrategy,
-        )
-
-    def test_table_storage_strategy_override(self):
-        table_storage_strategy = LocalTableNOOPStorageStrategy()
-        delete_file_envelope = DeleteFileEnvelope.of(
-            stream_position=1,
-            delta_type=DeltaType.DELETE,
-            table=pa.table({"col1": [1, 2, 3]}),
-            delete_columns=["col1", "col2"],
-            table_storage_strategy=table_storage_strategy,
-        )
-        assert isinstance(
-            delete_file_envelope.table_storage_strategy, LocalTableNOOPStorageStrategy
         )

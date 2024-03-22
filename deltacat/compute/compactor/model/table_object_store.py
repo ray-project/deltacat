@@ -23,18 +23,6 @@ class LocalTableStorageStrategy(ABC):
         pass
 
 
-class LocalTableNOOPStorageStrategy(LocalTableStorageStrategy):
-    """
-    Stores the table as is without any modifications
-    """
-
-    def store_table(self, table: LocalTable) -> LocalTableReference:
-        return table
-
-    def get_table(self, table_like: LocalTableReference) -> LocalTable:
-        return table_like
-
-
 class LocalTableRayObjectStoreReferenceStorageStrategy(LocalTableStorageStrategy):
     """
     Stores the table in the RayPlasmaObjectStore - see deltacat/io/ray_plasma_object_store.py
