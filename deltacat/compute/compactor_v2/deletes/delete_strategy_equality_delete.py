@@ -45,8 +45,7 @@ class EqualityDeleteStrategy(ABC):
             prev_boolean_mask = result
         number_of_rows_before_dropping = len(table)
         logger.debug(
-            f"Number of table rows before dropping: {number_of_rows_before_dropping}. "
-            + f"Boolean mask of length: {len(prev_boolean_mask)}."
+            f"Number of table rows before dropping: {number_of_rows_before_dropping}."
         )
         table = table.filter(pc.invert(result))
         number_of_rows_after_dropping = len(table)

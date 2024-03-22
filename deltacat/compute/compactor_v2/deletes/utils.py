@@ -31,14 +31,27 @@ def _filter_out_non_delete_deltas(input_deltas: List[Delta]) -> List[Delta]:
     return non_delete_deltas
 
 
-def _aggregate_all_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[Delta]]:
+def _aggregate_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[Delta]]:
+    """
+    Aggregates consecutive DELETE deltas with the same delete parameters into groups.
+
+    Args:
+        input_deltas (List[Delta]): A list of Delta objects representing delete operations.
+    Returns:
+        Dict[int, List[Delta]]: A dictionary where the keys are the stream positions of the
+        earliest delta in each group of consecutive DELETE deltas with the same delete parameters,
+        and the values are lists containing those deltas.
+    """
     window_start, window_end = 0, 0
-    delete_delta_sequence_spos_to_delete_delta = defaultdict(list)
+    delete_delta_groups = defaultdict(list)
     while window_end < len(input_deltas):
-        if input_deltas[window_end].type is not DeltaType.DELETE:
+        while (
+            window_end < len(input_deltas)
+            and input_deltas[window_end].type is not DeltaType.DELETE
+        ):
             window_start += 1
             window_end = window_start
-            continue
+        # Find the end of the current group of consecutive DELETE deltas with the same delete parameters
         while (
             window_end < len(input_deltas)
             and input_deltas[window_end].type is DeltaType.DELETE
@@ -46,15 +59,13 @@ def _aggregate_all_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[De
             == input_deltas[window_start].delete_parameters
         ):
             window_end += 1
-        delete_deltas_sequence: List[Delta] = input_deltas[window_start:window_end]
-        stream_position_of_earliest_delete_in_sequence: int = delete_deltas_sequence[
-            0
-        ].stream_position
-        delete_delta_sequence_spos_to_delete_delta[
-            stream_position_of_earliest_delete_in_sequence
-        ].extend(delete_deltas_sequence)
+        delete_delta_group: List[Delta] = input_deltas[window_start:window_end]
+        # Add the group of DELETE deltas to delete_delta_groups
+        if delete_delta_group:
+            earliest_spos: int = delete_delta_group[0].stream_position
+            delete_delta_groups[earliest_spos].extend(delete_delta_group)
         window_start = window_end
-    return delete_delta_sequence_spos_to_delete_delta
+    return delete_delta_groups
 
 
 def _get_delete_file_envelopes(
@@ -130,7 +141,7 @@ def prepare_deletes(
         for i in range(len(input_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
     non_delete_deltas: List[Delta] = _filter_out_non_delete_deltas(input_deltas)
-    delete_spos_to_delete_deltas: Dict[int, List[Delta]] = _aggregate_all_delete_deltas(
+    delete_spos_to_delete_deltas: Dict[int, List[Delta]] = _aggregate_delete_deltas(
         input_deltas
     )
     delete_file_envelopes: List[DeleteFileEnvelope] = _get_delete_file_envelopes(
