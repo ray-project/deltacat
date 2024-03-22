@@ -314,7 +314,7 @@ def _compact_table_v2(
     dfe_list: List[List[DeltaFileEnvelope]],
     hb_idx: int,
     has_deletes: bool,
-) -> Tuple[pa.Table, int, int]:
+) -> Tuple[pa.Table, int, int, int]:
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         _flatten_dfe_list(dfe_list)
     )
@@ -371,6 +371,7 @@ def _compact_table_v2(
         table,
         total_incremental_len,
         total_deduped_records,
+        total_dropped_records,
     )
 
 
@@ -501,6 +502,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         f"merge_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
         total_input_records, total_deduped_records = 0, 0
+        total_dropped_records = 0
         materialized_results: List[MaterializeResult] = []
         merge_file_groups = input.merge_file_groups_provider.create()
         hb_index_copy_by_ref_ids = []
@@ -513,7 +515,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             if not has_delete and not merge_file_group.dfe_groups:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
-            table, input_records, deduped_records = _compact_table_v2(
+            table, input_records, deduped_records, dropped_records = _compact_table_v2(
                 input,
                 merge_file_group.dfe_groups,
                 merge_file_group.hb_index,
@@ -521,6 +523,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             )
             total_input_records += input_records
             total_deduped_records += deduped_records
+            total_dropped_records += dropped_records
             if table is not None:
                 materialized_results.append(
                     merge_utils.materialize(input, merge_file_group.hb_index, [table])
