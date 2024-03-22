@@ -312,6 +312,7 @@ def group_by_upsert_delete_sequence(
 def _compact_table_for_deletes(
     input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
+    has_deletes = input.delete_strategy and input.delete_file_envelopes
     df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         _flatten_dfe_list(dfe_list)
     )
@@ -319,18 +320,11 @@ def _compact_table_for_deletes(
     all_dfes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         delete_file_envelopes + df_envelopes
     )
-
-    prev_table = None
-    table = None
+    prev_table, table = None, None
     total_incremental_len = 0
     total_deduped_records = 0
     total_dropped_records = 0
-    if (
-        input.round_completion_info
-        and input.round_completion_info.hb_index_to_entry_range
-        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
-        is not None
-    ):
+    if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
         table = _download_compacted_table(
             hb_index=hb_idx,
             rcf=input.round_completion_info,
@@ -338,7 +332,7 @@ def _compact_table_for_deletes(
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-        if input.delete_strategy and input.delete_file_envelopes:
+        if has_deletes:
             table, partial_dropped_rows = input.delete_strategy.apply_all_deletes(
                 table, input.delete_file_envelopes
             )
