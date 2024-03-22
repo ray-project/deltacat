@@ -311,7 +311,7 @@ def _sort_df_envelopes(
     )
 
 
-def group_by_upsert_delete_sequence(
+def _group_by_upsert_delete_sequence(
     df_envelopes: List[DeltaFileEnvelope],
 ) -> Iterator[Tuple[List, List]]:
     """
@@ -334,7 +334,7 @@ def group_by_upsert_delete_sequence(
             upserts.extend(group_envelopes)
         else:
             deletes.extend(group_envelopes)
-        if deletes or not (deletes or upserts):
+        if deletes:
             yield upserts, deletes
             upserts, deletes = [], []
     if upserts:
@@ -363,13 +363,14 @@ def _compact_table_v2(
             3. The total number of deduplicated records.
             4. The total number of dropped records due to DELETE operations.
     """
-    df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
-        _flatten_dfe_list(dfe_list)
-    )
+    df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
     delete_file_envelopes = input.delete_file_envelopes or []
     all_dfes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         delete_file_envelopes + df_envelopes
     )
+    assert all(
+        dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE) for dfe in all_dfes
+    ), "All reordered delta file envelopes must of the UPSERT or DELETE"
     prev_table, table = None, None
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
@@ -389,7 +390,7 @@ def _compact_table_v2(
             aggregated_dropped_records += partial_dropped_rows
     prev_table = table
     for i, (upsert_group, delete_group) in enumerate(
-        group_by_upsert_delete_sequence(all_dfes)
+        _group_by_upsert_delete_sequence(all_dfes)
     ):
         upsert_delta_file_envelopes: List[DeltaFileEnvelope] = list(upsert_group)
         delete_delta_file_envelopes: List[DeltaFileEnvelope] = list(delete_group)
