@@ -63,7 +63,7 @@ def _get_delete_file_envelopes(
 ) -> List[DeleteFileEnvelope]:
     delete_file_envelopes = []
     for (
-        stream_position,
+        start_stream_position,
         delete_delta_sequence,
     ) in delete_spos_to_delete_deltas.items():
         consecutive_delete_tables: List[pa.Table] = []

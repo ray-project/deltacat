@@ -251,7 +251,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     return materialize_result_list
 
 
-def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -> bool:
+def _has_previous_compacted_table(input: MergeInput, hb_idx: int) -> bool:
     """
     Checks if the given hash bucket index has a compacted table available from the previous compaction round.
 
