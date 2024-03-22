@@ -5,6 +5,7 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
+from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
 
 from deltacat.tests.compute.test_util_constant import (
@@ -15,6 +16,7 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
+from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
 )
@@ -28,11 +30,14 @@ from deltacat.tests.compute.test_util_create_table_deltas_repo import (
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
-from deltacat.tests.compute.compact_partition_test_cases import (
+from deltacat.tests.compute.compact_partition_rebase_then_incremental_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from deltacat.types.media import StorageType
+from deltacat.storage import (
+    DeltaType,
+)
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -89,7 +94,7 @@ FUNCTION scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
+def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
     kwargs_for_local_deltacat_storage: Dict[str, Any] = {
         DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
@@ -116,7 +121,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
         "incremental_deltas",
-        "incremental_deltas_delta_type",
         "rebase_expected_compact_partition_result",
         "compact_partition_func",
     ],
@@ -137,7 +141,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             incremental_deltas,
-            incremental_deltas_delta_type,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         )
@@ -156,17 +159,15 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             incremental_deltas,
-            incremental_deltas_delta_type,
             rebase_expected_compact_partition_result,
             compact_partition_func,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in REBASE_THEN_INCREMENTAL_TEST_CASES],
-    indirect=[],
 )
 def test_compact_partition_rebase_then_incremental(
     setup_s3_resource: ServiceResource,
-    offer_local_deltacat_storage_kwargs: Dict[str, Any],
+    local_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: List[Optional[Any]],
@@ -180,10 +181,9 @@ def test_compact_partition_rebase_then_incremental(
     hash_bucket_count_param: int,
     drop_duplicates_param: bool,
     read_kwargs_provider_param: Any,
-    incremental_deltas: pa.Table,
-    incremental_deltas_delta_type: str,
+    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
     rebase_expected_compact_partition_result: pa.Table,
-    skip_enabled_compact_partition_drivers,
+    skip_enabled_compact_partition_drivers: List[CompactorVersion],
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
@@ -204,7 +204,7 @@ def test_compact_partition_rebase_then_incremental(
         CompactionSessionAuditInfo,
     )
 
-    ds_mock_kwargs = offer_local_deltacat_storage_kwargs
+    ds_mock_kwargs = local_deltacat_storage_kwargs
     ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     """
@@ -258,6 +258,7 @@ def test_compact_partition_rebase_then_incremental(
             "hash_bucket_count": hash_bucket_count_param,
             "last_stream_position_to_compact": source_partition.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+            "object_store": RayPlasmaObjectStore(),
             "pg_config": pgm,
             "primary_keys": primary_keys,
             "read_kwargs_provider": read_kwargs_provider_param,
@@ -296,6 +297,8 @@ def test_compact_partition_rebase_then_incremental(
     (
         source_partition_locator_w_deltas,
         new_delta,
+        incremental_delta_length,
+        has_delete_deltas,
     ) = create_incremental_deltas_on_source_table(
         BASE_TEST_SOURCE_NAMESPACE,
         BASE_TEST_SOURCE_TABLE_NAME,
@@ -303,7 +306,6 @@ def test_compact_partition_rebase_then_incremental(
         source_table_stream,
         partition_values_param,
         incremental_deltas,
-        incremental_deltas_delta_type,
         ds_mock_kwargs,
     )
     compact_partition_params = CompactPartitionParams.of(
@@ -318,6 +320,7 @@ def test_compact_partition_rebase_then_incremental(
             "hash_bucket_count": hash_bucket_count_param,
             "last_stream_position_to_compact": new_delta.stream_position,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+            "object_store": RayPlasmaObjectStore(),
             "pg_config": pgm,
             "primary_keys": primary_keys,
             "read_kwargs_provider": read_kwargs_provider_param,
@@ -358,13 +361,14 @@ def test_compact_partition_rebase_then_incremental(
     actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
         sorting_cols
     )
-
-    assert compaction_audit.input_records == (
-        len(incremental_deltas) if incremental_deltas else 0
-    ) + len(actual_rebase_compacted_table), (
-        "Total input records must be equal to incremental deltas"
-        "+ previous compacted table size"
-    )
+    # NOTE: if delete type-deltas are present this relationship no longer holds true
+    if not has_delete_deltas:
+        assert compaction_audit.input_records == (
+            incremental_delta_length if incremental_deltas else 0
+        ) + len(actual_rebase_compacted_table), (
+            "Total input records must be equal to incremental deltas"
+            "+ previous compacted table size"
+        )
 
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result

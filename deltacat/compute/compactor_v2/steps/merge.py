@@ -4,12 +4,13 @@ from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import numpy as np
 import pyarrow as pa
 import ray
+import itertools
 import time
 import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
@@ -69,12 +70,11 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 
 
 def _build_incremental_table(
-    df_envelopes_list: List[List[DeltaFileEnvelope]],
+    df_envelopes: List[DeltaFileEnvelope],
 ) -> pa.Table:
 
     hb_tables = []
     # sort by delta file stream position now instead of sorting every row later
-    df_envelopes = [d for dfe_list in df_envelopes_list for d in dfe_list]
     df_envelopes = sorted(
         df_envelopes,
         key=lambda df: (df.stream_position, df.file_index),
@@ -257,6 +257,152 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     return materialize_result_list
 
 
+def _does_hash_bucket_idx_have_compacted_table(input: MergeInput, hb_idx: int) -> bool:
+    return (
+        input.round_completion_info
+        and input.round_completion_info.hb_index_to_entry_range
+        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
+        is not None
+    )
+
+
+def _flatten_dfe_list(
+    df_envelopes_list: List[List[DeltaFileEnvelope]],
+) -> List[DeltaFileEnvelope]:
+    if not df_envelopes_list:
+        return []
+    return [d for dfe_list in df_envelopes_list for d in dfe_list]
+
+
+def _sort_df_envelopes(
+    df_envelopes: List[DeltaFileEnvelope],
+    key: Callable = lambda df: (df.stream_position, df.file_index),
+) -> List[DeltaFileEnvelope]:
+    if not df_envelopes:
+        return []
+    return sorted(
+        df_envelopes,
+        key=key,
+        reverse=False,  # ascending
+    )
+
+
+def group_by_pattern(df_envelopes: List[DeltaFileEnvelope]):
+    iter_envelopes = iter(df_envelopes)
+    upserts, deletes = [], []
+    for is_upsert, group_envelopes in itertools.groupby(
+        iter_envelopes, lambda x: x.delta_type == DeltaType.UPSERT
+    ):
+        if is_upsert:
+            upserts.extend(group_envelopes)
+        else:
+            deletes.extend(group_envelopes)
+        if deletes or not (deletes or upserts):
+            yield upserts, deletes
+            upserts, deletes = [], []
+    if upserts:
+        yield upserts, []
+
+
+def _compact_table_for_deletes(
+    input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
+) -> Tuple[pa.Table, int, int]:
+    # reinsert deletes
+    # logger.info(f"pdebug:_compact_table_for_deletes: {len(df_envelopes)=}, {df_envelopes=}")
+    df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
+    # logger.info(f"pdebug:_compact_table_for_deletes: {len(df_envelopes)=}, {df_envelopes=}")
+    delete_file_envelopes = input.delete_file_envelopes or []
+    restored_delta_file_envelopes = delete_file_envelopes + df_envelopes
+
+    sorted_restored_delta_file_envelopes = _sort_df_envelopes(
+        restored_delta_file_envelopes
+    )
+
+    prev_table = None
+    table = None
+    total_incremental_len = 0
+    total_deduped_records = 0
+    total_dropped_records = 0
+    # if (
+    #     input.round_completion_info
+    #     and input.round_completion_info.hb_index_to_entry_range
+    #     and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
+    #     is not None
+    # ):
+    #     prev_table = _download_compacted_table(
+    #         hb_index=hb_idx,
+    #         rcf=input.round_completion_info,
+    #         read_kwargs_provider=input.read_kwargs_provider,
+    #         deltacat_storage=input.deltacat_storage,
+    #         deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+    #     )
+    #     prev_table, partial_dropped_rows = input.delete_strategy.apply_all_deletes(
+    #         prev_table, input.delete_file_envelopes
+    #     )
+    #     total_dropped_records += partial_dropped_rows
+    logger.info(
+        f"pdebug: {group_by_pattern(sorted_restored_delta_file_envelopes)=}, {prev_table}"
+    )
+    group_by_pattern(sorted_restored_delta_file_envelopes)
+    for i, (upsert_group, delete_group) in enumerate(
+        group_by_pattern(sorted_restored_delta_file_envelopes)
+    ):
+        logger.info(f"pdebug:FOO {i=}, {list(upsert_group)=}, {list(delete_group)=}")
+        upsert_delta_file_envelopes = list(upsert_group)
+        delete_delta_file_envelopes = list(delete_group)
+        if upsert_delta_file_envelopes:
+            table, partial_incremental_len, partial_deduped_records = _compact_tables(
+                input, [upsert_delta_file_envelopes], hb_idx
+            )
+            total_incremental_len += partial_incremental_len
+            total_deduped_records += partial_deduped_records
+        for delete_file_envelope in delete_delta_file_envelopes:
+            (
+                incremental_compacted_table,
+                dropped_rows,
+            ) = input.delete_strategy.apply_deletes(table, delete_file_envelope)
+            total_dropped_records += dropped_rows
+            prev_table = incremental_compacted_table
+    return table if table else prev_table, total_incremental_len, total_deduped_records
+
+
+def _compact_tables2(
+    input: MergeInput,
+    dfe_list: List[DeltaFileEnvelope],
+    hb_idx,
+    prev_table=None,
+) -> Tuple[pa.Table, int, int]:
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
+        f"{len(dfe_list)} delta file envelope lists..."
+    )
+    table = _build_incremental_table(dfe_list)
+    incremental_len = len(table)
+    logger.info(
+        f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
+    )
+    if input.sort_keys:
+        # Incremental is sorted and merged, as sorting
+        # on non event based sort key does not produce consistent
+        # compaction results. E.g., compaction(delta1, delta2, delta3)
+        # will not be equal to compaction(compaction(delta1, delta2), delta3).
+        table = table.sort_by(input.sort_keys)
+    hb_table_record_count = len(table) + (len(prev_table) if prev_table else 0)
+    table, merge_time = timed_invocation(
+        func=_merge_tables,
+        table=table,
+        primary_keys=input.primary_keys,
+        can_drop_duplicates=input.drop_duplicates,
+        compacted_table=prev_table,
+    )
+    total_deduped_records = hb_table_record_count - len(table)
+    logger.info(
+        f"[Merge task index {input.merge_task_index}] Merged "
+        f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
+    )
+    return table, incremental_len, total_deduped_records
+
+
 def _compact_tables(
     input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
@@ -264,7 +410,9 @@ def _compact_tables(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
     )
-    table = _build_incremental_table(dfe_list)
+    df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
+    df_envelopes = _sort_df_envelopes(df_envelopes)
+    table = _build_incremental_table(df_envelopes)
 
     incremental_len = len(table)
     logger.info(
@@ -354,23 +502,18 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 input.delete_file_envelopes is not None
                 and input.delete_strategy is not None
             )
-            if (
-                input.delete_file_envelopes is not None
-                and input.delete_strategy is not None
-            ):
-                logger.info(f"pdebug: FOUND DELETES {input.delete_file_envelopes=}")
             if not merge_file_group.dfe_groups:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
-
-            table, input_records, deduped_records = _compact_tables(
+            table, input_records, deduped_records = _compact_table_for_deletes(
                 input, merge_file_group.dfe_groups, merge_file_group.hb_index
             )
             total_input_records += input_records
             total_deduped_records += deduped_records
-            materialized_results.append(
-                merge_utils.materialize(input, merge_file_group.hb_index, [table])
-            )
+            if table:
+                materialized_results.append(
+                    merge_utils.materialize(input, merge_file_group.hb_index, [table])
+                )
 
         if hb_index_copy_by_ref_ids:
             materialized_results.extend(
