@@ -466,61 +466,6 @@ def _apply_upserts(
     return table, incremental_len, deduped_records
 
 
-def _compact_tables(
-    input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
-) -> Tuple[pa.Table, int, int]:
-    logger.info(
-        f"[Hash bucket index {hb_idx}] Reading dedupe input for "
-        f"{len(dfe_list)} delta file envelope lists..."
-    )
-    df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
-    df_envelopes = _sort_df_envelopes(df_envelopes)
-    table = _build_incremental_table(df_envelopes)
-
-    incremental_len = len(table)
-    logger.info(
-        f"[Hash bucket index {hb_idx}] Got the incremental table of length {incremental_len}"
-    )
-
-    if input.sort_keys:
-        # Incremental is sorted and merged, as sorting
-        # on non event based sort key does not produce consistent
-        # compaction results. E.g., compaction(delta1, delta2, delta3)
-        # will not be equal to compaction(compaction(delta1, delta2), delta3).
-        table = table.sort_by(input.sort_keys)
-
-    compacted_table = None
-
-    if _has_previous_compacted_table(input, hb_idx):
-        compacted_table = _download_compacted_table(
-            hb_index=hb_idx,
-            rcf=input.round_completion_info,
-            read_kwargs_provider=input.read_kwargs_provider,
-            deltacat_storage=input.deltacat_storage,
-            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
-        )
-
-    hb_table_record_count = len(table) + (
-        len(compacted_table) if compacted_table else 0
-    )
-
-    table, merge_time = timed_invocation(
-        func=_merge_tables,
-        table=table,
-        primary_keys=input.primary_keys,
-        can_drop_duplicates=input.drop_duplicates,
-        compacted_table=compacted_table,
-    )
-    total_deduped_records = hb_table_record_count - len(table)
-
-    logger.info(
-        f"[Merge task index {input.merge_task_index}] Merged "
-        f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
-    )
-
-    return table, incremental_len, total_deduped_records
-
-
 def _copy_manifests_from_hash_bucketing(
     input: MergeInput, hb_index_copy_by_reference_ids: List[int]
 ) -> List[MaterializeResult]:
@@ -563,6 +508,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     input.delete_strategy is not None
                 ), "Merge input missing delete_strategy"
             if not has_delete and not merge_file_group.dfe_groups:
+                # Can copy by reference only if there are no deletes to merge in
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
             table, input_records, deduped_records, dropped_records = _compact_table_v2(
