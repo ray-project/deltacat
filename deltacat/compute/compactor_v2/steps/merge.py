@@ -403,20 +403,17 @@ def _compact_table_v2(
                 table,
                 partial_incremental_len,
                 partial_deduped_records,
-            ) = _compact_table_with_previously_compacted_table(
-                input, upsert_delta_file_envelopes, hb_idx, prev_table
-            )
+            ) = _apply_upserts(input, upsert_delta_file_envelopes, hb_idx, prev_table)
             aggregated_incremental_len += partial_incremental_len
             aggregated_deduped_records += partial_deduped_records
         for delete_delta_file_envelope in delete_delta_file_envelopes:
-            table_size_before_delete = table.nbytes
             (
                 table,
                 dropped_rows,
             ) = input.delete_strategy.apply_deletes(table, delete_delta_file_envelope)
             logger.info(
                 f"[Merge task index {input.merge_task_index}] Dropped "
-                f"record count: {dropped_rows} from size={table_size_before_delete} to size={table.nbytes}"
+                + f"record count: {dropped_rows}"
             )
             aggregated_dropped_records += dropped_rows
         prev_table = table
@@ -428,12 +425,15 @@ def _compact_table_v2(
     )
 
 
-def _compact_table_with_previously_compacted_table(
+def _apply_upserts(
     input: MergeInput,
     dfe_list: List[DeltaFileEnvelope],
     hb_idx,
     prev_table=None,
 ) -> Tuple[pa.Table, int, int]:
+    assert all(
+        dfe.delta_type is DeltaType.UPSERT for dfe in dfe_list
+    ), "All incoming delta file envelopes must of the DeltaType.UPSERT"
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
@@ -558,7 +558,9 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         for merge_file_group in merge_file_groups:
             has_delete = input.delete_file_envelopes is not None
             if has_delete:
-                assert(input.delete_strategy, "Merge input missing delete_strategy")
+                assert (
+                    input.delete_strategy is not None
+                ), "Merge input missing delete_strategy"
             if not has_delete and not merge_file_group.dfe_groups:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue

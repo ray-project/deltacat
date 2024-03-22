@@ -86,7 +86,7 @@ def _get_delete_file_envelopes(
             consecutive_delete_tables.extend(delete_dataset)
         delete_table: pa.Table = pa.concat_tables(consecutive_delete_tables)
         delete_file_envelope: DeleteFileEnvelope = DeleteFileEnvelope.of(
-            stream_position,
+            start_stream_position,
             delta_type=DeltaType.DELETE,
             table=delete_table,
             delete_columns=delete_columns,
