@@ -10,7 +10,7 @@ import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Iterator, List, Optional, Tuple
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
@@ -214,7 +214,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     hb_index_to_indices = round_completion_info.hb_index_to_entry_range
 
     if hb_index_to_indices is None:
-        logger.info(f"Nothing to copy by reference. Skipping...")
+        logger.info("Nothing to copy by reference. Skipping...")
         return []
 
     for hb_index in hb_index_copy_by_reference:
@@ -287,11 +287,16 @@ def _sort_df_envelopes(
     )
 
 
-def group_by_pattern(df_envelopes: List[DeltaFileEnvelope]):
-    iter_envelopes = iter(df_envelopes)
+def group_by_upsert_delete_sequence(
+    df_envelopes: List[DeltaFileEnvelope],
+) -> Iterator[Tuple[List, List]]:
+    """
+    TODO
+    """
+    iter_df_envelopes = iter(df_envelopes)
     upserts, deletes = [], []
     for is_upsert, group_envelopes in itertools.groupby(
-        iter_envelopes, lambda x: x.delta_type == DeltaType.UPSERT
+        iter_df_envelopes, lambda x: x.delta_type == DeltaType.UPSERT
     ):
         if is_upsert:
             upserts.extend(group_envelopes)
@@ -307,15 +312,12 @@ def group_by_pattern(df_envelopes: List[DeltaFileEnvelope]):
 def _compact_table_for_deletes(
     input: MergeInput, dfe_list: List[List[DeltaFileEnvelope]], hb_idx: int
 ) -> Tuple[pa.Table, int, int]:
-    # reinsert deletes
-    # logger.info(f"pdebug:_compact_table_for_deletes: {len(df_envelopes)=}, {df_envelopes=}")
-    df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
-    # logger.info(f"pdebug:_compact_table_for_deletes: {len(df_envelopes)=}, {df_envelopes=}")
+    df_envelopes: List[DeltaFileEnvelope] = _sort_df_envelopes(
+        _flatten_dfe_list(dfe_list)
+    )
     delete_file_envelopes = input.delete_file_envelopes or []
-    restored_delta_file_envelopes = delete_file_envelopes + df_envelopes
-
-    sorted_restored_delta_file_envelopes = _sort_df_envelopes(
-        restored_delta_file_envelopes
+    all_dfes: List[DeltaFileEnvelope] = _sort_df_envelopes(
+        delete_file_envelopes + df_envelopes
     )
 
     prev_table = None
@@ -323,47 +325,51 @@ def _compact_table_for_deletes(
     total_incremental_len = 0
     total_deduped_records = 0
     total_dropped_records = 0
-    # if (
-    #     input.round_completion_info
-    #     and input.round_completion_info.hb_index_to_entry_range
-    #     and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
-    #     is not None
-    # ):
-    #     prev_table = _download_compacted_table(
-    #         hb_index=hb_idx,
-    #         rcf=input.round_completion_info,
-    #         read_kwargs_provider=input.read_kwargs_provider,
-    #         deltacat_storage=input.deltacat_storage,
-    #         deltacat_storage_kwargs=input.deltacat_storage_kwargs,
-    #     )
-    #     prev_table, partial_dropped_rows = input.delete_strategy.apply_all_deletes(
-    #         prev_table, input.delete_file_envelopes
-    #     )
-    #     total_dropped_records += partial_dropped_rows
-    logger.info(
-        f"pdebug: {group_by_pattern(sorted_restored_delta_file_envelopes)=}, {prev_table}"
-    )
-    group_by_pattern(sorted_restored_delta_file_envelopes)
-    for i, (upsert_group, delete_group) in enumerate(
-        group_by_pattern(sorted_restored_delta_file_envelopes)
+    if (
+        input.round_completion_info
+        and input.round_completion_info.hb_index_to_entry_range
+        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
+        is not None
     ):
-        logger.info(f"pdebug:FOO {i=}, {list(upsert_group)=}, {list(delete_group)=}")
-        upsert_delta_file_envelopes = list(upsert_group)
-        delete_delta_file_envelopes = list(delete_group)
+        table = _download_compacted_table(
+            hb_index=hb_idx,
+            rcf=input.round_completion_info,
+            read_kwargs_provider=input.read_kwargs_provider,
+            deltacat_storage=input.deltacat_storage,
+            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+        )
+        if input.delete_strategy and input.delete_file_envelopes:
+            table, partial_dropped_rows = input.delete_strategy.apply_all_deletes(
+                table, input.delete_file_envelopes
+            )
+            total_dropped_records += partial_dropped_rows
+    prev_table = table
+    for i, (upsert_group, delete_group) in enumerate(
+        group_by_upsert_delete_sequence(all_dfes)
+    ):
+        upsert_delta_file_envelopes: List[DeltaFileEnvelope] = list(upsert_group)
+        delete_delta_file_envelopes: List[DeltaFileEnvelope] = list(delete_group)
+        logger.info(
+            f"Group: {i}. Got upsert sequence of length {len(upsert_delta_file_envelopes)} followed by delete sequence of length {len(delete_delta_file_envelopes)}"
+        )
         if upsert_delta_file_envelopes:
-            table, partial_incremental_len, partial_deduped_records = _compact_tables(
-                input, [upsert_delta_file_envelopes], hb_idx
+            table, partial_incremental_len, partial_deduped_records = _compact_tables2(
+                input, upsert_delta_file_envelopes, hb_idx, prev_table
             )
             total_incremental_len += partial_incremental_len
             total_deduped_records += partial_deduped_records
-        for delete_file_envelope in delete_delta_file_envelopes:
+        for delete_delta_file_envelope in delete_delta_file_envelopes:
             (
-                incremental_compacted_table,
+                table,
                 dropped_rows,
-            ) = input.delete_strategy.apply_deletes(table, delete_file_envelope)
+            ) = input.delete_strategy.apply_deletes(table, delete_delta_file_envelope)
             total_dropped_records += dropped_rows
-            prev_table = incremental_compacted_table
-    return table if table else prev_table, total_incremental_len, total_deduped_records
+        prev_table = table
+    return (
+        table,
+        total_incremental_len,
+        total_deduped_records,
+    )
 
 
 def _compact_tables2(
@@ -502,15 +508,20 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 input.delete_file_envelopes is not None
                 and input.delete_strategy is not None
             )
-            if not merge_file_group.dfe_groups:
-                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
-                continue
-            table, input_records, deduped_records = _compact_table_for_deletes(
-                input, merge_file_group.dfe_groups, merge_file_group.hb_index
-            )
+            if has_delete:
+                table, input_records, deduped_records = _compact_table_for_deletes(
+                    input, merge_file_group.dfe_groups, merge_file_group.hb_index
+                )
+            else:
+                if not merge_file_group.dfe_groups:
+                    hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
+                    continue
+                table, input_records, deduped_records = _compact_tables(
+                    input, merge_file_group.dfe_groups, merge_file_group.hb_index
+                )
             total_input_records += input_records
             total_deduped_records += deduped_records
-            if table:
+            if table is not None:
                 materialized_results.append(
                     merge_utils.materialize(input, merge_file_group.hb_index, [table])
                 )

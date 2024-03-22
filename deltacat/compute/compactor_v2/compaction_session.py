@@ -33,9 +33,6 @@ from deltacat.compute.compactor_v2.deletes.delete_strategy import (
     DeleteStrategy,
 )
 from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
-from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
-    DeleteFileEnvelope,
-)
 
 from deltacat.storage import (
     Delta,

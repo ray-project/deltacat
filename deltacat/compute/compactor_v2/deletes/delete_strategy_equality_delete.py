@@ -42,7 +42,9 @@ class EqualityDeleteStrategy(ABC):
         number_of_rows_before_dropping = len(table)
         table = table.filter(pc.invert(result))
         number_of_rows_after_dropping = len(table)
-        return table, number_of_rows_after_dropping - number_of_rows_before_dropping
+        return table, abs(
+            number_of_rows_after_dropping - number_of_rows_before_dropping
+        )
 
     def apply_deletes(
         self,
@@ -62,8 +64,10 @@ class EqualityDeleteStrategy(ABC):
             Tuple[pa.Table, int]: A tuple containing the updated Arrow table after applying deletes,
                 and the number of rows deleted.
         """
+        if not table:
+            return table, 0
         delete_columns = delete_file_envelope.delete_columns
-        delete_table = delete_file_envelope.delete_table
+        delete_table = delete_file_envelope.table
         table, number_of_rows_dropped = self._drop_rows(
             table, delete_table, delete_columns
         )
@@ -87,10 +91,12 @@ class EqualityDeleteStrategy(ABC):
             Tuple[pa.Table, int]: A tuple containing the updated Arrow table after applying all deletes,
                 and the total number of rows deleted.
         """
+        if not table:
+            return table, 0
         total_dropped_rows = 0
         for delete_file_envelope in delete_file_envelopes:
             delete_columns = delete_file_envelope.delete_columns
-            delete_table = delete_file_envelope.delete_table
+            delete_table = delete_file_envelope.table
             table, number_of_rows_dropped = self._drop_rows(
                 table, delete_table, delete_columns
             )
