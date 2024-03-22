@@ -6,6 +6,7 @@ from deltacat.compute.compactor import (
     DeltaFileEnvelope,
 )
 import numpy as np
+import pyarrow as pa
 
 from deltacat.compute.compactor.model.table_object_store import (
     LocalTableStorageStrategy,
@@ -56,12 +57,19 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
         )
         assert len(delete_columns) > 0, "At least 1 delete column is expected"
         delete_file_envelope["delete_columns"] = delete_columns
-        delete_file_envelope["table_size_bytes"] = table.nbytes
+        if isinstance(table, pa.Table):
+            delete_file_envelope["table_size_bytes"] = table.nbytes
         return DeleteFileEnvelope(**delete_file_envelope)
 
     @property
     def table_size_bytes(self) -> int:
-        return self["table_size_bytes"]
+        val = self.get("table_size_bytes")
+        if val is not None:
+            return val
+        else:
+            raise ValueError(
+                f"Table type: {type(self.table)} not for supported for size method."
+            )
 
     @property
     def delete_columns(self) -> List[str]:

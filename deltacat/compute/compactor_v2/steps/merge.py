@@ -384,7 +384,7 @@ def _compact_table_v2(
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
         if has_deletes:
-            table, partial_dropped_rows = input.delete_strategy.apply_all_deletes(
+            table, partial_dropped_rows = input.delete_strategy.apply_many_deletes(
                 table, input.delete_file_envelopes
             )
             aggregated_dropped_records += partial_dropped_rows

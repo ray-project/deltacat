@@ -83,7 +83,7 @@ class EqualityDeleteStrategy(ABC):
         )
         return table, number_of_rows_dropped
 
-    def apply_all_deletes(
+    def apply_many_deletes(
         self,
         table: Optional[pa.Table],
         delete_file_envelopes: List[DeleteFileEnvelope],
