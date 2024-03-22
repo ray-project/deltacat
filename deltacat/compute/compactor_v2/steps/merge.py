@@ -374,7 +374,7 @@ def _compact_table_v2(
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
     aggregated_dropped_records = 0
-    if _does_hash_bucket_idx_have_compacted_table(input, hb_idx):
+    if _has_previous_compacted_table(input, hb_idx):
         table = _download_compacted_table(
             hb_index=hb_idx,
             rcf=input.round_completion_info,
@@ -490,12 +490,7 @@ def _compact_tables(
 
     compacted_table = None
 
-    if (
-        input.round_completion_info
-        and input.round_completion_info.hb_index_to_entry_range
-        and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
-        is not None
-    ):
+    if _has_previous_compacted_table(input, hb_idx):
         compacted_table = _download_compacted_table(
             hb_index=hb_idx,
             rcf=input.round_completion_info,
