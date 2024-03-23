@@ -391,7 +391,12 @@ def _compact_table_v2(
                 table,
                 partial_incremental_len,
                 partial_deduped_records,
+                partial_merge_time,
             ) = _apply_upserts(input, current_upsert_dfe_sequence, hb_idx, prev_table)
+            logger.info(
+                f"[Merge task index {input.merge_task_index}] Merged "
+                f"record count: {len(table)}, size={table.nbytes} took: {partial_merge_time}s"
+            )
             aggregated_incremental_len += partial_incremental_len
             aggregated_deduped_records += partial_deduped_records
         if delete_file_envelopes:
@@ -417,7 +422,7 @@ def _apply_upserts(
     dfe_list: List[DeltaFileEnvelope],
     hb_idx,
     prev_table=None,
-) -> Tuple[pa.Table, int, int]:
+) -> Tuple[pa.Table, int, int, int]:
     assert all(
         dfe.delta_type is DeltaType.UPSERT for dfe in dfe_list
     ), "All incoming delta file envelopes must of the DeltaType.UPSERT"
@@ -445,11 +450,7 @@ def _apply_upserts(
         compacted_table=prev_table,
     )
     deduped_records = hb_table_record_count - len(table)
-    logger.info(
-        f"[Merge task index {input.merge_task_index}] Merged "
-        f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
-    )
-    return table, incremental_len, deduped_records
+    return table, incremental_len, deduped_records, merge_time
 
 
 def _copy_manifests_from_hash_bucketing(
