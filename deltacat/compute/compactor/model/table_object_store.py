@@ -22,10 +22,6 @@ class LocalTableStorageStrategy(ABC):
     def get_table(self, table_like: LocalTableReference) -> LocalTable:
         pass
 
-    @abstractmethod
-    def get_table_reference(self, table_ref: Any) -> Any:
-        pass
-
 
 class LocalTableRayObjectStoreReferenceStorageStrategy(LocalTableStorageStrategy):
     """

@@ -75,8 +75,9 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
 
     @property
     def table_reference(self) -> Optional[Any]:
-        val = self.table_storage_strategy
-        if val is not None:
-            table_storage_strategy = val
-            return table_storage_strategy.get_table_reference(self["table"])
-        return val
+        if self.table_storage_strategy is not None and isinstance(
+            self.table_storage_strategy,
+            LocalTableRayObjectStoreReferenceStorageStrategy,
+        ):
+            return self.table_storage_strategy.get_table_reference(self["table"])
+        return None

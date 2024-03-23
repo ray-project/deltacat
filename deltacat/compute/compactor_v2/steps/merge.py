@@ -399,7 +399,7 @@ def _compact_table_v2(
             )
             aggregated_incremental_len += partial_incremental_len
             aggregated_deduped_records += partial_deduped_records
-        if delete_file_envelopes:
+        if current_delete_dfe_sequence:
             (table, dropped_rows) = input.delete_strategy.apply_many_deletes(
                 table, current_delete_dfe_sequence
             )

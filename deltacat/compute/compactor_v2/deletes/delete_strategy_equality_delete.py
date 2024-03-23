@@ -52,6 +52,8 @@ class EqualityDeleteStrategy(DeleteStrategy):
         delete_column_names: List[str],
         equality_predicate_operation: Optional[Callable] = pa.compute.and_,
     ) -> Tuple[pa.Table, int]:
+        if len(delete_column_names) < 1:
+            return table, 0
         prev_boolean_mask = pa.array(np.ones(len(table), dtype=bool))
         # all 1s -> all True so wont discard any from the curr_boolean_mask
         for delete_column_name in delete_column_names:
