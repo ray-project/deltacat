@@ -100,7 +100,11 @@ class EqualityDeleteStrategy(ABC):
             Tuple[pa.Table, int]: A tuple containing the updated pyarrow table after applying all deletes,
                 and the total number of rows deleted.
         """
-        if not table or not all(table is not None for table in delete_file_envelopes):
+        # looking up table references are lighter than the actual table
+        if not table or not all(
+            delete_file_envelope.table_reference is not None
+            for delete_file_envelope in delete_file_envelopes
+        ):
             return table, 0
         total_dropped_rows = 0
         for delete_file_envelope in delete_file_envelopes:

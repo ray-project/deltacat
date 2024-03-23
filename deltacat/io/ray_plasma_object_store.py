@@ -2,6 +2,7 @@ import ray
 from ray import cloudpickle
 from deltacat.io.object_store import IObjectStore
 from typing import Any, List
+from ray.types import ObjectRef
 
 
 class RayPlasmaObjectStore(IObjectStore):
@@ -21,3 +22,8 @@ class RayPlasmaObjectStore(IObjectStore):
     def get_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         loaded_refs = [cloudpickle.loads(obj_id) for obj_id in refs]
         return ray.get(loaded_refs)
+
+    def deserialize_references(
+        self, refs: List[Any], *args, **kwargs
+    ) -> List[ObjectRef]:
+        return [cloudpickle.loads(obj_id) for obj_id in refs]

@@ -1,6 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
-from typing import List, Optional
+from typing import Any, List, Optional
 from deltacat.storage import DeltaType, LocalTable
 from deltacat.compute.compactor import (
     DeltaFileEnvelope,
@@ -24,9 +24,7 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
         file_index: int = None,
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
-        table_storage_strategy: [
-            LocalTableStorageStrategy
-        ] = LocalTableRayObjectStoreReferenceStorageStrategy(),
+        table_storage_strategy: LocalTableStorageStrategy = LocalTableRayObjectStoreReferenceStorageStrategy(),
     ) -> DeleteFileEnvelope:
         """
         Static factory builder for a DeleteFileEnvelope. Subclasses from DeltaFileEnvelope
@@ -74,3 +72,11 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
     @property
     def delete_columns(self) -> List[str]:
         return self["delete_columns"]
+
+    @property
+    def table_reference(self) -> Optional[Any]:
+        val = self.table_storage_strategy
+        if val is not None:
+            table_storage_strategy = val
+            return table_storage_strategy.get_table_reference(self["table"])
+        return val

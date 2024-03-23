@@ -346,6 +346,7 @@ def _compact_table_v2(
     dfe_list: List[List[DeltaFileEnvelope]],
     hb_idx: int,
     has_deletes: bool,
+    compacted_table: Optional[pa.Table] = None,
 ) -> Tuple[pa.Table, int, int, int]:
     """
     Compacts a list of DeltaFileEnvelope objects into a single PyArrow table.
@@ -371,47 +372,32 @@ def _compact_table_v2(
     assert all(
         dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE) for dfe in all_dfes
     ), "All reordered delta file envelopes must of the UPSERT or DELETE"
-    prev_table, table = None, None
+    prev_table, table = compacted_table, compacted_table
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
     aggregated_dropped_records = 0
-    if _has_previous_compacted_table(input, hb_idx):
-        table = _download_compacted_table(
-            hb_index=hb_idx,
-            rcf=input.round_completion_info,
-            read_kwargs_provider=input.read_kwargs_provider,
-            deltacat_storage=input.deltacat_storage,
-            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
-        )
-        if has_deletes:
-            table, partial_dropped_rows = input.delete_strategy.apply_many_deletes(
-                table, input.delete_file_envelopes
-            )
-            aggregated_dropped_records += partial_dropped_rows
-    prev_table = table
     for i, (upsert_group, delete_group) in enumerate(
         _group_by_upsert_delete_sequence(all_dfes)
     ):
-        upsert_delta_file_envelopes: List[DeltaFileEnvelope] = list(upsert_group)
-        delete_delta_file_envelopes: List[DeltaFileEnvelope] = list(delete_group)
+        current_upsert_dfe_sequence: List[DeltaFileEnvelope] = list(upsert_group)
+        current_delete_dfe_sequence: List[DeltaFileEnvelope] = list(delete_group)
         logger.info(
             f"Group: {i}. "
-            + f"Got upsert sequence of length {len(upsert_delta_file_envelopes)} "
-            + f"followed by delete sequence of length {len(delete_delta_file_envelopes)}"
+            + f"Got upsert sequence of length {len(current_upsert_dfe_sequence)} "
+            + f"followed by delete sequence of length {len(current_delete_dfe_sequence)}"
         )
-        if upsert_delta_file_envelopes:
+        if current_upsert_dfe_sequence:
             (
                 table,
                 partial_incremental_len,
                 partial_deduped_records,
-            ) = _apply_upserts(input, upsert_delta_file_envelopes, hb_idx, prev_table)
+            ) = _apply_upserts(input, current_upsert_dfe_sequence, hb_idx, prev_table)
             aggregated_incremental_len += partial_incremental_len
             aggregated_deduped_records += partial_deduped_records
-        for delete_delta_file_envelope in delete_delta_file_envelopes:
-            (
-                table,
-                dropped_rows,
-            ) = input.delete_strategy.apply_deletes(table, delete_delta_file_envelope)
+        if delete_file_envelopes:
+            (table, dropped_rows) = input.delete_strategy.apply_many_deletes(
+                table, current_delete_dfe_sequence
+            )
             logger.info(
                 f"[Merge task index {input.merge_task_index}] Dropped "
                 + f"record count: {dropped_rows}"
@@ -502,6 +488,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         hb_index_copy_by_ref_ids = []
 
         for merge_file_group in merge_file_groups:
+            compacted_table = None
             has_delete = input.delete_file_envelopes is not None
             if has_delete:
                 assert (
@@ -511,11 +498,20 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 # Can copy by reference only if there are no deletes to merge in
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
+            if _has_previous_compacted_table(input, merge_file_group.hb_index):
+                compacted_table = _download_compacted_table(
+                    hb_index=merge_file_group.hb_index,
+                    rcf=input.round_completion_info,
+                    read_kwargs_provider=input.read_kwargs_provider,
+                    deltacat_storage=input.deltacat_storage,
+                    deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+                )
             table, input_records, deduped_records, dropped_records = _compact_table_v2(
                 input,
                 merge_file_group.dfe_groups,
                 merge_file_group.hb_index,
                 has_delete,
+                compacted_table,
             )
             total_input_records += input_records
             total_deduped_records += deduped_records

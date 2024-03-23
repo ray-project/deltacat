@@ -56,7 +56,7 @@ class DeltaFileEnvelope(dict):
             delta_file_envelope["table"] = table
         else:
             delta_file_envelope["table"] = table_storage_strategy.store_table(table)
-        delta_file_envelope["tableStorageStrategy"] = table_storage_strategy
+        delta_file_envelope["table_storage_strategy"] = table_storage_strategy
         delta_file_envelope["is_src_delta"] = is_src_delta
         delta_file_envelope["file_record_count"] = file_record_count
         return delta_file_envelope
@@ -75,7 +75,7 @@ class DeltaFileEnvelope(dict):
 
     @property
     def table_storage_strategy(self) -> Optional[LocalTableStorageStrategy]:
-        return self["tableStorageStrategy"]
+        return self["table_storage_strategy"]
 
     @property
     def table(self) -> LocalTable:

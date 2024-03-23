@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ray.types import ObjectRef
 
-from typing import Union
+from typing import Any, Union
 
 from abc import ABC, abstractmethod
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
@@ -22,6 +22,10 @@ class LocalTableStorageStrategy(ABC):
     def get_table(self, table_like: LocalTableReference) -> LocalTable:
         pass
 
+    @abstractmethod
+    def get_table_reference(self, table_ref: Any) -> Any:
+        pass
+
 
 class LocalTableRayObjectStoreReferenceStorageStrategy(LocalTableStorageStrategy):
     """
@@ -35,3 +39,6 @@ class LocalTableRayObjectStoreReferenceStorageStrategy(LocalTableStorageStrategy
     def get_table(self, table_like: LocalTableReference) -> LocalTable:
         table = RayPlasmaObjectStore().get(table_like)
         return table
+
+    def get_table_reference(self, table_ref: Any) -> LocalTableReference:
+        return RayPlasmaObjectStore().deserialize_references([table_ref])[0]
