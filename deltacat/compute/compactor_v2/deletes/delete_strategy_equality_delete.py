@@ -1,12 +1,14 @@
 from typing import List, Optional
 import logging
 import pyarrow as pa
-from abc import ABC
 from deltacat import logs
 
 from typing import Callable, Tuple
 from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
     DeleteFileEnvelope,
+)
+from deltacat.compute.compactor_v2.deletes.delete_strategy import (
+    DeleteStrategy,
 )
 import pyarrow.compute as pc
 import numpy as np
@@ -15,8 +17,24 @@ import numpy as np
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-class EqualityDeleteStrategy(ABC):
-    """ """
+class EqualityDeleteStrategy(DeleteStrategy):
+    """
+    A strategy for applying row-level deletes on tables during compaction based on equality conditions on one or more columns. It
+    implements the "equality delete" approach, which marks a row as deleted by one or more column values like pk1=3 or col1="foo", col2="bar".
+
+    Attributes:
+        _name (str): The name of the delete strategy.
+
+    Methods:
+        name(self) -> str:
+            Returns the name of the delete strategy.
+
+        apply_deletes(self, table, delete_file_envelope, *args, **kwargs) -> Tuple[pa.Table, int]:
+            Apply delete operations on the given table using the provided delete file envelope.
+
+        apply_many_deletes(self, table, delete_file_envelopes, *args, **kwargs) -> Tuple[pa.Table, int]:
+            Apply delete operations on the given table using all provided delete file envelopes.
+    """
 
     _name = "EqualityDeleteStrategy"
 
