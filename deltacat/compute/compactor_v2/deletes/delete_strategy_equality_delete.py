@@ -54,7 +54,7 @@ class EqualityDeleteStrategy(DeleteStrategy):
     ) -> Tuple[pa.Table, int]:
         if len(delete_column_names) < 1:
             return table, 0
-        prev_boolean_mask = pa.array(np.ones(len(table), dtype=bool))
+        prev_boolean_mask = pa.array(np.zeros(len(table), dtype=bool))
         # all 1s -> all True so wont discard any from the curr_boolean_mask
         for delete_column_name in delete_column_names:
             if delete_column_name not in table.column_names:
@@ -66,13 +66,14 @@ class EqualityDeleteStrategy(DeleteStrategy):
                 table[delete_column_name],
                 value_set=delete_table[delete_column_name],
             )
-            result = equality_predicate_operation(prev_boolean_mask, curr_boolean_mask)
-            prev_boolean_mask = result
+            prev_boolean_mask = equality_predicate_operation(
+                prev_boolean_mask, curr_boolean_mask
+            )
         number_of_rows_before_dropping = len(table)
         logger.debug(
             f"Number of table rows before dropping: {number_of_rows_before_dropping}."
         )
-        table = table.filter(pc.invert(result))
+        table = table.filter(pc.invert(prev_boolean_mask))
         number_of_rows_after_dropping = len(table)
         logger.debug(
             f"Number of table rows after dropping: {number_of_rows_after_dropping}."
