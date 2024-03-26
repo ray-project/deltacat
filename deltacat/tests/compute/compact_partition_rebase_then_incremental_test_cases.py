@@ -807,6 +807,38 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                 DeltaType.DELETE,
                 DeleteParameters.of(["col_1"]),
             ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array(["c"])],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array(["c"])],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array([10, 11]), pa.array(["a", "b"])],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["pk_col_1", "col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array(["c"])],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["col_1"]),
+            ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
             [

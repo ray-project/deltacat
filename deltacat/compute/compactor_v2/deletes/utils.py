@@ -1,3 +1,5 @@
+import itertools
+
 from deltacat.compute.compactor_v2.deletes.model import (
     PrepareDeleteResult,
     DeleteFileEnvelope,
@@ -23,14 +25,6 @@ from deltacat import logs
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _filter_out_non_delete_deltas(input_deltas: List[Delta]) -> List[Delta]:
-    non_delete_deltas = []
-    for input_delta in input_deltas:
-        if input_delta.type is not DeltaType.DELETE:
-            non_delete_deltas.append(input_delta)
-    return non_delete_deltas
-
-
 def _aggregate_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[Delta]]:
     """
     Aggregates consecutive DELETE deltas with the same delete parameters into groups.
@@ -42,36 +36,44 @@ def _aggregate_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[Delta]
         earliest delta in each group of consecutive DELETE deltas with the same delete parameters,
         and the values are lists containing those deltas.
     """
-    window_start, window_end = 0, 0
-    delete_delta_groups = defaultdict(list)
-    while window_end < len(input_deltas):
-        while (
-            window_end < len(input_deltas)
-            and input_deltas[window_end].type is not DeltaType.DELETE
-        ):
-            window_start += 1
-            window_end = window_start
-        # Find the end of the current group of consecutive DELETE deltas with the same delete parameters
-        while (
-            window_end < len(input_deltas)
-            and input_deltas[window_end].type is DeltaType.DELETE
-            and input_deltas[window_end].delete_parameters
-            == input_deltas[window_start].delete_parameters
-        ):
-            window_end += 1
-        delete_delta_group: List[Delta] = input_deltas[window_start:window_end]
-        # Add the group of DELETE deltas to delete_delta_groups
-        if delete_delta_group:
-            earliest_spos: int = delete_delta_group[0].stream_position
-            delete_delta_groups[earliest_spos].extend(delete_delta_group)
-        window_start = window_end
-    return delete_delta_groups
+    start_stream_spos_to_delete_delta_sequence: Dict[int, List[Delta]] = defaultdict(
+        list
+    )
+    delete_deltas_sequence_grouped_by_delete_parameters = [
+        (is_delete, sorted(list(delete_delta_group), key=lambda x: x.stream_position))
+        for (is_delete, _), delete_delta_group in itertools.groupby(
+            input_deltas, lambda d: (d.type is DeltaType.DELETE, d.delete_parameters)
+        )
+    ]
+    for (
+        is_delete,
+        delete_delta_sequence,
+    ) in delete_deltas_sequence_grouped_by_delete_parameters:
+        if not is_delete:
+            continue
+        starting_stream_position_of_delete_sequence: int = delete_delta_sequence[
+            0
+        ].stream_position
+        start_stream_spos_to_delete_delta_sequence[
+            starting_stream_position_of_delete_sequence
+        ] = delete_delta_sequence
+    return start_stream_spos_to_delete_delta_sequence
 
 
 def _get_delete_file_envelopes(
     params: CompactPartitionParams,
     delete_spos_to_delete_deltas: Dict[int, List],
 ) -> List[DeleteFileEnvelope]:
+    """
+    Create a list of DeleteFileEnvelope objects from the given dictionary of delete deltas.
+    Args:
+        params (CompactPartitionParams): compaction session parameters
+        delete_spos_to_delete_deltas (Dict[int, List]): A dictionary where the keys are the stream positions of the
+            earliest delta in each group of consecutive DELETE deltas with the same delete parameters,
+            and the values are lists containing those deltas.
+    Returns:
+        List[DeleteFileEnvelope]: A list of DeleteFileEnvelope objects.
+    """
     delete_file_envelopes = []
     for (
         start_stream_position,
@@ -140,14 +142,13 @@ def prepare_deletes(
         input_deltas[i].stream_position <= input_deltas[i + 1].stream_position
         for i in range(len(input_deltas) - 1)
     ), "Uniform deltas must be in non-decreasing order by stream position"
-    non_delete_deltas: List[Delta] = _filter_out_non_delete_deltas(input_deltas)
-    delete_spos_to_delete_deltas: Dict[int, List[Delta]] = _aggregate_delete_deltas(
-        input_deltas
-    )
+    start_stream_spos_to_delete_delta_sequence: Dict[
+        int, List[Delta]
+    ] = _aggregate_delete_deltas(input_deltas)
     delete_file_envelopes: List[DeleteFileEnvelope] = _get_delete_file_envelopes(
-        params, delete_spos_to_delete_deltas
+        params, start_stream_spos_to_delete_delta_sequence
     )
     return PrepareDeleteResult(
-        non_delete_deltas,
+        [delta for delta in input_deltas if delta.type is not DeltaType.DELETE],
         delete_file_envelopes,
     )
