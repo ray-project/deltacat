@@ -539,7 +539,7 @@ def _execute_compaction(
         and compaction_audit.hash_bucket_processed_size_bytes
     ):
         input_inflation = (
-            compaction_audit.hash_bucket_processed_size_bytes + delete_file_size_bytes
+            compaction_audit.hash_bucket_processed_size_bytes
         ) / compaction_audit.input_size_bytes
 
     if (
@@ -547,7 +547,7 @@ def _execute_compaction(
         and compaction_audit.input_records
     ):
         input_average_record_size_bytes = (
-            compaction_audit.hash_bucket_processed_size_bytes + delete_file_size_bytes
+            compaction_audit.hash_bucket_processed_size_bytes
         ) / compaction_audit.input_records
 
     logger.info(
