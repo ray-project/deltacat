@@ -333,9 +333,8 @@ def _group_sequence_by_delta_type(
 
 def _compact_table_v2(
     input: MergeInput,
-    dfe_list: List[List[DeltaFileEnvelope]],
+    dfe_list: Optional[List[List[DeltaFileEnvelope]]],
     hb_idx: int,
-    has_deletes: bool,
     compacted_table: Optional[pa.Table] = None,
 ) -> Tuple[pa.Table, int, int, int]:
     """
@@ -345,7 +344,6 @@ def _compact_table_v2(
         input (MergeInput): The input for the merge operation.
         dfe_list (List[List[DeltaFileEnvelope]]): A list of lists of DeltaFileEnvelope objects.
         hb_idx (int): The hash bucket index for the compaction.
-        has_deletes (bool): Whether the input data contains DELETE operations.
 
     Returns:
         Tuple[pa.Table, int, int, int]: A tuple containing:
@@ -491,20 +489,21 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     deltacat_storage=input.deltacat_storage,
                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,
                 )
+            if not merge_file_group.dfe_groups and compacted_table is None:
+                logger.warning("No new deltas and no compacted table found for hash bucket index")
+                continue
             table, input_records, deduped_records, dropped_records = _compact_table_v2(
                 input,
                 merge_file_group.dfe_groups,
                 merge_file_group.hb_index,
-                has_delete,
                 compacted_table,
             )
             total_input_records += input_records
             total_deduped_records += deduped_records
             total_dropped_records += dropped_records
-            if table is not None:
-                materialized_results.append(
-                    merge_utils.materialize(input, merge_file_group.hb_index, [table])
-                )
+            materialized_results.append(
+                merge_utils.materialize(input, merge_file_group.hb_index, [table])
+            )
 
         if hb_index_copy_by_ref_ids:
             materialized_results.extend(
@@ -518,7 +517,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
         peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
         logger.info(
-            f"Peak memory usagge in bytes after merge: {peak_memory_usage_bytes}"
+            f"Peak memory usage in bytes after merge: {peak_memory_usage_bytes}"
         )
 
         return MergeResult(
