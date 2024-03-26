@@ -57,6 +57,11 @@ class EqualityDeleteStrategy(DeleteStrategy):
         prev_boolean_mask = pa.array(np.ones(len(table), dtype=bool))
         # all 1s -> all True so wont discard any from the curr_boolean_mask
         for delete_column_name in delete_column_names:
+            if delete_column_name not in table.column_names:
+                logger.warning(
+                    f"Column name {delete_column_name} not in table column names. Skipping dropping row"
+                )
+                continue
             curr_boolean_mask = pc.is_in(
                 table[delete_column_name],
                 value_set=delete_table[delete_column_name],

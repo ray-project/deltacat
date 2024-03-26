@@ -311,34 +311,24 @@ def _sort_df_envelopes(
     )
 
 
-def _group_by_upsert_delete_sequence(
+def _group_sequence_by_delta_type(
     df_envelopes: List[DeltaFileEnvelope],
 ) -> Iterator[Tuple[List, List]]:
     """
-    Groups a list of DeltaFileEnvelope objects into sequences of UPSERT and DELETE operations.
+    Groups a list of DeltaFileEnvelope objects by their delta_type.
 
     Args:
         df_envelopes (List[DeltaFileEnvelope]): A list of DeltaFileEnvelope objects.
 
     Yields:
-        Tuple[List, List]: A tuple containing two lists:
-            1. A list of DeltaFileEnvelope objects representing UPSERT operations.
-            2. A list of DeltaFileEnvelope objects representing DELETE operations.
+        Iterator[Tuple[DeltaType, List[DeltaFileEnvelope]]]: A tuple containing the delta_type
+        and a list of DeltaFileEnvelope objects that share the same delta_type.
     """
     iter_df_envelopes = iter(df_envelopes)
-    upserts, deletes = [], []
-    for is_upsert, group_envelopes in itertools.groupby(
-        iter_df_envelopes, lambda x: x.delta_type == DeltaType.UPSERT
+    for delta_type, delta_type_sequence in itertools.groupby(
+        iter_df_envelopes, lambda x: x.delta_type
     ):
-        if is_upsert:
-            upserts.extend(group_envelopes)
-        else:
-            deletes.extend(group_envelopes)
-        if deletes:
-            yield upserts, deletes
-            upserts, deletes = [], []
-    if upserts:
-        yield upserts, []
+        yield delta_type, list(delta_type_sequence)
 
 
 def _compact_table_v2(
@@ -366,42 +356,36 @@ def _compact_table_v2(
     """
     df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
     delete_file_envelopes = input.delete_file_envelopes or []
-    all_dfes: List[DeltaFileEnvelope] = _sort_df_envelopes(
+    reordered_all_dfes: List[DeltaFileEnvelope] = _sort_df_envelopes(
         delete_file_envelopes + df_envelopes
     )
     assert all(
-        dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE) for dfe in all_dfes
+        dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE)
+        for dfe in reordered_all_dfes
     ), "All reordered delta file envelopes must of the UPSERT or DELETE"
     prev_table, table = compacted_table, compacted_table
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
     aggregated_dropped_records = 0
-    for i, (upsert_group, delete_group) in enumerate(
-        _group_by_upsert_delete_sequence(all_dfes)
+    for i, (delta_type, delta_type_sequence) in enumerate(
+        _group_sequence_by_delta_type(reordered_all_dfes)
     ):
-        current_upsert_dfe_sequence: List[DeltaFileEnvelope] = list(upsert_group)
-        current_delete_dfe_sequence: List[DeltaFileEnvelope] = list(delete_group)
-        logger.info(
-            f"Group: {i}. "
-            + f"Got upsert sequence of length {len(current_upsert_dfe_sequence)} "
-            + f"followed by delete sequence of length {len(current_delete_dfe_sequence)}"
-        )
-        if current_upsert_dfe_sequence:
+        if delta_type is DeltaType.UPSERT:
             (
                 table,
                 partial_incremental_len,
                 partial_deduped_records,
                 partial_merge_time,
-            ) = _apply_upserts(input, current_upsert_dfe_sequence, hb_idx, prev_table)
+            ) = _apply_upserts(input, delta_type_sequence, hb_idx, prev_table)
             logger.info(
                 f"[Merge task index {input.merge_task_index}] Merged "
                 f"record count: {len(table)}, size={table.nbytes} took: {partial_merge_time}s"
             )
             aggregated_incremental_len += partial_incremental_len
             aggregated_deduped_records += partial_deduped_records
-        if current_delete_dfe_sequence:
+        elif delta_type is DeltaType.DELETE:
             (table, dropped_rows) = input.delete_strategy.apply_many_deletes(
-                table, current_delete_dfe_sequence
+                table, delta_type_sequence
             )
             logger.info(
                 f"[Merge task index {input.merge_task_index}] Dropped "
@@ -534,7 +518,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 
         peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
         logger.info(
-            f"Peak memory usage in bytes after merge: {peak_memory_usage_bytes}"
+            f"Peak memory usagge in bytes after merge: {peak_memory_usage_bytes}"
         )
 
         return MergeResult(

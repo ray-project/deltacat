@@ -10,7 +10,7 @@ from deltacat.storage import (
 from collections import defaultdict
 import logging
 
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from deltacat.types.media import StorageType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -39,17 +39,19 @@ def _aggregate_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[Delta]
     start_stream_spos_to_delete_delta_sequence: Dict[int, List[Delta]] = defaultdict(
         list
     )
-    delete_deltas_sequence_grouped_by_delete_parameters = [
+    delete_deltas_sequence_grouped_by_delete_parameters: List[
+        Tuple[bool, List[Delta]]
+    ] = [
         (is_delete, sorted(list(delete_delta_group), key=lambda x: x.stream_position))
         for (is_delete, _), delete_delta_group in itertools.groupby(
             input_deltas, lambda d: (d.type is DeltaType.DELETE, d.delete_parameters)
         )
     ]
     for (
-        is_delete,
+        is_delete_delta_sequence,
         delete_delta_sequence,
     ) in delete_deltas_sequence_grouped_by_delete_parameters:
-        if not is_delete:
+        if not is_delete_delta_sequence:
             continue
         starting_stream_position_of_delete_sequence: int = delete_delta_sequence[
             0
