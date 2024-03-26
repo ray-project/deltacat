@@ -140,6 +140,31 @@ TEST_CASES_APPLY_MANY_DELETES = {
         expected_total_dropped_rows=0,
         expected_exception=None,
     ),
+    "5-test-apply-deletes-column-does-not-exist-table": ApplyAllDeletesTestCaseParams(
+        table=pa.Table.from_arrays(
+            [
+                pa.array([0, 1]),
+                pa.array(["0", "1"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        delete_file_envelopes_params=[
+            {
+                "stream_position": 1,
+                "delta_type": DeltaType.DELETE,
+                "table": pa.Table.from_arrays(
+                    [
+                        pa.array(["1"]),
+                    ],
+                    names=["invalid"],
+                ),
+                "delete_columns": ["invalid"],
+            }
+        ],
+        expected_table=None,
+        expected_total_dropped_rows=0,
+        expected_exception=None,
+    ),
 }
 
 
@@ -214,3 +239,67 @@ class TestEqualityDeleteStrategy:
                 actual_table
             ), f"{expected_table} does not match {actual_table}"
         assert expected_total_dropped_rows == actual_dropped_rows
+
+    def test_apply_many_deletes_missing_table_ref_plasma_object_store(
+        self,
+    ):
+        from deltacat.compute.compactor_v2.deletes.delete_strategy_equality_delete import (
+            EqualityDeleteStrategy,
+        )
+        from deltacat.compute.compactor_v2.deletes.delete_strategy import (
+            DeleteStrategy,
+        )
+        from deltacat.compute.compactor.model.table_object_store import (
+            LocalTableRayObjectStoreReferenceStorageStrategy,
+        )
+        from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
+
+        delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
+        ray.shutdown()
+        ray.init()
+        table = pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3]),
+                pa.array(["0", "1", "2", "3"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        )
+        valid_delete_table = RayPlasmaObjectStore().put(
+            pa.Table.from_arrays(([pa.array([0])]), names=["pk_col_1"])
+        )
+        delete_file_envelopes = [
+            DeleteFileEnvelope(
+                **{
+                    "delta_type": DeltaType.DELETE,
+                    "table": valid_delete_table,
+                    "delete_columns": ["pk_col_1"],
+                    "table_reference": valid_delete_table,
+                    "table_storage_strategy": LocalTableRayObjectStoreReferenceStorageStrategy(),
+                }
+            ),
+            DeleteFileEnvelope(
+                **{
+                    "delta_type": DeltaType.DELETE,
+                    "table": None,
+                    "delete_columns": ["col_1"],
+                    "table_reference": None,
+                    "table_storage_strategy": None,
+                }
+            ),
+            DeleteFileEnvelope(
+                **{
+                    "delta_type": DeltaType.DELETE,
+                    "table": valid_delete_table,
+                    "delete_columns": ["pk_col_1"],
+                    "table_reference": valid_delete_table,
+                    "table_storage_strategy": LocalTableRayObjectStoreReferenceStorageStrategy(),
+                }
+            ),
+        ]
+        actual_table, actual_dropped_rows = delete_strategy.apply_many_deletes(
+            table, delete_file_envelopes
+        )
+        assert table.combine_chunks().equals(
+            actual_table
+        ), f"{table} does not match {actual_table}"
+        assert actual_dropped_rows == 0
