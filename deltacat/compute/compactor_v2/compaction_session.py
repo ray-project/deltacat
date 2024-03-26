@@ -204,9 +204,16 @@ def _execute_compaction(
 
     delete_strategy: Optional[DeleteStrategy] = None
     delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None
+    delete_file_size_bytes: int = 0
     if contains_delete_deltas(input_deltas):
         delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
         input_deltas, delete_file_envelopes = prepare_deletes(params, input_deltas)
+        for delete_file_envelope in delete_file_envelopes:
+            delete_file_size_bytes += delete_file_envelope.table_size_bytes
+        logger.info(
+            f" Total delete file size={delete_file_size_bytes}."
+            f" Total length of delete file envelopes={delete_file_size_bytes}"
+        )
     uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
         input_deltas=input_deltas,
         hash_bucket_count=params.hash_bucket_count,
@@ -490,6 +497,7 @@ def _execute_compaction(
     record_info_msg = (
         f"Hash bucket records: {total_hb_record_count},"
         f" Deduped records: {total_dd_record_count}, "
+        f" Dropped records: {total_dropped_record_count}, "
         f" Materialized records: {merged_delta.meta.record_count}"
     )
     logger.info(record_info_msg)
@@ -531,18 +539,16 @@ def _execute_compaction(
         and compaction_audit.hash_bucket_processed_size_bytes
     ):
         input_inflation = (
-            compaction_audit.hash_bucket_processed_size_bytes
-            / compaction_audit.input_size_bytes
-        )
+            compaction_audit.hash_bucket_processed_size_bytes + delete_file_size_bytes
+        ) / compaction_audit.input_size_bytes
 
     if (
         compaction_audit.hash_bucket_processed_size_bytes
         and compaction_audit.input_records
     ):
         input_average_record_size_bytes = (
-            compaction_audit.hash_bucket_processed_size_bytes
-            / compaction_audit.input_records
-        )
+            compaction_audit.hash_bucket_processed_size_bytes + delete_file_size_bytes
+        ) / compaction_audit.input_records
 
     logger.info(
         f"The inflation of input deltas={input_inflation}"
