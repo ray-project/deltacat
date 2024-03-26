@@ -360,7 +360,7 @@ def _compact_table_v2(
     assert all(
         dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE)
         for dfe in reordered_all_dfes
-    ), "All reordered delta file envelopes must of the UPSERT or DELETE"
+    ), "All reordered delta file envelopes must be of the UPSERT or DELETE"
     prev_table, table = compacted_table, compacted_table
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
