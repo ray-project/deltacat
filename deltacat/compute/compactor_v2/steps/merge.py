@@ -70,12 +70,11 @@ def _drop_delta_type_rows(table: pa.Table, delta_type: DeltaType) -> pa.Table:
 
 
 def _build_incremental_table(
-    sorted_df_envelopes: List[DeltaFileEnvelope],
+    df_envelopes: List[DeltaFileEnvelope],
 ) -> pa.Table:
 
     hb_tables = []
     # sort by delta file stream position now instead of sorting every row later
-    df_envelopes = sorted_df_envelopes
     is_delete = False
     for df_envelope in df_envelopes:
         assert (

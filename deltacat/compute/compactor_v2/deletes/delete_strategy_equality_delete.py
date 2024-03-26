@@ -68,9 +68,10 @@ class EqualityDeleteStrategy(DeleteStrategy):
         """
         if len(delete_column_names) < 1:
             return table, 0
-        curr_boolean_mask = pa.array(np.zeros(len(table), dtype=bool))
-        prev_boolean_mask = pa.array(np.ones(len(table), dtype=bool))
         # all 1s -> all True so wont discard any from the curr_boolean_mask
+        prev_boolean_mask = pa.array(np.ones(len(table), dtype=bool))
+        # all 0s -> all False so if mask is never modified all rows will be kept
+        curr_boolean_mask = pa.array(np.zeros(len(table), dtype=bool))
         for delete_column_name in delete_column_names:
             if delete_column_name not in table.column_names:
                 logger.warning(

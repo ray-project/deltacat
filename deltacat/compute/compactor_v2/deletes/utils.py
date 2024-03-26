@@ -151,6 +151,9 @@ def prepare_deletes(
     delete_file_envelopes: List[DeleteFileEnvelope] = _get_delete_file_envelopes(
         params, start_stream_spos_to_delete_delta_sequence
     )
+    assert len(start_stream_spos_to_delete_delta_sequence) == len(
+        delete_file_envelopes
+    ), "The number of delete file envelopes should match the number of DELETE-type Delta sequences"
     return PrepareDeleteResult(
         [delta for delta in input_deltas if delta.type is not DeltaType.DELETE],
         delete_file_envelopes,
