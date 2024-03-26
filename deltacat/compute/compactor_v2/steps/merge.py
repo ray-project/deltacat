@@ -105,7 +105,7 @@ def _merge_tables(
     """
     Merges the table with compacted table dropping duplicates where necessary.
 
-    This method ensures the appropriate deltas of types DELETE/UPSERT are correctly
+    This method ensures the appropriate deltas of types [UPSERT] are correctly
     appended to the table.
     """
 
@@ -371,16 +371,16 @@ def _compact_table_v2(
         if delta_type is DeltaType.UPSERT:
             (
                 table,
-                partial_incremental_len,
-                partial_deduped_records,
-                partial_merge_time,
+                incremental_len,
+                deduped_records,
+                merge_time,
             ) = _apply_upserts(input, delta_type_sequence, hb_idx, prev_table)
             logger.info(
                 f"[Merge task index {input.merge_task_index}] Merged "
-                f"record count: {len(table)}, size={table.nbytes} took: {partial_merge_time}s"
+                f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
             )
-            aggregated_incremental_len += partial_incremental_len
-            aggregated_deduped_records += partial_deduped_records
+            aggregated_incremental_len += incremental_len
+            aggregated_deduped_records += deduped_records
         elif delta_type is DeltaType.DELETE:
             (table, dropped_rows) = input.delete_strategy.apply_many_deletes(
                 table, delta_type_sequence
@@ -490,7 +490,9 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,
                 )
             if not merge_file_group.dfe_groups and compacted_table is None:
-                logger.warning("No new deltas and no compacted table found for hash bucket index")
+                logger.warning(
+                    "No new deltas and no compacted table found for hash bucket index"
+                )
                 continue
             table, input_records, deduped_records, dropped_records = _compact_table_v2(
                 input,
@@ -524,6 +526,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             materialized_results,
             np.int64(total_input_records),
             np.int64(total_deduped_records),
+            np.int64(total_dropped_records),
             np.double(peak_memory_usage_bytes),
             np.double(0.0),
             np.double(time.time()),
@@ -562,6 +565,7 @@ def merge(input: MergeInput) -> MergeResult:
             merge_result[1],
             merge_result[2],
             merge_result[3],
+            merge_result[4],
             np.double(emit_metrics_time),
             merge_result[4],
         )

@@ -90,6 +90,7 @@ def _get_delete_file_envelopes(
                 List[str]
             ] = delete_delta.delete_parameters.equality_column_names
             assert len(delete_columns) > 0, "At least 1 delete column is required"
+            # delete columns should exist in underlying table
             delete_dataset = params.deltacat_storage.download_delta(
                 delete_delta,
                 file_reader_kwargs_provider=params.read_kwargs_provider,

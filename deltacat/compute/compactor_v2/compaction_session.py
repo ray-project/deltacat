@@ -32,6 +32,9 @@ from deltacat.compute.compactor_v2.deletes.delete_strategy_equality_delete impor
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
     DeleteStrategy,
 )
+from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
+    DeleteFileEnvelope,
+)
 from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 
 from deltacat.storage import (
@@ -199,8 +202,8 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return None, None, None
 
-    delete_strategy = None
-    delete_file_envelopes = None
+    delete_strategy: Optional[DeleteStrategy] = None
+    delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None
     if contains_delete_deltas(input_deltas):
         delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
         input_deltas, delete_file_envelopes = prepare_deletes(params, input_deltas)
@@ -422,7 +425,12 @@ def _execute_compaction(
     merge_end = time.monotonic()
 
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in merge_results])
-    logger.info(f"Deduped {total_dd_record_count} records...")
+    total_dropped_record_count = sum(
+        [ddr.deleted_record_count for ddr in merge_results]
+    )
+    logger.info(
+        f"Deduped {total_dd_record_count} records and dropped {total_dropped_record_count} records..."
+    )
 
     compaction_audit.set_input_records(total_input_records_count.item())
 
@@ -542,7 +550,7 @@ def _execute_compaction(
     )
 
     # After all incremental delta related calculations, we update
-    # the input sizes to accomodate the compacted table
+    # the input sizes to accommodate the compacted table
     if round_completion_info:
         compaction_audit.set_input_file_count(
             (compaction_audit.input_file_count or 0)

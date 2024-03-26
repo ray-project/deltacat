@@ -45,7 +45,7 @@ class PrepareDeleteTestCaseParams:
     expected_delta_file_envelopes_len: int
     expected_delete_table: List[pa.Table]
     expected_non_delete_deltas_length: int
-    throws_error_type: BaseException
+    expected_exception: BaseException
 
     # makes TestCaseParams iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
     def __iter__(self):
@@ -464,7 +464,7 @@ class TestPrepareDeletes:
             "expected_delta_file_envelopes_len",
             "expected_delete_tables",
             "expected_non_delete_deltas_length",
-            "throws_error_type",
+            "expected_exception",
         ],
         [
             (
@@ -473,14 +473,14 @@ class TestPrepareDeletes:
                 expected_delta_file_envelopes_len,
                 expected_delete_tables,
                 expected_non_delete_deltas_length,
-                throws_error_type,
+                expected_exception,
             )
             for test_name, (
                 deltas_to_compact,
                 expected_delta_file_envelopes_len,
                 expected_delete_tables,
                 expected_non_delete_deltas_length,
-                throws_error_type,
+                expected_exception,
             ) in TEST_CASES_PREPARE_DELETE.items()
         ],
         ids=[test_name for test_name in TEST_CASES_PREPARE_DELETE],
@@ -493,7 +493,7 @@ class TestPrepareDeletes:
         expected_delta_file_envelopes_len: int,
         expected_delete_tables,
         expected_non_delete_deltas_length,
-        throws_error_type,
+        expected_exception,
     ):
         from deltacat.compute.compactor_v2.deletes.utils import (
             prepare_deletes,
@@ -576,8 +576,8 @@ class TestPrepareDeletes:
             }
         )
         # action
-        if throws_error_type:
-            with pytest.raises(throws_error_type):
+        if expected_exception:
+            with pytest.raises(expected_exception):
                 prepare_deletes(
                     params,
                     input_deltas,
