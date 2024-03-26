@@ -382,12 +382,14 @@ def _compact_table_v2(
             aggregated_incremental_len += incremental_len
             aggregated_deduped_records += deduped_records
         elif delta_type is DeltaType.DELETE:
-            (table, dropped_rows) = input.delete_strategy.apply_many_deletes(
-                table, delta_type_sequence
+            (table, dropped_rows), delete_time = timed_invocation(
+                func=input.delete_strategy.apply_many_deletes,
+                table=table,
+                delete_file_envelopes=delta_type_sequence,
             )
             logger.info(
-                f"[Merge task index {input.merge_task_index}] Dropped "
-                + f"record count: {dropped_rows}"
+                f" [Merge task index {input.merge_task_index}]"
+                + f" Dropped record count: {dropped_rows} took: {delete_time}s"
             )
             aggregated_dropped_records += dropped_rows
         prev_table = table

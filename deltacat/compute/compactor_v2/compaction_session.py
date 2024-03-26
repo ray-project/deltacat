@@ -211,7 +211,7 @@ def _execute_compaction(
         for delete_file_envelope in delete_file_envelopes:
             delete_file_size_bytes += delete_file_envelope.table_size_bytes
         logger.info(
-            f" Total delete file size={delete_file_size_bytes}."
+            f" Input deltas contain DELETE-type deltas. Total delete file size={delete_file_size_bytes}."
             f" Total length of delete file envelopes={len(delete_file_envelopes)}"
         )
     uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
