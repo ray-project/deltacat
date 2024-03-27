@@ -369,7 +369,9 @@ def _execute_compaction(
         )
 
         # BSP Step 2: Merge
-        # NOTE: DELETE-type deltas are stored in Plasma object store in prepare_deletes and therefore don't need to included in merge task resource estimation
+        # NOTE: DELETE-type deltas are stored in Plasma object store 
+        # in prepare_deletes and therefore don't need to included 
+        # in merge task resource estimation
         merge_options_provider = functools.partial(
             task_resource_options_provider,
             pg_config=params.pg_config,
