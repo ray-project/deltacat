@@ -360,7 +360,7 @@ def _compact_tables(
         dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE)
         for dfe in reordered_all_dfes
     ), "All reordered delta file envelopes must be of the UPSERT or DELETE"
-    prev_table, table = compacted_table, compacted_table
+    table = compacted_table
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
     aggregated_dropped_records = 0
@@ -373,14 +373,15 @@ def _compact_tables(
                 incremental_len,
                 deduped_records,
                 merge_time,
-            ) = _apply_upserts(input, delta_type_sequence, hb_idx, prev_table)
+            ) = _apply_upserts(input, delta_type_sequence, hb_idx, table)
             logger.info(
-                f"[Merge task index {input.merge_task_index}] Merged "
-                f"record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
+                f" [Merge task index {input.merge_task_index}] Merged"
+                f" record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
             )
             aggregated_incremental_len += incremental_len
             aggregated_deduped_records += deduped_records
         elif delta_type is DeltaType.DELETE:
+            table_size_before_delete = len(table) if table else 0
             (table, dropped_rows), delete_time = timed_invocation(
                 func=input.delete_strategy.apply_many_deletes,
                 table=table,
@@ -388,10 +389,10 @@ def _compact_tables(
             )
             logger.info(
                 f" [Merge task index {input.merge_task_index}]"
-                + f" Dropped record count: {dropped_rows} took: {delete_time}s"
+                + f" Dropped record count: {dropped_rows} from table"
+                + f" of record count {table_size_before_delete} took: {delete_time}s"
             )
             aggregated_dropped_records += dropped_rows
-        prev_table = table
     return (
         table,
         aggregated_incremental_len,
@@ -492,7 +493,8 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 )
             if not merge_file_group.dfe_groups and compacted_table is None:
                 logger.warning(
-                    "No new deltas and no compacted table found for hash bucket index"
+                    f" [Hash bucket index {merge_file_group.hb_index}]"
+                    + f" No new deltas and no compacted table found. Skipping compaction for {merge_file_group.hb_index}"
                 )
                 continue
             table, input_records, deduped_records, dropped_records = _compact_tables(

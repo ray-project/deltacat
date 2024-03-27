@@ -355,11 +355,18 @@ class TestEqualityDeleteStrategy:
                 }
             ),
         ]
+        expected_table = pa.Table.from_arrays(
+            [
+                pa.array([1, 2, 3]),
+                pa.array(["1", "2", "3"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        )
         actual_table, actual_dropped_rows = delete_strategy.apply_many_deletes(
             table, delete_file_envelopes
         )
         # no rows should be dropped since one of the delete file envelopes has no delete table
-        assert table.combine_chunks().equals(
+        assert expected_table.combine_chunks().equals(
             actual_table
-        ), f"{table} does not match {actual_table}"
-        assert actual_dropped_rows == 0
+        ), f"{expected_table} does not match {actual_table}"
+        assert actual_dropped_rows == 1

@@ -159,7 +159,7 @@ def _execute_compaction(
         )
         if not round_completion_info:
             logger.info(
-                f"Both rebase partition and round completion file not found. Performing an entire backfill on source."
+                "Both rebase partition and round completion file not found. Performing an entire backfill on source."
             )
         else:
             compacted_delta_locator = round_completion_info.compacted_delta_locator
@@ -268,7 +268,12 @@ def _execute_compaction(
     if params.hash_bucket_count == 1:
         merge_start = time.monotonic()
         local_merge_input = generate_local_merge_input(
-            params, uniform_deltas, compacted_partition, round_completion_info
+            params,
+            uniform_deltas,
+            compacted_partition,
+            round_completion_info,
+            delete_strategy,
+            delete_file_envelopes,
         )
         local_merge_result = ray.get(mg.merge.remote(local_merge_input))
         total_input_records_count += local_merge_result.input_record_count

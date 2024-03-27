@@ -25,6 +25,12 @@ from deltacat.utils.performance import timed_invocation
 from deltacat.storage import (
     Partition,
 )
+from deltacat.compute.compactor_v2.deletes.delete_strategy import (
+    DeleteStrategy,
+)
+from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
+    DeleteFileEnvelope,
+)
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -86,6 +92,8 @@ def generate_local_merge_input(
     annotated_deltas: List[DeltaAnnotated],
     compacted_partition: Partition,
     round_completion_info: Optional[RoundCompletionInfo],
+    delete_strategy: Optional[DeleteStrategy] = None,
+    delete_file_envelopes: Optional[DeleteFileEnvelope] = None,
 ):
     """
     Generates a merge input for local deltas that do not reside in the Ray object store and
@@ -123,4 +131,6 @@ def generate_local_merge_input(
         object_store=params.object_store,
         deltacat_storage=params.deltacat_storage,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+        delete_strategy=delete_strategy,
+        delete_file_envelopes=delete_file_envelopes,
     )

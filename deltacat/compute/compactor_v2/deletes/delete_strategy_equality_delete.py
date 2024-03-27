@@ -147,17 +147,13 @@ class EqualityDeleteStrategy(DeleteStrategy):
                 and the total number of rows deleted.
         """
         # looking up table references are lighter than the actual table
-        if not table or any(
-            delete_file_envelope.table_reference is None
-            for delete_file_envelope in delete_file_envelopes
-        ):
-            logger.debug(
-                "No table passed or delete file envelopes are missing a delete table. Not applying any deletes."
-                + f" DeleteFileEnvelopes: {[delete_file_envelopes]}"
-            )
+        if not table:
+            logger.debug("No table passed.")
             return table, 0
         total_dropped_rows = 0
         for delete_file_envelope in delete_file_envelopes:
+            if delete_file_envelope.table_reference is None:
+                continue
             table, number_of_rows_dropped = self.apply_deletes(
                 table, delete_file_envelope
             )

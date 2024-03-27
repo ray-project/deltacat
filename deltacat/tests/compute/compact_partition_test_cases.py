@@ -56,7 +56,7 @@ class BaseCompactorTestCase:
         expected_terminal_exception: BaseException - expected exception during compaction
         do_create_placement_group: bool - toggles whether to create a placement group (https://docs.ray.io/en/latest/ray-core/scheduling/placement-group.html) or not
         records_per_compacted_file: int - argument for the records_per_compacted_file parameter in compact_partition
-        hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition. Needs to be > 1
+        hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
         read_kwargs_provider: Optional[ReadKwargsProvider] - argument for read_kwargs_provider parameter in compact_partition. If None then no ReadKwargsProvider is provided to compact_partition_params
         drop_duplicates: bool - argument for drop_duplicates parameter in compact_partition. Only recognized by compactor v2.
         skip_enabled_compact_partition_drivers: List[CompactorVersion] - skip whatever enabled_compact_partition_drivers are included in this list
