@@ -104,13 +104,14 @@ def _get_delete_file_envelopes(
             )
             consecutive_delete_tables.extend(delete_dataset)
         delete_table: pa.Table = pa.concat_tables(consecutive_delete_tables)
-        delete_file_envelope: DeleteFileEnvelope = DeleteFileEnvelope.of(
-            start_stream_position,
-            delta_type=DeltaType.DELETE,
-            table=delete_table,
-            delete_columns=delete_columns,
+        delete_file_envelopes.append(
+            DeleteFileEnvelope.of(
+                start_stream_position,
+                delta_type=DeltaType.DELETE,
+                table=delete_table,
+                delete_columns=delete_columns,
+            )
         )
-        delete_file_envelopes.append(delete_file_envelope)
     return delete_file_envelopes
 
 
@@ -124,9 +125,7 @@ def prepare_deletes(
     Prepares delete operations for a compaction process.
 
     This function processes all the deltas and consolidates consecutive DELETE deltas.
-    It creates a list of these consolidated delete operations, where the keys
-    are the earliest stream positions, and the values are PyArrow Tables representing the
-    consolidated delete tables.
+    It creates a list of these delete file envelopes.
     Additionally, non-DELETE deltas are accumulated in a separate list.
 
     Args:
