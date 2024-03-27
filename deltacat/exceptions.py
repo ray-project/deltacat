@@ -1,14 +1,104 @@
-class RetryableError(Exception):
-    pass
+from __future__ import annotations
+from enum import Enum
 
 
-class NonRetryableError(Exception):
-    pass
+def _pack_all_args(exception_cls, args=None, kwargs=None):
+    # This is helpful for reducing Exceptions that only accept kwargs as
+    # only positional arguments can be provided for __reduce__
+    if args is None:
+        args = ()
+    if kwargs is None:
+        kwargs = {}
+    return exception_cls(*args, **kwargs)
 
 
-class ConcurrentModificationError(Exception):
-    pass
+class DeltaCatError(Exception):
+    msg = "An unexpected DeltaCat Error occurred."
+    error_code = "10000"
+    is_retryable = False
+
+    def __init__(self, **kwargs):
+        self.error_info = self.msg.format(
+            **kwargs, error_code=self.error_code, is_retryable=self.is_retryable
+        )
+        Exception.__init__(self, self.error_info)
+
+    def __reduce__(self):
+        return _pack_all_args(
+            (
+                self.__class__,
+                (self.error_code, self.is_retryable),
+                self.kwargs,
+            )
+        )
 
 
-class ValidationError(NonRetryableError):
-    pass
+class DeltaCatErrorMapping(Exception, Enum):
+
+    # Dependency Error code from 10100 to 10199
+    GeneralDependencyError = "10100"
+    DependencyRayError = "10101"
+    DependencyRayWorkerDiedError = "10102"
+    DependencyBotocoreError = "10121"
+
+    # Storage Error code from 10200 to 10299
+    GeneralStorageError = "10200"
+    StorageConcurrentModificationError = "10201"
+
+    # Throttling Error code from 10300 to 10399
+    GeneralThrottlingError = "10300"
+    UploadTableThrottlingError = "10301"
+
+    # Validation Error code from 10400 to 10499
+    GeneralValidationError = "10400"
+
+
+# >>> example: raise DependencyRayError(ray_task="x")
+#
+# >>> __main__.DependencyRayError: Error Code: 10101. Is Retryable Error: False. A dependency Ray error occurred, during ray_task: x
+class DependencyRayError(DeltaCatError):
+    error_code = DeltaCatErrorMapping.DependencyRayError.value
+    is_retryable = False
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A dependency Ray error occurred, during ray_task: {ray_task}."
+
+
+class DependencyRayWorkerDiedError(DependencyRayError):
+    error_code = DeltaCatErrorMapping.DependencyRayWorkerDiedError.value
+    is_retryable = False
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. Ray Worker Died Unexpectedly, during ray_task: {ray_task}."
+
+
+class GeneralValidationError(DeltaCatError):
+    error_code = DeltaCatErrorMapping.GeneralValidationError.value
+    is_retryable = False
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A validation error occurred."
+
+
+class GeneralStorageError(DeltaCatError):
+    error_code = DeltaCatErrorMapping.GeneralStorageError.value
+    is_retryable = False
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A general storage error occurred."
+
+
+class StorageConcurrentModificationError(GeneralStorageError):
+    error_code = DeltaCatErrorMapping.StorageConcurrentModificationError.value
+    is_retryable = False
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A storage concurrent modification error occurred."
+
+
+class DependencyBotocoreError(DeltaCatError):
+    error_code = DeltaCatErrorMapping.DependencyBotocoreError.value
+    is_retryable = False
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A dependency botocore error occurred."
+
+
+class GeneralThrottlingError(DeltaCatError):
+    error_code = DeltaCatErrorMapping.GeneralThrottlingError.value
+    is_retryable = True
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A general throttling error occurred. Retried: {retry_attempts} times."
+
+
+class UploadTableThrottlingError(GeneralThrottlingError):
+    error_code = DeltaCatErrorMapping.UploadTableThrottlingError.value
+    is_retryable = True
+    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A throttling error occurred during {upload_table_task}. Retried: {retry_attempts} times."
