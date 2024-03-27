@@ -117,6 +117,7 @@ class EqualityDeleteStrategy(DeleteStrategy):
                 and the number of rows deleted.
         """
         if not table or not delete_file_envelope.table:
+            logger.debug(f"No table passed or no delete file envelope delete table found. DeleteFileEnvelope: {delete_file_envelope}")
             return table, 0
         delete_columns = delete_file_envelope.delete_columns
         delete_table = delete_file_envelope.table
@@ -148,16 +149,15 @@ class EqualityDeleteStrategy(DeleteStrategy):
             delete_file_envelope.table_reference is None
             for delete_file_envelope in delete_file_envelopes
         ):
-            logger.warning(
-                "Delete file envelopes are missing a delete table. Not applying any deletes"
+            logger.debug(
+                "No table passed or delete file envelopes are missing a delete table. Not applying any deletes." + 
+                f" DeleteFileEnvelopes: {[delete_file_envelopes]}"
             )
             return table, 0
         total_dropped_rows = 0
         for delete_file_envelope in delete_file_envelopes:
-            delete_columns = delete_file_envelope.delete_columns
-            delete_table = delete_file_envelope.table
-            table, number_of_rows_dropped = self._drop_rows(
-                table, delete_table, delete_columns
+            table, number_of_rows_dropped = self.apply_deletes(
+                table, delete_file_envelope
             )
             total_dropped_rows += number_of_rows_dropped
         return table, total_dropped_rows

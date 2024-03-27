@@ -45,7 +45,7 @@ def _aggregate_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[Delta]
     delete_deltas_sequence_grouped_by_delete_parameters: List[
         Tuple[bool, List[Delta]]
     ] = [
-        (is_delete, sorted(list(delete_delta_group), key=lambda x: x.stream_position))
+        (is_delete, list(delete_delta_group))
         for (is_delete, _), delete_delta_group in itertools.groupby(
             input_deltas, lambda d: (d.type is DeltaType.DELETE, d.delete_parameters)
         )
@@ -122,25 +122,26 @@ def prepare_deletes(
 ) -> PrepareDeleteResult:
     """
     Prepares delete operations for a compaction process.
-    This function processes all the annotated deltas and consolidates consecutive DELETE deltas.
-    It creates a range dictionary of these consolidated delete operations of the earliest stream position to the Ray obj references to the delete table
+
+    This function processes all the deltas and consolidates consecutive DELETE deltas.
+    It creates a list of these consolidated delete operations, where the keys
+    are the earliest stream positions, and the values are PyArrow Tables representing the
+    consolidated delete tables.
     Additionally, non-DELETE deltas are accumulated in a separate list.
 
     Args:
         params (CompactPartitionParams): Parameters for the compaction process.
-        uniform_deltas (List[Delta]): A list of Delta objects representing
-            delete operations.
+        input_deltas (List[Delta]): A list of Delta objects representing delete operations.
 
     Returns:
-        Tuple[List[Delta], IntegerRangeDict]:
-            - A list of Annotated Deltas excluding all non-delete operations.
-            - A dictionary (IntegerRangeDict) containing consolidated delete operations, where the keys
-            are the earliest stream positions of the consolidated delete operations, and the values
-            are Ray object references to PyArrow Tables representing the consolidated delete tables.
-            If there are no delete operations, this dictionary will be empty
+        PrepareDeleteResult:
+            - A list of Deltas excluding all DELETE operations.
+            - A list of DeleteFileEnvelope objects representing the consolidated delete operations.
+            - An instance of the EqualityDeleteStrategy class.
 
     Raises:
-        AssertionError: If a delete operation does not have the required properties defined.
+        AssertionError: If the input_deltas list is not sorted in non-decreasing order by stream_position.
+        AssertionError: If the number of delete file envelopes does not match the number of DELETE-type Delta sequences.
     """
     if not input_deltas:
         return PrepareDeleteResult(input_deltas, [], None)
@@ -160,5 +161,5 @@ def prepare_deletes(
     return PrepareDeleteResult(
         [delta for delta in input_deltas if delta.type is not DeltaType.DELETE],
         delete_file_envelopes,
-        EqualityDeleteStrategy()
+        EqualityDeleteStrategy(),
     )

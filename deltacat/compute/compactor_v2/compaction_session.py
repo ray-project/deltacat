@@ -203,7 +203,9 @@ def _execute_compaction(
     delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None
     delete_file_size_bytes: int = 0
     if contains_delete_deltas(input_deltas):
-        input_deltas, delete_file_envelopes, delete_strategy = prepare_deletes(params, input_deltas)
+        input_deltas, delete_file_envelopes, delete_strategy = prepare_deletes(
+            params, input_deltas
+        )
         for delete_file_envelope in delete_file_envelopes:
             delete_file_size_bytes += delete_file_envelope.table_size_bytes
         logger.info(
@@ -365,8 +367,8 @@ def _execute_compaction(
         )
 
         # BSP Step 2: Merge
-        # NOTE: DELETE-type deltas are stored in Plasma object store 
-        # in prepare_deletes and therefore don't need to included 
+        # NOTE: DELETE-type deltas are stored in Plasma object store
+        # in prepare_deletes and therefore don't need to included
         # in merge task resource estimation
         merge_options_provider = functools.partial(
             task_resource_options_provider,

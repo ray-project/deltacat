@@ -36,8 +36,8 @@ class LocalTableRayObjectStoreReferenceStorageStrategy(LocalTableStorageStrategy
     _object_store: IObjectStore = RayPlasmaObjectStore()
 
     @property
-    def object_store(self) -> IObjectStore:
-        return self._object_store
+    def object_store(cls) -> IObjectStore:
+        return cls._object_store
 
     def store_table(self, table: LocalTable) -> LocalTableReference:
         obj_ref: ObjectRef = self.object_store.put(table)
