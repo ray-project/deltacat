@@ -285,7 +285,7 @@ class TestMerge(unittest.TestCase):
         )
         delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
         delete_table = download_delta(delete_delta, **delete_kwargs)
-        ird = [
+        delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
                 delete_delta.stream_position,
                 DeltaType.DELETE,
@@ -322,7 +322,7 @@ class TestMerge(unittest.TestCase):
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
             delete_strategy=EqualityDeleteStrategy(),
-            delete_file_envelopes=ird,
+            delete_file_envelopes=delete_file_envelopes,
         )
         merge_res_list = []
         merge_result_promise = merge.remote(merge_input)
@@ -366,7 +366,7 @@ class TestMerge(unittest.TestCase):
         )
         delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
         delete_table = download_delta(delete_delta, **delete_kwargs)
-        ird = [
+        delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
                 delete_delta.stream_position,
                 DeltaType.DELETE,
@@ -403,7 +403,7 @@ class TestMerge(unittest.TestCase):
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
             delete_strategy=EqualityDeleteStrategy(),
-            delete_file_envelopes=ird,
+            delete_file_envelopes=delete_file_envelopes,
         )
         merge_res_list = []
         merge_result_promise = merge.remote(merge_input)
