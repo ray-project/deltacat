@@ -15,7 +15,7 @@ class DeleteStrategy(ABC):
 
     This abstract base class defines the interface for applying delete operations
     on intermediate in-memory pyarrow tables during compaction. Concrete subclasses must implement the `apply_deletes` and
-    `apply_all_deletes` methods, as well as the `name` property.
+    `apply_many_deletes` methods, as well as the `name` property.
 
     Example:
         >>> class MyDeleteStrategy(DeleteStrategy):
@@ -27,7 +27,7 @@ class DeleteStrategy(ABC):
         ...         # Implement delete logic here
         ...         pass
         ...
-        ...     def apply_all_deletes(self, table: Optional[pa.Table], delete_file_envelopes: List[DeleteFileEnvelope]) -> ReturnTuple[pa.Table, int]:
+        ...     def apply_many_deletes(self, table: Optional[pa.Table], delete_file_envelopes: List[DeleteFileEnvelope]) -> ReturnTuple[pa.Table, int]:
         ...         # Implement delete logic here
         ...         pass
     """
@@ -51,7 +51,7 @@ class DeleteStrategy(ABC):
         Apply delete operations on the given table using the provided delete file envelope.
 
         Args:
-            table (Optional[pa.Table]): The pyArrow table to apply deletes on.
+            table (Optional[pa.Table]): The pyarrow table to apply deletes on.
             delete_file_envelope (DeleteFileEnvelope): The delete file envelope containing delete parameters.
 
         Returns:
@@ -61,7 +61,7 @@ class DeleteStrategy(ABC):
         pass
 
     @abstractmethod
-    def apply_all_deletes(
+    def apply_many_deletes(
         self,
         table: Optional[pa.Table],
         delete_file_envelopes: List[DeleteFileEnvelope],

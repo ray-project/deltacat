@@ -1,11 +1,12 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
-from typing import List, Optional
+from typing import Any, List, Optional
 from deltacat.storage import DeltaType, LocalTable
 from deltacat.compute.compactor import (
     DeltaFileEnvelope,
 )
 import numpy as np
+import pyarrow as pa
 
 from deltacat.compute.compactor.model.table_object_store import (
     LocalTableStorageStrategy,
@@ -23,9 +24,7 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
         file_index: int = None,
         is_src_delta: np.bool_ = True,
         file_record_count: Optional[int] = None,
-        table_storage_strategy: [
-            LocalTableStorageStrategy
-        ] = LocalTableRayObjectStoreReferenceStorageStrategy(),
+        table_storage_strategy: LocalTableStorageStrategy = LocalTableRayObjectStoreReferenceStorageStrategy(),
     ) -> DeleteFileEnvelope:
         """
         Static factory builder for a DeleteFileEnvelope. Subclasses from DeltaFileEnvelope
@@ -56,8 +55,29 @@ class DeleteFileEnvelope(DeltaFileEnvelope):
         )
         assert len(delete_columns) > 0, "At least 1 delete column is expected"
         delete_file_envelope["delete_columns"] = delete_columns
+        if isinstance(table, pa.Table):
+            delete_file_envelope["table_size_bytes"] = table.nbytes
         return DeleteFileEnvelope(**delete_file_envelope)
+
+    @property
+    def table_size_bytes(self) -> int:
+        val = self.get("table_size_bytes")
+        if val is not None:
+            return val
+        else:
+            raise ValueError(
+                f"Table type: {type(self.table)} not for supported for size method."
+            )
 
     @property
     def delete_columns(self) -> List[str]:
         return self["delete_columns"]
+
+    @property
+    def table_reference(self) -> Optional[Any]:
+        if self.table_storage_strategy is not None and isinstance(
+            self.table_storage_strategy,
+            LocalTableRayObjectStoreReferenceStorageStrategy,
+        ):
+            return self.table_storage_strategy.get_table_reference(self["table"])
+        return None

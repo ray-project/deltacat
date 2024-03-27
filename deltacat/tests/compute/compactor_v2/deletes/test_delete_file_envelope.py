@@ -11,6 +11,7 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
 from deltacat.compute.compactor.model.table_object_store import (
     LocalTableRayObjectStoreReferenceStorageStrategy,
 )
+import ray
 
 
 class TestDeleteFileEnvelope:
@@ -68,6 +69,14 @@ class TestDeleteFileEnvelope:
             delete_file_envelope.table_storage_strategy,
             LocalTableRayObjectStoreReferenceStorageStrategy,
         )
+        assert isinstance(
+            delete_file_envelope.table,
+            pa.Table,
+        )
+        assert isinstance(
+            delete_file_envelope.table_reference,
+            ray._raylet.ObjectRef,
+        )
 
     def test_delete_columns_property(self):
         delete_columns = ["col1", "col2"]
@@ -99,3 +108,26 @@ class TestDeleteFileEnvelope:
             delete_file_envelope.table_storage_strategy,
             LocalTableRayObjectStoreReferenceStorageStrategy,
         )
+        assert isinstance(
+            delete_file_envelope.table,
+            pa.Table,
+        )
+        assert isinstance(
+            delete_file_envelope.table_reference,
+            ray._raylet.ObjectRef,
+        )
+
+    def test_table_storage_strategy_override(self):
+        delete_file_envelope = DeleteFileEnvelope.of(
+            stream_position=1,
+            delta_type=DeltaType.DELETE,
+            table=pa.table({"col1": [1, 2, 3]}),
+            delete_columns=["col1", "col2"],
+            table_storage_strategy=None,
+        )
+        assert delete_file_envelope.table_storage_strategy is None
+        assert isinstance(
+            delete_file_envelope.table,
+            pa.Table,
+        )
+        assert delete_file_envelope.table_reference is None

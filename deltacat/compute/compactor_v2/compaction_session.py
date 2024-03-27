@@ -24,6 +24,16 @@ from deltacat.compute.compactor.model.materialize_result import MaterializeResul
 from deltacat.compute.compactor_v2.utils.merge import (
     generate_local_merge_input,
 )
+from deltacat.compute.compactor import DeltaAnnotated
+from deltacat.compute.compactor_v2.utils.delta import contains_delete_deltas
+from deltacat.compute.compactor_v2.deletes.delete_strategy import (
+    DeleteStrategy,
+)
+from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
+    DeleteFileEnvelope,
+)
+from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
+
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -175,7 +185,7 @@ def _execute_compaction(
 
     delta_discovery_start = time.monotonic()
 
-    input_deltas = io.discover_deltas(
+    input_deltas: List[Delta] = io.discover_deltas(
         params.source_partition_locator,
         params.last_stream_position_to_compact,
         params.rebase_source_partition_locator,
@@ -185,8 +195,24 @@ def _execute_compaction(
         params.deltacat_storage_kwargs,
         params.list_deltas_kwargs,
     )
+    if not input_deltas:
+        logger.info("No input deltas found to compact.")
+        return None, None, None
 
-    uniform_deltas = io.create_uniform_input_deltas(
+    delete_strategy: Optional[DeleteStrategy] = None
+    delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None
+    delete_file_size_bytes: int = 0
+    if contains_delete_deltas(input_deltas):
+        input_deltas, delete_file_envelopes, delete_strategy = prepare_deletes(
+            params, input_deltas
+        )
+        for delete_file_envelope in delete_file_envelopes:
+            delete_file_size_bytes += delete_file_envelope.table_size_bytes
+        logger.info(
+            f" Input deltas contain DELETE-type deltas. Total delete file size={delete_file_size_bytes}."
+            f" Total length of delete file envelopes={len(delete_file_envelopes)}"
+        )
+    uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
         input_deltas=input_deltas,
         hash_bucket_count=params.hash_bucket_count,
         compaction_audit=compaction_audit,
@@ -211,10 +237,6 @@ def _execute_compaction(
         str(json.dumps(compaction_audit)),
         **params.s3_client_kwargs,
     )
-
-    if not input_deltas:
-        logger.info("No input deltas found to compact.")
-        return None, None, None
 
     # create a new stream for this round
     compacted_stream_locator = params.destination_partition_locator.stream_locator
@@ -345,6 +367,9 @@ def _execute_compaction(
         )
 
         # BSP Step 2: Merge
+        # NOTE: DELETE-type deltas are stored in Plasma object store
+        # in prepare_deletes and therefore don't need to included
+        # in merge task resource estimation
         merge_options_provider = functools.partial(
             task_resource_options_provider,
             pg_config=params.pg_config,
@@ -385,6 +410,8 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                    delete_strategy=delete_strategy,
+                    delete_file_envelopes=delete_file_envelopes,
                 )
             }
 
@@ -406,7 +433,12 @@ def _execute_compaction(
     merge_end = time.monotonic()
 
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in merge_results])
-    logger.info(f"Deduped {total_dd_record_count} records...")
+    total_dropped_record_count = sum(
+        [ddr.deleted_record_count for ddr in merge_results]
+    )
+    logger.info(
+        f"Deduped {total_dd_record_count} records and dropped {total_dropped_record_count} records..."
+    )
 
     compaction_audit.set_input_records(total_input_records_count.item())
 
@@ -466,6 +498,7 @@ def _execute_compaction(
     record_info_msg = (
         f"Hash bucket records: {total_hb_record_count},"
         f" Deduped records: {total_dd_record_count}, "
+        f" Dropped records: {total_dropped_record_count}, "
         f" Materialized records: {merged_delta.meta.record_count}"
     )
     logger.info(record_info_msg)
@@ -526,7 +559,7 @@ def _execute_compaction(
     )
 
     # After all incremental delta related calculations, we update
-    # the input sizes to accomodate the compacted table
+    # the input sizes to accommodate the compacted table
     if round_completion_info:
         compaction_audit.set_input_file_count(
             (compaction_audit.input_file_count or 0)
