@@ -330,7 +330,7 @@ def _group_sequence_by_delta_type(
         yield delta_type, list(delta_type_sequence)
 
 
-def _compact_table_v2(
+def _compact_tables(
     input: MergeInput,
     dfe_list: Optional[List[List[DeltaFileEnvelope]]],
     hb_idx: int,
@@ -495,7 +495,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                     "No new deltas and no compacted table found for hash bucket index"
                 )
                 continue
-            table, input_records, deduped_records, dropped_records = _compact_table_v2(
+            table, input_records, deduped_records, dropped_records = _compact_tables(
                 input,
                 merge_file_group.dfe_groups,
                 merge_file_group.hb_index,

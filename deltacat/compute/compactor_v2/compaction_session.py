@@ -26,9 +26,6 @@ from deltacat.compute.compactor_v2.utils.merge import (
 )
 from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.compactor_v2.utils.delta import contains_delete_deltas
-from deltacat.compute.compactor_v2.deletes.delete_strategy_equality_delete import (
-    EqualityDeleteStrategy,
-)
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
     DeleteStrategy,
 )
@@ -206,8 +203,7 @@ def _execute_compaction(
     delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None
     delete_file_size_bytes: int = 0
     if contains_delete_deltas(input_deltas):
-        delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
-        input_deltas, delete_file_envelopes = prepare_deletes(params, input_deltas)
+        input_deltas, delete_file_envelopes, delete_strategy = prepare_deletes(params, input_deltas)
         for delete_file_envelope in delete_file_envelopes:
             delete_file_size_bytes += delete_file_envelope.table_size_bytes
         logger.info(

@@ -15,6 +15,9 @@ from deltacat.types.media import StorageType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
+from deltacat.compute.compactor_v2.deletes.delete_strategy_equality_delete import (
+    EqualityDeleteStrategy,
+)
 import pyarrow as pa
 from deltacat.storage import (
     Delta,
@@ -140,7 +143,7 @@ def prepare_deletes(
         AssertionError: If a delete operation does not have the required properties defined.
     """
     if not input_deltas:
-        return PrepareDeleteResult(input_deltas, [])
+        return PrepareDeleteResult(input_deltas, [], None)
     assert all(
         input_deltas[i].stream_position <= input_deltas[i + 1].stream_position
         for i in range(len(input_deltas) - 1)
@@ -157,4 +160,5 @@ def prepare_deletes(
     return PrepareDeleteResult(
         [delta for delta in input_deltas if delta.type is not DeltaType.DELETE],
         delete_file_envelopes,
+        EqualityDeleteStrategy()
     )
