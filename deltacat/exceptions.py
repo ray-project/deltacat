@@ -51,6 +51,7 @@ class DeltaCatErrorMapping(Exception, Enum):
 
     # Validation Error code from 10400 to 10499
     GeneralValidationError = "10400"
+    ContentTypeValidationError = "10401"
 
 
 # >>> example: raise DependencyRayError(ray_task="x")
@@ -72,6 +73,16 @@ class GeneralValidationError(DeltaCatError):
     error_code = DeltaCatErrorMapping.GeneralValidationError.value
     is_retryable = False
     msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A validation error occurred."
+
+
+class ContentTypeValidationError(GeneralValidationError):
+    error_code = DeltaCatErrorMapping.ContentTypeValidationError.value
+    is_retryable = False
+    msg = (
+        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
+        "S3 file with content type: {content_type} and content encoding: {content_encoding} "
+        "cannot be read into pyarrow.parquet.ParquetFile"
+    )
 
 
 class GeneralStorageError(DeltaCatError):
