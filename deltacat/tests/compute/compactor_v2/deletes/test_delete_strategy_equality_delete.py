@@ -165,6 +165,65 @@ TEST_CASES_APPLY_MANY_DELETES = {
         expected_total_dropped_rows=0,
         expected_exception=None,
     ),
+    "6-test-delete-multi-column": ApplyAllDeletesTestCaseParams(
+        table=pa.Table.from_arrays(
+            [
+                pa.array([0, 1, 2, 3]),
+                pa.array(["0", "1", "2", "3"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        delete_file_envelopes_params=[
+            {
+                "stream_position": 1,
+                "delta_type": DeltaType.DELETE,
+                "table": pa.Table.from_arrays(
+                    [
+                        pa.array(["0", "1"]),
+                    ],
+                    names=["col_1"],
+                ),
+                "delete_columns": ["col_1"],
+            },
+            {
+                "stream_position": 2,
+                "delta_type": DeltaType.DELETE,
+                "table": pa.Table.from_arrays(
+                    [
+                        pa.array([2]),
+                        pa.array(["2"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                "delete_columns": ["pk_col_1", "col_1"],
+            },
+            {
+                "stream_position": 3,
+                "delta_type": DeltaType.DELETE,
+                "table": pa.Table.from_arrays(
+                    [
+                        pa.array([3]),
+                        pa.array(["DOESNOTMATCH"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                "delete_columns": ["pk_col_1", "col_1"],
+            },
+        ],
+        expected_table=pa.Table.from_arrays(
+            [
+                pa.array(
+                    [
+                        3,
+                    ]
+                ),
+                pa.array(["3"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        expected_total_dropped_rows=3,
+        expected_exception=None,
+    ),
 }
 
 
@@ -299,6 +358,7 @@ class TestEqualityDeleteStrategy:
         actual_table, actual_dropped_rows = delete_strategy.apply_many_deletes(
             table, delete_file_envelopes
         )
+        # no rows should be dropped since one of the delete file envelopes has no delete table
         assert table.combine_chunks().equals(
             actual_table
         ), f"{table} does not match {actual_table}"

@@ -44,7 +44,8 @@ def create_incremental_deltas_on_source_table(
         incremental_delta_type,
         incremental_delete_parameters,
     ) in incremental_deltas:
-        is_delete = True if incremental_delta_type is DeltaType.DELETE else False
+        if incremental_delta_type is DeltaType.DELETE:
+            is_delete = True
         incremental_delta: Delta = ds.commit_delta(
             ds.stage_delta(
                 incremental_data,

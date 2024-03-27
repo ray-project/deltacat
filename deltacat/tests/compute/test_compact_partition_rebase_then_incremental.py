@@ -374,8 +374,8 @@ def test_compact_partition_rebase_then_incremental(
         assert compaction_audit.input_records == (
             incremental_delta_length if incremental_deltas else 0
         ) + len(actual_rebase_compacted_table), (
-            "Total input records must be equal to incremental deltas"
-            "+ previous compacted table size"
+            " Total input records must be equal to incremental deltas"
+            " + previous compacted table size"
         )
 
     assert actual_compacted_table.equals(
