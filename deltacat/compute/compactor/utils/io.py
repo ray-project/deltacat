@@ -378,7 +378,7 @@ def _discover_deltas(
     )
     deltas = deltas_list_result.all_items()
     if not deltas:
-        logger.warn(
+        logger.warning(
             f"Couldn't find any deltas to "
             f"compact in delta stream position range "
             f"('{start_position_exclusive}', "

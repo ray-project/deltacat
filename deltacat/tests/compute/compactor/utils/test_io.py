@@ -1,6 +1,6 @@
 import unittest
 from unittest import mock
-from deltacat.tests.test_utils.constants import TEST_DELTA
+from deltacat.tests.test_utils.constants import TEST_UPSERT_DELTA
 from typing import Any, Dict
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
@@ -41,7 +41,7 @@ class TestFitInputDeltas(unittest.TestCase):
             high_watermark,
             require_multiple_rounds,
         ) = io.fit_input_deltas(
-            [TEST_DELTA],
+            [TEST_UPSERT_DELTA],
             {"CPU": 1, "memory": 20000000},
             self.COMPACTION_AUDIT,
             None,
@@ -68,7 +68,7 @@ class TestFitInputDeltas(unittest.TestCase):
             high_watermark,
             require_multiple_rounds,
         ) = io.fit_input_deltas(
-            [TEST_DELTA],
+            [TEST_UPSERT_DELTA],
             {"CPU": 1, "memory": 20000000},
             self.COMPACTION_AUDIT,
             20,
@@ -91,7 +91,7 @@ class TestFitInputDeltas(unittest.TestCase):
             high_watermark,
             require_multiple_rounds,
         ) = io.fit_input_deltas(
-            [TEST_DELTA],
+            [TEST_UPSERT_DELTA],
             {"CPU": 2, "memory": 10},
             self.COMPACTION_AUDIT,
             20,

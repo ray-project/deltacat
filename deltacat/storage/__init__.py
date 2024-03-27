@@ -13,6 +13,8 @@ from deltacat.storage.model.partition import Partition, PartitionLocator
 from deltacat.storage.model.stream import Stream, StreamLocator
 from deltacat.storage.model.table import Table, TableLocator
 from deltacat.storage.model.table_version import TableVersion, TableVersionLocator
+from deltacat.storage.model.delete_parameters import DeleteParameters
+
 from deltacat.storage.model.types import (
     CommitState,
     DeltaType,
@@ -29,6 +31,7 @@ __all__ = [
     "Delta",
     "DeltaLocator",
     "Partition",
+    "DeleteParameters",
     "DeltaType",
     "DistributedDataset",
     "LifecycleState",

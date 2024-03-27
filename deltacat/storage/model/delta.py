@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from deltacat.aws.redshift import Manifest, ManifestAuthor, ManifestMeta
+from deltacat.storage.model.delete_parameters import DeleteParameters
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.partition import PartitionLocator
@@ -22,6 +23,7 @@ class Delta(dict):
         properties: Optional[Dict[str, str]],
         manifest: Optional[Manifest],
         previous_stream_position: Optional[int] = None,
+        delete_parameters: Optional[DeleteParameters] = None,
     ) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
@@ -35,6 +37,7 @@ class Delta(dict):
         delta.properties = properties
         delta.manifest = manifest
         delta.previous_stream_position = previous_stream_position
+        delta.delete_parameters = delete_parameters
         return delta
 
     @staticmethod
@@ -68,7 +71,7 @@ class Delta(dict):
             raise ValueError("No deltas given to merge.")
         manifests = [d.manifest for d in deltas]
         if any(not m for m in manifests):
-            raise ValueError(f"Deltas to merge must have non-empty manifests.")
+            raise ValueError("Deltas to merge must have non-empty manifests.")
         distinct_storage_types = set([d.storage_type for d in deltas])
         if len(distinct_storage_types) > 1:
             raise NotImplementedError(
@@ -91,6 +94,15 @@ class Delta(dict):
             manifests,
             manifest_author,
         )
+        distinct_delta_type = list(distinct_delta_types)[0]
+        merged_delete_parameters = None
+        if distinct_delta_type is DeltaType.DELETE:
+            delete_parameters: List[DeleteParameters] = [
+                d.delete_parameters for d in deltas if d.delete_parameters
+            ]
+            merged_delete_parameters: Optional[
+                DeleteParameters
+            ] = DeleteParameters.merge_delete_parameters(delete_parameters)
         partition_locator = deltas[0].partition_locator
         prev_positions = [d.previous_stream_position for d in deltas]
         prev_position = None if None in prev_positions else max(prev_positions)
@@ -101,6 +113,7 @@ class Delta(dict):
             properties,
             merged_manifest,
             prev_position,
+            merged_delete_parameters,
         )
 
     @property
@@ -251,6 +264,17 @@ class Delta(dict):
         if delta_locator:
             return delta_locator.stream_position
         return None
+
+    @property
+    def delete_parameters(self) -> Optional[DeleteParameters]:
+        delete_parameters = self.get("delete_parameters")
+        return (
+            None if delete_parameters is None else DeleteParameters(delete_parameters)
+        )
+
+    @delete_parameters.setter
+    def delete_parameters(self, delete_parameters: Optional[DeleteParameters]) -> None:
+        self["delete_parameters"] = delete_parameters
 
 
 class DeltaLocator(Locator, dict):
