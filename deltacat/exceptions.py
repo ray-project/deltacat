@@ -40,6 +40,8 @@ class DeltaCatErrorMapping(Exception, Enum):
     DependencyRayError = "10101"
     DependencyRayWorkerDiedError = "10102"
     DependencyBotocoreError = "10121"
+    DownloadTableError = "10122"
+    UploadTableError = "10123"
 
     # Storage Error code from 10200 to 10299
     GeneralStorageError = "10200"
@@ -48,9 +50,11 @@ class DeltaCatErrorMapping(Exception, Enum):
     # Throttling Error code from 10300 to 10399
     GeneralThrottlingError = "10300"
     UploadTableThrottlingError = "10301"
+    DownloadTableThrottlingError = "10302"
 
     # Validation Error code from 10400 to 10499
     GeneralValidationError = "10400"
+    ContentTypeValidationError = "10401"
 
 
 # >>> example: raise DependencyRayError(ray_task="x")
@@ -74,6 +78,16 @@ class GeneralValidationError(DeltaCatError):
     msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A validation error occurred."
 
 
+class ContentTypeValidationError(GeneralValidationError):
+    error_code = DeltaCatErrorMapping.ContentTypeValidationError.value
+    is_retryable = False
+    msg = (
+        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
+        "S3 file with content type: {content_type} and content encoding: {content_encoding} "
+        "cannot be read into pyarrow.parquet.ParquetFile"
+    )
+
+
 class GeneralStorageError(DeltaCatError):
     error_code = DeltaCatErrorMapping.GeneralStorageError.value
     is_retryable = False
@@ -92,6 +106,24 @@ class DependencyBotocoreError(DeltaCatError):
     msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A dependency botocore error occurred."
 
 
+class DownloadTableError(DependencyBotocoreError):
+    error_code = DeltaCatErrorMapping.DownloadTableError.value
+    is_retryable = False
+    msg = (
+        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
+        "Botocore download table error occurred when downloading from {s3_url}."
+    )
+
+
+class UploadTableError(DependencyBotocoreError):
+    error_code = DeltaCatErrorMapping.UploadTableError.value
+    is_retryable = False
+    msg = (
+        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
+        "Botocore upload table error occurred when uploading to {s3_url}."
+    )
+
+
 class GeneralThrottlingError(DeltaCatError):
     error_code = DeltaCatErrorMapping.GeneralThrottlingError.value
     is_retryable = True
@@ -102,3 +134,12 @@ class UploadTableThrottlingError(GeneralThrottlingError):
     error_code = DeltaCatErrorMapping.UploadTableThrottlingError.value
     is_retryable = True
     msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A throttling error occurred during {upload_table_task}. Retried: {retry_attempts} times."
+
+
+class DownloadTableThrottlingError(GeneralThrottlingError):
+    error_code = DeltaCatErrorMapping.DownloadTableThrottlingError.value
+    is_retryable = True
+    msg = (
+        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
+        "A throttling error occurred when downloading from {s3_url}."
+    )
