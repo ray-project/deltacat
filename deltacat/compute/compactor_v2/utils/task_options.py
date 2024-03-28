@@ -306,6 +306,8 @@ def local_merge_resource_options_provider(
 ) -> Dict:
     index = LocalMergeFileGroupsProvider.LOCAL_HASH_BUCKET_INDEX
     debug_memory_params = {"merge_task_index": index}
+
+    # upper bound for pk size of incremental
     pk_size_bytes = estimated_da_size
     incremental_index_array_size = estimated_num_rows * 4
 
