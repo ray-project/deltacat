@@ -1,7 +1,10 @@
 import botocore
 import logging
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Any
 from deltacat import logs
+from deltacat.compute.compactor_v2.model.merge_file_group import (
+    LocalMergeFileGroupsProvider,
+)
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
 from deltacat.storage import (
@@ -279,6 +282,89 @@ def merge_resource_options_provider(
                     else:
                         pk_size_bytes += pk_size
 
+    return merge_estimate_task_options(
+        index,
+        data_size,
+        pk_size_bytes,
+        num_rows,
+        incremental_index_array_size,
+        debug_memory_params,
+        ray_custom_resources,
+    )
+
+
+def local_merge_resource_options_provider(
+    estimated_da_size: float,
+    estimated_num_rows: int,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
+    compacted_delta_manifest: Optional[Manifest] = None,
+    ray_custom_resources: Optional[Dict] = None,
+    primary_keys: Optional[List[str]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict] = {},
+    **kwargs,
+) -> Dict:
+    index = LocalMergeFileGroupsProvider.LOCAL_HASH_BUCKET_INDEX
+    debug_memory_params = {"merge_task_index": index}
+    pk_size_bytes = estimated_da_size
+    incremental_index_array_size = estimated_num_rows * 4
+
+    if round_completion_info and compacted_delta_manifest:
+        previous_inflation = (
+            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+            / round_completion_info.compacted_pyarrow_write_result.file_bytes
+        )
+        debug_memory_params["previous_inflation"] = previous_inflation
+
+        average_record_size = (
+            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+            / round_completion_info.compacted_pyarrow_write_result.records
+        )
+        debug_memory_params["average_record_size"] = average_record_size
+        for entry in compacted_delta_manifest.entries:
+            current_entry_size = estimate_manifest_entry_size_bytes(
+                entry=entry, previous_inflation=previous_inflation
+            )
+            current_entry_rows = estimate_manifest_entry_num_rows(
+                entry=entry,
+                average_record_size_bytes=average_record_size,
+                previous_inflation=previous_inflation,
+            )
+
+            estimated_da_size += current_entry_size
+            estimated_num_rows += current_entry_rows
+
+            if primary_keys:
+                pk_size = estimate_manifest_entry_column_size_bytes(
+                    entry=entry,
+                    columns=primary_keys,
+                )
+
+                if pk_size is None:
+                    pk_size_bytes += current_entry_size
+                else:
+                    pk_size_bytes += pk_size
+
+    return merge_estimate_task_options(
+        index,
+        estimated_da_size,
+        pk_size_bytes,
+        estimated_num_rows,
+        incremental_index_array_size,
+        debug_memory_params,
+        ray_custom_resources,
+    )
+
+
+def merge_estimate_task_options(
+    index: int,
+    data_size: float,
+    pk_size_bytes: float,
+    num_rows: int,
+    incremental_index_array_size: int,
+    debug_memory_params: Dict[str, Any],
+    ray_custom_resources: Optional[Dict],
+) -> Dict[str, Any]:
     # total data downloaded + primary key hash column + pyarrow-to-numpy conversion
     # + primary key column + hashlib inefficiency + dict size for merge + incremental index array size
     total_memory = (

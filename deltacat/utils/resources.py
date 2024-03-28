@@ -36,13 +36,15 @@ class ClusterUtilization:
                 used_resources[key] = cluster_resources[key] - available_resources[key]
 
         self.total_memory_bytes = cluster_resources.get("memory")
-        self.used_memory_bytes = used_resources.get("memory")
+        self.used_memory_bytes = used_resources.get("memory", 0.0)
         self.total_cpu = cluster_resources.get("CPU")
-        self.used_cpu = used_resources.get("CPU")
+        self.used_cpu = used_resources.get("CPU", 0)
         self.total_object_store_memory_bytes = cluster_resources.get(
             "object_store_memory"
         )
-        self.used_object_store_memory_bytes = used_resources.get("object_store_memory")
+        self.used_object_store_memory_bytes = used_resources.get(
+            "object_store_memory", 0.0
+        )
         self.used_memory_percent = (
             self.used_memory_bytes / self.total_memory_bytes
         ) * 100
