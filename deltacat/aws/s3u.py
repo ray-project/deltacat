@@ -340,8 +340,8 @@ def upload_table(
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # s3fs may swallow S3 errors - we were probably throttled
-                raise UploadTableError(s3_url=s3_url) from e
-            raise UploadTableThrottlingError(s3_url=s3_url) from e
+                raise UploadTableThrottlingError(s3_url=s3_url) from e
+            raise UploadTableError(s3_url=s3_url) from e
         except BaseException as e:
             logger.warn(
                 f"Upload has failed for {s3_url} and content_type={content_type}. Error: {e}",
@@ -390,7 +390,7 @@ def download_manifest_entry(
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(30 * 60),
-        retry=retry_if_not_exception_type(DownloadTableThrottlingError),
+        retry=retry_if_not_exception_type(DownloadTableError),
     )
     table = retrying(
         read_file,

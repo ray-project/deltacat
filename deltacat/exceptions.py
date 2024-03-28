@@ -22,18 +22,13 @@ class DeltaCatError(Exception):
             **kwargs, error_code=self.error_code, is_retryable=self.is_retryable
         )
         Exception.__init__(self, self.error_info)
+        self.kwargs = kwargs
 
     def __reduce__(self):
-        return _pack_all_args(
-            (
-                self.__class__,
-                (self.error_code, self.is_retryable),
-                self.kwargs,
-            )
-        )
+        return _pack_all_args, (self.__class__, None, self.kwargs)
 
 
-class DeltaCatErrorMapping(Exception, Enum):
+class DeltaCatErrorMapping(str, Enum):
 
     # Dependency Error code from 10100 to 10199
     GeneralDependencyError = "10100"
@@ -55,6 +50,14 @@ class DeltaCatErrorMapping(Exception, Enum):
     # Validation Error code from 10400 to 10499
     GeneralValidationError = "10400"
     ContentTypeValidationError = "10401"
+
+
+class NonRetryableError(Exception):
+    pass
+
+
+class RetryableError(Exception):
+    pass
 
 
 # >>> example: raise DependencyRayError(ray_task="x")
