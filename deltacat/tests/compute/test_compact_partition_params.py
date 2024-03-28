@@ -72,6 +72,7 @@ class TestCompactPartitionParams(unittest.TestCase):
                 "partitionValues": [],
                 "partitionId": "79612ea39ac5493eae925abe60767d42",
             },
+            "memory_logs_enabled": True,
             "metrics_config": MetricsConfig("us-east-1", MetricsTarget.CLOUDWATCH_EMF),
         }
 
@@ -134,6 +135,10 @@ class TestCompactPartitionParams(unittest.TestCase):
         assert (
             json.loads(serialized_params)["destination_partition_locator"]
             == params.destination_partition_locator
+        )
+        assert (
+            json.loads(serialized_params)["memory_logs_enabled"]
+            == params.memory_logs_enabled
         )
         assert (
             json.loads(serialized_params)["metrics_config"]["metrics_target"]

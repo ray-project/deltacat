@@ -46,6 +46,7 @@ class MergeInput(Dict):
         delete_file_envelopes: Optional[List] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+        memory_logs_enabled: bool = False,
     ) -> MergeInput:
 
         result = MergeInput()
@@ -67,6 +68,7 @@ class MergeInput(Dict):
         result["delete_strategy"] = delete_strategy
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
+        result["memory_logs_enabled"] = memory_logs_enabled
         return result
 
     @property
@@ -132,6 +134,10 @@ class MergeInput(Dict):
     @property
     def deltacat_storage_kwargs(self) -> Optional[Dict[str, Any]]:
         return self.get("deltacat_storage_kwargs")
+
+    @property
+    def memory_logs_enabled(self) -> bool:
+        return self.get("memory_logs_enabled")
 
     @property
     def delete_file_envelopes(

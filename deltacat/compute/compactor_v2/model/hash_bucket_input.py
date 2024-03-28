@@ -22,6 +22,7 @@ class HashBucketInput(Dict):
         object_store: Optional[IObjectStore] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+        memory_logs_enabled: bool = False,
     ) -> HashBucketInput:
 
         result = HashBucketInput()
@@ -36,6 +37,7 @@ class HashBucketInput(Dict):
         result["object_store"] = object_store
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
+        result["memory_logs_enabled"] = memory_logs_enabled
 
         return result
 
@@ -82,3 +84,7 @@ class HashBucketInput(Dict):
     @property
     def deltacat_storage_kwargs(self) -> Optional[Dict[str, Any]]:
         return self.get("deltacat_storage_kwargs")
+
+    @property
+    def memory_logs_enabled(self) -> bool:
+        return self.get("memory_logs_enabled")

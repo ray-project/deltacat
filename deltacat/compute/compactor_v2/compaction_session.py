@@ -260,6 +260,7 @@ def _execute_compaction(
         average_record_size_bytes=params.average_record_size_bytes,
         primary_keys=params.primary_keys,
         ray_custom_resources=params.ray_custom_resources,
+        memory_logs_enabled=params.memory_logs_enabled,
     )
 
     total_input_records_count = np.int64(0)
@@ -296,6 +297,7 @@ def _execute_compaction(
                     object_store=params.object_store,
                     deltacat_storage=params.deltacat_storage,
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                    memory_logs_enabled=params.memory_logs_enabled,
                 )
             }
 
@@ -388,6 +390,7 @@ def _execute_compaction(
             deltacat_storage=params.deltacat_storage,
             deltacat_storage_kwargs=params.deltacat_storage_kwargs,
             ray_custom_resources=params.ray_custom_resources,
+            memory_logs_enabled=params.memory_logs_enabled,
         )
 
         def merge_input_provider(index, item):
@@ -417,6 +420,7 @@ def _execute_compaction(
                     deltacat_storage_kwargs=params.deltacat_storage_kwargs,
                     delete_strategy=delete_strategy,
                     delete_file_envelopes=delete_file_envelopes,
+                    memory_logs_enabled=params.memory_logs_enabled,
                 )
             }
 
