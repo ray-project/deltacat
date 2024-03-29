@@ -135,7 +135,7 @@ def hash_bucket_resource_options_provider(
     average_record_size_bytes: float,
     primary_keys: List[str] = None,
     ray_custom_resources: Optional[Dict] = None,
-    memory_logs_enabled: bool = False,
+    memory_logs_enabled: Optional[bool] = None,
     **kwargs,
 ) -> Dict:
     debug_memory_params = {"hash_bucket_task_index": index}
@@ -192,10 +192,10 @@ def hash_bucket_resource_options_provider(
     # Consider buffer
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
     debug_memory_params["total_memory_with_buffer"] = total_memory
-    if memory_logs_enabled:
-        logger.debug(
-            f"[Hash bucket task {index}]: Params used for calculating hash bucketing memory: {debug_memory_params}"
-        )
+    logger.debug_conditional(
+        f"[Hash bucket task {index}]: Params used for calculating hash bucketing memory: {debug_memory_params}",
+        memory_logs_enabled,
+    )
 
     return get_task_options(0.01, total_memory, ray_custom_resources)
 
@@ -212,7 +212,7 @@ def merge_resource_options_provider(
     primary_keys: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict] = {},
-    memory_logs_enabled: bool = False,
+    memory_logs_enabled: Optional[bool] = None,
     **kwargs,
 ) -> Dict:
     debug_memory_params = {"merge_task_index": index}
@@ -301,9 +301,9 @@ def merge_resource_options_provider(
 
     total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
     debug_memory_params["total_memory_with_buffer"] = total_memory
-    if memory_logs_enabled:
-        logger.debug(
-            f"[Merge task {index}]: Params used for calculating merge memory: {debug_memory_params}"
-        )
+    logger.debug_conditional(
+        f"[Merge task {index}]: Params used for calculating merge memory: {debug_memory_params}",
+        memory_logs_enabled,
+    )
 
     return get_task_options(0.01, total_memory, ray_custom_resources)

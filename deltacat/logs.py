@@ -63,6 +63,22 @@ class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
 
         return "(ray_runtime_context=%s) -- %s" % (runtime_context_dict, msg), kwargs
 
+    def debug_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.debug(msg, *args, **kwargs)
+
+    def info_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.info(msg, *args, **kwargs)
+
+    def warning_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.warning(msg, *args, **kwargs)
+
+    def error_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.error(msg, *args, **kwargs)
+
     def __reduce__(self):
         """
         Used to unpickle the class during Ray object store transfer.
