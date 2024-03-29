@@ -22,7 +22,7 @@ class HashBucketInput(Dict):
         object_store: Optional[IObjectStore] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
-        memory_logs_enabled: bool = False,
+        memory_logs_enabled: Optional[bool] = None,
     ) -> HashBucketInput:
 
         result = HashBucketInput()
@@ -86,5 +86,5 @@ class HashBucketInput(Dict):
         return self.get("deltacat_storage_kwargs")
 
     @property
-    def memory_logs_enabled(self) -> bool:
+    def memory_logs_enabled(self) -> Optional[bool]:
         return self.get("memory_logs_enabled")
