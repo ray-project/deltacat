@@ -362,8 +362,8 @@ class CompactPartitionParams(dict):
         return self.get("memory_logs_enabled")
 
     @memory_logs_enabled.setter
-    def memory_logs_enabled(self, are_memory_logs_enabled: bool) -> None:
-        self["memory_logs_enabled"] = are_memory_logs_enabled
+    def memory_logs_enabled(self, value: bool) -> None:
+        self["memory_logs_enabled"] = value
 
     @property
     def metrics_config(self) -> Optional[MetricsConfig]:
