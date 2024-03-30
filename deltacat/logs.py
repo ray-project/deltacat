@@ -26,10 +26,13 @@ DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 256  # 256 MiB
 DEFAULT_BACKUP_COUNT = 0
 
 
-class DeltaCATLogger(logging.getLoggerClass()):
+class DeltaCATLoggerAdapter(logging.LoggerAdapter):
     """
-    Logging class with additional functionality
+    Logger Adapter class with additional functionality
     """
+
+    def __init__(self, logger: Logger):
+        super().__init__(logger, {})
 
     def debug_conditional(self, msg, do_print: bool, *args, **kwargs):
         if do_print:
@@ -48,7 +51,7 @@ class DeltaCATLogger(logging.getLoggerClass()):
             self.error(msg, *args, **kwargs)
 
 
-class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
+class RayRuntimeContextLoggerAdapter(DeltaCATLoggerAdapter):
     """
     Logger Adapter for injecting Ray Runtime Context into logging messages.
     """
@@ -169,6 +172,8 @@ def _configure_logger(
         ray_runtime_ctx = ray.get_runtime_context()
         if ray_runtime_ctx.worker.connected:
             logger = RayRuntimeContextLoggerAdapter(logger, ray_runtime_ctx)
+    else:
+        logger = DeltaCATLoggerAdapter(logger)
 
     return logger
 
