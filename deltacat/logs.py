@@ -2,7 +2,7 @@ import logging
 import os
 import pathlib
 from logging import FileHandler, Handler, Logger, LoggerAdapter, handlers
-from typing import Union
+from typing import Any, Dict, Optional, Union
 
 import ray
 from ray.runtime_context import RuntimeContext
@@ -31,8 +31,8 @@ class DeltaCATLoggerAdapter(logging.LoggerAdapter):
     Logger Adapter class with additional functionality
     """
 
-    def __init__(self, logger: Logger):
-        super().__init__(logger, {})
+    def __init__(self, logger: Logger, extra: Optional[Dict[str, Any]] = {}):
+        super().__init__(logger, extra)
 
     def debug_conditional(self, msg, do_print: bool, *args, **kwargs):
         if do_print:
