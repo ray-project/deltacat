@@ -26,6 +26,28 @@ DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 256  # 256 MiB
 DEFAULT_BACKUP_COUNT = 0
 
 
+class DeltaCATLogger(logging.getLoggerClass()):
+    """
+    Logging class with additional functionality
+    """
+
+    def debug_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.debug(msg, *args, **kwargs)
+
+    def info_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.info(msg, *args, **kwargs)
+
+    def warning_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.warning(msg, *args, **kwargs)
+
+    def error_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.error(msg, *args, **kwargs)
+
+
 class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
     """
     Logger Adapter for injecting Ray Runtime Context into logging messages.
@@ -62,22 +84,6 @@ class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
             ] = self.runtime_context.get_assigned_resources()
 
         return "(ray_runtime_context=%s) -- %s" % (runtime_context_dict, msg), kwargs
-
-    def debug_conditional(self, msg, do_print: bool, *args, **kwargs):
-        if do_print:
-            self.debug(msg, *args, **kwargs)
-
-    def info_conditional(self, msg, do_print: bool, *args, **kwargs):
-        if do_print:
-            self.info(msg, *args, **kwargs)
-
-    def warning_conditional(self, msg, do_print: bool, *args, **kwargs):
-        if do_print:
-            self.warning(msg, *args, **kwargs)
-
-    def error_conditional(self, msg, do_print: bool, *args, **kwargs):
-        if do_print:
-            self.error(msg, *args, **kwargs)
 
     def __reduce__(self):
         """

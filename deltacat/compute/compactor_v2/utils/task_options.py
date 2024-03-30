@@ -19,6 +19,7 @@ from deltacat.compute.compactor_v2.constants import (
     PARQUET_TO_PYARROW_INFLATION,
 )
 
+logging.setLoggerClass(logs.DeltaCATLogger)
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
