@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Union
 import pyarrow as pa
 
 from deltacat.storage import (
+    DeleteParameters,
     Delta,
     DeltaLocator,
     DeltaType,
@@ -468,6 +469,7 @@ def stage_delta(
     properties: Optional[Dict[str, str]] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
+    delete_parameters: Optional[DeleteParameters] = None,
     *args,
     **kwargs
 ) -> Delta:

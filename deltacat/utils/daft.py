@@ -12,7 +12,11 @@ from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.schema import coerce_pyarrow_table_to_schema
 
 from deltacat.types.media import ContentType, ContentEncoding
-from deltacat.aws.constants import BOTO_MAX_RETRIES, DAFT_MAX_S3_CONNECTIONS_PER_FILE
+from deltacat.aws.constants import (
+    BOTO_MAX_RETRIES,
+    DAFT_MAX_S3_CONNECTIONS_PER_FILE,
+    AWS_REGION,
+)
 from deltacat.utils.performance import timed_invocation
 
 from deltacat.types.partial_download import (
@@ -155,6 +159,7 @@ def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
             key_id=s3_client_kwargs.get("aws_access_key_id"),
             access_key=s3_client_kwargs.get("aws_secret_access_key"),
             session_token=s3_client_kwargs.get("aws_session_token"),
+            region_name=AWS_REGION,
             retry_mode="adaptive",
             num_tries=BOTO_MAX_RETRIES,
             max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,

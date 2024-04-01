@@ -39,6 +39,7 @@ from deltacat.storage import (
     ManifestMeta,
     ManifestEntry,
     ManifestEntryList,
+    DeleteParameters,
 )
 from deltacat.types.media import (
     ContentType,
@@ -892,6 +893,7 @@ def stage_delta(
     properties: Optional[Dict[str, str]] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
+    delete_parameters: Optional[DeleteParameters] = None,
     *args,
     **kwargs,
 ) -> Delta:
@@ -958,6 +960,7 @@ def stage_delta(
         properties=properties,
         manifest=manifest,
         previous_stream_position=partition.stream_position,
+        delete_parameters=delete_parameters,
     )
 
     params = (uri, serialized_data)
