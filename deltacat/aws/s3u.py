@@ -27,10 +27,9 @@ import deltacat.aws.clients as aws_utils
 from deltacat import logs
 from deltacat.aws.constants import TIMEOUT_ERROR_CODES
 from deltacat.exceptions import (
-    DownloadTableThrottlingError,
+    RetryableError,
     DownloadTableError,
     UploadTableError,
-    UploadTableThrottlingError,
 )
 from deltacat.storage import (
     DistributedDataset,
@@ -232,8 +231,12 @@ def read_file(
     except ClientError as e:
         if e.response["Error"]["Code"] in TIMEOUT_ERROR_CODES:
             # Timeout error not caught by botocore
-            raise DownloadTableThrottlingError(s3_url=s3_url) from e
-        raise DownloadTableError(s3_url=s3_url) from e
+            raise RetryableError(
+                msg=f"Retry table download from: {s3_url}", s3_url=s3_url
+            ) from e
+        raise DownloadTableError(
+            msg=f"Failed table download from: {s3_url}", s3_url=s3_url
+        ) from e
     except BaseException as e:
         logger.warn(
             f"Read has failed for {s3_url} and content_type={content_type} "
@@ -259,7 +262,7 @@ def upload_sliced_table(
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(30 * 60),
-        retry=retry_if_exception_type(UploadTableThrottlingError),
+        retry=retry_if_exception_type(RetryableError),
     )
 
     manifest_entries = ManifestEntryList()
@@ -340,8 +343,12 @@ def upload_table(
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # s3fs may swallow S3 errors - we were probably throttled
-                raise UploadTableThrottlingError(s3_url=s3_url) from e
-            raise UploadTableError(s3_url=s3_url) from e
+                raise RetryableError(
+                    msg=f"Retry table Upload from: {s3_url}", s3_url=s3_url
+                ) from e
+            raise UploadTableError(
+                msg=f"Failed table Upload from: {s3_url}", s3_url=s3_url
+            ) from e
         except BaseException as e:
             logger.warn(
                 f"Upload has failed for {s3_url} and content_type={content_type}. Error: {e}",

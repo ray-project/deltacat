@@ -10,8 +10,7 @@ from deltacat.exceptions import (
     DependencyPyarrowError,
 )
 from botocore.exceptions import ClientError as BotocoreClientError
-
-UPLOAD_TABLE_POSSIBLE_ERROR_CODE = ["RequestTimeTooSkewed", "SlowDown"]
+from deltacat.aws.constants import UPLOAD_TABLE_POSSIBLE_ERROR_CODE
 
 
 def handle_compaction_step_exception(e: Exception, task_id: Optional[str] = None):

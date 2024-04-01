@@ -31,7 +31,7 @@ class DeltaCatError(Exception):
         return _pack_all_args, (self.__class__, None, self.kwargs)
 
 
-class DeltaCatErrorMapping(str, Enum):
+class DeltaCATErrorCodes(str, Enum):
 
     # Dependency Error code from 10100 to 10199
     GENERAL_DEPENDENCY_ERROR = "10100"
@@ -69,70 +69,70 @@ class RetryableError(Exception):
 #
 # >>> __main__.DependencyRayError: Error Code: 10101. Is Retryable Error: False. A dependency Ray error occurred, during ray_task: x
 class DependencyRayError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.DEPENDENCY_RAY_ERROR.value
+    error_code = DeltaCATErrorCodes.DEPENDENCY_RAY_ERROR.value
     is_retryable = False
 
 
 class DependencyRayWorkerDiedError(DependencyRayError):
-    error_code = DeltaCatErrorMapping.DEPENDENCY_RAY_WORKER_DIED_ERROR.value
+    error_code = DeltaCATErrorCodes.DEPENDENCY_RAY_WORKER_DIED_ERROR.value
     is_retryable = False
 
 
 class DependencyRayOutOfMemoryError(DependencyRayError):
-    error_code = DeltaCatErrorMapping.DEPENDENCY_RAY_OUT_OF_MEMORY_ERROR.value
+    error_code = DeltaCATErrorCodes.DEPENDENCY_RAY_OUT_OF_MEMORY_ERROR.value
     is_retryable = False
 
 
 class DependencyPyarrowError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.DEPENDENCY_PYARROW_ERROR.value
+    error_code = DeltaCATErrorCodes.DEPENDENCY_PYARROW_ERROR.value
     is_retryable = False
 
 
 class GeneralValidationError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.GENERAL_VALIDATION_ERROR.value
+    error_code = DeltaCATErrorCodes.GENERAL_VALIDATION_ERROR.value
     is_retryable = False
 
 
 class ContentTypeValidationError(GeneralValidationError):
-    error_code = DeltaCatErrorMapping.CONTENT_TYPE_VALIDATION_ERROR.value
+    error_code = DeltaCATErrorCodes.CONTENT_TYPE_VALIDATION_ERROR.value
     is_retryable = False
 
 
 class GeneralStorageError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.GENERAL_STORAGE_ERROR.value
+    error_code = DeltaCATErrorCodes.GENERAL_STORAGE_ERROR.value
     is_retryable = False
 
 
 class StorageConcurrentModificationError(GeneralStorageError):
-    error_code = DeltaCatErrorMapping.STORAGE_CONCURRENT_MODIFICATION_ERROR.value
+    error_code = DeltaCATErrorCodes.STORAGE_CONCURRENT_MODIFICATION_ERROR.value
     is_retryable = False
 
 
 class DependencyBotocoreError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.DEPENDENCY_BOTOCORE_ERROR.value
+    error_code = DeltaCATErrorCodes.DEPENDENCY_BOTOCORE_ERROR.value
     is_retryable = False
 
 
 class DownloadTableError(DependencyBotocoreError):
-    error_code = DeltaCatErrorMapping.DOWNLOAD_TABLE_ERROR.value
+    error_code = DeltaCATErrorCodes.DOWNLOAD_TABLE_ERROR.value
     is_retryable = False
 
 
 class UploadTableError(DependencyBotocoreError):
-    error_code = DeltaCatErrorMapping.UPLOAD_TABLE_ERROR.value
+    error_code = DeltaCATErrorCodes.UPLOAD_TABLE_ERROR.value
     is_retryable = False
 
 
 class GeneralThrottlingError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.GENERAL_THROTTLING_ERROR.value
+    error_code = DeltaCATErrorCodes.GENERAL_THROTTLING_ERROR.value
     is_retryable = True
 
 
 class UploadTableThrottlingError(GeneralThrottlingError):
-    error_code = DeltaCatErrorMapping.UPLOAD_TABLE_THROTTLING_ERROR.value
+    error_code = DeltaCATErrorCodes.UPLOAD_TABLE_THROTTLING_ERROR.value
     is_retryable = True
 
 
 class DownloadTableThrottlingError(GeneralThrottlingError):
-    error_code = DeltaCatErrorMapping.DOWNLOAD_TABLE_THROTTLING_ERROR.value
+    error_code = DeltaCATErrorCodes.DOWNLOAD_TABLE_THROTTLING_ERROR.value
     is_retryable = True
