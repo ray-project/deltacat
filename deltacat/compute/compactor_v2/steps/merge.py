@@ -41,6 +41,9 @@ from deltacat.storage import (
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
 from deltacat.constants import BYTES_PER_GIBIBYTE
+from deltacat.compute.compactor_v2.utils.exception_handler import (
+    handle_compaction_step_exception,
+)
 
 
 if importlib.util.find_spec("memray"):
@@ -466,65 +469,72 @@ def _timed_merge(input: MergeInput) -> MergeResult:
     with memray.Tracker(
         f"merge_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
-        total_input_records, total_deduped_records = 0, 0
-        total_dropped_records = 0
-        materialized_results: List[MaterializeResult] = []
-        merge_file_groups = input.merge_file_groups_provider.create()
-        hb_index_copy_by_ref_ids = []
+        try:
+            total_input_records, total_deduped_records = 0, 0
+            total_dropped_records = 0
+            materialized_results: List[MaterializeResult] = []
+            merge_file_groups = input.merge_file_groups_provider.create()
+            hb_index_copy_by_ref_ids = []
 
-        for merge_file_group in merge_file_groups:
-            compacted_table = None
-            has_delete = input.delete_file_envelopes is not None
-            if has_delete:
-                assert (
-                    input.delete_strategy is not None
-                ), "Merge input missing delete_strategy"
-            if not has_delete and not merge_file_group.dfe_groups:
-                # Can copy by reference only if there are no deletes to merge in
-                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
-                continue
-            if _has_previous_compacted_table(input, merge_file_group.hb_index):
-                compacted_table = _download_compacted_table(
-                    hb_index=merge_file_group.hb_index,
-                    rcf=input.round_completion_info,
-                    read_kwargs_provider=input.read_kwargs_provider,
-                    deltacat_storage=input.deltacat_storage,
-                    deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+            for merge_file_group in merge_file_groups:
+                compacted_table = None
+                has_delete = input.delete_file_envelopes is not None
+                if has_delete:
+                    assert (
+                        input.delete_strategy is not None
+                    ), "Merge input missing delete_strategy"
+                if not has_delete and not merge_file_group.dfe_groups:
+                    # Can copy by reference only if there are no deletes to merge in
+                    hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
+                    continue
+                if _has_previous_compacted_table(input, merge_file_group.hb_index):
+                    compacted_table = _download_compacted_table(
+                        hb_index=merge_file_group.hb_index,
+                        rcf=input.round_completion_info,
+                        read_kwargs_provider=input.read_kwargs_provider,
+                        deltacat_storage=input.deltacat_storage,
+                        deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+                    )
+                if not merge_file_group.dfe_groups and compacted_table is None:
+                    logger.warning(
+                        f" [Hash bucket index {merge_file_group.hb_index}]"
+                        + f" No new deltas and no compacted table found. Skipping compaction for {merge_file_group.hb_index}"
+                    )
+                    continue
+                (
+                    table,
+                    input_records,
+                    deduped_records,
+                    dropped_records,
+                ) = _compact_tables(
+                    input,
+                    merge_file_group.dfe_groups,
+                    merge_file_group.hb_index,
+                    compacted_table,
                 )
-            if not merge_file_group.dfe_groups and compacted_table is None:
-                logger.warning(
-                    f" [Hash bucket index {merge_file_group.hb_index}]"
-                    + f" No new deltas and no compacted table found. Skipping compaction for {merge_file_group.hb_index}"
+                total_input_records += input_records
+                total_deduped_records += deduped_records
+                total_dropped_records += dropped_records
+                materialized_results.append(
+                    merge_utils.materialize(input, merge_file_group.hb_index, [table])
                 )
-                continue
-            table, input_records, deduped_records, dropped_records = _compact_tables(
-                input,
-                merge_file_group.dfe_groups,
-                merge_file_group.hb_index,
-                compacted_table,
-            )
-            total_input_records += input_records
-            total_deduped_records += deduped_records
-            total_dropped_records += dropped_records
-            materialized_results.append(
-                merge_utils.materialize(input, merge_file_group.hb_index, [table])
+
+            if hb_index_copy_by_ref_ids:
+                materialized_results.extend(
+                    _copy_manifests_from_hash_bucketing(input, hb_index_copy_by_ref_ids)
+                )
+
+            logger.info(
+                f"[Hash group index: {input.merge_file_groups_provider.hash_group_index}]"
+                f" Total number of materialized results produced: {len(materialized_results)} "
             )
 
-        if hb_index_copy_by_ref_ids:
-            materialized_results.extend(
-                _copy_manifests_from_hash_bucketing(input, hb_index_copy_by_ref_ids)
+            peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
+            logger.info(
+                f"Peak memory usage in bytes after merge: {peak_memory_usage_bytes}"
             )
-
-        logger.info(
-            f"[Hash group index: {input.merge_file_groups_provider.hash_group_index}]"
-            f" Total number of materialized results produced: {len(materialized_results)} "
-        )
-
-        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
-        logger.info(
-            f"Peak memory usage in bytes after merge: {peak_memory_usage_bytes}"
-        )
-
+        except Exception as e:
+            handle_compaction_step_exception(e, task_id)
         return MergeResult(
             materialized_results,
             np.int64(total_input_records),

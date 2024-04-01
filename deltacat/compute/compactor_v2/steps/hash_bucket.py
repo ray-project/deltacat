@@ -30,7 +30,11 @@ from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
 )
+from deltacat.compute.compactor_v2.utils.exception_handler import (
+    handle_compaction_step_exception,
+)
 from deltacat.constants import BYTES_PER_GIBIBYTE
+
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -97,29 +101,32 @@ def _timed_hash_bucket(input: HashBucketInput):
     with memray.Tracker(
         f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if input.enable_profiler else nullcontext():
-        (
-            delta_file_envelope_groups,
-            total_record_count,
-            total_size_bytes,
-        ) = _group_file_records_by_pk_hash_bucket(
-            annotated_delta=input.annotated_delta,
-            num_hash_buckets=input.num_hash_buckets,
-            primary_keys=input.primary_keys,
-            read_kwargs_provider=input.read_kwargs_provider,
-            deltacat_storage=input.deltacat_storage,
-            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
-        )
-        hash_bucket_group_to_obj_id_tuple = group_hash_bucket_indices(
-            hash_bucket_object_groups=delta_file_envelope_groups,
-            num_buckets=input.num_hash_buckets,
-            num_groups=input.num_hash_groups,
-            object_store=input.object_store,
-        )
+        try:
+            (
+                delta_file_envelope_groups,
+                total_record_count,
+                total_size_bytes,
+            ) = _group_file_records_by_pk_hash_bucket(
+                annotated_delta=input.annotated_delta,
+                num_hash_buckets=input.num_hash_buckets,
+                primary_keys=input.primary_keys,
+                read_kwargs_provider=input.read_kwargs_provider,
+                deltacat_storage=input.deltacat_storage,
+                deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+            )
+            hash_bucket_group_to_obj_id_tuple = group_hash_bucket_indices(
+                hash_bucket_object_groups=delta_file_envelope_groups,
+                num_buckets=input.num_hash_buckets,
+                num_groups=input.num_hash_groups,
+                object_store=input.object_store,
+            )
 
-        peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
-        logger.info(
-            f"Peak memory usage in bytes after hash bucketing: {peak_memory_usage_bytes}"
-        )
+            peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
+            logger.info(
+                f"Peak memory usage in bytes after hash bucketing: {peak_memory_usage_bytes}"
+            )
+        except Exception as e:
+            handle_compaction_step_exception(e, task_id)
         return HashBucketResult(
             hash_bucket_group_to_obj_id_tuple,
             np.int64(total_size_bytes),

@@ -13,11 +13,14 @@ def _pack_all_args(exception_cls, args=None, kwargs=None):
 
 
 class DeltaCatError(Exception):
-    msg = "An unexpected DeltaCat Error occurred."
-    error_code = "10000"
-    is_retryable = False
+    msg = "A DeltaCat error occurred."
+    DEFAULT_ERROR_MESSAGE_WITH_ERRORCODE = (
+        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
+    )
 
     def __init__(self, **kwargs):
+        msg = kwargs.get("msg", self.msg)
+        self.msg = self.DEFAULT_ERROR_MESSAGE_WITH_ERRORCODE + msg
         self.error_info = self.msg.format(
             **kwargs, error_code=self.error_code, is_retryable=self.is_retryable
         )
@@ -31,25 +34,27 @@ class DeltaCatError(Exception):
 class DeltaCatErrorMapping(str, Enum):
 
     # Dependency Error code from 10100 to 10199
-    GeneralDependencyError = "10100"
-    DependencyRayError = "10101"
-    DependencyRayWorkerDiedError = "10102"
-    DependencyBotocoreError = "10121"
-    DownloadTableError = "10122"
-    UploadTableError = "10123"
+    GENERAL_DEPENDENCY_ERROR = "10100"
+    DEPENDENCY_RAY_ERROR = "10101"
+    DEPENDENCY_RAY_WORKER_DIED_ERROR = "10102"
+    DEPENDENCY_RAY_OUT_OF_MEMORY_ERROR = "10103"
+    DEPENDENCY_BOTOCORE_ERROR = "10131"
+    DOWNLOAD_TABLE_ERROR = "10132"
+    UPLOAD_TABLE_ERROR = "10133"
+    DEPENDENCY_PYARROW_ERROR = "10151"
 
     # Storage Error code from 10200 to 10299
-    GeneralStorageError = "10200"
-    StorageConcurrentModificationError = "10201"
+    GENERAL_STORAGE_ERROR = "10200"
+    STORAGE_CONCURRENT_MODIFICATION_ERROR = "10201"
 
     # Throttling Error code from 10300 to 10399
-    GeneralThrottlingError = "10300"
-    UploadTableThrottlingError = "10301"
-    DownloadTableThrottlingError = "10302"
+    GENERAL_THROTTLING_ERROR = "10300"
+    UPLOAD_TABLE_THROTTLING_ERROR = "10301"
+    DOWNLOAD_TABLE_THROTTLING_ERROR = "10302"
 
     # Validation Error code from 10400 to 10499
-    GeneralValidationError = "10400"
-    ContentTypeValidationError = "10401"
+    GENERAL_VALIDATION_ERROR = "10400"
+    CONTENT_TYPE_VALIDATION_ERROR = "10401"
 
 
 class NonRetryableError(Exception):
@@ -64,85 +69,70 @@ class RetryableError(Exception):
 #
 # >>> __main__.DependencyRayError: Error Code: 10101. Is Retryable Error: False. A dependency Ray error occurred, during ray_task: x
 class DependencyRayError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.DependencyRayError.value
+    error_code = DeltaCatErrorMapping.DEPENDENCY_RAY_ERROR.value
     is_retryable = False
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A dependency Ray error occurred, during ray_task: {ray_task}."
 
 
 class DependencyRayWorkerDiedError(DependencyRayError):
-    error_code = DeltaCatErrorMapping.DependencyRayWorkerDiedError.value
+    error_code = DeltaCatErrorMapping.DEPENDENCY_RAY_WORKER_DIED_ERROR.value
     is_retryable = False
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. Ray Worker Died Unexpectedly, during ray_task: {ray_task}."
+
+
+class DependencyRayOutOfMemoryError(DependencyRayError):
+    error_code = DeltaCatErrorMapping.DEPENDENCY_RAY_OUT_OF_MEMORY_ERROR.value
+    is_retryable = False
+
+
+class DependencyPyarrowError(DeltaCatError):
+    error_code = DeltaCatErrorMapping.DEPENDENCY_PYARROW_ERROR.value
+    is_retryable = False
 
 
 class GeneralValidationError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.GeneralValidationError.value
+    error_code = DeltaCatErrorMapping.GENERAL_VALIDATION_ERROR.value
     is_retryable = False
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A validation error occurred."
 
 
 class ContentTypeValidationError(GeneralValidationError):
-    error_code = DeltaCatErrorMapping.ContentTypeValidationError.value
+    error_code = DeltaCatErrorMapping.CONTENT_TYPE_VALIDATION_ERROR.value
     is_retryable = False
-    msg = (
-        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
-        "S3 file with content type: {content_type} and content encoding: {content_encoding} "
-        "cannot be read into pyarrow.parquet.ParquetFile"
-    )
 
 
 class GeneralStorageError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.GeneralStorageError.value
+    error_code = DeltaCatErrorMapping.GENERAL_STORAGE_ERROR.value
     is_retryable = False
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A general storage error occurred."
 
 
 class StorageConcurrentModificationError(GeneralStorageError):
-    error_code = DeltaCatErrorMapping.StorageConcurrentModificationError.value
+    error_code = DeltaCatErrorMapping.STORAGE_CONCURRENT_MODIFICATION_ERROR.value
     is_retryable = False
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A storage concurrent modification error occurred."
 
 
 class DependencyBotocoreError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.DependencyBotocoreError.value
+    error_code = DeltaCatErrorMapping.DEPENDENCY_BOTOCORE_ERROR.value
     is_retryable = False
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A dependency botocore error occurred."
 
 
 class DownloadTableError(DependencyBotocoreError):
-    error_code = DeltaCatErrorMapping.DownloadTableError.value
+    error_code = DeltaCatErrorMapping.DOWNLOAD_TABLE_ERROR.value
     is_retryable = False
-    msg = (
-        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
-        "Botocore download table error occurred when downloading from {s3_url}."
-    )
 
 
 class UploadTableError(DependencyBotocoreError):
-    error_code = DeltaCatErrorMapping.UploadTableError.value
+    error_code = DeltaCatErrorMapping.UPLOAD_TABLE_ERROR.value
     is_retryable = False
-    msg = (
-        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
-        "Botocore upload table error occurred when uploading to {s3_url}."
-    )
 
 
 class GeneralThrottlingError(DeltaCatError):
-    error_code = DeltaCatErrorMapping.GeneralThrottlingError.value
+    error_code = DeltaCatErrorMapping.GENERAL_THROTTLING_ERROR.value
     is_retryable = True
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A general throttling error occurred. Retried: {retry_attempts} times."
 
 
 class UploadTableThrottlingError(GeneralThrottlingError):
-    error_code = DeltaCatErrorMapping.UploadTableThrottlingError.value
+    error_code = DeltaCatErrorMapping.UPLOAD_TABLE_THROTTLING_ERROR.value
     is_retryable = True
-    msg = "Error Code: {error_code}. Is Retryable Error: {is_retryable}. A throttling error occurred during {upload_table_task}. Retried: {retry_attempts} times."
 
 
 class DownloadTableThrottlingError(GeneralThrottlingError):
-    error_code = DeltaCatErrorMapping.DownloadTableThrottlingError.value
+    error_code = DeltaCatErrorMapping.DOWNLOAD_TABLE_THROTTLING_ERROR.value
     is_retryable = True
-    msg = (
-        "Error Code: {error_code}. Is Retryable Error: {is_retryable}. "
-        "A throttling error occurred when downloading from {s3_url}."
-    )

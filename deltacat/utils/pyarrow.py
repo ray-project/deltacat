@@ -477,7 +477,10 @@ def s3_file_to_parquet(
         or content_encoding != ContentEncoding.IDENTITY
     ):
         raise ContentTypeValidationError(
-            content_type=content_type, content_encoding=content_encoding
+            msg=f"S3 file with content type: {content_type} and content encoding: {content_encoding} "
+            "cannot be read into pyarrow.parquet.ParquetFile",
+            content_type=content_type,
+            content_encoding=content_encoding,
         )
 
     if s3_client_kwargs is None:
