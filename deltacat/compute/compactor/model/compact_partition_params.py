@@ -91,6 +91,8 @@ class CompactPartitionParams(dict):
         result.drop_duplicates = params.get("drop_duplicates", DROP_DUPLICATES)
         result.ray_custom_resources = params.get("ray_custom_resources")
 
+        result.memory_logs_enabled = params.get("memory_logs_enabled", False)
+
         result.metrics_config = params.get("metrics_config")
 
         if not importlib.util.find_spec("memray"):
@@ -354,6 +356,14 @@ class CompactPartitionParams(dict):
     @sort_keys.setter
     def sort_keys(self, keys: List[SortKey]) -> None:
         self["sort_keys"] = keys
+
+    @property
+    def memory_logs_enabled(self) -> bool:
+        return self.get("memory_logs_enabled")
+
+    @memory_logs_enabled.setter
+    def memory_logs_enabled(self, value: bool) -> None:
+        self["memory_logs_enabled"] = value
 
     @property
     def metrics_config(self) -> Optional[MetricsConfig]:

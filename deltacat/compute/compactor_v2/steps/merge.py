@@ -548,7 +548,8 @@ def merge(input: MergeInput) -> MergeResult:
                 f"({process_util.max_memory/BYTES_PER_GIBIBYTE} GB)"
             )
 
-        process_util.schedule_callback(log_peak_memory, 10)
+        if input.memory_logs_enabled:
+            process_util.schedule_callback(log_peak_memory, 10)
 
         merge_result, duration = timed_invocation(func=_timed_merge, input=input)
 
