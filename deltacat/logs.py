@@ -2,7 +2,7 @@ import logging
 import os
 import pathlib
 from logging import FileHandler, Handler, Logger, LoggerAdapter, handlers
-from typing import Union
+from typing import Any, Dict, Optional, Union
 
 import ray
 from ray.runtime_context import RuntimeContext
@@ -26,7 +26,32 @@ DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 256  # 256 MiB
 DEFAULT_BACKUP_COUNT = 0
 
 
-class RayRuntimeContextLoggerAdapter(logging.LoggerAdapter):
+class DeltaCATLoggerAdapter(logging.LoggerAdapter):
+    """
+    Logger Adapter class with additional functionality
+    """
+
+    def __init__(self, logger: Logger, extra: Optional[Dict[str, Any]] = {}):
+        super().__init__(logger, extra)
+
+    def debug_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.debug(msg, *args, **kwargs)
+
+    def info_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.info(msg, *args, **kwargs)
+
+    def warning_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.warning(msg, *args, **kwargs)
+
+    def error_conditional(self, msg, do_print: bool, *args, **kwargs):
+        if do_print:
+            self.error(msg, *args, **kwargs)
+
+
+class RayRuntimeContextLoggerAdapter(DeltaCATLoggerAdapter):
     """
     Logger Adapter for injecting Ray Runtime Context into logging messages.
     """
@@ -147,6 +172,8 @@ def _configure_logger(
         ray_runtime_ctx = ray.get_runtime_context()
         if ray_runtime_ctx.worker.connected:
             logger = RayRuntimeContextLoggerAdapter(logger, ray_runtime_ctx)
+    else:
+        logger = DeltaCATLoggerAdapter(logger)
 
     return logger
 
