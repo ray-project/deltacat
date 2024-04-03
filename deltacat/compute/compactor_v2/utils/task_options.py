@@ -18,7 +18,6 @@ from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
 from deltacat.compute.compactor_v2.constants import (
-    TOTAL_MEMORY_BUFFER_PERCENTAGE,
     PARQUET_TO_PYARROW_INFLATION,
 )
 
