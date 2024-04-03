@@ -259,6 +259,7 @@ def _execute_compaction(
         resource_amount_provider=hash_bucket_resource_options_provider,
         previous_inflation=params.previous_inflation,
         average_record_size_bytes=params.average_record_size_bytes,
+        total_memory_buffer_percentage=params.total_memory_buffer_percentage,
         primary_keys=params.primary_keys,
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,

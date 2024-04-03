@@ -136,6 +136,7 @@ def hash_bucket_resource_options_provider(
     item: DeltaAnnotated,
     previous_inflation: float,
     average_record_size_bytes: float,
+    total_memory_buffer_percentage: int,
     primary_keys: List[str] = None,
     ray_custom_resources: Optional[Dict] = None,
     memory_logs_enabled: Optional[bool] = None,
@@ -193,7 +194,7 @@ def hash_bucket_resource_options_provider(
     debug_memory_params["average_record_size_bytes"] = average_record_size_bytes
 
     # Consider buffer
-    total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
+    total_memory = total_memory * (1 + total_memory_buffer_percentage / 100.0)
     debug_memory_params["total_memory_with_buffer"] = total_memory
     logger.debug_conditional(
         f"[Hash bucket task {index}]: Params used for calculating hash bucketing memory: {debug_memory_params}",
