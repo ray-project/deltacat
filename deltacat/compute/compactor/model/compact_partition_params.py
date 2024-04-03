@@ -201,7 +201,9 @@ class CompactPartitionParams(dict):
         return self["total_memory_buffer_percentage"]
 
     @total_memory_buffer_percentage.setter
-    def total_memory_buffer_percentage(self, total_memory_buffer_percentage: int) -> None:
+    def total_memory_buffer_percentage(
+        self, total_memory_buffer_percentage: int
+    ) -> None:
         self["total_memory_buffer_percentage"] = total_memory_buffer_percentage
 
     @property

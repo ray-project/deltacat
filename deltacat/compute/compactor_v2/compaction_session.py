@@ -295,6 +295,7 @@ def _execute_compaction(
             compacted_delta_manifest=previous_compacted_delta_manifest,
             ray_custom_resources=params.ray_custom_resources,
             primary_keys=params.primary_keys,
+            memory_logs_enabled=params.memory_logs_enabled,
         )
         local_merge_result = ray.get(
             mg.merge.options(**local_merge_options).remote(local_merge_input)

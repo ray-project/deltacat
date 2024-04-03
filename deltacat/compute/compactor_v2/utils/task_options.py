@@ -246,7 +246,8 @@ def merge_resource_options_provider(
         compacted_delta_manifest=compacted_delta_manifest,
         primary_keys=primary_keys,
         deltacat_storage=deltacat_storage,
-        deltacat_storage_kwargs=deltacat_storage_kwargs
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
+        memory_logs_enabled=memory_logs_enabled,
     )
 
 
@@ -260,11 +261,12 @@ def local_merge_resource_options_provider(
     primary_keys: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict] = {},
+    memory_logs_enabled: Optional[bool] = None,
     **kwargs,
 ) -> Dict:
     index = hb_group_idx = LocalMergeFileGroupsProvider.LOCAL_HASH_BUCKET_INDEX
     debug_memory_params = {"merge_task_index": index}
-    
+
     # upper bound for pk size of incremental
     pk_size_bytes = estimated_da_size
     incremental_index_array_size = estimated_num_rows * 4
@@ -284,7 +286,8 @@ def local_merge_resource_options_provider(
         compacted_delta_manifest=compacted_delta_manifest,
         primary_keys=primary_keys,
         deltacat_storage=deltacat_storage,
-        deltacat_storage_kwargs=deltacat_storage_kwargs
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
+        memory_logs_enabled=memory_logs_enabled,
     )
 
 
@@ -304,22 +307,23 @@ def get_merge_task_options(
     primary_keys: Optional[List[str]] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict] = {},
+    memory_logs_enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
     if (
-            round_completion_info
-            and compacted_delta_manifest
-            and round_completion_info.hb_index_to_entry_range
+        round_completion_info
+        and compacted_delta_manifest
+        and round_completion_info.hb_index_to_entry_range
     ):
 
         previous_inflation = (
-                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-                / round_completion_info.compacted_pyarrow_write_result.file_bytes
+            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+            / round_completion_info.compacted_pyarrow_write_result.file_bytes
         )
         debug_memory_params["previous_inflation"] = previous_inflation
 
         average_record_size = (
-                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-                / round_completion_info.compacted_pyarrow_write_result.records
+            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+            / round_completion_info.compacted_pyarrow_write_result.records
         )
         debug_memory_params["average_record_size"] = average_record_size
 
@@ -359,7 +363,6 @@ def get_merge_task_options(
                         pk_size_bytes += current_entry_size
                     else:
                         pk_size_bytes += pk_size
-
 
     # total data downloaded + primary key hash column + pyarrow-to-numpy conversion
     # + primary key column + hashlib inefficiency + dict size for merge + incremental index array size
