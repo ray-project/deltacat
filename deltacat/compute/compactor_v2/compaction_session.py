@@ -62,6 +62,7 @@ from deltacat.utils.resources import (
 from deltacat.compute.compactor_v2.utils.task_options import (
     hash_bucket_resource_options_provider,
     merge_resource_options_provider,
+    local_merge_resource_options_provider,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
@@ -258,6 +259,7 @@ def _execute_compaction(
         resource_amount_provider=hash_bucket_resource_options_provider,
         previous_inflation=params.previous_inflation,
         average_record_size_bytes=params.average_record_size_bytes,
+        total_memory_buffer_percentage=params.total_memory_buffer_percentage,
         primary_keys=params.primary_keys,
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,
@@ -276,7 +278,29 @@ def _execute_compaction(
             delete_strategy,
             delete_file_envelopes,
         )
-        local_merge_result = ray.get(mg.merge.remote(local_merge_input))
+        estimated_da_bytes = (
+            compaction_audit.estimated_in_memory_size_bytes_during_discovery
+        )
+        estimated_num_records = sum(
+            [
+                entry.meta.record_count
+                for delta in uniform_deltas
+                for entry in delta.manifest.entries
+            ]
+        )
+        local_merge_options = local_merge_resource_options_provider(
+            estimated_da_size=estimated_da_bytes,
+            estimated_num_rows=estimated_num_records,
+            total_memory_buffer_percentage=params.total_memory_buffer_percentage,
+            round_completion_info=round_completion_info,
+            compacted_delta_manifest=previous_compacted_delta_manifest,
+            ray_custom_resources=params.ray_custom_resources,
+            primary_keys=params.primary_keys,
+            memory_logs_enabled=params.memory_logs_enabled,
+        )
+        local_merge_result = ray.get(
+            mg.merge.options(**local_merge_options).remote(local_merge_input)
+        )
         total_input_records_count += local_merge_result.input_record_count
         merge_results = [local_merge_result]
         merge_invoke_end = time.monotonic()
@@ -384,6 +408,7 @@ def _execute_compaction(
             num_hash_groups=params.hash_group_count,
             hash_group_size_bytes=all_hash_group_idx_to_size_bytes,
             hash_group_num_rows=all_hash_group_idx_to_num_rows,
+            total_memory_buffer_percentage=params.total_memory_buffer_percentage,
             round_completion_info=round_completion_info,
             compacted_delta_manifest=previous_compacted_delta_manifest,
             primary_keys=params.primary_keys,
