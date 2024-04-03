@@ -289,6 +289,7 @@ def _execute_compaction(
         local_merge_options = local_merge_resource_options_provider(
             estimated_da_size=estimated_da_bytes,
             estimated_num_rows=estimated_num_records,
+            total_memory_buffer_percentage=params.total_memory_buffer_percentage,
             round_completion_info=round_completion_info,
             compacted_delta_manifest=previous_compacted_delta_manifest,
             ray_custom_resources=params.ray_custom_resources,
@@ -403,6 +404,7 @@ def _execute_compaction(
             num_hash_groups=params.hash_group_count,
             hash_group_size_bytes=all_hash_group_idx_to_size_bytes,
             hash_group_num_rows=all_hash_group_idx_to_num_rows,
+            total_memory_buffer_percentage=params.total_memory_buffer_percentage,
             round_completion_info=round_completion_info,
             compacted_delta_manifest=previous_compacted_delta_manifest,
             primary_keys=params.primary_keys,

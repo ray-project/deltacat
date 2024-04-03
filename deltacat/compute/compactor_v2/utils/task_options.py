@@ -207,6 +207,7 @@ def merge_resource_options_provider(
     num_hash_groups: int,
     hash_group_size_bytes: Dict[int, int],
     hash_group_num_rows: Dict[int, int],
+    total_memory_buffer_percentage: int,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
@@ -227,21 +228,95 @@ def merge_resource_options_provider(
     pk_size_bytes = data_size
     incremental_index_array_size = num_rows * 4
 
+    return get_merge_task_options(
+        index,
+        hb_group_idx,
+        data_size,
+        pk_size_bytes,
+        num_rows,
+        num_hash_groups,
+        total_memory_buffer_percentage,
+        incremental_index_array_size,
+        debug_memory_params,
+        ray_custom_resources,
+        round_completion_info=round_completion_info,
+        compacted_delta_manifest=compacted_delta_manifest,
+        primary_keys=primary_keys,
+        deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs
+    )
+
+
+def local_merge_resource_options_provider(
+    estimated_da_size: float,
+    estimated_num_rows: int,
+    total_memory_buffer_percentage: int,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
+    compacted_delta_manifest: Optional[Manifest] = None,
+    ray_custom_resources: Optional[Dict] = None,
+    primary_keys: Optional[List[str]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict] = {},
+    **kwargs,
+) -> Dict:
+    index = hb_group_idx = LocalMergeFileGroupsProvider.LOCAL_HASH_BUCKET_INDEX
+    debug_memory_params = {"merge_task_index": index}
+    
+    # upper bound for pk size of incremental
+    pk_size_bytes = estimated_da_size
+    incremental_index_array_size = estimated_num_rows * 4
+
+    return get_merge_task_options(
+        index=index,
+        hb_group_idx=hb_group_idx,
+        data_size=estimated_da_size,
+        pk_size_bytes=pk_size_bytes,
+        num_rows=estimated_num_rows,
+        num_hash_groups=1,
+        incremental_index_array_size=incremental_index_array_size,
+        total_memory_buffer_percentage=total_memory_buffer_percentage,
+        debug_memory_params=debug_memory_params,
+        ray_custom_resources=ray_custom_resources,
+        round_completion_info=round_completion_info,
+        compacted_delta_manifest=compacted_delta_manifest,
+        primary_keys=primary_keys,
+        deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs
+    )
+
+
+def get_merge_task_options(
+    index: int,
+    hb_group_idx: int,
+    data_size: float,
+    pk_size_bytes: float,
+    num_rows: int,
+    num_hash_groups: int,
+    total_memory_buffer_percentage: int,
+    incremental_index_array_size: int,
+    debug_memory_params: Dict[str, Any],
+    ray_custom_resources: Optional[Dict],
+    round_completion_info: Optional[RoundCompletionInfo] = None,
+    compacted_delta_manifest: Optional[Manifest] = None,
+    primary_keys: Optional[List[str]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict] = {},
+) -> Dict[str, Any]:
     if (
-        round_completion_info
-        and compacted_delta_manifest
-        and round_completion_info.hb_index_to_entry_range
+            round_completion_info
+            and compacted_delta_manifest
+            and round_completion_info.hb_index_to_entry_range
     ):
 
         previous_inflation = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.file_bytes
+                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+                / round_completion_info.compacted_pyarrow_write_result.file_bytes
         )
         debug_memory_params["previous_inflation"] = previous_inflation
 
         average_record_size = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.records
+                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+                / round_completion_info.compacted_pyarrow_write_result.records
         )
         debug_memory_params["average_record_size"] = average_record_size
 
@@ -282,91 +357,7 @@ def merge_resource_options_provider(
                     else:
                         pk_size_bytes += pk_size
 
-    return merge_estimate_task_options(
-        index,
-        data_size,
-        pk_size_bytes,
-        num_rows,
-        incremental_index_array_size,
-        debug_memory_params,
-        ray_custom_resources,
-    )
 
-
-def local_merge_resource_options_provider(
-    estimated_da_size: float,
-    estimated_num_rows: int,
-    round_completion_info: Optional[RoundCompletionInfo] = None,
-    compacted_delta_manifest: Optional[Manifest] = None,
-    ray_custom_resources: Optional[Dict] = None,
-    primary_keys: Optional[List[str]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
-    deltacat_storage_kwargs: Optional[Dict] = {},
-    **kwargs,
-) -> Dict:
-    index = LocalMergeFileGroupsProvider.LOCAL_HASH_BUCKET_INDEX
-    debug_memory_params = {"merge_task_index": index}
-
-    # upper bound for pk size of incremental
-    pk_size_bytes = estimated_da_size
-    incremental_index_array_size = estimated_num_rows * 4
-
-    if round_completion_info and compacted_delta_manifest:
-        previous_inflation = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.file_bytes
-        )
-        debug_memory_params["previous_inflation"] = previous_inflation
-
-        average_record_size = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.records
-        )
-        debug_memory_params["average_record_size"] = average_record_size
-        for entry in compacted_delta_manifest.entries:
-            current_entry_size = estimate_manifest_entry_size_bytes(
-                entry=entry, previous_inflation=previous_inflation
-            )
-            current_entry_rows = estimate_manifest_entry_num_rows(
-                entry=entry,
-                average_record_size_bytes=average_record_size,
-                previous_inflation=previous_inflation,
-            )
-
-            estimated_da_size += current_entry_size
-            estimated_num_rows += current_entry_rows
-
-            if primary_keys:
-                pk_size = estimate_manifest_entry_column_size_bytes(
-                    entry=entry,
-                    columns=primary_keys,
-                )
-
-                if pk_size is None:
-                    pk_size_bytes += current_entry_size
-                else:
-                    pk_size_bytes += pk_size
-
-    return merge_estimate_task_options(
-        index,
-        estimated_da_size,
-        pk_size_bytes,
-        estimated_num_rows,
-        incremental_index_array_size,
-        debug_memory_params,
-        ray_custom_resources,
-    )
-
-
-def merge_estimate_task_options(
-    index: int,
-    data_size: float,
-    pk_size_bytes: float,
-    num_rows: int,
-    incremental_index_array_size: int,
-    debug_memory_params: Dict[str, Any],
-    ray_custom_resources: Optional[Dict],
-) -> Dict[str, Any]:
     # total data downloaded + primary key hash column + pyarrow-to-numpy conversion
     # + primary key column + hashlib inefficiency + dict size for merge + incremental index array size
     total_memory = (
@@ -384,7 +375,7 @@ def merge_estimate_task_options(
     debug_memory_params["incremental_index_array_size"] = incremental_index_array_size
     debug_memory_params["total_memory"] = total_memory
 
-    total_memory = total_memory * (1 + TOTAL_MEMORY_BUFFER_PERCENTAGE / 100.0)
+    total_memory = total_memory * (1 + total_memory_buffer_percentage / 100.0)
     debug_memory_params["total_memory_with_buffer"] = total_memory
     logger.debug(
         f"[Merge task {index}]: Params used for calculating merge memory: {debug_memory_params}"
