@@ -18,7 +18,6 @@ from ray.types import ObjectRef
 from tenacity import (
     Retrying,
     retry_if_exception_type,
-    retry_if_not_exception_type,
     stop_after_delay,
     wait_random_exponential,
 )
@@ -28,6 +27,8 @@ from deltacat import logs
 from deltacat.aws.constants import TIMEOUT_ERROR_CODES
 from deltacat.exceptions import (
     RetryableError,
+    RetryableUploadTableError,
+    RetryableDownloadTableError,
     DownloadTableError,
     UploadTableError,
 )
@@ -231,7 +232,7 @@ def read_file(
     except ClientError as e:
         if e.response["Error"]["Code"] in TIMEOUT_ERROR_CODES:
             # Timeout error not caught by botocore
-            raise RetryableError(
+            raise RetryableDownloadTableError(
                 msg=f"Retry table download from: {s3_url}", s3_url=s3_url
             ) from e
         raise DownloadTableError(
@@ -343,7 +344,7 @@ def upload_table(
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # s3fs may swallow S3 errors - we were probably throttled
-                raise RetryableError(
+                raise RetryableUploadTableError(
                     msg=f"Retry table Upload from: {s3_url}", s3_url=s3_url
                 ) from e
             raise UploadTableError(
@@ -397,7 +398,7 @@ def download_manifest_entry(
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(30 * 60),
-        retry=retry_if_not_exception_type(DownloadTableError),
+        retry=retry_if_exception_type(RetryableDownloadTableError),
     )
     table = retrying(
         read_file,

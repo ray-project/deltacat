@@ -5,5 +5,6 @@ from deltacat.utils.common import env_integer, env_string
 DAFT_MAX_S3_CONNECTIONS_PER_FILE = env_integer("DAFT_MAX_S3_CONNECTIONS_PER_FILE", 8)
 BOTO_MAX_RETRIES = env_integer("BOTO_MAX_RETRIES", 15)
 TIMEOUT_ERROR_CODES: List[str] = ["ReadTimeoutError", "ConnectTimeoutError"]
-UPLOAD_TABLE_POSSIBLE_ERROR_CODE = ["RequestTimeTooSkewed", "SlowDown"]
+READ_TABLE_RETRYABLE_ERROR_CODES: List[str] = [*TIMEOUT_ERROR_CODES]
+UPLOAD_TABLE_RETRYABLE_ERROR_CODES = ["RequestTimeTooSkewed", "SlowDown"]
 AWS_REGION = env_string("AWS_REGION", "us-east-1")
