@@ -467,11 +467,11 @@ def _execute_compaction(
     merge_end = time.monotonic()
 
     total_dd_record_count = sum([ddr.deduped_record_count for ddr in merge_results])
-    total_dropped_record_count = sum(
+    total_deleted_record_count = sum(
         [ddr.deleted_record_count for ddr in merge_results]
     )
     logger.info(
-        f"Deduped {total_dd_record_count} records and dropped {total_dropped_record_count} records..."
+        f"Deduped {total_dd_record_count} records and deleted {total_deleted_record_count} records..."
     )
 
     compaction_audit.set_input_records(total_input_records_count.item())
@@ -485,7 +485,7 @@ def _execute_compaction(
     )
 
     compaction_audit.set_records_deduped(total_dd_record_count.item())
-    compaction_audit.set_records_deleted(total_dropped_record_count.item())
+    compaction_audit.set_records_deleted(total_deleted_record_count.item())
     mat_results = []
     for merge_result in merge_results:
         mat_results.extend(merge_result.materialize_results)
@@ -532,7 +532,7 @@ def _execute_compaction(
     record_info_msg = (
         f"Hash bucket records: {total_hb_record_count},"
         f" Deduped records: {total_dd_record_count}, "
-        f" Dropped records: {total_dropped_record_count}, "
+        f" Dropped records: {total_deleted_record_count}, "
         f" Materialized records: {merged_delta.meta.record_count}"
     )
     logger.info(record_info_msg)
