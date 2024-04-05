@@ -181,15 +181,29 @@ class MemcachedObjectStore(IObjectStore):
         for chunk_index in range(chunk_count):
             ref = self._create_ref(uid, ip, chunk_index)
             chunk = client.get(ref)
+            if chunk is None:
+                raise RuntimeError(
+                    f"Expected uid: {uid}, chunk index: {chunk_index} from client ip: {ip}"
+                    f" to be non-empty."
+                )
             serialized.extend(chunk)
 
         return cloudpickle.loads(serialized)
+
+    def clear(self) -> None:
+        for ip in self.storage_node_ips:
+            client = self._get_client_by_ip(ip)
+            client.flush_all(noreply=False)
+
+        self.client_cache.clear()
+        logger.info("Successfully cleared cache contents.")
 
     def close(self) -> None:
         for client in self.client_cache.values():
             client.close()
 
         self.client_cache.clear()
+        logger.info("Successfully closed object store clients.")
 
     def _create_ref(self, uid, ip, chunk_index) -> str:
         return f"{uid}{self.SEPARATOR}{ip}{self.SEPARATOR}{chunk_index}"

@@ -43,7 +43,7 @@ class IObjectStore:
         or may not return ordered results.
         """
 
-    def clear(self, *args, **kwargs) -> bool:
+    def clear(self, *args, **kwargs) -> None:
         ...
 
         """
