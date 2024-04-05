@@ -85,6 +85,13 @@ class CompactionSessionAuditInfo(dict):
         return self.get("recordsDeduped")
 
     @property
+    def records_deleted(self) -> int:
+        """
+        The total count of deleted records in a compaction session if delete deltas are present.
+        """
+        return self.get("recordsDeleted")
+
+    @property
     def input_size_bytes(self) -> float:
         """
         The on-disk size in bytes of the input. Analogous to bytes scanned
@@ -459,6 +466,10 @@ class CompactionSessionAuditInfo(dict):
 
     def set_records_deduped(self, records_deduped: int) -> CompactionSessionAuditInfo:
         self["recordsDeduped"] = records_deduped
+        return self
+
+    def set_records_deleted(self, records_deleted: int) -> CompactionSessionAuditInfo:
+        self["recordsDeleted"] = records_deleted
         return self
 
     def set_input_size_bytes(

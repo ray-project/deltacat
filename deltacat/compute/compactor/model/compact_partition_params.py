@@ -20,6 +20,7 @@ from deltacat.compute.compactor_v2.constants import (
     AVERAGE_RECORD_SIZE_BYTES,
     TASK_MAX_PARALLELISM,
     DROP_DUPLICATES,
+    TOTAL_MEMORY_BUFFER_PERCENTAGE,
 )
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
@@ -85,11 +86,16 @@ class CompactPartitionParams(dict):
         result.average_record_size_bytes = params.get(
             "average_record_size_bytes", AVERAGE_RECORD_SIZE_BYTES
         )
+        result.total_memory_buffer_percentage = params.get(
+            "total_memory_buffer_percentage", TOTAL_MEMORY_BUFFER_PERCENTAGE
+        )
         result.hash_group_count = params.get(
             "hash_group_count", result.hash_bucket_count
         )
         result.drop_duplicates = params.get("drop_duplicates", DROP_DUPLICATES)
         result.ray_custom_resources = params.get("ray_custom_resources")
+
+        result.memory_logs_enabled = params.get("memory_logs_enabled", False)
 
         result.metrics_config = params.get("metrics_config")
 
@@ -189,6 +195,16 @@ class CompactPartitionParams(dict):
     @average_record_size_bytes.setter
     def average_record_size_bytes(self, average_record_size_bytes: float) -> None:
         self["average_record_size_bytes"] = average_record_size_bytes
+
+    @property
+    def total_memory_buffer_percentage(self) -> int:
+        return self["total_memory_buffer_percentage"]
+
+    @total_memory_buffer_percentage.setter
+    def total_memory_buffer_percentage(
+        self, total_memory_buffer_percentage: int
+    ) -> None:
+        self["total_memory_buffer_percentage"] = total_memory_buffer_percentage
 
     @property
     def min_files_in_batch(self) -> float:
@@ -354,6 +370,14 @@ class CompactPartitionParams(dict):
     @sort_keys.setter
     def sort_keys(self, keys: List[SortKey]) -> None:
         self["sort_keys"] = keys
+
+    @property
+    def memory_logs_enabled(self) -> bool:
+        return self.get("memory_logs_enabled")
+
+    @memory_logs_enabled.setter
+    def memory_logs_enabled(self, value: bool) -> None:
+        self["memory_logs_enabled"] = value
 
     @property
     def metrics_config(self) -> Optional[MetricsConfig]:
