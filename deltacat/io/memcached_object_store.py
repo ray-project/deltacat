@@ -182,7 +182,7 @@ class MemcachedObjectStore(IObjectStore):
             ref = self._create_ref(uid, ip, chunk_index)
             chunk = client.get(ref)
             if chunk is None:
-                raise RuntimeError(
+                raise ValueError(
                     f"Expected uid: {uid}, chunk index: {chunk_index} from client ip: {ip}"
                     f" to be non-empty."
                 )
@@ -190,13 +190,19 @@ class MemcachedObjectStore(IObjectStore):
 
         return cloudpickle.loads(serialized)
 
-    def clear(self) -> None:
-        for ip in self.storage_node_ips:
-            client = self._get_client_by_ip(ip)
-            client.flush_all(noreply=False)
-
+    def clear(self) -> bool:
+        flushed = all(
+            [
+                self._get_client_by_ip(ip).flush_all(noreply=False)
+                for ip in self.storage_node_ips
+            ]
+        )
         self.client_cache.clear()
-        logger.info("Successfully cleared cache contents.")
+
+        if flushed:
+            logger.info("Successfully cleared cache contents.")
+
+        return flushed
 
     def close(self) -> None:
         for client in self.client_cache.values():

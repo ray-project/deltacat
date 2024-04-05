@@ -209,5 +209,5 @@ class TestMemcachedObjectStore(unittest.TestCase):
         self.object_store.clear()
 
         # assert
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(ValueError):
             self.object_store.get(ref)
