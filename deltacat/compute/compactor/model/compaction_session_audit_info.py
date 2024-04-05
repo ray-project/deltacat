@@ -87,7 +87,7 @@ class CompactionSessionAuditInfo(dict):
     @property
     def records_deleted(self) -> int:
         """
-        The total count of dropped records in a compaction session if delete deltas are present.
+        The total count of deleted records in a compaction session if delete deltas are present.
         """
         return self.get("recordsDeleted")
 

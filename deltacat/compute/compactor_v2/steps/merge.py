@@ -349,7 +349,7 @@ def _compact_tables(
             1. The compacted PyArrow table.
             2. The total number of records in the incremental data.
             3. The total number of deduplicated records.
-            4. The total number of dropped records due to DELETE operations.
+            4. The total number of deleted records due to DELETE operations.
     """
     df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
     delete_file_envelopes = input.delete_file_envelopes or []
