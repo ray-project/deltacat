@@ -532,7 +532,7 @@ def _execute_compaction(
     record_info_msg = (
         f"Hash bucket records: {total_hb_record_count},"
         f" Deduped records: {total_dd_record_count}, "
-        f" Dropped records: {total_deleted_record_count}, "
+        f" Deleted records: {total_deleted_record_count}, "
         f" Materialized records: {merged_delta.meta.record_count}"
     )
     logger.info(record_info_msg)
@@ -632,7 +632,6 @@ def _execute_compaction(
         f"partition-{params.source_partition_locator.partition_values},"
         f"compacted at: {params.last_stream_position_to_compact},"
     )
-
     return (
         compacted_partition,
         new_round_completion_info,
