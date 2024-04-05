@@ -85,11 +85,11 @@ class CompactionSessionAuditInfo(dict):
         return self.get("recordsDeduped")
 
     @property
-    def records_dropped(self) -> int:
+    def records_deleted(self) -> int:
         """
         The total count of dropped records in a compaction session if delete deltas are present.
         """
-        return self.get("recordsDropped")
+        return self.get("recordsDeleted")
 
     @property
     def input_size_bytes(self) -> float:
@@ -468,8 +468,8 @@ class CompactionSessionAuditInfo(dict):
         self["recordsDeduped"] = records_deduped
         return self
 
-    def set_records_dropped(self, records_dropped: int) -> CompactionSessionAuditInfo:
-        self["recordsDropped"] = records_dropped
+    def set_records_deleted(self, records_deleted: int) -> CompactionSessionAuditInfo:
+        self["recordsDeleted"] = records_deleted
         return self
 
     def set_input_size_bytes(
