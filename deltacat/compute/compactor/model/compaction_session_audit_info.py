@@ -85,6 +85,14 @@ class CompactionSessionAuditInfo(dict):
         return self.get("recordsDeduped")
 
     @property
+    def records_dropped(self) -> int:
+        """
+        The total number of records that were dropped during compaction session
+        will be deduplicated.
+        """
+        return self.get("recordsDropped")
+
+    @property
     def input_size_bytes(self) -> float:
         """
         The on-disk size in bytes of the input. Analogous to bytes scanned
@@ -459,6 +467,10 @@ class CompactionSessionAuditInfo(dict):
 
     def set_records_deduped(self, records_deduped: int) -> CompactionSessionAuditInfo:
         self["recordsDeduped"] = records_deduped
+        return self
+
+    def set_records_dropped(self, records_dropped: int) -> CompactionSessionAuditInfo:
+        self["recordsDropped"] = records_dropped
         return self
 
     def set_input_size_bytes(

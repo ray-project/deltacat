@@ -485,7 +485,7 @@ def _execute_compaction(
     )
 
     compaction_audit.set_records_deduped(total_dd_record_count.item())
-
+    compaction_audit.set_records_dropped(total_dropped_record_count.item())
     mat_results = []
     for merge_result in merge_results:
         mat_results.extend(merge_result.materialize_results)
