@@ -25,6 +25,10 @@ class MockPyMemcacheClient:
     def get(self, key, *args, **kwargs):
         return self.store.get(key)
 
+    def flush_all(self, *args, **kwargs):
+        for key, value in self.store.items():
+            self.store[key] = None
+
 
 class TestMemcachedObjectStore(unittest.TestCase):
 
@@ -192,3 +196,18 @@ class TestMemcachedObjectStore(unittest.TestCase):
         # assert
         result = self.object_store.get(ref)
         self.assertEqual(result, self.TEST_VALUE_LARGE)
+
+    @mock.patch("deltacat.io.memcached_object_store.Client")
+    @mock.patch("deltacat.io.memcached_object_store.RetryingClient")
+    def test_clear_sanity(self, mock_retrying_client, mock_client):
+        # setup
+        mock_client.return_value = MockPyMemcacheClient()
+        mock_retrying_client.return_value = mock_client.return_value
+
+        # action
+        ref = self.object_store.put(self.TEST_VALUE_LARGE)
+        self.object_store.clear()
+
+        # assert
+        with self.assertRaises(ValueError):
+            self.object_store.get(ref)
