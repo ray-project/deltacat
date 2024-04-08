@@ -25,6 +25,8 @@ jobs:
     build-n-test:
         name: Build and test
         runs-on: ubuntu-latest
+        permissions:
+          pull-requests: write
         strategy:
             matrix:
                 python-version: ["3.7", "3.8", "3.9", "3.10"]
