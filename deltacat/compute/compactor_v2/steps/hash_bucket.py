@@ -92,6 +92,7 @@ def _group_file_records_by_pk_hash_bucket(
 
 
 def _timed_hash_bucket(input: HashBucketInput):
+    time.sleep(1)
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
