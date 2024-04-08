@@ -47,7 +47,9 @@ from deltacat.compute.compactor_v2.constants import (
     MERGE_SUCCESS_COUNT,
     MERGE_FAILURE_COUNT,
 )
-
+from deltacat.compute.compactor_v2.utils.exception_handler import (
+    handle_exception,
+)
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -486,6 +488,7 @@ def _copy_manifests_from_hash_bucketing(
 
 @success_metric(name=MERGE_SUCCESS_COUNT)
 @failure_metric(name=MERGE_FAILURE_COUNT)
+@handle_exception
 def _timed_merge(input: MergeInput) -> MergeResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()

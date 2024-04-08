@@ -8,7 +8,7 @@ import logging
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional
 from pyarrow.parquet import ParquetFile
-from deltacat.exceptions import ValidationError
+from deltacat.exceptions import ContentTypeValidationError
 
 import pyarrow as pa
 import numpy as np
@@ -476,10 +476,11 @@ def s3_file_to_parquet(
         content_type != ContentType.PARQUET.value
         or content_encoding != ContentEncoding.IDENTITY
     ):
-        raise ValidationError(
-            f"S3 file with content type: {content_type} and "
-            f"content encoding: {content_encoding} cannot be read"
-            "into pyarrow.parquet.ParquetFile"
+        raise ContentTypeValidationError(
+            msg=f"S3 file with content type: {content_type} and content encoding: {content_encoding} "
+            "cannot be read into pyarrow.parquet.ParquetFile",
+            content_type=content_type,
+            content_encoding=content_encoding,
         )
 
     if s3_client_kwargs is None:

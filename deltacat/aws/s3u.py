@@ -26,7 +26,6 @@ from ray.types import ObjectRef
 from tenacity import (
     Retrying,
     retry_if_exception_type,
-    retry_if_not_exception_type,
     stop_after_delay,
     wait_random_exponential,
 )
@@ -34,6 +33,7 @@ from deltacat.utils.ray_utils.concurrency import invoke_parallel
 import deltacat.aws.clients as aws_utils
 from deltacat import logs
 from deltacat.exceptions import NonRetryableError, RetryableError
+from deltacat.aws.constants import TIMEOUT_ERROR_CODES
 from deltacat.storage import (
     DistributedDataset,
     LocalDataset,
@@ -54,6 +54,13 @@ from deltacat.types.tables import (
     TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS,
     DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC,
     get_table_length,
+)
+from deltacat.exceptions import (
+    RetryableError,
+    RetryableUploadTableError,
+    RetryableDownloadTableError,
+    DownloadTableError,
+    UploadTableError,
 )
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.common import ReadKwargsProvider

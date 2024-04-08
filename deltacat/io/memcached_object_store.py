@@ -12,6 +12,9 @@ from pymemcache.client.retrying import RetryingClient
 from pymemcache.exceptions import MemcacheUnexpectedCloseError
 from pymemcache.client.rendezvous import RendezvousHash
 from deltacat.utils.cloudpickle import dump_into_chunks
+from deltacat.exceptions import (
+    PymemcachedPutObjectError,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -72,7 +75,9 @@ class MemcachedObjectStore(IObjectStore):
         for create_ref_ip, ref_to_object in input.items():
             client = self._get_client_by_ip(create_ref_ip)
             if client.set_many(ref_to_object, noreply=self.noreply):
-                raise RuntimeError("Unable to write few keys to cache")
+                raise PymemcachedPutObjectError(
+                    msg="Unable to write a few keys to cache"
+                )
 
         return result
 
@@ -87,10 +92,15 @@ class MemcachedObjectStore(IObjectStore):
 
             try:
                 if not client.set(ref, chunk, noreply=self.noreply):
-                    raise RuntimeError(f"Unable to write {ref} to cache")
+                    raise PymemcachedPutObjectError(
+                        msg=f"Unable to write {ref} to cache", ref=ref
+                    )
             except BaseException as e:
-                raise RuntimeError(
-                    f"Received {e} while writing ref={ref} and obj size={len(chunk)}"
+                raise PymemcachedPutObjectError(
+                    msg="Received {e} while writing ref={ref} and obj size={chunk_length}",
+                    e=e,
+                    ref=ref,
+                    chunk_length=len(chunk),
                 )
 
         return self._create_ref(uid, create_ref_ip, len(serialized_list))

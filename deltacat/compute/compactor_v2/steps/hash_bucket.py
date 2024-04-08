@@ -30,6 +30,9 @@ from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
 )
+from deltacat.compute.compactor_v2.utils.exception_handler import (
+    handle_exception,
+)
 from deltacat.constants import BYTES_PER_GIBIBYTE
 from deltacat.compute.compactor_v2.constants import (
     HASH_BUCKET_TIME_IN_SECONDS,
