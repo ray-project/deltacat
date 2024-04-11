@@ -1,12 +1,32 @@
+import botocore
 from typing import Optional
-from ray.exceptions import RayError, RuntimeEnvSetupError
+from ray.exceptions import (
+    RayError,
+    RuntimeEnvSetupError,
+    WorkerCrashedError,
+    NodeDiedError,
+    OutOfMemoryError,
+)
 from pyarrow.lib import ArrowException, ArrowInvalid, ArrowCapacityError
 from deltacat.exceptions import (
-    DeltaCatError,
     DependencyPyarrowError,
     DependencyRayRuntimeSetupError,
     DependencyPyarrowInvalidError,
     DependencyPyarrowCapacityError,
+    DependencyDaftError,
+    GeneralAssertionError,
+    RetryableTimeoutError,
+    DependencyRayWorkerDiedError,
+    DependencyRayOutOfMemoryError,
+    DependencyRayError,
+)
+
+
+RAY_TASK_RETRYABLE_TIMEOUT_ERROR_CODES = (
+    botocore.exceptions.ConnectionError,
+    botocore.exceptions.HTTPClientError,
+    ConnectionError,
+    TimeoutError,
 )
 
 
@@ -37,8 +57,14 @@ def handle_compaction_step_exception(e: Exception, task_id: Optional[str] = None
         _handle_ray_error(e, task_id)
     if isinstance(e, ArrowException):
         _handle_dependency_pyarrow_error(e, task_id)
+    elif isinstance(e, AssertionError):
+        _handle_assertion_error(e, task_id)
+    elif "DaftError" in str(e):
+        _handle_daft_error(e, task_id)
+    elif isinstance(e, RAY_TASK_RETRYABLE_TIMEOUT_ERROR_CODES):
+        _handle_retryable_timeout_error(e, task_id)
     else:
-        raise DeltaCatError from e
+        raise e
 
 
 def _handle_ray_error(e: Exception, task_id: Optional[str] = None):
@@ -47,6 +73,18 @@ def _handle_ray_error(e: Exception, task_id: Optional[str] = None):
             msg=f"Ray failed to setup runtime env while executing task:{task_id})",
             task_id=task_id,
         ) from e
+    elif isinstance(e, WorkerCrashedError) or isinstance(e, NodeDiedError):
+        raise DependencyRayWorkerDiedError(
+            msg=f"Ray worker died unexpectedly while executing task:{task_id}.",
+            task_id=task_id,
+        ) from e
+    elif isinstance(e, OutOfMemoryError):
+        raise DependencyRayOutOfMemoryError(
+            msg=f"Ray worker Out Of Memory while executing task: {task_id}.",
+            task_id=task_id,
+        ) from e
+    else:
+        raise DependencyRayError()
 
 
 def _handle_dependency_pyarrow_error(e: Exception, task_id: Optional[str] = None):
@@ -65,3 +103,24 @@ def _handle_dependency_pyarrow_error(e: Exception, task_id: Optional[str] = None
             msg=f"Pyarrow error occurred while executing task:{task_id}.",
             task_id=task_id,
         ) from e
+
+
+def _handle_daft_error(e: Exception, task_id: Optional[str] = None):
+    raise DependencyDaftError(
+        msg=f"Daft error occurred while executing task:{task_id}.",
+        task_id=task_id,
+    ) from e
+
+
+def _handle_assertion_error(e: Exception, task_id: Optional[str] = None):
+    raise GeneralAssertionError(
+        msg=f"Assertion error occurred while executing task:{task_id}.",
+        task_id=task_id,
+    ) from e
+
+
+def _handle_retryable_timeout_error(e: Exception, task_id: Optional[str] = None):
+    raise RetryableTimeoutError(
+        msg=f"Assertion error occurred while executing task:{task_id}.",
+        task_id=task_id,
+    ) from e
