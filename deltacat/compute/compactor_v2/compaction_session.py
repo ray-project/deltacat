@@ -82,7 +82,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
     with memray.Tracker(
         f"compaction_partition.bin"
     ) if params.enable_profiler else nullcontext():
-        (new_partition, new_rci, new_rcf_partition_locator,) = _execute_compaction(
+        (new_partition, new_rci, new_rcf_partition_locator) = _execute_compaction(
             params,
             **kwargs,
         )
@@ -92,6 +92,11 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
             f"Compaction session data processing completed"
         )
         round_completion_file_s3_url = None
+        logger.info(f"pdebug:compact_partition {new_partition=}")
+        logger.info(
+            f"pdebug:compact_partition: {new_rci=}, {new_rcf_partition_locator=}"
+        )
+        logger.info(f"pdebug:compact_partition {new_rcf_partition_locator=}")
         if new_partition:
             logger.info(f"Committing compacted partition to: {new_partition.locator}")
             partition = params.deltacat_storage.commit_partition(
@@ -121,7 +126,32 @@ def _execute_compaction(
     rcf_source_partition_locator = (
         params.rebase_source_partition_locator or params.source_partition_locator
     )
-
+    logger.info(
+        f"pdebug:_execute_compactionBEGIN {rcf_source_partition_locator.partition_id=}"
+    )
+    logger.info(
+        f"pdebug:_execute_compactionBEGIN {params.source_partition_locator.partition_id=}"
+    )
+    logger.info(
+        f"pdebug:_execute_compactionBEGIN {params.destination_partition_locator.partition_id=}"
+    )
+    logger.info(
+        f"pdebug:_execute_compactionBEGIN {params.rebase_source_partition_locator.partition_id=}"
+    )
+    listed_partitions: List[Partition] = params.deltacat_storage.list_partitions(
+        namespace=params.source_partition_locator.namespace,
+        table_name=params.source_partition_locator.table_name,
+        table_version=params.source_partition_locator.table_version,
+    ).all_items()
+    for i, listed_partition in enumerate(listed_partitions):
+        logger.info(
+            f"pdebug:_execute_compactionBEGIN {i=}, {listed_partition.partition_id=}"
+        )
+    source_partition_locator_2 = params.deltacat_storage.get_partition(
+        params.source_partition_locator.stream_locator,
+        params.source_partition_locator.partition_values,
+    )
+    logger.info(f"pdebug:BEGIN {source_partition_locator_2.partition_id=}")
     base_audit_url = rcf_source_partition_locator.path(
         f"s3://{params.compaction_artifact_s3_bucket}/compaction-audit"
     )
@@ -632,6 +662,38 @@ def _execute_compaction(
         f"partition-{params.source_partition_locator.partition_values},"
         f"compacted at: {params.last_stream_position_to_compact},"
     )
+    logger.info(
+        f"pdebug:_execute_compaction:END {params.rebase_source_partition_locator.partition_id=}"
+    )
+    logger.info(
+        f"pdebug:_execute_compaction:END {rcf_source_partition_locator.partition_id=}"
+    )
+    logger.info(
+        f"pdebug:_execute_compaction:END {params.source_partition_locator.partition_id=}"
+    )
+    logger.info(
+        f"pdebug:_execute_compaction:END {params.destination_partition_locator.partition_id=}"
+    )
+    logger.info(
+        f"pdebug:_execute_compaction:END {new_compacted_delta_locator.partition_id=}"
+    )
+    source_partition_locator_2 = params.deltacat_storage.get_partition(
+        params.source_partition_locator.stream_locator,
+        params.source_partition_locator.partition_values,
+    )
+    logger.info(
+        f"pdebug:_execute_compaction:END {source_partition_locator_2.partition_id=}"
+    )
+    listed_partitions: List[Partition] = params.deltacat_storage.list_partitions(
+        namespace=params.source_partition_locator.namespace,
+        table_name=params.source_partition_locator.table_name,
+        table_version=params.source_partition_locator.table_version,
+    ).all_items()
+    for i, listed_partition in enumerate(listed_partitions):
+        logger.info(
+            f"pdebug:_execute_compaction:END {i=}, {listed_partition.partition_id=}"
+        )
+    # partition_id is will change
     return (
         compacted_partition,
         new_round_completion_info,
