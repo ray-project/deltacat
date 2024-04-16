@@ -37,6 +37,7 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaLocator,
+    Manifest,
     Partition,
     PartitionLocator,
 )
@@ -95,7 +96,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
         round_completion_file_s3_url = None
         if new_partition:
             logger.info(f"Committing compacted partition to: {new_partition.locator}")
-            partition = params.deltacat_storage.commit_partition(
+            partition: Partition = params.deltacat_storage.commit_partition(
                 new_partition, **params.deltacat_storage_kwargs
             )
             logger.info(f"Committed compacted partition: {partition}")
@@ -153,7 +154,7 @@ def _execute_compaction(
     # read the results from any previously completed compaction round
     round_completion_info = None
     high_watermark = None
-    previous_compacted_delta_manifest = None
+    previous_compacted_delta_manifest: Optional[Manifest] = None
 
     if not params.rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
