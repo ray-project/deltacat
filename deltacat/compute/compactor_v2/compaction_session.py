@@ -119,10 +119,6 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
 def _execute_compaction(
     params: CompactPartitionParams, **kwargs
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
-    is_inplace_compacted: bool = (
-        params.source_partition_locator.partition_id
-        == params.destination_partition_locator.partition_id
-    )
     rcf_source_partition_locator: PartitionLocator = (
         params.rebase_source_partition_locator or params.source_partition_locator
     )
@@ -635,13 +631,16 @@ def _execute_compaction(
         f"partition-{params.source_partition_locator.partition_values},"
         f"compacted at: {params.last_stream_position_to_compact},"
     )
+    is_inplace_compacted: bool = (
+        params.source_partition_locator == params.destination_partition_locator
+    )
     if (
         is_inplace_compacted
         and compacted_partition.partition_id
         != rcf_source_partition_locator.partition_id
     ):
         logger.warning(
-            "Overridding round completion file source partition locator as in-place compacted. "
+            "Overriding round completion file source partition locator as in-place compacted. "
             + f"Got compacted partition partition_id of {compacted_partition.partition_id} "
             f"and rcf source partition_id of {rcf_source_partition_locator.partition_id}."
         )
