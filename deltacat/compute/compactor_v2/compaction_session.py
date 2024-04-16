@@ -636,8 +636,7 @@ def _execute_compaction(
     )
     if (
         is_inplace_compacted
-        and compacted_partition.partition_id
-        != rcf_source_partition_locator.partition_id
+        and compacted_partition != rcf_source_partition_locator
     ):
         logger.warning(
             "Overriding round completion file source partition locator as in-place compacted. "
