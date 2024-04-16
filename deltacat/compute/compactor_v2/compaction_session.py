@@ -631,6 +631,10 @@ def _execute_compaction(
         input_inflation=input_inflation,
         input_average_record_size_bytes=input_average_record_size_bytes,
     )
+    logger.info(
+        f"partition-{params.source_partition_locator.partition_values},"
+        f"compacted at: {params.last_stream_position_to_compact},"
+    )
     if (
         is_inplace_compacted
         and compacted_partition.partition_id
