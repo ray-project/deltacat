@@ -639,6 +639,7 @@ def _execute_compaction(
         is_inplace_compacted
         and compacted_partition.locator != rcf_source_partition_locator
     ):
+        # NOTE: Concurrent compactions may affect the partitions pointed to in these equality checks
         logger.warning(
             "Overriding round completion file source partition locator as in-place compacted. "
             + f"Got compacted partition partition_id of {compacted_partition.locator.partition_id} "
