@@ -151,6 +151,10 @@ def _execute_compaction(
     round_completion_info = None
     high_watermark = None
     previous_compacted_delta_manifest: Optional[Manifest] = None
+    total_input_records_count = np.int64(0)
+    total_hb_record_count = np.int64(0)
+    total_deduped_record_count = np.int64(0)
+    total_deleted_record_count = np.int64(0)
 
     if not params.rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
@@ -198,6 +202,9 @@ def _execute_compaction(
     )
     if not input_deltas:
         logger.info("No input deltas found to compact.")
+        compaction_audit.set_input_records(total_input_records_count.item())
+        compaction_audit.set_records_deduped(total_deduped_record_count.item())
+        compaction_audit.set_records_deleted(total_deleted_record_count.item())
         return None, None, None
 
     delete_strategy: Optional[DeleteStrategy] = None
@@ -264,11 +271,9 @@ def _execute_compaction(
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,
     )
-
-    total_input_records_count = np.int64(0)
-    total_hb_record_count = np.int64(0)
     telemetry_time_hb = 0
     if params.hash_bucket_count == 1:
+        logger.info(f"Hash bucket count set to 1. Running local merge")
         merge_start = time.monotonic()
         local_merge_input = generate_local_merge_input(
             params,
@@ -465,17 +470,16 @@ def _execute_compaction(
 
     merge_results_retrieved_at = time.time()
     merge_end = time.monotonic()
-
-    total_dd_record_count = sum([ddr.deduped_record_count for ddr in merge_results])
-    total_deleted_record_count = sum(
-        [ddr.deleted_record_count for ddr in merge_results]
+    total_deduped_record_count += sum(
+        [ddr.deduped_record_count for ddr in merge_results]
     )
-    logger.info(
-        f"Deduped {total_dd_record_count} records and deleted {total_deleted_record_count} records..."
+    total_deleted_record_count += sum(
+        [ddr.deleted_record_count for ddr in merge_results]
     )
 
     compaction_audit.set_input_records(total_input_records_count.item())
-
+    compaction_audit.set_records_deduped(total_deduped_record_count.item())
+    compaction_audit.set_records_deleted(total_deleted_record_count.item())
     telemetry_time_merge = compaction_audit.save_step_stats(
         CompactionSessionAuditInfo.MERGE_STEP_NAME,
         merge_results,
@@ -483,9 +487,6 @@ def _execute_compaction(
         merge_invoke_end - merge_start,
         merge_end - merge_start,
     )
-
-    compaction_audit.set_records_deduped(total_dd_record_count.item())
-    compaction_audit.set_records_deleted(total_deleted_record_count.item())
     mat_results = []
     for merge_result in merge_results:
         mat_results.extend(merge_result.materialize_results)
@@ -531,7 +532,7 @@ def _execute_compaction(
 
     record_info_msg = (
         f"Hash bucket records: {total_hb_record_count},"
-        f" Deduped records: {total_dd_record_count}, "
+        f" Deduped records: {total_deduped_record_count}, "
         f" Deleted records: {total_deleted_record_count}, "
         f" Materialized records: {merged_delta.meta.record_count}"
     )
@@ -636,11 +637,11 @@ def _execute_compaction(
     )
     if (
         is_inplace_compacted
-        and compacted_partition != rcf_source_partition_locator
+        and compacted_partition.locator != rcf_source_partition_locator
     ):
         logger.warning(
             "Overriding round completion file source partition locator as in-place compacted. "
-            + f"Got compacted partition partition_id of {compacted_partition.partition_id} "
+            + f"Got compacted partition partition_id of {compacted_partition.locator.partition_id} "
             f"and rcf source partition_id of {rcf_source_partition_locator.partition_id}."
         )
         rcf_source_partition_locator = compacted_partition.locator
