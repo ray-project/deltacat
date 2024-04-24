@@ -12,6 +12,11 @@ from deltacat.utils.metrics import (
     MetricsTarget,
     METRICS_TARGET_TO_EMITTER_DICT,
 )
+from deltacat.utils.performance import timed_invocation
+
+
+def method_not_annotated(mock_func):
+    mock_func("called")
 
 
 @metrics
@@ -126,6 +131,27 @@ class TestMetricsAnnotation(unittest.TestCase):
             any_order=True,
         )
 
+    def test_metrics_annotation_performance(self):
+        mock, mock_target = MagicMock(), MagicMock()
+        METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
+        metrics_actor = MetricsActor.options(
+            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
+        ).remote()
+        config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
+        ray.get(metrics_actor.set_metrics_config.remote(config))
+
+        # action with annotation
+        _, actual_latency = timed_invocation(metrics_annotated_method, mock)
+        _, second_call_latency = timed_invocation(metrics_annotated_method, mock)
+
+        mock.assert_called()
+        self.assertEqual(4, mock_target.call_count)
+        self.assertLess(
+            second_call_latency,
+            actual_latency,
+            "Second call to actor must be much faster",
+        )
+
     def test_metrics_with_prefix_annotation_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
@@ -158,6 +184,24 @@ class TestMetricsAnnotation(unittest.TestCase):
             ],
             any_order=True,
         )
+
+    def test_metrics_with_prefix_annotation_without_actor(self):
+        mock, mock_target = MagicMock(), MagicMock()
+        METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
+        metrics_actor = MetricsActor.options(
+            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
+        ).remote()
+
+        # explicitly making sure actor is killed
+        ray.kill(metrics_actor)
+
+        # action
+        self.assertRaises(
+            ValueError, lambda: metrics_with_prefix_annotated_method_error(mock)
+        )
+
+        mock.assert_not_called()
+        mock_target.assert_not_called()
 
 
 @latency_metric
@@ -271,6 +315,24 @@ class TestLatencyMetricAnnotation(unittest.TestCase):
             [call(metrics_name="test", metrics_config=ANY, value=ANY)], any_order=True
         )
 
+    def test_annotation_without_actor(self):
+        mock, mock_target = MagicMock(), MagicMock()
+        METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
+        metrics_actor = MetricsActor.options(
+            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
+        ).remote()
+
+        # explicitly making sure actor is killed
+        ray.kill(metrics_actor)
+
+        # action
+        self.assertRaises(
+            ValueError, lambda: latency_metric_with_name_annotated_method_error(mock)
+        )
+
+        mock.assert_not_called()
+        mock_target.assert_not_called()
+
 
 @success_metric
 def success_metric_annotated_method(mock_func):
@@ -368,6 +430,22 @@ class TestSuccessMetricAnnotation(unittest.TestCase):
         )
 
         mock.assert_not_called()
+        mock_target.assert_not_called()
+
+    def test_annotation_without_actor(self):
+        mock, mock_target = MagicMock(), MagicMock()
+        METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
+        metrics_actor = MetricsActor.options(
+            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
+        ).remote()
+
+        # explicitly making sure actor is killed
+        ray.kill(metrics_actor)
+
+        # action
+        success_metric_annotated_method(mock)
+
+        mock.assert_called_once()
         mock_target.assert_not_called()
 
 
@@ -477,3 +555,21 @@ class TestFailureMetricAnnotation(unittest.TestCase):
             ],
             any_order=True,
         )
+
+    def test_annotation_without_actor(self):
+        mock, mock_target = MagicMock(), MagicMock()
+        METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
+        metrics_actor = MetricsActor.options(
+            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
+        ).remote()
+
+        # explicitly making sure actor is killed
+        ray.kill(metrics_actor)
+
+        # action
+        self.assertRaises(
+            ValueError, lambda: failure_metric_with_name_annotated_method_error(mock)
+        )
+
+        mock.assert_not_called()
+        mock_target.assert_not_called()
