@@ -1,6 +1,10 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import logging
+import ray
+import time
+import functools
 
 from aws_embedded_metrics import metric_scope
 from aws_embedded_metrics.config import get_config
@@ -18,11 +22,13 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 DEFAULT_DELTACAT_METRICS_NAMESPACE = "ray-deltacat-metrics"
 DEFAULT_DELTACAT_LOG_GROUP_NAME = "ray-deltacat-metrics-EMF-logs"
 DEFAULT_DELTACAT_LOG_STREAM_CALLABLE = get_node_ip_address
+METRICS_CONFIG_ACTOR_NAME = "metrics-config-actor"
 
 
 class MetricsTarget(str, Enum):
     CLOUDWATCH = "cloudwatch"
     CLOUDWATCH_EMF = "cloudwatch_emf"
+    NOOP = "noop"
 
 
 @dataclass
@@ -42,27 +48,16 @@ class MetricsConfig:
         self.metrics_kwargs = metrics_kwargs
 
 
-class MetricsType(str, Enum):
-    TIMER = "timer"
-
-
-def _build_metrics_name(metrics_type: Enum, metrics_name: str) -> str:
-    metrics_name_with_type = f"{metrics_name}_{metrics_type}"
-    return metrics_name_with_type
-
-
 def _build_cloudwatch_metrics(
     metrics_name: str,
-    metrics_type: Enum,
     value: str,
     metrics_dimensions: List[Dict[str, str]],
     timestamp: datetime,
     **kwargs,
 ) -> Dict[str, Any]:
-    metrics_name_with_type = _build_metrics_name(metrics_type, metrics_name)
     return [
         {
-            "MetricName": f"{metrics_name_with_type}",
+            "MetricName": metrics_name,
             "Dimensions": metrics_dimensions,
             "Timestamp": timestamp,
             "Value": value,
@@ -73,7 +68,6 @@ def _build_cloudwatch_metrics(
 
 def _emit_metrics(
     metrics_name: str,
-    metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
     **kwargs,
@@ -85,7 +79,6 @@ def _emit_metrics(
     if metrics_target in METRICS_TARGET_TO_EMITTER_DICT:
         METRICS_TARGET_TO_EMITTER_DICT.get(metrics_target)(
             metrics_name=metrics_name,
-            metrics_type=metrics_type,
             metrics_config=metrics_config,
             value=value,
             **kwargs,
@@ -94,9 +87,15 @@ def _emit_metrics(
         logger.warning(f"{metrics_target} is not a supported metrics target type.")
 
 
+def _emit_noop_metrics(
+    *args,
+    **kwargs,
+) -> None:
+    pass
+
+
 def _emit_cloudwatch_metrics(
     metrics_name: str,
-    metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
     **kwargs,
@@ -111,7 +110,6 @@ def _emit_cloudwatch_metrics(
 
     metrics_data = _build_cloudwatch_metrics(
         metrics_name,
-        metrics_type,
         value,
         metrics_dimensions,
         current_time,
@@ -128,14 +126,13 @@ def _emit_cloudwatch_metrics(
     except Exception as e:
         logger.warning(
             f"Failed to publish Cloudwatch metrics with name: {metrics_name}, "
-            f"type: {metrics_type}, with exception: {e}, response: {response}"
+            f"with exception: {e}, response: {response}"
         )
 
 
 @metric_scope
 def _emit_cloudwatch_emf_metrics(
     metrics_name: str,
-    metrics_type: Enum,
     metrics_config: MetricsConfig,
     value: str,
     metrics: MetricsLogger,
@@ -155,7 +152,6 @@ def _emit_cloudwatch_emf_metrics(
     dimensions = dict(
         [(dim["Name"], dim["Value"]) for dim in metrics_config.metrics_dimensions]
     )
-    metrics_name_with_type = _build_metrics_name(metrics_type, metrics_name)
     try:
         metrics.set_timestamp(current_time)
         metrics.set_dimensions(dimensions)
@@ -177,25 +173,164 @@ def _emit_cloudwatch_emf_metrics(
             else DEFAULT_DELTACAT_LOG_STREAM_CALLABLE()
         )
 
-        metrics.put_metric(metrics_name_with_type, value)
+        metrics.put_metric(metrics_name, value)
     except Exception as e:
         logger.warning(
-            f"Failed to publish Cloudwatch EMF metrics with name: {metrics_name_with_type}, "
-            f"type: {metrics_type}, with exception: {e}"
+            f"Failed to publish Cloudwatch EMF metrics with name: {metrics_name}", e
         )
 
 
 METRICS_TARGET_TO_EMITTER_DICT: Dict[str, Callable] = {
     MetricsTarget.CLOUDWATCH: _emit_cloudwatch_metrics,
     MetricsTarget.CLOUDWATCH_EMF: _emit_cloudwatch_emf_metrics,
+    MetricsTarget.NOOP: _emit_noop_metrics,
 }
+
+
+@ray.remote
+class MetricsActor:
+    metrics_config: MetricsConfig = None
+
+    def set_metrics_config(self, config: MetricsConfig) -> None:
+        self.metrics_config = config
+
+    def get_metrics_config(self) -> MetricsConfig:
+        return self.metrics_config
+
+
+def _emit_ignore_exceptions(name: Optional[str], value: Any):
+    try:
+        config_cache: MetricsActor = MetricsActor.options(
+            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
+        ).remote()
+        config = ray.get(config_cache.get_metrics_config.remote())
+        if config:
+            _emit_metrics(metrics_name=name, value=value, metrics_config=config)
+    except BaseException as ex:
+        logger.warning("Emitting metrics failed", ex)
 
 
 def emit_timer_metrics(metrics_name, value, metrics_config, **kwargs):
     _emit_metrics(
         metrics_name=metrics_name,
-        metrics_type=MetricsType.TIMER,
         metrics_config=metrics_config,
         value=value,
         **kwargs,
     )
+
+
+def latency_metric(original_func=None, name: Optional[str] = None):
+    """
+    A decorator that emits latency metrics of a function
+    based on configured metrics config.
+    """
+
+    def _decorate(func):
+        metrics_name = name or f"{func.__name__}_time"
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start = time.monotonic()
+            try:
+                return func(*args, **kwargs)
+            finally:
+                end = time.monotonic()
+                _emit_ignore_exceptions(name=metrics_name, value=end - start)
+
+        return wrapper
+
+    if original_func:
+        return _decorate(original_func)
+
+    return _decorate
+
+
+def success_metric(original_func=None, name: Optional[str] = None):
+    """
+    A decorator that emits success metrics of a function
+    based on configured metrics config.
+    """
+
+    def _decorate(func):
+        metrics_name = name or f"{func.__name__}_success_count"
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            _emit_ignore_exceptions(name=metrics_name, value=1)
+            return result
+
+        return wrapper
+
+    if original_func:
+        return _decorate(original_func)
+
+    return _decorate
+
+
+def failure_metric(original_func=None, name: Optional[str] = None):
+    """
+    A decorator that emits failure metrics of a function
+    based on configured metrics config.
+    """
+
+    def _decorate(func):
+        metrics_name = name or f"{func.__name__}_failure_count"
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except BaseException as ex:
+                exception_name = type(ex).__name__
+                # We emit two metrics, one for exception class and
+                # another for just the specified metric name.
+                _emit_ignore_exceptions(
+                    name=f"{metrics_name}.{exception_name}", value=1
+                )
+                _emit_ignore_exceptions(name=metrics_name, value=1)
+                raise ex
+
+        return wrapper
+
+    if original_func:
+        return _decorate(original_func)
+
+    return _decorate
+
+
+def metrics(original_func=None, prefix: Optional[str] = None):
+    """
+    A decorator that emits all metrics for a function.
+    """
+
+    def _decorate(func):
+        name = prefix or func.__name__
+        failure_metrics_name = f"{name}_failure_count"
+        success_metrics_name = f"{name}_success_count"
+        latency_metrics_name = f"{name}_time"
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start = time.monotonic()
+            try:
+                result = func(*args, **kwargs)
+                _emit_ignore_exceptions(name=success_metrics_name, value=1)
+                return result
+            except BaseException as ex:
+                exception_name = type(ex).__name__
+                _emit_ignore_exceptions(
+                    name=f"{failure_metrics_name}.{exception_name}", value=1
+                )
+                _emit_ignore_exceptions(name=failure_metrics_name, value=1)
+                raise ex
+            finally:
+                end = time.monotonic()
+                _emit_ignore_exceptions(name=latency_metrics_name, value=end - start)
+
+        return wrapper
+
+    if original_func:
+        return _decorate(original_func)
+
+    return _decorate

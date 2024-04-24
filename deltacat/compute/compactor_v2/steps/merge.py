@@ -24,7 +24,7 @@ from deltacat.utils.ray_utils.runtime import (
 )
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils.metrics import emit_timer_metrics
+from deltacat.utils.metrics import emit_timer_metrics, failure_metric, success_metric
 from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
@@ -42,6 +42,11 @@ from deltacat.storage import (
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
 from deltacat.constants import BYTES_PER_GIBIBYTE
+from deltacat.compute.compactor_v2.constants import (
+    MERGE_TIME_IN_SECONDS,
+    MERGE_SUCCESS_COUNT,
+    MERGE_FAILURE_COUNT,
+)
 
 
 if importlib.util.find_spec("memray"):
@@ -479,6 +484,8 @@ def _copy_manifests_from_hash_bucketing(
     return materialized_results
 
 
+@success_metric(name=MERGE_SUCCESS_COUNT)
+@failure_metric(name=MERGE_FAILURE_COUNT)
 def _timed_merge(input: MergeInput) -> MergeResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
@@ -578,7 +585,7 @@ def merge(input: MergeInput) -> MergeResult:
         if input.metrics_config:
             emit_result, latency = timed_invocation(
                 func=emit_timer_metrics,
-                metrics_name="merge",
+                metrics_name=MERGE_TIME_IN_SECONDS,
                 value=duration,
                 metrics_config=input.metrics_config,
             )

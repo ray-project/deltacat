@@ -25,7 +25,11 @@ from tenacity import (
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
 import deltacat.aws.clients as aws_utils
 from deltacat import logs
-from deltacat.aws.constants import TIMEOUT_ERROR_CODES
+from deltacat.aws.constants import (
+    TIMEOUT_ERROR_CODES,
+    DOWNLOAD_MANIFEST_ENTRY_METRIC_PREFIX,
+    UPLOAD_SLICED_TABLE_METRIC_PREFIX,
+)
 from deltacat.exceptions import NonRetryableError, RetryableError
 from deltacat.storage import (
     DistributedDataset,
@@ -50,6 +54,7 @@ from deltacat.types.tables import (
 )
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.common import ReadKwargsProvider
+from deltacat.utils.metrics import metrics
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -238,6 +243,7 @@ def read_file(
         raise e
 
 
+@metrics(prefix=UPLOAD_SLICED_TABLE_METRIC_PREFIX)
 def upload_sliced_table(
     table: Union[LocalTable, DistributedDataset],
     s3_url_prefix: str,
@@ -346,6 +352,7 @@ def upload_table(
     return manifest_entries
 
 
+@metrics(prefix=DOWNLOAD_MANIFEST_ENTRY_METRIC_PREFIX)
 def download_manifest_entry(
     manifest_entry: ManifestEntry,
     token_holder: Optional[Dict[str, Any]] = None,

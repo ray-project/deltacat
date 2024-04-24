@@ -25,12 +25,17 @@ from deltacat.utils.ray_utils.runtime import (
 )
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils.metrics import emit_timer_metrics
+from deltacat.utils.metrics import emit_timer_metrics, failure_metric, success_metric
 from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
 )
 from deltacat.constants import BYTES_PER_GIBIBYTE
+from deltacat.compute.compactor_v2.constants import (
+    HASH_BUCKET_TIME_IN_SECONDS,
+    HASH_BUCKET_FAILURE_COUNT,
+    HASH_BUCKET_SUCCESS_COUNT,
+)
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -91,6 +96,8 @@ def _group_file_records_by_pk_hash_bucket(
     return hb_to_delta_file_envelopes, total_record_count, total_size_bytes
 
 
+@success_metric(name=HASH_BUCKET_SUCCESS_COUNT)
+@failure_metric(name=HASH_BUCKET_FAILURE_COUNT)
 def _timed_hash_bucket(input: HashBucketInput):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
@@ -153,7 +160,7 @@ def hash_bucket(input: HashBucketInput) -> HashBucketResult:
         if input.metrics_config:
             emit_result, latency = timed_invocation(
                 func=emit_timer_metrics,
-                metrics_name="hash_bucket",
+                metrics_name=HASH_BUCKET_TIME_IN_SECONDS,
                 value=duration,
                 metrics_config=input.metrics_config,
             )

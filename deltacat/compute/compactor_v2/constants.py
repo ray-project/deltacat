@@ -40,3 +40,31 @@ DROP_DUPLICATES = True
 # This is the observed upper bound inflation for parquet
 # size in metadata to pyarrow table size.
 PARQUET_TO_PYARROW_INFLATION = 4
+
+# Metric Names
+# Time taken for a hash bucket task
+HASH_BUCKET_TIME_IN_SECONDS = "hash_bucket_time"
+
+# Hash bucket success count
+HASH_BUCKET_SUCCESS_COUNT = "hash_bucket_success_count"
+
+# Hash bucket failure count
+HASH_BUCKET_FAILURE_COUNT = "hash_bucket_failure_count"
+
+# Time taken for a merge task
+MERGE_TIME_IN_SECONDS = "merge_time"
+
+# Merge success count
+MERGE_SUCCESS_COUNT = "merge_success_count"
+
+# Merge failure count
+MERGE_FAILURE_COUNT = "merge_failure_count"
+
+# Metric prefix for discover deltas
+DISCOVER_DELTAS_METRIC_PREFIX = "discover_deltas"
+
+# Metric prefix for prepare deletes
+PREPARE_DELETES_METRIC_PREFIX = "prepare_deletes"
+
+# Metric prefix for materialize
+MATERIALIZE_METRIC_PREFIX = "delta_materialize"
