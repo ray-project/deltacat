@@ -9,4 +9,4 @@ AWS_REGION = env_string("AWS_REGION", "us-east-1")
 
 # Metric Names
 DOWNLOAD_MANIFEST_ENTRY_METRIC_PREFIX = "download_manifest_entry"
-UPLOAD_SLICED_TABLE_METRIC_PREFIX = "upload_local_table"
+UPLOAD_SLICED_TABLE_METRIC_PREFIX = "upload_sliced_table"
