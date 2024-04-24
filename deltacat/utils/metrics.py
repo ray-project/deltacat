@@ -198,7 +198,7 @@ class MetricsActor:
         return self.metrics_config
 
 
-def _emit_with_exception(name: Optional[str], value: Any):
+def _emit_ignore_exceptions(name: Optional[str], value: Any):
     try:
         config_cache: MetricsActor = MetricsActor.options(
             name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
@@ -235,7 +235,7 @@ def latency_metric(original_func=None, name: Optional[str] = None):
                 return func(*args, **kwargs)
             finally:
                 end = time.monotonic()
-                _emit_with_exception(name=metrics_name, value=end - start)
+                _emit_ignore_exceptions(name=metrics_name, value=end - start)
 
         return wrapper
 
@@ -257,7 +257,7 @@ def success_metric(original_func=None, name: Optional[str] = None):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             result = func(*args, **kwargs)
-            _emit_with_exception(name=metrics_name, value=1)
+            _emit_ignore_exceptions(name=metrics_name, value=1)
             return result
 
         return wrapper
@@ -285,8 +285,10 @@ def failure_metric(original_func=None, name: Optional[str] = None):
                 exception_name = type(ex).__name__
                 # We emit two metrics, one for exception class and
                 # another for just the specified metric name.
-                _emit_with_exception(name=f"{metrics_name}.{exception_name}", value=1)
-                _emit_with_exception(name=metrics_name, value=1)
+                _emit_ignore_exceptions(
+                    name=f"{metrics_name}.{exception_name}", value=1
+                )
+                _emit_ignore_exceptions(name=metrics_name, value=1)
                 raise ex
 
         return wrapper
@@ -313,18 +315,18 @@ def metrics(original_func=None, prefix: Optional[str] = None):
             start = time.monotonic()
             try:
                 result = func(*args, **kwargs)
-                _emit_with_exception(name=success_metrics_name, value=1)
+                _emit_ignore_exceptions(name=success_metrics_name, value=1)
                 return result
             except BaseException as ex:
                 exception_name = type(ex).__name__
-                _emit_with_exception(
+                _emit_ignore_exceptions(
                     name=f"{failure_metrics_name}.{exception_name}", value=1
                 )
-                _emit_with_exception(name=failure_metrics_name, value=1)
+                _emit_ignore_exceptions(name=failure_metrics_name, value=1)
                 raise ex
             finally:
                 end = time.monotonic()
-                _emit_with_exception(name=latency_metrics_name, value=end - start)
+                _emit_ignore_exceptions(name=latency_metrics_name, value=end - start)
 
         return wrapper
 
