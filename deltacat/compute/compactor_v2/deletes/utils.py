@@ -23,6 +23,8 @@ from deltacat.storage import (
     Delta,
 )
 from deltacat import logs
+from deltacat.utils.metrics import metrics
+from deltacat.compute.compactor_v2.constants import PREPARE_DELETES_METRIC_PREFIX
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -115,6 +117,7 @@ def _get_delete_file_envelopes(
     return delete_file_envelopes
 
 
+@metrics(prefix=PREPARE_DELETES_METRIC_PREFIX)
 def prepare_deletes(
     params: CompactPartitionParams,
     input_deltas: List[Delta],
