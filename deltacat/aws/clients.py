@@ -4,6 +4,7 @@ from typing import Optional
 from http import HTTPStatus
 
 import boto3
+from botocore.exceptions import CredentialRetrievalError
 from boto3.exceptions import ResourceNotExistsError
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
@@ -15,6 +16,8 @@ from tenacity import (
     wait_fixed,
     retry_if_exception,
     stop_after_delay,
+    retry_if_exception_type,
+    wait_random_exponential,
 )
 
 from deltacat import logs
@@ -36,6 +39,13 @@ RETRYABLE_HTTP_STATUS_CODES = [
     HTTPStatus.SERVICE_UNAVAILABLE,
     HTTPStatus.GATEWAY_TIMEOUT,
 ]
+
+boto_retry_wrapper = Retrying(
+    wait=wait_random_exponential(multiplier=1, max=10),
+    stop=stop_after_delay(60 * 5),
+    # CredentialRetrievalError can still be thrown due to throttling, even if IMDS health checks succeed.
+    retry=retry_if_exception_type(CredentialRetrievalError),
+)
 
 
 class RetryIfRetryableHTTPStatusCode(retry_if_exception):
@@ -183,10 +193,10 @@ def _client(name: str, region: Optional[str], **kwargs) -> BaseClient:
 def resource_cache(name: str, region: Optional[str], **kwargs) -> ServiceResource:
     # we don't use the @lru_cache decorator because Ray can't pickle it
     cached_function = lru_cache()(_resource)
-    return cached_function(name, region, **kwargs)
+    return boto_retry_wrapper(cached_function, name, region, **kwargs)
 
 
 def client_cache(name: str, region: Optional[str], **kwargs) -> BaseClient:
     # we don't use the @lru_cache decorator because Ray can't pickle it
     cached_function = lru_cache()(_client)
-    return cached_function(name, region, **kwargs)
+    return boto_retry_wrapper(cached_function, name, region, **kwargs)
