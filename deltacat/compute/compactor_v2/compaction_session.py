@@ -65,7 +65,6 @@ from deltacat.compute.compactor_v2.utils.task_options import (
     local_merge_resource_options_provider,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.utils.metrics import MetricsActor, METRICS_CONFIG_ACTOR_NAME
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -118,15 +117,6 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
 def _execute_compaction(
     params: CompactPartitionParams, **kwargs
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
-
-    if params.metrics_config:
-        logger.info(
-            f"Setting metrics config with target: {params.metrics_config.metrics_target}"
-        )
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
-        ray.get(metrics_actor.set_metrics_config.remote(params.metrics_config))
 
     rcf_source_partition_locator = (
         params.rebase_source_partition_locator or params.source_partition_locator
