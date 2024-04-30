@@ -1,13 +1,11 @@
 import unittest
 from unittest.mock import MagicMock, ANY, call
-import ray
 from deltacat.utils.metrics import (
     metrics,
     success_metric,
     failure_metric,
     latency_metric,
-    MetricsActor,
-    METRICS_CONFIG_ACTOR_NAME,
+    MetricsConfigCache,
     MetricsConfig,
     MetricsTarget,
     METRICS_TARGET_TO_EMITTER_DICT,
@@ -43,11 +41,8 @@ class TestMetricsAnnotation(unittest.TestCase):
     def test_metrics_annotation_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         metrics_annotated_method(mock)
@@ -73,11 +68,8 @@ class TestMetricsAnnotation(unittest.TestCase):
     def test_metrics_annotation_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(ValueError, lambda: metrics_annotated_method_error(mock))
@@ -108,11 +100,8 @@ class TestMetricsAnnotation(unittest.TestCase):
     def test_metrics_with_prefix_annotation_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         metrics_with_prefix_annotated_method(mock)
@@ -134,11 +123,8 @@ class TestMetricsAnnotation(unittest.TestCase):
     def test_metrics_annotation_performance(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action with annotation
         _, actual_latency = timed_invocation(metrics_annotated_method, mock)
@@ -155,11 +141,8 @@ class TestMetricsAnnotation(unittest.TestCase):
     def test_metrics_with_prefix_annotation_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(
@@ -185,15 +168,10 @@ class TestMetricsAnnotation(unittest.TestCase):
             any_order=True,
         )
 
-    def test_metrics_with_prefix_annotation_without_actor(self):
+    def test_metrics_with_prefix_annotation_without_config(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
-
-        # explicitly making sure actor is killed
-        ray.kill(metrics_actor)
+        MetricsConfigCache.metrics_config = None
 
         # action
         self.assertRaises(
@@ -228,11 +206,8 @@ class TestLatencyMetricAnnotation(unittest.TestCase):
     def test_annotation_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         latency_metric_annotated_method(mock)
@@ -253,11 +228,8 @@ class TestLatencyMetricAnnotation(unittest.TestCase):
     def test_annotation_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(
@@ -280,11 +252,8 @@ class TestLatencyMetricAnnotation(unittest.TestCase):
     def test_annotation_with_args_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         latency_metric_with_name_annotated_method(mock)
@@ -298,11 +267,8 @@ class TestLatencyMetricAnnotation(unittest.TestCase):
     def test_annotation_with_args_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(
@@ -315,15 +281,10 @@ class TestLatencyMetricAnnotation(unittest.TestCase):
             [call(metrics_name="test", metrics_config=ANY, value=ANY)], any_order=True
         )
 
-    def test_annotation_without_actor(self):
+    def test_annotation_without_config(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
-
-        # explicitly making sure actor is killed
-        ray.kill(metrics_actor)
+        MetricsConfigCache.metrics_config = None
 
         # action
         self.assertRaises(
@@ -358,11 +319,8 @@ class TestSuccessMetricAnnotation(unittest.TestCase):
     def test_annotation_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         success_metric_annotated_method(mock)
@@ -383,11 +341,8 @@ class TestSuccessMetricAnnotation(unittest.TestCase):
     def test_annotation_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(
@@ -400,11 +355,8 @@ class TestSuccessMetricAnnotation(unittest.TestCase):
     def test_annotation_with_args_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         success_metric_with_name_annotated_method(mock)
@@ -418,11 +370,8 @@ class TestSuccessMetricAnnotation(unittest.TestCase):
     def test_annotation_with_args_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(
@@ -432,15 +381,10 @@ class TestSuccessMetricAnnotation(unittest.TestCase):
         mock.assert_not_called()
         mock_target.assert_not_called()
 
-    def test_annotation_without_actor(self):
+    def test_annotation_without_config(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
-
-        # explicitly making sure actor is killed
-        ray.kill(metrics_actor)
+        MetricsConfigCache.metrics_config = None
 
         # action
         success_metric_annotated_method(mock)
@@ -473,11 +417,8 @@ class TestFailureMetricAnnotation(unittest.TestCase):
     def test_annotation_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         failure_metric_annotated_method(mock)
@@ -488,11 +429,8 @@ class TestFailureMetricAnnotation(unittest.TestCase):
     def test_annotation_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(
@@ -520,11 +458,8 @@ class TestFailureMetricAnnotation(unittest.TestCase):
     def test_annotation_with_args_sanity(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         failure_metric_with_name_annotated_method(mock)
@@ -535,11 +470,8 @@ class TestFailureMetricAnnotation(unittest.TestCase):
     def test_annotation_with_args_when_error(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
         config = MetricsConfig("us-east-1", MetricsTarget.NOOP)
-        ray.get(metrics_actor.set_metrics_config.remote(config))
+        MetricsConfigCache.metrics_config = config
 
         # action
         self.assertRaises(
@@ -556,15 +488,10 @@ class TestFailureMetricAnnotation(unittest.TestCase):
             any_order=True,
         )
 
-    def test_annotation_without_actor(self):
+    def test_annotation_without_config(self):
         mock, mock_target = MagicMock(), MagicMock()
         METRICS_TARGET_TO_EMITTER_DICT[MetricsTarget.NOOP] = mock_target
-        metrics_actor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
-
-        # explicitly making sure actor is killed
-        ray.kill(metrics_actor)
+        MetricsConfigCache.metrics_config = None
 
         # action
         self.assertRaises(

@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 import logging
-import ray
 import time
 import functools
 
@@ -22,7 +21,6 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 DEFAULT_DELTACAT_METRICS_NAMESPACE = "ray-deltacat-metrics"
 DEFAULT_DELTACAT_LOG_GROUP_NAME = "ray-deltacat-metrics-EMF-logs"
 DEFAULT_DELTACAT_LOG_STREAM_CALLABLE = get_node_ip_address
-METRICS_CONFIG_ACTOR_NAME = "metrics-config-actor"
 
 
 class MetricsTarget(str, Enum):
@@ -187,23 +185,13 @@ METRICS_TARGET_TO_EMITTER_DICT: Dict[str, Callable] = {
 }
 
 
-@ray.remote
-class MetricsActor:
+class MetricsConfigCache:
     metrics_config: MetricsConfig = None
-
-    def set_metrics_config(self, config: MetricsConfig) -> None:
-        self.metrics_config = config
-
-    def get_metrics_config(self) -> MetricsConfig:
-        return self.metrics_config
 
 
 def _emit_ignore_exceptions(name: Optional[str], value: Any):
     try:
-        config_cache: MetricsActor = MetricsActor.options(
-            name=METRICS_CONFIG_ACTOR_NAME, get_if_exists=True
-        ).remote()
-        config = ray.get(config_cache.get_metrics_config.remote())
+        config = MetricsConfigCache.metrics_config
         if config:
             _emit_metrics(metrics_name=name, value=value, metrics_config=config)
     except BaseException as ex:
@@ -222,7 +210,14 @@ def emit_timer_metrics(metrics_name, value, metrics_config, **kwargs):
 def latency_metric(original_func=None, name: Optional[str] = None):
     """
     A decorator that emits latency metrics of a function
-    based on configured metrics config.
+    based on configured metrics config. Hence, make sure to set it in all worker processes:
+
+    def setup_cache():
+        from deltacat.utils.metrics import MetricsConfigCache
+        MetricsConfigCache.metrics_config = metrics_config
+
+    setup_cache();
+    ray.init(address="auto", runtime_env={"worker_process_setup_hook": setup_cache})
     """
 
     def _decorate(func):
@@ -248,7 +243,14 @@ def latency_metric(original_func=None, name: Optional[str] = None):
 def success_metric(original_func=None, name: Optional[str] = None):
     """
     A decorator that emits success metrics of a function
-    based on configured metrics config.
+    based on configured metrics config. Hence, make sure to set it in all worker processes:
+
+    def setup_cache():
+        from deltacat.utils.metrics import MetricsConfigCache
+        MetricsConfigCache.metrics_config = metrics_config
+
+    setup_cache();
+    ray.init(address="auto", runtime_env={"worker_process_setup_hook": setup_cache})
     """
 
     def _decorate(func):
@@ -271,7 +273,14 @@ def success_metric(original_func=None, name: Optional[str] = None):
 def failure_metric(original_func=None, name: Optional[str] = None):
     """
     A decorator that emits failure metrics of a function
-    based on configured metrics config.
+    based on configured metrics config. Hence, make sure to set it in all worker processes:
+
+    def setup_cache():
+        from deltacat.utils.metrics import MetricsConfigCache
+        MetricsConfigCache.metrics_config = metrics_config
+
+    setup_cache();
+    ray.init(address="auto", runtime_env={"worker_process_setup_hook": setup_cache})
     """
 
     def _decorate(func):
@@ -301,7 +310,15 @@ def failure_metric(original_func=None, name: Optional[str] = None):
 
 def metrics(original_func=None, prefix: Optional[str] = None):
     """
-    A decorator that emits all metrics for a function.
+    A decorator that emits all metrics for a function. This decorator depends
+    on a metrics config. Hence, make sure to set it in all worker processes:
+
+    def setup_cache():
+        from deltacat.utils.metrics import MetricsConfigCache
+        MetricsConfigCache.metrics_config = metrics_config
+
+    setup_cache();
+    ray.init(address="auto", runtime_env={"worker_process_setup_hook": setup_cache})
     """
 
     def _decorate(func):
