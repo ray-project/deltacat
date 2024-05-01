@@ -163,5 +163,7 @@ def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
             retry_mode="adaptive",
             num_tries=BOTO_MAX_RETRIES,
             max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
+            connect_timeout_ms=5_000,  # Timeout to connect to server
+            read_timeout_ms=10_000,  # Timeout for first byte from server
         )
     )
