@@ -90,9 +90,7 @@ class NodeGroupManager:
         Returns:
                 group_res: a dict of resources, e.g., {'CPU':0,'memory':0,'object_store_memory':0}
         """
-        all_available_resources = (
-            ray._private.state.state._available_resources_per_node()
-        )
+        all_available_resources = ray._private.state.available_resources_per_node()
         group_keys = [x[0] for x in self.init_groups]
         group_res = {}
         for k in group_keys:
@@ -127,9 +125,7 @@ class NodeGroupManager:
         Returns:
                 group_res: dict of updated resource(cpu, memory, object store memory) for a given group
         """
-        all_available_resources = (
-            ray._private.state.state._available_resources_per_node()
-        )
+        all_available_resources = ray._private.state.available_resources_per_node()
         group_res = {"CPU": 0, "memory": 0, "object_store_memory": 0, "node_id": []}
         for v in all_available_resources.values():
             keys = v.keys()
@@ -285,7 +281,7 @@ def _config(
     for bd in bundles:
         node_ids.append(bd["node_id"])
     # query available resources given list of node id
-    all_nodes_available_res = ray._private.state.state._available_resources_per_node()
+    all_nodes_available_res = ray._private.state.available_resources_per_node()
     pg_res = {"CPU": 0, "memory": 0, "object_store_memory": 0}
     node_ips = []
     for node_id in node_ids:
