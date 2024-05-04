@@ -23,7 +23,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def _get_available_resources_per_node():
     # This API changed after this commit
     # https://github.com/ray-project/ray/pull/43252
-    if Version(ray.__version__) >= "2.10.0":
+    if Version(ray.__version__) >= Version("2.10.0"):
         return ray._private.state.available_resources_per_node()
     else:
         return ray._private.state.state._available_resources_per_node()
