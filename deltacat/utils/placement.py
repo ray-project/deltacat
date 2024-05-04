@@ -2,6 +2,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from packaging.version import Version
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import ray
@@ -17,6 +18,15 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 # Limitation of current node group or placement group manager
 # Must run on driver or head node bc state.api needs to query dashboard api server at 127.0.0.1.
 # Issue: https://github.com/ray-project/ray/issues/29959
+
+
+def _get_available_resources_per_node():
+    # This API changed after this commit
+    # https://github.com/ray-project/ray/pull/43252
+    if Version(ray.__version__) >= "2.10.0":
+        return ray._private.state.available_resources_per_node()
+    else:
+        return ray._private.state.state._available_resources_per_node()
 
 
 @dataclass
@@ -90,7 +100,7 @@ class NodeGroupManager:
         Returns:
                 group_res: a dict of resources, e.g., {'CPU':0,'memory':0,'object_store_memory':0}
         """
-        all_available_resources = ray._private.state.available_resources_per_node()
+        all_available_resources = _get_available_resources_per_node()
         group_keys = [x[0] for x in self.init_groups]
         group_res = {}
         for k in group_keys:
@@ -125,7 +135,7 @@ class NodeGroupManager:
         Returns:
                 group_res: dict of updated resource(cpu, memory, object store memory) for a given group
         """
-        all_available_resources = ray._private.state.available_resources_per_node()
+        all_available_resources = _get_available_resources_per_node()
         group_res = {"CPU": 0, "memory": 0, "object_store_memory": 0, "node_id": []}
         for v in all_available_resources.values():
             keys = v.keys()
@@ -281,7 +291,7 @@ def _config(
     for bd in bundles:
         node_ids.append(bd["node_id"])
     # query available resources given list of node id
-    all_nodes_available_res = ray._private.state.available_resources_per_node()
+    all_nodes_available_res = _get_available_resources_per_node()
     pg_res = {"CPU": 0, "memory": 0, "object_store_memory": 0}
     node_ips = []
     for node_id in node_ids:

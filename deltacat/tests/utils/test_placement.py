@@ -1,6 +1,9 @@
 import unittest
 import ray
-from deltacat.utils.placement import PlacementGroupManager
+from deltacat.utils.placement import (
+    PlacementGroupManager,
+    _get_available_resources_per_node,
+)
 
 
 class TestPlacementGroupManager(unittest.TestCase):
@@ -17,6 +20,6 @@ class TestPlacementGroupManager(unittest.TestCase):
 
     def test_ray_state_api_returns_correctly(self):
 
-        result = ray._private.state.available_resources_per_node()
+        result = _get_available_resources_per_node()
 
         self.assertIsNotNone(result)
