@@ -158,7 +158,7 @@ def _create_rotating_file_handler(
     logging_level: Union[str, int] = DEFAULT_LOG_LEVEL,
     max_bytes_per_log_file: int = DEFAULT_MAX_BYTES_PER_LOG,
     backup_count: int = DEFAULT_BACKUP_COUNT,
-    logging_format: str = DEFAULT_LOG_FORMAT,
+    logging_format: Union[str, dict] = DEFAULT_LOG_FORMAT,
 ) -> FileHandler:
 
     if type(logging_level) is str:
