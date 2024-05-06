@@ -206,6 +206,7 @@ def _configure_logger(
     log_base_file_name: str,
     debug_log_base_file_name: str,
 ) -> Union[Logger, LoggerAdapter]:
+    # This maintains log level of rotating file handlers
     primary_log_level = log_level
     logger.propagate = False
     if log_level <= logging.getLevelName("DEBUG"):
