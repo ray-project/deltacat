@@ -65,6 +65,3 @@ DISCOVER_DELTAS_METRIC_PREFIX = "discover_deltas"
 
 # Metric prefix for prepare deletes
 PREPARE_DELETES_METRIC_PREFIX = "prepare_deletes"
-
-# Metric prefix for materialize
-MATERIALIZE_METRIC_PREFIX = "delta_materialize"

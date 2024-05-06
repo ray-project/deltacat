@@ -27,8 +27,6 @@ import deltacat.aws.clients as aws_utils
 from deltacat import logs
 from deltacat.aws.constants import (
     TIMEOUT_ERROR_CODES,
-    DOWNLOAD_MANIFEST_ENTRY_METRIC_PREFIX,
-    UPLOAD_SLICED_TABLE_METRIC_PREFIX,
 )
 from deltacat.exceptions import NonRetryableError, RetryableError
 from deltacat.storage import (
@@ -54,7 +52,6 @@ from deltacat.types.tables import (
 )
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.metrics import metrics
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -120,6 +117,32 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
         if block:
             self.block_refs.append(block)
         return write_path
+
+    def __call__(
+        self,
+        base_path: str,
+        *,
+        filesystem: Optional[pa.filesystem.FileSystem] = None,
+        dataset_uuid: Optional[str] = None,
+        block: Optional[ObjectRef[Block]] = None,
+        block_index: Optional[int] = None,
+        file_format: Optional[str] = None,
+    ) -> str:
+        """
+        TODO: BlockWritePathProvider is deprecated as of Ray version 2.20.0. Please use FilenameProvider.
+        See: https://docs.ray.io/en/master/data/api/doc/ray.data.datasource.FilenameProvider.html
+        Also See: https://github.com/ray-project/deltacat/issues/299
+
+        Hence, this class only works with Ray version 2.20.0 or lower when used in Ray Dataset.
+        """
+        return self._get_write_path_for_block(
+            base_path,
+            filesystem=filesystem,
+            dataset_uuid=dataset_uuid,
+            block=block,
+            block_index=block_index,
+            file_format=file_format,
+        )
 
 
 class S3Url:
@@ -243,7 +266,6 @@ def read_file(
         raise e
 
 
-@metrics(prefix=UPLOAD_SLICED_TABLE_METRIC_PREFIX)
 def upload_sliced_table(
     table: Union[LocalTable, DistributedDataset],
     s3_url_prefix: str,
@@ -352,7 +374,6 @@ def upload_table(
     return manifest_entries
 
 
-@metrics(prefix=DOWNLOAD_MANIFEST_ENTRY_METRIC_PREFIX)
 def download_manifest_entry(
     manifest_entry: ManifestEntry,
     token_holder: Optional[Dict[str, Any]] = None,
