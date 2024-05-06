@@ -131,8 +131,9 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
         """
         TODO: BlockWritePathProvider is deprecated as of Ray version 2.20.0. Please use FilenameProvider.
         See: https://docs.ray.io/en/master/data/api/doc/ray.data.datasource.FilenameProvider.html
+        Also See: https://github.com/ray-project/deltacat/issues/299
 
-        Hence, this class only works with Ray version 2.3.0 or lower when used in Ray Dataset.
+        Hence, this class only works with Ray version 2.20.0 or lower when used in Ray Dataset.
         """
         return self._get_write_path_for_block(
             base_path,
