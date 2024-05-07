@@ -21,6 +21,9 @@ from deltacat.compute.compactor_v2.constants import (
     PARQUET_TO_PYARROW_INFLATION,
 )
 
+from daft.exceptions import DaftTransientError
+
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
@@ -76,6 +79,7 @@ def get_task_options(
         botocore.exceptions.HTTPClientError,
         ConnectionError,
         TimeoutError,
+        DaftTransientError,
     ]
 
     return task_opts
