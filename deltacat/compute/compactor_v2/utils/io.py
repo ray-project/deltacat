@@ -23,10 +23,13 @@ from deltacat.compute.compactor_v2.utils.task_options import (
 from deltacat.compute.compactor_v2.utils.content_type_params import (
     append_content_type_params,
 )
+from deltacat.utils.metrics import metrics
+from deltacat.compute.compactor_v2.constants import DISCOVER_DELTAS_METRIC_PREFIX
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+@metrics(prefix=DISCOVER_DELTAS_METRIC_PREFIX)
 def discover_deltas(
     source_partition_locator: PartitionLocator,
     last_stream_position_to_compact: int,

@@ -52,6 +52,7 @@ from deltacat.compute.compactor_v2.steps import merge as mg
 from deltacat.compute.compactor_v2.steps import hash_bucket as hb
 from deltacat.compute.compactor_v2.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
+from deltacat.utils.metrics import metrics
 
 from typing import List, Optional, Tuple
 from collections import defaultdict
@@ -75,6 +76,7 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+@metrics
 def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]:
 
     assert (
