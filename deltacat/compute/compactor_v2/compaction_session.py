@@ -646,7 +646,7 @@ def _execute_compaction(
         and params.source_partition_locator.stream_id
         == params.destination_partition_locator.stream_id
     )
-    if (is_inplace_compacted):
+    if is_inplace_compacted:
         logger.info(
             "Overriding round completion file source partition locator as in-place compacted. "
             + f"Got compacted partition partition_id of {compacted_partition.locator.partition_id} "
