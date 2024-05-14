@@ -302,4 +302,15 @@ def test_compact_partition_incremental(
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
+
+    if is_inplace:
+        assert (
+            source_partition.locator.partition_values
+            == destination_partition_locator.partition_values
+            and source_partition.locator.stream_id
+            == destination_partition_locator.stream_id
+        ), "The source partition should match the destination partition"
+        assert (
+            compacted_delta_locator.stream_id == source_partition.locator.stream_id
+        ), "The compacted delta should be in the same stream as the source"
     return
