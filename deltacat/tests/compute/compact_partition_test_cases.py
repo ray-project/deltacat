@@ -54,6 +54,7 @@ class BaseCompactorTestCase:
         input_deltas_delta_type: DeltaType - enumerated argument required for delta creation during compact_partition test setup. Available values are (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE). DeltaType.APPEND is not supported by compactor v1 or v2
         expected_terminal_compact_partition_result: pa.Table - expected PyArrow table after compaction (i.e,. the state of the table after applying all row UPDATES/DELETES/INSERTS)
         expected_terminal_exception: BaseException - expected exception during compaction
+        expected_terminal_exception_message: Optional[str] - expected exception message if present.
         do_create_placement_group: bool - toggles whether to create a placement group (https://docs.ray.io/en/latest/ray-core/scheduling/placement-group.html) or not
         records_per_compacted_file: int - argument for the records_per_compacted_file parameter in compact_partition
         hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
@@ -70,6 +71,7 @@ class BaseCompactorTestCase:
     input_deltas_delta_type: DeltaType
     expected_terminal_compact_partition_result: pa.Table
     expected_terminal_exception: BaseException
+    expected_terminal_exception_message: str
     do_create_placement_group: bool
     records_per_compacted_file: int
     hash_bucket_count: int
@@ -139,6 +141,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -165,6 +168,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -200,6 +204,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -234,6 +239,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -263,6 +269,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -292,6 +299,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -321,6 +329,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -352,6 +361,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "pk_col_2", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -381,6 +391,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -410,6 +421,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -439,6 +451,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
@@ -468,6 +481,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=1,
@@ -497,6 +511,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
