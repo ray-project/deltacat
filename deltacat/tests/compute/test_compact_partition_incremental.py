@@ -156,7 +156,6 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
-    indirect=[],
 )
 def test_compact_partition_incremental(
     setup_s3_resource: ServiceResource,
