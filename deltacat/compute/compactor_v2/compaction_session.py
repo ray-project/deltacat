@@ -17,7 +17,11 @@ from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 from deltacat.aws import s3u as s3_utils
 import deltacat
 from deltacat import logs
-from deltacat.compute.compactor import PyArrowWriteResult, RoundCompletionInfo
+from deltacat.compute.compactor import (
+    HighWatermark,
+    PyArrowWriteResult,
+    RoundCompletionInfo,
+)
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -37,7 +41,6 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaLocator,
-    HighWatermark,
     Manifest,
     Partition,
 )

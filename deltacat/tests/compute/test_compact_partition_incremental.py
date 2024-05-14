@@ -107,6 +107,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "read_kwargs_provider_param",
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
+        "is_inplace",
         "compact_partition_func",
     ],
     [
@@ -126,6 +127,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            is_inplace,
             compact_partition_func,
         )
         for test_name, (
@@ -143,6 +145,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            is_inplace,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
@@ -167,6 +170,7 @@ def test_compact_partition_incremental(
     drop_duplicates_param: bool,
     read_kwargs_provider_param: Any,
     skip_enabled_compact_partition_drivers,
+    is_inplace: bool,
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
@@ -202,6 +206,7 @@ def test_compact_partition_incremental(
         input_deltas_delta_type,
         partition_values_param,
         ds_mock_kwargs,
+        is_inplace,
     )
     source_partition = ds.get_partition(
         source_table_stream.locator,

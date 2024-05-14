@@ -84,7 +84,12 @@ class BaseCompactorTestCase:
 
 @dataclass(frozen=True)
 class IncrementalCompactionTestCaseParams(BaseCompactorTestCase):
-    pass
+    """
+    Args:
+        is_inplace: bool - argument to indicate whether to try compacting an in-place compacted table (the source table is the destination table). Also needed to control whether the destination table is created
+    """
+
+    is_inplace: bool
 
 
 @dataclass(frozen=True)
@@ -139,6 +144,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCaseParams(
@@ -164,6 +170,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCaseParams(
@@ -198,6 +205,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCaseParams(
@@ -231,6 +239,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCaseParams(
@@ -259,6 +268,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCaseParams(
@@ -287,6 +297,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCaseParams(
@@ -315,6 +326,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCaseParams(
@@ -345,6 +357,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCaseParams(
@@ -373,6 +386,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCaseParams(
@@ -401,6 +415,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "11-incremental-decimal-hash-bucket-single": IncrementalCompactionTestCaseParams(
@@ -429,6 +444,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "12-incremental-decimal-single-hash-bucket": IncrementalCompactionTestCaseParams(
@@ -457,6 +473,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         hash_bucket_count=1,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
 }

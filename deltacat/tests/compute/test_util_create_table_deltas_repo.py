@@ -84,6 +84,7 @@ def create_src_w_deltas_destination_plus_destination(
     input_delta_type: DeltaType,
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
+    simulate_is_inplace: bool = False,
 ) -> Tuple[Stream, Stream, Optional[Stream]]:
     import deltacat.tests.local_deltacat_storage as ds
 
@@ -113,13 +114,23 @@ def create_src_w_deltas_destination_plus_destination(
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    (
-        destination_table_namespace,
-        destination_table_name,
-        destination_table_version,
-    ) = create_destination_table(
-        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
-    )
+    destination_table_namespace: Optional[str] = None
+    destination_table_name: Optional[str] = None
+    destination_table_version: Optional[str] = None
+    if not simulate_is_inplace:
+        (
+            destination_table_namespace,
+            destination_table_name,
+            destination_table_version,
+        ) = create_destination_table(
+            primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+        )
+    else:
+        # not creating a table as in-place
+        destination_table_namespace = source_namespace
+        destination_table_name = source_table_name
+        destination_table_version = source_table_version
+
     destination_table_stream: Stream = ds.get_stream(
         namespace=destination_table_namespace,
         table_name=destination_table_name,
