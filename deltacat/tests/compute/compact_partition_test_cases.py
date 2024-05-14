@@ -54,6 +54,7 @@ class BaseCompactorTestCase:
         input_deltas_delta_type: DeltaType - enumerated argument required for delta creation during compact_partition test setup. Available values are (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE). DeltaType.APPEND is not supported by compactor v1 or v2
         expected_terminal_compact_partition_result: pa.Table - expected PyArrow table after compaction (i.e,. the state of the table after applying all row UPDATES/DELETES/INSERTS)
         expected_terminal_exception: BaseException - expected exception during compaction
+        expected_terminal_exception_message: Optional[str] - expected exception message if present.
         do_create_placement_group: bool - toggles whether to create a placement group (https://docs.ray.io/en/latest/ray-core/scheduling/placement-group.html) or not
         records_per_compacted_file: int - argument for the records_per_compacted_file parameter in compact_partition
         hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
@@ -70,6 +71,7 @@ class BaseCompactorTestCase:
     input_deltas_delta_type: DeltaType
     expected_terminal_compact_partition_result: pa.Table
     expected_terminal_exception: BaseException
+    expected_terminal_exception_message: str
     do_create_placement_group: bool
     records_per_compacted_file: int
     hash_bucket_count: int
@@ -84,7 +86,12 @@ class BaseCompactorTestCase:
 
 @dataclass(frozen=True)
 class IncrementalCompactionTestCaseParams(BaseCompactorTestCase):
-    pass
+    """
+    Args:
+        is_inplace: bool - argument to indicate whether to try compacting an in-place compacted table (the source table is the destination table). Also needed to control whether the destination table is created
+    """
+
+    is_inplace: bool
 
 
 @dataclass(frozen=True)
@@ -134,11 +141,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCaseParams(
@@ -159,11 +168,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCaseParams(
@@ -193,11 +204,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCaseParams(
@@ -226,11 +239,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1", "sk_col_2"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCaseParams(
@@ -254,11 +269,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCaseParams(
@@ -282,11 +299,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCaseParams(
@@ -310,11 +329,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCaseParams(
@@ -340,11 +361,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "pk_col_2", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCaseParams(
@@ -368,11 +391,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCaseParams(
@@ -396,11 +421,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "11-incremental-decimal-hash-bucket-single": IncrementalCompactionTestCaseParams(
@@ -424,11 +451,13 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
     ),
     "12-incremental-decimal-single-hash-bucket": IncrementalCompactionTestCaseParams(
@@ -452,12 +481,44 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             names=["pk_col_1", "sk_col_1"],
         ),
         expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=1,
         read_kwargs_provider=None,
         drop_duplicates=True,
+        is_inplace=False,
         skip_enabled_compact_partition_drivers=None,
+    ),
+    "13-incremental-pkstr-skexists-isinplacecompacted": IncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=[SortKey.of(key_name="sk_col_1")],
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values=["1"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(10)]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(10)]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        is_inplace=True,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
 }
 

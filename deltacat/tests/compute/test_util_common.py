@@ -20,6 +20,9 @@ from deltacat.tests.compute.test_util_constant import (
     REBASING_TABLE_NAME,
     REBASING_TABLE_VERSION,
 )
+from deltacat.compute.compactor import (
+    RoundCompletionInfo,
+)
 
 
 class PartitionKeyType(str, Enum):
@@ -134,11 +137,8 @@ def create_rebase_table(
     )
 
 
-def get_rcf(s3_resource, rcf_file_s3_uri: str):
+def get_rcf(s3_resource, rcf_file_s3_uri: str) -> RoundCompletionInfo:
     from deltacat.tests.test_utils.utils import read_s3_contents
-    from deltacat.compute.compactor import (
-        RoundCompletionInfo,
-    )
 
     _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(

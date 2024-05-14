@@ -17,7 +17,11 @@ from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 from deltacat.aws import s3u as s3_utils
 import deltacat
 from deltacat import logs
-from deltacat.compute.compactor import PyArrowWriteResult, RoundCompletionInfo
+from deltacat.compute.compactor import (
+    HighWatermark,
+    PyArrowWriteResult,
+    RoundCompletionInfo,
+)
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -37,6 +41,7 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaLocator,
+    Manifest,
     Partition,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
@@ -96,7 +101,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
         round_completion_file_s3_url = None
         if new_partition:
             logger.info(f"Committing compacted partition to: {new_partition.locator}")
-            partition = params.deltacat_storage.commit_partition(
+            partition: Partition = params.deltacat_storage.commit_partition(
                 new_partition, **params.deltacat_storage_kwargs
             )
             logger.info(f"Committed compacted partition: {partition}")
@@ -150,9 +155,9 @@ def _execute_compaction(
         compaction_audit.set_total_cluster_memory_bytes(cluster_memory)
 
     # read the results from any previously completed compaction round
-    round_completion_info = None
-    high_watermark = None
-    previous_compacted_delta_manifest = None
+    round_completion_info: Optional[RoundCompletionInfo] = None
+    high_watermark: Optional[HighWatermark] = None
+    previous_compacted_delta_manifest: Optional[Manifest] = None
 
     if not params.rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
@@ -271,6 +276,7 @@ def _execute_compaction(
     total_hb_record_count = np.int64(0)
     telemetry_time_hb = 0
     if params.hash_bucket_count == 1:
+        logger.info("Hash bucket count set to 1. Running local merge")
         merge_start = time.monotonic()
         local_merge_input = generate_local_merge_input(
             params,
@@ -634,6 +640,19 @@ def _execute_compaction(
         f"partition-{params.source_partition_locator.partition_values},"
         f"compacted at: {params.last_stream_position_to_compact},"
     )
+    is_inplace_compacted: bool = (
+        params.source_partition_locator.partition_values
+        == params.destination_partition_locator.partition_values
+        and params.source_partition_locator.stream_id
+        == params.destination_partition_locator.stream_id
+    )
+    if is_inplace_compacted:
+        logger.info(
+            "Overriding round completion file source partition locator as in-place compacted. "
+            + f"Got compacted partition partition_id of {compacted_partition.locator.partition_id} "
+            f"and rcf source partition_id of {rcf_source_partition_locator.partition_id}."
+        )
+        rcf_source_partition_locator = compacted_partition.locator
     return (
         compacted_partition,
         new_round_completion_info,

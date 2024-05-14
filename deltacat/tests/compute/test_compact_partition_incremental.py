@@ -24,6 +24,9 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
+from deltacat.compute.compactor import (
+    RoundCompletionInfo,
+)
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -101,12 +104,14 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "input_deltas_delta_type",
         "expected_terminal_compact_partition_result",
         "expected_terminal_exception",
+        "expected_terminal_exception_message",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
         "read_kwargs_provider_param",
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
+        "is_inplace",
         "compact_partition_func",
     ],
     [
@@ -120,12 +125,14 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             expected_terminal_exception,
+            expected_terminal_exception_message,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            is_inplace,
             compact_partition_func,
         )
         for test_name, (
@@ -137,17 +144,18 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             expected_terminal_exception,
+            expected_terminal_exception_message,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            is_inplace,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
-    indirect=[],
 )
 def test_compact_partition_incremental(
     setup_s3_resource: ServiceResource,
@@ -161,12 +169,14 @@ def test_compact_partition_incremental(
     input_deltas_delta_type: str,
     expected_terminal_compact_partition_result: pa.Table,
     expected_terminal_exception: BaseException,
+    expected_terminal_exception_message: Optional[str],
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
     drop_duplicates_param: bool,
     read_kwargs_provider_param: Any,
     skip_enabled_compact_partition_drivers,
+    is_inplace: bool,
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
@@ -174,6 +184,7 @@ def test_compact_partition_incremental(
     from deltacat.types.media import ContentType
     from deltacat.storage import (
         DeltaLocator,
+        Partition,
         PartitionLocator,
     )
     from deltacat.compute.compactor.model.compaction_session_audit_info import (
@@ -186,7 +197,7 @@ def test_compact_partition_incremental(
         PlacementGroupManager,
     )
 
-    ds_mock_kwargs = offer_local_deltacat_storage_kwargs
+    ds_mock_kwargs: Dict[str, Any] = offer_local_deltacat_storage_kwargs
 
     # setup
     partition_keys = partition_keys_param
@@ -202,20 +213,21 @@ def test_compact_partition_incremental(
         input_deltas_delta_type,
         partition_values_param,
         ds_mock_kwargs,
+        is_inplace,
     )
-    source_partition = ds.get_partition(
+    source_partition: Partition = ds.get_partition(
         source_table_stream.locator,
         partition_values_param,
         **ds_mock_kwargs,
     )
-    destination_partition_locator = PartitionLocator.of(
+    destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         partition_values_param,
         None,
     )
     num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
-    total_cpus = num_workers * worker_instance_cpu
-    pgm = None
+    total_cpus: int = num_workers * worker_instance_cpu
+    pgm: Optional[PlacementGroupManager] = None
     if create_placement_group_param:
         pgm = PlacementGroupManager(
             1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
@@ -260,14 +272,16 @@ def test_compact_partition_incremental(
         compact_partition_func, setup=_incremental_compaction_setup
     )
     # validate
-    round_completion_info = get_rcf(setup_s3_resource, rcf_file_s3_uri)
+    round_completion_info: RoundCompletionInfo = get_rcf(
+        setup_s3_resource, rcf_file_s3_uri
+    )
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )
     audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
         "s3://", ""
     ).split("/", 1)
-    compaction_audit_obj: dict = read_s3_contents(
+    compaction_audit_obj: Dict[str, Any] = read_s3_contents(
         setup_s3_resource, audit_bucket, audit_key
     )
     compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
@@ -281,7 +295,7 @@ def test_compact_partition_incremental(
     sorting_cols: List[Any] = [(val, "ascending") for val in primary_keys]
     # the compacted table may contain multiple files and chunks
     # and order of records may be incorrect due to multiple files.
-    expected_terminal_compact_partition_result = (
+    expected_terminal_compact_partition_result: pa.Table = (
         expected_terminal_compact_partition_result.combine_chunks().sort_by(
             sorting_cols
         )
@@ -297,4 +311,15 @@ def test_compact_partition_incremental(
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
+
+    if is_inplace:
+        assert (
+            source_partition.locator.partition_values
+            == destination_partition_locator.partition_values
+            and source_partition.locator.stream_id
+            == destination_partition_locator.stream_id
+        ), "The source partition should match the destination partition"
+        assert (
+            compacted_delta_locator.stream_id == source_partition.locator.stream_id
+        ), "The compacted delta should be in the same stream as the source"
     return

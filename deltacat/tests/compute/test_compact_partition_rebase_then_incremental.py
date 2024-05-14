@@ -115,6 +115,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "input_deltas_delta_type",
         "expected_terminal_compact_partition_result",
         "expected_terminal_exception",
+        "expected_terminal_exception_message",
         "create_placement_group_param",
         "records_per_compacted_file_param",
         "hash_bucket_count_param",
@@ -136,6 +137,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             expected_terminal_exception,
+            expected_terminal_exception_message,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -155,6 +157,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             expected_terminal_exception,
+            expected_terminal_exception_message,
             create_placement_group_param,
             records_per_compacted_file_param,
             hash_bucket_count_param,
@@ -180,6 +183,7 @@ def test_compact_partition_rebase_then_incremental(
     input_deltas_delta_type: str,
     expected_terminal_compact_partition_result: pa.Table,
     expected_terminal_exception: BaseException,
+    expected_terminal_exception_message: Optional[str],
     create_placement_group_param: bool,
     records_per_compacted_file_param: int,
     hash_bucket_count_param: int,
@@ -337,8 +341,9 @@ def test_compact_partition_rebase_then_incremental(
         }
     )
     if expected_terminal_exception:
-        with pytest.raises(expected_terminal_exception):
+        with pytest.raises(expected_terminal_exception) as exc_info:
             compact_partition_func(compact_partition_params)
+        assert expected_terminal_exception_message in str(exc_info.value)
         return
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
     round_completion_info = get_rcf(setup_s3_resource, rcf_file_s3_uri)
