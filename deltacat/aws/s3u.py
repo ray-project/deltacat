@@ -4,14 +4,18 @@ from functools import partial
 from typing import Any, Callable, Dict, Generator, List, Optional, Union
 from uuid import uuid4
 from botocore.config import Config
-from deltacat.aws.constants import BOTO_MAX_RETRIES
+from deltacat.aws.constants import (
+    BOTO_MAX_RETRIES,
+    RETRY_STOP_AFTER_DELAY,
+    RETRYABLE_PUT_OBJECT_ERROR_CODES,
+)
 
 import pyarrow as pa
 import ray
 import s3fs
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, NoCredentialsError
 from ray.data.block import Block, BlockAccessor, BlockMetadata
 from ray.data.datasource import BlockWritePathProvider
 from ray.types import ObjectRef
@@ -315,7 +319,6 @@ def upload_sliced_table(
                 **s3_client_kwargs,
             )
             manifest_entries.extend(slice_entries)
-
     return manifest_entries
 
 
@@ -504,41 +507,85 @@ def download_manifest_entries_distributed(
 
 def upload(s3_url: str, body, **s3_client_kwargs) -> Dict[str, Any]:
 
-    # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
     s3 = s3_client_cache(None, **s3_client_kwargs)
-    return s3.put_object(
-        Body=body,
-        Bucket=parsed_s3_url.bucket,
-        Key=parsed_s3_url.key,
+    retrying = Retrying(
+        wait=wait_random_exponential(multiplier=1, max=15),
+        stop=stop_after_delay(RETRY_STOP_AFTER_DELAY),
+        retry=retry_if_exception_type(RetryableError),
     )
+    return retrying(
+        _put_object,
+        s3,
+        body,
+        parsed_s3_url.bucket,
+        parsed_s3_url.key,
+    )
+
+
+def _put_object(
+    s3_client, body: Any, bucket: str, key: str, **s3_put_object_kwargs
+) -> Dict[str, Any]:
+    try:
+        return s3_client.put_object(
+            Body=body, Bucket=bucket, Key=key, **s3_put_object_kwargs
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] in RETRYABLE_PUT_OBJECT_ERROR_CODES:
+            raise RetryableError(
+                f"Retry upload for: {bucket}/{key} after receiving {e.response['Error']['Code']}"
+            ) from e
+        raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
+    except NoCredentialsError as e:
+        raise RetryableError(
+            f"Failed to fetch credentials when putting object into: {bucket}/{key}"
+        ) from e
+    except BaseException as e:
+        logger.error(
+            f"Upload has failed for {bucket}/{key}. Error: {e}",
+            exc_info=True,
+        )
+        raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
 
 
 def download(
     s3_url: str, fail_if_not_found: bool = True, **s3_client_kwargs
 ) -> Optional[Dict[str, Any]]:
 
-    # TODO (pdames): add tenacity retrying
     parsed_s3_url = parse_s3_url(s3_url)
     s3 = s3_client_cache(None, **s3_client_kwargs)
+    retrying = Retrying(
+        wait=wait_random_exponential(multiplier=1, max=15),
+        stop=stop_after_delay(RETRY_STOP_AFTER_DELAY),
+        retry=retry_if_exception_type(RetryableError),
+    )
+    return retrying(
+        _get_object,
+        s3,
+        parsed_s3_url.bucket,
+        parsed_s3_url.key,
+        fail_if_not_found=fail_if_not_found,
+    )
+
+
+def _get_object(s3_client, bucket: str, key: str, fail_if_not_found: bool = True):
     try:
-        return s3.get_object(
-            Bucket=parsed_s3_url.bucket,
-            Key=parsed_s3_url.key,
+        return s3_client.get_object(
+            Bucket=bucket,
+            Key=key,
         )
     except ClientError as e:
-        if fail_if_not_found:
-            raise
-        else:
-            if e.response["Error"]["Code"] != "404":
-                if e.response["Error"]["Code"] != "NoSuchKey":
-                    raise
-            logger.info(f"file not found: {s3_url}")
-    except s3.exceptions.NoSuchKey:
-        if fail_if_not_found:
-            raise
-        else:
-            logger.info(f"file not found: {s3_url}")
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            if fail_if_not_found:
+                raise NonRetryableError(
+                    f"Failed get object from: {bucket}/{key}"
+                ) from e
+            logger.info(f"file not found: {bucket}/{key}")
+    except NoCredentialsError as e:
+        raise RetryableError(
+            f"Failed to fetch credentials when getting object from: {bucket}/{key}"
+        ) from e
+
     return None
 
 
