@@ -545,7 +545,7 @@ def _put_object(
             f"Upload has failed for {bucket}/{key}. Error: {e}",
             exc_info=True,
         )
-        raise e
+        raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
 
 
 def download(
