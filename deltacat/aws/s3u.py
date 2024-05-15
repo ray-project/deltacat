@@ -4,14 +4,18 @@ from functools import partial
 from typing import Any, Callable, Dict, Generator, List, Optional, Union
 from uuid import uuid4
 from botocore.config import Config
-from deltacat.aws.constants import BOTO_MAX_RETRIES
+from deltacat.aws.constants import (
+    BOTO_MAX_RETRIES,
+    RETRY_STOP_AFTER_DELAY,
+    RETRYABLE_PUT_OBJECT_ERROR_CODES,
+)
 
 import pyarrow as pa
 import ray
 import s3fs
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, NoCredentialsError
 from ray.data.block import Block, BlockAccessor, BlockMetadata
 from ray.data.datasource import BlockWritePathProvider
 from ray.types import ObjectRef
@@ -54,8 +58,6 @@ from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.common import ReadKwargsProvider
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-RETRY_STOP_AFTER_DELAY = 10 * 60
 
 # TODO(raghumdani): refactor redshift datasource to reuse the
 # same module for writing output files.
@@ -317,12 +319,6 @@ def upload_sliced_table(
                 **s3_client_kwargs,
             )
             manifest_entries.extend(slice_entries)
-    retrying = Retrying(
-        wait=wait_random_exponential(multiplier=1, max=60),
-        stop=stop_after_delay(30 * 60),
-        retry=retry_if_exception_type(RetryableError),
-    )
-
     return manifest_entries
 
 
@@ -535,12 +531,17 @@ def _put_object(
             Body=body, Bucket=bucket, Key=key, **s3_put_object_kwargs
         )
     except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchKey":
-            # s3fs may swallow S3 errors - we were probably throttled
-            raise RetryableError(f"Retry upload to: {bucket}/{key}") from e
+        if e.response["Error"]["Code"] in RETRYABLE_PUT_OBJECT_ERROR_CODES:
+            raise RetryableError(
+                f"Retry upload for: {bucket}/{key} after receiving {e.response['Error']['Code']}"
+            ) from e
         raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
+    except NoCredentialsError as e:
+        raise RetryableError(
+            f"Failed to fetch credentials when putting object into: {bucket}/{key}"
+        ) from e
     except BaseException as e:
-        logger.warning(
+        logger.error(
             f"Upload has failed for {bucket}/{key}. Error: {e}",
             exc_info=True,
         )
@@ -574,24 +575,17 @@ def _get_object(s3_client, bucket: str, key: str, fail_if_not_found: bool = True
             Key=key,
         )
     except ClientError as e:
-        if e.response["Error"]["Code"] in TIMEOUT_ERROR_CODES:
-            # Timeout error not caught by botocore
-            raise RetryableError(f"Retry get object from: {bucket}/{key}") from e
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            if fail_if_not_found:
+                raise NonRetryableError(
+                    f"Failed get object from: {bucket}/{key}"
+                ) from e
+            logger.info(f"file not found: {bucket}/{key}")
+    except NoCredentialsError as e:
+        raise RetryableError(
+            f"Failed to fetch credentials when getting object from: {bucket}/{key}"
+        ) from e
 
-        if fail_if_not_found:
-            raise NonRetryableError(f"Failed get object from: {bucket}/{key}") from e
-        else:
-            if e.response["Error"]["Code"] != "404":
-                if e.response["Error"]["Code"] != "NoSuchKey":
-                    raise NonRetryableError(
-                        f"Unexpected get object error from: {bucket}/{key}"
-                    ) from e
-            logger.info(f"file not found: {bucket}/{key}")
-    except s3_client.exceptions.NoSuchKey as e:
-        if fail_if_not_found:
-            raise NonRetryableError(f"Failed get object from: {bucket}/{key}") from e
-        else:
-            logger.info(f"file not found: {bucket}/{key}")
     return None
 
 
