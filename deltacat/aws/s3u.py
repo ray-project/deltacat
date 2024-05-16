@@ -32,8 +32,12 @@ from tenacity import (
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
 import deltacat.aws.clients as aws_utils
 from deltacat import logs
+<<<<<<< HEAD
 from deltacat.exceptions import NonRetryableError, RetryableError
 from deltacat.aws.constants import TIMEOUT_ERROR_CODES
+=======
+from deltacat.aws.constants import S3ErrorCodes
+>>>>>>> 7bf5804 (created S3ErrorCodes str enum)
 from deltacat.storage import (
     DistributedDataset,
     LocalDataset,
@@ -265,10 +269,14 @@ def read_file(
         )
         return table
     except ClientError as e:
+<<<<<<< HEAD
         if (
             e.response["Error"]["Code"]
             in BOTO_TIMEOUT_ERROR_CODES | BOTO_THROTTLING_ERROR_CODES
         ):
+=======
+        if e.response["Error"]["Code"] in S3ErrorCodes.get_timeout_error_codes():
+>>>>>>> 7bf5804 (created S3ErrorCodes str enum)
             # Timeout error not caught by botocore
             raise RetryableError(
                 f"Retry table download from: {s3_url} after receiving {type(e).__name__}"

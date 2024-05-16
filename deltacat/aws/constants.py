@@ -1,7 +1,29 @@
 import botocore
 from typing import Set
+from enum import Enum
 
 from deltacat.utils.common import env_integer, env_string
+
+from botocore.exceptions import ReadTimeoutError
+
+class S3ErrorCodes(str, Enum):
+    # S3 error codes - see https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
+    READ_TIMEOUT_ERROR = "ReadTimeoutError"
+    CONNECT_TIMEOUT_ERROR = "ConnectTimeoutError"
+    REQUEST_TIME_TOO_SKEWED_ERROR = "RequestTimeTooSkewed"
+    SLOW_DOWN_ERROR = "SlowDown"
+
+    @classmethod
+    def get_timeout_error_codes(cls):
+        return [cls.READ_TIMEOUT_ERROR, cls.CONNECT_TIMEOUT_ERROR]
+
+    @classmethod
+    def get_read_table_retryable_error_codes(cls):
+        return [cls.READ_TIMEOUT_ERROR, cls.CONNECT_TIMEOUT_ERROR]
+
+    @classmethod
+    def get_upload_table_retryable_error_codes(cls):
+        return [cls.REQUEST_TIME_TOO_SKEWED_ERROR, cls.SLOW_DOWN_ERROR]
 
 DAFT_MAX_S3_CONNECTIONS_PER_FILE = env_integer("DAFT_MAX_S3_CONNECTIONS_PER_FILE", 8)
 BOTO_MAX_RETRIES = env_integer("BOTO_MAX_RETRIES", 5)
