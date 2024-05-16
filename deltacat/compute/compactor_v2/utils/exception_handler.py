@@ -122,6 +122,6 @@ def _handle_assertion_error(e: Exception, task_id: Optional[str] = None):
 
 def _handle_retryable_timeout_error(e: Exception, task_id: Optional[str] = None):
     raise RetryableTimeoutError(
-        msg=f"Assertion error occurred while executing task:{task_id}.",
+        msg=f"Timeout error occurred while executing task:{task_id}.",
         task_id=task_id,
     ) from e
