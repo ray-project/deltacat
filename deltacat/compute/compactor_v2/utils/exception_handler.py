@@ -20,6 +20,7 @@ from deltacat.exceptions import (
     DependencyRayOutOfMemoryError,
     DependencyRayError,
 )
+from typing import Callable
 
 
 RAY_TASK_RETRYABLE_TIMEOUT_ERROR_CODES = (
@@ -41,7 +42,7 @@ def parametrized(dec):
 
 
 @parametrized
-def handle_exception(func, task_id):
+def handle_exception(func: Callable, task_id: Optional[str]):
     def handle_compaction_exception(*args, **kwargs):
         try:
             res = func(*args, **kwargs)
