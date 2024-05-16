@@ -66,7 +66,8 @@ def get_task_options(
 
     # NOTE: With DEFAULT scheduling strategy in Ray 2.20.0, autoscaler does
     # not spin up enough nodes fast and hence we see only approximately
-    # 20 tasks get scheduled out of 100 tasks in queue.
+    # 20 tasks get scheduled out of 100 tasks in queue. Hence, we use SPREAD
+    # which is also ideal for merge and hash bucket tasks.
     # https://docs.ray.io/en/latest/ray-core/scheduling/index.html
     task_opts = {"num_cpus": cpu, "memory": memory, "scheduling_strategy": "SPREAD"}
 
