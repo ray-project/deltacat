@@ -20,7 +20,6 @@ from deltacat.compute.compactor_v2.utils.primary_key_index import (
 from deltacat.compute.compactor_v2.constants import (
     PARQUET_TO_PYARROW_INFLATION,
 )
-
 from daft.exceptions import DaftTransientError
 
 
@@ -65,7 +64,11 @@ def get_task_options(
     cpu: float, memory: float, ray_custom_resources: Optional[Dict] = None
 ) -> Dict:
 
-    task_opts = {"num_cpus": cpu, "memory": memory}
+    # NOTE: With DEFAULT scheduling strategy in Ray 2.20.0, autoscaler does
+    # not spin up enough nodes fast and hence we see only approximately
+    # 20 tasks get scheduled out of 100 tasks in queue.
+    # https://docs.ray.io/en/latest/ray-core/scheduling/index.html
+    task_opts = {"num_cpus": cpu, "memory": memory, "scheduling_strategy": "SPREAD"}
 
     if ray_custom_resources:
         task_opts["resources"] = ray_custom_resources
