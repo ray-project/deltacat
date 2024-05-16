@@ -53,7 +53,7 @@ def handle_exception(func: Callable, task_id: Optional[str]):
     return handle_compaction_exception
 
 
-def handle_compaction_step_exception(e: Exception, task_id: Optional[str] = None):
+def handle_compaction_step_exception(e: BaseException, task_id: Optional[str] = None):
     if isinstance(e, RayError):
         _handle_ray_error(e, task_id)
     if isinstance(e, ArrowException):
