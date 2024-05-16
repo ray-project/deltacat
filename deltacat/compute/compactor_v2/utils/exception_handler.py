@@ -45,7 +45,7 @@ def parametrized(dec):
 def handle_exception(func: Callable, task_id: Optional[str]):
     def handle_compaction_exception(*args, **kwargs):
         try:
-            res = func(*args, **kwargs)
+            return func(*args, **kwargs)
         except BaseException as e:
             handle_compaction_step_exception(e, task_id)
         return res
