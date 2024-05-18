@@ -1,4 +1,6 @@
 import unittest
+
+from deltacat.aws.constants import RETRYABLE_TRANSIENT_ERRORS
 from deltacat.aws.s3u import UuidBlockWritePathProvider, CapturedBlockWritePaths
 
 
@@ -9,7 +11,7 @@ from unittest.mock import patch
 import boto3
 import pytest
 from boto3.resources.base import ServiceResource
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError, NoCredentialsError, ReadTimeoutError
 from deltacat.exceptions import NonRetryableError
 from moto import mock_s3
 from tenacity import RetryError
@@ -87,6 +89,26 @@ class TestDownloadUpload(unittest.TestCase):
 
         assert mock_s3.put_object.call_count > 3
 
+    @patch("deltacat.aws.s3u.RETRY_STOP_AFTER_DELAY", 1)
+    @patch("deltacat.aws.s3u.s3_client_cache")
+    def test_upload_transient_error_retry(self, mock_s3_client_cache):
+        uri = f"s3://{self.TEST_S3_BUCKET_NAME}/{self.TEST_S3_KEY}"
+        body = "test-body"
+        transient_errors = [*RETRYABLE_TRANSIENT_ERRORS]
+        mock_s3_client_cache.return_value = mock_s3 = mock.MagicMock()
+
+        while transient_errors:
+            err = transient_errors.pop()
+            if err == ReadTimeoutError:
+                err_obj = err(endpoint_url="127.0.0.1")
+            else:
+                err_obj = err()
+            mock_s3.put_object.side_effect = err_obj
+            with pytest.raises(RetryError):
+                s3u.upload(uri, body)
+
+        assert mock_s3.put_object.call_count > len(RETRYABLE_TRANSIENT_ERRORS)
+
     @patch("deltacat.aws.s3u.s3_client_cache")
     def test_upload_unexpected_error_code(self, mock_s3_client_cache):
         uri = f"s3://{self.TEST_S3_BUCKET_NAME}/{self.TEST_S3_KEY}"
@@ -122,3 +144,22 @@ class TestDownloadUpload(unittest.TestCase):
 
         file = s3u.download(uri, fail_if_not_found=False)
         assert file is None
+
+    @patch("deltacat.aws.s3u.RETRY_STOP_AFTER_DELAY", 1)
+    @patch("deltacat.aws.s3u.s3_client_cache")
+    def test_download_transient_error_retry(self, mock_s3_client_cache):
+        uri = f"s3://{self.TEST_S3_BUCKET_NAME}/{self.TEST_S3_KEY}"
+        transient_errors = [*RETRYABLE_TRANSIENT_ERRORS]
+        mock_s3_client_cache.return_value = mock_s3 = mock.MagicMock()
+
+        while transient_errors:
+            err = transient_errors.pop()
+            if err == ReadTimeoutError:
+                err_obj = err(endpoint_url="127.0.0.1")
+            else:
+                err_obj = err()
+            mock_s3.get_object.side_effect = err_obj
+            with pytest.raises(RetryError):
+                s3u.download(uri)
+
+        assert mock_s3.get_object.call_count > len(RETRYABLE_TRANSIENT_ERRORS)

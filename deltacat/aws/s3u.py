@@ -8,6 +8,7 @@ from deltacat.aws.constants import (
     BOTO_MAX_RETRIES,
     RETRY_STOP_AFTER_DELAY,
     RETRYABLE_PUT_OBJECT_ERROR_CODES,
+    RETRYABLE_TRANSIENT_ERRORS,
 )
 
 import pyarrow as pa
@@ -15,7 +16,7 @@ import ray
 import s3fs
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError
 from ray.data.block import Block, BlockAccessor, BlockMetadata
 from ray.data.datasource import BlockWritePathProvider
 from ray.types import ObjectRef
@@ -536,13 +537,13 @@ def _put_object(
                 f"Retry upload for: {bucket}/{key} after receiving {e.response['Error']['Code']}"
             ) from e
         raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
-    except NoCredentialsError as e:
+    except RETRYABLE_TRANSIENT_ERRORS as e:
         raise RetryableError(
-            f"Failed to fetch credentials when putting object into: {bucket}/{key}"
+            f"Retry upload for: {bucket}/{key} after receiving {type(e).__name__}"
         ) from e
     except BaseException as e:
         logger.error(
-            f"Upload has failed for {bucket}/{key}. Error: {e}",
+            f"Upload has failed for {bucket}/{key}. Error: {type(e).__name__}",
             exc_info=True,
         )
         raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
@@ -581,9 +582,9 @@ def _get_object(s3_client, bucket: str, key: str, fail_if_not_found: bool = True
                     f"Failed get object from: {bucket}/{key}"
                 ) from e
             logger.info(f"file not found: {bucket}/{key}")
-    except NoCredentialsError as e:
+    except RETRYABLE_TRANSIENT_ERRORS as e:
         raise RetryableError(
-            f"Failed to fetch credentials when getting object from: {bucket}/{key}"
+            f"Retry get object: {bucket}/{key} after receiving {type(e).__name__}"
         ) from e
 
     return None
