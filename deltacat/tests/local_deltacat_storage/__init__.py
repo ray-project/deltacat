@@ -1,5 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Set, Union, Tuple
 
+from collections import deque
+
 import pyarrow as pa
 import daft
 import json
@@ -798,27 +800,34 @@ def stage_partition(
     return partition
 
 
-def commit_partition(partition: Partition, *args, **kwargs) -> Partition:
+def commit_partition(partition: Partition, previous_partition: Optional[Partition] = None, *args, **kwargs) -> Partition:
     cur, con = _get_sqlite3_cursor_con(kwargs)
-    pv_partition = get_partition(
+    pv_partition: Optional[Partition] = previous_partition or get_partition(
         partition.stream_locator,
         partition_values=partition.partition_values,
         *args,
         **kwargs,
     )
-
-    # deprecate old and commit new one
+    # deprecate old partition and commit new one
     if pv_partition:
         pv_partition.state = CommitState.DEPRECATED
         params = (json.dumps(pv_partition), pv_partition.locator.canonical_string())
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
 
-    deltas = list_partition_deltas(partition, *args, **kwargs).all_items()
-    deltas.sort(reverse=True, key=lambda x: x.stream_position)
+    previous_partition_deltas: Optional[List[Delta]] = list_partition_deltas(partition, *args, **kwargs).all_items()
+    partition_deltas: Optional[List[Delta]] = list_partition_deltas(partition, *args, **kwargs).all_items()
+    # handle the case if the previous partition deltas have a greater stream position than the partition_delta
+    if partition_deltas and previous_partition_deltas:
+        partition_deltas.extend(
+            [
+                previous_partition_delta 
+                for previous_partition_delta in previous_partition_deltas 
+                if previous_partition_delta.stream_position > partition_deltas[-1].stream_position 
+            ]
+        )
+    partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
 
-    stream_position = partition.stream_position
-    if deltas:
-        stream_position = deltas[0].stream_position
+    stream_position = partition_deltas[0].stream_position if partition_deltas else partition.stream_position 
 
     partition.state = CommitState.COMMITTED
     partition.stream_position = stream_position
