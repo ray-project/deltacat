@@ -818,7 +818,7 @@ def commit_partition(
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
 
     previous_partition_deltas: Optional[List[Delta]] = list_partition_deltas(
-        partition, *args, **kwargs
+        previous_partition, *args, **kwargs
     ).all_items()
     partition_deltas: Optional[List[Delta]] = list_partition_deltas(
         partition, *args, **kwargs
