@@ -19,7 +19,40 @@ from deltacat.tests.compute.test_util_common import (
     create_destination_table,
     create_rebase_table,
 )
+import logging
+from deltacat import logs
 
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+def _add_deltas_to_partition(
+                    deltas_ingredients: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
+                    partition: Optional[Partition], 
+                    ds_mock_kwargs: Optional[Dict[str, Any]],
+                    ) -> List[Optional[Delta], int]:
+    import deltacat.tests.local_deltacat_storage as ds
+    all_deltas_length = 0
+    for (delta_data, delta_type, delete_parameters) in deltas_ingredients:
+        staged_delta: Delta = ds.stage_delta(
+                delta_data,
+                partition,
+                delta_type,
+                delete_parameters=delete_parameters,
+                **ds_mock_kwargs,
+        )
+        incremental_delta = ds.commit_delta(
+            staged_delta,
+            **ds_mock_kwargs,
+        )
+        all_deltas_length += len(delta_data) if delta_data else 0
+    return incremental_delta, all_deltas_length
+
+
+
+def add_late_deltas_to_partition(
+            late_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
+            source_partition: Optional[Partition], 
+            ds_mock_kwargs: Optional[Dict[str, Any]]) -> List[Optional[Delta], int]:
+    return _add_deltas_to_partition(late_deltas, source_partition, ds_mock_kwargs)
 
 def create_incremental_deltas_on_source_table(
     source_namespace: str,
@@ -85,7 +118,7 @@ def create_src_w_deltas_destination_plus_destination(
     partition_values: Optional[List[Any]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
     simulate_is_inplace: bool = False,
-) -> Tuple[Stream, Stream, Optional[Stream]]:
+) -> Tuple[Stream, Stream, Optional[Stream], str, str, str]:
     import deltacat.tests.local_deltacat_storage as ds
 
     source_namespace, source_table_name, source_table_version = create_src_table(
@@ -137,7 +170,7 @@ def create_src_w_deltas_destination_plus_destination(
         table_version=destination_table_version,
         **ds_mock_kwargs,
     )
-    return source_table_stream_after_committed, destination_table_stream, None
+    return source_table_stream_after_committed, destination_table_stream, None, source_namespace, source_table_name, source_table_version
 
 
 def create_src_w_deltas_destination_rebase_w_deltas_strategy(

@@ -54,6 +54,7 @@ MODULE scoped fixtures
 def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
+    ray.shutdown()
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -213,7 +214,6 @@ def test_compact_partition_rebase_then_incremental(
     )
 
     ds_mock_kwargs = local_deltacat_storage_kwargs
-    ray.shutdown()
     ray.init(local_mode=True, ignore_reinit_error=True)
     """
     REBASE

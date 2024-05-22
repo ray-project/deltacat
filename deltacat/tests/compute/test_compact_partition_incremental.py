@@ -2,8 +2,9 @@ import ray
 from moto import mock_s3
 import pytest
 import os
+import logging
 import boto3
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
 from pytest_benchmark.fixture import BenchmarkFixture
@@ -15,6 +16,7 @@ from deltacat.tests.compute.test_util_common import (
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     create_src_w_deltas_destination_plus_destination,
+    add_late_deltas_to_partition,
 )
 from deltacat.tests.compute.compact_partition_test_cases import (
     INCREMENTAL_TEST_CASES,
@@ -27,11 +29,17 @@ from deltacat.tests.compute.test_util_constant import (
 from deltacat.compute.compactor import (
     RoundCompletionInfo,
 )
+from deltacat.storage import(
+    DeltaType,
+)
+from deltacat import logs
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
     "deltacat/tests/local_deltacat_storage/db_test.sqlite",
 )
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 """
@@ -43,6 +51,7 @@ MODULE scoped fixtures
 def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
+    ray.shutdown()
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -112,6 +121,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
         "is_inplace",
+        "add_late_deltas",
         "compact_partition_func",
     ],
     [
@@ -133,6 +143,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             is_inplace,
+            add_late_deltas,
             compact_partition_func,
         )
         for test_name, (
@@ -152,6 +163,7 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
             is_inplace,
+            add_late_deltas,
             compact_partition_func,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
@@ -177,6 +189,7 @@ def test_compact_partition_incremental(
     read_kwargs_provider_param: Any,
     skip_enabled_compact_partition_drivers,
     is_inplace: bool,
+    add_late_deltas: Optional[List[Tuple[pa.Table, DeltaType]]],
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
@@ -186,6 +199,7 @@ def test_compact_partition_incremental(
         DeltaLocator,
         Partition,
         PartitionLocator,
+        Stream,
     )
     from deltacat.compute.compactor.model.compaction_session_audit_info import (
         CompactionSessionAuditInfo,
@@ -205,6 +219,9 @@ def test_compact_partition_incremental(
         source_table_stream,
         destination_table_stream,
         _,
+        source_table_namespace,
+        source_table_name,
+        source_table_version,
     ) = create_src_w_deltas_destination_plus_destination(
         primary_keys,
         sort_keys,
@@ -268,9 +285,12 @@ def test_compact_partition_incremental(
         setup_s3_resource.Bucket(TEST_S3_RCF_BUCKET_NAME).objects.all().delete()
         return (compact_partition_params,), {}
 
+    if add_late_deltas:
+        late_delta, incremental_length = add_late_deltas_to_partition(add_late_deltas, source_partition, ds_mock_kwargs)
     rcf_file_s3_uri = benchmark.pedantic(
         compact_partition_func, setup=_incremental_compaction_setup
     )
+
     # validate
     round_completion_info: RoundCompletionInfo = get_rcf(
         setup_s3_resource, rcf_file_s3_uri
