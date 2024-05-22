@@ -12,6 +12,10 @@ import io
 from deltacat.tests.test_utils.storage import create_empty_delta
 from deltacat.utils.common import current_time_ms
 
+import logging
+
+from deltacat import logs
+
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -49,6 +53,9 @@ from deltacat.types.media import (
     DistributedDatasetType,
 )
 from deltacat.utils.common import ReadKwargsProvider
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
 
 SQLITE_CUR_ARG = "sqlite3_cur"
 SQLITE_CON_ARG = "sqlite3_con"
@@ -215,6 +222,7 @@ def list_deltas(
             delta.manifest = None
 
     result.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
+
     return ListResult.of(result, None, None)
 
 
@@ -1013,8 +1021,20 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
         "UPDATE deltas SET partition_locator = ?, value = ? WHERE locator = ?", params
     )
 
-    con.commit()
+    stream: Optional[Stream] = get_stream(
+        delta.namespace, delta.table_name, delta.table_version, *args, **kwargs
+    )
+    partition: Optional[Partition] = get_partition(
+        stream.locator, delta.partition_values, *args, **kwargs
+    )
 
+    if partition:
+        partition.previous_stream_position = partition.stream_position
+        partition.stream_position = delta.stream_position
+        params = (json.dumps(partition), partition.locator.canonical_string())
+        cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
+
+    con.commit()
     return delta
 
 

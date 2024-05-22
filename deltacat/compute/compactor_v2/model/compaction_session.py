@@ -1,17 +1,13 @@
 from dataclasses import dataclass, fields
 
 from deltacat.storage import (
-    Delta,
-    DeltaLocator,
-    Manifest,
     Partition,
 )
 from deltacat.compute.compactor import (
-    HighWatermark,
-    PyArrowWriteResult,
     RoundCompletionInfo,
 )
 from typing import Optional
+
 
 @dataclass(frozen=True)
 class ExecutionCompactionResult:

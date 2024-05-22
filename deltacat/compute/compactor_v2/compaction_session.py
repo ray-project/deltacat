@@ -24,7 +24,9 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
-from deltacat.compute.compactor_v2.model.compaction_session import ExecutionCompactionResult
+from deltacat.compute.compactor_v2.model.compaction_session import (
+    ExecutionCompactionResult,
+)
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor_v2.utils.merge import (
     generate_local_merge_input,
@@ -58,7 +60,7 @@ from deltacat.compute.compactor_v2.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 from deltacat.utils.metrics import metrics
 
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from collections import defaultdict
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -114,9 +116,16 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                 if is_inplace_compacted
                 else None
             )
-            logger.info(f"Committing compacted partition to: {new_partition.locator} using previous partition: {previous_partition.locator if previous_partition else None}")
-            if previous_partition and previous_partition.stream_position > new_partition.stream_position:
-                logger.warning(f"New partition: {new_partition.locator} has a lower stream position {new_partition.stream_position} than the previous partition: {previous_partition.locator if previous_partition else None}")
+            logger.info(
+                f"Committing compacted partition to: {new_partition.locator} using previous partition: {previous_partition.locator if previous_partition else None}"
+            )
+            if (
+                previous_partition
+                and previous_partition.stream_position > new_partition.stream_position
+            ):
+                logger.warning(
+                    f"New partition: {new_partition.locator} has a lower stream position {new_partition.stream_position} than the previous partition: {previous_partition.locator if previous_partition else None}"
+                )
             partition: Partition = params.deltacat_storage.commit_partition(
                 new_partition, previous_partition, **params.deltacat_storage_kwargs
             )

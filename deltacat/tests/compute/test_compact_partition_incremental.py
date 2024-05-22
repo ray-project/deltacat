@@ -29,7 +29,7 @@ from deltacat.tests.compute.test_util_constant import (
 from deltacat.compute.compactor import (
     RoundCompletionInfo,
 )
-from deltacat.storage import(
+from deltacat.storage import (
     DeltaType,
 )
 from deltacat import logs
@@ -199,7 +199,6 @@ def test_compact_partition_incremental(
         DeltaLocator,
         Partition,
         PartitionLocator,
-        Stream,
     )
     from deltacat.compute.compactor.model.compaction_session_audit_info import (
         CompactionSessionAuditInfo,
@@ -286,7 +285,9 @@ def test_compact_partition_incremental(
         return (compact_partition_params,), {}
 
     if add_late_deltas:
-        late_delta, incremental_length = add_late_deltas_to_partition(add_late_deltas, source_partition, ds_mock_kwargs)
+        late_delta, incremental_length = add_late_deltas_to_partition(
+            add_late_deltas, source_partition, ds_mock_kwargs
+        )
     rcf_file_s3_uri = benchmark.pedantic(
         compact_partition_func, setup=_incremental_compaction_setup
     )

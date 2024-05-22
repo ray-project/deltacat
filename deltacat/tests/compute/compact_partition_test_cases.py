@@ -94,7 +94,9 @@ class IncrementalCompactionTestCaseParams(BaseCompactorTestCase):
     """
 
     is_inplace: bool
-    add_late_deltas: Optional[List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]]
+    add_late_deltas: Optional[
+        List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
+    ]
 
 
 @dataclass(frozen=True)
@@ -536,11 +538,11 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         add_late_deltas=[
             (
                 pa.Table.from_arrays(
-                     [
+                    [
                         pa.array([str(i) for i in range(20)]),
                         pa.array([i for i in range(20)]),
                     ],
-                names=["pk_col_1", "sk_col_1"],
+                    names=["pk_col_1", "sk_col_1"],
                 ),
                 DeltaType.UPSERT,
                 None,
