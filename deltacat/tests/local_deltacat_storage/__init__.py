@@ -818,22 +818,18 @@ def commit_partition(
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
 
     previous_partition_deltas: Optional[List[Delta]] = list_partition_deltas(
-        partition, *args, **kwargs
+        partition, ascending_order=True, *args, **kwargs
     ).all_items()
     partition_deltas: Optional[List[Delta]] = list_partition_deltas(
-        partition, *args, **kwargs
+        partition, ascending_order=True, *args, **kwargs
     ).all_items()
+    previous_partition_deltas_spos_gt: List[Delta] = [
+        delta
+        for delta in previous_partition_deltas
+        if delta.stream_position > partition_deltas[0].stream_position
+    ]
     # handle the case if the previous partition deltas have a greater stream position than the partition_delta
-    if partition_deltas and previous_partition_deltas:
-        partition_deltas.extend(
-            [
-                previous_partition_delta
-                for previous_partition_delta in previous_partition_deltas
-                if previous_partition_delta.stream_position
-                > partition_deltas[-1].stream_position
-            ]
-        )
-    partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
+    partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
 
     stream_position = (
         partition_deltas[0].stream_position
