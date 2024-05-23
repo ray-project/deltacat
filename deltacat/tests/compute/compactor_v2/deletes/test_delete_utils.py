@@ -52,6 +52,13 @@ class PrepareDeleteTestCaseParams:
         return (getattr(self, field.name) for field in fields(self))
 
 
+@pytest.fixture(scope="module", autouse=True)
+def cleanup():
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    yield
+    ray.shutdown()
+
+
 @pytest.fixture(scope="function")
 def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     # see deltacat/tests/local_deltacat_storage/README.md for documentation
@@ -499,7 +506,6 @@ class TestPrepareDeletes:
             prepare_deletes,
         )
 
-        ray.shutdown()
         ray.init(local_mode=True, ignore_reinit_error=True)
         source_namespace, source_table_name, source_table_version = create_src_table(
             set(self.TEST_PRIMARY_KEYS),

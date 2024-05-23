@@ -271,9 +271,7 @@ def list_partition_deltas(
         if not include_manifest:
             current_delta.manifest = None
 
-    result.sort(
-        reverse=True if not ascending_order else False, key=lambda d: d.stream_position
-    )
+    result.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
     return ListResult.of(result, None, None)
 
 
@@ -823,10 +821,12 @@ def commit_partition(
     partition_deltas: Optional[List[Delta]] = list_partition_deltas(
         partition, ascending_order=True, *args, **kwargs
     ).all_items()
+    previous_partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
+    partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
     previous_partition_deltas_spos_gt: List[Delta] = [
         delta
         for delta in previous_partition_deltas
-        if delta and delta.stream_position > partition_deltas[0].stream_position
+        if delta.stream_position > partition_deltas[0].stream_position
     ]
     # handle the case if the previous partition deltas have a greater stream position than the partition_delta
     partition_deltas = previous_partition_deltas_spos_gt + partition_deltas

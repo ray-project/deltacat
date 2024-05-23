@@ -32,7 +32,6 @@ from deltacat.compute.compactor import (
 from deltacat.storage import (
     DeltaType,
     Delta,
-    Stream,
 )
 from deltacat import logs
 
@@ -346,43 +345,23 @@ def test_compact_partition_incremental(
             compacted_delta_locator.stream_id == source_partition.locator.stream_id
         ), "The compacted delta should be in the same stream as the source"
         if add_late_deltas:
-            compacted_table_stream = ds.get_stream(
-                namespace=compacted_delta_locator.namespace,
-                table_name=compacted_delta_locator.table_name,
-                table_version=compacted_delta_locator.table_version,
-                **ds_mock_kwargs,
-            )
-            compacted_table_partition = ds.get_partition(
-                compacted_table_stream.locator,
+            compacted_table_partition: Optional[Partition] = ds.get_partition(
+                compacted_delta_locator.stream_locator,
                 partition_values_param,
                 **ds_mock_kwargs,
             )
-            source_partition_2_deltas: List[Delta] = ds.list_partition_deltas(
+            compacted_partition_deltas: List[Delta] = ds.list_partition_deltas(
                 partition_like=compacted_table_partition,
+                ascending_order=True,
                 **ds_mock_kwargs,
             ).all_items()
-            for i, delta in enumerate(source_partition_2_deltas):
-                logger.info(f"PDEBUG::::TST1{i=}, {delta.stream_position=}")
-
-            source_table_stream: Stream = ds.get_stream(
-                source_partition.locator.namespace,
-                source_partition.locator.table_name,
-                source_partition.locator.table_version,
-                **ds_mock_kwargs,
-            )
-            part: Optional[Partition] = ds.get_partition(
-                source_table_stream.locator,
-                source_partition.locator.partition_values,
-                **ds_mock_kwargs,
-            )
-            logger.info(f"pdebug:::{part=}")
-
-            source_partition_2_deltas: List[Delta] = ds.list_partition_deltas(
-                partition_like=part,
-                **ds_mock_kwargs,
-            ).all_items()
-            for i, delta in enumerate(source_partition_2_deltas):
-                logger.info(f"PDEBUG::::TST2{i=}, {delta.stream_position=}")
-
-            assert len(source_partition_2_deltas) == len(add_late_deltas) + 1
+            for i, delta in enumerate(compacted_partition_deltas):
+                logger.info(f"PDEBUG::{i=}, {delta.stream_position=}")
+            assert (
+                len(compacted_partition_deltas) == len(add_late_deltas) + 1
+            ), f"Expected the number of deltas within the newly promoted partition to equal 1 (the compacted delta) + the # of late deltas: {len(add_late_deltas)}"
+            assert (
+                compacted_partition_deltas[0].stream_position
+                == late_delta.stream_position
+            ), f"Expected the latest delta in the compacted partition: {compacted_partition_deltas[0].stream_position} to have the same stream position as the latest delta: {late_delta.stream_position}"
     return

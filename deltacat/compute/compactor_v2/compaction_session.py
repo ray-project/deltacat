@@ -46,7 +46,6 @@ from deltacat.storage import (
     DeltaLocator,
     Manifest,
     Partition,
-    Stream,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -108,19 +107,12 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
         )
         round_completion_file_s3_url: Optional[str] = None
         if new_partition:
-            source_table_stream: Optional[Stream] = None
             previous_partition: Optional[Partition] = None
             if is_inplace_compacted:
-                source_table_stream = params.deltacat_storage.get_stream(
-                    params.source_partition_locator.namespace,
-                    params.source_partition_locator.table_name,
-                    params.source_partition_locator.table_version,
-                    **params.deltacat_storage_kwargs,
-                )
                 previous_partition: Optional[
                     Partition
                 ] = params.deltacat_storage.get_partition(
-                    source_table_stream.locator,
+                    params.source_partition_locator.stream_locator,
                     params.source_partition_locator.partition_values,
                     **params.deltacat_storage_kwargs,
                 )
