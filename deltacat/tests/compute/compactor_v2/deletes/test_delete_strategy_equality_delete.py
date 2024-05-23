@@ -29,6 +29,13 @@ class ApplyAllDeletesTestCaseParams:
         return (getattr(self, field.name) for field in fields(self))
 
 
+@pytest.fixture(scope="module", autouse=True)
+def setup_ray_cluster():
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    yield
+    ray.shutdown()
+
+
 TEST_CASES_APPLY_MANY_DELETES = {
     "1-test-delete-successful": ApplyAllDeletesTestCaseParams(
         table=pa.Table.from_arrays(
@@ -277,8 +284,6 @@ class TestEqualityDeleteStrategy:
         )
 
         delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
-        ray.shutdown()
-        ray.init(local_mode=True, ignore_reinit_error=True)
         delete_file_envelopes = [
             DeleteFileEnvelope.of(**params) for params in delete_file_envelopes_params
         ]
@@ -314,8 +319,6 @@ class TestEqualityDeleteStrategy:
         from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 
         delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
-        ray.shutdown()
-        ray.init()
         table = pa.Table.from_arrays(
             [
                 pa.array([0, 1, 2, 3]),

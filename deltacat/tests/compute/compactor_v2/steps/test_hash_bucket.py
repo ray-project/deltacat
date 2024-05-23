@@ -41,6 +41,8 @@ class TestHashBucket(unittest.TestCase):
     @classmethod
     def doClassCleanups(cls) -> None:
         os.remove(cls.DB_FILE_PATH)
+        ray.shutdown()
+        super().tearDownClass()
 
     def test_single_string_pk_correctly_hashes(self):
         # setup

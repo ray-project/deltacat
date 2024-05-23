@@ -24,6 +24,9 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
+from deltacat.compute.compactor_v2.model.compaction_session import (
+    ExecutionCompactionResult,
+)
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
 from deltacat.compute.compactor_v2.utils.merge import (
     generate_local_merge_input,
@@ -41,8 +44,11 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaLocator,
+    DeltaType,
     Manifest,
     Partition,
+    Stream,
+    StreamLocator,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -57,7 +63,7 @@ from deltacat.compute.compactor_v2.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf
 from deltacat.utils.metrics import metrics
 
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from collections import defaultdict
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -81,35 +87,52 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 @metrics
 def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]:
-
     assert (
         params.hash_bucket_count is not None and params.hash_bucket_count >= 1
     ), "hash_bucket_count is a required arg for compactor v2"
 
     with memray.Tracker(
-        f"compaction_partition.bin"
+        "compaction_partition.bin"
     ) if params.enable_profiler else nullcontext():
-        (new_partition, new_rci, new_rcf_partition_locator,) = _execute_compaction(
+        execute_compaction_result: ExecutionCompactionResult = _execute_compaction(
             params,
             **kwargs,
         )
-
+        compaction_session_type: str = (
+            "INPLACE"
+            if execute_compaction_result.is_inplace_compacted
+            else "NON-INPLACE"
+        )
         logger.info(
             f"Partition-{params.source_partition_locator} -> "
-            f"Compaction session data processing completed"
+            f"{compaction_session_type} Compaction session data processing completed"
         )
-        round_completion_file_s3_url = None
-        if new_partition:
-            logger.info(f"Committing compacted partition to: {new_partition.locator}")
-            partition: Partition = params.deltacat_storage.commit_partition(
-                new_partition, **params.deltacat_storage_kwargs
+        round_completion_file_s3_url: Optional[str] = None
+        if execute_compaction_result.new_compacted_partition:
+            previous_partition: Optional[Partition] = None
+            if execute_compaction_result.is_inplace_compacted:
+                previous_partition: Optional[
+                    Partition
+                ] = params.deltacat_storage.get_partition(
+                    params.source_partition_locator.stream_locator,
+                    params.source_partition_locator.partition_values,
+                    **params.deltacat_storage_kwargs,
+                )
+                # NOTE: Retrieving the previous partition again as the partition_id may have changed by the time commit_partition is called.
+            logger.info(
+                f"Committing compacted partition to: {execute_compaction_result.new_compacted_partition.locator} "
+                f"using previous partition: {previous_partition.locator if previous_partition else None}"
             )
-            logger.info(f"Committed compacted partition: {partition}")
-
+            commited_partition: Partition = params.deltacat_storage.commit_partition(
+                execute_compaction_result.new_compacted_partition,
+                previous_partition,
+                **params.deltacat_storage_kwargs,
+            )
+            logger.info(f"Committed compacted partition: {commited_partition}")
             round_completion_file_s3_url = rcf.write_round_completion_file(
                 params.compaction_artifact_s3_bucket,
-                new_rcf_partition_locator,
-                new_rci,
+                execute_compaction_result.new_round_completion_file_partition_locator,
+                execute_compaction_result.new_round_completion_info,
                 **params.s3_client_kwargs,
             )
         else:
@@ -123,7 +146,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
 
 def _execute_compaction(
     params: CompactPartitionParams, **kwargs
-) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
+) -> ExecutionCompactionResult:
 
     rcf_source_partition_locator = (
         params.rebase_source_partition_locator or params.source_partition_locator
@@ -142,7 +165,7 @@ def _execute_compaction(
 
     compaction_start = time.monotonic()
 
-    task_max_parallelism = params.task_max_parallelism
+    task_max_parallelism: int = params.task_max_parallelism
 
     if params.pg_config:
         logger.info(
@@ -205,7 +228,7 @@ def _execute_compaction(
     )
     if not input_deltas:
         logger.info("No input deltas found to compact.")
-        return None, None, None
+        return ExecutionCompactionResult(None, None, None, False)
 
     delete_strategy: Optional[DeleteStrategy] = None
     delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None
@@ -217,7 +240,7 @@ def _execute_compaction(
         for delete_file_envelope in delete_file_envelopes:
             delete_file_size_bytes += delete_file_envelope.table_size_bytes
         logger.info(
-            f" Input deltas contain DELETE-type deltas. Total delete file size={delete_file_size_bytes}."
+            f" Input deltas contain {DeltaType.DELETE}-type deltas. Total delete file size={delete_file_size_bytes}."
             f" Total length of delete file envelopes={len(delete_file_envelopes)}"
         )
     uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
@@ -247,14 +270,16 @@ def _execute_compaction(
     )
 
     # create a new stream for this round
-    compacted_stream_locator = params.destination_partition_locator.stream_locator
-    compacted_stream = params.deltacat_storage.get_stream(
+    compacted_stream_locator: Optional[
+        StreamLocator
+    ] = params.destination_partition_locator.stream_locator
+    compacted_stream: Stream = params.deltacat_storage.get_stream(
         compacted_stream_locator.namespace,
         compacted_stream_locator.table_name,
         compacted_stream_locator.table_version,
         **params.deltacat_storage_kwargs,
     )
-    compacted_partition = params.deltacat_storage.stage_partition(
+    compacted_partition: Partition = params.deltacat_storage.stage_partition(
         compacted_stream,
         params.destination_partition_locator.partition_values,
         **params.deltacat_storage_kwargs,
@@ -532,7 +557,7 @@ def _execute_compaction(
 
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
-    merged_delta = Delta.merge_deltas(
+    merged_delta: Delta = Delta.merge_deltas(
         deltas,
         stream_position=params.last_stream_position_to_compact,
     )
@@ -545,7 +570,7 @@ def _execute_compaction(
     )
     logger.info(record_info_msg)
 
-    compacted_delta = params.deltacat_storage.commit_delta(
+    compacted_delta: Delta = params.deltacat_storage.commit_delta(
         merged_delta,
         properties=kwargs.get("properties", {}),
         **params.deltacat_storage_kwargs,
@@ -653,8 +678,9 @@ def _execute_compaction(
             f"and rcf source partition_id of {rcf_source_partition_locator.partition_id}."
         )
         rcf_source_partition_locator = compacted_partition.locator
-    return (
+    return ExecutionCompactionResult(
         compacted_partition,
         new_round_completion_info,
         rcf_source_partition_locator,
+        is_inplace_compacted,
     )

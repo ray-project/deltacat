@@ -414,11 +414,18 @@ def stage_partition(
     raise NotImplementedError("stage_partition not implemented")
 
 
-def commit_partition(partition: Partition, *args, **kwargs) -> Partition:
+def commit_partition(
+    partition: Partition,
+    previous_partition: Optional[Partition] = None,
+    *args,
+    **kwargs
+) -> Partition:
     """
     Commits the given partition to its associated table version stream,
-    replacing any previous partition registered for the same stream and
-    partition values. Returns the registered partition. If the partition's
+    replacing any previous partition (i.e., "partition being replaced") registered for the same stream and
+    partition values.
+    If the previous_partition is passed as an argument, the specified previous_partition will be the partition being replaced, otherwise it will be retrieved.
+    Returns the registered partition. If the partition's
     previous delta stream position is specified, then the commit will
     be rejected if it does not match the actual previous stream position of
     the partition being replaced. If the partition's previous partition ID is

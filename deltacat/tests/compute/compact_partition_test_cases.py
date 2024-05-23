@@ -22,6 +22,7 @@ from deltacat.storage import (
 from deltacat.compute.compactor_v2.compaction_session import (
     compact_partition as compact_partition_v2,
 )
+from deltacat.storage import DeleteParameters
 
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
@@ -89,9 +90,13 @@ class IncrementalCompactionTestCaseParams(BaseCompactorTestCase):
     """
     Args:
         is_inplace: bool - argument to indicate whether to try compacting an in-place compacted table (the source table is the destination table). Also needed to control whether the destination table is created
+        add_late_deltas: List[Tuple[pa.Table, DeltaType]] - argument to indicate whether to add deltas to the source_partition after we've triggered compaction
     """
 
     is_inplace: bool
+    add_late_deltas: Optional[
+        List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
+    ]
 
 
 @dataclass(frozen=True)
@@ -148,6 +153,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCaseParams(
@@ -175,6 +181,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCaseParams(
@@ -211,6 +218,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCaseParams(
@@ -246,6 +254,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCaseParams(
@@ -276,6 +285,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCaseParams(
@@ -306,6 +316,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCaseParams(
@@ -336,6 +347,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCaseParams(
@@ -368,6 +380,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCaseParams(
@@ -398,6 +411,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCaseParams(
@@ -428,6 +442,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "11-incremental-decimal-hash-bucket-single": IncrementalCompactionTestCaseParams(
@@ -458,6 +473,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "12-incremental-decimal-single-hash-bucket": IncrementalCompactionTestCaseParams(
@@ -488,6 +504,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=False,
+        add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
     ),
     "13-incremental-pkstr-skexists-isinplacecompacted": IncrementalCompactionTestCaseParams(
@@ -518,6 +535,50 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         is_inplace=True,
+        add_late_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([str(i) for i in range(20)]),
+                        pa.array([i for i in range(20)]),
+                    ],
+                    names=["pk_col_1", "sk_col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            )
+        ],
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+    ),
+    "14-incremental-pkstr-skexists-unhappy-hash-bucket-count-not-present": IncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=[SortKey.of(key_name="sk_col_1")],
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values=["1"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(10)]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(10)]),
+                pa.array([i for i in range(10)]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        expected_terminal_exception=AssertionError,
+        expected_terminal_exception_message="hash_bucket_count is a required arg for compactor v2",
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=None,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        is_inplace=False,
+        add_late_deltas=False,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
     ),
 }

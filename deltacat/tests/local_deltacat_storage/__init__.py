@@ -271,9 +271,7 @@ def list_partition_deltas(
         if not include_manifest:
             current_delta.manifest = None
 
-    result.sort(
-        reverse=True if not ascending_order else False, key=lambda d: d.stream_position
-    )
+    result.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
     return ListResult.of(result, None, None)
 
 
@@ -798,33 +796,57 @@ def stage_partition(
     return partition
 
 
-def commit_partition(partition: Partition, *args, **kwargs) -> Partition:
+def commit_partition(
+    partition: Partition,
+    previous_partition: Optional[Partition] = None,
+    *args,
+    **kwargs,
+) -> Partition:
     cur, con = _get_sqlite3_cursor_con(kwargs)
-    pv_partition = get_partition(
+    pv_partition: Optional[Partition] = previous_partition or get_partition(
         partition.stream_locator,
         partition_values=partition.partition_values,
         *args,
         **kwargs,
     )
-
-    # deprecate old and commit new one
+    # deprecate old partition and commit new one
     if pv_partition:
         pv_partition.state = CommitState.DEPRECATED
         params = (json.dumps(pv_partition), pv_partition.locator.canonical_string())
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
+    previous_partition_deltas = (
+        list_partition_deltas(
+            pv_partition, ascending_order=False, *args, **kwargs
+        ).all_items()
+        or []
+    )
+    partition_deltas: Optional[List[Delta]] = (
+        list_partition_deltas(
+            partition, ascending_order=False, *args, **kwargs
+        ).all_items()
+        or []
+    )
+    previous_partition_deltas_spos_gt: List[Delta] = [
+        delta
+        for delta in previous_partition_deltas
+        if delta.stream_position > partition_deltas[0].stream_position
+    ]
+    # handle the case if the previous partition deltas have a greater stream position than the partition_delta
+    partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
 
-    deltas = list_partition_deltas(partition, *args, **kwargs).all_items()
-    deltas.sort(reverse=True, key=lambda x: x.stream_position)
-
-    stream_position = partition.stream_position
-    if deltas:
-        stream_position = deltas[0].stream_position
+    stream_position = (
+        partition_deltas[0].stream_position
+        if partition_deltas
+        else partition.stream_position
+    )
 
     partition.state = CommitState.COMMITTED
     partition.stream_position = stream_position
     partition.previous_stream_position = (
         pv_partition.stream_position if pv_partition else None
     )
+    if partition_deltas:
+        partition.locator = partition_deltas[0].partition_locator
     params = (json.dumps(partition), partition.locator.canonical_string())
     cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
     con.commit()
@@ -975,9 +997,8 @@ def stage_delta(
 
 def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     cur, con = _get_sqlite3_cursor_con(kwargs)
-
-    if not delta.stream_position:
-        delta.locator.stream_position = current_time_ms()
+    delta_stream_position: Optional[int] = delta.stream_position
+    delta.locator.stream_position = delta_stream_position or current_time_ms()
 
     params = (
         delta.locator.canonical_string(),
@@ -995,9 +1016,7 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     cur.execute(
         "UPDATE deltas SET partition_locator = ?, value = ? WHERE locator = ?", params
     )
-
     con.commit()
-
     return delta
 
 
