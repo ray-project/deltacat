@@ -44,8 +44,11 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaLocator,
+    DeltaType,
     Manifest,
     Partition,
+    Stream,
+    StreamLocator,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -89,7 +92,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
     ), "hash_bucket_count is a required arg for compactor v2"
 
     with memray.Tracker(
-        f"compaction_partition.bin"
+        "compaction_partition.bin"
     ) if params.enable_profiler else nullcontext():
         execute_compaction_result: ExecutionCompactionResult = _execute_compaction(
             params,
@@ -239,7 +242,7 @@ def _execute_compaction(
         for delete_file_envelope in delete_file_envelopes:
             delete_file_size_bytes += delete_file_envelope.table_size_bytes
         logger.info(
-            f" Input deltas contain DELETE-type deltas. Total delete file size={delete_file_size_bytes}."
+            f" Input deltas contain {DeltaType.DELETE}-type deltas. Total delete file size={delete_file_size_bytes}."
             f" Total length of delete file envelopes={len(delete_file_envelopes)}"
         )
     uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
@@ -269,14 +272,16 @@ def _execute_compaction(
     )
 
     # create a new stream for this round
-    compacted_stream_locator = params.destination_partition_locator.stream_locator
-    compacted_stream = params.deltacat_storage.get_stream(
+    compacted_stream_locator: Optional[
+        StreamLocator
+    ] = params.destination_partition_locator.stream_locator
+    compacted_stream: Stream = params.deltacat_storage.get_stream(
         compacted_stream_locator.namespace,
         compacted_stream_locator.table_name,
         compacted_stream_locator.table_version,
         **params.deltacat_storage_kwargs,
     )
-    compacted_partition = params.deltacat_storage.stage_partition(
+    compacted_partition: Partition = params.deltacat_storage.stage_partition(
         compacted_stream,
         params.destination_partition_locator.partition_values,
         **params.deltacat_storage_kwargs,
@@ -554,7 +559,7 @@ def _execute_compaction(
 
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
-    merged_delta = Delta.merge_deltas(
+    merged_delta: Delta = Delta.merge_deltas(
         deltas,
         stream_position=params.last_stream_position_to_compact,
     )
@@ -567,7 +572,7 @@ def _execute_compaction(
     )
     logger.info(record_info_msg)
 
-    compacted_delta = params.deltacat_storage.commit_delta(
+    compacted_delta: Delta = params.deltacat_storage.commit_delta(
         merged_delta,
         properties=kwargs.get("properties", {}),
         **params.deltacat_storage_kwargs,
