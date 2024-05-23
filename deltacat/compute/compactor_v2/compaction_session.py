@@ -91,24 +91,23 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
     with memray.Tracker(
         f"compaction_partition.bin"
     ) if params.enable_profiler else nullcontext():
-        (
-            new_partition,
-            new_rci,
-            new_rcf_partition_locator,
-            is_inplace_compacted,
-        ) = _execute_compaction(
+        execute_compaction_result: ExecutionCompactionResult = _execute_compaction(
             params,
             **kwargs,
         )
-
+        compaction_session_type: str = (
+            "INPLACE"
+            if execute_compaction_result.is_inplace_compacted
+            else "NON-INPLACE"
+        )
         logger.info(
             f"Partition-{params.source_partition_locator} -> "
-            f"Compaction session data processing completed"
+            f"{compaction_session_type} Compaction session data processing completed"
         )
         round_completion_file_s3_url: Optional[str] = None
-        if new_partition:
+        if execute_compaction_result.new_compacted_partition:
             previous_partition: Optional[Partition] = None
-            if is_inplace_compacted:
+            if execute_compaction_result.is_inplace_compacted:
                 previous_partition: Optional[
                     Partition
                 ] = params.deltacat_storage.get_partition(
@@ -116,20 +115,23 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                     params.source_partition_locator.partition_values,
                     **params.deltacat_storage_kwargs,
                 )
+                # NOTE: Retrieving the previous partition again as the partition_id may have changed by the time commit_partition is called.
             logger.info(
-                f"Committing compacted partition to: {new_partition.locator} at {new_partition.stream_position} "
+                f"Committing compacted partition to: {execute_compaction_result.new_compacted_partition.locator} "
                 f"using previous partition: {previous_partition.locator if previous_partition else None}"
             )
-            partition: Partition = params.deltacat_storage.commit_partition(
-                new_partition, previous_partition, **params.deltacat_storage_kwargs
+            commited_partition: Partition = params.deltacat_storage.commit_partition(
+                execute_compaction_result.new_compacted_partition,
+                previous_partition,
+                **params.deltacat_storage_kwargs,
             )
             logger.info(
-                f"Committed compacted partition: {partition} with stream position: {partition.stream_position} and previous stream position: {partition.previous_stream_position}"
+                f"Committed compacted partition: {commited_partition} with stream position: {commited_partition.stream_position} and previous stream position: {commited_partition.previous_stream_position}"
             )
             round_completion_file_s3_url = rcf.write_round_completion_file(
                 params.compaction_artifact_s3_bucket,
-                new_rcf_partition_locator,
-                new_rci,
+                execute_compaction_result.new_round_completion_file_partition_locator,
+                execute_compaction_result.new_round_completion_info,
                 **params.s3_client_kwargs,
             )
         else:

@@ -814,13 +814,18 @@ def commit_partition(
         pv_partition.state = CommitState.DEPRECATED
         params = (json.dumps(pv_partition), pv_partition.locator.canonical_string())
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
-
-    previous_partition_deltas: Optional[List[Delta]] = list_partition_deltas(
-        previous_partition, ascending_order=False, *args, **kwargs
-    ).all_items()
-    partition_deltas: Optional[List[Delta]] = list_partition_deltas(
-        partition, ascending_order=False, *args, **kwargs
-    ).all_items()
+    previous_partition_deltas = (
+        list_partition_deltas(
+            pv_partition, ascending_order=False, *args, **kwargs
+        ).all_items()
+        or []
+    )
+    partition_deltas: Optional[List[Delta]] = (
+        list_partition_deltas(
+            partition, ascending_order=False, *args, **kwargs
+        ).all_items()
+        or []
+    )
     previous_partition_deltas_spos_gt: List[Delta] = [
         delta
         for delta in previous_partition_deltas
