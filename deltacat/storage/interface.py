@@ -424,8 +424,7 @@ def commit_partition(
     Commits the given partition to its associated table version stream,
     replacing any previous partition (i.e., "partition being replaced") registered for the same stream and
     partition values.
-    If the previous_partition is specified explicitly,
-    the specified previous_partition will be the partition being replaced, otherwise it will be retrieved.
+    If the previous_partition is passed as an argument, the specified previous_partition will be the partition being replaced, otherwise it will be retrieved.
     Returns the registered partition. If the partition's
     previous delta stream position is specified, then the commit will
     be rejected if it does not match the actual previous stream position of
