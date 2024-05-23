@@ -352,11 +352,9 @@ def test_compact_partition_incremental(
             )
             compacted_partition_deltas: List[Delta] = ds.list_partition_deltas(
                 partition_like=compacted_table_partition,
-                ascending_order=True,
+                ascending_order=False,
                 **ds_mock_kwargs,
             ).all_items()
-            for i, delta in enumerate(compacted_partition_deltas):
-                logger.info(f"PDEBUG::{i=}, {delta.stream_position=}")
             assert (
                 len(compacted_partition_deltas) == len(add_late_deltas) + 1
             ), f"Expected the number of deltas within the newly promoted partition to equal 1 (the compacted delta) + the # of late deltas: {len(add_late_deltas)}"

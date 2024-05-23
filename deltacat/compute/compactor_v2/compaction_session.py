@@ -117,7 +117,8 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                     **params.deltacat_storage_kwargs,
                 )
             logger.info(
-                f"Committing compacted partition to: {new_partition.locator} at {new_partition.stream_position} using previous partition: {previous_partition.locator if previous_partition else None} at stream position: {previous_partition.stream_position if previous_partition else None}"
+                f"Committing compacted partition to: {new_partition.locator} at {new_partition.stream_position} "
+                f"using previous partition: {previous_partition.locator if previous_partition else None}"
             )
             partition: Partition = params.deltacat_storage.commit_partition(
                 new_partition, previous_partition, **params.deltacat_storage_kwargs

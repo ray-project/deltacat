@@ -816,13 +816,13 @@ def commit_partition(
         cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
 
     previous_partition_deltas: Optional[List[Delta]] = list_partition_deltas(
-        previous_partition, ascending_order=True, *args, **kwargs
+        previous_partition, ascending_order=False, *args, **kwargs
     ).all_items()
     partition_deltas: Optional[List[Delta]] = list_partition_deltas(
-        partition, ascending_order=True, *args, **kwargs
+        partition, ascending_order=False, *args, **kwargs
     ).all_items()
-    previous_partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
-    partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
+    # previous_partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
+    # partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
     previous_partition_deltas_spos_gt: List[Delta] = [
         delta
         for delta in previous_partition_deltas
