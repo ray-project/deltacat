@@ -129,5 +129,6 @@ class RoundCompletionInfo(dict):
     def input_average_record_size_bytes(self) -> Optional[float]:
         return self.get("inputAverageRecordSizeBytes")
 
+    @staticmethod
     def get_audit_bucket_name_and_key(compaction_audit_url: str) -> Tuple[str, str]:
         return compaction_audit_url.replace("s3://", "").split("/", 1)
