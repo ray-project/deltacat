@@ -128,9 +128,7 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                 previous_partition,
                 **params.deltacat_storage_kwargs,
             )
-            logger.info(
-                f"Committed compacted partition: {commited_partition} with stream position: {commited_partition.stream_position} and previous stream position: {commited_partition.previous_stream_position}"
-            )
+            logger.info(f"Committed compacted partition: {commited_partition}")
             round_completion_file_s3_url = rcf.write_round_completion_file(
                 params.compaction_artifact_s3_bucket,
                 execute_compaction_result.new_round_completion_file_partition_locator,

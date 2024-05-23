@@ -288,7 +288,8 @@ def test_compact_partition_incremental(
         return (compact_partition_params,), {}
 
     if add_late_deltas:
-        # NOTE: In the case of in-place compaction it is plausible that new deltas may be added to the source partition during compaction (so that the source_partitition.stream_position > last_stream_position_to_compact).
+        # NOTE: In the case of in-place compaction it is plausible that new deltas may be added to the source partition during compaction
+        # (so that the source_partitition.stream_position > last_stream_position_to_compact).
         # This parameter helps simulate the case to check that no late deltas are dropped even when the compacted partition is created.
         latest_delta, _ = add_late_deltas_to_partition(
             add_late_deltas, source_partition, ds_mock_kwargs
