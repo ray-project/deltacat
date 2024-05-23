@@ -319,7 +319,6 @@ class TestEqualityDeleteStrategy:
         from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 
         delete_strategy: DeleteStrategy = EqualityDeleteStrategy()
-        ray.init(local_mode=True, ignore_reinit_error=True)
         table = pa.Table.from_arrays(
             [
                 pa.array([0, 1, 2, 3]),

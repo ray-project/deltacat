@@ -506,7 +506,6 @@ class TestPrepareDeletes:
             prepare_deletes,
         )
 
-        ray.init(local_mode=True, ignore_reinit_error=True)
         source_namespace, source_table_name, source_table_version = create_src_table(
             set(self.TEST_PRIMARY_KEYS),
             None,

@@ -821,8 +821,6 @@ def commit_partition(
     partition_deltas: Optional[List[Delta]] = list_partition_deltas(
         partition, ascending_order=False, *args, **kwargs
     ).all_items()
-    # previous_partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
-    # partition_deltas.sort(reverse=True, key=lambda x: x.stream_position)
     previous_partition_deltas_spos_gt: List[Delta] = [
         delta
         for delta in previous_partition_deltas
