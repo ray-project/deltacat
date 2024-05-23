@@ -46,6 +46,7 @@ from deltacat.storage import (
     DeltaLocator,
     Manifest,
     Partition,
+    Stream,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -107,31 +108,31 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
         )
         round_completion_file_s3_url: Optional[str] = None
         if new_partition:
-            previous_partition: Optional[Partition] = (
-                params.deltacat_storage.get_partition(
-                    params.source_partition_locator.stream_locator,
+            source_table_stream: Optional[Stream] = None
+            previous_partition: Optional[Partition] = None
+            if is_inplace_compacted:
+                source_table_stream = params.deltacat_storage.get_stream(
+                    params.source_partition_locator.namespace,
+                    params.source_partition_locator.table_name,
+                    params.source_partition_locator.table_version,
+                    **params.deltacat_storage_kwargs,
+                )
+                previous_partition: Optional[
+                    Partition
+                ] = params.deltacat_storage.get_partition(
+                    source_table_stream.locator,
                     params.source_partition_locator.partition_values,
                     **params.deltacat_storage_kwargs,
                 )
-                if is_inplace_compacted
-                else None
-            )
             logger.info(
-                f"Committing compacted partition to: {new_partition.locator} using previous partition: {previous_partition.locator if previous_partition else None}"
+                f"Committing compacted partition to: {new_partition.locator} at {new_partition.stream_position} using previous partition: {previous_partition.locator if previous_partition else None} at stream position: {previous_partition.stream_position if previous_partition else None}"
             )
-            if (
-                previous_partition
-                and previous_partition.stream_position > new_partition.stream_position
-            ):
-                logger.warning(
-                    f"New partition: {new_partition.locator} has a lower stream position {new_partition.stream_position} than the previous partition: {previous_partition.locator if previous_partition else None}"
-                )
             partition: Partition = params.deltacat_storage.commit_partition(
                 new_partition, previous_partition, **params.deltacat_storage_kwargs
             )
-
-            logger.info(f"Committed compacted partition: {partition}")
-
+            logger.info(
+                f"Committed compacted partition: {partition} with stream position: {partition.stream_position} and previous stream position: {partition.previous_stream_position}"
+            )
             round_completion_file_s3_url = rcf.write_round_completion_file(
                 params.compaction_artifact_s3_bucket,
                 new_rcf_partition_locator,

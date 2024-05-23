@@ -12,10 +12,6 @@ import io
 from deltacat.tests.test_utils.storage import create_empty_delta
 from deltacat.utils.common import current_time_ms
 
-import logging
-
-from deltacat import logs
-
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -53,9 +49,6 @@ from deltacat.types.media import (
     DistributedDatasetType,
 )
 from deltacat.utils.common import ReadKwargsProvider
-
-logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
 
 SQLITE_CUR_ARG = "sqlite3_cur"
 SQLITE_CON_ARG = "sqlite3_con"
@@ -222,7 +215,6 @@ def list_deltas(
             delta.manifest = None
 
     result.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
-
     return ListResult.of(result, None, None)
 
 
@@ -834,7 +826,7 @@ def commit_partition(
     previous_partition_deltas_spos_gt: List[Delta] = [
         delta
         for delta in previous_partition_deltas
-        if delta.stream_position > partition_deltas[0].stream_position
+        if delta and delta.stream_position > partition_deltas[0].stream_position
     ]
     # handle the case if the previous partition deltas have a greater stream position than the partition_delta
     partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
@@ -850,6 +842,8 @@ def commit_partition(
     partition.previous_stream_position = (
         pv_partition.stream_position if pv_partition else None
     )
+    if partition_deltas:
+        partition.locator = partition_deltas[0].partition_locator
     params = (json.dumps(partition), partition.locator.canonical_string())
     cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
     con.commit()
@@ -1000,9 +994,8 @@ def stage_delta(
 
 def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     cur, con = _get_sqlite3_cursor_con(kwargs)
-
-    if not delta.stream_position:
-        delta.locator.stream_position = current_time_ms()
+    delta_stream_position: Optional[int] = delta.stream_position
+    delta.locator.stream_position = delta_stream_position or current_time_ms()
 
     params = (
         delta.locator.canonical_string(),
@@ -1020,20 +1013,6 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     cur.execute(
         "UPDATE deltas SET partition_locator = ?, value = ? WHERE locator = ?", params
     )
-
-    stream: Optional[Stream] = get_stream(
-        delta.namespace, delta.table_name, delta.table_version, *args, **kwargs
-    )
-    partition: Optional[Partition] = get_partition(
-        stream.locator, delta.partition_values, *args, **kwargs
-    )
-
-    if partition:
-        partition.previous_stream_position = partition.stream_position
-        partition.stream_position = delta.stream_position
-        params = (json.dumps(partition), partition.locator.canonical_string())
-        cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
-
     con.commit()
     return delta
 
