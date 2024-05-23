@@ -30,7 +30,7 @@ class ApplyAllDeletesTestCaseParams:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def cleanup():
+def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
     ray.shutdown()

@@ -65,6 +65,7 @@ class TestMerge(unittest.TestCase):
     def tearDown(cls):
         os.remove(cls.DB_FILE_PATH)
         ray.shutdown()
+        super().tearDownClass()
 
     def test_merge_multiple_hash_group_string_pk(self):
         number_of_hash_group = 2

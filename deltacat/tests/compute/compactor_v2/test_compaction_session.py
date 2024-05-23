@@ -36,6 +36,7 @@ class TestCompactionSession(unittest.TestCase):
     def doClassCleanups(cls) -> None:
         os.remove(cls.DB_FILE_PATH)
         ray.shutdown()
+        super().tearDownClass()
 
     @patch("deltacat.compute.compactor_v2.compaction_session.rcf")
     @patch("deltacat.compute.compactor_v2.compaction_session.s3_utils")

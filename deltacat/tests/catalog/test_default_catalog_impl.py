@@ -36,6 +36,8 @@ class TestReadTable(unittest.TestCase):
     @classmethod
     def doClassCleanups(cls) -> None:
         os.remove(cls.DB_FILE_PATH)
+        ray.shutdown()
+        super().tearDownClass()
 
     def test_daft_distributed_read_sanity(self):
         # setup
