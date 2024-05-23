@@ -1,5 +1,6 @@
 import botocore
 import logging
+import tenacity
 from typing import Dict, Optional, List, Tuple, Any
 from deltacat import logs
 from deltacat.compute.compactor_v2.model.merge_file_group import (
@@ -84,6 +85,7 @@ def get_task_options(
         ConnectionError,
         TimeoutError,
         DaftTransientError,
+        tenacity.RetryError,
     ]
 
     return task_opts

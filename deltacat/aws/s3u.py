@@ -6,8 +6,12 @@ from uuid import uuid4
 from botocore.config import Config
 from deltacat.aws.constants import (
     BOTO_MAX_RETRIES,
-    RETRY_STOP_AFTER_DELAY,
-    RETRYABLE_PUT_OBJECT_ERROR_CODES,
+    UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY,
+    BOTO_THROTTLING_ERROR_CODES,
+    RETRYABLE_TRANSIENT_ERRORS,
+    BOTO_TIMEOUT_ERROR_CODES,
+    UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY,
+    DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY,
 )
 
 import pyarrow as pa
@@ -15,7 +19,7 @@ import ray
 import s3fs
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError
 from ray.data.block import Block, BlockAccessor, BlockMetadata
 from ray.data.datasource import BlockWritePathProvider
 from ray.types import ObjectRef
@@ -29,9 +33,6 @@ from tenacity import (
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
 import deltacat.aws.clients as aws_utils
 from deltacat import logs
-from deltacat.aws.constants import (
-    TIMEOUT_ERROR_CODES,
-)
 from deltacat.exceptions import NonRetryableError, RetryableError
 from deltacat.storage import (
     DistributedDataset,
@@ -257,10 +258,21 @@ def read_file(
         )
         return table
     except ClientError as e:
-        if e.response["Error"]["Code"] in TIMEOUT_ERROR_CODES:
+        if (
+            e.response["Error"]["Code"]
+            in BOTO_TIMEOUT_ERROR_CODES | BOTO_THROTTLING_ERROR_CODES
+        ):
             # Timeout error not caught by botocore
-            raise RetryableError(f"Retry table download from: {s3_url}") from e
-        raise NonRetryableError(f"Failed table download from: {s3_url}") from e
+            raise RetryableError(
+                f"Retry table download from: {s3_url} after receiving {type(e).__name__}"
+            ) from e
+        raise NonRetryableError(
+            f"Failed table download from: {s3_url} after receiving {type(e).__name__}"
+        ) from e
+    except RETRYABLE_TRANSIENT_ERRORS as e:
+        raise RetryableError(
+            f"Retry upload for: {s3_url} after receiving {type(e).__name__}"
+        ) from e
     except BaseException as e:
         logger.warn(
             f"Read has failed for {s3_url} and content_type={content_type} "
@@ -285,7 +297,7 @@ def upload_sliced_table(
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
-        stop=stop_after_delay(30 * 60),
+        stop=stop_after_delay(UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY),
         retry=retry_if_exception_type(RetryableError),
     )
 
@@ -366,8 +378,23 @@ def upload_table(
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # s3fs may swallow S3 errors - we were probably throttled
-                raise RetryableError(f"Retry table upload to: {s3_url}") from e
-            raise NonRetryableError(f"Failed table upload to: {s3_url}") from e
+                raise RetryableError(
+                    f"Retry table download from: {s3_url} after receiving {type(e).__name__}"
+                ) from e
+            if (
+                e.response["Error"]["Code"]
+                in BOTO_TIMEOUT_ERROR_CODES | BOTO_THROTTLING_ERROR_CODES
+            ):
+                raise RetryableError(
+                    f"Retry table download from: {s3_url} after receiving {type(e).__name__}"
+                ) from e
+            raise NonRetryableError(
+                f"Failed table upload to: {s3_url} after receiving {type(e).__name__}"
+            ) from e
+        except RETRYABLE_TRANSIENT_ERRORS as e:
+            raise RetryableError(
+                f"Retry upload for: {s3_url} after receiving {type(e).__name__}"
+            ) from e
         except BaseException as e:
             logger.warn(
                 f"Upload has failed for {s3_url} and content_type={content_type}. Error: {e}",
@@ -415,7 +442,7 @@ def download_manifest_entry(
     # @retry decorator can't be pickled by Ray, so wrap download in Retrying
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
-        stop=stop_after_delay(30 * 60),
+        stop=stop_after_delay(DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY),
         retry=retry_if_not_exception_type(NonRetryableError),
     )
     table = retrying(
@@ -511,7 +538,7 @@ def upload(s3_url: str, body, **s3_client_kwargs) -> Dict[str, Any]:
     s3 = s3_client_cache(None, **s3_client_kwargs)
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=15),
-        stop=stop_after_delay(RETRY_STOP_AFTER_DELAY),
+        stop=stop_after_delay(UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY),
         retry=retry_if_exception_type(RetryableError),
     )
     return retrying(
@@ -531,18 +558,18 @@ def _put_object(
             Body=body, Bucket=bucket, Key=key, **s3_put_object_kwargs
         )
     except ClientError as e:
-        if e.response["Error"]["Code"] in RETRYABLE_PUT_OBJECT_ERROR_CODES:
+        if e.response["Error"]["Code"] in BOTO_THROTTLING_ERROR_CODES:
             raise RetryableError(
                 f"Retry upload for: {bucket}/{key} after receiving {e.response['Error']['Code']}"
             ) from e
         raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
-    except NoCredentialsError as e:
+    except RETRYABLE_TRANSIENT_ERRORS as e:
         raise RetryableError(
-            f"Failed to fetch credentials when putting object into: {bucket}/{key}"
+            f"Retry upload for: {bucket}/{key} after receiving {type(e).__name__}"
         ) from e
     except BaseException as e:
         logger.error(
-            f"Upload has failed for {bucket}/{key}. Error: {e}",
+            f"Upload has failed for {bucket}/{key}. Error: {type(e).__name__}",
             exc_info=True,
         )
         raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
@@ -556,7 +583,7 @@ def download(
     s3 = s3_client_cache(None, **s3_client_kwargs)
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=15),
-        stop=stop_after_delay(RETRY_STOP_AFTER_DELAY),
+        stop=stop_after_delay(UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY),
         retry=retry_if_exception_type(RetryableError),
     )
     return retrying(
@@ -581,9 +608,9 @@ def _get_object(s3_client, bucket: str, key: str, fail_if_not_found: bool = True
                     f"Failed get object from: {bucket}/{key}"
                 ) from e
             logger.info(f"file not found: {bucket}/{key}")
-    except NoCredentialsError as e:
+    except RETRYABLE_TRANSIENT_ERRORS as e:
         raise RetryableError(
-            f"Failed to fetch credentials when getting object from: {bucket}/{key}"
+            f"Retry get object: {bucket}/{key} after receiving {type(e).__name__}"
         ) from e
 
     return None
