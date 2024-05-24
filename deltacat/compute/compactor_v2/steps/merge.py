@@ -28,6 +28,7 @@ from deltacat.utils.metrics import emit_timer_metrics, failure_metric, success_m
 from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
+    timeout,
 )
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
@@ -46,6 +47,7 @@ from deltacat.compute.compactor_v2.constants import (
     MERGE_TIME_IN_SECONDS,
     MERGE_SUCCESS_COUNT,
     MERGE_FAILURE_COUNT,
+    MERGE_TASK_TIMEOUT_IN_SECONDS,
 )
 
 
@@ -486,6 +488,7 @@ def _copy_manifests_from_hash_bucketing(
 
 @success_metric(name=MERGE_SUCCESS_COUNT)
 @failure_metric(name=MERGE_FAILURE_COUNT)
+@timeout(MERGE_TASK_TIMEOUT_IN_SECONDS)
 def _timed_merge(input: MergeInput) -> MergeResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()

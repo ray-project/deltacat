@@ -1,6 +1,8 @@
 import unittest
 from unittest import mock
 import time
+from multiprocessing import Pool
+import platform
 
 
 class TestGetCurrentClusterUtilization(unittest.TestCase):
@@ -70,3 +72,29 @@ class TestProcessUtilizationOverTimeRange(unittest.TestCase):
             nu.schedule_callback(test_callback, 1)
             time.sleep(3)
             self.assertTrue(nu.test_field_set)
+
+
+class TestTimeoutDecorator(unittest.TestCase):
+    from deltacat.utils.resources import timeout
+
+    @staticmethod
+    @timeout(2)
+    def something_that_runs_xs(x, *args, **kwargs):
+        time.sleep(x)
+
+    def test_timeout(self):
+        if platform.system() != "Windows":
+            self.assertRaises(
+                TimeoutError, lambda: self.something_that_runs_xs(3, test=10)
+            )
+
+    def test_sanity_in_multiprocess(self):
+        if platform.system() != "Windows":
+            # An alarm works per process
+            # https://pubs.opengroup.org/onlinepubs/9699919799/functions/alarm.html
+            with Pool(3) as p:
+                p.map(self.something_that_runs_xs, [1, 1.1, 1.2])
+
+    def test_sanity(self):
+        if platform.system() != "Windows":
+            self.something_that_runs_xs(1, test=10)
