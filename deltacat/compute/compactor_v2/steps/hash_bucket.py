@@ -98,6 +98,9 @@ def _group_file_records_by_pk_hash_bucket(
     return hb_to_delta_file_envelopes, total_record_count, total_size_bytes
 
 
+# TODO: use timeout parameter in ray.remote
+# https://github.com/ray-project/ray/issues/18916
+# Note: order of decorators is important
 @success_metric(name=HASH_BUCKET_SUCCESS_COUNT)
 @failure_metric(name=HASH_BUCKET_FAILURE_COUNT)
 @timeout(HASH_BUCKET_TASK_TIMEOUT_IN_SECONDS)

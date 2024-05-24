@@ -486,6 +486,9 @@ def _copy_manifests_from_hash_bucketing(
     return materialized_results
 
 
+# TODO: use timeout parameter in ray.remote
+# https://github.com/ray-project/ray/issues/18916
+# Note: order of decorators is important
 @success_metric(name=MERGE_SUCCESS_COUNT)
 @failure_metric(name=MERGE_FAILURE_COUNT)
 @timeout(MERGE_TASK_TIMEOUT_IN_SECONDS)
