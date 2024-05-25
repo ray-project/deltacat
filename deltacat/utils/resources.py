@@ -260,14 +260,15 @@ def timeout(value_in_seconds: int):
             if current_platform == "Windows":
                 return func(*args, **kwargs)
 
-            old = signal.signal(signal.SIGALRM, handler)
+            old_handler = signal.signal(signal.SIGALRM, handler)
             # An alarm works per process.
             # https://pubs.opengroup.org/onlinepubs/9699919799/functions/alarm.html
             signal.alarm(value_in_seconds)
             try:
                 return func(*args, **kwargs)
             finally:
-                signal.signal(signal.SIGALRM, old)
+                # reset the SIGALRM handler
+                signal.signal(signal.SIGALRM, old_handler)
                 # cancel the alarm
                 signal.alarm(0)
 
