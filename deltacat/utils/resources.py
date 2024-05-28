@@ -1,6 +1,8 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import functools
+import signal
 from contextlib import AbstractContextManager
 from types import TracebackType
 import ray
@@ -230,3 +232,46 @@ class ProcessUtilizationOverTimeRange(AbstractContextManager):
         continuous_thread = ScheduleThread()
         continuous_thread.start()
         return cease_continuous_run
+
+
+def timeout(value_in_seconds: int):
+    """
+    A decorator that will raise a TimeoutError if the decorated function takes longer
+    than the specified timeout.
+
+    Note: The decorator does not work in a multithreading env or on Windows platform.
+    Hence, the default behavior is same as executing a method without timeout set.
+
+    Also note: it is still the responsibility of the caller to clean up any resource leaks
+    during the execution of the underlying function.
+    """
+
+    def _decorate(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            current_platform = platform.system()
+
+            def handler(signum, frame):
+                raise TimeoutError(
+                    f"Timeout occurred on method: {func.__name__},"
+                    f" args={args}, kwargs={kwargs}"
+                )
+
+            if current_platform == "Windows":
+                return func(*args, **kwargs)
+
+            old_handler = signal.signal(signal.SIGALRM, handler)
+            # An alarm works per process.
+            # https://pubs.opengroup.org/onlinepubs/9699919799/functions/alarm.html
+            signal.alarm(value_in_seconds)
+            try:
+                return func(*args, **kwargs)
+            finally:
+                # reset the SIGALRM handler
+                signal.signal(signal.SIGALRM, old_handler)
+                # cancel the alarm
+                signal.alarm(0)
+
+        return wrapper
+
+    return _decorate

@@ -1,3 +1,5 @@
+from deltacat.utils.common import env_integer
+
 TOTAL_BYTES_IN_SHA1_HASH = 20
 
 PK_DELIMITER = "L6kl7u5f"
@@ -40,6 +42,16 @@ DROP_DUPLICATES = True
 # This is the observed upper bound inflation for parquet
 # size in metadata to pyarrow table size.
 PARQUET_TO_PYARROW_INFLATION = 4
+
+# A merge task will fail after this timeout
+# The default is currently double the observed maximum.
+# This timeout depends on total data processed per task.
+MERGE_TASK_TIMEOUT_IN_SECONDS = env_integer("MERGE_TASK_TIMEOUT_IN_SECONDS", 25 * 60)
+
+# A hash bucket task will fail after this timeout
+HASH_BUCKET_TASK_TIMEOUT_IN_SECONDS = env_integer(
+    "HASH_BUCKET_TASK_TIMEOUT_IN_SECONDS", 25 * 60
+)
 
 # Metric Names
 # Time taken for a hash bucket task
