@@ -11,10 +11,10 @@ jobs:
         uses: actions/checkout@main
         with:
           fetch-depth: 0
-      - name: Set up Python 3.7 (minimum supported python version for deltaCAT)
+      - name: Set up Python 3.8 (minimum supported python version for deltaCAT)
         uses: actions/setup-python@v3
         with:
-          python-version: "3.7"
+          python-version: "3.8"
       - name: Install pypa/build
         run: >-
           python -m

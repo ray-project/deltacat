@@ -13,10 +13,10 @@ jobs:
         steps:
             - name: checkout
               uses: actions/checkout@v3
-            - name: Set up Python 3.7
+            - name: Set up Python 3.8
               uses: actions/setup-python@v1
               with:
-                  python-version: 3.7
+                  python-version: 3.8
             - name: Linting
               run: |
                   python -m pip install --upgrade pip
@@ -27,14 +27,14 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                python-version: ["3.7", "3.8", "3.9", "3.10"]
+                python-version: ["3.8", "3.9", "3.10"]
         timeout-minutes: 20
         steps:
             - name: "checkout repository"
               uses: actions/checkout@v3
               with:
                   fetch-depth: 0
-            - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.7)
+            - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.8)
               uses: actions/setup-python@v4
               with:
                   python-version: ${{ matrix.python-version }}
