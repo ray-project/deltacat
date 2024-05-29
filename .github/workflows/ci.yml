@@ -34,7 +34,7 @@ jobs:
               uses: actions/checkout@v3
               with:
                   fetch-depth: 0
-            - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.7)
+            - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.8)
               uses: actions/setup-python@v4
               with:
                   python-version: ${{ matrix.python-version }}
