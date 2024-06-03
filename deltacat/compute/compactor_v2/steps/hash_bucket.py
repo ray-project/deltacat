@@ -30,14 +30,14 @@ from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
     ProcessUtilizationOverTimeRange,
 )
-from deltacat.compute.compactor_v2.utils.exception_handler import (
-    handle_exception,
-)
 from deltacat.constants import BYTES_PER_GIBIBYTE
 from deltacat.compute.compactor_v2.constants import (
     HASH_BUCKET_TIME_IN_SECONDS,
     HASH_BUCKET_FAILURE_COUNT,
     HASH_BUCKET_SUCCESS_COUNT,
+)
+from deltacat.compute.compactor_v2.utils.exception_handler import (
+    handle_exception,
 )
 
 if importlib.util.find_spec("memray"):
@@ -101,6 +101,7 @@ def _group_file_records_by_pk_hash_bucket(
 
 @success_metric(name=HASH_BUCKET_SUCCESS_COUNT)
 @failure_metric(name=HASH_BUCKET_FAILURE_COUNT)
+@handle_exception
 def _timed_hash_bucket(input: HashBucketInput):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()

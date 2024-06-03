@@ -4,7 +4,6 @@ from enum import Enum
 
 from deltacat.utils.common import env_integer, env_string
 
-from botocore.exceptions import ReadTimeoutError
 
 class S3ErrorCodes(str, Enum):
     # S3 error codes - see https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
@@ -24,6 +23,7 @@ class S3ErrorCodes(str, Enum):
     @classmethod
     def get_upload_table_retryable_error_codes(cls):
         return [cls.REQUEST_TIME_TOO_SKEWED_ERROR, cls.SLOW_DOWN_ERROR]
+
 
 DAFT_MAX_S3_CONNECTIONS_PER_FILE = env_integer("DAFT_MAX_S3_CONNECTIONS_PER_FILE", 8)
 BOTO_MAX_RETRIES = env_integer("BOTO_MAX_RETRIES", 5)
