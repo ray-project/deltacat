@@ -666,6 +666,12 @@ def _execute_compaction(
         f"compacted at: {params.last_stream_position_to_compact},"
     )
     is_inplace_compacted: bool = (
+        params.rebase_source_partition_locator
+        and params.rebase_source_partition_locator.partition_values
+        == params.destination_partition_locator.partition_values
+        and params.rebase_source_partition_locator.stream_id
+        == params.destination_partition_locator.stream_id
+    ) or (
         params.source_partition_locator.partition_values
         == params.destination_partition_locator.partition_values
         and params.source_partition_locator.stream_id
