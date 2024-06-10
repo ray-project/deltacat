@@ -134,7 +134,7 @@ class TestCompactionSession(unittest.TestCase):
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
                     "s3_client_kwargs": {},
-                    "source_partition_locator": None,
+                    "source_partition_locator": source_partition.locator,
                 }
             )
         )
