@@ -662,19 +662,16 @@ def _execute_compaction(
     )
 
     logger.info(
-        f"partition-{params.source_partition_locator.partition_values},"
+        f"Partition-{params.source_partition_locator.partition_values},"
         f"compacted at: {params.last_stream_position_to_compact},"
     )
+    logger.info(
+        f"Checking if partition {rcf_source_partition_locator} is inplace compacted against {params.destination_partition_locator}..."
+    )
     is_inplace_compacted: bool = (
-        params.rebase_source_partition_locator
-        and params.rebase_source_partition_locator.partition_values
+        rcf_source_partition_locator.partition_values
         == params.destination_partition_locator.partition_values
-        and params.rebase_source_partition_locator.stream_id
-        == params.destination_partition_locator.stream_id
-    ) or (
-        params.source_partition_locator.partition_values
-        == params.destination_partition_locator.partition_values
-        and params.source_partition_locator.stream_id
+        and rcf_source_partition_locator.stream_id
         == params.destination_partition_locator.stream_id
     )
     if is_inplace_compacted:
