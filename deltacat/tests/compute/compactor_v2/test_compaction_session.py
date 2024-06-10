@@ -5,7 +5,10 @@ import os
 from unittest.mock import patch
 import deltacat.tests.local_deltacat_storage as ds
 from deltacat.types.media import ContentType
-from deltacat.compute.compactor_v2.compaction_session import compact_partition, _execute_compaction
+from deltacat.compute.compactor_v2.compaction_session import (
+    compact_partition,
+    _execute_compaction,
+)
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
