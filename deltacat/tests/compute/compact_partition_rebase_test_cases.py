@@ -31,7 +31,6 @@ class RebaseCompactionTestCaseParams(BaseCompactorTestCase):
 
     Args:
         * (inherited from CompactorTestCase): see CompactorTestCase docstring for details
-        is_inplace: bool - argument to indicate whether to try compacting an in-place compacted table (the source table is the destination table). Also needed to control whether the destination table is created
         rebase_expected_compact_partition_result: pa.Table - expected table after rebase compaction runs. An output that is asserted on in Rebase then Incremental unit tests
     """
 
