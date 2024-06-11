@@ -12,6 +12,7 @@ import io
 from deltacat.tests.test_utils.storage import create_empty_delta
 from deltacat.utils.common import current_time_ms
 
+
 from deltacat.storage import (
     Delta,
     DeltaLocator,
@@ -49,6 +50,11 @@ from deltacat.types.media import (
     DistributedDatasetType,
 )
 from deltacat.utils.common import ReadKwargsProvider
+from deltacat.tests.local_deltacat_storage.exceptions import (
+    LocalStorageError,
+    InvalidNamespaceError,
+    LocalStorageValidationError,
+)
 
 SQLITE_CUR_ARG = "sqlite3_cur"
 SQLITE_CON_ARG = "sqlite3_con"
@@ -1162,3 +1168,15 @@ def get_table_version_column_names(
     **kwargs,
 ) -> Optional[List[str]]:
     raise NotImplementedError("Fetching column names is not supported")
+
+
+def can_categorize(e: BaseException) -> bool:
+    if isinstance(e, LocalStorageError):
+        return True
+    else:
+        return False
+
+
+def raise_categorized_error(e: BaseException):
+    if isinstance(e, InvalidNamespaceError):
+        raise LocalStorageValidationError(msg="Namespace provided is invalid!")

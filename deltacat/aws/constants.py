@@ -1,28 +1,8 @@
 import botocore
 from typing import Set
-from enum import Enum
+from daft.exceptions import DaftTransientError
 
 from deltacat.utils.common import env_integer, env_string
-
-
-class S3ErrorCodes(str, Enum):
-    # S3 error codes - see https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
-    READ_TIMEOUT_ERROR = "ReadTimeoutError"
-    CONNECT_TIMEOUT_ERROR = "ConnectTimeoutError"
-    REQUEST_TIME_TOO_SKEWED_ERROR = "RequestTimeTooSkewed"
-    SLOW_DOWN_ERROR = "SlowDown"
-
-    @classmethod
-    def get_timeout_error_codes(cls):
-        return [cls.READ_TIMEOUT_ERROR, cls.CONNECT_TIMEOUT_ERROR]
-
-    @classmethod
-    def get_read_table_retryable_error_codes(cls):
-        return [cls.READ_TIMEOUT_ERROR, cls.CONNECT_TIMEOUT_ERROR]
-
-    @classmethod
-    def get_upload_table_retryable_error_codes(cls):
-        return [cls.REQUEST_TIME_TOO_SKEWED_ERROR, cls.SLOW_DOWN_ERROR]
 
 
 DAFT_MAX_S3_CONNECTIONS_PER_FILE = env_integer("DAFT_MAX_S3_CONNECTIONS_PER_FILE", 8)
@@ -36,6 +16,7 @@ RETRYABLE_TRANSIENT_ERRORS = (
     botocore.exceptions.NoCredentialsError,
     botocore.exceptions.ConnectTimeoutError,
     botocore.exceptions.ReadTimeoutError,
+    DaftTransientError,
 )
 AWS_REGION = env_string("AWS_REGION", "us-east-1")
 UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY = env_integer(

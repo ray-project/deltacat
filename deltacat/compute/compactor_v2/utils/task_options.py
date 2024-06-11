@@ -19,7 +19,7 @@ from deltacat.compute.compactor_v2.utils.primary_key_index import (
 from deltacat.compute.compactor_v2.constants import (
     PARQUET_TO_PYARROW_INFLATION,
 )
-from deltacat.compute.compactor_v2.utils.exception_handler import (
+from deltacat.exceptions import (
     RAY_TASK_RETRYABLE_ERROR_CODES,
 )
 

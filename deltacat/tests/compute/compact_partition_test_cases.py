@@ -28,6 +28,8 @@ from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 from deltacat.storage.model.sort_key import SortKey
 
+from deltacat.exceptions import GeneralValidationError
+
 ZERO_VALUED_SORT_KEY, ZERO_VALUED_PARTITION_VALUES_PARAM = [], []
 ZERO_VALUED_PARTITION_KEYS_PARAM = None
 ZERO_VALUED_PRIMARY_KEY = {}
@@ -570,8 +572,8 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
-        expected_terminal_exception=AssertionError,
-        expected_terminal_exception_message="hash_bucket_count is a required arg for compactor v2",
+        expected_terminal_exception=GeneralValidationError,
+        expected_terminal_exception_message="General validation error occurred",
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=None,
