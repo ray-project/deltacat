@@ -27,11 +27,11 @@ from deltacat.tests.compute.compact_partition_test_cases import (
 @dataclass(frozen=True)
 class RebaseCompactionTestCaseParams(BaseCompactorTestCase):
     """
-    A pytest parameterized test case for the `compact_partition` function with rebase and incremental compaction.
+    A pytest parameterized test case for the `compact_partition` function with rebase compaction.
 
     Args:
         * (inherited from CompactorTestCase): see CompactorTestCase docstring for details
-        rebase_expected_compact_partition_result: pa.Table - expected table after rebase compaction runs. An output that is asserted on in Rebase then Incremental unit tests
+        rebase_expected_compact_partition_result: pa.Table - expected table after rebase compaction runs. An output that is asserted on in Rebase unit tests
     """
 
     rebase_expected_compact_partition_result: pa.Table
