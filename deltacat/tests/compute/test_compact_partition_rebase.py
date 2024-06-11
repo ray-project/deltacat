@@ -168,6 +168,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     ids=[test_name for test_name in REBASE_TEST_CASES],
 )
 def test_compact_partition_rebase_same_source_and_destination(
+    mocker,
     s3_resource: ServiceResource,
     local_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
@@ -252,8 +253,20 @@ def test_compact_partition_rebase_same_source_and_destination(
             "sort_keys": sort_keys if sort_keys else None,
         }
     )
+
+    from deltacat.compute.compactor_v2.model.compaction_session import (
+        ExecutionCompactionResult,
+    )
+
+    execute_compaction_result_spy = mocker.spy(ExecutionCompactionResult, "__init__")
+
     # execute
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+
+    # Assert not in-place compacted
+    assert (
+        execute_compaction_result_spy.call_args.args[-1] is False
+    ), "Table version erroneously marked as in-place compacted!"
     compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         s3_resource, rcf_file_s3_uri
     )
