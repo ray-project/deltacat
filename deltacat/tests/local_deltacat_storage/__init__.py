@@ -820,14 +820,17 @@ def commit_partition(
         ).all_items()
         or []
     )
-    # merge and promote logic
+
+    partition_deltas: Optional[List[Delta]] = (
+        list_partition_deltas(
+            partition, ascending_order=False, *args, **kwargs
+        ).all_items()
+        or []
+    )
+
+    # if previous_partition is passed in, table is in-place compacted
+    # Run merge and promote logic
     if previous_partition:
-        partition_deltas: Optional[List[Delta]] = (
-            list_partition_deltas(
-                partition, ascending_order=False, *args, **kwargs
-            ).all_items()
-            or []
-        )
         previous_partition_deltas_spos_gt: List[Delta] = [
             delta
             for delta in previous_partition_deltas
@@ -836,15 +839,16 @@ def commit_partition(
         # handle the case if the previous partition deltas have a greater stream position than the partition_delta
         partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
 
-        stream_position = (
-            partition_deltas[0].stream_position
-            if partition_deltas
-            else partition.stream_position
-        )
+    stream_position = (
+        partition_deltas[0].stream_position
+        if partition_deltas
+        else partition.stream_position
+    )
 
-        partition.stream_position = stream_position
-        if partition_deltas:
-            partition.locator = partition_deltas[0].partition_locator
+    partition.stream_position = stream_position
+    if partition_deltas:
+        partition.locator = partition_deltas[0].partition_locator
+
     partition.state = CommitState.COMMITTED
     partition.previous_stream_position = (
         pv_partition.stream_position if pv_partition else None
