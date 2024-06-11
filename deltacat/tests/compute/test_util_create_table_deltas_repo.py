@@ -251,6 +251,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
     ds.commit_partition(staged_partition, **ds_mock_kwargs)
 
     # get streams
+    # TODO: Add deltas to destination stream
     destination_table_stream: Stream = ds.get_stream(
         namespace=destination_table_namespace,
         table_name=destination_table_name,

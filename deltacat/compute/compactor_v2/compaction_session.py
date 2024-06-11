@@ -123,12 +123,12 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                 f"Committing compacted partition to: {execute_compaction_result.new_compacted_partition.locator} "
                 f"using previous partition: {previous_partition.locator if previous_partition else None}"
             )
-            commited_partition: Partition = params.deltacat_storage.commit_partition(
+            committed_partition: Partition = params.deltacat_storage.commit_partition(
                 execute_compaction_result.new_compacted_partition,
                 previous_partition,
                 **params.deltacat_storage_kwargs,
             )
-            logger.info(f"Committed compacted partition: {commited_partition}")
+            logger.info(f"Committed compacted partition: {committed_partition}")
             round_completion_file_s3_url = rcf.write_round_completion_file(
                 params.compaction_artifact_s3_bucket,
                 execute_compaction_result.new_round_completion_file_partition_locator,

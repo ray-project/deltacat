@@ -820,33 +820,35 @@ def commit_partition(
         ).all_items()
         or []
     )
-    partition_deltas: Optional[List[Delta]] = (
-        list_partition_deltas(
-            partition, ascending_order=False, *args, **kwargs
-        ).all_items()
-        or []
-    )
-    previous_partition_deltas_spos_gt: List[Delta] = [
-        delta
-        for delta in previous_partition_deltas
-        if delta.stream_position > partition_deltas[0].stream_position
-    ]
-    # handle the case if the previous partition deltas have a greater stream position than the partition_delta
-    partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
+    # merge and promote logic
+    if previous_partition:
+        partition_deltas: Optional[List[Delta]] = (
+            list_partition_deltas(
+                partition, ascending_order=False, *args, **kwargs
+            ).all_items()
+            or []
+        )
+        previous_partition_deltas_spos_gt: List[Delta] = [
+            delta
+            for delta in previous_partition_deltas
+            if delta.stream_position > partition_deltas[0].stream_position
+        ]
+        # handle the case if the previous partition deltas have a greater stream position than the partition_delta
+        partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
 
-    stream_position = (
-        partition_deltas[0].stream_position
-        if partition_deltas
-        else partition.stream_position
-    )
+        stream_position = (
+            partition_deltas[0].stream_position
+            if partition_deltas
+            else partition.stream_position
+        )
 
+        partition.stream_position = stream_position
+        if partition_deltas:
+            partition.locator = partition_deltas[0].partition_locator
     partition.state = CommitState.COMMITTED
-    partition.stream_position = stream_position
     partition.previous_stream_position = (
         pv_partition.stream_position if pv_partition else None
     )
-    if partition_deltas:
-        partition.locator = partition_deltas[0].partition_locator
     params = (json.dumps(partition), partition.locator.canonical_string())
     cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
     con.commit()

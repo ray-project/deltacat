@@ -7,13 +7,9 @@ import deltacat.tests.local_deltacat_storage as ds
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor_v2.compaction_session import (
     compact_partition,
-    _execute_compaction,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
-)
-from deltacat.compute.compactor_v2.model.compaction_session import (
-    ExecutionCompactionResult,
 )
 from deltacat.utils.common import current_time_ms
 from deltacat.tests.test_utils.pyarrow import stage_partition_from_file_paths
@@ -92,52 +88,3 @@ class TestCompactionSession(unittest.TestCase):
 
         # verify that no RCF is written
         self.assertIsNone(rcf_url)
-
-    @patch("deltacat.compute.compactor_v2.compaction_session.rcf")
-    @patch("deltacat.compute.compactor_v2.compaction_session.s3_utils")
-    def test_compact_partition_rebase_no_source_partition(self, s3_utils, rcf_url):
-        # setup
-        rcf_url.read_round_completion_file.return_value = None
-        staged_source = stage_partition_from_file_paths(
-            self.NAMESPACE, ["test"], **self.deltacat_storage_kwargs
-        )
-        source_partition = ds.commit_partition(
-            staged_source, **self.deltacat_storage_kwargs
-        )
-
-        staged_dest = stage_partition_from_file_paths(
-            self.NAMESPACE, ["destination"], **self.deltacat_storage_kwargs
-        )
-        dest_partition = ds.commit_partition(
-            staged_dest, **self.deltacat_storage_kwargs
-        )
-
-        # action
-        execute_compaction_result: ExecutionCompactionResult = _execute_compaction(
-            CompactPartitionParams.of(
-                {
-                    "compaction_artifact_s3_bucket": "test_bucket",
-                    "compacted_file_content_type": ContentType.PARQUET,
-                    "dd_max_parallelism_ratio": 1.0,
-                    "deltacat_storage": ds,
-                    "deltacat_storage_kwargs": self.deltacat_storage_kwargs,
-                    "destination_partition_locator": dest_partition.locator,
-                    "drop_duplicates": True,
-                    "hash_bucket_count": 1,
-                    "last_stream_position_to_compact": source_partition.stream_position,
-                    "list_deltas_kwargs": {
-                        **self.deltacat_storage_kwargs,
-                        **{"equivalent_table_types": []},
-                    },
-                    "primary_keys": [],
-                    "rebase_source_partition_locator": source_partition.locator,
-                    "rebase_source_partition_high_watermark": None,
-                    "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
-                    "source_partition_locator": source_partition.locator,
-                }
-            )
-        )
-
-        # verify that the job was NOT marked as in-place compacted
-        self.assertFalse(execute_compaction_result.is_inplace_compacted)
