@@ -97,6 +97,19 @@ def _get_manifest_entry_uri(manifest_entry_id: str) -> str:
     return f"cloudpickle://{manifest_entry_id}"
 
 
+def _merge_and_promote(
+    partition_deltas: List[Delta], previous_partition_deltas: List[Delta]
+):
+    previous_partition_deltas_spos_gt: List[Delta] = [
+        delta
+        for delta in previous_partition_deltas
+        if delta.stream_position > partition_deltas[0].stream_position
+    ]
+    # handle the case if the previous partition deltas have a greater stream position than the partition_delta
+    partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
+    return partition_deltas
+
+
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     cur, con = _get_sqlite3_cursor_con(kwargs)
     res = cur.execute("SELECT * FROM namespaces")
@@ -828,16 +841,11 @@ def commit_partition(
         or []
     )
 
-    # if previous_partition is passed in, table is in-place compacted
-    # Run merge and promote logic
+    # if previous_partition is passed in, table is in-place compacted and we need to run merge-and-promote
     if previous_partition:
-        previous_partition_deltas_spos_gt: List[Delta] = [
-            delta
-            for delta in previous_partition_deltas
-            if delta.stream_position > partition_deltas[0].stream_position
-        ]
-        # handle the case if the previous partition deltas have a greater stream position than the partition_delta
-        partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
+        partition_deltas = _merge_and_promote(
+            partition_deltas, previous_partition_deltas
+        )
 
     stream_position = (
         partition_deltas[0].stream_position
