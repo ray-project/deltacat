@@ -97,6 +97,19 @@ def _get_manifest_entry_uri(manifest_entry_id: str) -> str:
     return f"cloudpickle://{manifest_entry_id}"
 
 
+def _merge_and_promote(
+    partition_deltas: List[Delta], previous_partition_deltas: List[Delta]
+):
+    previous_partition_deltas_spos_gt: List[Delta] = [
+        delta
+        for delta in previous_partition_deltas
+        if delta.stream_position > partition_deltas[0].stream_position
+    ]
+    # handle the case if the previous partition deltas have a greater stream position than the partition_delta
+    partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
+    return partition_deltas
+
+
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     cur, con = _get_sqlite3_cursor_con(kwargs)
     res = cur.execute("SELECT * FROM namespaces")
@@ -820,19 +833,19 @@ def commit_partition(
         ).all_items()
         or []
     )
+
     partition_deltas: Optional[List[Delta]] = (
         list_partition_deltas(
             partition, ascending_order=False, *args, **kwargs
         ).all_items()
         or []
     )
-    previous_partition_deltas_spos_gt: List[Delta] = [
-        delta
-        for delta in previous_partition_deltas
-        if delta.stream_position > partition_deltas[0].stream_position
-    ]
-    # handle the case if the previous partition deltas have a greater stream position than the partition_delta
-    partition_deltas = previous_partition_deltas_spos_gt + partition_deltas
+
+    # if previous_partition is passed in, table is in-place compacted and we need to run merge-and-promote
+    if previous_partition:
+        partition_deltas = _merge_and_promote(
+            partition_deltas, previous_partition_deltas
+        )
 
     stream_position = (
         partition_deltas[0].stream_position
@@ -840,13 +853,14 @@ def commit_partition(
         else partition.stream_position
     )
 
-    partition.state = CommitState.COMMITTED
     partition.stream_position = stream_position
+    if partition_deltas:
+        partition.locator = partition_deltas[0].partition_locator
+
+    partition.state = CommitState.COMMITTED
     partition.previous_stream_position = (
         pv_partition.stream_position if pv_partition else None
     )
-    if partition_deltas:
-        partition.locator = partition_deltas[0].partition_locator
     params = (json.dumps(partition), partition.locator.canonical_string())
     cur.execute("UPDATE partitions SET value = ? WHERE locator = ?", params)
     con.commit()
