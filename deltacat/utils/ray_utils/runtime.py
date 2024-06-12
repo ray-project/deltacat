@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import ray
 
@@ -120,7 +120,7 @@ def log_cluster_resources() -> None:
     logger.info(f"Cluster Nodes: {ray.nodes()}")
 
 
-def get_current_ray_task_id() -> str:
+def get_current_ray_task_id() -> Optional[str]:
     return ray.get_runtime_context().get_task_id()
 
 

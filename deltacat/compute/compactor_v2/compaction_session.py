@@ -77,6 +77,7 @@ from deltacat.compute.compactor_v2.utils.task_options import (
     local_merge_resource_options_provider,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
+from deltacat.exceptions import categorize_errors
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -86,6 +87,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 @metrics
+@categorize_errors
 def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]:
     assert (
         params.hash_bucket_count is not None and params.hash_bucket_count >= 1

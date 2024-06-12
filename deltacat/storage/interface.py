@@ -600,3 +600,17 @@ def table_version_exists(
     Returns True if the given table version exists, False if not.
     """
     raise NotImplementedError("table_version_exists not implemented")
+
+
+def can_categorize(e: BaseException) -> bool:
+    """
+    Return whether input error is from storage implementation layer.
+    """
+    raise NotImplementedError
+
+
+def raise_categorized_error():
+    """
+    Raise and handle storage implementation layer specific errors.
+    """
+    raise NotImplementedError

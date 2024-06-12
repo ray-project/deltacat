@@ -36,6 +36,9 @@ from deltacat.compute.compactor_v2.constants import (
     HASH_BUCKET_FAILURE_COUNT,
     HASH_BUCKET_SUCCESS_COUNT,
 )
+from deltacat.exceptions import (
+    categorize_errors,
+)
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -98,6 +101,7 @@ def _group_file_records_by_pk_hash_bucket(
 
 @success_metric(name=HASH_BUCKET_SUCCESS_COUNT)
 @failure_metric(name=HASH_BUCKET_FAILURE_COUNT)
+@categorize_errors
 def _timed_hash_bucket(input: HashBucketInput):
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()

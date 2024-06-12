@@ -1,6 +1,9 @@
 import unittest
 import numpy as np
 from unittest import mock
+from deltacat.exceptions import (
+    PymemcachedPutObjectError,
+)
 
 
 class MockPyMemcacheClient:
@@ -86,7 +89,7 @@ class TestMemcachedObjectStore(unittest.TestCase):
         mock_retrying_client.return_value = mock_client.return_value
         mock_client.return_value.set_many.return_value = ["abcd"]
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(PymemcachedPutObjectError):
             self.object_store.put_many(["a", "b"])
 
         self.assertEqual(1, mock_client.return_value.set_many.call_count)
@@ -169,7 +172,7 @@ class TestMemcachedObjectStore(unittest.TestCase):
         mock_client.return_value.set.return_value = False
         mock_retrying_client.return_value = mock_client.return_value
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(PymemcachedPutObjectError):
             self.object_store.put("test_ip")
 
         self.assertEqual(1, mock_client.return_value.set.call_count)

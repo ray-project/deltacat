@@ -1,6 +1,4 @@
-import botocore
 import logging
-import tenacity
 from typing import Dict, Optional, List, Tuple, Any
 from deltacat import logs
 from deltacat.compute.compactor_v2.model.merge_file_group import (
@@ -21,8 +19,9 @@ from deltacat.compute.compactor_v2.utils.primary_key_index import (
 from deltacat.compute.compactor_v2.constants import (
     PARQUET_TO_PYARROW_INFLATION,
 )
-from daft.exceptions import DaftTransientError
-
+from deltacat.exceptions import (
+    RAY_TASK_RETRYABLE_ERROR_CODES,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -79,14 +78,7 @@ def get_task_options(
 
     # List of possible botocore exceptions are available at
     # https://github.com/boto/botocore/blob/develop/botocore/exceptions.py
-    task_opts["retry_exceptions"] = [
-        botocore.exceptions.ConnectionError,
-        botocore.exceptions.HTTPClientError,
-        ConnectionError,
-        TimeoutError,
-        DaftTransientError,
-        tenacity.RetryError,
-    ]
+    task_opts["retry_exceptions"] = RAY_TASK_RETRYABLE_ERROR_CODES
 
     return task_opts
 

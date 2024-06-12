@@ -33,7 +33,6 @@ from tenacity import (
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
 import deltacat.aws.clients as aws_utils
 from deltacat import logs
-from deltacat.exceptions import NonRetryableError, RetryableError
 from deltacat.storage import (
     DistributedDataset,
     LocalDataset,
@@ -55,8 +54,17 @@ from deltacat.types.tables import (
     DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC,
     get_table_length,
 )
+from deltacat.exceptions import (
+    RetryableError,
+    NonRetryableError,
+    RetryableUploadTableError,
+    RetryableDownloadTableError,
+    NonRetryableUploadTableError,
+    NonRetryableDownloadTableError,
+)
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.common import ReadKwargsProvider
+from deltacat.exceptions import categorize_errors
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -232,6 +240,7 @@ def filter_objects_by_prefix(
         more_objects_to_list = params["ContinuationToken"] is not None
 
 
+@categorize_errors
 def read_file(
     s3_url: str,
     content_type: ContentType,
@@ -263,15 +272,21 @@ def read_file(
             in BOTO_TIMEOUT_ERROR_CODES | BOTO_THROTTLING_ERROR_CODES
         ):
             # Timeout error not caught by botocore
-            raise RetryableError(
-                f"Retry table download from: {s3_url} after receiving {type(e).__name__}"
+            raise RetryableDownloadTableError(
+                msg="Retry table download from: {s3_url} after receiving {exception_name}",
+                s3_url=s3_url,
+                exception_name=type(e).__name__,
             ) from e
-        raise NonRetryableError(
-            f"Failed table download from: {s3_url} after receiving {type(e).__name__}"
+        raise NonRetryableDownloadTableError(
+            msg="Failed table download from: {s3_url} after receiving {exception_name}",
+            s3_url=s3_url,
+            exception_name=type(e).__name__,
         ) from e
     except RETRYABLE_TRANSIENT_ERRORS as e:
-        raise RetryableError(
-            f"Retry upload for: {s3_url} after receiving {type(e).__name__}"
+        raise RetryableDownloadTableError(
+            msg="Retry download for: {s3_url} after receiving {exception_name}",
+            s3_url=s3_url,
+            exception_name=type(e).__name__,
         ) from e
     except BaseException as e:
         logger.warn(
@@ -279,7 +294,13 @@ def read_file(
             f"and encoding={content_encoding}. Error: {e}",
             exc_info=True,
         )
-        raise e
+        raise NonRetryableDownloadTableError(
+            msg="Read has failed for {s3_url} and content_type={content_type} "
+            "and encoding={content_encoding}",
+            s3_url=s3_url,
+            content_type=content_type,
+            content_encoding=content_encoding,
+        ) from e
 
 
 def upload_sliced_table(
@@ -378,29 +399,42 @@ def upload_table(
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # s3fs may swallow S3 errors - we were probably throttled
-                raise RetryableError(
-                    f"Retry table download from: {s3_url} after receiving {type(e).__name__}"
+                raise RetryableUploadTableError(
+                    msg="Retry table upload from: {s3_url} after receiving {exception_name}",
+                    s3_url=s3_url,
+                    exception_name=type(e).__name__,
                 ) from e
             if (
                 e.response["Error"]["Code"]
                 in BOTO_TIMEOUT_ERROR_CODES | BOTO_THROTTLING_ERROR_CODES
             ):
-                raise RetryableError(
-                    f"Retry table download from: {s3_url} after receiving {type(e).__name__}"
+                raise RetryableUploadTableError(
+                    msg="Retry table upload from: {s3_url} after receiving {exception_name}",
+                    s3_url=s3_url,
+                    exception_name=type(e).__name__,
                 ) from e
-            raise NonRetryableError(
-                f"Failed table upload to: {s3_url} after receiving {type(e).__name__}"
+            raise NonRetryableUploadTableError(
+                msg="Failed table upload to: {s3_url} after receiving {exception_name}",
+                s3_url=s3_url,
+                exception_name=type(e).__name__,
             ) from e
         except RETRYABLE_TRANSIENT_ERRORS as e:
-            raise RetryableError(
-                f"Retry upload for: {s3_url} after receiving {type(e).__name__}"
+            raise RetryableUploadTableError(
+                msg="Retry upload for: {s3_url} after receiving {exception_name}",
+                s3_url=s3_url,
+                exception_name=type(e).__name__,
             ) from e
         except BaseException as e:
             logger.warn(
                 f"Upload has failed for {s3_url} and content_type={content_type}. Error: {e}",
                 exc_info=True,
             )
-            raise e
+            raise NonRetryableUploadTableError(
+                msg="Upload has failed for {s3_url} and content_type={content_type} because of {exception_name}",
+                s3_url=s3_url,
+                content_type=content_type,
+                exception_name=type(e).__name__,
+            ) from e
     return manifest_entries
 
 
@@ -559,20 +593,31 @@ def _put_object(
         )
     except ClientError as e:
         if e.response["Error"]["Code"] in BOTO_THROTTLING_ERROR_CODES:
-            raise RetryableError(
-                f"Retry upload for: {bucket}/{key} after receiving {e.response['Error']['Code']}"
+            # TODO: Differentiate upload table vs upload object errors
+            raise RetryableUploadTableError(
+                msg="Retry upload for: {bucket}/{key} after receiving {error_code},",
+                bucket=bucket,
+                key=key,
+                error_code=e.response["Error"]["Code"],
             ) from e
-        raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
+        raise NonRetryableUploadTableError(
+            msg="Failed table upload to: {bucket}/{key}", bucket=bucket, key=key
+        ) from e
     except RETRYABLE_TRANSIENT_ERRORS as e:
-        raise RetryableError(
-            f"Retry upload for: {bucket}/{key} after receiving {type(e).__name__}"
+        raise RetryableUploadTableError(
+            msg="Retry upload for: {bucket}/{key} after receiving {exception_name}",
+            bucket=bucket,
+            key=key,
+            exception_name=type(e).__name__,
         ) from e
     except BaseException as e:
         logger.error(
-            f"Upload has failed for {bucket}/{key}. Error: {type(e).__name__}",
+            "Upload has failed for {bucket}/{key}. Error: {type(e).__name__}",
             exc_info=True,
         )
-        raise NonRetryableError(f"Failed table upload to: {bucket}/{key}") from e
+        raise NonRetryableUploadTableError(
+            msg="Failed table upload to: {bucket}/{key}", bucket=bucket, key=key
+        ) from e
 
 
 def download(
@@ -604,13 +649,18 @@ def _get_object(s3_client, bucket: str, key: str, fail_if_not_found: bool = True
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchKey":
             if fail_if_not_found:
-                raise NonRetryableError(
-                    f"Failed get object from: {bucket}/{key}"
+                raise NonRetryableDownloadTableError(
+                    msg="Failed get object from: {bucket}/{key}",
+                    bucket=bucket,
+                    key=key,
                 ) from e
             logger.info(f"file not found: {bucket}/{key}")
     except RETRYABLE_TRANSIENT_ERRORS as e:
-        raise RetryableError(
-            f"Retry get object: {bucket}/{key} after receiving {type(e).__name__}"
+        raise RetryableDownloadTableError(
+            msg="Retry get object: {bucket}/{key} after receiving {exception_name}",
+            bucket=bucket,
+            key=key,
+            exception_name=type(e).__name__,
         ) from e
 
     return None
