@@ -28,7 +28,7 @@ from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 from deltacat.storage.model.sort_key import SortKey
 
-from deltacat.exceptions import GeneralValidationError
+from deltacat.exceptions import ValidationError
 
 ZERO_VALUED_SORT_KEY, ZERO_VALUED_PARTITION_VALUES_PARAM = [], []
 ZERO_VALUED_PARTITION_KEYS_PARAM = None
@@ -572,8 +572,8 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             ],
             names=["pk_col_1", "sk_col_1"],
         ),
-        expected_terminal_exception=GeneralValidationError,
-        expected_terminal_exception_message="General validation error occurred",
+        expected_terminal_exception=ValidationError,
+        expected_terminal_exception_message="One of the assertions in DeltaCAT has failed",
         do_create_placement_group=False,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=None,

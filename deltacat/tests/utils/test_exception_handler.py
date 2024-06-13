@@ -1,47 +1,77 @@
 import unittest
 from deltacat.exceptions import categorize_errors
-
+import ray
 from deltacat.exceptions import (
     DependencyPyarrowCapacityError,
-    RetryableDownloadTableError,
+    NonRetryableDownloadTableError,
     RetryableError,
-    RetryableRayTaskError,
+    NonRetryableError,
+    DeltaCatTransientError,
+    DependencyDaftTransientError,
 )
+from daft.exceptions import DaftTransientError
 from deltacat.tests.local_deltacat_storage.exceptions import (
     InvalidNamespaceError,
     LocalStorageValidationError,
 )
+from botocore.exceptions import NoCredentialsError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from pyarrow.lib import ArrowCapacityError
 import deltacat.tests.local_deltacat_storage as ds
 
 
-class TestExceptionHandler(unittest.TestCase):
-    @categorize_errors
-    def mock_raise_exception(self, exception_to_raise, deltacat_storage=ds):
-        raise exception_to_raise
+@categorize_errors
+def mock_raise_exception(exception_to_raise, deltacat_storage=ds):
+    raise exception_to_raise
 
+
+@retry(retry=retry_if_exception_type(NoCredentialsError), stop=stop_after_attempt(2))
+def mock_tenacity_wrapped_method(exception_to_raise):
+    mock_raise_exception(exception_to_raise)
+
+
+@ray.remote
+def mock_remote_task(exception_to_raise):
+    mock_raise_exception(exception_to_raise)
+
+
+class TestExceptionHandler(unittest.TestCase):
     def test_pyarrow_exception_categorizer(self):
-        try:
-            self.mock_raise_exception(ArrowCapacityError)
-        except BaseException as e:
-            assert isinstance(e, DependencyPyarrowCapacityError)
+        self.assertRaises(
+            DependencyPyarrowCapacityError,
+            lambda: mock_raise_exception(ArrowCapacityError),
+        )
 
     def test_storage_exception_categorizer(self):
-        try:
-            self.mock_raise_exception(InvalidNamespaceError, deltacat_storage=ds)
-        except BaseException as e:
-            assert isinstance(e, LocalStorageValidationError)
+        self.assertRaises(
+            LocalStorageValidationError,
+            lambda: mock_raise_exception(InvalidNamespaceError, deltacat_storage=ds),
+        )
+
+    def test_non_retryable_error(self):
+        self.assertRaises(
+            NonRetryableError,
+            lambda: mock_raise_exception(NonRetryableDownloadTableError),
+        )
 
     def test_retryable_error(self):
-        try:
-            self.mock_raise_exception(RetryableDownloadTableError)
-        except BaseException as e:
-            assert isinstance(e, RetryableError)
+        self.assertRaises(RetryableError, lambda: mock_raise_exception(ConnectionError))
 
-    def test_retryable_ray_task_error(self):
-        try:
-            self.mock_raise_exception(ConnectionError)
-        except BaseException as e:
-            assert isinstance(e, RetryableRayTaskError)
-            assert isinstance(e, RetryableError)
+    def test_ray_task_returns_wrapped_exception(self):
+        self.assertRaises(
+            DeltaCatTransientError,
+            lambda: ray.get(mock_remote_task.remote(ConnectionError)),
+        )
+
+    def test_daft_transient_error(self):
+        self.assertRaises(
+            DependencyDaftTransientError,
+            lambda: ray.get(mock_remote_task.remote(DaftTransientError)),
+        )
+
+    def test_tenacity_underlying_error_returned(self):
+        self.assertRaises(
+            DeltaCatTransientError,
+            lambda: mock_tenacity_wrapped_method(NoCredentialsError),
+        )

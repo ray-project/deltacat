@@ -75,9 +75,7 @@ class MemcachedObjectStore(IObjectStore):
         for create_ref_ip, ref_to_object in input.items():
             client = self._get_client_by_ip(create_ref_ip)
             if client.set_many(ref_to_object, noreply=self.noreply):
-                raise PymemcachedPutObjectError(
-                    msg="Unable to write a few keys to cache"
-                )
+                raise PymemcachedPutObjectError("Unable to write a few keys to cache")
 
         return result
 
@@ -92,15 +90,10 @@ class MemcachedObjectStore(IObjectStore):
 
             try:
                 if not client.set(ref, chunk, noreply=self.noreply):
-                    raise PymemcachedPutObjectError(
-                        msg=f"Unable to write {ref} to cache", ref=ref
-                    )
+                    raise PymemcachedPutObjectError(f"Unable to write {ref} to cache")
             except BaseException as e:
                 raise PymemcachedPutObjectError(
-                    msg="Received {e} while writing ref={ref} and obj size={chunk_length}",
-                    e=e,
-                    ref=ref,
-                    chunk_length=len(chunk),
+                    f"Received {e} while writing ref={ref} and obj size={len(chunk)}",
                 )
 
         return self._create_ref(uid, create_ref_ip, len(serialized_list))

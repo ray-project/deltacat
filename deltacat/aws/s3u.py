@@ -26,7 +26,6 @@ from ray.types import ObjectRef
 from tenacity import (
     Retrying,
     retry_if_exception_type,
-    retry_if_not_exception_type,
     stop_after_delay,
     wait_random_exponential,
 )
@@ -56,9 +55,12 @@ from deltacat.types.tables import (
 )
 from deltacat.exceptions import (
     RetryableError,
-    NonRetryableError,
     RetryableUploadTableError,
     RetryableDownloadTableError,
+    RetryableDownloadFileError,
+    RetryableUploadFileError,
+    NonRetryableDownloadFileError,
+    NonRetryableUploadFileError,
     NonRetryableUploadTableError,
     NonRetryableDownloadTableError,
 )
@@ -273,20 +275,14 @@ def read_file(
         ):
             # Timeout error not caught by botocore
             raise RetryableDownloadTableError(
-                msg="Retry table download from: {s3_url} after receiving {exception_name}",
-                s3_url=s3_url,
-                exception_name=type(e).__name__,
+                f"Retry table download from: {s3_url} after receiving {type(e).__name__}",
             ) from e
         raise NonRetryableDownloadTableError(
-            msg="Failed table download from: {s3_url} after receiving {exception_name}",
-            s3_url=s3_url,
-            exception_name=type(e).__name__,
+            f"Failed table download from: {s3_url} after receiving {type(e).__name__}"
         ) from e
     except RETRYABLE_TRANSIENT_ERRORS as e:
         raise RetryableDownloadTableError(
-            msg="Retry download for: {s3_url} after receiving {exception_name}",
-            s3_url=s3_url,
-            exception_name=type(e).__name__,
+            f"Retry download for: {s3_url} after receiving {type(e).__name__}"
         ) from e
     except BaseException as e:
         logger.warn(
@@ -295,11 +291,8 @@ def read_file(
             exc_info=True,
         )
         raise NonRetryableDownloadTableError(
-            msg="Read has failed for {s3_url} and content_type={content_type} "
-            "and encoding={content_encoding}",
-            s3_url=s3_url,
-            content_type=content_type,
-            content_encoding=content_encoding,
+            f"Read has failed for {s3_url} and content_type={content_type} "
+            f"and encoding={content_encoding}",
         ) from e
 
 
@@ -400,29 +393,21 @@ def upload_table(
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # s3fs may swallow S3 errors - we were probably throttled
                 raise RetryableUploadTableError(
-                    msg="Retry table upload from: {s3_url} after receiving {exception_name}",
-                    s3_url=s3_url,
-                    exception_name=type(e).__name__,
+                    f"Retry table upload from: {s3_url} after receiving {type(e).__name__}",
                 ) from e
             if (
                 e.response["Error"]["Code"]
                 in BOTO_TIMEOUT_ERROR_CODES | BOTO_THROTTLING_ERROR_CODES
             ):
                 raise RetryableUploadTableError(
-                    msg="Retry table upload from: {s3_url} after receiving {exception_name}",
-                    s3_url=s3_url,
-                    exception_name=type(e).__name__,
+                    f"Retry table upload from: {s3_url} after receiving {type(e).__name__}",
                 ) from e
             raise NonRetryableUploadTableError(
-                msg="Failed table upload to: {s3_url} after receiving {exception_name}",
-                s3_url=s3_url,
-                exception_name=type(e).__name__,
+                f"Failed table upload to: {s3_url} after receiving {type(e).__name__}",
             ) from e
         except RETRYABLE_TRANSIENT_ERRORS as e:
             raise RetryableUploadTableError(
-                msg="Retry upload for: {s3_url} after receiving {exception_name}",
-                s3_url=s3_url,
-                exception_name=type(e).__name__,
+                f"Retry upload for: {s3_url} after receiving {type(e).__name__}",
             ) from e
         except BaseException as e:
             logger.warn(
@@ -430,10 +415,7 @@ def upload_table(
                 exc_info=True,
             )
             raise NonRetryableUploadTableError(
-                msg="Upload has failed for {s3_url} and content_type={content_type} because of {exception_name}",
-                s3_url=s3_url,
-                content_type=content_type,
-                exception_name=type(e).__name__,
+                f"Upload has failed for {s3_url} and content_type={content_type} because of {type(e).__name__}",
             ) from e
     return manifest_entries
 
@@ -477,7 +459,7 @@ def download_manifest_entry(
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY),
-        retry=retry_if_not_exception_type(NonRetryableError),
+        retry=retry_if_exception_type(RetryableError),
     )
     table = retrying(
         read_file,
@@ -594,29 +576,24 @@ def _put_object(
     except ClientError as e:
         if e.response["Error"]["Code"] in BOTO_THROTTLING_ERROR_CODES:
             # TODO: Differentiate upload table vs upload object errors
-            raise RetryableUploadTableError(
-                msg="Retry upload for: {bucket}/{key} after receiving {error_code},",
-                bucket=bucket,
-                key=key,
-                error_code=e.response["Error"]["Code"],
+            error_code = e.response["Error"]["Code"]
+            raise RetryableUploadFileError(
+                f"Retry upload for: {bucket}/{key} after receiving {error_code}",
             ) from e
-        raise NonRetryableUploadTableError(
-            msg="Failed table upload to: {bucket}/{key}", bucket=bucket, key=key
+        raise NonRetryableUploadFileError(
+            f"Failed table upload to: {bucket}/{key}"
         ) from e
     except RETRYABLE_TRANSIENT_ERRORS as e:
-        raise RetryableUploadTableError(
-            msg="Retry upload for: {bucket}/{key} after receiving {exception_name}",
-            bucket=bucket,
-            key=key,
-            exception_name=type(e).__name__,
+        raise RetryableUploadFileError(
+            f"Retry upload for: {bucket}/{key} after receiving {type(e).__name__}"
         ) from e
     except BaseException as e:
         logger.error(
-            "Upload has failed for {bucket}/{key}. Error: {type(e).__name__}",
+            f"Upload has failed for {bucket}/{key}. Error: {type(e).__name__}",
             exc_info=True,
         )
-        raise NonRetryableUploadTableError(
-            msg="Failed table upload to: {bucket}/{key}", bucket=bucket, key=key
+        raise NonRetryableUploadFileError(
+            f"Failed table upload to: {bucket}/{key}"
         ) from e
 
 
@@ -649,18 +626,13 @@ def _get_object(s3_client, bucket: str, key: str, fail_if_not_found: bool = True
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchKey":
             if fail_if_not_found:
-                raise NonRetryableDownloadTableError(
-                    msg="Failed get object from: {bucket}/{key}",
-                    bucket=bucket,
-                    key=key,
+                raise NonRetryableDownloadFileError(
+                    f"Failed get object from: {bucket}/{key}"
                 ) from e
             logger.info(f"file not found: {bucket}/{key}")
     except RETRYABLE_TRANSIENT_ERRORS as e:
-        raise RetryableDownloadTableError(
-            msg="Retry get object: {bucket}/{key} after receiving {exception_name}",
-            bucket=bucket,
-            key=key,
-            exception_name=type(e).__name__,
+        raise RetryableDownloadFileError(
+            f"Retry get object: {bucket}/{key} after receiving {type(e).__name__}"
         ) from e
 
     return None

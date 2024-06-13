@@ -50,7 +50,6 @@ class CompactPartitionParams(dict):
 
         result = CompactPartitionParams(params)
 
-        # TODO: move defaults to single file
         result.records_per_compacted_file = params.get(
             "records_per_compacted_file", MAX_RECORDS_PER_COMPACTED_FILE
         )
