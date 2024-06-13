@@ -16,6 +16,7 @@ from deltacat.aws.constants import (
     BOTO_MAX_RETRIES,
     DAFT_MAX_S3_CONNECTIONS_PER_FILE,
     AWS_REGION,
+    DEFAULT_FILE_READ_TIMEOUT_MS,
 )
 from deltacat.utils.performance import timed_invocation
 
@@ -112,6 +113,7 @@ def daft_s3_file_to_table(
     coerce_int96_timestamp_unit = TimeUnit.from_str(
         kwargs.get("coerce_int96_timestamp_unit", "ms")
     )
+    file_timeout_ms = kwargs.get("file_timeout_ms", DEFAULT_FILE_READ_TIMEOUT_MS)
 
     row_groups = None
     if (
@@ -132,6 +134,7 @@ def daft_s3_file_to_table(
         io_config=io_config,
         coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
         multithreaded_io=False,
+        file_timeout_ms=file_timeout_ms,
     )
 
     logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")

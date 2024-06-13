@@ -16,6 +16,7 @@ import deltacat.tests.local_deltacat_storage as ds
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 from deltacat.compute.compactor_v2.model.merge_input import MergeInput
+from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor_v2.steps.hash_bucket import hash_bucket
 from deltacat.compute.compactor_v2.steps.merge import merge
@@ -415,7 +416,7 @@ class TestMerge(unittest.TestCase):
         # Drop 5 records - 6 -> 1
         self._validate_merge_output(merge_res_list, 1)
 
-    def test_merge_incrementa_copy_by_reference_date_pk(self):
+    def test_merge_incremental_copy_by_reference_date_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 10
         partition = stage_partition_from_file_paths(
@@ -480,6 +481,90 @@ class TestMerge(unittest.TestCase):
                     object_store=object_store,
                 )
             )
+        merge_res_list: List[MergeResult] = []
+        for merge_input in merge_input_list:
+            merge_result_promise = merge.remote(merge_input)
+            merge_result = ray.get(merge_result_promise)
+            merge_res_list.append(merge_result)
+
+        # old delta: 1 record, copied by reference
+        # new delta: 9 records, 2 duplication
+        # result: 1 + 9 - 2 = 8
+        self._validate_merge_output(merge_res_list, 8)
+        files_untouched = 0
+        for merge_result in merge_res_list:
+            for mr in merge_result.materialize_results:
+                if mr.referenced_pyarrow_write_result:
+                    files_untouched += mr.referenced_pyarrow_write_result.files
+
+        assert files_untouched == 1, "One file must be copied by reference"
+
+    def test_merge_incremental_copy_by_reference_is_disabled(self):
+        number_of_hash_group = 2
+        number_of_hash_bucket = 10
+        partition = stage_partition_from_file_paths(
+            self.MERGE_NAMESPACE,
+            [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK],
+            **self.kwargs,
+        )
+        old_delta = commit_delta_to_staged_partition(
+            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK], **self.kwargs
+        )
+
+        object_store = RayPlasmaObjectStore()
+        new_delta = create_delta_from_csv_file(
+            self.MERGE_NAMESPACE, [self.DEDUPE_WITH_DUPLICATION_DATE_PK], **self.kwargs
+        )
+
+        all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
+            old_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
+        )
+        for hg_index, dfes in all_hash_group_idx_to_obj_id.items():
+            delta_file_envelope_groups_list = object_store.get_many(dfes)
+            # Note only one record can be in compacted delta
+            for delta_file_envelope_groups in delta_file_envelope_groups_list:
+                for hb_idx, dfes in enumerate(delta_file_envelope_groups):
+                    if dfes:
+                        hb_hashed_to = hb_idx
+
+        hb_id_to_entry_indices_range = {}
+        hb_id_to_entry_indices_range[str(hb_hashed_to)] = (0, 1)
+
+        # Fake round completion info for old delta, the record will be go to hash bucket #3
+        # Hash bucket #3 is empty for new delta record
+        rcf = RoundCompletionInfo.of(
+            compacted_delta_locator=old_delta.locator,
+            high_watermark=old_delta.stream_position,
+            compacted_pyarrow_write_result=None,
+            sort_keys_bit_width=0,
+            hb_index_to_entry_range=hb_id_to_entry_indices_range,
+        )
+
+        all_hash_group_idx_to_obj_id_new = self._prepare_merge_inputs(
+            new_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
+        )
+
+        merge_input_list = []
+        for hg_index, dfes in all_hash_group_idx_to_obj_id_new.items():
+            merge_input_list.append(
+                MergeInput.of(
+                    round_completion_info=rcf,
+                    compacted_file_content_type=ContentType.PARQUET,
+                    merge_file_groups_provider=RemoteMergeFileGroupsProvider(
+                        hash_group_index=hg_index,
+                        dfe_groups_refs=dfes,
+                        hash_bucket_count=number_of_hash_bucket,
+                        num_hash_groups=number_of_hash_group,
+                        object_store=object_store,
+                    ),
+                    write_to_partition=partition,
+                    primary_keys=["pk"],
+                    deltacat_storage=ds,
+                    deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+                    object_store=object_store,
+                    disable_copy_by_reference=True,  # copy by reference disabled
+                )
+            )
         merge_res_list = []
         for merge_input in merge_input_list:
             merge_result_promise = merge.remote(merge_input)
@@ -490,6 +575,13 @@ class TestMerge(unittest.TestCase):
         # new delta: 9 records, 2 duplication
         # result: 1 + 9 - 2 = 8
         self._validate_merge_output(merge_res_list, 8)
+        files_untouched = 0
+        for merge_result in merge_res_list:
+            for mr in merge_result.materialize_results:
+                if mr.referenced_pyarrow_write_result:
+                    files_untouched += mr.referenced_pyarrow_write_result.files
+
+        assert files_untouched == 0, "Zero files must be copied by reference"
 
     def test_merge_single_hash_bucket_string_pk(self):
         partition = stage_partition_from_file_paths(

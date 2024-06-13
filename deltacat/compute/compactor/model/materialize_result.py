@@ -56,10 +56,6 @@ class MaterializeResult(dict):
         return val
 
     @property
-    def count_of_src_dfl_not_touched(self) -> int:
-        return self["countOfSrcFileNotTouched"]
-
-    @property
     def referenced_pyarrow_write_result(self) -> PyArrowWriteResult:
         val: Dict[str, Any] = self.get("referencedPaWriteResult")
         if val is not None and not isinstance(val, PyArrowWriteResult):

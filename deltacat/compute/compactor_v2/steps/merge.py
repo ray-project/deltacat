@@ -284,15 +284,18 @@ def _can_copy_by_reference(
     Can copy by reference only if there are no deletes to merge in
     and previous compacted stream id matches that of new stream
     """
-    return (
+    copy_by_ref = (
         not has_delete
         and not merge_file_group.dfe_groups
         and input.round_completion_info is not None
-        and (
-            input.write_to_partition.stream_id
-            == input.round_completion_info.compacted_delta_locator.stream_id
-        )
     )
+
+    if input.disable_copy_by_reference:
+        copy_by_ref = False
+
+    logger.info(f"Copy by reference is {copy_by_ref} for {merge_file_group.hb_index}")
+
+    return copy_by_ref
 
 
 def _flatten_dfe_list(

@@ -41,6 +41,9 @@ DROP_DUPLICATES = True
 # size in metadata to pyarrow table size.
 PARQUET_TO_PYARROW_INFLATION = 4
 
+# By default, copy by reference is enabled
+DEFAULT_DISABLE_COPY_BY_REFERENCE = False
+
 # Metric Names
 # Time taken for a hash bucket task
 HASH_BUCKET_TIME_IN_SECONDS = "hash_bucket_time"
