@@ -51,7 +51,6 @@ from deltacat.types.media import (
 )
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.tests.local_deltacat_storage.exceptions import (
-    LocalStorageError,
     InvalidNamespaceError,
     LocalStorageValidationError,
 )
@@ -1184,13 +1183,13 @@ def get_table_version_column_names(
     raise NotImplementedError("Fetching column names is not supported")
 
 
-def can_categorize(e: BaseException) -> bool:
-    if isinstance(e, LocalStorageError):
+def can_categorize(e: BaseException, **kwargs) -> bool:
+    if isinstance(e, InvalidNamespaceError):
         return True
     else:
         return False
 
 
-def raise_categorized_error(e: BaseException):
+def raise_categorized_error(e: BaseException, **kwargs):
     if isinstance(e, InvalidNamespaceError):
-        raise LocalStorageValidationError(msg="Namespace provided is invalid!")
+        raise LocalStorageValidationError("Namespace provided is invalid!")

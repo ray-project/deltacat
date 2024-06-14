@@ -38,6 +38,7 @@ class TestJsonFormatter(unittest.TestCase):
         self.assertEqual({"message": "test_message"}, result)
 
     def test_format_sanity(self):
+        ray.shutdown()
         formatter = JsonFormatter({"message": "msg"})
 
         record = LogRecord(

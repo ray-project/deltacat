@@ -37,7 +37,7 @@ from deltacat.tests.compute.compact_partition_test_cases import (
     EMPTY_UTSV_PATH,
 )
 from deltacat.storage import DeleteParameters
-from deltacat.exceptions import GeneralValidationError
+from deltacat.exceptions import ValidationError
 
 
 @dataclass(frozen=True)
@@ -1539,8 +1539,8 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                 ]
             ),
         ),
-        expected_terminal_exception=GeneralValidationError,
-        expected_terminal_exception_message="General validation error occurred",
+        expected_terminal_exception=ValidationError,
+        expected_terminal_exception_message="One of the assertions in DeltaCAT has failed",
         do_create_placement_group=True,
         records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
         hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,

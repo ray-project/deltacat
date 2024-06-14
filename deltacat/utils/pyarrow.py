@@ -245,6 +245,7 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         schema: Optional[pa.Schema] = None,
         pq_coerce_int96_timestamp_unit: Optional[str] = None,
         parquet_reader_type: Optional[str] = None,
+        file_read_timeout_ms: Optional[int] = None,
     ):
         """
 
@@ -258,6 +259,7 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
         self.schema = schema
         self.pq_coerce_int96_timestamp_unit = pq_coerce_int96_timestamp_unit
         self.parquet_reader_type = parquet_reader_type
+        self.file_read_timeout_ms = file_read_timeout_ms
 
     def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if content_type in DELIMITED_TEXT_CONTENT_TYPES:
@@ -281,6 +283,8 @@ class ReadKwargsProviderPyArrowSchemaOverride(ContentTypeKwargsProvider):
                 kwargs["reader_type"] = self.parquet_reader_type
             else:
                 kwargs["reader_type"] = "daft"
+
+            kwargs["file_timeout_ms"] = self.file_read_timeout_ms
 
         return kwargs
 
@@ -477,10 +481,8 @@ def s3_file_to_parquet(
         or content_encoding != ContentEncoding.IDENTITY
     ):
         raise ContentTypeValidationError(
-            msg=f"S3 file with content type: {content_type} and content encoding: {content_encoding} "
-            "cannot be read into pyarrow.parquet.ParquetFile",
-            content_type=content_type,
-            content_encoding=content_encoding,
+            f"S3 file with content type: {content_type} and content encoding: {content_encoding} "
+            "cannot be read into pyarrow.parquet.ParquetFile"
         )
 
     if s3_client_kwargs is None:

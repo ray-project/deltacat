@@ -47,6 +47,7 @@ class MergeInput(Dict):
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
         memory_logs_enabled: Optional[bool] = None,
+        disable_copy_by_reference: Optional[bool] = None,
     ) -> MergeInput:
 
         result = MergeInput()
@@ -69,6 +70,7 @@ class MergeInput(Dict):
         result["deltacat_storage"] = deltacat_storage
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
         result["memory_logs_enabled"] = memory_logs_enabled
+        result["disable_copy_by_reference"] = disable_copy_by_reference
         return result
 
     @property
@@ -148,3 +150,7 @@ class MergeInput(Dict):
     @property
     def delete_strategy(self) -> Optional[DeleteStrategy]:
         return self.get("delete_strategy")
+
+    @property
+    def disable_copy_by_reference(self) -> bool:
+        return self["disable_copy_by_reference"]

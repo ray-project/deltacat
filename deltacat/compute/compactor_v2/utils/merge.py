@@ -133,4 +133,5 @@ def generate_local_merge_input(
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
         delete_strategy=delete_strategy,
         delete_file_envelopes=delete_file_envelopes,
+        disable_copy_by_reference=params.disable_copy_by_reference,
     )

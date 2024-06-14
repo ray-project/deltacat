@@ -602,14 +602,14 @@ def table_version_exists(
     raise NotImplementedError("table_version_exists not implemented")
 
 
-def can_categorize(e: BaseException) -> bool:
+def can_categorize(e: BaseException, *args, **kwargs) -> bool:
     """
     Return whether input error is from storage implementation layer.
     """
     raise NotImplementedError
 
 
-def raise_categorized_error():
+def raise_categorized_error(e: BaseException, *args, **kwargs):
     """
     Raise and handle storage implementation layer specific errors.
     """

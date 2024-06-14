@@ -1,7 +1,6 @@
 import unittest
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.utils.daft import daft_s3_file_to_table, s3_files_to_dataframe
-
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from deltacat.types.partial_download import PartialParquetParameters
 import pyarrow as pa
