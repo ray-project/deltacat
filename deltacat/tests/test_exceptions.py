@@ -86,3 +86,15 @@ class TestCategorizeErrors(unittest.TestCase):
             UnclassifiedDeltaCatError,
             lambda: ray.get(mock_remote_task.remote(MockUnknownException)),
         )
+
+    def test_deltacat_exception_contains_attributes(self):
+
+        try:
+            mock_raise_exception(ConnectionError)
+        except DeltaCatTransientError as e:
+            self.assertTrue(hasattr(e, "is_retryable"))
+            self.assertTrue(hasattr(e, "error_name"))
+            assert e.error_name == "DeltaCatTransientError"
+            return
+
+        self.assertFalse(True)

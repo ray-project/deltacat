@@ -575,7 +575,6 @@ def _put_object(
         )
     except ClientError as e:
         if e.response["Error"]["Code"] in BOTO_THROTTLING_ERROR_CODES:
-            # TODO: Differentiate upload table vs upload object errors
             error_code = e.response["Error"]["Code"]
             raise RetryableUploadFileError(
                 f"Retry upload for: {bucket}/{key} after receiving {error_code}",
