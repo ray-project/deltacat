@@ -8,6 +8,7 @@ from deltacat.exceptions import (
     NonRetryableError,
     DeltaCatTransientError,
     DependencyDaftTransientError,
+    UnclassifiedDeltaCatError,
 )
 from daft.exceptions import DaftTransientError
 from deltacat.tests.local_deltacat_storage.exceptions import (
@@ -19,6 +20,10 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from pyarrow.lib import ArrowCapacityError
 import deltacat.tests.local_deltacat_storage as ds
+
+
+class MockUnknownException(Exception):
+    pass
 
 
 @categorize_errors
@@ -36,7 +41,7 @@ def mock_remote_task(exception_to_raise):
     mock_raise_exception(exception_to_raise)
 
 
-class TestExceptionHandler(unittest.TestCase):
+class TestCategorizeErrors(unittest.TestCase):
     def test_pyarrow_exception_categorizer(self):
         self.assertRaises(
             DependencyPyarrowCapacityError,
@@ -74,4 +79,10 @@ class TestExceptionHandler(unittest.TestCase):
         self.assertRaises(
             DeltaCatTransientError,
             lambda: mock_tenacity_wrapped_method(NoCredentialsError),
+        )
+
+    def test_unclassified_error_when_error_cannot_be_categorized(self):
+        self.assertRaises(
+            UnclassifiedDeltaCatError,
+            lambda: ray.get(mock_remote_task.remote(MockUnknownException)),
         )
