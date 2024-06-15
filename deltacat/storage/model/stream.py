@@ -8,6 +8,7 @@ from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.partition_spec import StreamPartitionSpec, PartitionValues
 
 
 class Stream(dict):
@@ -17,12 +18,14 @@ class Stream(dict):
         partition_keys: Optional[List[Dict[str, Any]]],
         state: Optional[CommitState] = None,
         previous_stream_digest: Optional[bytes] = None,
+        partition_spec: Optional[StreamPartitionSpec] = None,
     ) -> Stream:
         stream = Stream()
         stream.locator = locator
         stream.partition_keys = partition_keys
         stream.state = state
         stream.previous_stream_digest = previous_stream_digest
+        stream.partition_spec = partition_spec
         return stream
 
     @property
@@ -38,6 +41,14 @@ class Stream(dict):
 
     @property
     def partition_keys(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        Ordered list of unique column names in the table schema on
+        which the underlying data is partitioned. Either partition_spec
+        or partition_keys must be specified but not both.
+
+        (Deprecated): Partition keys will be deprecated in the favor
+        of partition_spec in future releases.
+        """
         return self.get("partitionKeys")
 
     @partition_keys.setter
@@ -46,6 +57,9 @@ class Stream(dict):
 
     @property
     def previous_stream_digest(self) -> Optional[str]:
+        """
+        Previous stream digest
+        """
         return self.get("previousStreamDigest")
 
     @previous_stream_digest.setter
@@ -54,12 +68,35 @@ class Stream(dict):
 
     @property
     def state(self) -> Optional[CommitState]:
+        """
+        The commit state of a stream.
+        """
         state = self.get("state")
         return None if state is None else CommitState(state)
 
     @state.setter
     def state(self, state: Optional[CommitState]) -> None:
         self["state"] = state
+
+    @property
+    def partition_spec(self) -> Optional[StreamPartitionSpec]:
+        """
+        If a table uses complex partitioning instead of identity,
+        partition spec can be specified to define that strategy.
+        For example, a partition spec can define a bucketing strategy
+        on composite column values or can define iceberg compliant
+        bucketing.
+
+        Either partition_spec or partition_keys must be specified but not both.
+        """
+        val: Dict[str, Any] = self.get("partitionSpec")
+        if val is not None and not isinstance(val, StreamPartitionSpec):
+            self.partition_spec = val = StreamPartitionSpec(val)
+        return val
+
+    @partition_spec.setter
+    def partition_spec(self, spec: StreamPartitionSpec) -> None:
+        self["partitionSpec"] = spec
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -110,7 +147,7 @@ class Stream(dict):
             return stream_locator.table_version
         return None
 
-    def validate_partition_values(self, partition_values: Optional[List[Any]]):
+    def validate_partition_values(self, partition_values: Optional[PartitionValues]):
         # TODO (pdames): ensure value data types match key data types
         partition_keys = self.partition_keys
         num_keys = len(partition_keys) if partition_keys else 0

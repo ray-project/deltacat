@@ -14,6 +14,20 @@ from deltacat.storage.model.stream import Stream, StreamLocator
 from deltacat.storage.model.table import Table, TableLocator
 from deltacat.storage.model.table_version import TableVersion, TableVersionLocator
 from deltacat.storage.model.delete_parameters import DeleteParameters
+from deltacat.storage.model.partition_spec import (
+    PartitionFilter,
+    PartitionValues,
+    DeltaPartitionSpec,
+    StreamPartitionSpec,
+)
+from deltacat.storage.model.transform import (
+    Transform,
+    TransformName,
+    TransformParameters,
+    BucketingStrategy,
+    BucketTransformParameters,
+    IdentityTransformParameters,
+)
 
 from deltacat.storage.model.types import (
     CommitState,
@@ -56,4 +70,14 @@ __all__ = [
     "TableVersionLocator",
     "SortKey",
     "SortOrder",
+    "PartitionFilter",
+    "PartitionValues",
+    "DeltaPartitionSpec",
+    "StreamPartitionSpec",
+    "Transform",
+    "TransformName",
+    "TransformParameters",
+    "BucketingStrategy",
+    "BucketTransformParameters",
+    "IdentityTransformParameters",
 ]
