@@ -100,6 +100,7 @@ class Manifest(dict):
         content_type = None
         content_encoding = None
         partition_values_set = set()
+        partition_values = None
         if entries:
             content_type = entries[0].meta.content_type
             content_encoding = entries[0].meta.content_encoding
