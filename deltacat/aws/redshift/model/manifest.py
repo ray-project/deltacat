@@ -99,8 +99,7 @@ class Manifest(dict):
         total_source_content_length = 0
         content_type = None
         content_encoding = None
-        partition_values = None
-        partition_undefined = False
+        partition_values_set = set()
         if entries:
             content_type = entries[0].meta.content_type
             content_encoding = entries[0].meta.content_encoding
@@ -129,20 +128,12 @@ class Manifest(dict):
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
                 total_source_content_length += meta.source_content_length or 0
-                if (
-                    not partition_undefined
-                    and entry.meta
-                    and entry.meta.partition_values is not None
-                ):
-                    if partition_values is not None:
-                        logger.info(
-                            "Partition values could be uniquely determined "
-                            "for merged manifest"
-                        )
-                        partition_values = None
-                        partition_undefined = True
-                    else:
-                        partition_values = entry.meta.partition_values
+                if len(partition_values_set) <= 1:
+                    partition_values_set.add(entry.meta.partition_values)
+
+        if len(partition_values_set) == 1:
+            partition_values = partition_values_set.pop()
+
         meta = ManifestMeta.of(
             total_record_count,
             total_content_length,
