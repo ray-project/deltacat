@@ -1066,6 +1066,7 @@ def stage_delta(
         manifest=manifest,
         previous_stream_position=partition.stream_position,
         delete_parameters=delete_parameters,
+        partition_spec=partition_spec,
     )
 
     params = (uri, serialized_data)
