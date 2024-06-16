@@ -3,12 +3,10 @@ from typing import List, Optional, Iterable
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 import uuid
-import hashlib
+import mmh3
 from deltacat.compute.compactor_v2.constants import (
     TOTAL_BYTES_IN_SHA1_HASH,
-    PK_DELIMITER,
     MAX_SIZE_OF_RECORD_BATCH_IN_GIB,
 )
 import time
@@ -17,7 +15,6 @@ from deltacat import logs
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils.pyarrow import sliced_string_cast
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -28,7 +25,7 @@ def _append_sha1_hash_to_table(table: pa.Table, hash_column: pa.Array) -> pa.Tab
     result = []
     for hash_value in hash_column_np:
         assert hash_value is not None, f"Expected non-null primary key"
-        result.append(hashlib.sha1(hash_value.encode("utf-8")).hexdigest())
+        result.append(mmh3.hash(hash_value) & 2147483647)
 
     return sc.append_pk_hash_string_column(table, result)
 
@@ -185,18 +182,12 @@ def generate_pk_hash_column(
     2. If there are more than 0 primary keys, returns a table with pk hash column appended.
     """
 
-    def _generate_pk_hash(table: pa.Table) -> pa.Array:
-        pk_columns = []
-        for pk_name in primary_keys:
-            pk_columns.append(sliced_string_cast(table[pk_name]))
+    requires_hash = True
 
-        pk_columns.append(PK_DELIMITER)
-        hash_column = pc.binary_join_element_wise(*pk_columns)
-        return hash_column
-
+    # Setting this to true always to match field type to datatype.
     def _generate_uuid(table: pa.Table) -> pa.Array:
         hash_column = pa.array(
-            [uuid.uuid4().hex for _ in range(len(table))], pa.string()
+            [uuid.uuid4().int % 200000000 for _ in range(len(table))], pa.int64()
         )
         return hash_column
 
@@ -206,7 +197,9 @@ def generate_pk_hash_column(
 
     can_sha1 = False
     if primary_keys:
-        hash_column_list = [_generate_pk_hash(table) for table in tables]
+        # FIXME: We only consider first primary key as Iceberg does not support
+        # composite keys to hash on
+        hash_column_list = [table[primary_keys[0]] for table in tables]
 
         can_sha1 = requires_hash or _is_sha1_desired(hash_column_list)
     else:
@@ -345,8 +338,8 @@ def hash_group_index_to_hash_bucket_indices(
     return range(hb_group, num_buckets, num_groups)
 
 
-def pk_digest_to_hash_bucket_index(digest: str, num_buckets: int) -> int:
+def pk_digest_to_hash_bucket_index(digest: np.int64, num_buckets: int) -> int:
     """
     Generates the hash bucket index from the given digest.
     """
-    return int(digest, 16) % num_buckets
+    return int(digest % num_buckets)

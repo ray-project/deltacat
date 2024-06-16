@@ -20,6 +20,7 @@ from deltacat.compute.compactor import (
 )
 
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
+from deltacat.utils.pyarrow import coerce_pyarrow_table_to_schema
 
 from deltacat.utils.performance import timed_invocation
 from deltacat.storage import (
@@ -47,6 +48,21 @@ def materialize(
         # TODO (pdames): compare performance to pandas-native materialize path
         df = compacted_table.to_pandas(split_blocks=True, self_destruct=True)
         compacted_table = df
+
+    # add field IDs to the arrow schema
+    new_schema = []
+    for i, field in enumerate(compacted_table.schema):
+        metadata = field.metadata.copy() if field.metadata else {}
+        metadata["field_id"] = str(i + 1)
+        metadata[b"PARQUET:field_id"] = str(i + 1)
+        new_schema.append(pa.field(field.name, field.type, field.nullable, metadata))
+
+    compacted_table = coerce_pyarrow_table_to_schema(
+        compacted_table, pa.schema(new_schema)
+    )
+
+    logger.info(f"New table schema: {compacted_table.schema}")
+
     delta, stage_delta_time = timed_invocation(
         input.deltacat_storage.stage_delta,
         compacted_table,

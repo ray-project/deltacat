@@ -49,6 +49,7 @@ setuptools.setup(
         "redis == 4.6.0",
         "getdaft == 0.2.27",
         "schedule == 1.2.0",
+        "mmh3==4.1.0",
     ],
     setup_requires=["wheel"],
     package_data={
