@@ -78,6 +78,7 @@ from deltacat.compute.compactor_v2.utils.task_options import (
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.exceptions import categorize_errors
+from deltacat.compute.compactor_v2.constants import COMPACT_PARTITION_METRIC_PREFIX
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -86,7 +87,7 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-@metrics
+@metrics(prefix=COMPACT_PARTITION_METRIC_PREFIX)
 @categorize_errors
 def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]:
     assert (
