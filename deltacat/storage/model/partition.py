@@ -1,10 +1,9 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional, Union
 
 import pyarrow as pa
-
+from deltacat.storage.model.partition_spec import PartitionValues
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.stream import StreamLocator
@@ -127,7 +126,7 @@ class Partition(dict):
         return None
 
     @property
-    def partition_values(self) -> Optional[List[Any]]:
+    def partition_values(self) -> Optional[PartitionValues]:
         partition_locator = self.locator
         if partition_locator:
             return partition_locator.partition_values
@@ -199,7 +198,7 @@ class PartitionLocator(Locator, dict):
     @staticmethod
     def of(
         stream_locator: Optional[StreamLocator],
-        partition_values: Optional[List[Any]],
+        partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
     ) -> PartitionLocator:
         """
@@ -225,7 +224,7 @@ class PartitionLocator(Locator, dict):
         table_version: Optional[str],
         stream_id: Optional[str],
         storage_type: Optional[str],
-        partition_values: Optional[List[Any]],
+        partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
     ) -> PartitionLocator:
         stream_locator = StreamLocator.at(
@@ -253,11 +252,11 @@ class PartitionLocator(Locator, dict):
         self["streamLocator"] = stream_locator
 
     @property
-    def partition_values(self) -> Optional[List[Any]]:
+    def partition_values(self) -> Optional[PartitionValues]:
         return self.get("partitionValues")
 
     @partition_values.setter
-    def partition_values(self, partition_values: Optional[List[Any]]) -> None:
+    def partition_values(self, partition_values: Optional[PartitionValues]) -> None:
         self["partitionValues"] = partition_values
 
     @property

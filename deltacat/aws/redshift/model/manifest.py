@@ -99,6 +99,8 @@ class Manifest(dict):
         total_source_content_length = 0
         content_type = None
         content_encoding = None
+        partition_values_set = set()
+        partition_values = None
         if entries:
             content_type = entries[0].meta.content_type
             content_encoding = entries[0].meta.content_encoding
@@ -127,6 +129,12 @@ class Manifest(dict):
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
                 total_source_content_length += meta.source_content_length or 0
+                if len(partition_values_set) <= 1:
+                    partition_values_set.add(entry.meta.partition_values)
+
+        if len(partition_values_set) == 1:
+            partition_values = partition_values_set.pop()
+
         meta = ManifestMeta.of(
             total_record_count,
             total_content_length,
@@ -134,6 +142,7 @@ class Manifest(dict):
             content_encoding,
             total_source_content_length,
             entry_type=entry_type,
+            partition_values=partition_values,
         )
         manifest = Manifest._build_manifest(meta, entries, author, uuid, entry_type)
         return manifest
@@ -185,6 +194,7 @@ class ManifestMeta(dict):
         credentials: Optional[Dict[str, str]] = None,
         content_type_parameters: Optional[List[Dict[str, str]]] = None,
         entry_type: Optional[EntryType] = None,
+        partition_values: Optional[List[str]] = None,
     ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
@@ -203,6 +213,8 @@ class ManifestMeta(dict):
             manifest_meta["credentials"] = credentials
         if entry_type is not None:
             manifest_meta["entry_type"] = entry_type.value
+        if partition_values is not None:
+            manifest_meta["partition_values"] = partition_values
         return manifest_meta
 
     @property
@@ -243,6 +255,10 @@ class ManifestMeta(dict):
         if val is not None:
             return EntryType(self["entry_type"])
         return val
+
+    @property
+    def partition_values(self) -> Optional[List[str]]:
+        return self.get("partition_values")
 
 
 class ManifestAuthor(dict):

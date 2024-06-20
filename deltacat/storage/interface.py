@@ -23,6 +23,10 @@ from deltacat.storage import (
     TableVersion,
     SortKey,
     PartitionLocator,
+    PartitionFilter,
+    PartitionValues,
+    DeltaPartitionSpec,
+    StreamPartitionSpec,
 )
 from deltacat.types.media import (
     ContentType,
@@ -86,12 +90,13 @@ def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partit
 def list_deltas(
     namespace: str,
     table_name: str,
-    partition_values: Optional[List[Any]] = None,
+    partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     first_stream_position: Optional[int] = None,
     last_stream_position: Optional[int] = None,
     ascending_order: Optional[bool] = None,
     include_manifest: bool = False,
+    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs
 ) -> ListResult[Delta]:
@@ -107,6 +112,9 @@ def list_deltas(
     To conserve memory, the deltas returned do not include manifests by
     default. The manifests can either be optionally retrieved as part of this
     call or lazily loaded via subsequent calls to `get_delta_manifest`.
+
+    Note: partition_values is deprecated and will be removed in future releases.
+    Use partition_filter instead.
     """
     raise NotImplementedError("list_deltas not implemented")
 
@@ -134,9 +142,10 @@ def get_delta(
     namespace: str,
     table_name: str,
     stream_position: int,
-    partition_values: Optional[List[Any]] = None,
+    partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
+    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs
 ) -> Optional[Delta]:
@@ -149,6 +158,9 @@ def get_delta(
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
+
+    Note: partition_values is deprecated and will be removed in future releases.
+    Use partition_filter instead.
     """
     raise NotImplementedError("get_delta not implemented")
 
@@ -156,9 +168,10 @@ def get_delta(
 def get_latest_delta(
     namespace: str,
     table_name: str,
-    partition_values: Optional[List[Any]] = None,
+    partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
+    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs
 ) -> Optional[Delta]:
@@ -172,6 +185,9 @@ def get_latest_delta(
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
+
+    Note: partition_values is deprecated and will be removed in future releases.
+    Use partition_filter instead.
     """
     raise NotImplementedError("get_latest_delta not implemented")
 
@@ -185,6 +201,7 @@ def download_delta(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
+    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
@@ -194,6 +211,10 @@ def download_delta(
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
     the contents of ordered delta manifest entry N.
+
+    partition_filter is an optional parameter which determines which files to
+    download from the delta manifest. A delta manifest contains all the data files
+    for a given delta.
     """
     raise NotImplementedError("download_delta not implemented")
 
@@ -268,6 +289,7 @@ def create_table_version(
     table_description: Optional[str] = None,
     table_properties: Optional[Dict[str, str]] = None,
     supported_content_types: Optional[List[ContentType]] = None,
+    partition_spec: Optional[StreamPartitionSpec] = None,
     *args,
     **kwargs
 ) -> Stream:
@@ -300,6 +322,8 @@ def create_table_version(
 
     Validate: Raise an error for any fields that don't fit the schema. An
     explicit subset of column names to validate may optionally be specified.
+
+    Either partition_keys or partition_spec must be specified but not both.
     """
     raise NotImplementedError("create_table_version not implemented")
 
@@ -402,7 +426,7 @@ def get_stream(
 
 
 def stage_partition(
-    stream: Stream, partition_values: Optional[List[Any]] = None, *args, **kwargs
+    stream: Stream, partition_values: Optional[PartitionValues] = None, *args, **kwargs
 ) -> Partition:
     """
     Stages a new partition for the given stream and partition values. Returns
@@ -410,6 +434,9 @@ def stage_partition(
     with the same partition values, then it will have its previous partition ID
     set to the ID of the partition being replaced. Partition keys should not be
     specified for unpartitioned tables.
+
+    The partition_values must represents the results of transforms in a partition
+    spec specified in the stream.
     """
     raise NotImplementedError("stage_partition not implemented")
 
@@ -439,7 +466,7 @@ def delete_partition(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
-    partition_values: Optional[List[Any]] = None,
+    partition_values: Optional[PartitionValues] = None,
     *args,
     **kwargs
 ) -> None:
@@ -454,7 +481,7 @@ def delete_partition(
 
 def get_partition(
     stream_locator: StreamLocator,
-    partition_values: Optional[List[Any]] = None,
+    partition_values: Optional[PartitionValues] = None,
     *args,
     **kwargs
 ) -> Optional[Partition]:
@@ -477,6 +504,8 @@ def stage_delta(
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     delete_parameters: Optional[DeleteParameters] = None,
+    partition_spec: Optional[DeltaPartitionSpec] = None,
+    partition_values: Optional[PartitionValues] = None,
     *args,
     **kwargs
 ) -> Delta:
@@ -484,6 +513,13 @@ def stage_delta(
     Writes the given table to 1 or more S3 files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
     schema consistency policies configured for the parent table version.
+
+    The partition spec will be used to split the input table into
+    multiple files. Optionally, partition_values can be provided to avoid
+    this method to recompute partition_values from the provided data.
+
+    Raises an error if the provided data does not conform to a unique ordered
+    list of partition_values
     """
     raise NotImplementedError("stage_delta not implemented")
 
