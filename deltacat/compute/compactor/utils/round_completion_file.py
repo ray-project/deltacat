@@ -12,10 +12,17 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def get_round_completion_file_s3_url(
-    bucket: str, source_partition_locator: PartitionLocator
+    bucket: str,
+    source_partition_locator: PartitionLocator,
+    destination_partition_locator: Optional[PartitionLocator] = None,
 ) -> str:
 
     base_url = source_partition_locator.path(f"s3://{bucket}")
+    if destination_partition_locator:
+        base_url = destination_partition_locator.path(
+            f"s3://{bucket}/{source_partition_locator.hexdigest()}"
+        )
+
     return f"{base_url}.json"
 
 
@@ -23,20 +30,38 @@ def get_round_completion_file_s3_url(
 def read_round_completion_file(
     bucket: str,
     source_partition_locator: PartitionLocator,
+    destination_partition_locator: Optional[PartitionLocator] = None,
     **s3_client_kwargs: Optional[Dict[str, Any]],
 ) -> RoundCompletionInfo:
 
-    round_completion_file_url = get_round_completion_file_s3_url(
+    # Note: we read from RCF at two different URI for backward
+    # compatibility reasons.
+    round_completion_file_url_prev = get_round_completion_file_s3_url(
         bucket,
         source_partition_locator,
     )
-    logger.info(f"reading round completion file from: {round_completion_file_url}")
+    all_uris = [round_completion_file_url_prev]
+    if destination_partition_locator:
+        round_completion_file_url_with_destination = get_round_completion_file_s3_url(
+            bucket,
+            source_partition_locator,
+            destination_partition_locator,
+        )
+        all_uris.append(round_completion_file_url_with_destination)
+
     round_completion_info = None
-    result = s3_utils.download(round_completion_file_url, False, **s3_client_kwargs)
-    if result:
-        json_str = result["Body"].read().decode("utf-8")
-        round_completion_info = RoundCompletionInfo(json.loads(json_str))
-        logger.info(f"read round completion info: {round_completion_info}")
+
+    for rcf_uri in all_uris:
+        logger.info(f"Reading round completion file from: {rcf_uri}")
+        result = s3_utils.download(rcf_uri, False, **s3_client_kwargs)
+        if result:
+            json_str = result["Body"].read().decode("utf-8")
+            round_completion_info = RoundCompletionInfo(json.loads(json_str))
+            logger.info(f"Read round completion info: {round_completion_info}")
+            break
+        else:
+            logger.warn(f"Round completion file not present at {rcf_uri}")
+
     return round_completion_info
 
 
@@ -44,8 +69,9 @@ def read_round_completion_file(
 def write_round_completion_file(
     bucket: Optional[str],
     source_partition_locator: Optional[PartitionLocator],
+    destination_partition_locator: Optional[PartitionLocator],
     round_completion_info: RoundCompletionInfo,
-    completion_file_s3_url: str = None,
+    completion_file_s3_url: Optional[str] = None,
     **s3_client_kwargs: Optional[Dict[str, Any]],
 ) -> str:
     if bucket is None and completion_file_s3_url is None:
@@ -56,6 +82,7 @@ def write_round_completion_file(
         completion_file_s3_url = get_round_completion_file_s3_url(
             bucket,
             source_partition_locator,
+            destination_partition_locator,
         )
     logger.info(f"writing round completion file to: {completion_file_s3_url}")
     s3_utils.upload(

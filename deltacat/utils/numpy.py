@@ -1,10 +1,10 @@
-from typing import List, Optional
+from typing import List, Optional, Callable, Union
 
 import numpy as np
 import pyarrow as pa
 from fsspec import AbstractFileSystem
-from ray.data.datasource import BlockWritePathProvider
 
+from ray.data.datasource import FilenameProvider
 from deltacat.types.media import ContentType
 from deltacat.utils import pandas as pd_utils
 from deltacat.utils import pyarrow as pa_utils
@@ -52,7 +52,7 @@ def ndarray_to_file(
     np_array: np.ndarray,
     path: str,
     file_system: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
+    block_path_provider: Union[FilenameProvider, Callable],
     content_type: str = ContentType.PARQUET.value,
     **kwargs
 ) -> None:

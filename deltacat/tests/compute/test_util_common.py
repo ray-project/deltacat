@@ -24,6 +24,12 @@ from deltacat.compute.compactor import (
     RoundCompletionInfo,
 )
 
+from deltacat.storage.model.partition import PartitionLocator
+from deltacat.storage.model.stream import StreamLocator
+from deltacat.storage.model.table_version import TableVersionLocator
+from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.namespace import NamespaceLocator
+
 
 class PartitionKeyType(str, Enum):
     INT = "int"
@@ -49,6 +55,18 @@ class PartitionKey(dict):
 """
 UTILS
 """
+
+
+def get_test_partition_locator(partition_id):
+    tv_locator = TableVersionLocator.of(
+        TableLocator.of(NamespaceLocator.of("default"), "test_table"), "1"
+    )
+    stream_locator = StreamLocator.of(tv_locator, "test_stream_id", "local")
+    partition_locator = PartitionLocator.of(
+        stream_locator, partition_id=partition_id, partition_values=[]
+    )
+
+    return partition_locator
 
 
 def _create_table(
@@ -140,7 +158,7 @@ def create_rebase_table(
 def get_rcf(s3_resource, rcf_file_s3_uri: str) -> RoundCompletionInfo:
     from deltacat.tests.test_utils.utils import read_s3_contents
 
-    _, rcf_object_key = rcf_file_s3_uri.rsplit("/", 1)
+    _, rcf_object_key = rcf_file_s3_uri.strip("s3://").split("/", 1)
     rcf_file_output: Dict[str, Any] = read_s3_contents(
         s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
     )
@@ -151,9 +169,6 @@ def get_compacted_delta_locator_from_rcf(
     s3_resource: ServiceResource, rcf_file_s3_uri: str
 ):
     from deltacat.storage import DeltaLocator
-    from deltacat.compute.compactor import (
-        RoundCompletionInfo,
-    )
 
     round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
 

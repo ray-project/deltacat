@@ -6,7 +6,7 @@ import gzip
 import io
 import logging
 from functools import partial
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from pyarrow.parquet import ParquetFile
 from deltacat.exceptions import ContentTypeValidationError
 
@@ -18,7 +18,7 @@ from pyarrow import csv as pacsv
 from pyarrow import feather as paf
 from pyarrow import json as pajson
 from pyarrow import parquet as papq
-from ray.data.datasource import BlockWritePathProvider
+from ray.data.datasource import FilenameProvider
 from deltacat.utils.s3fs import create_s3_file_system
 
 from deltacat import logs
@@ -523,7 +523,7 @@ def table_to_file(
     table: pa.Table,
     base_path: str,
     file_system: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
+    block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
 ) -> None:

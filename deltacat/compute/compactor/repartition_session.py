@@ -179,6 +179,7 @@ def repartition(
     return rcf.write_round_completion_file(
         None,
         None,
+        None,
         repartition_completion_info,
         repartition_completion_file_s3_url,
         **s3_client_kwargs,
