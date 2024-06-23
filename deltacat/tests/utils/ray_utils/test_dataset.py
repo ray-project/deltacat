@@ -5,12 +5,18 @@ import fsspec
 from fsspec import AbstractFileSystem
 from ray.data.datasource import FilenameProvider
 from deltacat.types.media import ContentType
+import ray
 
 
 class TestDatasetToFile:
 
     BASE_PATH = "/tmp"
     SUB_PATH = "abcd"
+
+    @pytest.fixture(autouse=True, scope="module")
+    def ensure_ray_down(self):
+        # ray.data fails when ray is instantiated in local mode
+        ray.shutdown()
 
     @pytest.fixture(scope="module")
     def mock_dataset(self):
