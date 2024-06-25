@@ -34,13 +34,7 @@ def read_round_completion_file(
     **s3_client_kwargs: Optional[Dict[str, Any]],
 ) -> RoundCompletionInfo:
 
-    # Note: we read from RCF at two different URI for backward
-    # compatibility reasons.
-    round_completion_file_url_prev = get_round_completion_file_s3_url(
-        bucket,
-        source_partition_locator,
-    )
-    all_uris = [round_completion_file_url_prev]
+    all_uris = []
     if destination_partition_locator:
         round_completion_file_url_with_destination = get_round_completion_file_s3_url(
             bucket,
@@ -48,6 +42,15 @@ def read_round_completion_file(
             destination_partition_locator,
         )
         all_uris.append(round_completion_file_url_with_destination)
+
+    # Note: we read from RCF at two different URI for backward
+    # compatibility reasons.
+    round_completion_file_url_prev = get_round_completion_file_s3_url(
+        bucket,
+        source_partition_locator,
+    )
+
+    all_uris.append(round_completion_file_url_prev)
 
     round_completion_info = None
 
