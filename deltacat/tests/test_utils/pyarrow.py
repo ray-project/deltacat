@@ -66,7 +66,10 @@ def download_delta(delta_like: Union[Delta, DeltaLocator], *args, **kwargs) -> D
 
 
 def commit_delta_to_partition(
-    partition: Partition, file_paths: List[str], *args, **kwargs
+    partition: Union[Partition, PartitionLocator],
+    file_paths: List[str],
+    *args,
+    **kwargs,
 ) -> Delta:
     tables = []
 

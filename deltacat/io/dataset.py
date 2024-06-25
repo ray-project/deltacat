@@ -6,9 +6,6 @@ from typing import Any, Callable, Dict, Optional, TypeVar, Union, cast
 import pyarrow as pa
 import s3fs
 from ray.data import Dataset
-from ray.data.datasource import BlockWritePathProvider, DefaultBlockWritePathProvider
-
-from deltacat.io.aws.redshift.redshift_datasource import RedshiftDatasource
 
 T = TypeVar("T")
 
@@ -27,7 +24,6 @@ class DeltacatDataset(Dataset[T]):
         filesystem: Optional[Union[pa.fs.FileSystem, s3fs.S3FileSystem]] = None,
         try_create_dir: bool = True,
         arrow_open_stream_args: Optional[Dict[str, Any]] = None,
-        block_path_provider: BlockWritePathProvider = DefaultBlockWritePathProvider(),
         arrow_parquet_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
         **arrow_parquet_args,
     ) -> None:
@@ -59,9 +55,8 @@ class DeltacatDataset(Dataset[T]):
                 if True. Does nothing if all directories already exist.
             arrow_open_stream_args: kwargs passed to
                 pyarrow.fs.FileSystem.open_output_stream
-            block_path_provider: BlockWritePathProvider implementation
-                to write each dataset block to a custom output path. Uses
-                DefaultBlockWritePathProvider if None.
+            filename_provider: FilenameProvider implementation
+                to write each dataset block to a custom output path.
             arrow_parquet_args_fn: Callable that returns a dictionary of write
                 arguments to use when writing each block to a file. Overrides
                 any duplicate keys from arrow_parquet_args. This should be used
@@ -72,14 +67,7 @@ class DeltacatDataset(Dataset[T]):
                 pyarrow.parquet.write_table(), which is used to write out each
                 block to a file.
         """
-        self.write_datasource(
-            RedshiftDatasource(),
-            path=path,
-            dataset_uuid=self._uuid,
-            filesystem=filesystem,
-            try_create_dir=try_create_dir,
-            open_stream_args=arrow_open_stream_args,
-            block_path_provider=block_path_provider,
-            write_args_fn=arrow_parquet_args_fn,
-            **arrow_parquet_args,
+        raise NotImplementedError(
+            "Writing to Redshift is not yet supported. "
+            "Please use DeltacatDataset.write_parquet() instead."
         )

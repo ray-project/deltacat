@@ -1,10 +1,10 @@
 import logging
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Union
 
 from fsspec import AbstractFileSystem
 from pyarrow import csv as pacsv
 from ray.data import Dataset
-from ray.data.datasource import BlockWritePathProvider
+from ray.data.datasource import FilenameProvider
 
 from deltacat import logs
 from deltacat.types.media import ContentEncoding, ContentType
@@ -17,7 +17,7 @@ def write_parquet(
     base_path: str,
     *,
     filesystem: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
+    block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
 
@@ -25,7 +25,7 @@ def write_parquet(
         base_path,
         filesystem=filesystem,
         try_create_dir=False,
-        block_path_provider=block_path_provider,
+        filename_provider=block_path_provider,
         **kwargs,
     )
 
@@ -35,7 +35,7 @@ def write_csv(
     base_path: str,
     *,
     filesystem: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
+    block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
 
@@ -49,7 +49,7 @@ def write_csv(
         arrow_open_stream_args=pa_open_stream_args,
         filesystem=filesystem,
         try_create_dir=False,
-        block_path_provider=block_path_provider,
+        filename_provider=block_path_provider,
         arrow_csv_args_fn=arrow_csv_args_fn,
         **kwargs,
     )
@@ -89,7 +89,7 @@ def dataset_to_file(
     table: Dataset,
     base_path: str,
     file_system: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
+    block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
 ) -> None:

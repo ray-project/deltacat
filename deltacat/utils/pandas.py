@@ -2,12 +2,12 @@ import csv
 import io
 import logging
 import math
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 
 import pandas as pd
 import pyarrow as pa
 from fsspec import AbstractFileSystem
-from ray.data.datasource import BlockWritePathProvider
+from ray.data.datasource import FilenameProvider
 
 from deltacat import logs
 from deltacat.types.media import (
@@ -262,7 +262,7 @@ def dataframe_to_file(
     dataframe: pd.DataFrame,
     base_path: str,
     file_system: AbstractFileSystem,
-    block_path_provider: BlockWritePathProvider,
+    block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
 ) -> None:

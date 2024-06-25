@@ -13,10 +13,10 @@ jobs:
         steps:
             - name: checkout
               uses: actions/checkout@v3
-            - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+            - name: Set up Python 3.9
+              uses: actions/setup-python@v4
               with:
-                  python-version: 3.8
+                  python-version: 3.9
             - name: Linting
               run: |
                   python -m pip install --upgrade pip
@@ -27,14 +27,14 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                python-version: ["3.8", "3.9", "3.10"]
+                python-version: ["3.9", "3.10"]
         timeout-minutes: 20
         steps:
             - name: "checkout repository"
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 0
-            - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.8)
+            - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.9)
               uses: actions/setup-python@v4
               with:
                   python-version: ${{ matrix.python-version }}
@@ -55,24 +55,24 @@ jobs:
             - name: Download previous benchmark data
               uses: actions/cache@v1
               with:
-                path: ./cache
-                key: ${{ runner.os }}-benchmark
+                  path: ./cache
+                  key: ${{ runner.os }}-benchmark
             - name: Store benchmark results
               uses: benchmark-action/github-action-benchmark@v1
               with:
-                tool: 'pytest'
-                output-file-path: output.json
-                auto-push: false
-                github-token: ${{ secrets.GITHUB_TOKEN }}
+                  tool: "pytest"
+                  output-file-path: output.json
+                  auto-push: false
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
-                # Where the previous data file is stored
-                external-data-json-path: ./cache/benchmark-data.json
+                  # Where the previous data file is stored
+                  external-data-json-path: ./cache/benchmark-data.json
 
-                # Enable Job Summary for PRs
-                summary-always: true
+                  # Enable Job Summary for PRs
+                  summary-always: true
 
-                # Enable alert commit comment
-                #
-                # By default, this action marks the result as performance regression
-                # when it is worse than the previous exceeding 200% threshold.
-                comment-on-alert: true
+                  # Enable alert commit comment
+                  #
+                  # By default, this action marks the result as performance regression
+                  # when it is worse than the previous exceeding 200% threshold.
+                  comment-on-alert: true

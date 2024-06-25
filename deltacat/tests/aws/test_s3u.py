@@ -20,6 +20,7 @@ from botocore.exceptions import (
     ConnectTimeoutError,
     HTTPClientError,
 )
+from ray.data.datasource import FilenameProvider
 from deltacat.exceptions import NonRetryableError
 from moto import mock_s3
 from tenacity import RetryError
@@ -34,6 +35,7 @@ class TestUuidBlockWritePathProvider(unittest.TestCase):
 
         result = provider("base_path")
 
+        self.assertTrue(isinstance(provider, FilenameProvider))
         self.assertRegex(result, r"^base_path/[\w-]{36}$")
 
 

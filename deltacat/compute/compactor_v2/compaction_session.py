@@ -24,7 +24,7 @@ from deltacat.compute.compactor import (
 )
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
-from deltacat.compute.compactor_v2.model.compaction_session import (
+from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
     ExecutionCompactionResult,
 )
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -110,7 +110,6 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
             f"Partition-{params.source_partition_locator} -> "
             f"{compaction_session_type} Compaction session data processing completed"
         )
-        round_completion_file_s3_url: Optional[str] = None
         if execute_compaction_result.new_compacted_partition:
             previous_partition: Optional[Partition] = None
             if execute_compaction_result.is_inplace_compacted:
@@ -132,19 +131,13 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
                 **params.deltacat_storage_kwargs,
             )
             logger.info(f"Committed compacted partition: {committed_partition}")
-            round_completion_file_s3_url = rcf.write_round_completion_file(
-                params.compaction_artifact_s3_bucket,
-                execute_compaction_result.new_round_completion_file_partition_locator,
-                execute_compaction_result.new_round_completion_info,
-                **params.s3_client_kwargs,
-            )
         else:
             logger.warning("No new partition was committed during compaction.")
 
         logger.info(
             f"Completed compaction session for: {params.source_partition_locator}"
         )
-        return round_completion_file_s3_url
+        return execute_compaction_result.round_completion_file_s3_url
 
 
 def _execute_compaction(
@@ -189,6 +182,7 @@ def _execute_compaction(
         round_completion_info = rcf.read_round_completion_file(
             params.compaction_artifact_s3_bucket,
             params.source_partition_locator,
+            params.destination_partition_locator,
             **params.s3_client_kwargs,
         )
         if not round_completion_info:
@@ -685,9 +679,18 @@ def _execute_compaction(
             f"and rcf source partition_id of {rcf_source_partition_locator.partition_id}."
         )
         rcf_source_partition_locator = compacted_partition.locator
+
+    round_completion_file_s3_url = rcf.write_round_completion_file(
+        params.compaction_artifact_s3_bucket,
+        rcf_source_partition_locator,
+        compacted_partition.locator,
+        new_round_completion_info,
+        **params.s3_client_kwargs,
+    )
+
     return ExecutionCompactionResult(
         compacted_partition,
         new_round_completion_info,
-        rcf_source_partition_locator,
+        round_completion_file_s3_url,
         is_inplace_compacted,
     )

@@ -21,7 +21,7 @@ from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 from ray.data.block import Block, BlockAccessor, BlockMetadata
-from ray.data.datasource import BlockWritePathProvider
+from ray.data.datasource import FilenameProvider
 from ray.types import ObjectRef
 from tenacity import (
     Retrying,
@@ -70,9 +70,6 @@ from deltacat.exceptions import categorize_errors
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-# TODO(raghumdani): refactor redshift datasource to reuse the
-# same module for writing output files.
-
 
 class CapturedBlockWritePaths:
     def __init__(self):
@@ -100,12 +97,15 @@ class CapturedBlockWritePaths:
         return self._block_refs
 
 
-class UuidBlockWritePathProvider(BlockWritePathProvider):
+class UuidBlockWritePathProvider(FilenameProvider):
     """Block write path provider implementation that writes each
     dataset block out to a file of the form: {base_path}/{uuid}
     """
 
-    def __init__(self, capture_object: CapturedBlockWritePaths):
+    def __init__(
+        self, capture_object: CapturedBlockWritePaths, base_path: Optional[str] = None
+    ):
+        self.base_path = base_path
         self.write_paths: List[str] = []
         self.block_refs: List[ObjectRef[Block]] = []
         self.capture_object = capture_object
@@ -116,6 +116,19 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
                 self.write_paths,
                 self.block_refs,
             )
+
+    def get_filename_for_block(
+        self, block: Any, task_index: int, block_index: int
+    ) -> str:
+        if self.base_path is None:
+            raise ValueError(
+                "Base path must be provided to UuidBlockWritePathProvider",
+            )
+        return self._get_write_path_for_block(
+            base_path=self.base_path,
+            block=block,
+            block_index=block_index,
+        )
 
     def _get_write_path_for_block(
         self,
@@ -143,13 +156,6 @@ class UuidBlockWritePathProvider(BlockWritePathProvider):
         block_index: Optional[int] = None,
         file_format: Optional[str] = None,
     ) -> str:
-        """
-        TODO: BlockWritePathProvider is deprecated as of Ray version 2.20.0. Please use FilenameProvider.
-        See: https://docs.ray.io/en/master/data/api/doc/ray.data.datasource.FilenameProvider.html
-        Also See: https://github.com/ray-project/deltacat/issues/299
-
-        Hence, this class only works with Ray version 2.20.0 or lower when used in Ray Dataset.
-        """
         return self._get_write_path_for_block(
             base_path,
             filesystem=filesystem,

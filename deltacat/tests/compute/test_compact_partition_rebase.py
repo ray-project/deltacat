@@ -254,7 +254,7 @@ def test_compact_partition_rebase_same_source_and_destination(
         }
     )
 
-    from deltacat.compute.compactor_v2.model.compaction_session import (
+    from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
         ExecutionCompactionResult,
     )
 
