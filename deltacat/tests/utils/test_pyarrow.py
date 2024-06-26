@@ -471,3 +471,31 @@ class TestS3FileToTable(TestCase):
             self.assertEqual(field.name, schema.field(index).name)
 
         self.assertEqual(result.schema.field(1).type, "string")
+
+    def test_s3_file_pq_identity_read_kwargs_sanity(self):
+
+        schema = pa.schema(
+            [pa.field("animal", pa.string()), pa.field("n_legs", pa.string())]
+        )
+
+        reader_types = ["pyarrow", "daft"]
+
+        for reader_type in reader_types:
+            pa_kwargs_provider = lambda content_type, kwargs: {
+                "schema": schema,
+                "reader_type": reader_type,
+                "file_timeout_ms": 1000,
+                **kwargs,
+            }
+
+            try:
+                result = s3_file_to_table(
+                    PARQUET_FILE_PATH,
+                    ContentType.PARQUET.value,
+                    ContentEncoding.IDENTITY.value,
+                    ["n_legs", "animal"],
+                    pa_read_func_kwargs_provider=pa_kwargs_provider,
+                )
+                self.assertIsNotNone(result)
+            except TypeError as e:
+                self.fail(f"Unexpected error with input: {e.args}")

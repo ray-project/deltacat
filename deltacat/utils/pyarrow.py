@@ -46,6 +46,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 RAISE_ON_EMPTY_CSV_KWARG = "raise_on_empty_csv"
 READER_TYPE_KWARG = "reader_type"
+FILE_TIMEOUT_KWARG = "file_timeout_ms"
 
 
 def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Schema:
@@ -442,6 +443,9 @@ def s3_file_to_table(
 
         if READER_TYPE_KWARG in kwargs:
             kwargs.pop(READER_TYPE_KWARG)
+
+        if FILE_TIMEOUT_KWARG in kwargs:
+            kwargs.pop(FILE_TIMEOUT_KWARG)
 
     filesystem = io
     if s3_url.startswith("s3://"):
