@@ -179,6 +179,28 @@ class TestReadWriteRoundCompletionFile:
 
         assert rcf == expected_rcf_2
 
+    def test_read_when_none_destination_partition_id(self):
+
+        source_locator = get_test_partition_locator("source")
+        destination_locator = get_test_partition_locator(None)
+
+        expected_rcf = RoundCompletionInfo.of(
+            high_watermark=122,
+            compacted_delta_locator={},
+            compacted_pyarrow_write_result={},
+            sort_keys_bit_width=12,
+        )
+
+        write_round_completion_file(
+            RCF_BUCKET_NAME, source_locator, destination_locator, expected_rcf
+        )
+
+        rcf = read_round_completion_file(
+            RCF_BUCKET_NAME, source_locator, destination_locator
+        )
+
+        assert rcf == expected_rcf
+
     def test_write_when_custom_url_is_passed(self):
         """
         This test case tests the backward compatibility by successfully
