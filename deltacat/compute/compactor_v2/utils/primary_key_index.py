@@ -162,7 +162,7 @@ def group_by_pk_hash_bucket(
         len(new_tables) == 1
     ), f"Expected only 1 table in the result but found {len(new_tables)}"
 
-    table = generate_pk_hash_column([table], primary_keys, requires_hash=True)[0]
+    table = new_tables[0]
 
     # group hash bucket record indices
     result = group_record_indices_by_hash_bucket(
