@@ -11,6 +11,11 @@ from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketRes
 from deltacat.compute.compactor_v2.steps.hash_bucket import hash_bucket
 from deltacat.utils.common import current_time_ms
 from deltacat.tests.test_utils.pyarrow import create_delta_from_csv_file
+from unittest.mock import patch
+from deltacat.tests.local_deltacat_storage.exceptions import (
+    InvalidNamespaceError,
+    LocalStorageValidationError,
+)
 
 
 class TestHashBucket(unittest.TestCase):
@@ -27,22 +32,19 @@ class TestHashBucket(unittest.TestCase):
     )
     NO_PK_FILE_PATH = "deltacat/tests/compute/compactor_v2/steps/data/no_pk_table.csv"
 
-    @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         ray.init(local_mode=True, ignore_reinit_error=True)
 
-        con = sqlite3.connect(cls.DB_FILE_PATH)
+        con = sqlite3.connect(self.DB_FILE_PATH)
         cur = con.cursor()
-        cls.kwargs = {ds.SQLITE_CON_ARG: con, ds.SQLITE_CUR_ARG: cur}
-        cls.deltacat_storage_kwargs = {ds.DB_FILE_PATH_ARG: cls.DB_FILE_PATH}
+        self.kwargs = {ds.SQLITE_CON_ARG: con, ds.SQLITE_CUR_ARG: cur}
+        self.deltacat_storage_kwargs = {ds.DB_FILE_PATH_ARG: self.DB_FILE_PATH}
 
         super().setUpClass()
 
-    @classmethod
-    def doClassCleanups(cls) -> None:
-        os.remove(cls.DB_FILE_PATH)
+    def tearDown(self) -> None:
+        os.remove(self.DB_FILE_PATH)
         ray.shutdown()
-        super().tearDownClass()
 
     def test_single_string_pk_correctly_hashes(self):
         # setup
@@ -168,6 +170,34 @@ class TestHashBucket(unittest.TestCase):
             num_columns=3,
             object_store=object_store,
         )
+
+    @patch("deltacat.compute.compactor_v2.steps.hash_bucket.group_hash_bucket_indices")
+    def test_error_categorization_works(self, mock_group_hash_bucket_indices):
+        # setup
+        delta = create_delta_from_csv_file(
+            self.HASH_BUCKET_NAMESPACE, [self.MULTIPLE_PK_FILE_PATH], **self.kwargs
+        )
+        mock_group_hash_bucket_indices.side_effect = InvalidNamespaceError("Invalid")
+
+        annotated_delta = DeltaAnnotated.of(delta)
+        object_store = RayPlasmaObjectStore()
+        hb_input = HashBucketInput.of(
+            annotated_delta=annotated_delta,
+            primary_keys=["pk1", "pk2"],
+            num_hash_buckets=2,
+            num_hash_groups=1,
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+            object_store=object_store,
+        )
+
+        # action
+        try:
+            hb_result_promise = hash_bucket.remote(hb_input)
+            ray.get(hb_result_promise)
+            self.fail("Expected LocalStorageValidationError")
+        except ray.exceptions.RayTaskError as e:
+            self.assertIsInstance(e.cause, LocalStorageValidationError)
 
     def _validate_hash_bucket_result(
         self,

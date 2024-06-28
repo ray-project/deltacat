@@ -32,6 +32,11 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
     DeleteFileEnvelope,
 )
 from deltacat.storage.model.delete_parameters import DeleteParameters
+from unittest.mock import patch
+from deltacat.tests.local_deltacat_storage.exceptions import (
+    InvalidNamespaceError,
+    LocalStorageValidationError,
+)
 
 
 class TestMerge(unittest.TestCase):
@@ -647,6 +652,41 @@ class TestMerge(unittest.TestCase):
         merge_res_list.append(merge_result)
         # 10 records, 2 duplication, record count left should be 8
         self._validate_merge_output(merge_res_list, 8)
+
+    @patch("deltacat.compute.compactor_v2.steps.merge._compact_tables")
+    def test_merge_when_local_error_categorized_correctly(self, mock_compact_tables):
+        mock_compact_tables.side_effect = InvalidNamespaceError("Invalid namespace")
+        partition = stage_partition_from_file_paths(
+            self.MERGE_NAMESPACE,
+            [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
+            **self.kwargs,
+        )
+        new_delta = commit_delta_to_staged_partition(
+            partition, [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK], **self.kwargs
+        )
+        object_store = RayPlasmaObjectStore()
+        dfes_groups, _, _ = self._extract_dfes_from_delta(new_delta)
+        merge_input = MergeInput.of(
+            compacted_file_content_type=ContentType.PARQUET,
+            merge_file_groups_provider=LocalMergeFileGroupsProvider(
+                uniform_deltas=[DeltaAnnotated.of(new_delta)],
+                read_kwargs_provider=None,
+                deltacat_storage=ds,
+                deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+            ),
+            write_to_partition=partition,
+            primary_keys=["pk1", "pk2"],
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=self.deltacat_storage_kwargs,
+            object_store=object_store,
+        )
+
+        try:
+            merge_result_promise = merge.remote(merge_input)
+            ray.get(merge_result_promise)
+            self.fail("Expected a LocalStorageValidationError")
+        except ray.exceptions.RayTaskError as e:
+            self.assertIsInstance(e.cause, LocalStorageValidationError)
 
     def _extract_dfes_from_delta(self, delta_to_merge: Delta):
         annotated_delta = DeltaAnnotated.of(delta_to_merge)
