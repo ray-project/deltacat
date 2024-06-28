@@ -32,22 +32,19 @@ class TestHashBucket(unittest.TestCase):
     )
     NO_PK_FILE_PATH = "deltacat/tests/compute/compactor_v2/steps/data/no_pk_table.csv"
 
-    @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         ray.init(local_mode=True, ignore_reinit_error=True)
 
-        con = sqlite3.connect(cls.DB_FILE_PATH)
+        con = sqlite3.connect(self.DB_FILE_PATH)
         cur = con.cursor()
-        cls.kwargs = {ds.SQLITE_CON_ARG: con, ds.SQLITE_CUR_ARG: cur}
-        cls.deltacat_storage_kwargs = {ds.DB_FILE_PATH_ARG: cls.DB_FILE_PATH}
+        self.kwargs = {ds.SQLITE_CON_ARG: con, ds.SQLITE_CUR_ARG: cur}
+        self.deltacat_storage_kwargs = {ds.DB_FILE_PATH_ARG: self.DB_FILE_PATH}
 
         super().setUpClass()
 
-    @classmethod
-    def doClassCleanups(cls) -> None:
-        os.remove(cls.DB_FILE_PATH)
+    def tearDown(self) -> None:
+        os.remove(self.DB_FILE_PATH)
         ray.shutdown()
-        super().tearDownClass()
 
     def test_single_string_pk_correctly_hashes(self):
         # setup
