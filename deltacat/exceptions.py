@@ -213,11 +213,14 @@ def categorize_errors(func: Callable):
         except BaseException as e:
             deltacat_storage = None
             deltacat_storage_kwargs = {}
+            all_args = args
             if kwargs:
                 deltacat_storage = kwargs.get(DELTACAT_STORAGE_PARAM)
                 deltacat_storage_kwargs = kwargs.get(DELTACAT_STORAGE_KWARGS_PARAM, {})
-            if not deltacat_storage and args:
-                for arg in args:
+                all_args = all_args + tuple(kwargs.values())
+
+            if not deltacat_storage and all_args:
+                for arg in all_args:
                     if (
                         isinstance(arg, dict)
                         and arg.get(DELTACAT_STORAGE_PARAM) is not None
