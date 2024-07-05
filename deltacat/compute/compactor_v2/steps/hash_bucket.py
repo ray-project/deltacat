@@ -64,6 +64,7 @@ def _group_file_records_by_pk_hash_bucket(
         read_kwargs_provider,
         deltacat_storage,
         deltacat_storage_kwargs,
+        primary_keys
     )
 
     if delta_file_envelopes is None:

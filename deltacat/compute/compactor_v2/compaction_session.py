@@ -179,12 +179,21 @@ def _execute_compaction(
     previous_compacted_delta_manifest: Optional[Manifest] = None
 
     if not params.rebase_source_partition_locator:
-        round_completion_info = rcf.read_round_completion_file(
-            params.compaction_artifact_s3_bucket,
-            params.source_partition_locator,
-            params.destination_partition_locator,
-            **params.s3_client_kwargs,
-        )
+        # round_completion_info = rcf.read_round_completion_file(
+        #     params.compaction_artifact_s3_bucket,
+        #     params.source_partition_locator,
+        #     params.destination_partition_locator,
+        #     **params.s3_client_kwargs,
+        # )
+        round_completion_info = None
+        round_completion_file_url = "s3://compaction-artifacts-bdtray-beta-us-east-1-5093809/71ea8aa17d3b816bb3bcb391e58df51b650af431.json"
+        result = s3_utils.download(round_completion_file_url, False)
+        logger.info(f"ROUND_COMPLETION_INFO:{result}")
+        if result:
+            json_str = result["Body"].read().decode("utf-8")
+            round_completion_info = RoundCompletionInfo(json.loads(json_str))
+            logger.info(f"read round completion info: {round_completion_info}")
+
         if not round_completion_info:
             logger.info(
                 "Both rebase partition and round completion file not found. Performing an entire backfill on source."
@@ -213,16 +222,28 @@ def _execute_compaction(
 
     delta_discovery_start = time.monotonic()
 
-    input_deltas: List[Delta] = io.discover_deltas(
-        params.source_partition_locator,
-        params.last_stream_position_to_compact,
-        params.rebase_source_partition_locator,
-        params.rebase_source_partition_high_watermark,
-        high_watermark,
-        params.deltacat_storage,
-        params.deltacat_storage_kwargs,
-        params.list_deltas_kwargs,
-    )
+    # input_deltas: List[Delta] = io.discover_deltas(
+    #     params.source_partition_locator,
+    #     params.last_stream_position_to_compact,
+    #     params.rebase_source_partition_locator,
+    #     params.rebase_source_partition_high_watermark,
+    #     high_watermark,
+    #     params.deltacat_storage,
+    #     params.deltacat_storage_kwargs,
+    #     params.list_deltas_kwargs,
+    # )
+
+    # uncompacted_table
+    input_deltas_list = params.deltacat_storage.list_deltas(
+            "BOOKER",
+            "D_MP_ASIN_KEYWORDS",
+            [],
+            8,
+            equivalent_table_types=[],
+            include_manifest=True,
+        ).read_page()
+    input_deltas = [input_deltas_list[0]]
+
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return ExecutionCompactionResult(None, None, None, False)
@@ -270,12 +291,19 @@ def _execute_compaction(
     compacted_stream_locator: Optional[
         StreamLocator
     ] = params.destination_partition_locator.stream_locator
+    # compacted_stream: Stream = params.deltacat_storage.get_stream(
+    #     compacted_stream_locator.namespace,
+    #     compacted_stream_locator.table_name,
+    #     compacted_stream_locator.table_version,
+    #     **params.deltacat_storage_kwargs,
+    # )
+
     compacted_stream: Stream = params.deltacat_storage.get_stream(
-        compacted_stream_locator.namespace,
-        compacted_stream_locator.table_name,
-        compacted_stream_locator.table_version,
-        **params.deltacat_storage_kwargs,
-    )
+            "bdt-ray-dev",
+            "ricmiyam_D_MP_ASIN_KEYWORDS_compacted_v2",
+            21,
+            **params.deltacat_storage_kwargs,
+        )
     compacted_partition: Partition = params.deltacat_storage.stage_partition(
         compacted_stream,
         params.destination_partition_locator.partition_values,

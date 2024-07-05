@@ -33,14 +33,28 @@ def read_delta_file_envelopes(
     read_kwargs_provider: Optional[ReadKwargsProvider],
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
+    columns_to_read: Optional[list[str]] = None,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int, int]:
+    # tables = deltacat_storage.download_delta(
+    #     annotated_delta,
+    #     max_parallelism=1,
+    #     file_reader_kwargs_provider=read_kwargs_provider,
+    #     storage_type=StorageType.LOCAL,
+    #     **deltacat_storage_kwargs,
+    # )
+
+    #########
     tables = deltacat_storage.download_delta(
         annotated_delta,
         max_parallelism=1,
+        columns=columns_to_read,
         file_reader_kwargs_provider=read_kwargs_provider,
         storage_type=StorageType.LOCAL,
         **deltacat_storage_kwargs,
     )
+
+    #########
+
     annotations = annotated_delta.annotations
     assert (
         len(tables) == len(annotations),
