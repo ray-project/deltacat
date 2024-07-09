@@ -42,7 +42,7 @@ DROP_DUPLICATES = True
 PARQUET_TO_PYARROW_INFLATION = 4
 
 # By default, copy by reference is enabled
-DEFAULT_DISABLE_COPY_BY_REFERENCE = False
+DEFAULT_DISABLE_COPY_BY_REFERENCE = True
 
 # Metric Names
 # Time taken for a hash bucket task
