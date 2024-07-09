@@ -41,7 +41,7 @@ DROP_DUPLICATES = True
 # size in metadata to pyarrow table size.
 PARQUET_TO_PYARROW_INFLATION = 4
 
-# By default, copy by reference is enabled
+# By default, copy by reference is disabled
 DEFAULT_DISABLE_COPY_BY_REFERENCE = True
 
 # Metric Names
