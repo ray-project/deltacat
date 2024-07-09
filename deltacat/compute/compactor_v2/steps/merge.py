@@ -161,6 +161,7 @@ def _merge_tables(
 
     final_table = pa.concat_tables(result_table_list)
     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
+    final_table = final_table.sort_by([("dw_last_updated", "descending")])
 
     return final_table
 
