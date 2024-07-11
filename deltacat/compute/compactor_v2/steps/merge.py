@@ -41,7 +41,10 @@ from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
-from deltacat.constants import BYTES_PER_GIBIBYTE
+from deltacat.constants import (
+    BYTES_PER_GIBIBYTE,
+    DW_LAST_UPDATED_COLUMN_NAME,
+)
 from deltacat.compute.compactor_v2.constants import (
     MERGE_TIME_IN_SECONDS,
     MERGE_SUCCESS_COUNT,
@@ -161,7 +164,10 @@ def _merge_tables(
 
     final_table = pa.concat_tables(result_table_list)
     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
-    final_table = final_table.sort_by([("dw_last_updated", "descending")])
+
+    # TODO: Retrieve sort order policy from the table version metadata instead of hard-coding.
+    if DW_LAST_UPDATED_COLUMN_NAME in final_table.column_names:
+        final_table = final_table.sort_by([(DW_LAST_UPDATED_COLUMN_NAME, "descending")])
 
     return final_table
 
