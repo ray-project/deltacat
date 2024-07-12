@@ -145,7 +145,6 @@ def hash_bucket_resource_options_provider(
     size_bytes = 0.0
     num_rows = 0
     total_pk_size = 0
-
     if not item.manifest or not item.manifest.entries:
         logger.debug(
             f"[Hash bucket task {index}]: No manifest entries, skipping memory allocation calculation"
