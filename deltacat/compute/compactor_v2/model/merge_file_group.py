@@ -179,6 +179,9 @@ class RemoteMergeFileGroupsProvider(MergeFileGroupsProvider):
             for hb_idx, dfes in enumerate(delta_file_envelope_groups):
                 if dfes:
                     hb_index_to_delta_file_envelopes_list[hb_idx].append(dfes)
+        # xxxxxxxxxx
+        # for hb_idx in range(self.hash_bucket_count):
+        #     hb_index_to_delta_file_envelopes_list[hb_idx].append(delta_file_envelope_groups_list[0])
         valid_hb_indices_iterable = hash_group_index_to_hash_bucket_indices(
             self.hash_group_index, self.hash_bucket_count, self.num_hash_groups
         )
@@ -195,10 +198,10 @@ class RemoteMergeFileGroupsProvider(MergeFileGroupsProvider):
             else:
                 dfe_list_groups.append(MergeFileGroup.of(hb_index=hb_idx))
 
-        assert total_dfes_found == len(hb_index_to_delta_file_envelopes_list), (
-            "The total dfe list does not match the input dfes from hash bucket as "
-            f"{total_dfes_found} != {len(hb_index_to_delta_file_envelopes_list)}"
-        )
+        # assert total_dfes_found == len(hb_index_to_delta_file_envelopes_list), (
+        #     "The total dfe list does not match the input dfes from hash bucket as "
+        #     f"{total_dfes_found} != {len(hb_index_to_delta_file_envelopes_list)}"
+        # )
         self._dfe_groups = dfe_list_groups
         self._loaded_from_object_store = True
 

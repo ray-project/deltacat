@@ -349,7 +349,7 @@ def get_merge_task_options(
                     average_record_size_bytes=average_record_size,
                     previous_inflation=previous_inflation,
                 )
-
+                # current_entry_size = 0
                 data_size += current_entry_size
                 num_rows += current_entry_rows
 
@@ -364,6 +364,10 @@ def get_merge_task_options(
                     else:
                         pk_size_bytes += pk_size
 
+    logger.info(f"merge_option_data_size:{data_size}")
+    logger.info(f"merge_option_pk_size_bytes:{pk_size_bytes}")
+    logger.info(f"merge_option_num_rows:{num_rows}")
+    logger.info(f"merge_option_incremental_index_array_size:{incremental_index_array_size}")
     # total data downloaded + primary key hash column + pyarrow-to-numpy conversion
     # + primary key column + hashlib inefficiency + dict size for merge + incremental index array size
     total_memory = (
@@ -373,6 +377,7 @@ def get_merge_task_options(
         + num_rows * 20
         + num_rows * 20
         + num_rows * 20
+        # incremental pk
         + incremental_index_array_size
     )
     debug_memory_params["data_size"] = data_size

@@ -255,6 +255,8 @@ def _download_compacted_table(
     ), "indices should not be none and contains exactly two elements"
 
     logger.info(f"DOWNLOAD_COMPACTED_TABLE FOR FILE IDX:{indices}")
+
+    start = time.perf_counter()
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
             rcf.compacted_delta_locator,
@@ -266,7 +268,9 @@ def _download_compacted_table(
         file_idx = indices[0] + offset
         table = _append_file_idx_and_record_idx(table, file_idx)
         tables.append(table)
-
+    stop = time.perf_counter()
+    merge_download_compacted_table_time = stop - start
+    logger.info(f"[Merge task index:{hb_index}: download compacted table time: {merge_download_compacted_table_time}")
     return pa.concat_tables(tables)
 
 # def group_record_indices_by_hash_bucket(

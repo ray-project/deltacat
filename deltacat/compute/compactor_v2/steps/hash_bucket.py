@@ -50,11 +50,13 @@ def _group_file_records_by_pk_hash_bucket(
     annotated_delta: DeltaAnnotated,
     num_hash_buckets: int,
     primary_keys: List[str],
+    object_store,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int, int]:
     # read input parquet s3 objects into a list of delta file envelopes
+    start = time.perf_counter()
     (
         delta_file_envelopes,
         total_record_count,
@@ -66,6 +68,9 @@ def _group_file_records_by_pk_hash_bucket(
         deltacat_storage_kwargs,
         primary_keys
     )
+    stop = time.perf_counter()
+    read_delta_file_envelopes_time = stop - start
+    logger.info(f"read_delta_file_envelope_time:{read_delta_file_envelopes_time}")
 
     if delta_file_envelopes is None:
         return None, 0, 0
@@ -97,6 +102,40 @@ def _group_file_records_by_pk_hash_bucket(
                         table=table,
                     )
                 )
+
+    # for dfe in delta_file_envelopes:
+    #     logger.info("Appending dfe to all buckets")
+
+    # object_ref = object_store.put(delta_file_envelopes)
+        # group_start = time.monotonic()
+        # hash_bucket_to_table = group_by_pk_hash_bucket(
+        #     table=dfe.table, num_buckets=num_hash_buckets, primary_keys=primary_keys
+        # )
+        # group_end = time.monotonic()
+        # logger.info(f"Grouping took: {group_end - group_start}")
+    # for b in num_hash_buckets:
+    #     if hb_to_delta_file_envelopes[b] is None:
+    #         hb_to_delta_file_envelopes[b] = []
+    #     hb_to_delta_file_envelopes[b].append(
+    #         DeltaFileEnvelope.of(
+    #             stream_position=dfe.stream_position,
+    #             file_index=dfe.file_index,
+    #             delta_type=dfe.delta_type,
+    #             table=table,
+    #         )
+    #     )
+        #     for hb, table in enumerate(hash_bucket_to_table):
+        #         if table:
+        #             if hb_to_delta_file_envelopes[hb] is None:
+        #                 hb_to_delta_file_envelopes[hb] = []
+        #             hb_to_delta_file_envelopes[hb].append(
+        #                 DeltaFileEnvelope.of(
+        #                     stream_position=dfe.stream_position,
+        #                     file_index=dfe.file_index,
+        #                     delta_type=dfe.delta_type,
+        #                     table=table,
+        #                 )
+        #             )
     return hb_to_delta_file_envelopes, total_record_count, total_size_bytes
 
 
@@ -117,16 +156,39 @@ def _timed_hash_bucket(input: HashBucketInput):
             annotated_delta=input.annotated_delta,
             num_hash_buckets=input.num_hash_buckets,
             primary_keys=input.primary_keys,
+            object_store=input.object_store,
             read_kwargs_provider=input.read_kwargs_provider,
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
+        # xxxxxxxx
+        # (
+        #         refs,
+        #         total_record_count,
+        #         total_size_bytes,
+        #     ) = _group_file_records_by_pk_hash_bucket(
+        #         annotated_delta=input.annotated_delta,
+        #         num_hash_buckets=input.num_hash_buckets,
+        #         primary_keys=input.primary_keys,
+        #         object_store=input.object_store,
+        #         read_kwargs_provider=input.read_kwargs_provider,
+        #         deltacat_storage=input.deltacat_storage,
+        #         deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+        # )
         hash_bucket_group_to_obj_id_tuple = group_hash_bucket_indices(
             hash_bucket_object_groups=delta_file_envelope_groups,
             num_buckets=input.num_hash_buckets,
             num_groups=input.num_hash_groups,
             object_store=input.object_store,
         )
+        # xxxxxxx
+        # hash_bucket_group_to_obj_id_tuple = np.empty([input.num_hash_groups], dtype="object")
+        # for i in range(input.num_hash_groups):
+        #     hash_bucket_group_to_obj_id_tuple[i] = (
+        #     refs,
+        #     total_size_bytes,
+        #     total_record_count,
+        # )
 
         peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
         logger.info(

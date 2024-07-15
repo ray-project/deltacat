@@ -40,6 +40,7 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
     DeleteFileEnvelope,
 )
 from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
+from sungate.storage.andes import EquivalentTableType
 
 from deltacat.storage import (
     Delta,
@@ -186,6 +187,7 @@ def _execute_compaction(
         #     **params.s3_client_kwargs,
         # )
         round_completion_info = None
+        # round_completion_file_url = "s3://compaction-artifacts-bdtray-beta-us-east-1-5093809/c1c6439b4e1ab6b417251b7647d1e0427e3ec9a9/8d4535151a5595e1c3407660594d77edef0f97e8.json"
         round_completion_file_url = "s3://compaction-artifacts-bdtray-beta-us-east-1-5093809/71ea8aa17d3b816bb3bcb391e58df51b650af431.json"
         result = s3_utils.download(round_completion_file_url, False)
         logger.info(f"ROUND_COMPLETION_INFO:{result}")
@@ -244,6 +246,29 @@ def _execute_compaction(
         ).read_page()
     input_deltas = [input_deltas_list[0]]
 
+    # input_delta_list_result = params.deltacat_storage.list_deltas(
+    #         "BOOKER",
+    #         "D_MP_ASIN_KEYWORDS",
+    #         [],
+    #         8,
+    #         equivalent_table_types=[],
+    #         include_manifest=True,
+    #     )
+    # input_delta_list = []
+    # for i in range(10):
+    #     input_delta_list_result = input_delta_list_result.next_page()
+    #     input_delta_list.extend(input_delta_list_result.read_page())
+    # input_deltas = [input_delta_list[80]]
+
+    # input_deltas_list = params.deltacat_storage.list_deltas(
+    #         "aft-pick-progress-platform",
+    #         "PickUI_TimeAtBin_BI",
+    #         [],
+    #         2,
+    #         equivalent_table_types=[],
+    #         include_manifest=True,
+    #     ).read_page()
+    # input_deltas = input_deltas_list[:6]
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return ExecutionCompactionResult(None, None, None, False)
@@ -300,10 +325,17 @@ def _execute_compaction(
 
     compacted_stream: Stream = params.deltacat_storage.get_stream(
             "bdt-ray-dev",
-            "ricmiyam_D_MP_ASIN_KEYWORDS_compacted_v2",
-            21,
+            "TEST_D_MP_ASIN_KEYWORDS_ICEBERG_POC_ZYIQIN2",
+            1,
             **params.deltacat_storage_kwargs,
         )
+
+    # compacted_stream: Stream = params.deltacat_storage.get_stream(
+    #         "bdt-ray-dev",
+    #         "TEST_PickUI_TimeAtBin_BI_bucket_write_to_6600",
+    #         1,
+    #         **params.deltacat_storage_kwargs,
+    #     )
     compacted_partition: Partition = params.deltacat_storage.stage_partition(
         compacted_stream,
         params.destination_partition_locator.partition_values,
@@ -441,14 +473,16 @@ def _execute_compaction(
                     )
                     all_hash_group_idx_to_size_bytes[
                         hash_group_index
-                    ] += object_id_size_tuple[1].item()
+                    ] = object_id_size_tuple[1].items()
                     all_hash_group_idx_to_num_rows[
                         hash_group_index
-                    ] += object_id_size_tuple[2].item()
+                    ] = object_id_size_tuple[2].items()
 
         logger.info(
             f"Got {total_input_records_count} hash bucket records from hash bucketing step..."
         )
+        logger.info(f"all_hash_group_idx_to_size_bytes:{all_hash_group_idx_to_size_bytes}")
+        logger.info(f"all_hash_group_idx_to_num_rows:{all_hash_group_idx_to_num_rows}")
 
         total_hb_record_count = total_input_records_count
         compaction_audit.set_hash_bucket_processed_size_bytes(
@@ -583,6 +617,13 @@ def _execute_compaction(
 
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
+    if not deltas:
+        s3_utils.upload(
+            compaction_audit.audit_url,
+            str(json.dumps(compaction_audit)),
+            **params.s3_client_kwargs,
+        )
+        return None
     merged_delta: Delta = Delta.merge_deltas(
         deltas,
         stream_position=params.last_stream_position_to_compact,
