@@ -1,5 +1,7 @@
+import datetime as dt
 import pyarrow as pa
 from typing import Callable, Dict, List, Optional, Set, Tuple, Union
+from deltacat.constants import DW_LAST_UPDATED_COLUMN_NAME
 from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
     PartitionKey,

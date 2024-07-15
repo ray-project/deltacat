@@ -5,6 +5,7 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
+from deltacat.constants import DW_LAST_UPDATED_COLUMN_NAME
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
 
@@ -274,16 +275,22 @@ def test_compact_partition_rebase_same_source_and_destination(
         compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
     )
     actual_rebase_compacted_table = pa.concat_tables(tables)
-    # if no primary key is specified then sort by sort_key for consistent assertion
-    sorting_cols: List[Any] = (
-        [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
-    )
-    rebase_expected_compact_partition_result = (
-        rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)
-    )
-    actual_rebase_compacted_table = (
-        actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
-    )
+    if DW_LAST_UPDATED_COLUMN_NAME in actual_rebase_compacted_table.column_names:
+        # If DW_LAST_UPDATED_COLUMN_NAME is present, don't sort expected and actual tables;
+        # we want to assert on the order of the rows in the table, to validate sorting on timestamp.
+        pass
+    else:
+        # If DW_LAST_UPDATED_COLUMN_NAME is absent, sort by primary key for consistent assertion.
+        # Sort by sort_key if no primary key is specified.
+        sorting_cols: List[Any] = (
+            [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
+        )
+        rebase_expected_compact_partition_result = (
+            rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)
+        )
+        actual_rebase_compacted_table = (
+            actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
+        )
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
