@@ -90,6 +90,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 @metrics(prefix=COMPACT_PARTITION_METRIC_PREFIX)
 @categorize_errors
 def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]:
+    logger.error("Entering modified entrypoint!!!!")
     assert (
         params.hash_bucket_count is not None and params.hash_bucket_count >= 1
     ), "hash_bucket_count is a required arg for compactor v2"

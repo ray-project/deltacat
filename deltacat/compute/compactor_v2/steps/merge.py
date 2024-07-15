@@ -166,8 +166,14 @@ def _merge_tables(
     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
 
     # TODO: Retrieve sort order policy from the table version metadata instead of hard-coding.
+    logger.error("Entering if!!!!")
     if DW_LAST_UPDATED_COLUMN_NAME in final_table.column_names:
+        logger.error("Executing modified merge!!!!")
         final_table = final_table.sort_by([(DW_LAST_UPDATED_COLUMN_NAME, "descending")])
+        table_len = len(final_table)
+        logger.error(f"Min max: {pc.min_max(final_table.column(DW_LAST_UPDATED_COLUMN_NAME))}!!!!")
+        logger.error(f"Expected min: {final_table.column(DW_LAST_UPDATED_COLUMN_NAME).take([table_len - 1])}!!!!")
+        logger.error(f"Expected max: {final_table.column(DW_LAST_UPDATED_COLUMN_NAME).take([0])}!!!!")
 
     return final_table
 
