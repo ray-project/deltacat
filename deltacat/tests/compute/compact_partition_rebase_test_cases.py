@@ -93,7 +93,13 @@ REBASE_TEST_CASES = {
                 pa.array([i / 10 for i in range(10, 20)]),
                 pa.array(dt.datetime(year, 1, 1) for year in range(2000, 2010)),
             ],
-            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1", DW_LAST_UPDATED_COLUMN_NAME],
+            names=[
+                "pk_col_1",
+                "sk_col_1",
+                "sk_col_2",
+                "col_1",
+                DW_LAST_UPDATED_COLUMN_NAME,
+            ],
         ),
         input_deltas_delta_type=DeltaType.UPSERT,
         # dw_last_update is in ascending order in the input table.
@@ -105,9 +111,17 @@ REBASE_TEST_CASES = {
                 pa.array([i for i in reversed(range(0, 10))]),
                 pa.array(["foo"] * 10),
                 pa.array([i / 10 for i in reversed(range(10, 20))]),
-                pa.array(dt.datetime(year, 1, 1) for year in reversed(range(2000, 2010))),
+                pa.array(
+                    dt.datetime(year, 1, 1) for year in reversed(range(2000, 2010))
+                ),
             ],
-            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1", DW_LAST_UPDATED_COLUMN_NAME],
+            names=[
+                "pk_col_1",
+                "sk_col_1",
+                "sk_col_2",
+                "col_1",
+                DW_LAST_UPDATED_COLUMN_NAME,
+            ],
         ),
         expected_terminal_compact_partition_result=pa.Table.from_arrays([]),
         expected_terminal_exception=None,

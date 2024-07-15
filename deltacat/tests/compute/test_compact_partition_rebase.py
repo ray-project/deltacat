@@ -286,7 +286,9 @@ def test_compact_partition_rebase_same_source_and_destination(
             [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
         )
         rebase_expected_compact_partition_result = (
-            rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)
+            rebase_expected_compact_partition_result.combine_chunks().sort_by(
+                sorting_cols
+            )
         )
         actual_rebase_compacted_table = (
             actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
