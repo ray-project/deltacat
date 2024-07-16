@@ -118,6 +118,7 @@ def _merge_tables(
     This method ensures the appropriate deltas of types [UPSERT] are correctly
     appended to the table.
     """
+    logger.error("Entering _merge_tables!!!!")
 
     all_tables = []
     incremental_idx = 0
@@ -393,6 +394,7 @@ def _compact_tables(
             3. The total number of deduplicated records.
             4. The total number of deleted records due to DELETE operations.
     """
+    logger.error("Entering _compact_tables!!!!")
     df_envelopes: List[DeltaFileEnvelope] = _flatten_dfe_list(dfe_list)
     delete_file_envelopes = input.delete_file_envelopes or []
     reordered_all_dfes: List[DeltaFileEnvelope] = _sort_df_envelopes(
@@ -409,6 +411,7 @@ def _compact_tables(
     for i, (delta_type, delta_type_sequence) in enumerate(
         _group_sequence_by_delta_type(reordered_all_dfes)
     ):
+        logger.error(f"Entering processing of delta type {delta_type}!!!!")
         if delta_type is DeltaType.UPSERT:
             (
                 table,
@@ -449,6 +452,7 @@ def _apply_upserts(
     hb_idx,
     prev_table=None,
 ) -> Tuple[pa.Table, int, int, int]:
+    logger.error("Entering _apply_upserts!!!!")
     assert all(
         dfe.delta_type is DeltaType.UPSERT for dfe in dfe_list
     ), "All incoming delta file envelopes must of the DeltaType.UPSERT"
@@ -506,6 +510,7 @@ def _copy_manifests_from_hash_bucketing(
 @failure_metric(name=MERGE_FAILURE_COUNT)
 @categorize_errors
 def _timed_merge(input: MergeInput) -> MergeResult:
+    logger.error("Entering timed merge!!!!")
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
     with memray.Tracker(
@@ -586,6 +591,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 @ray.remote
 def merge(input: MergeInput) -> MergeResult:
     with ProcessUtilizationOverTimeRange() as process_util:
+        logger.error("Entering merge!!!!")
         logger.info(f"Foogling merge task {input.merge_task_index}...")
 
         # Log node peak memory utilization every 10 seconds
