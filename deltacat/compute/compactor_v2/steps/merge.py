@@ -586,8 +586,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
 @ray.remote
 def merge(input: MergeInput) -> MergeResult:
     with ProcessUtilizationOverTimeRange() as process_util:
-        logger.info(f"Starting merge task {input.merge_task_index}...")
-        logger.error("HELLO!?!?!?!?!?!?")
+        logger.info(f"Foogling merge task {input.merge_task_index}...")
 
         # Log node peak memory utilization every 10 seconds
         def log_peak_memory():
