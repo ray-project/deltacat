@@ -167,6 +167,7 @@ def _merge_tables(
 
     # TODO: Retrieve sort order policy from the table version metadata instead of hard-coding.
     if DW_LAST_UPDATED_COLUMN_NAME in final_table.column_names:
+        logger.error("Sorting by updated timestamp...")
         final_table = final_table.sort_by([(DW_LAST_UPDATED_COLUMN_NAME, "descending")])
     return final_table
 
