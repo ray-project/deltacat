@@ -1,5 +1,6 @@
 import logging
 import importlib
+from collections import defaultdict
 from deltacat.compute.compactor_v2.model.merge_input import MergeInput
 import numpy as np
 import pyarrow as pa
@@ -10,7 +11,7 @@ import pyarrow.compute as pc
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
-from typing import Callable, Iterator, List, Optional, Tuple
+from typing import Callable, Iterator, List, Optional, Tuple, Dict
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.merge_file_group import MergeFileGroup
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -100,15 +101,21 @@ def _build_incremental_table(
 
         hb_tables.append(table)
     result = pa.concat_tables(hb_tables)
+
+    if "dw_last_updated" in result.column_names:
+        result = result.sort_by([("dw_last_updated", "descending")])
+
     return result
 
 
 def _merge_tables(
+    input: MergeInput,
     table: pa.Table,
     primary_keys: List[str],
     can_drop_duplicates: bool,
-    compacted_table: Optional[pa.Table] = None,
-) -> pa.Table:
+    compacted_table_pk_list: Optional[List[pa.Table]] = None,
+    entry_index_offset: Optional[int] = None,
+) -> Tuple[pa.Table, List[int]]:
     """
     Merges the table with compacted table dropping duplicates where necessary.
 
@@ -116,62 +123,89 @@ def _merge_tables(
     appended to the table.
     """
 
-    all_tables = []
-    incremental_idx = 0
-
-    if compacted_table:
-        incremental_idx = 1
-        all_tables.append(compacted_table)
-
-    all_tables.append(table)
-
     if not primary_keys or not can_drop_duplicates:
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "
             f"and can_drop_duplicates={can_drop_duplicates}"
         )
-        all_tables[incremental_idx] = _drop_delta_type_rows(
-            all_tables[incremental_idx], DeltaType.DELETE
-        )
-        # we need not drop duplicates
-        return pa.concat_tables(all_tables)
+        table = _drop_delta_type_rows(table, DeltaType.DELETE)
 
-    all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
+        result_copy = []
+        if compacted_table_pk_list:
+            # Add a number to every integer in the list
+            for index in range(len(compacted_table_pk_list)):
+                result_copy.append(index + entry_index_offset)
+        # we need not drop duplicates
+        return table, result_copy
+
+    table = generate_pk_hash_column([table], primary_keys=primary_keys)[0]
+    compacted_table_pk_list = generate_pk_hash_column(
+        compacted_table_pk_list, primary_keys=primary_keys
+    )
 
     result_table_list = []
 
-    incremental_table = drop_duplicates(
-        all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
-    )
+    incremental_table = drop_duplicates(table, on=sc._PK_HASH_STRING_COLUMN_NAME)
 
-    if compacted_table:
-        compacted_table = all_tables[0]
+    entry_index_to_copy_by_ref = []
+
+    if compacted_table_pk_list:
+        compacted_table_pk = pa.concat_tables(compacted_table_pk_list)
 
         records_to_keep = pc.invert(
             pc.is_in(
-                compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
+                compacted_table_pk[sc._PK_HASH_STRING_COLUMN_NAME],
                 incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
             )
         )
 
-        result_table_list.append(compacted_table.filter(records_to_keep))
+        current_offset = 0
+        for index, compacted_table_pk in enumerate(compacted_table_pk_list):
+            records_to_keep_in_entry = records_to_keep.slice(
+                current_offset, len(compacted_table_pk)
+            )
+            records_to_keep_count = pc.sum(records_to_keep_in_entry).as_py()
+            entry_index = index + entry_index_offset
+            if records_to_keep_count == len(compacted_table_pk):
+                logger.info(
+                    f"No need to rewrite entry offset: {entry_index} for {input.merge_task_index}"
+                )
+                entry_index_to_copy_by_ref.append(entry_index)
+            else:
+                logger.info(
+                    f"Redownloading the entry: {index} for {input.merge_task_index} as \
+                            {len(compacted_table_pk)-records_to_keep_count} records were dropped"
+                )
+
+                downloaded_entry = input.deltacat_storage.download_delta_manifest_entry(
+                    input.round_completion_info.compacted_delta_locator,
+                    entry_index=entry_index,
+                    file_reader_kwargs_provider=input.read_kwargs_provider,
+                    **input.deltacat_storage_kwargs,
+                )
+                result_table_list.append(
+                    downloaded_entry.filter(records_to_keep_in_entry)
+                )
+
+            current_offset += len(compacted_table_pk)
 
     incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
+    incremental_table = incremental_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
     result_table_list.append(incremental_table)
 
     final_table = pa.concat_tables(result_table_list)
-    final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
 
-    return final_table
+    return final_table, entry_index_to_copy_by_ref
 
 
-def _download_compacted_table(
+def _download_compacted_table_pk(
     hb_index: int,
     rcf: RoundCompletionInfo,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
-) -> pa.Table:
+    primary_keys: Optional[List[str]] = None,
+) -> Tuple[List[pa.Table], int]:
     tables = []
     hb_index_to_indices = rcf.hb_index_to_entry_range
 
@@ -189,16 +223,21 @@ def _download_compacted_table(
             rcf.compacted_delta_locator,
             entry_index=(indices[0] + offset),
             file_reader_kwargs_provider=read_kwargs_provider,
+            columns=primary_keys,
             **deltacat_storage_kwargs,
         )
 
+        assert len(table.column_names) == len(
+            primary_keys
+        ), "Just pk must be downloaded"
         tables.append(table)
 
-    return pa.concat_tables(tables)
+    return tables, indices[0]
 
 
 def _copy_all_manifest_files_from_old_hash_buckets(
     hb_index_copy_by_reference: List[int],
+    entries_to_copy_by_ref: Dict[int, List[int]],
     round_completion_info: RoundCompletionInfo,
     write_to_partition: Partition,
     deltacat_storage=unimplemented_deltacat_storage,
@@ -218,13 +257,21 @@ def _copy_all_manifest_files_from_old_hash_buckets(
         logger.info("Nothing to copy by reference. Skipping...")
         return []
 
-    for hb_index in hb_index_copy_by_reference:
+    all_hbs = [*entries_to_copy_by_ref.keys(), *hb_index_copy_by_reference]
+
+    for hb_index in all_hbs:
         if str(hb_index) not in hb_index_to_indices:
             continue
-
         indices = hb_index_to_indices[str(hb_index)]
-        for offset in range(indices[1] - indices[0]):
-            entry_index = indices[0] + offset
+        entries_to_copy = []
+
+        if hb_index not in entries_to_copy_by_ref:
+            entries_to_copy = entries_to_copy_by_ref[hb_index]
+        else:
+            for offset in range(indices[1] - indices[0]):
+                entries_to_copy.append(indices[0] + offset)
+
+        for entry_index in entries_to_copy:
             assert entry_index < len(
                 manifest.entries
             ), f"entry index: {entry_index} >= {len(manifest.entries)}"
@@ -363,8 +410,9 @@ def _compact_tables(
     input: MergeInput,
     dfe_list: Optional[List[List[DeltaFileEnvelope]]],
     hb_idx: int,
-    compacted_table: Optional[pa.Table] = None,
-) -> Tuple[pa.Table, int, int, int]:
+    compacted_table_pk_list: Optional[List[pa.Table]] = None,
+    entry_index_offset: Optional[int] = None,
+) -> Tuple[pa.Table, List[int], int, int, int]:
     """
     Compacts a list of DeltaFileEnvelope objects into a single PyArrow table.
 
@@ -389,41 +437,40 @@ def _compact_tables(
         dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE)
         for dfe in reordered_all_dfes
     ), "All reordered delta file envelopes must be of the UPSERT or DELETE"
-    table = compacted_table
+    table = None
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
     aggregated_dropped_records = 0
+    entries_to_copy = []
     for i, (delta_type, delta_type_sequence) in enumerate(
         _group_sequence_by_delta_type(reordered_all_dfes)
     ):
         if delta_type is DeltaType.UPSERT:
             (
                 table,
+                entry_index_copy_by_ref,
                 incremental_len,
                 deduped_records,
                 merge_time,
-            ) = _apply_upserts(input, delta_type_sequence, hb_idx, table)
+            ) = _apply_upserts(
+                input,
+                delta_type_sequence,
+                hb_idx,
+                compacted_table_pk_list,
+                entry_index_offset,
+            )
             logger.info(
                 f" [Merge task index {input.merge_task_index}] Merged"
                 f" record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
             )
+            entries_to_copy.extend(entry_index_copy_by_ref)
             aggregated_incremental_len += incremental_len
             aggregated_deduped_records += deduped_records
         elif delta_type is DeltaType.DELETE:
-            table_size_before_delete = len(table) if table else 0
-            (table, dropped_rows), delete_time = timed_invocation(
-                func=input.delete_strategy.apply_many_deletes,
-                table=table,
-                delete_file_envelopes=delta_type_sequence,
-            )
-            logger.info(
-                f" [Merge task index {input.merge_task_index}]"
-                + f" Dropped record count: {dropped_rows} from table"
-                + f" of record count {table_size_before_delete} took: {delete_time}s"
-            )
-            aggregated_dropped_records += dropped_rows
+            raise NotImplementedError("DELETE is not yet implemented")
     return (
         table,
+        entries_to_copy,
         aggregated_incremental_len,
         aggregated_deduped_records,
         aggregated_dropped_records,
@@ -434,8 +481,9 @@ def _apply_upserts(
     input: MergeInput,
     dfe_list: List[DeltaFileEnvelope],
     hb_idx,
-    prev_table=None,
-) -> Tuple[pa.Table, int, int, int]:
+    prev_table_pk_list=None,
+    entry_index_offset=None,
+) -> Tuple[pa.Table, List[int], int, int, int]:
     assert all(
         dfe.delta_type is DeltaType.UPSERT for dfe in dfe_list
     ), "All incoming delta file envelopes must of the DeltaType.UPSERT"
@@ -454,20 +502,29 @@ def _apply_upserts(
         # compaction results. E.g., compaction(delta1, delta2, delta3)
         # will not be equal to compaction(compaction(delta1, delta2), delta3).
         table = table.sort_by(input.sort_keys)
-    hb_table_record_count = len(table) + (len(prev_table) if prev_table else 0)
-    table, merge_time = timed_invocation(
+    hb_table_record_count = len(table) + sum(
+        (
+            (len(prev_table_pk) if prev_table_pk else 0)
+            for prev_table_pk in prev_table_pk_list
+        )
+    )
+    (table, entry_index_copy_by_ref), merge_time = timed_invocation(
         func=_merge_tables,
+        input=input,
         table=table,
         primary_keys=input.primary_keys,
         can_drop_duplicates=input.drop_duplicates,
-        compacted_table=prev_table,
+        compacted_table_pk_list=prev_table_pk_list,
+        entry_index_offset=entry_index_offset,
     )
     deduped_records = hb_table_record_count - len(table)
-    return table, incremental_len, deduped_records, merge_time
+    return table, entry_index_copy_by_ref, incremental_len, deduped_records, merge_time
 
 
 def _copy_manifests_from_hash_bucketing(
-    input: MergeInput, hb_index_copy_by_reference_ids: List[int]
+    input: MergeInput,
+    hb_index_copy_by_reference_ids: List[int],
+    entries_to_copy_by_ref: Dict[int, List[int]],
 ) -> List[MaterializeResult]:
     materialized_results: List[MaterializeResult] = []
 
@@ -475,6 +532,7 @@ def _copy_manifests_from_hash_bucketing(
         referenced_materialized_results = (
             _copy_all_manifest_files_from_old_hash_buckets(
                 hb_index_copy_by_reference_ids,
+                entries_to_copy_by_ref,
                 input.round_completion_info,
                 input.write_to_partition,
                 input.deltacat_storage,
@@ -503,9 +561,10 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         materialized_results: List[MaterializeResult] = []
         merge_file_groups = input.merge_file_groups_provider.create()
         hb_index_copy_by_ref_ids = []
+        entries_to_copy_by_ref = defaultdict(list)
 
         for merge_file_group in merge_file_groups:
-            compacted_table = None
+            compacted_table_pk_list = []
             has_delete = input.delete_file_envelopes is not None
             if has_delete:
                 assert (
@@ -517,26 +576,42 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
 
+            entry_index_offset = None
             if _has_previous_compacted_table(input, merge_file_group.hb_index):
-                compacted_table = _download_compacted_table(
+                (
+                    compacted_table_pk_list,
+                    entry_index_offset,
+                ) = _download_compacted_table_pk(
                     hb_index=merge_file_group.hb_index,
                     rcf=input.round_completion_info,
                     read_kwargs_provider=input.read_kwargs_provider,
                     deltacat_storage=input.deltacat_storage,
                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+                    primary_keys=input.primary_keys,
                 )
-            if not merge_file_group.dfe_groups and compacted_table is None:
+            if not merge_file_group.dfe_groups and not compacted_table_pk_list:
                 logger.warning(
                     f" [Hash bucket index {merge_file_group.hb_index}]"
                     + f" No new deltas and no compacted table found. Skipping compaction for {merge_file_group.hb_index}"
                 )
                 continue
-            table, input_records, deduped_records, dropped_records = _compact_tables(
+            (
+                table,
+                entries_to_copy,
+                input_records,
+                deduped_records,
+                dropped_records,
+            ) = _compact_tables(
                 input,
                 merge_file_group.dfe_groups,
                 merge_file_group.hb_index,
-                compacted_table,
+                compacted_table_pk_list,
+                entry_index_offset,
             )
+            if entries_to_copy:
+                entries_to_copy_by_ref[merge_file_group.hb_index].extend(
+                    entries_to_copy
+                )
             total_input_records += input_records
             total_deduped_records += deduped_records
             total_dropped_records += dropped_records
@@ -544,9 +619,11 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 merge_utils.materialize(input, merge_file_group.hb_index, [table])
             )
 
-        if hb_index_copy_by_ref_ids:
+        if hb_index_copy_by_ref_ids or entries_to_copy_by_ref:
             materialized_results.extend(
-                _copy_manifests_from_hash_bucketing(input, hb_index_copy_by_ref_ids)
+                _copy_manifests_from_hash_bucketing(
+                    input, hb_index_copy_by_ref_ids, entries_to_copy_by_ref
+                )
             )
 
         logger.info(

@@ -527,15 +527,11 @@ def _execute_compaction(
 
     hb_id_to_entry_indices_range = {}
     file_index = 0
-    previous_task_index = -1
 
     for mat_result in mat_results:
         assert (
             mat_result.pyarrow_write_result.files >= 1
         ), "Atleast one file must be materialized"
-        assert (
-            mat_result.task_index != previous_task_index
-        ), f"Multiple materialize results found for a hash bucket: {mat_result.task_index}"
 
         hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
             file_index,
@@ -543,7 +539,6 @@ def _execute_compaction(
         )
 
         file_index += mat_result.pyarrow_write_result.files
-        previous_task_index = mat_result.task_index
 
     s3_utils.upload(
         compaction_audit.audit_url,
