@@ -47,7 +47,7 @@ setuptools.setup(
         "typing-extensions == 4.4.0",
         "pymemcache == 4.0.0",
         "redis == 4.6.0",
-        "getdaft == 0.2.29",
+        "getdaft == 0.2.31",
         "schedule == 1.2.0",
     ],
     setup_requires=["wheel"],
