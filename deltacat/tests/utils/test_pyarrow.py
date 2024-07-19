@@ -85,6 +85,43 @@ class TestS3PartialParquetFileToTable(TestCase):
         self.assertEqual(result_schema.field(2).type, "int64")
         self.assertEqual(result_schema.field(2).name, "MISSING")
 
+    def test_s3_partial_parquet_file_to_table_when_schema_missing_columns(self):
+
+        pq_file = ParquetFile(PARQUET_FILE_PATH)
+        partial_parquet_params = PartialParquetParameters.of(
+            pq_metadata=pq_file.metadata
+        )
+        # only first row group to be downloaded
+        partial_parquet_params.row_groups_to_download.pop()
+
+        schema = pa.schema(
+            [
+                pa.field("n_legs", pa.string()),
+                pa.field("animal", pa.string()),
+                # NOTE: This field is not in the parquet file, but will be added on as an all-null column
+                pa.field("MISSING", pa.int64()),
+            ]
+        )
+
+        pa_kwargs_provider = lambda content_type, kwargs: {"schema": schema}
+
+        result = s3_partial_parquet_file_to_table(
+            PARQUET_FILE_PATH,
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            pa_read_func_kwargs_provider=pa_kwargs_provider,
+            partial_file_download_params=partial_parquet_params,
+            column_names=["n_legs", "animal", "MISSING"],
+            include_columns=["MISSING"],
+        )
+
+        self.assertEqual(len(result), 0)
+        self.assertEqual(len(result.column_names), 1)
+
+        result_schema = result.schema
+        self.assertEqual(result_schema.field(0).type, "int64")
+        self.assertEqual(result_schema.field(0).name, "MISSING")
+
     def test_s3_partial_parquet_file_to_table_when_schema_passed_with_include_columns(
         self,
     ):
@@ -224,6 +261,32 @@ class TestReadCSV(TestCase):
         )
         kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
         _add_column_kwargs(ContentType.UNESCAPED_TSV.value, ["is_active"], None, kwargs)
+
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        self.assertRaises(
+            pa.lib.ArrowInvalid,
+            lambda: pyarrow_read_csv(NON_EMPTY_VALID_UTSV_PATH, **kwargs),
+        )
+
+    def test_read_csv_when_excess_columns_included(self):
+
+        schema = pa.schema(
+            [
+                ("is_active", pa.string()),
+                ("ship_datetime_utc", pa.timestamp("us")),
+                ("MISSING", pa.string()),
+            ]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "ship_datetime_utc", "MISSING"],
+            ["is_active", "ship_datetime_utc", "MISSING"],
+            kwargs,
+        )
 
         read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
 
