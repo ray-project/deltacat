@@ -41,7 +41,10 @@ from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
-from deltacat.constants import BYTES_PER_GIBIBYTE
+from deltacat.constants import (
+    BYTES_PER_GIBIBYTE,
+    DW_LAST_UPDATED_COLUMN_NAME,
+)
 from deltacat.compute.compactor_v2.constants import (
     MERGE_TIME_IN_SECONDS,
     MERGE_SUCCESS_COUNT,
@@ -125,7 +128,34 @@ def _merge_tables(
 
     all_tables.append(table)
 
-    if not primary_keys or not can_drop_duplicates:
+    should_drop_duplicates = bool(primary_keys) and can_drop_duplicates
+    if should_drop_duplicates:
+        all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
+
+        result_table_list = []
+
+        incremental_table = drop_duplicates(
+            all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
+        )
+
+        if compacted_table:
+            compacted_table = all_tables[0]
+
+            records_to_keep = pc.invert(
+                pc.is_in(
+                    compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
+                    incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
+                )
+            )
+
+            result_table_list.append(compacted_table.filter(records_to_keep))
+
+        incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
+        result_table_list.append(incremental_table)
+
+        final_table = pa.concat_tables(result_table_list)
+        final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
+    else:
         logger.info(
             f"Not dropping duplicates for primary keys={primary_keys} "
             f"and can_drop_duplicates={can_drop_duplicates}"
@@ -133,35 +163,11 @@ def _merge_tables(
         all_tables[incremental_idx] = _drop_delta_type_rows(
             all_tables[incremental_idx], DeltaType.DELETE
         )
-        # we need not drop duplicates
-        return pa.concat_tables(all_tables)
+        final_table = pa.concat_tables(all_tables)
 
-    all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
-
-    result_table_list = []
-
-    incremental_table = drop_duplicates(
-        all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
-    )
-
-    if compacted_table:
-        compacted_table = all_tables[0]
-
-        records_to_keep = pc.invert(
-            pc.is_in(
-                compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
-                incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
-            )
-        )
-
-        result_table_list.append(compacted_table.filter(records_to_keep))
-
-    incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
-    result_table_list.append(incremental_table)
-
-    final_table = pa.concat_tables(result_table_list)
-    final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
-
+    # TODO: Retrieve sort order policy from the table version metadata instead of hard-coding.
+    if DW_LAST_UPDATED_COLUMN_NAME in final_table.column_names:
+        final_table = final_table.sort_by([(DW_LAST_UPDATED_COLUMN_NAME, "descending")])
     return final_table
 
 
