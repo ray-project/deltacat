@@ -8,4 +8,5 @@ pre-commit == 2.20.0
 pytest == 7.2.0
 pytest-cov == 4.0.0
 pytest-mock == 3.14.0
+ray[default] >= 2.20.0
 requests-mock == 1.11.0
