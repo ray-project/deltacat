@@ -596,7 +596,6 @@ def _copy_manifests_from_hash_bucketing(
 
     return materialized_results
 
-
 @success_metric(name=MERGE_SUCCESS_COUNT)
 @failure_metric(name=MERGE_FAILURE_COUNT)
 @categorize_errors
@@ -609,50 +608,48 @@ def _timed_merge(input: MergeInput) -> MergeResult:
         total_input_records, total_deduped_records = 0, 0
         total_dropped_records = 0
         materialized_results: List[MaterializeResult] = []
-        merge_file_groups = input.merge_file_groups_provider.create()
+        # merge_file_groups = input.merge_file_groups_provider.create()
         hb_index_copy_by_ref_ids = []
 
-        for merge_file_group in merge_file_groups:
-            compacted_table = None
-            has_delete = input.delete_file_envelopes is not None
-            if has_delete:
-                assert (
-                    input.delete_strategy is not None
-                ), "Merge input missing delete_strategy"
-            if _can_copy_by_reference(
-                has_delete=has_delete, merge_file_group=merge_file_group, input=input
-            ):
-                hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
-                continue
+        # for merge_file_group in merge_file_groups:
+        compacted_table = None
+        has_delete = input.delete_file_envelopes is not None
 
-            if _has_previous_compacted_table(input, merge_file_group.hb_index):
-                compacted_table = _download_compacted_table(
-                    hb_index=merge_file_group.hb_index,
-                    rcf=input.round_completion_info,
-                    read_kwargs_provider=input.read_kwargs_provider,
-                    columns=input.primary_keys,
-                    deltacat_storage=input.deltacat_storage,
-                    deltacat_storage_kwargs=input.deltacat_storage_kwargs,
-                )
-            if not merge_file_group.dfe_groups and compacted_table is None:
-                logger.warning(
-                    f" [Hash bucket index {merge_file_group.hb_index}]"
-                    + f" No new deltas and no compacted table found. Skipping compaction for {merge_file_group.hb_index}"
-                )
-                continue
-            table, input_records, deduped_records, dropped_records = _compact_tables(
-                input,
-                merge_file_group.dfe_groups,
-                merge_file_group.hb_index,
-                compacted_table,
+        compacted_table = _download_compacted_table(
+            hb_index=input.merge_task_index,
+            rcf=input.round_completion_info,
+            read_kwargs_provider=input.read_kwargs_provider,
+            columns=input.primary_keys,
+            deltacat_storage=input.deltacat_storage,
+            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+        )
+        incremental_table = _download_compacted_table(
+            hb_index=input.merge_task_index,
+            rcf=input.incremental_round_completion_info,
+            read_kwargs_provider=input.read_kwargs_provider,
+            columns=input.primary_keys,
+            deltacat_storage=input.deltacat_storage,
+            deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+        )
+        # table, input_records, deduped_records, dropped_records = _compact_tables(
+        #     input,
+        #     merge_file_group.dfe_groups,
+        #     merge_file_group.hb_index,
+        #     compacted_table,
+        # )
+        table = _merge_tables(
+                table=incremental_table,
+                primary_keys=input.primary_keys,
+                can_drop_duplicates=True,
+                compacted_table=compacted_table,
             )
-            total_input_records += input_records
-            total_deduped_records += deduped_records
-            total_dropped_records += dropped_records
-            if table:
-                materialized_results.append(
-                    merge_utils.materialize(input, merge_file_group.hb_index, [table])
-                )
+        # total_input_records += input_records
+        # total_deduped_records += deduped_records
+        # total_dropped_records += dropped_records
+        if table:
+            materialized_results.append(
+                merge_utils.materialize(input, input.merge_task_index, [table])
+            )
 
         # if hb_index_copy_by_ref_ids:
         #     materialized_results.extend(
@@ -678,6 +675,88 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             np.double(0.0),
             np.double(time.time()),
         )
+
+# @success_metric(name=MERGE_SUCCESS_COUNT)
+# @failure_metric(name=MERGE_FAILURE_COUNT)
+# @categorize_errors
+# def _timed_merge(input: MergeInput) -> MergeResult:
+#     task_id = get_current_ray_task_id()
+#     worker_id = get_current_ray_worker_id()
+#     with memray.Tracker(
+#         f"merge_{worker_id}_{task_id}.bin"
+#     ) if input.enable_profiler else nullcontext():
+#         total_input_records, total_deduped_records = 0, 0
+#         total_dropped_records = 0
+#         materialized_results: List[MaterializeResult] = []
+#         merge_file_groups = input.merge_file_groups_provider.create()
+#         hb_index_copy_by_ref_ids = []
+#
+#         for merge_file_group in merge_file_groups:
+#             compacted_table = None
+#             has_delete = input.delete_file_envelopes is not None
+#             if has_delete:
+#                 assert (
+#                     input.delete_strategy is not None
+#                 ), "Merge input missing delete_strategy"
+#             if _can_copy_by_reference(
+#                 has_delete=has_delete, merge_file_group=merge_file_group, input=input
+#             ):
+#                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
+#                 continue
+#
+#             if _has_previous_compacted_table(input, merge_file_group.hb_index):
+#                 compacted_table = _download_compacted_table(
+#                     hb_index=merge_file_group.hb_index,
+#                     rcf=input.round_completion_info,
+#                     read_kwargs_provider=input.read_kwargs_provider,
+#                     columns=input.primary_keys,
+#                     deltacat_storage=input.deltacat_storage,
+#                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,
+#                 )
+#             if not merge_file_group.dfe_groups and compacted_table is None:
+#                 logger.warning(
+#                     f" [Hash bucket index {merge_file_group.hb_index}]"
+#                     + f" No new deltas and no compacted table found. Skipping compaction for {merge_file_group.hb_index}"
+#                 )
+#                 continue
+#             table, input_records, deduped_records, dropped_records = _compact_tables(
+#                 input,
+#                 merge_file_group.dfe_groups,
+#                 merge_file_group.hb_index,
+#                 compacted_table,
+#             )
+#             total_input_records += input_records
+#             total_deduped_records += deduped_records
+#             total_dropped_records += dropped_records
+#             if table:
+#                 materialized_results.append(
+#                     merge_utils.materialize(input, merge_file_group.hb_index, [table])
+#                 )
+#
+#         # if hb_index_copy_by_ref_ids:
+#         #     materialized_results.extend(
+#         #         _copy_manifests_from_hash_bucketing(input, hb_index_copy_by_ref_ids)
+#         #     )
+#
+#         logger.info(
+#             f"[Hash group index: {input.merge_file_groups_provider.hash_group_index}]"
+#             f" Total number of materialized results produced: {len(materialized_results)} "
+#         )
+#
+#         peak_memory_usage_bytes = get_current_process_peak_memory_usage_in_bytes()
+#         logger.info(
+#             f"Peak memory usage in bytes after merge: {peak_memory_usage_bytes}"
+#         )
+#
+#         return MergeResult(
+#             materialized_results,
+#             np.int64(total_input_records),
+#             np.int64(total_deduped_records),
+#             np.int64(total_dropped_records),
+#             np.double(peak_memory_usage_bytes),
+#             np.double(0.0),
+#             np.double(time.time()),
+#         )
 
 
 @ray.remote

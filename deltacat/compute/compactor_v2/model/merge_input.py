@@ -41,6 +41,7 @@ class MergeInput(Dict):
         s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         round_completion_info: Optional[RoundCompletionInfo] = None,
+        incremental_round_completion_info: Optional[RoundCompletionInfo] = None,
         object_store: Optional[IObjectStore] = None,
         delete_strategy: Optional[DeleteStrategy] = None,
         delete_file_envelopes: Optional[List] = None,
@@ -64,6 +65,7 @@ class MergeInput(Dict):
         result["s3_table_writer_kwargs"] = s3_table_writer_kwargs or {}
         result["read_kwargs_provider"] = read_kwargs_provider
         result["round_completion_info"] = round_completion_info
+        result["incremental_round_completion_info"] = incremental_round_completion_info
         result["object_store"] = object_store
         result["delete_file_envelopes"] = delete_file_envelopes
         result["delete_strategy"] = delete_strategy
@@ -124,6 +126,10 @@ class MergeInput(Dict):
     @property
     def round_completion_info(self) -> Optional[RoundCompletionInfo]:
         return self.get("round_completion_info")
+
+    @property
+    def incremental_round_completion_info(self) -> Optional[RoundCompletionInfo]:
+        return self.get("incremental_round_completion_info")
 
     @property
     def object_store(self) -> Optional[IObjectStore]:
