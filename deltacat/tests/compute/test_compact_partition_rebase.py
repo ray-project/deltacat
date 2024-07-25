@@ -13,9 +13,16 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
+from deltacat.tests.compute.test_util_common import (
+    get_rcf,
+)
+from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
+)
+from deltacat.compute.compactor.model.compaction_session_audit_info import (
+    CompactionSessionAuditInfo,
 )
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     create_src_w_deltas_destination_rebase_w_deltas_strategy,
@@ -32,6 +39,9 @@ from deltacat.storage import (
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
+)
+from deltacat.compute.compactor import (
+    RoundCompletionInfo,
 )
 from deltacat.utils.placement import (
     PlacementGroupManager,
@@ -121,8 +131,10 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "read_kwargs_provider_param",
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
+        "assert_compaction_audit",
         "rebase_expected_compact_partition_result",
         "compact_partition_func",
+        "compactor_version",
     ],
     [
         (
@@ -142,8 +154,10 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
             rebase_expected_compact_partition_result,
             compact_partition_func,
+            compactor_version,
         )
         for test_name, (
             primary_keys,
@@ -161,8 +175,10 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
             rebase_expected_compact_partition_result,
             compact_partition_func,
+            compactor_version,
         ) in REBASE_TEST_CASES.items()
     ],
     ids=[test_name for test_name in REBASE_TEST_CASES],
@@ -188,6 +204,8 @@ def test_compact_partition_rebase_same_source_and_destination(
     read_kwargs_provider_param: Any,
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers: List[CompactorVersion],
+    assert_compaction_audit: Optional[Callable],
+    compactor_version: Optional[CompactorVersion],
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
@@ -263,6 +281,18 @@ def test_compact_partition_rebase_same_source_and_destination(
     # execute
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
 
+    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
+    audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
+        round_completion_info.compaction_audit_url
+    )
+
+    compaction_audit_obj: Dict[str, Any] = read_s3_contents(
+        s3_resource, audit_bucket, audit_key
+    )
+    compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
+        **compaction_audit_obj
+    )
+
     # Assert not in-place compacted
     assert (
         execute_compaction_result_spy.call_args.args[-1] is False
@@ -287,3 +317,7 @@ def test_compact_partition_rebase_same_source_and_destination(
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
+
+    if assert_compaction_audit is not None:
+        if not assert_compaction_audit(compactor_version, compaction_audit):
+            assert False, "Compaction audit assertion failed"

@@ -4,6 +4,8 @@ from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
     PartitionKey,
     PartitionKeyType,
+    assert_compaction_audit,
+    assert_compaction_audit_no_hash_bucket,
 )
 from deltacat.tests.compute.test_util_constant import (
     DEFAULT_MAX_RECORDS_PER_FILE,
@@ -115,6 +117,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "2-rebase-then-incremental-pk-multi": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1", "pk_col_2"},
@@ -195,6 +198,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "3-rebase-then-incremental-no-sk-no-partition-key": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -244,6 +248,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "4-rebase-then-incremental-partial-deltas-on-incremental-deltas": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -293,6 +298,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "5-rebase-then-incremental-partial-deltas-on-incremental-deltas-2": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -348,6 +354,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "6-rebase-then-incremental-hash-bucket-GT-records-per-compacted-file-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -408,6 +415,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "7-rebase-then-incremental-no-pk-compactor-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys=ZERO_VALUED_PRIMARY_KEY,
@@ -459,6 +467,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "8-rebase-then-incremental-empty-csv-delta-case": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -515,6 +524,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=None,
     ),
     "9-rebase-then-incremental-single-hash-bucket": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -575,6 +585,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=None,
     ),
     "10-rebase-then-incremental-drop-duplicates-false-on-incremental-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -630,6 +641,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=False,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "11-rebase-then-empty-incremental-delta": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -676,6 +688,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
     ),
     "12-rebase-then-incremental-hash-bucket-single": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -736,6 +749,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=None,
     ),
     "13-rebase-then-empty-incremental-delta-hash-bucket-single": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -782,6 +796,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=None,
     ),
 }
 
@@ -882,6 +897,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "15-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1", "pk_col_2"},
@@ -933,6 +949,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
     ),
     "16-rebase-then-incremental-delete-type-delta-on-incremental-multi-pk-delete-all": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1", "pk_col_2"},
@@ -990,6 +1007,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
     ),
     "17-rebase-then-incremental-delete-type-delta-delete-entire-base-table": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1043,6 +1061,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
     ),
     "18-rebase-then-incremental-delete-type-delta-keep-base-table-drop-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1124,6 +1143,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "19-rebase-then-incremental-delete-type-delta-drop-only-from-base-table-keep-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1194,6 +1214,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "20-rebase-then-incremental-delete-type-delta-drop-all-base-table-drop-all-incremental": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1258,6 +1279,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "21-rebase-then-incremental-delete-type-delta-UDDUUDD": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1349,6 +1371,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "22-rebase-then-incremental-delete-type-delta-UD-affects-compacted-and-incremental": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1413,6 +1436,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "23-rebase-then-incremental-delete-type-delta-UDU-upsert-again": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1483,6 +1507,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "24-rebase-then-incremental-delete-type-no-delete-column-has-delete-deltas-expected-exception": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1547,6 +1572,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "25-rebase-then-incremental-delete-type-delta-has-delete-column-no-delete-records": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1612,6 +1638,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "26-rebase-then-incremental-delete-type-delta-UDU-duplicate-delete-records": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1671,6 +1698,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "27-rebase-then-incremental-delete-type-delta-DDU-deletes-then-upserts": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1740,6 +1768,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "28-rebase-then-incremental-delete-type-delta-hash-bucket-single": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1830,6 +1859,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=None,
     ),
     "29-rebase-then-incremental-delete-type-delta-no-pk-compactor": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys=ZERO_VALUED_PRIMARY_KEY,
@@ -1901,6 +1931,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "30-rebase-then-incremental-delete-type-delta-on-incremental-compactor-v1-v2": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -1950,6 +1981,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
     ),
 }
 

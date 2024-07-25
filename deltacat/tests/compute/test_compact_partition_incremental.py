@@ -13,6 +13,7 @@ from deltacat.types.media import StorageType
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
 )
+from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     create_src_w_deltas_destination_plus_destination,
@@ -136,9 +137,11 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "read_kwargs_provider_param",
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
+        "assert_compaction_audit",
         "is_inplace",
         "add_late_deltas",
         "compact_partition_func",
+        "compactor_version",
     ],
     [
         (
@@ -158,9 +161,11 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
             is_inplace,
             add_late_deltas,
             compact_partition_func,
+            compactor_version,
         )
         for test_name, (
             primary_keys,
@@ -178,9 +183,11 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
             is_inplace,
             add_late_deltas,
             compact_partition_func,
+            compactor_version,
         ) in INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
@@ -204,6 +211,8 @@ def test_compact_partition_incremental(
     drop_duplicates_param: bool,
     read_kwargs_provider_param: Any,
     skip_enabled_compact_partition_drivers,
+    assert_compaction_audit: Optional[Callable],
+    compactor_version: Optional[CompactorVersion],
     is_inplace: bool,
     add_late_deltas: Optional[List[Tuple[pa.Table, DeltaType]]],
     compact_partition_func: Callable,
@@ -338,6 +347,10 @@ def test_compact_partition_incremental(
     assert compaction_audit.input_records == len(
         input_deltas
     ), "The input_records must be equal to total records in the input"
+
+    if assert_compaction_audit is not None:
+        if not assert_compaction_audit(compactor_version, compaction_audit):
+            assert False, "Compaction audit assertion failed"
 
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result

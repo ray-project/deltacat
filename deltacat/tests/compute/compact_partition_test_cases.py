@@ -4,6 +4,8 @@ from deltacat.tests.compute.test_util_common import (
     offer_iso8601_timestamp_list,
     PartitionKey,
     PartitionKeyType,
+    assert_compaction_audit,
+    assert_compaction_audit_no_hash_bucket,
 )
 from deltacat.tests.compute.test_util_constant import (
     DEFAULT_MAX_RECORDS_PER_FILE,
@@ -64,6 +66,7 @@ class BaseCompactorTestCase:
         read_kwargs_provider: Optional[ReadKwargsProvider] - argument for read_kwargs_provider parameter in compact_partition. If None then no ReadKwargsProvider is provided to compact_partition_params
         drop_duplicates: bool - argument for drop_duplicates parameter in compact_partition. Only recognized by compactor v2.
         skip_enabled_compact_partition_drivers: List[CompactorVersion] - skip whatever enabled_compact_partition_drivers are included in this list
+        assert_compaction_audit: Optional[Callable] - argument that asserts compaction_audit is updated only if compactor_version is v2.
     """
 
     primary_keys: Set[str]
@@ -81,6 +84,7 @@ class BaseCompactorTestCase:
     read_kwargs_provider: Optional[ReadKwargsProvider]
     drop_duplicates: bool
     skip_enabled_compact_partition_drivers: List[CompactorVersion]
+    assert_compaction_audit: Optional[Callable]
 
     # makes CompactorTestCase iterable which is required to build the list of pytest.param values to pass to pytest.mark.parametrize
     def __iter__(self):
@@ -127,8 +131,8 @@ def with_compactor_version_func_test_param(
             enriched_test_cases[f"{tc_name}_{compactor_version}"] = [
                 *tc_params,
                 compact_partition_func,
+                compactor_version,
             ]
-
     return enriched_test_cases
 
 
@@ -157,6 +161,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -185,6 +190,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -222,6 +228,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "4-incremental-duplicate-pk": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -258,6 +265,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -289,6 +297,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -320,6 +329,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -351,6 +361,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1", "pk_col_2"},
@@ -384,6 +395,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -415,6 +427,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -446,6 +459,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "11-incremental-decimal-hash-bucket-single": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -477,6 +491,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
     "12-incremental-decimal-single-hash-bucket": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -508,6 +523,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=None,
         skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
     ),
     "13-incremental-pkstr-skexists-isinplacecompacted": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -551,6 +567,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
             )
         ],
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=None,
     ),
     "14-incremental-pkstr-skexists-unhappy-hash-bucket-count-not-present": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
@@ -582,6 +599,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         is_inplace=False,
         add_late_deltas=False,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=None,
     ),
 }
 

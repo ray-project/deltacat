@@ -82,6 +82,7 @@ REBASE_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=None,
     ),
 }
 

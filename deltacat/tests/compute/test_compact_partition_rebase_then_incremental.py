@@ -136,9 +136,11 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "read_kwargs_provider_param",
         "drop_duplicates_param",
         "skip_enabled_compact_partition_drivers",
+        "assert_compaction_audit",
         "incremental_deltas",
         "rebase_expected_compact_partition_result",
         "compact_partition_func",
+        "compactor_version",
     ],
     [
         (
@@ -158,9 +160,11 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
             incremental_deltas,
             rebase_expected_compact_partition_result,
             compact_partition_func,
+            compactor_version,
         )
         for test_name, (
             primary_keys,
@@ -178,9 +182,11 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             drop_duplicates_param,
             read_kwargs_provider,
             skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
             incremental_deltas,
             rebase_expected_compact_partition_result,
             compact_partition_func,
+            compactor_version,
         ) in REBASE_THEN_INCREMENTAL_TEST_CASES.items()
     ],
     ids=[test_name for test_name in REBASE_THEN_INCREMENTAL_TEST_CASES],
@@ -206,6 +212,8 @@ def test_compact_partition_rebase_then_incremental(
     incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
     rebase_expected_compact_partition_result: pa.Table,
     skip_enabled_compact_partition_drivers: List[CompactorVersion],
+    assert_compaction_audit: Optional[Callable],
+    compactor_version: Optional[CompactorVersion],
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
@@ -381,4 +389,8 @@ def test_compact_partition_rebase_then_incremental(
     assert actual_compacted_table.equals(
         expected_terminal_compact_partition_result
     ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
+
+    if assert_compaction_audit is not None:
+        if not assert_compaction_audit(compactor_version, compaction_audit):
+            assert False, "Compaction audit assertion failed"
     return

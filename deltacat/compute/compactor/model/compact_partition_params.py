@@ -185,6 +185,11 @@ class CompactPartitionParams(dict):
 
     @property
     def task_max_parallelism(self) -> int:
+        if self.pg_config:
+            cluster_resources = self.pg_config.resource
+            cluster_cpus = cluster_resources["CPU"]
+            self.task_max_parallelism = cluster_cpus
+            self["task_max_parallelism"] = self.task_max_parallelism
         return self["task_max_parallelism"]
 
     @task_max_parallelism.setter
