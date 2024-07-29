@@ -61,7 +61,6 @@ def discover_deltas(
     )
 
     result.extend(delta_source_incremental_deltas)
-
     logger.info(
         f"Length of input deltas from delta source table is {len(delta_source_incremental_deltas)}"
         f" from ({previous_compacted_high_watermark}, {last_stream_position_to_compact}]"
@@ -132,7 +131,6 @@ def create_uniform_input_deltas(
     size_estimation_function = functools.partial(
         estimate_manifest_entry_size_bytes, previous_inflation=previous_inflation
     )
-
     rebatched_da_list = DeltaAnnotated.rebatch(
         input_da_list,
         min_delta_bytes=min_delta_bytes,

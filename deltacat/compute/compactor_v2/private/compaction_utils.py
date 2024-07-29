@@ -44,8 +44,6 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaType,
-    Stream,
-    StreamLocator,
     Partition,
     Manifest,
 )
@@ -173,6 +171,33 @@ def _build_uniform_deltas(
     )
 
 
+def _group_uniform_deltas(params: CompactPartitionParams, uniform_deltas):
+    num_deltas = len(uniform_deltas)
+    num_rounds = params.num_rounds
+    if num_rounds == 1:
+        return [uniform_deltas]
+    assert (
+        num_rounds <= num_deltas
+    ), f"{params.num_rounds} rounds should be less than the number of uniform deltas, which is {len(uniform_deltas)}"
+    assert (
+        params.hash_bucket_count != 1
+    ), "Hash bucket count is set to 1, we should not be grouping uniform deltas into batches"
+    if num_rounds >= num_deltas:
+        return [uniform_deltas]
+    sublist_length = num_deltas // num_rounds
+    uniform_deltas_grouped = []
+    start_index = 0
+    for _ in range(num_rounds):
+        end_index = start_index + sublist_length
+        sublist = uniform_deltas[start_index:end_index]
+        uniform_deltas_grouped.append(sublist)
+        start_index = end_index
+    remaining_deltas = uniform_deltas[start_index:]
+    if remaining_deltas:
+        uniform_deltas_grouped[-1].extend(remaining_deltas)
+    return uniform_deltas_grouped
+
+
 def _run_hash_and_merge(
     params: CompactPartitionParams,
     uniform_deltas,
@@ -181,25 +206,10 @@ def _run_hash_and_merge(
     delete_file_envelopes,
     mutable_compaction_audit,
     previous_compacted_delta_manifest,
+    compacted_partition,
 ) -> tuple[
     list[MergeResult], np.int64, np.float64, np.int64, np.int64, np.float64, Partition
 ]:
-    # create a new stream for this round
-    compacted_stream_locator: Optional[
-        StreamLocator
-    ] = params.destination_partition_locator.stream_locator
-    compacted_stream: Stream = params.deltacat_storage.get_stream(
-        compacted_stream_locator.namespace,
-        compacted_stream_locator.table_name,
-        compacted_stream_locator.table_version,
-        **params.deltacat_storage_kwargs,
-    )
-    compacted_partition: Partition = params.deltacat_storage.stage_partition(
-        compacted_stream,
-        params.destination_partition_locator.partition_values,
-        **params.deltacat_storage_kwargs,
-    )
-
     telemetry_time_hb = 0
     total_input_records_count = np.int64(0)
     total_hb_record_count = np.int64(0)
@@ -257,7 +267,6 @@ def _run_hash_and_merge(
         for hb_result in hb_results:
             hb_data_processed_size_bytes += hb_result.hb_size_bytes
             total_input_records_count += hb_result.hb_record_count
-
             for hash_group_index, object_id_size_tuple in enumerate(
                 hb_result.hash_bucket_group_to_obj_id_tuple
             ):
@@ -271,7 +280,6 @@ def _run_hash_and_merge(
                     all_hash_group_idx_to_num_rows[
                         hash_group_index
                     ] += object_id_size_tuple[2].item()
-
         logger.info(
             f"Got {total_input_records_count} hash bucket records from hash bucketing step..."
         )
@@ -417,7 +425,8 @@ def _merge(
 def _hash_bucket(
     params: CompactPartitionParams,
     uniform_deltas,
-):
+) -> tuple[List[HashBucketResult], float]:
+
     hb_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
@@ -455,7 +464,6 @@ def _hash_bucket(
         options_provider=hb_options_provider,
         kwargs_provider=hash_bucket_input_provider,
     )
-
     hb_invoke_end = time.monotonic()
 
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -522,7 +530,6 @@ def _process_merge_results(
     mat_results: List[MaterializeResult] = sorted(
         mat_results, key=lambda m: m.task_index
     )
-
     hb_id_to_entry_indices_range = {}
     file_index = 0
     previous_task_index = -1
@@ -531,9 +538,10 @@ def _process_merge_results(
         assert (
             mat_result.pyarrow_write_result.files >= 1
         ), "Atleast one file must be materialized"
-        assert (
-            mat_result.task_index != previous_task_index
-        ), f"Multiple materialize results found for a hash bucket: {mat_result.task_index}"
+        if params.num_rounds == 1:
+            assert (
+                mat_result.task_index != previous_task_index
+            ), f"Multiple materialize results found for a hash bucket: {mat_result.task_index}"
 
         hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
             file_index,
@@ -548,15 +556,16 @@ def _process_merge_results(
         str(json.dumps(mutable_compaction_audit)),
         **params.s3_client_kwargs,
     )
-
     deltas: List[Delta] = [m.delta for m in mat_results]
-
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
     merged_delta: Delta = Delta.merge_deltas(
         deltas,
         stream_position=params.last_stream_position_to_compact,
     )
+
+    if params.num_rounds > 1:
+        merged_delta = Delta.merge_deltas([merged_delta])
 
     return merged_delta, mat_results, hb_id_to_entry_indices_range
 

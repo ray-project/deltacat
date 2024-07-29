@@ -252,4 +252,4 @@ class TestCompactionSession:
 
         # as it should be running incremental
         assert compaction_audit.uniform_deltas_created == 1
-        assert compaction_audit.input_records == 6
+        assert compaction_audit.input_records == 10

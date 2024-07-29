@@ -25,10 +25,10 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
-    create_src_w_deltas_destination_rebase_w_deltas_strategy,
+    multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
-from deltacat.tests.compute.compact_partition_rebase_test_cases import (
-    REBASE_TEST_CASES,
+from deltacat.tests.compute.compact_partition_multiple_rounds_test_cases import (
+    MULTIPLE_ROUNDS_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Optional, Set
 from deltacat.types.media import StorageType
@@ -133,6 +133,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "skip_enabled_compact_partition_drivers",
         "assert_compaction_audit",
         "rebase_expected_compact_partition_result",
+        "num_rounds_param",
         "compact_partition_func",
         "compactor_version",
     ],
@@ -156,6 +157,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             skip_enabled_compact_partition_drivers,
             assert_compaction_audit,
             rebase_expected_compact_partition_result,
+            num_rounds_param,
             compact_partition_func,
             compactor_version,
         )
@@ -177,13 +179,14 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             skip_enabled_compact_partition_drivers,
             assert_compaction_audit,
             rebase_expected_compact_partition_result,
+            num_rounds_param,
             compact_partition_func,
             compactor_version,
-        ) in REBASE_TEST_CASES.items()
+        ) in MULTIPLE_ROUNDS_TEST_CASES.items()
     ],
-    ids=[test_name for test_name in REBASE_TEST_CASES],
+    ids=[test_name for test_name in MULTIPLE_ROUNDS_TEST_CASES],
 )
-def test_compact_partition_rebase_same_source_and_destination(
+def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
     mocker,
     s3_resource: ServiceResource,
     local_deltacat_storage_kwargs: Dict[str, Any],
@@ -207,6 +210,7 @@ def test_compact_partition_rebase_same_source_and_destination(
     assert_compaction_audit: Optional[Callable],
     compactor_version: Optional[CompactorVersion],
     compact_partition_func: Callable,
+    num_rounds_param: int,
     benchmark: BenchmarkFixture,
 ):
     import deltacat.tests.local_deltacat_storage as ds
@@ -222,7 +226,7 @@ def test_compact_partition_rebase_same_source_and_destination(
         source_table_stream,
         _,
         rebased_table_stream,
-    ) = create_src_w_deltas_destination_rebase_w_deltas_strategy(
+    ) = multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
         primary_keys,
         sort_keys,
         partition_keys,
@@ -265,13 +269,21 @@ def test_compact_partition_rebase_same_source_and_destination(
             "primary_keys": primary_keys,
             "read_kwargs_provider": read_kwargs_provider_param,
             "rebase_source_partition_locator": source_partition.locator,
+            "rebase_source_partition_high_watermark": rebased_partition.stream_position,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
             "source_partition_locator": rebased_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
+            "num_rounds": num_rounds_param,
+            "drop_duplicates": drop_duplicates_param,
+            "min_delta_bytes": 560,
         }
     )
-
+    if expected_terminal_exception:
+        with pytest.raises(expected_terminal_exception) as exc_info:
+            compact_partition_func(compact_partition_params)
+        assert expected_terminal_exception_message in str(exc_info.value)
+        return
     from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
         ExecutionCompactionResult,
     )
@@ -279,7 +291,7 @@ def test_compact_partition_rebase_same_source_and_destination(
     execute_compaction_result_spy = mocker.spy(ExecutionCompactionResult, "__init__")
 
     # execute
-    rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
+    rcf_file_s3_uri = compact_partition_func(compact_partition_params)
 
     round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
     audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
