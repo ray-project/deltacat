@@ -269,3 +269,109 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         destination_table_stream,
         rebased_stream_after_committed,
     )
+
+
+def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
+    primary_keys: Set[str],
+    sort_keys: Optional[List[Any]],
+    partition_keys: Optional[List[PartitionKey]],
+    input_deltas: List[pa.Table],
+    input_delta_type: DeltaType,
+    partition_values: Optional[List[Any]],
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[Stream, Stream, Optional[Stream]]:
+    import deltacat.tests.local_deltacat_storage as ds
+    from deltacat.storage import Partition, Stream
+
+    source_namespace, source_table_name, source_table_version = create_src_table(
+        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+    )
+
+    source_table_stream: Stream = ds.get_stream(
+        namespace=source_namespace,
+        table_name=source_table_name,
+        table_version=source_table_version,
+        **ds_mock_kwargs,
+    )
+    staged_partition: Partition = ds.stage_partition(
+        source_table_stream, partition_values, **ds_mock_kwargs
+    )
+    deltas = []
+    for input_delta in input_deltas:
+        deltas.append(
+            ds.stage_delta(
+                input_delta, staged_partition, input_delta_type, **ds_mock_kwargs
+            )
+        )
+    merged_delta: Delta = Delta.merge_deltas(
+        deltas,
+    )
+    ds.commit_delta(
+        merged_delta,
+        **ds_mock_kwargs,
+    )
+    ds.commit_partition(staged_partition, **ds_mock_kwargs)
+    source_table_stream_after_committed: Stream = ds.get_stream(
+        namespace=source_namespace,
+        table_name=source_table_name,
+        table_version=source_table_version,
+        **ds_mock_kwargs,
+    )
+    # create the destination table
+    (
+        destination_table_namespace,
+        destination_table_name,
+        destination_table_version,
+    ) = create_destination_table(
+        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+    )
+    # create the rebase table
+    (
+        rebase_table_namespace,
+        rebase_table_name,
+        rebase_table_version,
+    ) = create_rebase_table(primary_keys, sort_keys, partition_keys, ds_mock_kwargs)
+    rebasing_table_stream: Stream = ds.get_stream(
+        namespace=rebase_table_namespace,
+        table_name=rebase_table_name,
+        table_version=rebase_table_version,
+        **ds_mock_kwargs,
+    )
+    staged_partition: Partition = ds.stage_partition(
+        rebasing_table_stream, partition_values, **ds_mock_kwargs
+    )
+    deltas = []
+    for input_delta in input_deltas:
+        deltas.append(
+            ds.stage_delta(
+                input_delta, staged_partition, input_delta_type, **ds_mock_kwargs
+            )
+        )
+    merged_delta: Delta = Delta.merge_deltas(
+        deltas,
+    )
+    ds.commit_delta(
+        merged_delta,
+        **ds_mock_kwargs,
+    )
+    ds.commit_partition(staged_partition, **ds_mock_kwargs)
+
+    # get streams
+    # TODO: Add deltas to destination stream
+    destination_table_stream: Stream = ds.get_stream(
+        namespace=destination_table_namespace,
+        table_name=destination_table_name,
+        table_version=destination_table_version,
+        **ds_mock_kwargs,
+    )
+    rebased_stream_after_committed: Stream = ds.get_stream(
+        namespace=rebase_table_namespace,
+        table_name=rebase_table_name,
+        table_version=rebase_table_version,
+        **ds_mock_kwargs,
+    )
+    return (
+        source_table_stream_after_committed,
+        destination_table_stream,
+        rebased_stream_after_committed,
+    )

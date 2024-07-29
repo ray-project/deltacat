@@ -132,7 +132,7 @@ def create_uniform_input_deltas(
     size_estimation_function = functools.partial(
         estimate_manifest_entry_size_bytes, previous_inflation=previous_inflation
     )
-
+    print("MIN DELTA BYTES ", min_delta_bytes)
     rebatched_da_list = DeltaAnnotated.rebatch(
         input_da_list,
         min_delta_bytes=min_delta_bytes,

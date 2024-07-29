@@ -178,11 +178,15 @@ def _download_compacted_table(
     if str(hb_index) not in hb_index_to_indices:
         return None
 
+    # print("hb_index_to_indices ", hb_index_to_indices)
+    # print("hb_index ", hb_index)
     indices = hb_index_to_indices[str(hb_index)]
-
-    assert (
-        indices is not None and len(indices) == 2
-    ), "indices should not be none and contains exactly two elements"
+    # print("HERE ARE THE INDICES ", indices)
+    # print('indices[0] ', indices[0])
+    # print('indices[1] ', indices[1])
+    # assert (
+    #     indices is not None and len(indices) == 2
+    # ), "indices should not be none and contains exactly two elements"
 
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(

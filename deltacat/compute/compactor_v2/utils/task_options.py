@@ -334,9 +334,13 @@ def get_merge_task_options(
             if round_completion_info.hb_index_to_entry_range.get(str(hb_idx)) is None:
                 continue
 
-            entry_start, entry_end = round_completion_info.hb_index_to_entry_range[
+            # for entry_tuple in round_completion_info.hb_index_to_entry_range[
+            #     str(hb_idx)
+            # ]:
+
+            entry_start, entry_end = round_completion_info.hb_index_to_entry_range.get(
                 str(hb_idx)
-            ]
+            )
             for entry_index in range(entry_start, entry_end):
                 entry = compacted_delta_manifest.entries[entry_index]
 

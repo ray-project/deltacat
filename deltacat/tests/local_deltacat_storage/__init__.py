@@ -1022,6 +1022,8 @@ def stage_delta(
     serialized_data = None
     if content_type == ContentType.PARQUET:
         buffer = io.BytesIO()
+        print("IN STAGE DELTA, type of data ", type(data))
+        print("IN STAGE DELTA, type of buffer ", type(buffer))
         pa.parquet.write_table(data, buffer)
         serialized_data = buffer.getvalue()
     elif content_type == ContentType.UNESCAPED_TSV:
