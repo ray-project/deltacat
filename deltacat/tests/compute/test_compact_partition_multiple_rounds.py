@@ -25,10 +25,10 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
-    create_src_w_deltas_destination_rebase_w_deltas_strategy,
+    multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
-from deltacat.tests.compute.compact_partition_rebase_test_cases import (
-    REBASE_TEST_CASES,
+from deltacat.tests.compute.compact_partition_multiple_rounds_test_cases import (
+    MULTIPLE_ROUNDS_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Optional, Set
 from deltacat.types.media import StorageType
@@ -121,7 +121,6 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "partition_keys_param",
         "partition_values_param",
         "input_deltas_param",
-        "input_deltas_delta_type",
         "expected_terminal_compact_partition_result",
         "expected_terminal_exception",
         "expected_terminal_exception_message",
@@ -133,6 +132,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         "skip_enabled_compact_partition_drivers",
         "assert_compaction_audit",
         "rebase_expected_compact_partition_result",
+        "num_rounds_param",
         "compact_partition_func",
         "compactor_version",
     ],
@@ -144,7 +144,6 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             partition_keys_param,
             partition_values_param,
             input_deltas,
-            input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             expected_terminal_exception,
             expected_terminal_exception_message,
@@ -156,6 +155,7 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             skip_enabled_compact_partition_drivers,
             assert_compaction_audit,
             rebase_expected_compact_partition_result,
+            num_rounds_param,
             compact_partition_func,
             compactor_version,
         )
@@ -165,7 +165,6 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             partition_keys_param,
             partition_values_param,
             input_deltas,
-            input_deltas_delta_type,
             expected_terminal_compact_partition_result,
             expected_terminal_exception,
             expected_terminal_exception_message,
@@ -177,13 +176,14 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
             skip_enabled_compact_partition_drivers,
             assert_compaction_audit,
             rebase_expected_compact_partition_result,
+            num_rounds_param,
             compact_partition_func,
             compactor_version,
-        ) in REBASE_TEST_CASES.items()
+        ) in MULTIPLE_ROUNDS_TEST_CASES.items()
     ],
-    ids=[test_name for test_name in REBASE_TEST_CASES],
+    ids=[test_name for test_name in MULTIPLE_ROUNDS_TEST_CASES],
 )
-def test_compact_partition_rebase_same_source_and_destination(
+def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
     mocker,
     s3_resource: ServiceResource,
     local_deltacat_storage_kwargs: Dict[str, Any],
@@ -193,7 +193,6 @@ def test_compact_partition_rebase_same_source_and_destination(
     partition_keys_param: Optional[List[Any]],
     partition_values_param: List[Optional[str]],
     input_deltas_param: List[pa.Array],
-    input_deltas_delta_type: str,
     expected_terminal_compact_partition_result: pa.Table,
     expected_terminal_exception: BaseException,
     expected_terminal_exception_message: Optional[str],
@@ -207,27 +206,28 @@ def test_compact_partition_rebase_same_source_and_destination(
     assert_compaction_audit: Optional[Callable],
     compactor_version: Optional[CompactorVersion],
     compact_partition_func: Callable,
+    num_rounds_param: int,
     benchmark: BenchmarkFixture,
 ):
     import deltacat.tests.local_deltacat_storage as ds
 
     ds_mock_kwargs = local_deltacat_storage_kwargs
     """
-    This test tests the scenario where source partition locator == destination partition locator,
-    but rebase source partition locator is different.
-    This scenario could occur when hash bucket count changes.
+    This test tests different multi-round compaction rebase configurations,
+    as specified in compact_partition_multiple_rounds_test_cases.py
+    These tests do not test multi-round compaction backfill, which is
+    currently unsupported.
     """
-    partition_keys = partition_keys_param
     (
         source_table_stream,
         _,
         rebased_table_stream,
-    ) = create_src_w_deltas_destination_rebase_w_deltas_strategy(
+        _,
+    ) = multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
         primary_keys,
         sort_keys,
-        partition_keys,
+        partition_keys_param,
         input_deltas_param,
-        input_deltas_delta_type,
         partition_values_param,
         ds_mock_kwargs,
     )
@@ -241,13 +241,11 @@ def test_compact_partition_rebase_same_source_and_destination(
         partition_values_param,
         **ds_mock_kwargs,
     )
-    num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
-    total_cpus = num_workers * worker_instance_cpu
+    total_cpus = DEFAULT_NUM_WORKERS * DEFAULT_WORKER_INSTANCE_CPUS
     pgm = None
-    create_placement_group_param = False
     if create_placement_group_param:
         pgm = PlacementGroupManager(
-            1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
+            1, total_cpus, DEFAULT_WORKER_INSTANCE_CPUS, memory_per_bundle=4000000
         ).pgs[0]
     compact_partition_params = CompactPartitionParams.of(
         {
@@ -265,13 +263,21 @@ def test_compact_partition_rebase_same_source_and_destination(
             "primary_keys": primary_keys,
             "read_kwargs_provider": read_kwargs_provider_param,
             "rebase_source_partition_locator": source_partition.locator,
+            "rebase_source_partition_high_watermark": rebased_partition.stream_position,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
             "source_partition_locator": rebased_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
+            "num_rounds": num_rounds_param,
+            "drop_duplicates": drop_duplicates_param,
+            "min_delta_bytes": 560,
         }
     )
-
+    if expected_terminal_exception:
+        with pytest.raises(expected_terminal_exception) as exc_info:
+            benchmark(compact_partition_func, compact_partition_params)
+        assert expected_terminal_exception_message in str(exc_info.value)
+        return
     from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
         ExecutionCompactionResult,
     )
@@ -318,6 +324,7 @@ def test_compact_partition_rebase_same_source_and_destination(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
 
-    if assert_compaction_audit is not None:
+    if assert_compaction_audit:
         if not assert_compaction_audit(compactor_version, compaction_audit):
             assert False, "Compaction audit assertion failed"
+    return

@@ -178,7 +178,7 @@ class TestCompactionSession:
                     },
                     "primary_keys": [],
                     "rebase_source_partition_locator": source_delta.partition_locator,
-                    "rebase_source_partition_high_watermark": None,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
                     "s3_client_kwargs": {},
                     "source_partition_locator": source_delta.partition_locator,

@@ -688,8 +688,9 @@ def _execute_compaction_round(
         session_peak_memory
     )
 
-    compaction_audit.save_round_completion_stats(
-        mat_results, telemetry_time_hb + telemetry_time_dd + telemetry_time_materialize
+    compaction_audit.save_round_completion_stats(mat_results)
+    compaction_audit.set_telemetry_time_in_seconds(
+        telemetry_time_hb + telemetry_time_dd + telemetry_time_materialize
     )
 
     s3_utils.upload(

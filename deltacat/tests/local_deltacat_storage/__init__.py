@@ -394,12 +394,13 @@ def download_delta(
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     result = []
-    manifest = get_delta_manifest(delta_like, *args, **kwargs)
-
+    if isinstance(delta_like, Delta) and delta_like.manifest is not None:
+        manifest = Delta(delta_like).manifest
+    else:
+        manifest = get_delta_manifest(delta_like, *args, **kwargs)
     partition_values: PartitionValues = None
     if partition_filter is not None:
         partition_values = partition_filter.partition_values
-
     for entry_index in range(len(manifest.entries)):
         if (
             partition_values is not None
@@ -440,8 +441,10 @@ def download_delta_manifest_entry(
     **kwargs,
 ) -> LocalTable:
     cur, con = _get_sqlite3_cursor_con(kwargs)
-
-    manifest = get_delta_manifest(delta_like, *args, **kwargs)
+    if isinstance(delta_like, Delta) and delta_like.manifest is not None:
+        manifest = Delta(delta_like).manifest
+    else:
+        manifest = get_delta_manifest(delta_like, *args, **kwargs)
     if entry_index >= len(manifest.entries):
         raise IndexError(
             f"Manifest entry index {entry_index} does not exist. "

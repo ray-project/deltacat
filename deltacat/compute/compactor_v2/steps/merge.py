@@ -177,13 +177,10 @@ def _download_compacted_table(
 
     if str(hb_index) not in hb_index_to_indices:
         return None
-
     indices = hb_index_to_indices[str(hb_index)]
-
     assert (
         indices is not None and len(indices) == 2
     ), "indices should not be none and contains exactly two elements"
-
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
             rcf.compacted_delta_locator,
