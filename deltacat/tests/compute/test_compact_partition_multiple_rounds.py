@@ -308,4 +308,3 @@ def test_compact_partition_multiple_rounds(
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
-    return
