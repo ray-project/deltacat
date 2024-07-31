@@ -127,8 +127,6 @@ class DeltaAnnotated(Delta):
                     or da_group_entry_count >= min_file_counts
                 ):
                     if new_da_bytes >= min_delta_bytes:
-                        print("NEW DA BYTES ", new_da_bytes)
-                        print("MIN DELTA BYTES IN DELTA ANNOTATED ", min_delta_bytes)
                         logger.info(
                             f"Appending group of {da_group_entry_count} elements "
                             f"and {new_da_bytes} bytes to meet file size limit"
@@ -138,7 +136,6 @@ class DeltaAnnotated(Delta):
                             f"Appending group of {da_group_entry_count} elements "
                             f"and {da_group_entry_count} files to meet file count limit"
                         )
-                    # print("NEW DA ", new_da)
                     groups.append(new_da)
                     new_da = DeltaAnnotated()
                     new_da_bytes = 0

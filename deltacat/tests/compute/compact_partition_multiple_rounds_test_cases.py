@@ -1,10 +1,8 @@
 import pyarrow as pa
 from deltacat.tests.compute.test_util_common import (
-    offer_iso8601_timestamp_list,
     PartitionKey,
     PartitionKeyType,
     assert_compaction_audit,
-    assert_compaction_audit_no_hash_bucket,
 )
 from deltacat.tests.compute.test_util_constant import (
     DEFAULT_MAX_RECORDS_PER_FILE,
@@ -16,28 +14,15 @@ from dataclasses import dataclass
 from deltacat.storage import (
     DeltaType,
 )
-from deltacat.types.media import ContentType
 
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 from deltacat.storage.model.sort_key import SortKey
 
-from deltacat.utils.pyarrow import (
-    ReadKwargsProviderPyArrowSchemaOverride,
-    content_type_to_reader_kwargs,
-    pyarrow_read_csv,
-)
 from deltacat.tests.compute.compact_partition_test_cases import (
     BaseCompactorTestCase,
     with_compactor_version_func_test_param,
-    ZERO_VALUED_SORT_KEY,
-    ZERO_VALUED_PARTITION_VALUES_PARAM,
-    ZERO_VALUED_PARTITION_KEYS_PARAM,
-    ZERO_VALUED_PRIMARY_KEY,
-    EMPTY_UTSV_PATH,
 )
-from deltacat.storage import DeleteParameters
-from deltacat.exceptions import ValidationError
 
 
 @dataclass(frozen=True)
@@ -194,10 +179,10 @@ MULTIPLE_ROUNDS_TEST_CASES = {
         input_deltas_delta_type=DeltaType.UPSERT,
         rebase_expected_compact_partition_result=pa.Table.from_arrays(
             [
-                pa.array([str(i) for i in range(10)]),
-                pa.array([i for i in range(0, 10)]),
-                pa.array(["foo"] * 10),
-                pa.array([i / 10 for i in range(10)]),
+                pa.array([str(i) for i in range(10)] * 28),
+                pa.array([i for i in range(0, 10)] * 28),
+                pa.array(["foo"] * 280),
+                pa.array([i / 10 for i in range(10)] * 28),
             ],
             names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
         ),
@@ -218,7 +203,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
         read_kwargs_provider=None,
         drop_duplicates=False,
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
-        assert_compaction_audit=None,
+        assert_compaction_audit=assert_compaction_audit,
     ),
 }
 

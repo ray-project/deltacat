@@ -301,15 +301,6 @@ def test_compact_partition_rebase_then_incremental(
     actual_rebase_compacted_table = (
         actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
     )
-    print("ACTUAL REBASE COMPACTED TABLE ")
-    for key, value in actual_rebase_compacted_table.to_pydict().items():
-        print(key, ": ", value)
-    print("\n")
-    print("REBASE EXPECTED COMPACT PARTITION RESULT ")
-    for key, value in rebase_expected_compact_partition_result.to_pydict().items():
-        print(key, ": ", value)
-    print("\n")
-
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"

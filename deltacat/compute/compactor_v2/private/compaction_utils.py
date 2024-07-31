@@ -139,7 +139,6 @@ def _build_uniform_deltas(
             f" Input deltas contain {DeltaType.DELETE}-type deltas. Total delete file size={delete_file_size_bytes}."
             f" Total length of delete file envelopes={len(delete_file_envelopes)}"
         )
-    print("")
     uniform_deltas: List[DeltaAnnotated] = io.create_uniform_input_deltas(
         input_deltas=input_deltas,
         hash_bucket_count=params.hash_bucket_count,
@@ -175,17 +174,11 @@ def _build_uniform_deltas(
 def _group_uniform_deltas(params: CompactPartitionParams, uniform_deltas):
     num_deltas = len(uniform_deltas)
     num_rounds = params.num_rounds
-    print("NUM DELTAS ", num_deltas)
-    print("NUM ROUNDS ", num_rounds)
     if num_rounds == 1 or num_rounds >= num_deltas:
-        print("WE ARE SKIPPING GROUPING ")
         return [uniform_deltas]
-    # assert (num_rounds > num_deltas), "Number of rounds must be greater than the number of uniform deltas"
     sublist_length = num_deltas // num_rounds
     uniform_deltas_grouped = []
     start_index = 0
-    print("WE ARE GROUPING ")
-    print("SUBLIST LENGTH ", sublist_length)
     for _ in range(num_rounds):
         end_index = start_index + sublist_length
         sublist = uniform_deltas[start_index:end_index]
@@ -194,8 +187,6 @@ def _group_uniform_deltas(params: CompactPartitionParams, uniform_deltas):
     remaining_deltas = uniform_deltas[start_index:]
     if remaining_deltas:
         uniform_deltas_grouped[-1].extend(remaining_deltas)
-    # print("HERE IS UNIFORM DELTAS GROUPED")
-    # print(uniform_deltas_grouped)
     return uniform_deltas_grouped
 
 
@@ -236,7 +227,6 @@ def _run_hash_and_merge(
         all_hash_group_idx_to_size_bytes = defaultdict(int)
         all_hash_group_idx_to_num_rows = defaultdict(int)
         (hb_results, hb_invoke_end) = _hash_bucket(params, uniform_deltas)
-        print("LENGTH OF HB RESULTS FOR THIS ROUND ", len(hb_results))
         hb_end = time.monotonic()
 
         # we use time.time() here because time.monotonic() has no reference point
@@ -261,7 +251,6 @@ def _run_hash_and_merge(
         hb_data_processed_size_bytes = np.int64(0)
 
         # initialize all hash groups
-        print("HASH GROUP COUNT ", params.hash_group_count)
         for hb_group in range(params.hash_group_count):
             all_hash_group_idx_to_num_rows[hb_group] = 0
             all_hash_group_idx_to_obj_id[hb_group] = []
@@ -270,7 +259,6 @@ def _run_hash_and_merge(
         for hb_result in hb_results:
             hb_data_processed_size_bytes += hb_result.hb_size_bytes
             total_input_records_count += hb_result.hb_record_count
-            # print("HASH BUCKET GROUP TO OBJ ID TUPLE ", hb_result.hash_bucket_group_to_obj_id_tuple)
             for hash_group_index, object_id_size_tuple in enumerate(
                 hb_result.hash_bucket_group_to_obj_id_tuple
             ):
@@ -284,11 +272,6 @@ def _run_hash_and_merge(
                     all_hash_group_idx_to_num_rows[
                         hash_group_index
                     ] += object_id_size_tuple[2].item()
-        print(
-            "Got ",
-            total_input_records_count,
-            " hash bucket records from hash bucketing step...",
-        )
         logger.info(
             f"Got {total_input_records_count} hash bucket records from hash bucketing step..."
         )
@@ -316,7 +299,6 @@ def _run_hash_and_merge(
             delete_strategy,
             delete_file_envelopes,
         )
-    print("GOT ", len(merge_results), " merge results")
     logger.info(f"Got {len(merge_results)} merge results.")
 
     merge_results_retrieved_at: float = time.time()
@@ -369,11 +351,6 @@ def _merge(
     delete_strategy,
     delete_file_envelopes,
 ) -> tuple[List[MergeResult], float]:
-    print(
-        "MERGE RECEIVED ",
-        len(all_hash_group_idx_to_obj_id),
-        " for all_hash_group_idx_to_obj_id",
-    )
     merge_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
@@ -430,7 +407,6 @@ def _merge(
         options_provider=merge_options_provider,
         kwargs_provider=merge_input_provider,
     )
-    print("LENGTH OF MERGE TASKS PENDING ", len(merge_tasks_pending))
     merge_invoke_end = time.monotonic()
     logger.info(f"Getting {len(merge_tasks_pending)} merge results...")
     merge_results: List[MergeResult] = ray.get(merge_tasks_pending)
@@ -441,7 +417,7 @@ def _merge(
 def _hash_bucket(
     params: CompactPartitionParams,
     uniform_deltas,
-):
+):  # -> tuple[List[HashBucketResult] | Any, float]:
     hb_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
@@ -479,7 +455,6 @@ def _hash_bucket(
         options_provider=hb_options_provider,
         kwargs_provider=hash_bucket_input_provider,
     )
-
     hb_invoke_end = time.monotonic()
 
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -540,14 +515,12 @@ def _process_merge_results(
     params: CompactPartitionParams, merge_results, mutable_compaction_audit
 ) -> tuple[Delta, list[MaterializeResult], dict]:
     mat_results = []
-    print("IN PROCESS MERGE RESULTS ")
     for merge_result in merge_results:
         mat_results.extend(merge_result.materialize_results)
 
     mat_results: List[MaterializeResult] = sorted(
         mat_results, key=lambda m: m.task_index
     )
-    print("LENGTH OF MAT RESULTS ", len(mat_results))
     hb_id_to_entry_indices_range = {}
     file_index = 0
     previous_task_index = -1
@@ -574,10 +547,7 @@ def _process_merge_results(
         str(json.dumps(mutable_compaction_audit)),
         **params.s3_client_kwargs,
     )
-    print("ROUND COUNT ", params.num_rounds)
-
     deltas: List[Delta] = [m.delta for m in mat_results]
-    print("deltas = len([m.delta for m in mat_results]) ----->>>", len(deltas))
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
     merged_delta: Delta = Delta.merge_deltas(

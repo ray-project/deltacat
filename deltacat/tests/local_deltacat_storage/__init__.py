@@ -394,12 +394,12 @@ def download_delta(
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     result = []
-    manifest = get_delta_manifest(delta_like, *args, **kwargs)
-
+    manifest = Delta(delta_like).manifest or get_delta_manifest(
+        delta_like, *args, **kwargs
+    )
     partition_values: PartitionValues = None
     if partition_filter is not None:
         partition_values = partition_filter.partition_values
-
     for entry_index in range(len(manifest.entries)):
         if (
             partition_values is not None
@@ -440,8 +440,9 @@ def download_delta_manifest_entry(
     **kwargs,
 ) -> LocalTable:
     cur, con = _get_sqlite3_cursor_con(kwargs)
-
-    manifest = get_delta_manifest(delta_like, *args, **kwargs)
+    manifest = Delta(delta_like).manifest or get_delta_manifest(
+        delta_like, *args, **kwargs
+    )
     if entry_index >= len(manifest.entries):
         raise IndexError(
             f"Manifest entry index {entry_index} does not exist. "
@@ -1022,8 +1023,6 @@ def stage_delta(
     serialized_data = None
     if content_type == ContentType.PARQUET:
         buffer = io.BytesIO()
-        print("IN STAGE DELTA, type of data ", type(data))
-        print("IN STAGE DELTA, type of buffer ", type(buffer))
         pa.parquet.write_table(data, buffer)
         serialized_data = buffer.getvalue()
     elif content_type == ContentType.UNESCAPED_TSV:

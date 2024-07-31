@@ -8,12 +8,8 @@ import pyarrow as pa
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
-import sys
 
 from deltacat.tests.compute.test_util_constant import (
-    BASE_TEST_SOURCE_NAMESPACE,
-    BASE_TEST_SOURCE_TABLE_NAME,
-    BASE_TEST_SOURCE_TABLE_VERSION,
     TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
@@ -27,12 +23,6 @@ from deltacat.tests.compute.test_util_common import (
     get_compacted_delta_locator_from_rcf,
 )
 from deltacat.tests.compute.test_util_create_table_deltas_repo import (
-    create_incremental_deltas_on_source_table,
-)
-from deltacat.tests.compute.test_util_create_table_deltas_repo import (
-    create_src_w_deltas_destination_rebase_w_deltas_strategy,
-)
-from deltacat.tests.compute.test_util_create_table_deltas_repo import (
     multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
 from deltacat.tests.compute.compact_partition_multiple_rounds_test_cases import (
@@ -41,7 +31,6 @@ from deltacat.tests.compute.compact_partition_multiple_rounds_test_cases import 
 from typing import Any, Callable, Dict, List, Optional, Set
 from deltacat.types.media import StorageType
 from deltacat.storage import (
-    DeltaType,
     DeltaLocator,
     Partition,
     PartitionLocator,
@@ -224,20 +213,6 @@ def test_compact_partition_multiple_rounds(
     """
     REBASE
     """
-    print(
-        "SIZE OF a single INPUT DELTA ",
-        sys.getsizeof(
-            pa.Table.from_arrays(
-                [
-                    pa.array([str(i) for i in range(10)]),
-                    pa.array([i for i in range(0, 10)]),
-                    pa.array(["foo"] * 10),
-                    pa.array([i / 10 for i in range(10)]),
-                ],
-                names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
-            )
-        ),
-    )
     partition_keys = partition_keys_param
     (
         source_table_stream,
@@ -302,6 +277,14 @@ def test_compact_partition_multiple_rounds(
     )
     # execute
     rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
+    audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
+        "s3://", ""
+    ).split("/", 1)
+    compaction_audit_obj: dict = read_s3_contents(s3_resource, audit_bucket, audit_key)
+    compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
+        **compaction_audit_obj
+    )
     compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         s3_resource, rcf_file_s3_uri
     )
@@ -319,117 +302,10 @@ def test_compact_partition_multiple_rounds(
     actual_rebase_compacted_table = (
         actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
     )
-    print("ACTUAL REBASE COMPACTED TABLE ")
-    for key, value in actual_rebase_compacted_table.to_pydict().items():
-        print(key, ": ", value)
-    print("\n")
-    print("REBASE EXPECTED COMPACT PARTITION RESULT ")
-    for key, value in rebase_expected_compact_partition_result.to_pydict().items():
-        print(key, ": ", value)
-    print("\n")
-    # if assert_compaction_audit is not None:
-    #     if not assert_compaction_audit(compactor_version, compaction_audit):
-    #         assert False, "Compaction audit assertion failed"
+    if assert_compaction_audit is not None:
+        if not assert_compaction_audit(compactor_version, compaction_audit):
+            assert False, "Compaction audit assertion failed"
     assert actual_rebase_compacted_table.equals(
         rebase_expected_compact_partition_result
     ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
-    # """
-    # INCREMENTAL
-    # """
-    # (
-    #     source_partition_locator_w_deltas,
-    #     new_delta,
-    #     incremental_delta_length,
-    #     has_delete_deltas,
-    # ) = create_incremental_deltas_on_source_table(
-    #     BASE_TEST_SOURCE_NAMESPACE,
-    #     BASE_TEST_SOURCE_TABLE_NAME,
-    #     BASE_TEST_SOURCE_TABLE_VERSION,
-    #     source_table_stream,
-    #     partition_values_param,
-    #     incremental_deltas,
-    #     ds_mock_kwargs,
-    # )
-    # compact_partition_params = CompactPartitionParams.of(
-    #     {
-    #         "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
-    #         "compacted_file_content_type": ContentType.PARQUET,
-    #         "dd_max_parallelism_ratio": 1.0,
-    #         "deltacat_storage": ds,
-    #         "deltacat_storage_kwargs": ds_mock_kwargs,
-    #         "destination_partition_locator": compacted_delta_locator.partition_locator,
-    #         "drop_duplicates": False,
-    #         "hash_bucket_count": hash_bucket_count_param,
-    #         "last_stream_position_to_compact": new_delta.stream_position,
-    #         "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
-    #         "object_store": RayPlasmaObjectStore(),
-    #         "pg_config": pgm,
-    #         "primary_keys": primary_keys,
-    #         "read_kwargs_provider": read_kwargs_provider_param,
-    #         "rebase_source_partition_locator": None,
-    #         "rebase_source_partition_high_watermark": None,
-    #         "records_per_compacted_file": records_per_compacted_file_param,
-    #         "s3_client_kwargs": {},
-    #         "source_partition_locator": source_partition_locator_w_deltas,
-    #         "sort_keys": sort_keys if sort_keys else None,
-    #         "num_rounds": 3
-    #     }
-    # )
-    # if expected_terminal_exception:
-    #     with pytest.raises(expected_terminal_exception) as exc_info:
-    #         compact_partition_func(compact_partition_params)
-    #     assert expected_terminal_exception_message in str(exc_info.value)
-    #     return
-    # rcf_file_s3_uri = compact_partition_func(compact_partition_params)
-    # round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
-    # compacted_delta_locator_incremental: DeltaLocator = (
-    #     round_completion_info.compacted_delta_locator
-    # )
-    # audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
-    #     "s3://", ""
-    # ).split("/", 1)
-    # compaction_audit_obj: dict = read_s3_contents(s3_resource, audit_bucket, audit_key)
-    # compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
-    #     **compaction_audit_obj
-    # )
-
-    # tables = ds.download_delta(
-    #     compacted_delta_locator_incremental,
-    #     storage_type=StorageType.LOCAL,
-    #     **ds_mock_kwargs,
-    # )
-    # actual_compacted_table = pa.concat_tables(tables)
-    # expected_terminal_compact_partition_result = (
-    #     expected_terminal_compact_partition_result.combine_chunks().sort_by(
-    #         sorting_cols
-    #     )
-    # )
-    # actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
-    #     sorting_cols
-    # )
-    # # NOTE: if delete type-deltas are present this relationship no longer holds true
-    # # if not has_delete_deltas:
-    # #     assert compaction_audit.input_records == (
-    # #         incremental_delta_length if incremental_deltas else 0
-    # #     ) + len(actual_rebase_compacted_table), (
-    # #         " Total input records must be equal to incremental deltas"
-    # #         " + previous compacted table size"
-    # #     )
-
-    # print("ACTUAL COMPACTED TABLE ")
-    # for key, value in actual_compacted_table.to_pydict().items():
-    #     print(key, ": ", value)
-    # print('\n')
-    # print("EXPECTED TERMINAL COMPACTED TABLE ")
-    # for key, value in expected_terminal_compact_partition_result.to_pydict().items():
-    #     print(key, ": ", value)
-    # print('\n')
-
-    # assert actual_compacted_table.equals(
-    #     expected_terminal_compact_partition_result
-    # ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
-
-    # if assert_compaction_audit is not None:
-    #     if not assert_compaction_audit(compactor_version, compaction_audit):
-    #         assert False, "Compaction audit assertion failed"
-    # return
+    return

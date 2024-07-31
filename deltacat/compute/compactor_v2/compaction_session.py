@@ -76,21 +76,11 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
     with memray.Tracker(
         "compaction_partition.bin"
     ) if params.enable_profiler else nullcontext():
-        print("\n")
-        print(
-            "CALLING EXECUTE COMPACTION ",
-        )
-        print("PARAMS ", params)
         execute_compaction_result: ExecutionCompactionResult = _execute_compaction(
             params,
             **kwargs,
         )
         _commit_compaction_result(params, execute_compaction_result)
-        print(
-            "COMPACT PARTITION IS COMPLETE, EXECUTE COMPACTION RESULT IS ",
-            execute_compaction_result,
-        )
-        print("\n")
         return execute_compaction_result.round_completion_file_s3_url
 
 
@@ -147,7 +137,6 @@ def _execute_compaction(
     if not input_deltas:
         logger.info("No input deltas found to compact.")
         return ExecutionCompactionResult(None, None, None, False)
-    print("LENGTH OF INPUT DELTAS ", len(input_deltas))
     build_uniform_deltas_result: tuple[
         List[DeltaAnnotated], DeleteStrategy, List[DeleteFileEnvelope], Partition
     ] = _build_uniform_deltas(
@@ -158,12 +147,7 @@ def _execute_compaction(
         delete_strategy,
         delete_file_envelopes,
     ) = build_uniform_deltas_result
-
-    print("NUM ROUNDS ", params.num_rounds)
-    print("LEN OF UNIFORM DELTAS ", len(uniform_deltas))
-    # print("UNIFORM DELTAS ", uniform_deltas)
     uniform_deltas_grouped = _group_uniform_deltas(params, uniform_deltas)
-    print("LEN OF GROUPED UNIFORM DELTAS ", len(uniform_deltas_grouped))
     merge_result_list: List[MergeResult] = []
     # create a new stream for this round
     compacted_stream_locator: Optional[
@@ -182,7 +166,6 @@ def _execute_compaction(
     )
     for uniform_deltas in uniform_deltas_grouped:
         # run hash and merge
-        print("LENGTH OF UNIFORM DELTAS FOR THIS ROUND ", len(uniform_deltas))
         _run_hash_and_merge_result: tuple[
             Optional[List[MergeResult]],
             np.float64,
@@ -204,13 +187,7 @@ def _execute_compaction(
             telemetry_time_merge,
             compacted_partition,
         ) = _run_hash_and_merge_result
-        print("LENGTH OF MERGE RESULTS FOR THIS ROUND ", len(merge_results))
         merge_result_list.extend(merge_results)
-    # print('MERGE RESULT ', type(merge_results))
-    # print('merge_results', merge_results)
-    # print('MERGE RESULT LIST', type(merge_result_list))
-    # print('MERGE RESULT LIST', merge_result_list)
-    print("LENGTH OF MERGE RESULTS LIST", len(merge_result_list))
     # process merge results
     process_merge_results: tuple[
         Delta, list[MaterializeResult], dict
