@@ -30,8 +30,6 @@ from deltacat.storage import (
     DeltaLocator,
     Manifest,
     Partition,
-    Stream,
-    StreamLocator,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,

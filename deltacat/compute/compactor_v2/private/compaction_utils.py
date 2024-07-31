@@ -44,6 +44,8 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaType,
+    Stream,
+    StreamLocator,
     Partition,
     Manifest,
 )
@@ -170,7 +172,6 @@ def _build_uniform_deltas(
         delete_file_envelopes,
     )
 
-
 def _group_uniform_deltas(params: CompactPartitionParams, uniform_deltas):
     num_deltas = len(uniform_deltas)
     num_rounds = params.num_rounds
@@ -188,7 +189,6 @@ def _group_uniform_deltas(params: CompactPartitionParams, uniform_deltas):
     if remaining_deltas:
         uniform_deltas_grouped[-1].extend(remaining_deltas)
     return uniform_deltas_grouped
-
 
 def _run_hash_and_merge(
     params: CompactPartitionParams,
@@ -417,7 +417,8 @@ def _merge(
 def _hash_bucket(
     params: CompactPartitionParams,
     uniform_deltas,
-):  # -> tuple[List[HashBucketResult] | Any, float]:
+) -> tuple[List[HashBucketResult] | Any, float]:
+
     hb_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
@@ -533,7 +534,6 @@ def _process_merge_results(
             assert (
                 mat_result.task_index != previous_task_index
             ), f"Multiple materialize results found for a hash bucket: {mat_result.task_index}"
-
         hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
             file_index,
             file_index + mat_result.pyarrow_write_result.files,
@@ -554,10 +554,6 @@ def _process_merge_results(
         deltas,
         stream_position=params.last_stream_position_to_compact,
     )
-
-    if params.num_rounds > 1:
-        merged_delta = Delta.merge_deltas([merged_delta])
-
     return merged_delta, mat_results, hb_id_to_entry_indices_range
 
 
