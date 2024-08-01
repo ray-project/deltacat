@@ -42,7 +42,7 @@ RETRYABLE_HTTP_STATUS_CODES = [
 
 boto_retry_wrapper = Retrying(
     wait=wait_random_exponential(multiplier=1, max=10),
-    stop=stop_after_delay(60 * 5),
+    stop=stop_after_delay(60 * 10),
     # CredentialRetrievalError can still be thrown due to throttling, even if IMDS health checks succeed.
     retry=retry_if_exception_type(CredentialRetrievalError),
 )
