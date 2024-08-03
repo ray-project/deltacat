@@ -34,8 +34,8 @@ setuptools.setup(
     url="https://github.com/ray-project/deltacat",
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     extras_require={
-        # "iceberg": ["pyiceberg >= 0.5.0"],  # TODO: uncomment!
-        "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
+        "iceberg": ["pyiceberg[glue] >= 0.6.0"],
+        # "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
     },
     install_requires=[
         # any changes here should also be reflected in requirements.txt
@@ -49,7 +49,7 @@ setuptools.setup(
         "pymemcache == 4.0.0",
         "ray >= 2.20.0",
         "s3fs == 2024.5.0",
-        "tenacity == 8.1.0",
+        "tenacity == 8.2.3",
         "typing-extensions == 4.6.1",
         "redis == 4.6.0",
         "schedule == 1.2.0",

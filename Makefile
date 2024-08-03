@@ -10,6 +10,7 @@ venv:
 clean-build:
 	rm -rf dist
 	rm -rf build
+	rm -rf deltacat.egg-info
 
 clean-venv:
 	rm -rf venv

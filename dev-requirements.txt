@@ -5,7 +5,7 @@ isort == 5.10.1
 memray == 1.6.0; platform_system != "Windows" and sys_platform != "darwin" and platform_machine != "arm64" and platform_machine != "aarch64"
 moto == 4.1.12
 pre-commit == 2.20.0
-pyiceberg[glue] @ git+https://github.com/apache/iceberg-python
+# pyiceberg[glue] @ git+https://github.com/apache/iceberg-python
 pytest == 7.2.0
 pytest-cov == 4.0.0
 pytest-mock == 3.14.0

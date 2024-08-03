@@ -36,9 +36,9 @@ available_node_types:
 head_node_type: ray.head.default
 
 file_mounts: {
-    "~/deltacat-0.1.18b15-py3-none-any.whl": "./dist/deltacat-0.1.18b15-py3-none-any.whl"
+    "~/deltacat-0.2.9-py3-none-any.whl": "./dist/deltacat-0.2.9-py3-none-any.whl"
 }
 
 setup_commands:
   - pip uninstall deltacat --yes
-  - pip install -U ~/deltacat-0.1.18b15-py3-none-any.whl[iceberg]
+  - pip install -U ~/deltacat-0.2.9-py3-none-any.whl[iceberg]

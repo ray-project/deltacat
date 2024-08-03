@@ -548,12 +548,14 @@ class StreamMapper(OneWayModelMapper[IcebergTable, Stream]):
         snapshot = _resolve_stream_snapshot(metadata, snapshot_id)
         schema = _get_current_schema_for_meta(metadata)
         partition_spec = _get_current_spec_for_meta(metadata)
+        parent_snapshot_bytes = snapshot.parent_snapshot_id.to_bytes(8, "big") \
+            if snapshot.parent_snapshot_id else None
         return Stream.of(
             locator=StreamLocatorMapper.map(
                 obj, metadata_timestamp, snapshot_id, catalog_properties
             ),
             partition_keys=PartitionSchemeMapper.map(partition_spec, schema),
             state=state,
-            previous_stream_id=bytes(snapshot.parent_snapshot_id),
+            previous_stream_id=parent_snapshot_bytes,
             native_object=snapshot,
         )

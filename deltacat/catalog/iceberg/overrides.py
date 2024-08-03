@@ -33,6 +33,21 @@ def append(table: Table, paths: List[str]) -> None:
     merge.commit()
 
 
+def append(table: Table, paths: List[str]) -> None:
+    """
+    Append files to the table.
+    """
+    #if len(table.sort_order().fields) > 0:
+    #    raise ValueError("Cannot write to tables with a sort-order")
+
+    data_files = write_file(table, paths)
+    merge = _MergingSnapshotProducer(operation=Operation.APPEND, table=table)
+    for data_file in data_files:
+        merge.append_data_file(data_file)
+
+    merge.commit()
+
+
 def write_file(table: Table, paths: Iterator[str]) -> Iterator[DataFile]:
     data_files = []
     for file_path in paths:

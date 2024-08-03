@@ -1,8 +1,8 @@
 # DeltaCAT
 
 DeltaCAT provides a portable Pythonic Data Catalog API powered by Ray. It provides distributed compute implementations
-allow you to efficiently read, write, and manage your existing data catalogs reliably at scale using Ray. It allows you
-to define and manage fast, scalable, ACID-compliant data catalogs and has been used to successfully manage exabyte-scale
+allowing you to efficiently read, write, and manage your existing data catalogs reliably at scale using Ray. It lets you
+define and manage fast, scalable, ACID-compliant data catalogs and has been used to successfully manage exabyte-scale
 enterprise data lakes.
 
 DeltaCAT uses the Ray distributed compute framework together with Apache Arrow and Daft to efficiently scale common
