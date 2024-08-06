@@ -564,9 +564,6 @@ def _process_merge_results(
         stream_position=params.last_stream_position_to_compact,
     )
 
-    if params.num_rounds > 1:
-        merged_delta = Delta.merge_deltas([merged_delta])
-
     return merged_delta, mat_results, hb_id_to_entry_indices_range
 
 
