@@ -97,8 +97,7 @@ class DeltaAnnotated(Delta):
         for src_da in split_annotated_deltas:
             src_da_annotations = src_da.annotations
             src_da_entries = src_da.manifest.entries
-            assert (
-                len(src_da_annotations) == len(src_da_entries),
+            assert len(src_da_annotations) == len(src_da_entries), (
                 f"Unexpected Error: Length of delta annotations "
                 f"({len(src_da_annotations)}) doesn't mach the length of "
                 f"delta manifest entries ({len(src_da_entries)}).",
@@ -152,8 +151,7 @@ class DeltaAnnotated(Delta):
         da_group_entry_count = 0
         src_da_annotations = src_da.annotations
         src_da_entries = src_da.manifest.entries
-        assert (
-            len(src_da_annotations) == len(src_da_entries),
+        assert len(src_da_annotations) == len(src_da_entries), (
             f"Unexpected Error: Length of delta annotations "
             f"({len(src_da_annotations)}) doesn't mach the length of "
             f"delta manifest entries ({len(src_da_entries)}).",

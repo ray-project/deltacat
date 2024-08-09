@@ -71,3 +71,7 @@ PREPARE_DELETES_METRIC_PREFIX = "prepare_deletes"
 
 # Metric prefix for compact partition method
 COMPACT_PARTITION_METRIC_PREFIX = "compact_partition"
+
+# Number of rounds to run hash/merge for a single
+# partition. (For large table support)
+NUM_ROUNDS = 1
