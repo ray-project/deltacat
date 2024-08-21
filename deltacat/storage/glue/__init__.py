@@ -29,6 +29,8 @@ from deltacat.storage import (
     StreamPartitionSpec,
     NamespaceLocator,
     TableLocator,
+    TableVersionLocator,
+    SortOrder,
 )
 from deltacat.types.media import (
     ContentType,
@@ -38,6 +40,8 @@ from deltacat.types.media import (
 )
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.aws.clients import client_cache
+from deltacat.storage.glue.schema import glue_columns_to_arrow_schema
+from deltacat.storage.glue.exceptions import EntityNotFound
 
 
 def _get_client_from_kwargs(**kwargs):
@@ -64,6 +68,71 @@ def _merge_dict(dict1, dict2):
         if value is not None:
             result[key] = value
     return result
+
+
+def _build_namespace_locator_from_glue(namespace: str) -> NamespaceLocator:
+    return NamespaceLocator.of(namespace)
+
+
+def _build_table_from_glue(
+    table: Dict[Any, Any], lf_permissions: Dict[Any, Any]
+) -> Table:
+    namespace_locator = _build_namespace_locator_from_glue(table["DatabaseName"])
+    table_locator = TableLocator.of(namespace_locator, table["Name"])
+    return Table.of(
+        table_locator,
+        permissions=lf_permissions["PrincipalResourcePermissions"],
+        description=table.get("Description"),
+    )
+
+
+def _build_table_version_from_glue(
+    glue_tv: Dict[Any, Any], lf_permissions: Dict[Any, Any]
+) -> TableVersion:
+    table = _build_table_from_glue(glue_tv["Table"], lf_permissions=lf_permissions)
+    glue_table = glue_tv["Table"]
+    tv_locator = TableVersionLocator.of(table.locator, glue_tv["VersionId"])
+    schema = None
+    if glue_table.get("StorageDescriptor") and glue_table["StorageDescriptor"].get(
+        "Columns"
+    ):
+        schema = glue_columns_to_arrow_schema(
+            glue_table["StorageDescriptor"]["Columns"]
+        )
+
+    partition_keys = []
+    if glue_table.get("PartitionKeys"):
+        for partition_key in glue_table["PartitionKeys"]:
+            partition_keys.append(partition_key["Name"])
+
+    sort_keys = []
+    sort_order_lookup = {1: SortOrder.ASCENDING, 0: SortOrder.DESCENDING}
+    for sort_key in glue_table.get("StorageDescriptor", {}).get("SortColumns", []):
+        sort_keys.append(
+            SortKey.of(
+                sort_key["Column"],
+                sort_order_lookup.get(sort_key["SortOrder"], SortOrder.ASCENDING),
+            )
+        )
+
+    # TODO: Add content types
+    return TableVersion.of(
+        tv_locator,
+        schema=schema,
+        partition_keys=partition_keys,
+        description=glue_table.get("Description"),
+        content_types=[ContentType.PARQUET],
+        sort_keys=sort_keys,
+    )
+
+
+def _build_namespace_from_glue(
+    namespace: str, lf_permissions: Dict[Any, Any]
+) -> Namespace:
+    locator = _build_namespace_locator_from_glue(namespace)
+    return Namespace.of(
+        locator, permissions=lf_permissions.get("PrincipalResourcePermissions", {})
+    )
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
@@ -125,7 +194,35 @@ def list_table_versions(
     returned as list result items. Raises an error if the given table does not
     exist.
     """
-    raise NotImplementedError("list_table_versions not implemented")
+    if table_exists(namespace, table_name, *args, **kwargs):
+        glue, lf = _get_client_from_kwargs(**kwargs)
+        params = {"DatabaseName": namespace, "TableName": table_name}
+        pagination_params = _extract_pagination_params(**kwargs)
+        params = _merge_dict(params, pagination_params)
+        response = glue.get_table_versions(**params)
+
+        lf_permissions = lf.list_permissions(
+            ResourceType="TABLE",
+            Resource={"Table": {"Name": table_name, "DatabaseName": namespace}},
+        )
+
+        result = []
+        for glue_tv in response.get("TableVersions", []):
+            tv = _build_table_version_from_glue(glue_tv, lf_permissions=lf_permissions)
+            result.append(tv)
+
+        if not result:
+            return ListResult.of([])
+
+        return ListResult.of(
+            result,
+            response.get("NextToken"),
+            lambda token: list_tables(
+                NextToken=token, MaxResults=params.get("MaxResults")
+            ),
+        )
+    else:
+        raise EntityNotFound(f"Table {namespace}.{table_name} does not exist")
 
 
 def list_partitions(
@@ -133,7 +230,7 @@ def list_partitions(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> ListResult[Partition]:
     """
     Lists a page of partitions for the given table version. Partitions are
@@ -162,7 +259,7 @@ def list_deltas(
     include_manifest: bool = False,
     partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> ListResult[Delta]:
     """
     Lists a page of deltas for the given table version and committed partition.
@@ -190,7 +287,7 @@ def list_partition_deltas(
     ascending_order: bool = False,
     include_manifest: bool = False,
     *args,
-    **kwargs
+    **kwargs,
 ) -> ListResult[Delta]:
     """
     Lists a page of deltas committed to the given partition.
@@ -211,7 +308,7 @@ def get_delta(
     include_manifest: bool = False,
     partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Delta]:
     """
     Gets the delta for the given table version, partition, and stream position.
@@ -237,7 +334,7 @@ def get_latest_delta(
     include_manifest: bool = False,
     partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Delta]:
     """
     Gets the latest delta (i.e. the delta with the greatest stream position) for
@@ -267,7 +364,7 @@ def download_delta(
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
     partition_filter: Optional[PartitionFilter] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
     Download the given delta or delta locator into either a list of
@@ -290,7 +387,7 @@ def download_delta_manifest_entry(
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> LocalTable:
     """
     Downloads a single manifest entry into the specified table type for the
@@ -329,7 +426,7 @@ def update_namespace(
     permissions: Optional[Dict[str, Any]] = None,
     new_namespace: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Updates a table namespace's name and/or permissions. Raises an error if the
@@ -355,7 +452,7 @@ def create_table_version(
     supported_content_types: Optional[List[ContentType]] = None,
     partition_spec: Optional[StreamPartitionSpec] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Stream:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
@@ -400,7 +497,7 @@ def update_table(
     properties: Optional[Dict[str, str]] = None,
     new_table_name: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Update table metadata describing the table versions it contains. By default,
@@ -421,7 +518,7 @@ def update_table_version(
     description: Optional[str] = None,
     properties: Optional[Dict[str, str]] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Update a table version. Notably, updating an unreleased table version's
@@ -440,7 +537,7 @@ def stage_stream(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Stream:
     """
     Stages a new delta stream for the given table version. Resolves to the
@@ -464,7 +561,7 @@ def delete_stream(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Deletes the delta stream currently registered with the given table version.
@@ -479,7 +576,7 @@ def get_stream(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Stream]:
     """
     Gets the most recently committed stream for the given table version and
@@ -509,7 +606,7 @@ def commit_partition(
     partition: Partition,
     previous_partition: Optional[Partition] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Partition:
     """
     Commits the given partition to its associated table version stream,
@@ -532,7 +629,7 @@ def delete_partition(
     table_version: Optional[str] = None,
     partition_values: Optional[PartitionValues] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Deletes the given partition from the specified table version. Resolves to
@@ -547,7 +644,7 @@ def get_partition(
     stream_locator: StreamLocator,
     partition_values: Optional[PartitionValues] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Partition]:
     """
     Gets the most recently committed partition for the given stream locator and
@@ -571,7 +668,7 @@ def stage_delta(
     partition_spec: Optional[DeltaPartitionSpec] = None,
     partition_values: Optional[PartitionValues] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Delta:
     """
     Writes the given table to 1 or more S3 files. Returns an unregistered
@@ -607,13 +704,10 @@ def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     """
     glue, lf = _get_client_from_kwargs(**kwargs)
     if namespace_exists(namespace=namespace, *args, **kwargs):
-        locator = NamespaceLocator.of(namespace)
         lf_permissions = lf.list_permissions(
             ResourceType="DATABASE", Resource={"Database": {"Name": namespace}}
         )
-        return Namespace.of(
-            locator, permissions=lf_permissions.get("PrincipalResourcePermissions", {})
-        )
+        return _build_namespace_from_glue(namespace, lf_permissions=lf_permissions)
     return None
 
 
@@ -675,7 +769,26 @@ def get_table_version(
     Gets table version metadata for the specified table version. Returns None
     if the given table version does not exist.
     """
-    raise NotImplementedError("get_table_version not implemented")
+    glue, lf = _get_client_from_kwargs(**kwargs)
+
+    try:
+        response = glue.get_table_version(
+            DatabaseName=namespace, TableName=table_name, VersionId=table_version
+        )
+        if "TableVersion" not in response:
+            return None
+
+        lf_permissions = lf.list_permissions(
+            ResourceType="TABLE",
+            Resource={"Table": {"Name": table_name, "DatabaseName": namespace}},
+        )
+
+        return _build_table_version_from_glue(
+            response["TableVersion"], lf_permissions=lf_permissions
+        )
+
+    except glue.exceptions.EntityNotFoundException:
+        return None
 
 
 def get_latest_table_version(
@@ -703,7 +816,7 @@ def get_table_version_column_names(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[List[str]]:
     """
     Gets a list of column names for the specified table version, or for the
@@ -721,7 +834,7 @@ def get_table_version_schema(
     table_name: str,
     table_version: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Optional[Union[pa.Schema, str, bytes]]:
     """
     Gets the schema for the specified table version, or for the latest active
@@ -752,3 +865,8 @@ def raise_categorized_error(e: BaseException, *args, **kwargs):
     Raise and handle storage implementation layer specific errors.
     """
     raise NotImplementedError
+
+
+__all__ = [
+    "exceptions",
+]

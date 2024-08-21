@@ -23,7 +23,40 @@ class TestGlueStorage:
             self._create_database(database_name, glue, lf)
         except botocore.errorfactory.ClientError:
             pass
-        glue.create_table(DatabaseName=database_name, TableInput={"Name": table_name})
+        glue.create_table(
+            DatabaseName=database_name,
+            TableInput={
+                "Name": table_name,
+                "PartitionKeys": [{"Name": "csmallint", "Type": "int"}],
+                "StorageDescriptor": {
+                    "Columns": [
+                        {
+                            "Name": "csmallint",
+                            "Type": "int",
+                        },
+                        {
+                            "Name": "cint",
+                            "Type": "decimal",
+                        },
+                    ],
+                    "SortColumns": [{"Column": "csmallint", "SortOrder": 0}],
+                },
+            },
+        )
+
+    def _create_table_version(self, table_name, database_name, version, glue, lf):
+        try:
+            self._create_table(table_name, database_name, glue, lf)
+        except botocore.errorfactory.ClientError:
+            pass
+
+        version_int = int(version)
+        # Update table N times to create N + 1 versions
+        for _ in range(version_int - 1):
+            glue.update_table(
+                DatabaseName=database_name,
+                TableInput={"Name": table_name},
+            )
 
     @mock_glue
     @mock_lakeformation
@@ -197,3 +230,56 @@ class TestGlueStorage:
     @mock_lakeformation
     def test_table_exists_when_namespace_absent(self):
         assert not gs.table_exists("test-namespace", "test-table")
+
+    @mock_glue
+    @mock_lakeformation
+    def test_get_table_version_when_table_absent(self):
+        assert gs.get_table_version("test-namespace", "test-table", "1") is None
+
+    @mock_glue
+    @mock_lakeformation
+    def test_get_table_version_when_table_present(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_table("test-table", "test-namespace", glue, lf)
+
+        # action
+        result = gs.get_table_version("test-namespace", "test-table", "1")
+
+        # verify
+        assert result.table_name == "test-table"
+        assert result.namespace == "test-namespace"
+        assert result.table_version == "1"
+
+    @mock_glue
+    @mock_lakeformation
+    def test_get_table_version_when_multiple_versions(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_table_version("test-table", "test-namespace", "3", glue, lf)
+
+        # action
+        result = gs.get_table_version("test-namespace", "test-table", "3")
+
+        # verify
+        assert result.table_name == "test-table"
+        assert result.namespace == "test-namespace"
+        assert result.table_version == "3"
+
+    @mock_glue
+    @mock_lakeformation
+    def test_list_table_versions_when_table_absent(self):
+        with pytest.raises(gs.exceptions.EntityNotFound):
+            gs.list_table_versions("test-namespace", "test-table")
+
+    @mock_glue
+    @mock_lakeformation
+    def test_list_table_versions_when_multiple_versions(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_table_version("test-table", "test-namespace", "3", glue, lf)
+
+        # action
+        result = gs.list_table_versions("test-namespace", "test-table", MaxResults=1)
+
+        assert len(result) == 3
