@@ -1,4 +1,3 @@
-import numpy as np
 import importlib
 from contextlib import nullcontext
 import logging
@@ -40,6 +39,8 @@ from deltacat.utils.resources import (
 from deltacat.compute.compactor_v2.private.compaction_utils import (
     _fetch_compaction_metadata,
     _build_uniform_deltas,
+    _group_uniform_deltas,
+    _stage_new_partition,
     _run_hash_and_merge,
     _process_merge_results,
     _upload_compaction_audit,
@@ -69,6 +70,10 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
     assert (
         params.hash_bucket_count is not None and params.hash_bucket_count >= 1
     ), "hash_bucket_count is a required arg for compactor v2"
+    if params.num_rounds > 1:
+        assert (
+            not params.drop_duplicates
+        ), "num_rounds > 1, drop_duplicates must be False but is True"
 
     with memray.Tracker(
         "compaction_partition.bin"
@@ -144,32 +149,28 @@ def _execute_compaction(
         delete_strategy,
         delete_file_envelopes,
     ) = build_uniform_deltas_result
-
-    # run merge
-    _run_hash_and_merge_result: tuple[
-        Optional[List[MergeResult]],
-        np.float64,
-        np.float64,
-        Partition,
-    ] = _run_hash_and_merge(
-        params,
-        uniform_deltas,
-        round_completion_info,
-        delete_strategy,
-        delete_file_envelopes,
-        compaction_audit,
-        previous_compacted_delta_manifest,
-    )
-    (
-        merge_results,
-        telemetry_time_hb,
-        telemetry_time_merge,
-        compacted_partition,
-    ) = _run_hash_and_merge_result
+    logger.info(f"Number of rounds parameter is set to: {params.num_rounds}")
+    uniform_deltas_grouped = _group_uniform_deltas(params, uniform_deltas)
+    logger.info(f"Length of grouped uniform deltas is: {len(uniform_deltas_grouped)}")
+    merge_result_list: List[MergeResult] = []
+    compacted_partition = _stage_new_partition(params)
+    for uniform_deltas in uniform_deltas_grouped:
+        # run hash and merge
+        _run_hash_and_merge_result: List[MergeResult] = _run_hash_and_merge(
+            params,
+            uniform_deltas,
+            round_completion_info,
+            delete_strategy,
+            delete_file_envelopes,
+            compaction_audit,
+            previous_compacted_delta_manifest,
+            compacted_partition,
+        )
+        merge_result_list.extend(_run_hash_and_merge_result)
     # process merge results
     process_merge_results: tuple[
         Delta, list[MaterializeResult], dict
-    ] = _process_merge_results(params, merge_results, compaction_audit)
+    ] = _process_merge_results(params, merge_result_list, compaction_audit)
     merged_delta, mat_results, hb_id_to_entry_indices_range = process_merge_results
     # Record information, logging, and return ExecutionCompactionResult
     record_info_msg: str = f" Materialized records: {merged_delta.meta.record_count}"
@@ -198,9 +199,7 @@ def _execute_compaction(
         session_peak_memory
     )
 
-    compaction_audit.save_round_completion_stats(
-        mat_results, telemetry_time_hb + telemetry_time_merge
-    )
+    compaction_audit.save_round_completion_stats(mat_results)
 
     _upload_compaction_audit(
         params,

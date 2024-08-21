@@ -818,7 +818,8 @@ class CompactionSessionAuditInfo(dict):
         return cluster_util_after_task_latency + telemetry_time
 
     def save_round_completion_stats(
-        self, mat_results: List[MaterializeResult], total_telemetry_time: float
+        self,
+        mat_results: List[MaterializeResult],
     ) -> None:
         """
         This method saves all the relevant stats after all the steps are completed.
@@ -888,4 +889,3 @@ class CompactionSessionAuditInfo(dict):
         )
 
         self.set_pyarrow_version(pa.__version__)
-        self.set_telemetry_time_in_seconds(total_telemetry_time)

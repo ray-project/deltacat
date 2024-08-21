@@ -22,6 +22,7 @@ from deltacat.compute.compactor_v2.constants import (
     DROP_DUPLICATES,
     TOTAL_MEMORY_BUFFER_PERCENTAGE,
     DEFAULT_DISABLE_COPY_BY_REFERENCE,
+    DEFAULT_NUM_ROUNDS,
 )
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
@@ -101,6 +102,8 @@ class CompactPartitionParams(dict):
         result.memory_logs_enabled = params.get("memory_logs_enabled", False)
 
         result.metrics_config = params.get("metrics_config")
+
+        result.num_rounds = params.get("num_rounds", DEFAULT_NUM_ROUNDS)
 
         if not importlib.util.find_spec("memray"):
             result.enable_profiler = False
@@ -189,7 +192,6 @@ class CompactPartitionParams(dict):
             cluster_resources = self.pg_config.resource
             cluster_cpus = cluster_resources["CPU"]
             self.task_max_parallelism = cluster_cpus
-            self["task_max_parallelism"] = self.task_max_parallelism
         return self["task_max_parallelism"]
 
     @task_max_parallelism.setter
@@ -402,6 +404,14 @@ class CompactPartitionParams(dict):
     @metrics_config.setter
     def metrics_config(self, config: MetricsConfig) -> None:
         self["metrics_config"] = config
+
+    @property
+    def num_rounds(self) -> int:
+        return self["num_rounds"]
+
+    @num_rounds.setter
+    def num_rounds(self, num_rounds: int) -> None:
+        self["num_rounds"] = num_rounds
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

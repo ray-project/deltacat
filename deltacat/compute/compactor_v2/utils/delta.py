@@ -42,11 +42,10 @@ def read_delta_file_envelopes(
         **deltacat_storage_kwargs,
     )
     annotations = annotated_delta.annotations
-    assert (
-        len(tables) == len(annotations),
+    assert len(tables) == len(annotations), (
         f"Unexpected Error: Length of downloaded delta manifest tables "
         f"({len(tables)}) doesn't match the length of delta manifest "
-        f"annotations ({len(annotations)}).",
+        f"annotations ({len(annotations)})."
     )
     if not tables:
         return None, 0, 0

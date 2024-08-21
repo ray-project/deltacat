@@ -109,7 +109,6 @@ def generate_local_merge_input(
         A MergeInput object
 
     """
-
     return MergeInput.of(
         merge_file_groups_provider=LocalMergeFileGroupsProvider(
             annotated_deltas,

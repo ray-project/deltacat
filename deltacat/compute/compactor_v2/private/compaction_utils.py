@@ -4,8 +4,10 @@ import logging
 import ray
 import time
 import json
+from math import ceil
 
 from deltacat.compute.compactor import (
+    PyArrowWriteResult,
     HighWatermark,
     RoundCompletionInfo,
 )
@@ -44,10 +46,11 @@ from deltacat.compute.compactor_v2.deletes.utils import prepare_deletes
 from deltacat.storage import (
     Delta,
     DeltaType,
-    Stream,
-    StreamLocator,
+    DeltaLocator,
     Partition,
     Manifest,
+    Stream,
+    StreamLocator,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -60,7 +63,7 @@ from deltacat.compute.compactor_v2.steps import merge as mg
 from deltacat.compute.compactor_v2.steps import hash_bucket as hb
 from deltacat.compute.compactor_v2.utils import io
 
-from typing import Any, List, Optional
+from typing import List, Optional
 from collections import defaultdict
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -123,9 +126,9 @@ def _fetch_compaction_metadata(
 
 def _build_uniform_deltas(
     params: CompactPartitionParams,
-    mutable_compaction_audit,
-    input_deltas,
-    delta_discovery_start,
+    mutable_compaction_audit: CompactionSessionAuditInfo,
+    input_deltas: List[Delta],
+    delta_discovery_start: float,
 ) -> tuple[List[DeltaAnnotated], DeleteStrategy, List[DeleteFileEnvelope], Partition]:
 
     delete_strategy: Optional[DeleteStrategy] = None
@@ -173,18 +176,34 @@ def _build_uniform_deltas(
     )
 
 
-def _run_hash_and_merge(
-    params: CompactPartitionParams,
-    uniform_deltas,
-    round_completion_info,
-    delete_strategy,
-    delete_file_envelopes,
-    mutable_compaction_audit,
-    previous_compacted_delta_manifest,
-) -> tuple[
-    list[MergeResult], np.int64, np.float64, np.int64, np.int64, np.float64, Partition
-]:
-    # create a new stream for this round
+def _group_uniform_deltas(
+    params: CompactPartitionParams, uniform_deltas: List[DeltaAnnotated]
+) -> List[List[DeltaAnnotated]]:
+    num_deltas = len(uniform_deltas)
+    num_rounds = params.num_rounds
+    if num_rounds == 1:
+        return [uniform_deltas]
+    assert (
+        num_rounds > 0
+    ), f"num_rounds parameter should be greater than zero but is {params.num_rounds}"
+    assert (
+        num_rounds <= num_deltas
+    ), f"{params.num_rounds} rounds should be less than the number of uniform deltas, which is {len(uniform_deltas)}"
+    size = ceil(num_deltas / num_rounds)
+    uniform_deltas_grouped = list(
+        map(
+            lambda x: uniform_deltas[x * size : x * size + size],
+            list(range(num_rounds)),
+        )
+    )
+    num_deltas_after_grouping = sum(len(sublist) for sublist in uniform_deltas_grouped)
+    assert (
+        num_deltas_after_grouping == num_deltas
+    ), f"uniform_deltas_grouped expected to have {num_deltas} deltas, but has {num_deltas_after_grouping}"
+    return uniform_deltas_grouped
+
+
+def _stage_new_partition(params: CompactPartitionParams) -> Partition:
     compacted_stream_locator: Optional[
         StreamLocator
     ] = params.destination_partition_locator.stream_locator
@@ -199,7 +218,19 @@ def _run_hash_and_merge(
         params.destination_partition_locator.partition_values,
         **params.deltacat_storage_kwargs,
     )
+    return compacted_partition
 
+
+def _run_hash_and_merge(
+    params: CompactPartitionParams,
+    uniform_deltas: List[DeltaAnnotated],
+    round_completion_info: RoundCompletionInfo,
+    delete_strategy: Optional[DeleteStrategy],
+    delete_file_envelopes: Optional[DeleteFileEnvelope],
+    mutable_compaction_audit: CompactionSessionAuditInfo,
+    previous_compacted_delta_manifest: Optional[Manifest],
+    compacted_partition: Partition,
+) -> List[MergeResult]:
     telemetry_time_hb = 0
     total_input_records_count = np.int64(0)
     total_hb_record_count = np.int64(0)
@@ -257,7 +288,6 @@ def _run_hash_and_merge(
         for hb_result in hb_results:
             hb_data_processed_size_bytes += hb_result.hb_size_bytes
             total_input_records_count += hb_result.hb_record_count
-
             for hash_group_index, object_id_size_tuple in enumerate(
                 hb_result.hash_bucket_group_to_obj_id_tuple
             ):
@@ -271,7 +301,6 @@ def _run_hash_and_merge(
                     all_hash_group_idx_to_num_rows[
                         hash_group_index
                     ] += object_id_size_tuple[2].item()
-
         logger.info(
             f"Got {total_input_records_count} hash bucket records from hash bucketing step..."
         )
@@ -330,26 +359,30 @@ def _run_hash_and_merge(
         f" Deleted records: {total_deleted_record_count}, "
     )
     logger.info(record_info_msg)
-    return (
-        merge_results,
-        telemetry_time_hb,
-        telemetry_time_merge,
-        compacted_partition,
+    telemetry_this_round = telemetry_time_hb + telemetry_time_merge
+    previous_telemetry = (
+        mutable_compaction_audit.telemetry_time_in_seconds
+        if mutable_compaction_audit.telemetry_time_in_seconds
+        else 0.0
     )
+    mutable_compaction_audit.set_telemetry_time_in_seconds(
+        telemetry_this_round + previous_telemetry
+    )
+    return merge_results
 
 
 def _merge(
     params: CompactPartitionParams,
-    task_resource_options_provider,
-    merge_resource_options_provider,
-    all_hash_group_idx_to_size_bytes,
-    all_hash_group_idx_to_num_rows,
-    round_completion_info,
-    previous_compacted_delta_manifest,
-    all_hash_group_idx_to_obj_id,
-    compacted_partition,
-    delete_strategy,
-    delete_file_envelopes,
+    task_resource_options_provider: callable,
+    merge_resource_options_provider: callable,
+    all_hash_group_idx_to_size_bytes: dict,
+    all_hash_group_idx_to_num_rows: dict,
+    round_completion_info: RoundCompletionInfo,
+    previous_compacted_delta_manifest: Manifest,
+    all_hash_group_idx_to_obj_id: dict,
+    compacted_partition: Partition,
+    delete_strategy: DeleteStrategy,
+    delete_file_envelopes: DeleteFileEnvelope,
 ) -> tuple[List[MergeResult], float]:
     merge_options_provider = functools.partial(
         task_resource_options_provider,
@@ -416,8 +449,9 @@ def _merge(
 
 def _hash_bucket(
     params: CompactPartitionParams,
-    uniform_deltas,
-):
+    uniform_deltas: List[DeltaAnnotated],
+) -> tuple[List[HashBucketResult], float]:
+
     hb_options_provider = functools.partial(
         task_resource_options_provider,
         pg_config=params.pg_config,
@@ -455,7 +489,6 @@ def _hash_bucket(
         options_provider=hb_options_provider,
         kwargs_provider=hash_bucket_input_provider,
     )
-
     hb_invoke_end = time.monotonic()
 
     logger.info(f"Getting {len(hb_tasks_pending)} hash bucket results...")
@@ -467,15 +500,15 @@ def _hash_bucket(
 
 def _run_local_merge(
     params: CompactPartitionParams,
-    uniform_deltas,
-    compacted_partition,
-    round_completion_info,
-    delete_strategy,
-    delete_file_envelopes,
-    mutable_compaction_audit,
-    previous_compacted_delta_manifest,
-    total_input_records_count,
-) -> tuple[list[Any], Any]:
+    uniform_deltas: List[DeltaAnnotated],
+    compacted_partition: Partition,
+    round_completion_info: RoundCompletionInfo,
+    delete_strategy: Optional[DeleteStrategy],
+    delete_file_envelopes: Optional[DeleteFileEnvelope],
+    mutable_compaction_audit: CompactionSessionAuditInfo,
+    previous_compacted_delta_manifest: Optional[Manifest],
+    total_input_records_count: np.int64,
+) -> tuple[List[MergeResult], np.int64]:
     local_merge_input: MergeInput = generate_local_merge_input(
         params,
         uniform_deltas,
@@ -513,8 +546,10 @@ def _run_local_merge(
 
 
 def _process_merge_results(
-    params: CompactPartitionParams, merge_results, mutable_compaction_audit
-) -> tuple[Delta, list[MaterializeResult], dict]:
+    params: CompactPartitionParams,
+    merge_results: List[MergeResult],
+    mutable_compaction_audit: CompactionSessionAuditInfo,
+) -> tuple[Delta, List[MaterializeResult], dict]:
     mat_results = []
     for merge_result in merge_results:
         mat_results.extend(merge_result.materialize_results)
@@ -522,19 +557,23 @@ def _process_merge_results(
     mat_results: List[MaterializeResult] = sorted(
         mat_results, key=lambda m: m.task_index
     )
-
     hb_id_to_entry_indices_range = {}
     file_index = 0
     previous_task_index = -1
 
+    duplicate_hash_bucket_mat_results = 0
     for mat_result in mat_results:
         assert (
             mat_result.pyarrow_write_result.files >= 1
-        ), "Atleast one file must be materialized"
-        assert (
-            mat_result.task_index != previous_task_index
-        ), f"Multiple materialize results found for a hash bucket: {mat_result.task_index}"
-
+        ), "At least one file must be materialized"
+        if mat_result.task_index == previous_task_index:
+            duplicate_hash_bucket_mat_results += 1
+        else:
+            duplicate_hash_bucket_mat_results = 0
+        assert duplicate_hash_bucket_mat_results < params.num_rounds, (
+            f"Duplicate record count ({duplicate_hash_bucket_mat_results}) is as large "
+            f"as or greater than params.num_rounds, which is {params.num_rounds}"
+        )
         hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
             file_index,
             file_index + mat_result.pyarrow_write_result.files,
@@ -548,9 +587,7 @@ def _process_merge_results(
         str(json.dumps(mutable_compaction_audit)),
         **params.s3_client_kwargs,
     )
-
     deltas: List[Delta] = [m.delta for m in mat_results]
-
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
     merged_delta: Delta = Delta.merge_deltas(
@@ -563,8 +600,8 @@ def _process_merge_results(
 
 def _upload_compaction_audit(
     params: CompactPartitionParams,
-    mutable_compaction_audit,
-    round_completion_info,
+    mutable_compaction_audit: CompactionSessionAuditInfo,
+    round_completion_info: RoundCompletionInfo,
 ) -> None:
 
     # After all incremental delta related calculations, we update
@@ -593,13 +630,13 @@ def _upload_compaction_audit(
 
 def _write_new_round_completion_file(
     params: CompactPartitionParams,
-    mutable_compaction_audit,
-    compacted_partition,
-    audit_url,
-    hb_id_to_entry_indices_range,
-    rcf_source_partition_locator,
-    new_compacted_delta_locator,
-    pyarrow_write_result,
+    mutable_compaction_audit: CompactionSessionAuditInfo,
+    compacted_partition: Partition,
+    audit_url: str,
+    hb_id_to_entry_indices_range: dict,
+    rcf_source_partition_locator: rcf.PartitionLocator,
+    new_compacted_delta_locator: DeltaLocator,
+    pyarrow_write_result: PyArrowWriteResult,
 ) -> ExecutionCompactionResult:
     input_inflation = None
     input_average_record_size_bytes = None
