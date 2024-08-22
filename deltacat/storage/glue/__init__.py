@@ -43,6 +43,8 @@ from deltacat.aws.clients import client_cache
 from deltacat.storage.glue.schema import glue_columns_to_arrow_schema
 from deltacat.storage.glue.exceptions import EntityNotFound
 
+# TODO: Store native object in every response
+
 
 def _get_client_from_kwargs(**kwargs):
     glue = client_cache("glue", kwargs.get("region", "us-east-1"))
