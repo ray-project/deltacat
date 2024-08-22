@@ -306,3 +306,36 @@ class TestGlueStorage:
         self._create_table("test-table", "test-namespace", glue, lf)
 
         assert gs.table_version_exists("test-namespace", "test-table", "1")
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_namespace_sanity(self):
+        namespace = gs.create_namespace(
+            "test-namespace",
+            {
+                "Principal": {"DataLakePrincipalIdentifier": self.TEST_PRINCIPAL},
+                "Permissions": ["SELECT"],
+            },
+        )
+
+        assert namespace.namespace == "test-namespace"
+        assert (
+            namespace.permissions[0]["Resource"]["Database"]["Name"] == "test-namespace"
+        )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_namespace_when_resource_overridden(self):
+        namespace = gs.create_namespace(
+            "test-namespace",
+            {
+                "Principal": {"DataLakePrincipalIdentifier": self.TEST_PRINCIPAL},
+                "Resource": {"Database": {"Name": "override"}},
+                "Permissions": ["SELECT"],
+            },
+        )
+
+        assert namespace.namespace == "test-namespace"
+        assert (
+            namespace.permissions[0]["Resource"]["Database"]["Name"] == "test-namespace"
+        )

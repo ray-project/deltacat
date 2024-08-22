@@ -157,7 +157,7 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
         result,
         response.get("NextToken"),
         lambda token: list_namespaces(
-            NextToken=token, MaxResults=params.get("MaxResults")
+            *args, NextToken=token, MaxResults=params.get("MaxResults"), **kwargs
         ),
     )
 
@@ -184,7 +184,9 @@ def list_tables(namespace: str, *args, **kwargs) -> ListResult[Table]:
     return ListResult.of(
         result,
         response.get("NextToken"),
-        lambda token: list_tables(NextToken=token, MaxResults=params.get("MaxResults")),
+        lambda token: list_tables(
+            *args, NextToken=token, MaxResults=params.get("MaxResults"), **kwargs
+        ),
     )
 
 
@@ -220,7 +222,7 @@ def list_table_versions(
             result,
             response.get("NextToken"),
             lambda token: list_tables(
-                NextToken=token, MaxResults=params.get("MaxResults")
+                *args, NextToken=token, MaxResults=params.get("MaxResults"), **kwargs
             ),
         )
     else:
@@ -420,7 +422,12 @@ def create_namespace(
     Creates a table namespace with the given name and permissions. Returns
     the created namespace.
     """
-    raise NotImplementedError("create_namespace not implemented")
+    glue, lf = _get_client_from_kwargs(**kwargs)
+    glue.create_database(DatabaseInput={"Name": namespace})
+    lf.grant_permissions(
+        **{**permissions, "Resource": {"Database": {"Name": namespace}}}
+    )
+    return get_namespace(namespace, *args, **kwargs)
 
 
 def update_namespace(
