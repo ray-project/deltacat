@@ -283,3 +283,26 @@ class TestGlueStorage:
         result = gs.list_table_versions("test-namespace", "test-table", MaxResults=1)
 
         assert len(result) == 3
+
+    @mock_glue
+    @mock_lakeformation
+    def test_table_version_exists_when_namespace_does_not_exist(self):
+        assert not gs.table_version_exists("test-namespace", "test-table", "1")
+
+    @mock_glue
+    @mock_lakeformation
+    def test_table_version_exists_when_table_does_not_exist(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        assert not gs.table_version_exists("test-namespace", "test-table", "1")
+
+    @mock_glue
+    @mock_lakeformation
+    def test_table_version_exists_when_version_exists(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_table("test-table", "test-namespace", glue, lf)
+
+        assert gs.table_version_exists("test-namespace", "test-table", "1")

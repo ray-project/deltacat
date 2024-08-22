@@ -850,7 +850,15 @@ def table_version_exists(
     """
     Returns True if the given table version exists, False if not.
     """
-    raise NotImplementedError("table_version_exists not implemented")
+    glue, lf = _get_client_from_kwargs(**kwargs)
+
+    try:
+        response = glue.get_table_version(
+            DatabaseName=namespace, TableName=table_name, VersionId=table_version
+        )
+        return "TableVersion" in response
+    except glue.exceptions.EntityNotFoundException:
+        return False
 
 
 def can_categorize(e: BaseException, *args, **kwargs) -> bool:
