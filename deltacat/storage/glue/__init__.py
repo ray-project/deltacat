@@ -40,8 +40,12 @@ from deltacat.types.media import (
 )
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.aws.clients import client_cache
-from deltacat.storage.glue.schema import glue_columns_to_arrow_schema
-from deltacat.storage.glue.exceptions import EntityNotFound
+from deltacat.storage.glue.schema import (
+    glue_columns_to_arrow_schema,
+    pyarrow_to_glue_type,
+)
+from deltacat.storage.glue.exceptions import EntityNotFound, UnsupportedOperationError
+from deltacat.exceptions import ValidationError
 
 # TODO: Store native object in every response
 
@@ -125,6 +129,7 @@ def _build_table_version_from_glue(
         description=glue_table.get("Description"),
         content_types=[ContentType.PARQUET],
         sort_keys=sort_keys,
+        properties={"nativeObject": glue_tv},
     )
 
 
@@ -135,6 +140,20 @@ def _build_namespace_from_glue(
     return Namespace.of(
         locator, permissions=lf_permissions.get("PrincipalResourcePermissions", {})
     )
+
+
+def _build_glue_columns_from_deltacat(schema: pa.Schema) -> List[Dict[str, Any]]:
+    glue_columns = []
+    for col in schema.names:
+        field = schema.field(col)
+        glue_columns.append(
+            {
+                "Name": field.name,
+                "Type": pyarrow_to_glue_type(field.type),
+                "Comment": (field.metadata or {}).get("comment", ""),
+            }
+        )
+    return glue_columns
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
@@ -441,7 +460,15 @@ def update_namespace(
     Updates a table namespace's name and/or permissions. Raises an error if the
     given namespace does not exist.
     """
-    raise NotImplementedError("update_namespace not implemented")
+    glue, lf = _get_client_from_kwargs(**kwargs)
+    if not namespace_exists(namespace, *args, **kwargs):
+        raise EntityNotFound(f"Namespace {namespace} does not exist")
+    if new_namespace is not None:
+        raise ValidationError("update_namespace cannot change name")
+    if permissions is not None:
+        lf.grant_permissions(
+            **{**permissions, "Resource": {"Database": {"Name": namespace}}}
+        )
 
 
 def create_table_version(
@@ -460,6 +487,8 @@ def create_table_version(
     table_properties: Optional[Dict[str, str]] = None,
     supported_content_types: Optional[List[ContentType]] = None,
     partition_spec: Optional[StreamPartitionSpec] = None,
+    extra_table_input: Optional[Dict[str, Any]] = None,
+    s3_location: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Stream:
@@ -487,15 +516,97 @@ def create_table_version(
     policies by specifying column names to pass through together with
     column names to coerce/validate.
 
-    Coerce: Coerce fields to fit the schema whenever possible. An explicit
-    subset of column names to coerce may optionally be specified.
+    Coerce: Coerce fields to fit the schema whenever possible. Not supported.
 
-    Validate: Raise an error for any fields that don't fit the schema. An
-    explicit subset of column names to validate may optionally be specified.
+    Validate: Raise an error for any fields that don't fit the schema. Not
+    supported.
 
     Either partition_keys or partition_spec must be specified but not both.
     """
-    raise NotImplementedError("create_table_version not implemented")
+    if not namespace_exists(namespace, *args, **kwargs):
+        raise EntityNotFound(f"Namespace {namespace} does not exist")
+
+    if primary_key_column_names is not None:
+        raise ValidationError(
+            "Glue does not have primary key concept."
+            "Refer https://docs.aws.amazon.com/glue/latest/dg/tables-described.html."
+        )
+
+    if (
+        schema_consistency is not None
+        and schema_consistency != SchemaConsistencyType.NONE
+    ):
+        raise ValidationError(
+            f"Cannot create a table version using {schema_consistency}. "
+            "Use schema on read instead."
+        )
+
+    glue, lf = _get_client_from_kwargs(**kwargs)
+    table_create_or_update_func = glue.create_table
+    op_kwargs, extra_storage_descriptors = {}, {}
+
+    if table_version is not None:
+        table_create_or_update_func = glue.update_table
+        op_kwargs["VersionId"] = str(table_version)
+
+    if s3_location is not None:
+        extra_storage_descriptors = {"Location": s3_location}
+
+    glue_columns = _build_glue_columns_from_deltacat(schema)
+    partition_columns = []
+    for glue_column in glue_columns:
+        if glue_column["Name"] in partition_keys:
+            partition_columns.append(glue_column)
+
+    sort_columns = []
+    sort_order_lookup = {SortOrder.ASCENDING.value: 1, SortOrder.DESCENDING.value: 0}
+    for sort_key in sort_keys or []:
+        sort_columns.append(
+            {
+                "Column": sort_key.key_name,
+                "SortOrder": sort_order_lookup.get(sort_key.sort_order.value),
+            }
+        )
+
+    description = (
+        table_version_description
+        if table_version_description is not None
+        else table_description
+    )
+
+    table_create_or_update_func(
+        DatabaseName=namespace,
+        TableInput={
+            "Name": table_name,
+            "PartitionKeys": partition_columns,
+            "StorageDescriptor": {
+                "Columns": glue_columns,
+                "SortColumns": sort_columns,
+                **extra_storage_descriptors,
+            },
+            "Description": description,
+            **(extra_table_input or {}),
+        },
+        **op_kwargs,
+    )
+
+    if table_permissions:
+        lf.grant_permissions(
+            **{
+                **table_permissions,
+                "Resource": {"Table": {"DatabaseName": namespace, "Name": table_name}},
+            }
+        )
+
+    if s3_location:
+        lf.register_resource(
+            ResourceArn=s3_location,
+            UseServiceLinkedRole=True,
+        )
+
+    # TODO: handle content types
+    # No stream exists for Glue table
+    return None
 
 
 def update_table(
@@ -514,7 +625,7 @@ def update_table(
     equal to those given when its first table version was created. Raises an
     error if the given table does not exist.
     """
-    raise NotImplementedError("update_table not implemented")
+    raise UnsupportedOperationError("Operation not supported.")
 
 
 def update_table_version(
@@ -538,7 +649,7 @@ def update_table_version(
     specify a different table version). Raises an error if the given table
     version does not exist.
     """
-    raise NotImplementedError("update_table_version not implemented")
+    raise UnsupportedOperationError("Operation not supported.")
 
 
 def stage_stream(

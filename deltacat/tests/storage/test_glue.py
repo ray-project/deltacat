@@ -4,6 +4,8 @@ import boto3
 import botocore
 from deltacat.storage import glue as gs
 from moto import mock_glue, mock_lakeformation
+from deltacat.exceptions import ValidationError
+import pyarrow as pa
 
 
 class TestGlueStorage:
@@ -44,7 +46,7 @@ class TestGlueStorage:
             },
         )
 
-    def _create_table_version(self, table_name, database_name, version, glue, lf):
+    def _create_table_version(self, database_name, table_name, version, glue, lf):
         try:
             self._create_table(table_name, database_name, glue, lf)
         except botocore.errorfactory.ClientError:
@@ -256,7 +258,7 @@ class TestGlueStorage:
     def test_get_table_version_when_multiple_versions(self):
         glue = boto3.client("glue", "us-east-1")
         lf = boto3.client("lakeformation", "us-east-1")
-        self._create_table_version("test-table", "test-namespace", "3", glue, lf)
+        self._create_table_version("test-namespace", "test-table", "3", glue, lf)
 
         # action
         result = gs.get_table_version("test-namespace", "test-table", "3")
@@ -277,7 +279,7 @@ class TestGlueStorage:
     def test_list_table_versions_when_multiple_versions(self):
         glue = boto3.client("glue", "us-east-1")
         lf = boto3.client("lakeformation", "us-east-1")
-        self._create_table_version("test-table", "test-namespace", "3", glue, lf)
+        self._create_table_version("test-namespace", "test-table", "3", glue, lf)
 
         # action
         result = gs.list_table_versions("test-namespace", "test-table", MaxResults=1)
@@ -339,3 +341,232 @@ class TestGlueStorage:
         assert (
             namespace.permissions[0]["Resource"]["Database"]["Name"] == "test-namespace"
         )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_update_namespace_when_namespace_absent(self):
+        with pytest.raises(gs.exceptions.EntityNotFound):
+            gs.update_namespace(
+                "test-namespace",
+                {
+                    "Principal": {"DataLakePrincipalIdentifier": self.TEST_PRINCIPAL},
+                    "Permissions": ["SELECT"],
+                },
+            )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_update_namespace_when_namespace_present(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        with pytest.raises(ValidationError):
+            gs.update_namespace(
+                "test-namespace",
+                {
+                    "Principal": {"DataLakePrincipalIdentifier": self.TEST_PRINCIPAL},
+                    "Permissions": ["SELECT"],
+                },
+                "test-new",
+            )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_update_namespace_new_permissions_granted(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        gs.update_namespace(
+            "test-namespace",
+            {
+                "Principal": {"DataLakePrincipalIdentifier": "new_role"},
+                "Permissions": ["ALL"],
+            },
+        )
+
+        ns = gs.get_namespace("test-namespace")
+
+        assert ns.namespace == "test-namespace"
+        assert len(ns.permissions) == 2
+
+        all_roles = [
+            p["Principal"]["DataLakePrincipalIdentifier"] for p in ns.permissions
+        ]
+        assert "new_role" in all_roles
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_table_version_when_namespace_does_not_exist(self):
+        with pytest.raises(gs.exceptions.EntityNotFound):
+            gs.create_table_version(
+                "test-namespace",
+                "test-table",
+            )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_table_version_when_primary_key_is_passed(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        with pytest.raises(ValidationError):
+            gs.create_table_version(
+                "test-namespace", "test-table", primary_key_column_names=["a"]
+            )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_table_version_when_schema_consistency_passed(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        with pytest.raises(ValidationError):
+            gs.create_table_version(
+                "test-namespace",
+                "test-table",
+                schema_consistency=gs.SchemaConsistencyType.VALIDATE,
+            )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_table_version_sanity(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        gs.create_table_version(
+            "test-namespace",
+            "test-table",
+            schema=pa.schema(
+                [
+                    ("pk_col_1", pa.int64()),
+                    ("pk_col_2", pa.decimal128(38, 9)),
+                    ("col_1", pa.string()),
+                ]
+            ),
+            partition_keys=["pk_col_1"],
+            sort_keys=[gs.SortKey.of("col_1", gs.SortOrder.ASCENDING)],
+            table_version_description="A new table version",
+            table_permissions={
+                "Principal": {"DataLakePrincipalIdentifier": self.TEST_PRINCIPAL},
+                "Resource": {"Database": {"Name": "test"}},
+                "Permissions": ["SELECT"],
+            },
+        )
+
+        result = gs.get_table_version("test-namespace", "test-table", "1")
+        assert result.table_name == "test-table"
+        assert result.namespace == "test-namespace"
+        assert result.table_version == "1"
+        assert result.description == "A new table version"
+        assert result.locator is not None
+        assert result.sort_keys == [gs.SortKey.of("col_1", gs.SortOrder.ASCENDING)]
+        assert result.partition_keys == ["pk_col_1"]
+        # We did not specify S3 location, so the table is not registered with LF
+        assert (
+            result.properties["nativeObject"].get("IsRegisteredWithLakeFormation")
+            is not True
+        )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_table_version_when_creating_iceberg_table(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        gs.create_table_version(
+            "test-namespace",
+            "test-table",
+            schema=pa.schema(
+                [
+                    ("pk_col_1", pa.int64()),
+                    ("pk_col_2", pa.decimal128(38, 9)),
+                    ("col_1", pa.string()),
+                ]
+            ),
+            partition_keys=["pk_col_1"],
+            sort_keys=[gs.SortKey.of("col_1", gs.SortOrder.ASCENDING)],
+            table_version_description="A new table version",
+            table_permissions={
+                "Principal": {"DataLakePrincipalIdentifier": self.TEST_PRINCIPAL},
+                "Resource": {"Database": {"Name": "test"}},
+                "Permissions": ["SELECT"],
+            },
+            s3_location="s3://test-bucket/test-prefix",
+            extra_table_input={
+                "Parameters": {
+                    "metadata_location": "s3://test-bucket/test-prefix/metadata",
+                    "table_type": "ICEBERG",
+                }
+            },
+        )
+
+        result = gs.get_table_version("test-namespace", "test-table", "1")
+        assert result.table_name == "test-table"
+        assert result.namespace == "test-namespace"
+        assert result.table_version == "1"
+        assert result.description == "A new table version"
+        assert result.locator is not None
+        assert result.sort_keys == [gs.SortKey.of("col_1", gs.SortOrder.ASCENDING)]
+        assert result.partition_keys == ["pk_col_1"]
+        assert (
+            result.properties["nativeObject"]["Table"]["Parameters"]["table_type"]
+            == "ICEBERG"
+        )
+
+    @mock_glue
+    @mock_lakeformation
+    def test_create_table_version_when_calling_create_twice(self):
+        glue = boto3.client("glue", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        lf = boto3.client("lakeformation", "us-east-1")
+        self._create_database("test-namespace", glue, lf)
+
+        gs.create_table_version(
+            "test-namespace",
+            "test-table",
+            schema=pa.schema(
+                [
+                    ("pk_col_1", pa.int64()),
+                    ("pk_col_2", pa.decimal128(38, 9)),
+                    ("col_1", pa.string()),
+                ]
+            ),
+            partition_keys=["pk_col_1"],
+            sort_keys=[gs.SortKey.of("col_1", gs.SortOrder.ASCENDING)],
+            table_version_description="A new table version",
+            table_permissions={
+                "Principal": {"DataLakePrincipalIdentifier": self.TEST_PRINCIPAL},
+                "Resource": {"Database": {"Name": "test"}},
+                "Permissions": ["SELECT"],
+            },
+        )
+
+        # update the same version
+        gs.create_table_version(
+            "test-namespace",
+            "test-table",
+            "1",
+            schema=pa.schema(
+                [
+                    ("pk_col_1", pa.int64()),
+                ]
+            ),
+            partition_keys=["pk_col_1"],
+            sort_keys=[gs.SortKey.of("col_1", gs.SortOrder.ASCENDING)],
+            table_version_description="A new table version 2",
+        )
+
+        result = gs.get_table_version("test-namespace", "test-table", "2")
+
+        assert result.table_name == "test-table"
+        assert result.namespace == "test-namespace"
+        assert result.table_version == "2"
+        assert result.description == "A new table version 2"
+        assert result.locator is not None
+        assert result.sort_keys == [gs.SortKey.of("col_1", gs.SortOrder.ASCENDING)]
