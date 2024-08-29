@@ -365,6 +365,7 @@ def _run_hash_and_merge(
         if mutable_compaction_audit.telemetry_time_in_seconds
         else 0.0
     )
+
     mutable_compaction_audit.set_telemetry_time_in_seconds(
         telemetry_this_round + previous_telemetry
     )
@@ -598,10 +599,10 @@ def _process_merge_results(
     return merged_delta, mat_results, hb_id_to_entry_indices_range
 
 
-def _upload_compaction_audit(
+def _update_and_upload_compaction_audit(
     params: CompactPartitionParams,
     mutable_compaction_audit: CompactionSessionAuditInfo,
-    round_completion_info: RoundCompletionInfo,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
 ) -> None:
 
     # After all incremental delta related calculations, we update
@@ -637,6 +638,7 @@ def _write_new_round_completion_file(
     rcf_source_partition_locator: rcf.PartitionLocator,
     new_compacted_delta_locator: DeltaLocator,
     pyarrow_write_result: PyArrowWriteResult,
+    prev_round_completion_info: Optional[RoundCompletionInfo] = None,
 ) -> ExecutionCompactionResult:
     input_inflation = None
     input_average_record_size_bytes = None
@@ -662,6 +664,12 @@ def _write_new_round_completion_file(
     logger.info(
         f"The inflation of input deltas={input_inflation}"
         f" and average record size={input_average_record_size_bytes}"
+    )
+
+    _update_and_upload_compaction_audit(
+        params,
+        mutable_compaction_audit,
+        prev_round_completion_info,
     )
 
     new_round_completion_info = RoundCompletionInfo.of(

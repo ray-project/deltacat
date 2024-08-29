@@ -87,6 +87,7 @@ class TestCompactionSession:
     INCREMENTAL_FILE_PATH = (
         "deltacat/tests/compute/compactor_v2/data/incremental_source_date_pk.csv"
     )
+    ERROR_RATE = 0.05
 
     def test_compact_partition_when_no_input_deltas_to_compact(
         self, local_deltacat_storage_kwargs
@@ -253,3 +254,148 @@ class TestCompactionSession:
         # as it should be running incremental
         assert compaction_audit.uniform_deltas_created == 1
         assert compaction_audit.input_records == 6
+
+    def test_compact_partition_when_incremental_then_rcf_stats_accurate(
+        self, s3_resource, local_deltacat_storage_kwargs
+    ):
+        """
+        A test case which asserts the RCF stats are correctly generated for
+        a rebase and incremental use-case.
+        """
+
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, [self.BACKFILL_FILE_PATH], **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        rcf_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 2,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                }
+            )
+        )
+
+        backfill_rcf = get_rcf(s3_resource, rcf_url)
+        _, compaction_audit_key = backfill_rcf.compaction_audit_url.strip(
+            "s3://"
+        ).split("/", 1)
+        compaction_audit = CompactionSessionAuditInfo(
+            **read_s3_contents(
+                s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
+            )
+        )
+
+        assert abs(backfill_rcf.input_inflation - 0.05235042735042735) <= 1e-5
+        assert abs(backfill_rcf.input_average_record_size_bytes - 12.25) <= 1e-5
+
+        assert compaction_audit.input_records == 4
+        assert compaction_audit.records_deduped == 0
+        assert compaction_audit.records_deleted == 0
+        assert compaction_audit.untouched_file_count == 0
+        assert compaction_audit.untouched_record_count == 0
+        assert compaction_audit.untouched_size_bytes == 0
+        assert compaction_audit.untouched_file_ratio == 0
+        assert compaction_audit.uniform_deltas_created == 1
+        assert compaction_audit.hash_bucket_count == 2
+        assert compaction_audit.input_file_count == 1
+        assert compaction_audit.output_file_count == 2
+        assert abs(compaction_audit.output_size_bytes - 1832) / 1832 <= self.ERROR_RATE
+        assert abs(compaction_audit.input_size_bytes - 936) / 936 <= self.ERROR_RATE
+
+        # Now run an incremental compaction and verify if the previous RCF was read properly.
+        new_source_delta = commit_delta_to_partition(
+            source_delta.partition_locator,
+            [self.INCREMENTAL_FILE_PATH],
+            **local_deltacat_storage_kwargs,
+        )
+
+        new_destination_partition = ds.get_partition(
+            dest_partition.stream_locator, [], **local_deltacat_storage_kwargs
+        )
+
+        new_rcf_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": new_destination_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 2,
+                    "last_stream_position_to_compact": new_source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": None,
+                    "rebase_source_partition_high_watermark": None,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": new_source_delta.partition_locator,
+                }
+            )
+        )
+
+        new_rcf = get_rcf(s3_resource, new_rcf_url)
+        _, compaction_audit_key = new_rcf.compaction_audit_url.strip("s3://").split(
+            "/", 1
+        )
+        compaction_audit = CompactionSessionAuditInfo(
+            **read_s3_contents(
+                s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
+            )
+        )
+
+        # as it should be running incremental
+        assert abs(new_rcf.input_inflation - 0.027292576419213975) <= 1e-5
+        assert abs(new_rcf.input_average_record_size_bytes - 12.5) <= 1e-5
+
+        assert compaction_audit.input_records == 6
+        assert compaction_audit.records_deduped == 1
+        assert compaction_audit.records_deleted == 0
+        assert compaction_audit.untouched_file_count == 1
+        assert compaction_audit.untouched_record_count == 2
+        assert (
+            abs(compaction_audit.untouched_size_bytes - 916) / 916 <= self.ERROR_RATE
+        )  # 5% error
+        assert abs(compaction_audit.untouched_file_ratio - 50) <= 1e-5
+        assert compaction_audit.uniform_deltas_created == 1
+        assert compaction_audit.hash_bucket_count == 2
+        assert compaction_audit.input_file_count == 3
+        assert compaction_audit.output_file_count == 2
+        assert abs(compaction_audit.output_size_bytes - 1843) / 1843 <= self.ERROR_RATE
+        assert abs(compaction_audit.input_size_bytes - 2748) / 2748 <= self.ERROR_RATE
