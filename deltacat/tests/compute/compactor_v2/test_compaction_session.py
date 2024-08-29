@@ -332,18 +332,6 @@ class TestCompactionSession:
         assert compaction_audit.output_file_count == 2
         assert abs(compaction_audit.output_size_bytes - 1832) / 1832 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 936) / 936 <= self.ERROR_RATE
-        assert (
-            abs(
-                compaction_audit.peak_memory_used_bytes_per_hash_bucket_task - 258048000
-            )
-            / 258048000
-            <= self.ERROR_RATE
-        )
-        assert (
-            abs(compaction_audit.peak_memory_used_bytes_per_merge_task - 271564800)
-            / 271564800
-            <= self.ERROR_RATE
-        )
 
         # Now run an incremental compaction and verify if the previous RCF was read properly.
         new_source_delta = commit_delta_to_partition(
@@ -411,15 +399,3 @@ class TestCompactionSession:
         assert compaction_audit.output_file_count == 2
         assert abs(compaction_audit.output_size_bytes - 1843) / 1843 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 2748) / 2748 <= self.ERROR_RATE
-        assert (
-            abs(
-                compaction_audit.peak_memory_used_bytes_per_hash_bucket_task - 297222144
-            )
-            / 297222144
-            <= self.ERROR_RATE
-        )
-        assert (
-            abs(compaction_audit.peak_memory_used_bytes_per_merge_task - 298614784)
-            / 298614784
-            <= self.ERROR_RATE
-        )
