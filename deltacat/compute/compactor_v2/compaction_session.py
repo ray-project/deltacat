@@ -43,7 +43,6 @@ from deltacat.compute.compactor_v2.private.compaction_utils import (
     _stage_new_partition,
     _run_hash_and_merge,
     _process_merge_results,
-    _upload_compaction_audit,
     _write_new_round_completion_file,
     _commit_compaction_result,
 )
@@ -201,11 +200,6 @@ def _execute_compaction(
 
     compaction_audit.save_round_completion_stats(mat_results)
 
-    _upload_compaction_audit(
-        params,
-        compaction_audit,
-        round_completion_info,
-    )
     compaction_result: ExecutionCompactionResult = _write_new_round_completion_file(
         params,
         compaction_audit,
@@ -215,5 +209,6 @@ def _execute_compaction(
         rcf_source_partition_locator,
         new_compacted_delta_locator,
         pyarrow_write_result,
+        round_completion_info,
     )
     return compaction_result
