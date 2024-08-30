@@ -126,3 +126,67 @@ class TestJsonFormatter(unittest.TestCase):
             "We expect task ID to be present inside a remote task",
         )
         ray.shutdown()
+
+    def test_format_when_ray_initialized_with_context_kwargs(self):
+        ray.init(local_mode=True, ignore_reinit_error=True)
+
+        formatter = JsonFormatter(
+            {"message": "msg"}, context_kwargs={"custom_key": "custom_val"}
+        )
+
+        record = LogRecord(
+            level="INFO",
+            name="test",
+            pathname="test",
+            lineno=0,
+            message="test_message",
+            msg="test_message",
+            args=None,
+            exc_info=None,
+        )
+
+        result = formatter.format(record)
+        result = json.loads(result)
+
+        self.assertEqual("test_message", result["message"])
+        self.assertTrue(ray.is_initialized())
+        self.assertIn("ray_runtime_context", result)
+        self.assertIn("job_id", result["ray_runtime_context"])
+        self.assertIn("node_id", result["ray_runtime_context"])
+        self.assertIn("worker_id", result["ray_runtime_context"])
+        self.assertNotIn(
+            "task_id",
+            result["ray_runtime_context"],
+            "We expect task ID not be present outside a remote task",
+        )
+        self.assertEqual("custom_val", result["additional_context"]["custom_key"])
+        ray.shutdown()
+
+    def test_format_with_context_kwargs(self):
+        ray.shutdown()
+        formatter = JsonFormatter(
+            {"message": "msg"}, context_kwargs={"custom_key": "custom_val"}
+        )
+
+        record = LogRecord(
+            level="INFO",
+            name="test",
+            pathname="test",
+            lineno=0,
+            message="test_message",
+            msg="test_message",
+            args=None,
+            exc_info=None,
+        )
+
+        result = formatter.format(record)
+
+        self.assertEqual(
+            {
+                "message": "test_message",
+                "additional_context": {"custom_key": "custom_val"},
+            },
+            json.loads(result),
+        )
+        self.assertFalse(ray.is_initialized())
+        self.assertNotIn("ray_runtime_context", json.loads(result))
