@@ -49,11 +49,13 @@ class JsonFormatter(logging.Formatter):
         fmt_dict: dict = None,
         time_format: str = "%Y-%m-%dT%H:%M:%S",
         msec_format: str = "%s.%03dZ",
+        context_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.fmt_dict = fmt_dict if fmt_dict is not None else {"message": "message"}
         self.default_time_format = time_format
         self.default_msec_format = msec_format
         self.datefmt = None
+        self.additional_context = context_kwargs or {}
         if ray.is_initialized():
             self.ray_runtime_ctx: RuntimeContext = ray.get_runtime_context()
             self.context = {}
@@ -117,6 +119,9 @@ class JsonFormatter(logging.Formatter):
 
             message_dict["ray_runtime_context"] = self.context
 
+        if self.additional_context:
+            message_dict["additional_context"] = self.additional_context
+
         return json.dumps(message_dict, default=str)
 
 
@@ -159,6 +164,7 @@ def _create_rotating_file_handler(
     max_bytes_per_log_file: int = DEFAULT_MAX_BYTES_PER_LOG,
     backup_count: int = DEFAULT_BACKUP_COUNT,
     logging_format: Union[str, dict] = DEFAULT_LOG_FORMAT,
+    context_kwargs: Dict[str, Any] = None,
 ) -> FileHandler:
 
     if type(logging_level) is str:
@@ -176,7 +182,9 @@ def _create_rotating_file_handler(
     if type(logging_format) is str:
         handler.setFormatter(logging.Formatter(logging_format))
     else:
-        handler.setFormatter(JsonFormatter(logging_format))
+        handler.setFormatter(
+            JsonFormatter(logging_format, context_kwargs=context_kwargs)
+        )
 
     handler.setLevel(logging_level)
     return handler
@@ -205,6 +213,7 @@ def _configure_logger(
     log_dir: str,
     log_base_file_name: str,
     debug_log_base_file_name: str,
+    context_kwargs: Dict[str, Any] = None,
 ) -> Union[Logger, LoggerAdapter]:
     # This maintains log level of rotating file handlers
     primary_log_level = log_level
@@ -212,13 +221,19 @@ def _configure_logger(
     if log_level <= logging.getLevelName("DEBUG"):
         if not _file_handler_exists(logger, log_dir, debug_log_base_file_name):
             handler = _create_rotating_file_handler(
-                log_dir, debug_log_base_file_name, "DEBUG"
+                log_dir,
+                debug_log_base_file_name,
+                "DEBUG",
+                context_kwargs=context_kwargs,
             )
             _add_logger_handler(logger, handler)
             primary_log_level = logging.getLevelName("INFO")
     if not _file_handler_exists(logger, log_dir, log_base_file_name):
         handler = _create_rotating_file_handler(
-            log_dir, log_base_file_name, primary_log_level
+            log_dir,
+            log_base_file_name,
+            primary_log_level,
+            context_kwargs=context_kwargs,
         )
         _add_logger_handler(logger, handler)
 
@@ -226,7 +241,9 @@ def _configure_logger(
 
 
 def configure_deltacat_logger(
-    logger: Logger, level: int = None
+    logger: Logger,
+    level: int = None,
+    context_kwargs: Dict[str, Any] = None,
 ) -> Union[Logger, LoggerAdapter]:
     if level is None:
         level = logging.getLevelName(DELTACAT_SYS_LOG_LEVEL)
@@ -237,11 +254,14 @@ def configure_deltacat_logger(
         DELTACAT_SYS_LOG_DIR,
         DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME,
         DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME,
+        context_kwargs,
     )
 
 
 def configure_application_logger(
-    logger: Logger, level: int = None
+    logger: Logger,
+    level: int = None,
+    context_kwargs: Dict[str, Any] = None,
 ) -> Union[Logger, LoggerAdapter]:
     if level is None:
         level = logging.getLevelName(DELTACAT_APP_LOG_LEVEL)
@@ -252,4 +272,5 @@ def configure_application_logger(
         DELTACAT_APP_LOG_DIR,
         DELTACAT_APP_INFO_LOG_BASE_FILE_NAME,
         DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME,
+        context_kwargs,
     )
