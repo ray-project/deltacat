@@ -11,10 +11,10 @@ from deltacat import logs
 from deltacat.storage import (
     Delta,
     DeltaType,
-    Manifest,
     ManifestEntry,
     ManifestEntryList,
 )
+from deltacat.storage.model.manifest import Manifest
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

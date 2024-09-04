@@ -1,34 +1,7 @@
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import List
+
 from deltacat.storage.model.transform import Transform
-
-"""
-An ordered list of partition values determining the values of
-ordered transforms specified in the partition spec.
-"""
-PartitionValues = List[Any]
-
-
-class PartitionFilter(dict):
-    """
-    This class represents a filter for partitions.
-    It is used to filter partitions based on certain criteria.
-    """
-
-    @staticmethod
-    def of(
-        partition_values: Optional[PartitionValues] = None,
-    ) -> PartitionFilter:
-        """
-        Creates a new PartitionFilter instance with the specified partition key and value.
-        """
-        partition_filter = PartitionFilter()
-        partition_filter["partitionValues"] = partition_values
-        return partition_filter
-
-    @property
-    def partition_values(self) -> Optional[PartitionValues]:
-        return self.get("partitionValues")
 
 
 class PartitionSpec(dict):
@@ -51,15 +24,6 @@ class PartitionSpec(dict):
     @ordered_transforms.setter
     def ordered_transforms(self, value: List[Transform]) -> None:
         self["orderedTransforms"] = value
-
-
-class StreamPartitionSpec(PartitionSpec):
-    """
-    A class representing a stream partition specification.
-    A stream partitions deltas into multiple different Partition
-    """
-
-    pass
 
 
 class DeltaPartitionSpec(PartitionSpec):

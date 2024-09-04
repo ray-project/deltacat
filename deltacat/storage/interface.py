@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 from deltacat.storage import (
-    DeleteParameters,
+    EntryParams,
     Delta,
     DeltaLocator,
     DeltaPartitionSpec,
@@ -12,7 +12,6 @@ from deltacat.storage import (
     ListResult,
     LocalDataset,
     LocalTable,
-    Manifest,
     ManifestAuthor,
     Namespace,
     NamespaceProperties,
@@ -32,6 +31,7 @@ from deltacat.storage import (
     TableVersion,
     TableVersionProperties,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.types.media import (
     ContentType,
     DistributedDatasetType,
@@ -216,9 +216,11 @@ def download_delta(
     table list, or ordered block N of a distributed dataset, always contain
     the contents of ordered delta manifest entry N.
 
-    partition_filter is an optional parameter which determines which files to
-    download from the delta manifest. A delta manifest contains all the data files
-    for a given delta.
+    Partition filters are only applicable to multi-partition deltas (i.e.
+    deltas whose partition locator has a partition scheme with 1+ keys but
+    undefined partition values). Multi-partition deltas have partition values
+    defined for each manifest entry but do not use the same partition value
+    for all entries.
     """
     raise NotImplementedError("download_delta not implemented")
 
@@ -321,12 +323,8 @@ def create_table_version(
     Validate: Raise an error for any fields that don't fit the schema. An
     explicit subset of column names to validate may optionally be specified.
 
-<<<<<<< HEAD
-    Either partition_keys or partition_spec must be specified but not both.
-=======
     Returns the stream for the created table version.
     Raises an error if the given namespace does not exist.
->>>>>>> e90114b ([WIP] First working version of Iceberg bucketed partition writeback using Daft.)
     """
     raise NotImplementedError("create_table_version not implemented")
 
@@ -428,16 +426,19 @@ def get_stream(
 
 
 def stage_partition(
-    stream: Stream, partition_values: Optional[PartitionValues] = None, *args, **kwargs
+    stream: Stream,
+    partition_values: Optional[PartitionValues] = None,
+    *args,
+    **kwargs
 ) -> Partition:
     """
     Stages a new partition for the given stream and partition values. Returns
     the staged partition. If this partition will replace another partition
-    with the same partition values, then it will have its previous partition ID
-    set to the ID of the partition being replaced. Partition keys should not be
-    specified for unpartitioned tables.
+    with the same partition values and scheme, then it will have its previous
+    partition ID set to the ID of the partition being replaced. Partition values
+    should not be specified for unpartitioned tables.
 
-    The partition_values must represents the results of transforms in a partition
+    The partition_values must represent the results of transforms in a partition
     spec specified in the stream.
     """
     raise NotImplementedError("stage_partition not implemented")
@@ -505,7 +506,7 @@ def stage_delta(
     properties: Optional[DeltaProperties] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
-    delete_parameters: Optional[DeleteParameters] = None,
+    entry_params: Optional[EntryParams] = None,
     partition_spec: Optional[DeltaPartitionSpec] = None,
     partition_values: Optional[PartitionValues] = None,
     *args,

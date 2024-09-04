@@ -6,12 +6,18 @@ from typing import Any, Dict, List, Optional
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.partition_spec import PartitionValues
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import CommitState
 from deltacat.types.media import ContentType
+
+
+"""
+An ordered list of partition values. Partition values are typically derived
+by applying one or more transforms to a table's fields.
+"""
+PartitionValues = List[Any]
 
 
 class Partition(dict):
@@ -414,3 +420,25 @@ class PartitionScheme(dict):
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
+
+
+class PartitionFilter(dict):
+    """
+    This class represents a filter for partitions (e.g. an equality match
+    filter against an ordered list of partition values).
+    """
+
+    @staticmethod
+    def of(
+        partition_values: Optional[PartitionValues] = None,
+    ) -> PartitionFilter:
+        """
+        Creates a new PartitionFilter instance with the given partition values.
+        """
+        partition_filter = PartitionFilter()
+        partition_filter["partitionValues"] = partition_values
+        return partition_filter
+
+    @property
+    def partition_values(self) -> Optional[PartitionValues]:
+        return self.get("partitionValues")

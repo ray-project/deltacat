@@ -38,7 +38,7 @@ def _add_deltas_to_partition(
             delta_data,
             partition,
             delta_type,
-            delete_parameters=delete_parameters,
+            entry_params=delete_parameters,
             **ds_mock_kwargs,
         )
         incremental_delta = ds.commit_delta(
@@ -87,7 +87,7 @@ def create_incremental_deltas_on_source_table(
                 incremental_data,
                 src_partition,
                 incremental_delta_type,
-                delete_parameters=incremental_delete_parameters,
+                entry_params=incremental_delete_parameters,
                 **ds_mock_kwargs,
             ),
             **ds_mock_kwargs,

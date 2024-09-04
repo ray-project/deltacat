@@ -1,9 +1,11 @@
-from deltacat.aws.redshift import (
+from deltacat.storage.model.manifest import (
+    EntryType,
+    EntryParams,
     Manifest,
     ManifestAuthor,
     ManifestEntry,
     ManifestEntryList,
-    ManifestMeta,
+    ManifestMeta, EntryParams,
 )
 from deltacat.storage.model.delta import (
     Delta,
@@ -21,7 +23,7 @@ from deltacat.storage.model.partition import (
     Partition,
     PartitionLocator,
     PartitionKey,
-    PartitionScheme,
+    PartitionScheme, PartitionValues, PartitionFilter,
 )
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.stream import Stream, StreamLocator
@@ -35,12 +37,8 @@ from deltacat.storage.model.table_version import (
     TableVersionLocator,
     TableVersionProperties,
 )
-from deltacat.storage.model.delete_parameters import DeleteParameters
 from deltacat.storage.model.partition_spec import (
-    PartitionFilter,
-    PartitionValues,
     DeltaPartitionSpec,
-    StreamPartitionSpec,
 )
 from deltacat.storage.model.transform import (
     Transform,
@@ -70,13 +68,14 @@ __all__ = [
     "BucketingStrategy",
     "BucketTransformParameters",
     "CommitState",
-    "DeleteParameters",
     "Delta",
     "DeltaPartitionSpec",
     "DeltaLocator",
     "DeltaProperties",
     "DeltaType",
     "DistributedDataset",
+    "EntryType",
+    "EntryParams",
     "LifecycleState",
     "ListResult",
     "LocalDataset",
@@ -92,11 +91,9 @@ __all__ = [
     "NamespaceProperties",
     "NullOrder",
     "Partition",
-    "PartitionFilter",
     "PartitionKey",
     "PartitionLocator",
     "PartitionScheme",
-    "PartitionValues",
     "Table",
     "TableLocator",
     "TableProperties",
@@ -109,7 +106,6 @@ __all__ = [
     "SortOrder",
     "SortScheme",
     "Stream",
-    "StreamPartitionSpec",
     "StreamLocator",
     "Transform",
     "TransformName",

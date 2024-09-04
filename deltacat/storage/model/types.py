@@ -4,15 +4,9 @@ from typing import List, Union
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-<<<<<<< HEAD
 from ray.data.dataset import Dataset
 from daft import DataFrame as DaftDataFrame
-=======
-import pkg_resources
->>>>>>> e90114b ([WIP] First working version of Iceberg bucketed partition writeback using Daft.)
 
-from ray.data.dataset import Dataset
-from daft import DataFrame
 
 LocalTable = Union[
     pa.Table,
@@ -21,27 +15,13 @@ LocalTable = Union[
     pa.parquet.ParquetFile,
 ]
 LocalDataset = List[LocalTable]
-<<<<<<< HEAD
 DistributedDataset = Union[Dataset, DaftDataFrame]
-=======
-
-# Starting Ray 2.5.0, Dataset follows a strict mode (https://docs.ray.io/en/latest/data/faq.html#migrating-to-strict-mode),
-# and generic annotation is removed. So add a version checker to determine whether to use the old or new definition.
-ray_version = pkg_resources.parse_version(pkg_resources.get_distribution("ray").version)
-change_version = pkg_resources.parse_version("2.5.0")
-if ray_version < change_version:
-    from ray.data._internal.arrow_block import ArrowRow
-
-    DistributedDataset = Union[Dataset[Union[ArrowRow, np.ndarray, Any]], DataFrame]
-else:
-    DistributedDataset = Union[Dataset, DataFrame]
 
 
 class CatalogType(str, Enum):
     ICEBERG = "iceberg"
     HUDI = "hudi"
     DELTA_LAKE = "delta_lake"
->>>>>>> e90114b ([WIP] First working version of Iceberg bucketed partition writeback using Daft.)
 
 
 class DeltaType(str, Enum):

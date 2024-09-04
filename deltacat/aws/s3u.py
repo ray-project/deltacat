@@ -36,10 +36,10 @@ from deltacat.storage import (
     DistributedDataset,
     LocalDataset,
     LocalTable,
-    Manifest,
     ManifestEntry,
     ManifestEntryList,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.types.media import (
     ContentEncoding,
     ContentType,

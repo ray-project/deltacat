@@ -23,7 +23,6 @@ from deltacat.storage import (
     ListResult,
     LocalDataset,
     LocalTable,
-    Manifest,
     ManifestAuthor,
     Namespace,
     NamespaceLocator,
@@ -43,10 +42,9 @@ from deltacat.storage import (
     CommitState,
     SortScheme,
     PartitionLocator,
-    ManifestMeta,
     ManifestEntry,
     ManifestEntryList,
-    DeleteParameters,
+    EntryParams,
     PartitionFilter,
     PartitionValues,
     DeltaPartitionSpec,
@@ -54,6 +52,7 @@ from deltacat.storage import (
     TransformName,
     IdentityTransformParameters,
 )
+from deltacat.storage.model.manifest import Manifest, ManifestMeta, EntryType
 from deltacat.types.media import (
     ContentType,
     StorageType,
@@ -994,7 +993,7 @@ def stage_delta(
     properties: Optional[DeltaProperties] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
-    delete_parameters: Optional[DeleteParameters] = None,
+    entry_params: Optional[EntryParams] = None,
     partition_spec: Optional[DeltaPartitionSpec] = None,
     partition_values: Optional[PartitionValues] = None,
     *args,
@@ -1042,12 +1041,15 @@ def stage_delta(
     stream_position = current_time_ms()
     delta_locator = DeltaLocator.of(partition.locator, stream_position=stream_position)
 
+    entry_type = EntryType.EQUALITY_DELETE if delta_type is DeltaType.DELETE else EntryType.DATA
     meta = ManifestMeta.of(
         len(data),
         len(serialized_data),
         content_type=content_type,
         content_encoding=ContentEncoding.IDENTITY,
         source_content_length=data.nbytes,
+        entry_type=entry_type,
+        entry_params=entry_params,
         partition_values=partition_values,
     )
 
@@ -1055,12 +1057,18 @@ def stage_delta(
         entries=ManifestEntryList.of(
             [
                 ManifestEntry.of(
-                    uri=uri, url=uri, meta=meta, mandatory=True, uuid=manifest_id
+                    uri=uri,
+                    url=uri,
+                    meta=meta,
+                    mandatory=True,
+                    uuid=manifest_id,
                 )
             ]
         ),
         author=author,
         uuid=manifest_id,
+        entry_type=entry_type,
+        entry_params=entry_params,
     )
 
     delta = Delta.of(
@@ -1070,7 +1078,6 @@ def stage_delta(
         properties=properties,
         manifest=manifest,
         previous_stream_position=partition.stream_position,
-        delete_parameters=delete_parameters,
     )
 
     params = (uri, serialized_data)

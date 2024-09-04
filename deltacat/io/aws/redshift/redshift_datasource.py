@@ -27,12 +27,8 @@ from ray.data.datasource.file_meta_provider import FastFileMetadataProvider
 from ray.types import ObjectRef
 
 from deltacat import ContentEncoding, ContentType, logs
-from deltacat.aws.redshift.model.manifest import (
-    Manifest,
-    ManifestEntry,
-    ManifestEntryList,
-    ManifestMeta,
-)
+from deltacat.storage import ManifestEntry, ManifestEntryList
+from deltacat.storage.model.manifest import Manifest, ManifestMeta
 from deltacat.aws.s3u import (
     S3Url,
     filter_objects_by_prefix,

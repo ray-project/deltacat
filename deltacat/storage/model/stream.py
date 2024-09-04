@@ -10,17 +10,20 @@ from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import CommitState
-from deltacat.storage.model.partition_spec import StreamPartitionSpec, PartitionValues
+from deltacat.storage import PartitionValues
 
 
 class Stream(dict):
+    """
+    An unbounded stream of Deltas, where each delta's records are optionally
+    partitioned according to the given partition scheme.
+    """
     @staticmethod
     def of(
         locator: Optional[StreamLocator],
         partition_keys: Optional[partition.PartitionScheme],
         state: Optional[CommitState] = None,
         previous_stream_id: Optional[bytes] = None,
-        partition_spec: Optional[StreamPartitionSpec] = None,
         native_object: Optional[Any] = None,
     ) -> Stream:
         stream = Stream()
@@ -28,7 +31,6 @@ class Stream(dict):
         stream.partition_keys = partition_keys
         stream.state = state
         stream.previous_stream_id = previous_stream_id
-        stream.partition_spec = partition_spec
         stream.native_object = native_object
         return stream
 
@@ -45,7 +47,17 @@ class Stream(dict):
 
     @property
     def partition_keys(self) -> Optional[partition.PartitionScheme]:
-        return self.get("partitionKeys")
+        """
+        A table's partition keys are defined within the context of a
+        Partition Scheme, which supports defining both fields to partition
+        a table by and optional transforms to apply to those fields to
+        derive the Partition Values that a given field, and its corresponding
+        record, belong to.
+        """
+        val: Dict[str, Any] = self.get("partitionKeys")
+        if val is not None and not isinstance(val, partition.PartitionScheme):
+            self.partition_keys = val = partition.PartitionScheme(val)
+        return val
 
     @partition_keys.setter
     def partition_keys(
@@ -74,25 +86,6 @@ class Stream(dict):
         self["state"] = state
 
     @property
-    def partition_spec(self) -> Optional[StreamPartitionSpec]:
-        """
-        If a table uses complex partitioning instead of identity,
-        partition spec can be specified to define that strategy.
-        For example, a partition spec can define a bucketing strategy
-        on composite column values or can define iceberg compliant
-        bucketing.
-
-        Either partition_spec or partition_keys must be specified but not both.
-        """
-        val: Dict[str, Any] = self.get("partitionSpec")
-        if val is not None and not isinstance(val, StreamPartitionSpec):
-            self.partition_spec = val = StreamPartitionSpec(val)
-        return val
-
-    @partition_spec.setter
-    def partition_spec(self, spec: StreamPartitionSpec) -> None:
-        self["partitionSpec"] = spec
-
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
 

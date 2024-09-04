@@ -1,6 +1,6 @@
 from typing import Optional, Dict
 
-from deltacat.aws.redshift import Manifest, ManifestMeta
+from deltacat.storage.model.manifest import Manifest, ManifestMeta
 from deltacat.storage import Partition, DeltaType, DeltaLocator, Delta
 from deltacat.utils.common import current_time_ms
 

@@ -494,7 +494,7 @@ class TableVersionMapper(OneWayModelMapper[IcebergTable, TableVersion]):
             locator=TableVersionLocatorMapper.map(obj, timestamp),
             schema=SchemaMapper.map(schema),
             partition_keys=PartitionSchemeMapper.map(partition_spec, schema),
-            primary_key_columns=None,
+            primary_key_columns=list(schema.identifier_field_names()) or None,
             description=None,
             properties=obj.properties,
             content_types=None,

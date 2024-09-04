@@ -36,10 +36,10 @@ from deltacat.storage import (
     Delta,
     DeltaLocator,
     DeltaType,
-    Manifest,
     Partition,
     interface as unimplemented_deltacat_storage,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
 from deltacat.constants import BYTES_PER_GIBIBYTE
 from deltacat.compute.compactor_v2.constants import (

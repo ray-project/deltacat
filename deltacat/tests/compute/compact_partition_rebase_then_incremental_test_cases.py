@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 
 from deltacat.storage import (
-    DeltaType,
+    DeltaType, EntryParams,
 )
 from deltacat.types.media import ContentType
 
@@ -38,7 +38,6 @@ from deltacat.tests.compute.compact_partition_test_cases import (
     ZERO_VALUED_PRIMARY_KEY,
     EMPTY_UTSV_PATH,
 )
-from deltacat.storage import DeleteParameters
 from deltacat.exceptions import ValidationError
 
 
@@ -53,7 +52,7 @@ class RebaseThenIncrementalCompactionTestCaseParams(BaseCompactorTestCase):
         rebase_expected_compact_partition_result: pa.Table - expected table after rebase compaction runs. An output that is asserted on in Rebase then Incremental unit tests
     """
 
-    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
+    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[EntryParams]]]
     rebase_expected_compact_partition_result: pa.Table
 
 
@@ -900,7 +899,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -908,7 +907,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -916,7 +915,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -924,7 +923,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -932,7 +931,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -940,7 +939,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -991,7 +990,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             )
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1043,7 +1042,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             )
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1099,7 +1098,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             )
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1186,7 +1185,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1257,7 +1256,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1317,7 +1316,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1382,7 +1381,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1393,7 +1392,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1414,7 +1413,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1474,7 +1473,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1539,7 +1538,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1681,7 +1680,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     ),
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1741,7 +1740,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1790,7 +1789,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1800,7 +1799,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1"]),
+                EntryParams.of(["pk_col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1880,7 +1879,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1890,7 +1889,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1900,7 +1899,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["sk_col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["sk_col_1"]),
+                EntryParams.of(["sk_col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -1953,7 +1952,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -1974,7 +1973,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["sk_col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["sk_col_1"]),
+                EntryParams.of(["sk_col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(
@@ -2024,7 +2023,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(["pk_col_1", "col_1"]),
             ),
         ],
         expected_terminal_compact_partition_result=pa.Table.from_arrays(

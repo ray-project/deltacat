@@ -10,7 +10,7 @@ from deltacat.compute.compactor_v2.model.merge_file_group import (
     LocalMergeFileGroupsProvider,
 )
 from deltacat.compute.compactor_v2.utils.delta import read_delta_file_envelopes
-from deltacat.storage import Delta, DeltaType
+from deltacat.storage import Delta, DeltaType, EntryParams
 from deltacat.compute.compactor import DeltaAnnotated, RoundCompletionInfo
 import deltacat.tests.local_deltacat_storage as ds
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
@@ -31,7 +31,6 @@ from deltacat.tests.test_utils.pyarrow import (
 from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
     DeleteFileEnvelope,
 )
-from deltacat.storage.model.delete_parameters import DeleteParameters
 from unittest.mock import patch
 from deltacat.tests.local_deltacat_storage.exceptions import (
     InvalidNamespaceError,
@@ -280,10 +279,10 @@ class TestMerge(unittest.TestCase):
             **incremental_kwargs,
         )
         # Erase entire base table by appending DELETE type bundle
-        test_delete_parameters = DeleteParameters.of(["pk1"])
+        test_delete_parameters = EntryParams.of(["pk1"])
         delete_kwargs = {
             "delta_type": DeltaType.DELETE,
-            "delete_parameters": test_delete_parameters,
+            "entry_params": test_delete_parameters,
             **self.kwargs,
         }
         delete_delta: Delta = create_delta_from_csv_file(
@@ -291,7 +290,7 @@ class TestMerge(unittest.TestCase):
             [self.DEDUPE_DELETE_DATA],
             **delete_kwargs,
         )
-        delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
+        delete_columns: List[str] = delete_delta.meta.entry_params.equality_column_names
         delete_table = download_delta(delete_delta, **delete_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
@@ -361,10 +360,10 @@ class TestMerge(unittest.TestCase):
             **incremental_kwargs,
         )
         # Erase entire base table by appending DELETE type bundle
-        test_delete_parameters = DeleteParameters.of(["pk1", "pk2"])
+        test_delete_parameters = EntryParams.of(["pk1", "pk2"])
         delete_kwargs = {
             "delta_type": DeltaType.DELETE,
-            "delete_parameters": test_delete_parameters,
+            "entry_params": test_delete_parameters,
             **self.kwargs,
         }
         delete_delta: Delta = create_delta_from_csv_file(
@@ -372,7 +371,7 @@ class TestMerge(unittest.TestCase):
             [self.DEDUPE_DELETE_DATA],
             **delete_kwargs,
         )
-        delete_columns: List[str] = delete_delta.delete_parameters.equality_column_names
+        delete_columns: List[str] = delete_delta.meta.entry_params.equality_column_names
         delete_table = download_delta(delete_delta, **delete_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(

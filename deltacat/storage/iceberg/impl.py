@@ -16,7 +16,6 @@ from deltacat.storage import (
     ListResult,
     LocalDataset,
     LocalTable,
-    Manifest,
     ManifestAuthor,
     Namespace,
     Partition,
@@ -33,6 +32,7 @@ from deltacat.storage import (
     NamespaceLocator,
     NamespaceProperties,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.storage.iceberg.model import (
     SchemaMapper,
     PartitionSchemeMapper,

@@ -27,9 +27,9 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
 from deltacat.storage import (
     Delta,
     DeltaLocator,
-    Manifest,
     Partition,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )

@@ -25,9 +25,9 @@ from deltacat.storage import (
     DeltaType,
     Partition,
     PartitionLocator,
-    Manifest,
     ManifestEntry,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.storage import interface as unimplemented_deltacat_storage
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType

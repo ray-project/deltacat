@@ -49,7 +49,7 @@ def _aggregate_delete_deltas(input_deltas: List[Delta]) -> Dict[int, List[Delta]
     ] = [
         (is_delete, list(delete_delta_group))
         for (is_delete, _), delete_delta_group in itertools.groupby(
-            input_deltas, lambda d: (d.type is DeltaType.DELETE, d.delete_parameters)
+            input_deltas, lambda d: (d.type is DeltaType.DELETE, d.meta.entry_params)
         )
     ]
     for (
@@ -89,11 +89,11 @@ def _get_delete_file_envelopes(
         consecutive_delete_tables: List[pa.Table] = []
         for delete_delta in delete_delta_sequence:
             assert (
-                delete_delta.delete_parameters is not None
+                delete_delta.meta.entry_params is not None
             ), "Delete type deltas are required to have delete parameters defined"
             delete_columns: Optional[
                 List[str]
-            ] = delete_delta.delete_parameters.equality_column_names
+            ] = delete_delta.meta.entry_params.equality_column_names
             assert len(delete_columns) > 0, "At least 1 delete column is required"
             # delete columns should exist in underlying table
             delete_dataset = params.deltacat_storage.download_delta(

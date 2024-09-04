@@ -1,22 +1,45 @@
-# Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import itertools
 import logging
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
+import itertools
+
 from enum import Enum
+from typing import Optional, List, Dict, Any
+from uuid import uuid4
 
 from deltacat import logs
+from deltacat.storage import PartitionValues
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class EntryType(str, Enum):
     """
-    Enum representing all possible content categories of an manifest entry file
-    """
+    Enum representing all possible content categories of a manifest entry file.
 
+    DATA: The entry contains fully qualified records compliant with the parent
+    table's schema to insert and/or update. Data files for upsert Deltas use
+    this entry's parameters to find matching fields to update. If no entry
+    parameters are specified, then the parent table's primary keys are used.
+    Only records from entries in Deltas with lower stream positions than this
+    entry will be targeted for update.
+
+    POSITIONAL_DELETE: The entry contains pointers to records in other entries
+    to delete. Deletes will be applied logically when serving merge-on-read
+    query results, or applied physically to entry files during copy-on-write
+    table compaction.
+
+    EQUALITY_DELETE: The entry contains a subset of field values from prior
+    table records to find and delete. The full record of any matching data
+    entries in Deltas with a lower stream position than this entry's Delta
+    will be deleted. The fields used for record discovery are controlled by
+    this entry's parameters. If no entry parameters are specified, then the
+    fields used for record discovery are linked to the parent table's primary
+    keys. The entry may contain additional fields not used for delete record
+    discovery which will be ignored. Deletes will be applied logically when
+    serving merge-on-read query results, or applied physically to entry files
+    during copy-on-write table compaction.
+    """
     DATA = "data"
     POSITIONAL_DELETE = "positional_delete"
     EQUALITY_DELETE = "equality_delete"
@@ -30,46 +53,55 @@ class EntryType(str, Enum):
         return [c.value for c in EntryType]
 
 
-class EntryFileParams(dict):
+class EntryParams(dict):
     """
-    Represents parameters relevant to the underlying contents of manifest entry. Contains all parameters required to support DELETEs
-    equality_column_names: List of column names that would be used to determine row equality for equality deletes.  Relevant only to equality deletes
-    position: Ordinal position of a deleted row in the target data file identified by uri, starting at 0. Relevant only to positional deletes
+    Parameters that control interpretation manifest entry interpretation.
+
+    For EQUALITY_DELETE manifest entry types, parameters include equality
+    field identifiers.
     """
 
     @staticmethod
     def of(
-        equality_column_names: Optional[List[str]] = None,
-        position: Optional[int] = None,
-    ) -> EntryFileParams:
-        entry_file_params = EntryFileParams()
+            equality_column_names: Optional[List[str]] = None,
+    ) -> EntryParams:
+        params = EntryParams()
         if equality_column_names is not None:
-            entry_file_params["equality_column_names"] = equality_column_names
-        if position is not None:
-            entry_file_params["position"] = position
-        return entry_file_params
+            params["equality_column_names"] = equality_column_names
+        return params
 
     @property
     def equality_column_names(self) -> Optional[List[str]]:
         return self.get("equality_column_names")
 
-    @property
-    def url(self) -> Optional[str]:
-        return self.get("url")
-
-    @property
-    def position(self) -> Optional[int]:
-        return self.get("position")
+    @staticmethod
+    def merge(
+            parameters: List[EntryParams],
+    ) -> Optional[EntryParams]:
+        if len(parameters) < 2:
+            return parameters
+        equality_column_names = parameters[0].equality_column_names
+        assert all(
+            prev.equality_column_names == curr.equality_column_names
+            for prev, curr in zip(
+                parameters, parameters[1:]
+            )
+        ), "Cannot merge entry parameters with different equality fields."
+        merged_params = EntryParams.of(equality_column_names)
+        return merged_params
 
 
 class Manifest(dict):
+    """
+    A DeltaCAT manifest contains metadata common to multiple manifest formats
+    like Amazon Redshift, Apache Iceberg, etc.
+    """
     @staticmethod
     def _build_manifest(
         meta: Optional[ManifestMeta],
         entries: Optional[ManifestEntryList],
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
-        entry_type: Optional[EntryType] = None,
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -81,8 +113,6 @@ class Manifest(dict):
             manifest["entries"] = entries
         if author is not None:
             manifest["author"] = author
-        if entry_type is not None:
-            manifest["entry_type"] = entry_type.value
         return manifest
 
     @staticmethod
@@ -91,6 +121,8 @@ class Manifest(dict):
         author: Optional[ManifestAuthor] = None,
         uuid: str = None,
         entry_type: Optional[EntryType] = None,
+        entry_params: Optional[EntryParams] = None,
+        partition_values: Optional[PartitionValues] = None,
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -100,7 +132,6 @@ class Manifest(dict):
         content_type = None
         content_encoding = None
         partition_values_set = set()
-        partition_values = None
         if entries:
             content_type = entries[0].meta.content_type
             content_encoding = entries[0].meta.content_encoding
@@ -126,6 +157,30 @@ class Manifest(dict):
                         f"'{entry_content_encoding}'"
                     )
                     raise ValueError(msg)
+                actual_entry_type = meta.entry_type
+                if entry_type and (actual_entry_type != entry_type):
+                    msg = (
+                        f"Expected all manifest entries to have type "
+                        f"'{entry_type}' but found '{actual_entry_type}'"
+                    )
+                    raise ValueError(msg)
+                actual_entry_params = meta.entry_params
+                if entry_params and (actual_entry_params != entry_params):
+                    msg = (
+                        f"Expected all manifest entries to have params "
+                        f"'{entry_params}' but found '{actual_entry_params}'"
+                    )
+                    raise ValueError(msg)
+                entry_partition_values = meta.partition_values
+                if (partition_values and
+                        (entry_partition_values != partition_values)):
+                    msg = (
+                        f"Expected all manifest entries to have partition "
+                        f"values '{partition_values}' but found "
+                        f"'{entry_partition_values}'"
+                    )
+                    raise ValueError(msg)
+
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
                 total_source_content_length += meta.source_content_length or 0
@@ -141,10 +196,11 @@ class Manifest(dict):
             content_type,
             content_encoding,
             total_source_content_length,
-            entry_type=entry_type,
-            partition_values=partition_values,
+            entry_type,
+            entry_params,
+            partition_values,
         )
-        manifest = Manifest._build_manifest(meta, entries, author, uuid, entry_type)
+        manifest = Manifest._build_manifest(meta, entries, author, uuid)
         return manifest
 
     @staticmethod
@@ -186,15 +242,16 @@ class Manifest(dict):
 class ManifestMeta(dict):
     @staticmethod
     def of(
-        record_count: Optional[int],
-        content_length: Optional[int],
-        content_type: Optional[str],
-        content_encoding: Optional[str],
-        source_content_length: Optional[int] = None,
-        credentials: Optional[Dict[str, str]] = None,
-        content_type_parameters: Optional[List[Dict[str, str]]] = None,
-        entry_type: Optional[EntryType] = None,
-        partition_values: Optional[List[str]] = None,
+            record_count: Optional[int],
+            content_length: Optional[int],
+            content_type: Optional[str],
+            content_encoding: Optional[str],
+            source_content_length: Optional[int] = None,
+            credentials: Optional[Dict[str, str]] = None,
+            content_type_parameters: Optional[List[Dict[str, str]]] = None,
+            entry_type: Optional[EntryType] = None,
+            entry_params: Optional[EntryParams] = None,
+            partition_values: Optional[PartitionValues] = None,
     ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
@@ -213,6 +270,8 @@ class ManifestMeta(dict):
             manifest_meta["credentials"] = credentials
         if entry_type is not None:
             manifest_meta["entry_type"] = entry_type.value
+        if entry_params is not None:
+            manifest_meta["entry_params"] = entry_params
         if partition_values is not None:
             manifest_meta["partition_values"] = partition_values
         return manifest_meta
@@ -257,27 +316,12 @@ class ManifestMeta(dict):
         return val
 
     @property
-    def partition_values(self) -> Optional[List[str]]:
+    def entry_params(self) -> Optional[EntryType]:
+        return self.get("entry_params")
+
+    @property
+    def partition_values(self) -> Optional[PartitionValues]:
         return self.get("partition_values")
-
-
-class ManifestAuthor(dict):
-    @staticmethod
-    def of(name: Optional[str], version: Optional[str]) -> ManifestAuthor:
-        manifest_author = ManifestAuthor()
-        if name is not None:
-            manifest_author["name"] = name
-        if version is not None:
-            manifest_author["version"] = version
-        return manifest_author
-
-    @property
-    def name(self) -> Optional[str]:
-        return self.get("name")
-
-    @property
-    def version(self) -> Optional[str]:
-        return self.get("version")
 
 
 class ManifestEntry(dict):
@@ -288,8 +332,6 @@ class ManifestEntry(dict):
         mandatory: bool = True,
         uri: Optional[str] = None,
         uuid: Optional[str] = None,
-        entry_type: Optional[EntryType] = None,
-        entry_file_params: Optional[EntryFileParams] = None,
     ) -> ManifestEntry:
         manifest_entry = ManifestEntry()
         if not (uri or url):
@@ -306,16 +348,6 @@ class ManifestEntry(dict):
             manifest_entry["mandatory"] = mandatory
         if uuid is not None:
             manifest_entry["id"] = uuid
-        if entry_type is not None:
-            manifest_entry["entry_type"] = entry_type.value
-        if entry_file_params is not None:
-            if entry_file_params.get("url") != manifest_entry.get("url"):
-                msg = (
-                    f"Expected manifest entry url: {manifest_entry.url}"
-                    f" and entry_file_params: '{entry_file_params.url}' to match"
-                )
-                raise ValueError(msg)
-            manifest_entry["entry_file_params"] = entry_file_params
         return manifest_entry
 
     @staticmethod
@@ -362,19 +394,24 @@ class ManifestEntry(dict):
     def id(self) -> Optional[str]:
         return self.get("id")
 
-    @property
-    def entry_type(self) -> Optional[EntryType]:
-        val = self.get("entry_type")
-        if val is not None:
-            return EntryType(self["entry_type"])
-        return val
+
+class ManifestAuthor(dict):
+    @staticmethod
+    def of(name: Optional[str], version: Optional[str]) -> ManifestAuthor:
+        manifest_author = ManifestAuthor()
+        if name is not None:
+            manifest_author["name"] = name
+        if version is not None:
+            manifest_author["version"] = version
+        return manifest_author
 
     @property
-    def entry_file_params(self) -> Optional[EntryFileParams]:
-        val: Dict[str, Any] = self.get("entry_file_params")
-        if val is not None and not isinstance(val, EntryFileParams):
-            self["entry_file_params"] = val = EntryFileParams(val)
-        return val
+    def name(self) -> Optional[str]:
+        return self.get("name")
+
+    @property
+    def version(self) -> Optional[str]:
+        return self.get("version")
 
 
 class ManifestEntryList(List[ManifestEntry]):
