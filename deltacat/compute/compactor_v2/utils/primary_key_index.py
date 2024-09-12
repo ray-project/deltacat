@@ -27,8 +27,11 @@ def _append_sha1_hash_to_table(table: pa.Table, hash_column: pa.Array) -> pa.Tab
 
     result = []
     for hash_value in hash_column_np:
-        assert hash_value is not None, f"Expected non-null primary key"
-        result.append(hashlib.sha1(hash_value.encode("utf-8")).hexdigest())
+        if hash_value is None:
+            result.append(None)
+            logger.info("A primary key hash is null")
+        else:
+            result.append(hashlib.sha1(hash_value.encode("utf-8")).hexdigest())
 
     return sc.append_pk_hash_string_column(table, result)
 
@@ -191,7 +194,7 @@ def generate_pk_hash_column(
             pk_columns.append(sliced_string_cast(table[pk_name]))
 
         pk_columns.append(PK_DELIMITER)
-        hash_column = pc.binary_join_element_wise(*pk_columns)
+        hash_column = pc.binary_join_element_wise(*pk_columns, null_handling="replace")
         return hash_column
 
     def _generate_uuid(table: pa.Table) -> pa.Array:
@@ -345,8 +348,10 @@ def hash_group_index_to_hash_bucket_indices(
     return range(hb_group, num_buckets, num_groups)
 
 
-def pk_digest_to_hash_bucket_index(digest: str, num_buckets: int) -> int:
+def pk_digest_to_hash_bucket_index(digest: Optional[str], num_buckets: int) -> int:
     """
     Generates the hash bucket index from the given digest.
     """
+    if digest is None:
+        return 0
     return int(digest, 16) % num_buckets
