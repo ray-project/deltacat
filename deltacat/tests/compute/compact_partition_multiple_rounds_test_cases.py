@@ -848,6 +848,83 @@ MULTIPLE_ROUNDS_TEST_CASES = {
         assert_compaction_audit=None,
         num_rounds=3,
     ),
+    # 4 input deltas (3 upsert, 1 delete delta), 2 rounds requested
+    # Expect to see a table that aggregates 10 records total
+    # (12 upserts - 2 deletes (null PK) = 10 records)
+    # (dropDuplicates = False)
+    "9-multiple-rounds-delete-deltas-with-null-pk": MultipleRoundsTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=ZERO_VALUED_SORT_KEY,
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values=["1"],
+        input_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([None, 11, 12, 13]),
+                        pa.array(["a", "b", "c", "d"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([14, 15, 16, 17]),
+                        pa.array(["e", "f", "g", "h"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([18, 19, 20, 21]),
+                        pa.array(["i", "j", "k", "l"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array([None, 11]), pa.array(["a", "b"])],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["pk_col_1", "col_1"]),
+            ),
+        ],
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([i for i in range(12, 22)]),
+                pa.array(["c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([i for i in range(12, 22)]),
+                pa.array(["c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=False,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=None,
+        num_rounds=2,
+    ),
 }
 
 MULTIPLE_ROUNDS_TEST_CASES = with_compactor_version_func_test_param(

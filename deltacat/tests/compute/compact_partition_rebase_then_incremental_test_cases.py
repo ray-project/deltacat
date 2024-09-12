@@ -798,6 +798,67 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
         skip_enabled_compact_partition_drivers=None,
         assert_compaction_audit=None,
     ),
+    "14-rebase-then-incremental-with-null-pk": RebaseThenIncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=[
+            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_name="sk_col_2"),
+        ],
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values=["1"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(9)] + [None]),
+                pa.array([i for i in range(0, 10)]),
+                pa.array(["foo"] * 10),
+                pa.array([i / 10 for i in range(10, 20)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(9)] + [None]),
+                pa.array([i for i in range(0, 10)]),
+                pa.array(["foo"] * 10),
+                pa.array([i / 10 for i in range(10, 20)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        incremental_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([str(i) for i in range(9)] + [None]),
+                        pa.array([i for i in range(20, 30)]),
+                        pa.array(["foo"] * 10),
+                        pa.array([i / 10 for i in range(40, 50)]),
+                    ],
+                    names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            )
+        ],
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([str(i) for i in range(9)] + [None]),
+                pa.array([i for i in range(20, 30)]),
+                pa.array(["foo"] * 10),
+                pa.array([i / 10 for i in range(40, 50)]),
+            ],
+            names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+        ),
+        expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        skip_enabled_compact_partition_drivers=None,
+        assert_compaction_audit=assert_compaction_audit,
+    ),
 }
 
 REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
@@ -1982,6 +2043,104 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
         drop_duplicates=True,
         skip_enabled_compact_partition_drivers=None,
         assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
+    ),
+    "31-rebase-then-incremental-delete-delta-on-incremental-null-pk-delete-null": RebaseThenIncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=ZERO_VALUED_SORT_KEY,
+        partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
+        partition_values=["1"],
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([i for i in range(11)] + [None]),
+                pa.array([str(i) for i in range(0, 12)]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        rebase_expected_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([i for i in range(11)] + [None]),
+                pa.array([str(i) for i in range(0, 12)]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        incremental_deltas=[
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([10, 11, None, 13]),
+                        pa.array(["a", "b", "c", "d"]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array([10, 11]), pa.array(["a", "b"])],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["pk_col_1", "col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array([None])],  # Support deleting null PK records
+                    names=["pk_col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["pk_col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array(["c"])],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array(["c"])],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array([10, 11]), pa.array(["a", "b"])],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["pk_col_1", "col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [pa.array(["c"])],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                DeleteParameters.of(["col_1"]),
+            ),
+        ],
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([i for i in range(10)] + [13]),
+                pa.array([str(i) for i in range(0, 10)] + ["d"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=DEFAULT_HASH_BUCKET_COUNT,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit,
     ),
 }
 

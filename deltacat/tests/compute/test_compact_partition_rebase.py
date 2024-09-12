@@ -249,6 +249,7 @@ def test_compact_partition_rebase_same_source_and_destination(
         pgm = PlacementGroupManager(
             1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
         ).pgs[0]
+    last_stream_position_to_compact = source_partition.stream_position
     compact_partition_params = CompactPartitionParams.of(
         {
             "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -258,17 +259,19 @@ def test_compact_partition_rebase_same_source_and_destination(
             "deltacat_storage_kwargs": ds_mock_kwargs,
             "destination_partition_locator": rebased_partition.locator,
             "hash_bucket_count": hash_bucket_count_param,
-            "last_stream_position_to_compact": source_partition.stream_position,
+            "last_stream_position_to_compact": last_stream_position_to_compact,
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "object_store": RayPlasmaObjectStore(),
             "pg_config": pgm,
             "primary_keys": primary_keys,
             "read_kwargs_provider": read_kwargs_provider_param,
             "rebase_source_partition_locator": source_partition.locator,
+            "rebase_source_partition_high_watermark": rebased_partition.stream_position,
             "records_per_compacted_file": records_per_compacted_file_param,
             "s3_client_kwargs": {},
             "source_partition_locator": rebased_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
+            "drop_duplicates": drop_duplicates_param,
         }
     )
 
@@ -300,14 +303,20 @@ def test_compact_partition_rebase_same_source_and_destination(
     compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
         s3_resource, rcf_file_s3_uri
     )
+    assert (
+        compacted_delta_locator.stream_position == last_stream_position_to_compact
+    ), "Compacted delta locator must be equal to last stream position"
     tables = ds.download_delta(
         compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
     )
     actual_rebase_compacted_table = pa.concat_tables(tables)
     # if no primary key is specified then sort by sort_key for consistent assertion
-    sorting_cols: List[Any] = (
-        [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
-    )
+    sorting_cols: List[Any] = []
+    if primary_keys:
+        sorting_cols.extend([(val, "ascending") for val in primary_keys])
+    if sort_keys:
+        sorting_cols.extend(sort_keys)
+
     rebase_expected_compact_partition_result = (
         rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)
     )
