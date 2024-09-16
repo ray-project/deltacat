@@ -299,7 +299,7 @@ def _categorize_tenacity_error(e: tenacity.RetryError):
 def _categorize_dependency_pyarrow_error(e: ArrowException):
     if isinstance(e, ArrowInvalid):
         raise DependencyPyarrowInvalidError(
-            f"Pyarrow Invalid error occurred. Reason: {e}"
+            f"Pyarrow Invalid error occurred. {e}"
         ) from e
     elif isinstance(e, ArrowCapacityError):
         raise DependencyPyarrowCapacityError("Pyarrow Capacity error occurred.") from e
@@ -308,9 +308,7 @@ def _categorize_dependency_pyarrow_error(e: ArrowException):
 
 
 def _categorize_assertion_error(e: BaseException):
-    raise ValidationError(
-        f"One of the assertions in DeltaCAT has failed. Reason: {e}"
-    ) from e
+    raise ValidationError(f"One of the assertions in DeltaCAT has failed. {e}") from e
 
 
 def _categorize_daft_error(e: DaftCoreException):
