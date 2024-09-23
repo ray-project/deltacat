@@ -413,6 +413,14 @@ class CompactPartitionParams(dict):
     def num_rounds(self, num_rounds: int) -> None:
         self["num_rounds"] = num_rounds
 
+    @property
+    def parquet_to_pyarrow_inflation(self) -> int:
+        return self["parquet_to_pyarrow_inflation"]
+
+    @parquet_to_pyarrow_inflation.setter
+    def parquet_to_pyarrow_inflation(self, value: int) -> None:
+        self["parquet_to_pyarrow_inflation"] = value
+
     @staticmethod
     def json_handler_for_compact_partition_params(obj):
         """
