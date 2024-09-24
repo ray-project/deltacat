@@ -4,11 +4,8 @@ from deltacat import logs
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     LocalMergeFileGroupsProvider,
 )
-from deltacat.types.media import ContentEncoding, ContentType
-from deltacat.types.partial_download import PartialParquetParameters
 from deltacat.storage import (
     Manifest,
-    ManifestEntry,
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.compute.compactor.model.delta_annotated import DeltaAnnotated
@@ -16,50 +13,21 @@ from deltacat.compute.compactor.model.round_completion_info import RoundCompleti
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
-from deltacat.compute.compactor_v2.constants import (
-    PARQUET_TO_PYARROW_INFLATION,
+from deltacat.compute.resource_requirements.utils import (
+    estimate_manifest_entry_num_rows,
+    estimate_manifest_entry_size_bytes,
+    estimate_manifest_entry_column_size_bytes,
 )
 from deltacat.exceptions import RetryableError
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _get_parquet_type_params_if_exist(
-    entry: ManifestEntry,
-) -> Optional[PartialParquetParameters]:
-    if (
-        entry.meta
-        and entry.meta.content_type == ContentType.PARQUET
-        and entry.meta.content_encoding == ContentEncoding.IDENTITY
-        and entry.meta.content_type_parameters
-    ):
-        for type_params in entry.meta.content_type_parameters:
-            if isinstance(type_params, PartialParquetParameters):
-                return type_params
-    return None
-
-
-def _calculate_parquet_column_size(
-    type_params: PartialParquetParameters, columns: List[str]
-):
-    column_size = 0.0
-    for rg in type_params.row_groups_to_download:
-        columns_found = 0
-        row_group_meta = type_params.pq_metadata.row_group(rg)
-        for col in range(row_group_meta.num_columns):
-            column_meta = row_group_meta.column(col)
-            if column_meta.path_in_schema in columns:
-                columns_found += 1
-                column_size += column_meta.total_uncompressed_size
-        assert columns_found == len(columns), (
-            "Columns not found in the parquet data as "
-            f"{columns_found} != {len(columns)}"
-        )
-    return column_size * PARQUET_TO_PYARROW_INFLATION
-
-
 def get_task_options(
-    cpu: float, memory: float, ray_custom_resources: Optional[Dict] = None
+    cpu: float,
+    memory: float,
+    ray_custom_resources: Optional[Dict] = None,
+    scheduling_strategy: str = "SPREAD",
 ) -> Dict:
 
     # NOTE: With DEFAULT scheduling strategy in Ray 2.20.0, autoscaler does
@@ -67,7 +35,11 @@ def get_task_options(
     # 20 tasks get scheduled out of 100 tasks in queue. Hence, we use SPREAD
     # which is also ideal for merge and hash bucket tasks.
     # https://docs.ray.io/en/latest/ray-core/scheduling/index.html
-    task_opts = {"num_cpus": cpu, "memory": memory, "scheduling_strategy": "SPREAD"}
+    task_opts = {
+        "num_cpus": cpu,
+        "memory": memory,
+        "scheduling_strategy": scheduling_strategy,
+    }
 
     if ray_custom_resources:
         task_opts["resources"] = ray_custom_resources
@@ -81,53 +53,12 @@ def get_task_options(
     return task_opts
 
 
-def estimate_manifest_entry_size_bytes(
-    entry: ManifestEntry, previous_inflation: float, **kwargs
-) -> float:
-    if entry.meta.source_content_length:
-        return entry.meta.source_content_length
-
-    type_params = _get_parquet_type_params_if_exist(entry=entry)
-
-    if type_params:
-        return type_params.in_memory_size_bytes * PARQUET_TO_PYARROW_INFLATION
-
-    return entry.meta.content_length * previous_inflation
-
-
-def estimate_manifest_entry_num_rows(
-    entry: ManifestEntry,
-    average_record_size_bytes: float,
-    previous_inflation: float,
-    **kwargs,
-) -> int:
-    if entry.meta.record_count:
-        return entry.meta.record_count
-
-    type_params = _get_parquet_type_params_if_exist(entry=entry)
-
-    if type_params:
-        return type_params.num_rows
-
-    total_size_bytes = estimate_manifest_entry_size_bytes(
-        entry=entry, previous_inflation=previous_inflation, **kwargs
+def append_content_type_params_options_provider(
+    index: int, item: Any, max_parquet_meta_size_bytes: int, **kwargs
+) -> Dict:
+    return get_task_options(
+        0.01, max_parquet_meta_size_bytes, scheduling_strategy="DEFAULT"
     )
-
-    return int(total_size_bytes / average_record_size_bytes)
-
-
-def estimate_manifest_entry_column_size_bytes(
-    entry: ManifestEntry, columns: Optional[List[str]] = None
-) -> Optional[float]:
-    if not columns:
-        return 0
-
-    type_params = _get_parquet_type_params_if_exist(entry=entry)
-
-    if type_params and type_params.pq_metadata:
-        return _calculate_parquet_column_size(type_params=type_params, columns=columns)
-
-    return None
 
 
 def hash_bucket_resource_options_provider(
@@ -136,6 +67,8 @@ def hash_bucket_resource_options_provider(
     previous_inflation: float,
     average_record_size_bytes: float,
     total_memory_buffer_percentage: int,
+    parquet_to_pyarrow_inflation: float,
+    force_use_previous_inflation: bool,
     primary_keys: List[str] = None,
     ray_custom_resources: Optional[Dict] = None,
     memory_logs_enabled: Optional[bool] = None,
@@ -153,12 +86,19 @@ def hash_bucket_resource_options_provider(
 
     for entry in item.manifest.entries:
         entry_size = estimate_manifest_entry_size_bytes(
-            entry=entry, previous_inflation=previous_inflation
+            entry=entry,
+            previous_inflation=previous_inflation,
+            parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+            force_use_previous_inflation=force_use_previous_inflation,
+            **kwargs,
         )
         num_rows += estimate_manifest_entry_num_rows(
             entry=entry,
             previous_inflation=previous_inflation,
+            parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
             average_record_size_bytes=average_record_size_bytes,
+            force_use_previous_inflation=force_use_previous_inflation,
+            **kwargs,
         )
         size_bytes += entry_size
 
@@ -166,6 +106,7 @@ def hash_bucket_resource_options_provider(
             pk_size = estimate_manifest_entry_column_size_bytes(
                 entry=entry,
                 columns=primary_keys,
+                parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
             )
 
             if pk_size is None:
@@ -209,6 +150,8 @@ def merge_resource_options_provider(
     hash_group_size_bytes: Dict[int, int],
     hash_group_num_rows: Dict[int, int],
     total_memory_buffer_percentage: int,
+    parquet_to_pyarrow_inflation: float,
+    force_use_previous_inflation: bool,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
@@ -247,6 +190,8 @@ def merge_resource_options_provider(
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
         memory_logs_enabled=memory_logs_enabled,
+        parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+        force_use_previous_inflation=force_use_previous_inflation,
     )
 
 
@@ -254,6 +199,8 @@ def local_merge_resource_options_provider(
     estimated_da_size: float,
     estimated_num_rows: int,
     total_memory_buffer_percentage: int,
+    parquet_to_pyarrow_inflation: float,
+    force_use_previous_inflation: bool,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
@@ -287,6 +234,8 @@ def local_merge_resource_options_provider(
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
         memory_logs_enabled=memory_logs_enabled,
+        parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+        force_use_previous_inflation=force_use_previous_inflation,
     )
 
 
@@ -301,6 +250,8 @@ def get_merge_task_options(
     incremental_index_array_size: int,
     debug_memory_params: Dict[str, Any],
     ray_custom_resources: Optional[Dict],
+    parquet_to_pyarrow_inflation: float,
+    force_use_previous_inflation: bool,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     primary_keys: Optional[List[str]] = None,
@@ -341,12 +292,17 @@ def get_merge_task_options(
                 entry = compacted_delta_manifest.entries[entry_index]
 
                 current_entry_size = estimate_manifest_entry_size_bytes(
-                    entry=entry, previous_inflation=previous_inflation
+                    entry=entry,
+                    previous_inflation=previous_inflation,
+                    parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+                    force_use_previous_inflation=force_use_previous_inflation,
                 )
                 current_entry_rows = estimate_manifest_entry_num_rows(
                     entry=entry,
                     average_record_size_bytes=average_record_size,
                     previous_inflation=previous_inflation,
+                    parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+                    force_use_previous_inflation=force_use_previous_inflation,
                 )
 
                 data_size += current_entry_size
@@ -356,6 +312,7 @@ def get_merge_task_options(
                     pk_size = estimate_manifest_entry_column_size_bytes(
                         entry=entry,
                         columns=primary_keys,
+                        parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
                     )
 
                     if pk_size is None:

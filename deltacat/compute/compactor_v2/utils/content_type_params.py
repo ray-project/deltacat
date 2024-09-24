@@ -1,66 +1,132 @@
 import logging
+import ray
+import functools
+from deltacat.compute.compactor_v2.constants import (
+    TASK_MAX_PARALLELISM,
+    MAX_PARQUET_METADATA_SIZE,
+)
+from deltacat.utils.ray_utils.concurrency import invoke_parallel
 from deltacat import logs
 from deltacat.storage import (
     Delta,
+    ManifestEntry,
     interface as unimplemented_deltacat_storage,
 )
 from typing import Dict, Optional, Any
-from deltacat.types.media import TableType, StorageType
+from deltacat.types.media import TableType
 from deltacat.types.media import ContentType
 from deltacat.types.partial_download import PartialParquetParameters
+from deltacat.compute.compactor_v2.utils.task_options import (
+    append_content_type_params_options_provider,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+def _contains_partial_parquet_parameters(entry: ManifestEntry) -> bool:
+    return (
+        entry.meta
+        and entry.meta.content_type_parameters
+        and any(
+            isinstance(type_params, PartialParquetParameters)
+            for type_params in entry.meta.content_type_parameters
+        )
+    )
+
+
+@ray.remote
+def _download_parquet_meta_for_manifest_entry(
+    delta: Delta,
+    entry_index: int,
+    deltacat_storage: unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict[Any, Any]] = {},
+) -> Dict[str, Any]:
+    pq_file = deltacat_storage.download_delta_manifest_entry(
+        delta,
+        entry_index=entry_index,
+        table_type=TableType.PYARROW_PARQUET,
+        **deltacat_storage_kwargs,
+    )
+
+    return {
+        "entry_index": entry_index,
+        "partial_parquet_params": PartialParquetParameters.of(
+            pq_metadata=pq_file.metadata
+        ),
+    }
+
+
 def append_content_type_params(
     delta: Delta,
-    entry_index: Optional[int] = None,
+    task_max_parallelism: int = TASK_MAX_PARALLELISM,
+    max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> None:
 
-    if delta.meta.content_type != ContentType.PARQUET.value:
-        logger.info(
-            f"Delta with locator {delta.locator} is not a parquet delta, "
-            "skipping appending content type parameters."
-        )
+    if not delta.meta:
+        logger.warning(f"Delta with locator {delta.locator} doesn't contain meta.")
         return
 
-    manifest_entries = delta.manifest.entries
-    ordered_pq_meta = []
+    entry_indices_to_download = []
+    for entry_index, entry in enumerate(delta.manifest.entries):
+        if (
+            not _contains_partial_parquet_parameters(entry)
+            and entry.meta
+            and entry.meta.content_type == ContentType.PARQUET.value
+        ):
+            entry_indices_to_download.append(entry_index)
 
-    if entry_index is not None:
-        manifest_entries = [delta.manifest.entries[entry_index]]
+    if not entry_indices_to_download:
+        logger.info(f"No parquet entries found for delta with locator {delta.locator}.")
+        return
 
-        pq_file = deltacat_storage.download_delta_manifest_entry(
-            delta,
-            entry_index=entry_index,
-            table_type=TableType.PYARROW_PARQUET,
-            **deltacat_storage_kwargs,
-        )
+    options_provider = functools.partial(
+        append_content_type_params_options_provider,
+        max_parquet_meta_size_bytes=max_parquet_meta_size_bytes,
+    )
 
-        partial_file_meta = PartialParquetParameters.of(pq_metadata=pq_file.metadata)
-        ordered_pq_meta.append(partial_file_meta)
+    def input_provider(index, item) -> Dict:
+        return {
+            "deltacat_storage_kwargs": deltacat_storage_kwargs,
+            "deltacat_storage": deltacat_storage,
+            "delta": delta,
+            "entry_index": item,
+        }
 
-    else:
-        pq_files = deltacat_storage.download_delta(
-            delta,
-            table_type=TableType.PYARROW_PARQUET,
-            storage_type=StorageType.LOCAL,
-            **deltacat_storage_kwargs,
-        )
+    logger.info(
+        f"Downloading parquet meta for {len(entry_indices_to_download)} manifest entries..."
+    )
+    pq_files_promise = invoke_parallel(
+        entry_indices_to_download,
+        ray_task=_download_parquet_meta_for_manifest_entry,
+        max_parallelism=task_max_parallelism,
+        options_provider=options_provider,
+        kwargs_provider=input_provider,
+    )
 
-        assert len(pq_files) == len(
-            manifest_entries
-        ), f"Expected {len(manifest_entries)} pq files, got {len(pq_files)}"
+    partial_file_meta_list = ray.get(pq_files_promise)
 
-        ordered_pq_meta = [
-            PartialParquetParameters.of(pq_metadata=pq_file.metadata)
-            for pq_file in pq_files
-        ]
+    logger.info(
+        f"Downloaded parquet meta for {len(entry_indices_to_download)} manifest entries"
+    )
 
-    for entry_index, entry in enumerate(manifest_entries):
+    assert len(partial_file_meta_list) == len(
+        entry_indices_to_download
+    ), f"Expected {len(entry_indices_to_download)} pq files, got {len(partial_file_meta_list)}"
+
+    for index, entry_index in enumerate(entry_indices_to_download):
+        assert (
+            entry_index == partial_file_meta_list[index]["entry_index"]
+        ), "entry_index must match with the associated parquet meta"
+        entry = delta.manifest.entries[entry_index]
         if not entry.meta.content_type_parameters:
             entry.meta.content_type_parameters = []
+        entry.meta.content_type_parameters.append(
+            partial_file_meta_list[index]["partial_parquet_params"]
+        )
 
-        entry.meta.content_type_parameters.append(ordered_pq_meta[entry_index])
+    for entry_index, entry in enumerate(delta.manifest.entries):
+        assert _contains_partial_parquet_parameters(
+            entry
+        ), "partial parquet params validation failed."

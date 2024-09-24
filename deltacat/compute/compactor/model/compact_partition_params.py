@@ -23,6 +23,8 @@ from deltacat.compute.compactor_v2.constants import (
     TOTAL_MEMORY_BUFFER_PERCENTAGE,
     DEFAULT_DISABLE_COPY_BY_REFERENCE,
     DEFAULT_NUM_ROUNDS,
+    PARQUET_TO_PYARROW_INFLATION,
+    MAX_PARQUET_METADATA_SIZE,
 )
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
@@ -104,6 +106,20 @@ class CompactPartitionParams(dict):
         result.metrics_config = params.get("metrics_config")
 
         result.num_rounds = params.get("num_rounds", DEFAULT_NUM_ROUNDS)
+        result.parquet_to_pyarrow_inflation = params.get(
+            "parquet_to_pyarrow_inflation", PARQUET_TO_PYARROW_INFLATION
+        )
+        result.force_using_previous_inflation_for_memory_calculation = params.get(
+            "force_using_previous_inflation_for_memory_calculation", False
+        )
+
+        # disable input split during rebase as the rebase files are already uniform
+        result.enable_input_split = (
+            params.get("rebase_source_partition_locator") is None
+        )
+        result.max_parquet_meta_size_bytes = params.get(
+            "max_parquet_meta_size_bytes", MAX_PARQUET_METADATA_SIZE
+        )
 
         if not importlib.util.find_spec("memray"):
             result.enable_profiler = False
@@ -414,12 +430,56 @@ class CompactPartitionParams(dict):
         self["num_rounds"] = num_rounds
 
     @property
-    def parquet_to_pyarrow_inflation(self) -> int:
+    def parquet_to_pyarrow_inflation(self) -> float:
+        """
+        The inflation factor for the parquet uncompressed_size_bytes to pyarrow table size.
+        """
         return self["parquet_to_pyarrow_inflation"]
 
     @parquet_to_pyarrow_inflation.setter
-    def parquet_to_pyarrow_inflation(self, value: int) -> None:
+    def parquet_to_pyarrow_inflation(self, value: float) -> None:
         self["parquet_to_pyarrow_inflation"] = value
+
+    @property
+    def enable_input_split(self) -> bool:
+        """
+        When this is True, the input split will be always enabled for parquet files.
+        The input split feature will split the parquet files into individual row groups
+        so that we could process them in different nodes in parallel.
+        By default, input split is enabled for incremental compaction and disabled for rebase.
+        """
+        return self["enable_input_split"]
+
+    @enable_input_split.setter
+    def enable_input_split(self, value: bool) -> None:
+        self["enable_input_split"] = value
+
+    @property
+    def force_using_previous_inflation_for_memory_calculation(self) -> bool:
+        """
+        When this is True, the memory estimation will always use previous inflation
+        and average record size for all data formats even if format specific metadata
+        is available to make better predictions of memory requirements.
+
+        By default, previous inflation is used for non-parquet files to estimate memory while
+        parquet metadata will be used for parquet to estimate memory. We only fallback
+        to previous inflation if parquet metadata isn't available.
+        """
+        return self["force_using_previous_inflation_for_memory_calculation"]
+
+    @force_using_previous_inflation_for_memory_calculation.setter
+    def force_using_previous_inflation_for_memory_calculation(
+        self, value: bool
+    ) -> None:
+        self["force_using_previous_inflation_for_memory_calculation"] = value
+
+    @property
+    def max_parquet_meta_size_bytes(self) -> int:
+        return self["max_parquet_meta_size_bytes"]
+
+    @max_parquet_meta_size_bytes.setter
+    def max_parquet_meta_size_bytes(self, value: int) -> None:
+        self["max_parquet_meta_size_bytes"] = value
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

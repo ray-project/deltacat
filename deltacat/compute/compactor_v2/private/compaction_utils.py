@@ -152,9 +152,12 @@ def _build_uniform_deltas(
         previous_inflation=params.previous_inflation,
         min_delta_bytes=params.min_delta_bytes_in_batch,
         min_file_counts=params.min_files_in_batch,
-        # disable input split during rebase as the rebase files are already uniform
-        enable_input_split=params.rebase_source_partition_locator is None,
+        enable_input_split=params.enable_input_split,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
+        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
+        task_max_parallelism=params.task_max_parallelism,
+        max_parquet_meta_size_bytes=params.max_parquet_meta_size_bytes,
     )
     delta_discovery_end: float = time.monotonic()
 
@@ -400,6 +403,8 @@ def _merge(
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,
+        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
+        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
     )
 
     def merge_input_provider(index, item) -> dict[str, MergeInput]:
@@ -463,6 +468,8 @@ def _hash_bucket(
         primary_keys=params.primary_keys,
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,
+        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
+        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
     )
 
     def hash_bucket_input_provider(index, item) -> dict[str, HashBucketInput]:
@@ -537,6 +544,8 @@ def _run_local_merge(
         ray_custom_resources=params.ray_custom_resources,
         primary_keys=params.primary_keys,
         memory_logs_enabled=params.memory_logs_enabled,
+        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
+        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
     )
     local_merge_result = ray.get(
         mg.merge.options(**local_merge_options).remote(local_merge_input)
@@ -664,6 +673,11 @@ def _write_new_round_completion_file(
     logger.info(
         f"The inflation of input deltas={input_inflation}"
         f" and average record size={input_average_record_size_bytes}"
+    )
+
+    mutable_compaction_audit.set_observed_input_inflation(input_inflation)
+    mutable_compaction_audit.set_observed_input_average_record_size_bytes(
+        input_average_record_size_bytes
     )
 
     _update_and_upload_compaction_audit(

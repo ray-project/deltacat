@@ -69,6 +69,7 @@ class DeltaAnnotated(Delta):
         estimation_function: Optional[
             Callable[[ManifestEntry], float]
         ] = lambda entry: entry.meta.content_length,
+        enable_input_split: Optional[bool] = False,
     ) -> List[DeltaAnnotated]:
         """
         Simple greedy algorithm to split/merge 1 or more annotated deltas into
@@ -86,13 +87,19 @@ class DeltaAnnotated(Delta):
         new_da_bytes = 0
         da_group_entry_count = 0
 
-        for delta_annotated in annotated_deltas:
-            split_annotated_deltas.extend(DeltaAnnotated._split_single(delta_annotated))
+        if enable_input_split:
+            for delta_annotated in annotated_deltas:
+                split_annotated_deltas.extend(
+                    DeltaAnnotated._split_single(delta_annotated)
+                )
 
-        logger.info(
-            f"Split the {len(annotated_deltas)} annotated deltas "
-            f"into {len(split_annotated_deltas)} groups."
-        )
+            logger.info(
+                f"Split the {len(annotated_deltas)} annotated deltas "
+                f"into {len(split_annotated_deltas)} groups."
+            )
+        else:
+            logger.info("Skipping input split as it is disabled...")
+            split_annotated_deltas = annotated_deltas
 
         for src_da in split_annotated_deltas:
             src_da_annotations = src_da.annotations

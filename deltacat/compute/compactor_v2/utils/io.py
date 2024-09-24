@@ -90,6 +90,10 @@ def create_uniform_input_deltas(
     input_deltas: List[Delta],
     hash_bucket_count: int,
     compaction_audit: CompactionSessionAuditInfo,
+    parquet_to_pyarrow_inflation: Optional[float],
+    force_use_previous_inflation: Optional[bool],
+    task_max_parallelism: Optional[int],
+    max_parquet_meta_size_bytes: Optional[int],
     min_delta_bytes: Optional[float] = MIN_DELTA_BYTES_IN_BATCH,
     min_file_counts: Optional[float] = MIN_FILES_IN_BATCH,
     previous_inflation: Optional[float] = PYARROW_INFLATION_MULTIPLIER,
@@ -105,10 +109,13 @@ def create_uniform_input_deltas(
 
     for delta in input_deltas:
         if enable_input_split:
+            # An idempotent operation to ensure content type params exist
             append_content_type_params(
                 delta=delta,
                 deltacat_storage=deltacat_storage,
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
+                task_max_parallelism=task_max_parallelism,
+                max_parquet_meta_size_bytes=max_parquet_meta_size_bytes,
             )
 
         manifest_entries = delta.manifest.entries
@@ -118,7 +125,10 @@ def create_uniform_input_deltas(
             entry = manifest_entries[entry_index]
             delta_bytes += entry.meta.content_length
             estimated_da_bytes += estimate_manifest_entry_size_bytes(
-                entry=entry, previous_inflation=previous_inflation
+                entry=entry,
+                previous_inflation=previous_inflation,
+                parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+                force_use_previous_inflation=force_use_previous_inflation,
             )
 
         delta_annotated = DeltaAnnotated.of(delta)
@@ -129,13 +139,17 @@ def create_uniform_input_deltas(
     logger.info(f"Input delta files to compact: {delta_manifest_entries_count}")
 
     size_estimation_function = functools.partial(
-        estimate_manifest_entry_size_bytes, previous_inflation=previous_inflation
+        estimate_manifest_entry_size_bytes,
+        previous_inflation=previous_inflation,
+        parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+        force_use_previous_inflation=force_use_previous_inflation,
     )
     rebatched_da_list = DeltaAnnotated.rebatch(
         input_da_list,
         min_delta_bytes=min_delta_bytes,
         min_file_counts=min_file_counts,
         estimation_function=size_estimation_function,
+        enable_input_split=enable_input_split,
     )
 
     compaction_audit.set_input_size_bytes(delta_bytes)
