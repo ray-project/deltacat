@@ -109,7 +109,7 @@ def create_uniform_input_deltas(
     input_da_list = []
 
     for delta in input_deltas:
-        if enable_input_split:
+        if enable_input_split or enable_intelligent_size_estimation:
             # An idempotent operation to ensure content type params exist
             append_content_type_params(
                 delta=delta,

@@ -267,6 +267,8 @@ def assert_compaction_audit(
             compaction_audit.peak_memory_used_bytes_per_task,
             compaction_audit.pyarrow_version,
             compaction_audit.telemetry_time_in_seconds,
+            compaction_audit.observed_input_inflation,
+            compaction_audit.observed_input_average_record_size_bytes,
         ]
         for entry in audit_entries:
             assert entry is not None
