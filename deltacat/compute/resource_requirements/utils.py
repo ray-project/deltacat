@@ -77,16 +77,19 @@ def estimate_manifest_entry_size_bytes(
     if type_params and type_params.row_groups_to_download:
         if not force_use_previous_inflation:
             logger.debug(f"Using parquet meta for entry={entry.uri}")
-            column_names = [
-                type_params.pq_metadata.row_group(0).column(col).path_in_schema
-                for col in range(type_params.pq_metadata.num_columns)
-            ]
-            return estimate_manifest_entry_column_size_bytes(
-                entry=entry,
-                parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-                columns=column_names,
-                enable_intelligent_size_estimation=enable_intelligent_size_estimation,
-            )
+            if enable_intelligent_size_estimation:
+                column_names = [
+                    type_params.pq_metadata.row_group(0).column(col).path_in_schema
+                    for col in range(type_params.pq_metadata.num_columns)
+                ]
+                return estimate_manifest_entry_column_size_bytes(
+                    entry=entry,
+                    parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+                    columns=column_names,
+                    enable_intelligent_size_estimation=enable_intelligent_size_estimation,
+                )
+            else:
+                return type_params.in_memory_size_bytes
         else:
             logger.warning(
                 f"Force using previous inflation for entry={entry.uri}. "
