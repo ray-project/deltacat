@@ -89,7 +89,7 @@ def estimate_manifest_entry_size_bytes(
                     enable_intelligent_size_estimation=enable_intelligent_size_estimation,
                 )
             else:
-                return type_params.in_memory_size_bytes
+                return type_params.in_memory_size_bytes * parquet_to_pyarrow_inflation
         else:
             logger.warning(
                 f"Force using previous inflation for entry={entry.uri}. "
@@ -136,6 +136,7 @@ def estimate_manifest_entry_num_rows(
         previous_inflation=previous_inflation,
         parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
         force_use_previous_inflation=force_use_previous_inflation,
+        enable_intelligent_size_estimation=False,
         **kwargs,
     )
     logger.debug(f"Using previous inflation for entry={entry.uri}")

@@ -56,7 +56,11 @@ def _byte_array_size_estimator(
     uncompressed_size = column_chunk_metadata.total_uncompressed_size
     if column_chunk_metadata.is_stats_set:
         statistics = column_chunk_metadata.statistics
-        if isinstance(statistics.min, str) and isinstance(statistics.max, str):
+        if (
+            statistics.has_min_max
+            and isinstance(statistics.min, str)
+            and isinstance(statistics.max, str)
+        ):
             return max(
                 uncompressed_size,
                 (
