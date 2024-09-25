@@ -55,7 +55,7 @@ def _calculate_parquet_column_size(
             # This indicates a null column
             final_size += NULL_SIZE_BYTES * row_group_meta.num_rows
         elif columns_found > 1:
-            raise ValueError(f"Duplicate column found: {column}")
+            raise ValueError(f"Duplicate column found in parquet file: {column}")
 
     return final_size * parquet_to_pyarrow_inflation
 

@@ -78,7 +78,9 @@ def append_content_type_params(
             entry_indices_to_download.append(entry_index)
 
     if not entry_indices_to_download:
-        logger.info(f"No parquet entries found for delta with locator {delta.locator}.")
+        logger.info(
+            "No parquet type params to down for " f"delta with locator {delta.locator}."
+        )
         return
 
     options_provider = functools.partial(
