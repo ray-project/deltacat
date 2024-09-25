@@ -48,10 +48,14 @@ def _byte_array_size_estimator(
 ) -> float:
     if column_chunk_metadata.is_stats_set:
         statistics = column_chunk_metadata.statistics
-        return (
-            statistics.num_values * (len(statistics.min) + len(statistics.max)) / 2
-            + statistics.null_count * NULL_SIZE_BYTES
-        )
+        if isinstance(statistics.min, str) and isinstance(statistics.max, str):
+            return (
+                statistics.num_values * (len(statistics.min) + len(statistics.max)) / 2
+                + statistics.null_count * NULL_SIZE_BYTES
+            )
+        else:
+            # A case of decimal
+            return statistics.num_values * 16 + statistics.null_count * NULL_SIZE_BYTES
     else:
         return column_chunk_metadata.total_uncompressed_size
 
@@ -75,14 +79,14 @@ _PHYSICAL_TYPE_TO_SIZE_ESTIMATOR = {
 
 
 def parquet_column_chunk_size_estimator(
-    column_chunk_metadata: ColumnChunkMetaData,
+    column_meta: ColumnChunkMetaData,
 ) -> Optional[float]:
-    physical_type = column_chunk_metadata.physical_type
+    physical_type = column_meta.physical_type
     if physical_type in _PHYSICAL_TYPE_TO_SIZE_ESTIMATOR:
-        return _PHYSICAL_TYPE_TO_SIZE_ESTIMATOR[physical_type](column_chunk_metadata)
+        return _PHYSICAL_TYPE_TO_SIZE_ESTIMATOR[physical_type](column_meta)
     else:
         logger.warning(
             f"Unsupported physical type: {physical_type}. "
             "Returning total_uncompressed_size."
         )
-        return column_chunk_metadata.total_uncompressed_size
+        return column_meta.total_uncompressed_size
