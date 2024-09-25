@@ -7,10 +7,17 @@ from deltacat.constants import NULL_SIZE_BYTES
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+def _observed_string_size(min_value: str, max_value: str) -> float:
+    """
+    Pyarrow uses few additional bytes to store each string.
+    """
+    return (len(min_value) + len(max_value)) / 2 + 4
+
+
 def _int96_size_estimator(
     column_chunk_metadata: ColumnChunkMetaData,
 ) -> float:
-    return column_chunk_metadata.num_values * 24
+    return column_chunk_metadata.num_values * 12
 
 
 def _int64_size_estimator(
@@ -28,7 +35,7 @@ def _int32_size_estimator(
 def _boolean_size_estimator(
     column_chunk_metadata: ColumnChunkMetaData,
 ) -> float:
-    return column_chunk_metadata.num_values * 1.0
+    return column_chunk_metadata.num_values
 
 
 def _double_size_estimator(
@@ -46,18 +53,23 @@ def _float_size_estimator(
 def _byte_array_size_estimator(
     column_chunk_metadata: ColumnChunkMetaData,
 ) -> float:
+    uncompressed_size = column_chunk_metadata.total_uncompressed_size
     if column_chunk_metadata.is_stats_set:
         statistics = column_chunk_metadata.statistics
         if isinstance(statistics.min, str) and isinstance(statistics.max, str):
-            return (
-                statistics.num_values * (len(statistics.min) + len(statistics.max)) / 2
-                + statistics.null_count * NULL_SIZE_BYTES
+            return max(
+                uncompressed_size,
+                (
+                    statistics.num_values
+                    * _observed_string_size(statistics.min, statistics.max)
+                    + statistics.null_count * NULL_SIZE_BYTES
+                ),
             )
         else:
             # A case of decimal
-            return statistics.num_values * 16 + statistics.null_count * NULL_SIZE_BYTES
+            return max(column_chunk_metadata.num_values * 16, uncompressed_size)
     else:
-        return column_chunk_metadata.total_uncompressed_size
+        return uncompressed_size
 
 
 def _fixed_len_byte_array_size_estimator(
