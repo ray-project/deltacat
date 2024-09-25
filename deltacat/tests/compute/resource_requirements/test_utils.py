@@ -139,6 +139,16 @@ class TestEstimateManifestEntryColumnSizeBytes:
             == 2989
         )
 
+    def test_when_invalid_column_passed_assumes_null(self, sample_no_stats_entry):
+        assert (
+            int(
+                estimate_manifest_entry_column_size_bytes(
+                    sample_no_stats_entry, 1, False, ["invalid_column"]
+                )
+            )
+            == 4000
+        )
+
     def test_when_multiple_columns_passed(
         self, sample_no_stats_entry, sample_with_stats_entry
     ):
