@@ -112,6 +112,9 @@ class CompactPartitionParams(dict):
         result.force_using_previous_inflation_for_memory_calculation = params.get(
             "force_using_previous_inflation_for_memory_calculation", False
         )
+        result.enable_intelligent_size_estimation = params.get(
+            "enable_intelligent_size_estimation", False
+        )
 
         # disable input split during rebase as the rebase files are already uniform
         result.enable_input_split = (
@@ -480,6 +483,18 @@ class CompactPartitionParams(dict):
     @max_parquet_meta_size_bytes.setter
     def max_parquet_meta_size_bytes(self, value: int) -> None:
         self["max_parquet_meta_size_bytes"] = value
+
+    @property
+    def enable_intelligent_size_estimation(self) -> bool:
+        """
+        The arguments enable intelligent memory estimation that considers
+        encoding, min/max and other statistics to estimate memory requirements.
+        """
+        return self["enable_intelligent_size_estimation"]
+
+    @enable_intelligent_size_estimation.setter
+    def enable_intelligent_size_estimation(self, value: bool) -> None:
+        self["enable_intelligent_size_estimation"] = value
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

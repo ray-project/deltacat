@@ -53,3 +53,6 @@ PYARROW_INFLATION_MULTIPLIER = 2.5
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
 
 MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE
+
+# The number of bytes allocated to null values in string physical type in parquet
+NULL_SIZE_BYTES = 4

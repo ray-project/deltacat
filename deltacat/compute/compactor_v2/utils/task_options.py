@@ -69,6 +69,7 @@ def hash_bucket_resource_options_provider(
     total_memory_buffer_percentage: int,
     parquet_to_pyarrow_inflation: float,
     force_use_previous_inflation: bool,
+    enable_intelligent_size_estimation: bool,
     primary_keys: List[str] = None,
     ray_custom_resources: Optional[Dict] = None,
     memory_logs_enabled: Optional[bool] = None,
@@ -90,6 +91,7 @@ def hash_bucket_resource_options_provider(
             previous_inflation=previous_inflation,
             parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
             force_use_previous_inflation=force_use_previous_inflation,
+            enable_intelligent_size_estimation=enable_intelligent_size_estimation,
             **kwargs,
         )
         num_rows += estimate_manifest_entry_num_rows(
@@ -107,6 +109,7 @@ def hash_bucket_resource_options_provider(
                 entry=entry,
                 columns=primary_keys,
                 parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+                enable_intelligent_size_estimation=enable_intelligent_size_estimation,
             )
 
             if pk_size is None:
@@ -128,6 +131,11 @@ def hash_bucket_resource_options_provider(
     debug_memory_params["num_rows"] = num_rows
     debug_memory_params["total_pk_size"] = total_pk_size
     debug_memory_params["total_memory"] = total_memory
+    debug_memory_params[
+        "enable_intelligent_size_estimation"
+    ] = enable_intelligent_size_estimation
+    debug_memory_params["parquet_to_pyarrow_inflation"] = parquet_to_pyarrow_inflation
+    debug_memory_params["force_use_previous_inflation"] = force_use_previous_inflation
 
     debug_memory_params["previous_inflation"] = previous_inflation
     debug_memory_params["average_record_size_bytes"] = average_record_size_bytes
@@ -152,6 +160,7 @@ def merge_resource_options_provider(
     total_memory_buffer_percentage: int,
     parquet_to_pyarrow_inflation: float,
     force_use_previous_inflation: bool,
+    enable_intelligent_size_estimation: bool,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
@@ -192,6 +201,7 @@ def merge_resource_options_provider(
         memory_logs_enabled=memory_logs_enabled,
         parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
         force_use_previous_inflation=force_use_previous_inflation,
+        enable_intelligent_size_estimation=enable_intelligent_size_estimation,
     )
 
 
@@ -201,6 +211,7 @@ def local_merge_resource_options_provider(
     total_memory_buffer_percentage: int,
     parquet_to_pyarrow_inflation: float,
     force_use_previous_inflation: bool,
+    enable_intelligent_size_estimation: bool,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
@@ -236,6 +247,7 @@ def local_merge_resource_options_provider(
         memory_logs_enabled=memory_logs_enabled,
         parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
         force_use_previous_inflation=force_use_previous_inflation,
+        enable_intelligent_size_estimation=enable_intelligent_size_estimation,
     )
 
 
@@ -252,6 +264,7 @@ def get_merge_task_options(
     ray_custom_resources: Optional[Dict],
     parquet_to_pyarrow_inflation: float,
     force_use_previous_inflation: bool,
+    enable_intelligent_size_estimation: bool,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     primary_keys: Optional[List[str]] = None,
@@ -296,6 +309,7 @@ def get_merge_task_options(
                     previous_inflation=previous_inflation,
                     parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
                     force_use_previous_inflation=force_use_previous_inflation,
+                    enable_intelligent_size_estimation=enable_intelligent_size_estimation,
                 )
                 current_entry_rows = estimate_manifest_entry_num_rows(
                     entry=entry,
@@ -313,6 +327,7 @@ def get_merge_task_options(
                         entry=entry,
                         columns=primary_keys,
                         parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
+                        enable_intelligent_size_estimation=enable_intelligent_size_estimation,
                     )
 
                     if pk_size is None:
@@ -336,6 +351,11 @@ def get_merge_task_options(
     debug_memory_params["pk_size_bytes"] = pk_size_bytes
     debug_memory_params["incremental_index_array_size"] = incremental_index_array_size
     debug_memory_params["total_memory"] = total_memory
+    debug_memory_params[
+        "enable_intelligent_size_estimation"
+    ] = enable_intelligent_size_estimation
+    debug_memory_params["force_use_previous_inflation"] = force_use_previous_inflation
+    debug_memory_params["parquet_to_pyarrow_inflation"] = parquet_to_pyarrow_inflation
 
     total_memory = total_memory * (1 + total_memory_buffer_percentage / 100.0)
     debug_memory_params["total_memory_with_buffer"] = total_memory

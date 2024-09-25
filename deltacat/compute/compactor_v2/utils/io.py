@@ -92,6 +92,7 @@ def create_uniform_input_deltas(
     compaction_audit: CompactionSessionAuditInfo,
     parquet_to_pyarrow_inflation: Optional[float],
     force_use_previous_inflation: Optional[bool],
+    enable_intelligent_size_estimation: Optional[bool],
     task_max_parallelism: Optional[int],
     max_parquet_meta_size_bytes: Optional[int],
     min_delta_bytes: Optional[float] = MIN_DELTA_BYTES_IN_BATCH,
@@ -129,6 +130,7 @@ def create_uniform_input_deltas(
                 previous_inflation=previous_inflation,
                 parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
                 force_use_previous_inflation=force_use_previous_inflation,
+                enable_intelligent_size_estimation=enable_intelligent_size_estimation,
             )
 
         delta_annotated = DeltaAnnotated.of(delta)
@@ -143,6 +145,7 @@ def create_uniform_input_deltas(
         previous_inflation=previous_inflation,
         parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
         force_use_previous_inflation=force_use_previous_inflation,
+        enable_intelligent_size_estimation=enable_intelligent_size_estimation,
     )
     rebatched_da_list = DeltaAnnotated.rebatch(
         input_da_list,

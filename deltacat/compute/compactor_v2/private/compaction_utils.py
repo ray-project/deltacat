@@ -156,6 +156,7 @@ def _build_uniform_deltas(
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
         parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
         force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
+        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
         task_max_parallelism=params.task_max_parallelism,
         max_parquet_meta_size_bytes=params.max_parquet_meta_size_bytes,
     )
@@ -405,6 +406,7 @@ def _merge(
         memory_logs_enabled=params.memory_logs_enabled,
         parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
         force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
+        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
     )
 
     def merge_input_provider(index, item) -> dict[str, MergeInput]:
@@ -470,6 +472,7 @@ def _hash_bucket(
         memory_logs_enabled=params.memory_logs_enabled,
         parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
         force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
+        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
     )
 
     def hash_bucket_input_provider(index, item) -> dict[str, HashBucketInput]:
@@ -546,6 +549,7 @@ def _run_local_merge(
         memory_logs_enabled=params.memory_logs_enabled,
         parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
         force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
+        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
     )
     local_merge_result = ray.get(
         mg.merge.options(**local_merge_options).remote(local_merge_input)
