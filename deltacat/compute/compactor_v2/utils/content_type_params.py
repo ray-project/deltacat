@@ -35,7 +35,7 @@ def _contains_partial_parquet_parameters(entry: ManifestEntry) -> bool:
 
 
 @ray.remote
-def _download_parquet_meta_for_manifest_entry(
+def _download_parquet_metadata_for_manifest_entry(
     delta: Delta,
     entry_index: int,
     deltacat_storage: unimplemented_deltacat_storage,
@@ -79,7 +79,7 @@ def append_content_type_params(
 
     if not entry_indices_to_download:
         logger.info(
-            "No parquet type params to down for " f"delta with locator {delta.locator}."
+            f"No parquet type params to download for delta with locator {delta.locator}."
         )
         return
 
@@ -101,7 +101,7 @@ def append_content_type_params(
     )
     pq_files_promise = invoke_parallel(
         entry_indices_to_download,
-        ray_task=_download_parquet_meta_for_manifest_entry,
+        ray_task=_download_parquet_metadata_for_manifest_entry,
         max_parallelism=task_max_parallelism,
         options_provider=options_provider,
         kwargs_provider=input_provider,

@@ -452,7 +452,7 @@ class CompactPartitionParams(dict):
         When this is True, the input split will be always enabled for parquet files.
         The input split feature will split the parquet files into individual row groups
         so that we could process them in different nodes in parallel.
-        By default, input split is enabled for incremental compaction and disabled for rebase.
+        By default, input split is enabled for incremental compaction and disabled for rebase or backfill.
         """
         return self["enable_input_split"]
 
@@ -462,6 +462,10 @@ class CompactPartitionParams(dict):
 
     @property
     def max_parquet_meta_size_bytes(self) -> int:
+        """
+        The maximum size of the parquet metadata in bytes. Used for allocating tasks
+        to fetch parquet metadata.
+        """
         return self["max_parquet_meta_size_bytes"]
 
     @max_parquet_meta_size_bytes.setter
