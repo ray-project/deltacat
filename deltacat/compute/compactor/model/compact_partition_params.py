@@ -13,6 +13,10 @@ from deltacat.storage import (
     PartitionLocator,
     SortKey,
 )
+from deltacat.compute.resource_estimation import (
+    ResourceEstimationMethod,
+    EstimateResourcesParams,
+)
 from deltacat.compute.compactor_v2.constants import (
     MAX_RECORDS_PER_COMPACTED_FILE,
     MIN_DELTA_BYTES_IN_BATCH,
@@ -109,12 +113,11 @@ class CompactPartitionParams(dict):
         result.parquet_to_pyarrow_inflation = params.get(
             "parquet_to_pyarrow_inflation", PARQUET_TO_PYARROW_INFLATION
         )
-        result.force_using_previous_inflation_for_memory_calculation = params.get(
-            "force_using_previous_inflation_for_memory_calculation", False
-        )
-        result.enable_intelligent_size_estimation = params.get(
-            "enable_intelligent_size_estimation", False
-        )
+        result.resource_estimation_method = ResourceEstimationMethod[
+            params.get(
+                "resource_estimation_method", ResourceEstimationMethod.DEFAULT.value
+            )
+        ]
 
         # disable input split during rebase as the rebase files are already uniform
         result.enable_input_split = (
@@ -458,25 +461,6 @@ class CompactPartitionParams(dict):
         self["enable_input_split"] = value
 
     @property
-    def force_using_previous_inflation_for_memory_calculation(self) -> bool:
-        """
-        When this is True, the memory estimation will always use previous inflation
-        and average record size for all data formats even if format specific metadata
-        is available to make better predictions of memory requirements.
-
-        By default, previous inflation is used for non-parquet files to estimate memory while
-        parquet metadata will be used for parquet to estimate memory. We only fallback
-        to previous inflation if parquet metadata isn't available.
-        """
-        return self["force_using_previous_inflation_for_memory_calculation"]
-
-    @force_using_previous_inflation_for_memory_calculation.setter
-    def force_using_previous_inflation_for_memory_calculation(
-        self, value: bool
-    ) -> None:
-        self["force_using_previous_inflation_for_memory_calculation"] = value
-
-    @property
     def max_parquet_meta_size_bytes(self) -> int:
         return self["max_parquet_meta_size_bytes"]
 
@@ -485,16 +469,21 @@ class CompactPartitionParams(dict):
         self["max_parquet_meta_size_bytes"] = value
 
     @property
-    def enable_intelligent_size_estimation(self) -> bool:
-        """
-        The arguments enable intelligent memory estimation that considers
-        encoding, min/max and other statistics to estimate memory requirements.
-        """
-        return self["enable_intelligent_size_estimation"]
+    def resource_estimation_method(self) -> ResourceEstimationMethod:
+        return self["resource_estimation_method"]
 
-    @enable_intelligent_size_estimation.setter
-    def enable_intelligent_size_estimation(self, value: bool) -> None:
-        self["enable_intelligent_size_estimation"] = value
+    @resource_estimation_method.setter
+    def resource_estimation_method(self, value: ResourceEstimationMethod) -> None:
+        self["resource_estimation_method"] = value
+
+    @property
+    def estimate_resources_params(self) -> EstimateResourcesParams:
+        return EstimateResourcesParams.of(
+            resource_estimation_method=self.resource_estimation_method,
+            previous_inflation=self.previous_inflation,
+            parquet_to_pyarrow_inflation=self.parquet_to_pyarrow_inflation,
+            average_record_size_bytes=self.average_record_size_bytes,
+        )
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

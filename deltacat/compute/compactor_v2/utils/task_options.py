@@ -13,17 +13,21 @@ from deltacat.compute.compactor.model.round_completion_info import RoundCompleti
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
-from deltacat.compute.resource_requirements.utils import (
+from deltacat.compute.resource_estimation.utils import (
     estimate_manifest_entry_num_rows,
     estimate_manifest_entry_size_bytes,
     estimate_manifest_entry_column_size_bytes,
+)
+from deltacat.compute.resource_estimation.model import (
+    EstimateResourcesParams,
+    OperationType,
 )
 from deltacat.exceptions import RetryableError
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def get_task_options(
+def _get_task_options(
     cpu: float,
     memory: float,
     ray_custom_resources: Optional[Dict] = None,
@@ -53,205 +57,7 @@ def get_task_options(
     return task_opts
 
 
-def append_content_type_params_options_provider(
-    index: int, item: Any, max_parquet_meta_size_bytes: int, **kwargs
-) -> Dict:
-    return get_task_options(
-        0.01, max_parquet_meta_size_bytes, scheduling_strategy="DEFAULT"
-    )
-
-
-def hash_bucket_resource_options_provider(
-    index: int,
-    item: DeltaAnnotated,
-    previous_inflation: float,
-    average_record_size_bytes: float,
-    total_memory_buffer_percentage: int,
-    parquet_to_pyarrow_inflation: float,
-    force_use_previous_inflation: bool,
-    enable_intelligent_size_estimation: bool,
-    primary_keys: List[str] = None,
-    ray_custom_resources: Optional[Dict] = None,
-    memory_logs_enabled: Optional[bool] = None,
-    **kwargs,
-) -> Dict:
-    debug_memory_params = {"hash_bucket_task_index": index}
-    size_bytes = 0.0
-    num_rows = 0
-    total_pk_size = 0
-    if not item.manifest or not item.manifest.entries:
-        logger.debug(
-            f"[Hash bucket task {index}]: No manifest entries, skipping memory allocation calculation"
-        )
-        return {"CPU": 0.01}
-
-    for entry in item.manifest.entries:
-        entry_size = estimate_manifest_entry_size_bytes(
-            entry=entry,
-            previous_inflation=previous_inflation,
-            parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-            force_use_previous_inflation=force_use_previous_inflation,
-            enable_intelligent_size_estimation=enable_intelligent_size_estimation,
-            **kwargs,
-        )
-        num_rows += estimate_manifest_entry_num_rows(
-            entry=entry,
-            previous_inflation=previous_inflation,
-            parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-            average_record_size_bytes=average_record_size_bytes,
-            force_use_previous_inflation=force_use_previous_inflation,
-            **kwargs,
-        )
-        size_bytes += entry_size
-
-        if primary_keys:
-            pk_size = estimate_manifest_entry_column_size_bytes(
-                entry=entry,
-                columns=primary_keys,
-                parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-                enable_intelligent_size_estimation=enable_intelligent_size_estimation,
-            )
-
-            if pk_size is None:
-                total_pk_size += entry_size
-            else:
-                total_pk_size += pk_size
-
-    # total size + pk size + pyarrow-to-numpy conversion + pk hash column + hashlib inefficiency + hash bucket index column
-    # Refer to hash_bucket step for more details.
-    total_memory = (
-        size_bytes
-        + total_pk_size
-        + total_pk_size
-        + num_rows * 20
-        + num_rows * 20
-        + num_rows * 4
-    )
-    debug_memory_params["size_bytes"] = size_bytes
-    debug_memory_params["num_rows"] = num_rows
-    debug_memory_params["total_pk_size"] = total_pk_size
-    debug_memory_params["total_memory"] = total_memory
-    debug_memory_params[
-        "enable_intelligent_size_estimation"
-    ] = enable_intelligent_size_estimation
-    debug_memory_params["parquet_to_pyarrow_inflation"] = parquet_to_pyarrow_inflation
-    debug_memory_params["force_use_previous_inflation"] = force_use_previous_inflation
-
-    debug_memory_params["previous_inflation"] = previous_inflation
-    debug_memory_params["average_record_size_bytes"] = average_record_size_bytes
-
-    # Consider buffer
-    total_memory = total_memory * (1 + total_memory_buffer_percentage / 100.0)
-    debug_memory_params["total_memory_with_buffer"] = total_memory
-    logger.debug_conditional(
-        f"[Hash bucket task {index}]: Params used for calculating hash bucketing memory: {debug_memory_params}",
-        memory_logs_enabled,
-    )
-
-    return get_task_options(0.01, total_memory, ray_custom_resources)
-
-
-def merge_resource_options_provider(
-    index: int,
-    item: Tuple[int, List],
-    num_hash_groups: int,
-    hash_group_size_bytes: Dict[int, int],
-    hash_group_num_rows: Dict[int, int],
-    total_memory_buffer_percentage: int,
-    parquet_to_pyarrow_inflation: float,
-    force_use_previous_inflation: bool,
-    enable_intelligent_size_estimation: bool,
-    round_completion_info: Optional[RoundCompletionInfo] = None,
-    compacted_delta_manifest: Optional[Manifest] = None,
-    ray_custom_resources: Optional[Dict] = None,
-    primary_keys: Optional[List[str]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
-    deltacat_storage_kwargs: Optional[Dict] = {},
-    memory_logs_enabled: Optional[bool] = None,
-    **kwargs,
-) -> Dict:
-    debug_memory_params = {"merge_task_index": index}
-    hb_group_idx = item[0]
-
-    data_size = hash_group_size_bytes.get(hb_group_idx, 0)
-    num_rows = hash_group_num_rows.get(hb_group_idx, 0)
-    debug_memory_params["data_size_from_hash_group"] = data_size
-    debug_memory_params["num_rows_from_hash_group"] = num_rows
-
-    # upper bound for pk size of incremental
-    pk_size_bytes = data_size
-    incremental_index_array_size = num_rows * 4
-
-    return get_merge_task_options(
-        index,
-        hb_group_idx,
-        data_size,
-        pk_size_bytes,
-        num_rows,
-        num_hash_groups,
-        total_memory_buffer_percentage,
-        incremental_index_array_size,
-        debug_memory_params,
-        ray_custom_resources,
-        round_completion_info=round_completion_info,
-        compacted_delta_manifest=compacted_delta_manifest,
-        primary_keys=primary_keys,
-        deltacat_storage=deltacat_storage,
-        deltacat_storage_kwargs=deltacat_storage_kwargs,
-        memory_logs_enabled=memory_logs_enabled,
-        parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-        force_use_previous_inflation=force_use_previous_inflation,
-        enable_intelligent_size_estimation=enable_intelligent_size_estimation,
-    )
-
-
-def local_merge_resource_options_provider(
-    estimated_da_size: float,
-    estimated_num_rows: int,
-    total_memory_buffer_percentage: int,
-    parquet_to_pyarrow_inflation: float,
-    force_use_previous_inflation: bool,
-    enable_intelligent_size_estimation: bool,
-    round_completion_info: Optional[RoundCompletionInfo] = None,
-    compacted_delta_manifest: Optional[Manifest] = None,
-    ray_custom_resources: Optional[Dict] = None,
-    primary_keys: Optional[List[str]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
-    deltacat_storage_kwargs: Optional[Dict] = {},
-    memory_logs_enabled: Optional[bool] = None,
-    **kwargs,
-) -> Dict:
-    index = hb_group_idx = LocalMergeFileGroupsProvider.LOCAL_HASH_BUCKET_INDEX
-    debug_memory_params = {"merge_task_index": index}
-
-    # upper bound for pk size of incremental
-    pk_size_bytes = estimated_da_size
-    incremental_index_array_size = estimated_num_rows * 4
-
-    return get_merge_task_options(
-        index=index,
-        hb_group_idx=hb_group_idx,
-        data_size=estimated_da_size,
-        pk_size_bytes=pk_size_bytes,
-        num_rows=estimated_num_rows,
-        num_hash_groups=1,
-        incremental_index_array_size=incremental_index_array_size,
-        total_memory_buffer_percentage=total_memory_buffer_percentage,
-        debug_memory_params=debug_memory_params,
-        ray_custom_resources=ray_custom_resources,
-        round_completion_info=round_completion_info,
-        compacted_delta_manifest=compacted_delta_manifest,
-        primary_keys=primary_keys,
-        deltacat_storage=deltacat_storage,
-        deltacat_storage_kwargs=deltacat_storage_kwargs,
-        memory_logs_enabled=memory_logs_enabled,
-        parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-        force_use_previous_inflation=force_use_previous_inflation,
-        enable_intelligent_size_estimation=enable_intelligent_size_estimation,
-    )
-
-
-def get_merge_task_options(
+def _get_merge_task_options(
     index: int,
     hb_group_idx: int,
     data_size: float,
@@ -262,9 +68,7 @@ def get_merge_task_options(
     incremental_index_array_size: int,
     debug_memory_params: Dict[str, Any],
     ray_custom_resources: Optional[Dict],
-    parquet_to_pyarrow_inflation: float,
-    force_use_previous_inflation: bool,
-    enable_intelligent_size_estimation: bool,
+    estimate_resources_params: EstimateResourcesParams,
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     primary_keys: Optional[List[str]] = None,
@@ -306,17 +110,13 @@ def get_merge_task_options(
 
                 current_entry_size = estimate_manifest_entry_size_bytes(
                     entry=entry,
-                    previous_inflation=previous_inflation,
-                    parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-                    force_use_previous_inflation=force_use_previous_inflation,
-                    enable_intelligent_size_estimation=enable_intelligent_size_estimation,
+                    operation_type=OperationType.PYARROW_DOWNLOAD,
+                    estimate_resources_params=estimate_resources_params,
                 )
                 current_entry_rows = estimate_manifest_entry_num_rows(
                     entry=entry,
-                    average_record_size_bytes=average_record_size,
-                    previous_inflation=previous_inflation,
-                    parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-                    force_use_previous_inflation=force_use_previous_inflation,
+                    operation_type=OperationType.PYARROW_DOWNLOAD,
+                    estimate_resources_params=estimate_resources_params,
                 )
 
                 data_size += current_entry_size
@@ -326,8 +126,8 @@ def get_merge_task_options(
                     pk_size = estimate_manifest_entry_column_size_bytes(
                         entry=entry,
                         columns=primary_keys,
-                        parquet_to_pyarrow_inflation=parquet_to_pyarrow_inflation,
-                        enable_intelligent_size_estimation=enable_intelligent_size_estimation,
+                        operation_type=OperationType.PYARROW_DOWNLOAD,
+                        estimate_resources_params=estimate_resources_params,
                     )
 
                     if pk_size is None:
@@ -351,11 +151,7 @@ def get_merge_task_options(
     debug_memory_params["pk_size_bytes"] = pk_size_bytes
     debug_memory_params["incremental_index_array_size"] = incremental_index_array_size
     debug_memory_params["total_memory"] = total_memory
-    debug_memory_params[
-        "enable_intelligent_size_estimation"
-    ] = enable_intelligent_size_estimation
-    debug_memory_params["force_use_previous_inflation"] = force_use_previous_inflation
-    debug_memory_params["parquet_to_pyarrow_inflation"] = parquet_to_pyarrow_inflation
+    debug_memory_params["estimate_resources_params"] = estimate_resources_params
 
     total_memory = total_memory * (1 + total_memory_buffer_percentage / 100.0)
     debug_memory_params["total_memory_with_buffer"] = total_memory
@@ -364,4 +160,184 @@ def get_merge_task_options(
         memory_logs_enabled,
     )
 
-    return get_task_options(0.01, total_memory, ray_custom_resources)
+    return _get_task_options(0.01, total_memory, ray_custom_resources)
+
+
+def append_content_type_params_options_provider(
+    index: int, item: Any, max_parquet_meta_size_bytes: int, **kwargs
+) -> Dict:
+    return _get_task_options(
+        0.01, max_parquet_meta_size_bytes, scheduling_strategy="DEFAULT"
+    )
+
+
+def hash_bucket_resource_options_provider(
+    index: int,
+    item: DeltaAnnotated,
+    previous_inflation: float,
+    average_record_size_bytes: float,
+    total_memory_buffer_percentage: int,
+    estimate_resources_params: EstimateResourcesParams,
+    primary_keys: List[str] = None,
+    ray_custom_resources: Optional[Dict] = None,
+    memory_logs_enabled: Optional[bool] = None,
+    **kwargs,
+) -> Dict:
+    debug_memory_params = {"hash_bucket_task_index": index}
+    size_bytes = 0.0
+    num_rows = 0
+    total_pk_size = 0
+    if not item.manifest or not item.manifest.entries:
+        logger.debug(
+            f"[Hash bucket task {index}]: No manifest entries, skipping memory allocation calculation"
+        )
+        return {"CPU": 0.01}
+
+    for entry in item.manifest.entries:
+        entry_size = estimate_manifest_entry_size_bytes(
+            entry=entry,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            estimate_resources_params=estimate_resources_params,
+            **kwargs,
+        )
+        num_rows += estimate_manifest_entry_num_rows(
+            entry=entry,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            estimate_resources_params=estimate_resources_params,
+            **kwargs,
+        )
+        size_bytes += entry_size
+
+        if primary_keys:
+            pk_size = estimate_manifest_entry_column_size_bytes(
+                entry=entry,
+                operation_type=OperationType.PYARROW_DOWNLOAD,
+                columns=primary_keys,
+                estimate_resources_params=estimate_resources_params,
+            )
+
+            if pk_size is None:
+                total_pk_size += entry_size
+            else:
+                total_pk_size += pk_size
+
+    # total size + pk size + pyarrow-to-numpy conversion + pk hash column + hashlib inefficiency + hash bucket index column
+    # Refer to hash_bucket step for more details.
+    total_memory = (
+        size_bytes
+        + total_pk_size
+        + total_pk_size
+        + num_rows * 20
+        + num_rows * 20
+        + num_rows * 4
+    )
+    debug_memory_params["size_bytes"] = size_bytes
+    debug_memory_params["num_rows"] = num_rows
+    debug_memory_params["total_pk_size"] = total_pk_size
+    debug_memory_params["total_memory"] = total_memory
+    debug_memory_params["estimate_resources_params"] = estimate_resources_params
+
+    debug_memory_params["previous_inflation"] = previous_inflation
+    debug_memory_params["average_record_size_bytes"] = average_record_size_bytes
+
+    # Consider buffer
+    total_memory = total_memory * (1 + total_memory_buffer_percentage / 100.0)
+    debug_memory_params["total_memory_with_buffer"] = total_memory
+    logger.debug_conditional(
+        f"[Hash bucket task {index}]: Params used for calculating hash bucketing memory: {debug_memory_params}",
+        memory_logs_enabled,
+    )
+
+    return _get_task_options(0.01, total_memory, ray_custom_resources)
+
+
+def merge_resource_options_provider(
+    index: int,
+    item: Tuple[int, List],
+    num_hash_groups: int,
+    hash_group_size_bytes: Dict[int, int],
+    hash_group_num_rows: Dict[int, int],
+    total_memory_buffer_percentage: int,
+    estimate_resources_params: EstimateResourcesParams,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
+    compacted_delta_manifest: Optional[Manifest] = None,
+    ray_custom_resources: Optional[Dict] = None,
+    primary_keys: Optional[List[str]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict] = {},
+    memory_logs_enabled: Optional[bool] = None,
+    **kwargs,
+) -> Dict:
+    debug_memory_params = {"merge_task_index": index}
+    hb_group_idx = item[0]
+
+    data_size = hash_group_size_bytes.get(hb_group_idx, 0)
+    num_rows = hash_group_num_rows.get(hb_group_idx, 0)
+    debug_memory_params["data_size_from_hash_group"] = data_size
+    debug_memory_params["num_rows_from_hash_group"] = num_rows
+
+    # upper bound for pk size of incremental
+    pk_size_bytes = data_size
+    incremental_index_array_size = num_rows * 4
+
+    return _get_merge_task_options(
+        index,
+        hb_group_idx,
+        data_size,
+        pk_size_bytes,
+        num_rows,
+        num_hash_groups,
+        total_memory_buffer_percentage,
+        incremental_index_array_size,
+        debug_memory_params,
+        ray_custom_resources,
+        round_completion_info=round_completion_info,
+        compacted_delta_manifest=compacted_delta_manifest,
+        primary_keys=primary_keys,
+        deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
+        memory_logs_enabled=memory_logs_enabled,
+        estimate_resources_params=estimate_resources_params,
+    )
+
+
+def local_merge_resource_options_provider(
+    estimated_da_size: float,
+    estimated_num_rows: int,
+    total_memory_buffer_percentage: int,
+    estimate_resources_params: EstimateResourcesParams,
+    round_completion_info: Optional[RoundCompletionInfo] = None,
+    compacted_delta_manifest: Optional[Manifest] = None,
+    ray_custom_resources: Optional[Dict] = None,
+    primary_keys: Optional[List[str]] = None,
+    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage_kwargs: Optional[Dict] = {},
+    memory_logs_enabled: Optional[bool] = None,
+    **kwargs,
+) -> Dict:
+    index = hb_group_idx = LocalMergeFileGroupsProvider.LOCAL_HASH_BUCKET_INDEX
+    debug_memory_params = {"merge_task_index": index}
+
+    # upper bound for pk size of incremental
+    pk_size_bytes = estimated_da_size
+    incremental_index_array_size = estimated_num_rows * 4
+
+    return _get_merge_task_options(
+        index=index,
+        hb_group_idx=hb_group_idx,
+        data_size=estimated_da_size,
+        pk_size_bytes=pk_size_bytes,
+        num_rows=estimated_num_rows,
+        num_hash_groups=1,
+        incremental_index_array_size=incremental_index_array_size,
+        total_memory_buffer_percentage=total_memory_buffer_percentage,
+        debug_memory_params=debug_memory_params,
+        ray_custom_resources=ray_custom_resources,
+        round_completion_info=round_completion_info,
+        compacted_delta_manifest=compacted_delta_manifest,
+        primary_keys=primary_keys,
+        deltacat_storage=deltacat_storage,
+        deltacat_storage_kwargs=deltacat_storage_kwargs,
+        memory_logs_enabled=memory_logs_enabled,
+        estimate_resources_params=estimate_resources_params,
+    )

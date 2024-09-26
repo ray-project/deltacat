@@ -148,17 +148,9 @@ def _build_uniform_deltas(
         input_deltas=input_deltas,
         hash_bucket_count=params.hash_bucket_count,
         compaction_audit=mutable_compaction_audit,
+        compact_partition_params=params,
         deltacat_storage=params.deltacat_storage,
-        previous_inflation=params.previous_inflation,
-        min_delta_bytes=params.min_delta_bytes_in_batch,
-        min_file_counts=params.min_files_in_batch,
-        enable_input_split=params.enable_input_split,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
-        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
-        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
-        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
-        task_max_parallelism=params.task_max_parallelism,
-        max_parquet_meta_size_bytes=params.max_parquet_meta_size_bytes,
     )
     delta_discovery_end: float = time.monotonic()
 
@@ -404,9 +396,7 @@ def _merge(
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,
-        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
-        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
-        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
+        estimate_resources_params=params.estimate_resources_params,
     )
 
     def merge_input_provider(index, item) -> dict[str, MergeInput]:
@@ -470,9 +460,7 @@ def _hash_bucket(
         primary_keys=params.primary_keys,
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,
-        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
-        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
-        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
+        estimate_resources_params=params.estimate_resources_params,
     )
 
     def hash_bucket_input_provider(index, item) -> dict[str, HashBucketInput]:
@@ -547,9 +535,7 @@ def _run_local_merge(
         ray_custom_resources=params.ray_custom_resources,
         primary_keys=params.primary_keys,
         memory_logs_enabled=params.memory_logs_enabled,
-        parquet_to_pyarrow_inflation=params.parquet_to_pyarrow_inflation,
-        force_use_previous_inflation=params.force_using_previous_inflation_for_memory_calculation,
-        enable_intelligent_size_estimation=params.enable_intelligent_size_estimation,
+        estimate_resources_params=params.estimate_resources_params,
     )
     local_merge_result = ray.get(
         mg.merge.options(**local_merge_options).remote(local_merge_input)
