@@ -151,9 +151,9 @@ def _estimate_resources_required_to_process_delta_using_file_sampling(
             ),
         )
 
-    assert (
-        estimate_resources_params.max_files_to_sample is not None
-    ), "Expected max_files_to_sample when resource estimation method is FILE_SAMPLING"
+    if not estimate_resources_params.max_files_to_sample:
+        # we cannot calculate if we cannot sample
+        return None
 
     sampled_in_memory_size = 0.0
     sampled_on_disk_size = 0.0

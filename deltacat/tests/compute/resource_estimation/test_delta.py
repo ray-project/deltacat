@@ -440,6 +440,23 @@ class TestEstimateResourcesRequiredToProcessDelta:
             == utsv_delta_with_manifest.meta.content_length
         )
 
+    def test_delta_manifest_utsv_when_file_sampling_zero_files_to_sample(
+        self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+    ):
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING,
+            max_files_to_sample=None,
+        )
+
+        result = estimate_resources_required_to_process_delta(
+            delta=utsv_delta_with_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+        assert result is None
+
     def test_empty_delta_when_default_v2(
         self, local_deltacat_storage_kwargs, delta_without_manifest: Delta
     ):
@@ -471,6 +488,32 @@ class TestEstimateResourcesRequiredToProcessDelta:
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
             max_files_to_sample=2,
+            previous_inflation=7,
+            average_record_size_bytes=1000,
+            parquet_to_pyarrow_inflation=1,
+        )
+
+        result = estimate_resources_required_to_process_delta(
+            delta=parquet_delta_with_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+
+        assert parquet_delta_with_manifest.manifest is not None
+        assert result.memory_bytes is not None
+        assert (
+            result.statistics.on_disk_size_bytes
+            == parquet_delta_with_manifest.meta.content_length
+        )
+
+    def test_parquet_delta_when_default_v2_and_files_to_sample_zero(
+        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+    ):
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
+            max_files_to_sample=0,
             previous_inflation=7,
             average_record_size_bytes=1000,
             parquet_to_pyarrow_inflation=1,
