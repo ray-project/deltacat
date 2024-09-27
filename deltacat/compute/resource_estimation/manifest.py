@@ -387,6 +387,6 @@ def does_require_content_type_params(
     resource_estimation_method: ResourceEstimationMethod,
 ) -> bool:
     return (
-        resource_estimation_method == ResourceEstimationMethod.CONTENT_TYPE_META
+        resource_estimation_method == ResourceEstimationMethod.DEFAULT_V2
         or resource_estimation_method == ResourceEstimationMethod.INTELLIGENT_ESTIMATION
     )
