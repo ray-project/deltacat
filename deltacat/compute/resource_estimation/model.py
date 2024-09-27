@@ -15,6 +15,15 @@ class ResourceEstimationMethod(str, Enum):
     DEFAULT = "DEFAULT"
 
     """
+    This approach combines intelligent estimation and inflation based methods
+    and runs them in the order specified below:
+    1. INTELLIGENT_ESTIMATION
+    2. FILE_SAMPLING
+    3. PREVIOUS_INFLATION
+    """
+    DEFAULT_V2 = "DEFAULT_V2"
+
+    """
     This approach strictly uses previous inflation and average record size to arrive
     at a resource estimate. It requires users to pass in previous inflation and average
     record sizes.

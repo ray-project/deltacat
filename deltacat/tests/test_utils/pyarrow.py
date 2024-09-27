@@ -2,7 +2,7 @@ from typing import List, Optional, Union
 import pyarrow as pa
 from deltacat.storage import Delta, Partition, PartitionLocator, DeltaLocator
 import deltacat.tests.local_deltacat_storage as ds
-from deltacat.types.media import StorageType
+from deltacat.types.media import StorageType, ContentType
 
 
 def create_delta_from_csv_file(
@@ -10,6 +10,7 @@ def create_delta_from_csv_file(
     file_paths: List[str],
     table_name: Optional[str] = None,
     table_version: int = 1,
+    content_type: ContentType = ContentType.PARQUET,
     *args,
     **kwargs,
 ) -> Delta:
@@ -22,7 +23,7 @@ def create_delta_from_csv_file(
         **kwargs,
     )
     committed_delta = commit_delta_to_staged_partition(
-        staged_partition, file_paths, *args, **kwargs
+        staged_partition, file_paths, content_type=content_type, *args, **kwargs
     )
     return committed_delta
 
@@ -45,10 +46,18 @@ def stage_partition_from_file_paths(
 
 
 def commit_delta_to_staged_partition(
-    staged_partition, file_paths: List[str], *args, **kwargs
+    staged_partition,
+    file_paths: List[str],
+    content_type: ContentType = ContentType.PARQUET,
+    *args,
+    **kwargs,
 ) -> Delta:
     committed_delta = commit_delta_to_partition(
-        staged_partition, *args, file_paths=file_paths, **kwargs
+        staged_partition,
+        *args,
+        file_paths=file_paths,
+        content_type=content_type,
+        **kwargs,
     )
     ds.commit_partition(staged_partition, **kwargs)
     return committed_delta
@@ -68,6 +77,7 @@ def download_delta(delta_like: Union[Delta, DeltaLocator], *args, **kwargs) -> D
 def commit_delta_to_partition(
     partition: Union[Partition, PartitionLocator],
     file_paths: List[str],
+    content_type: ContentType = ContentType.PARQUET,
     *args,
     **kwargs,
 ) -> Delta:
@@ -83,6 +93,6 @@ def commit_delta_to_partition(
         tables.append(table)
 
     table = pa.concat_tables(tables)
-    staged_delta = ds.stage_delta(table, partition, **kwargs)
+    staged_delta = ds.stage_delta(table, partition, content_type=content_type, **kwargs)
 
     return ds.commit_delta(staged_delta, **kwargs)

@@ -68,7 +68,7 @@ def _calculate_parquet_column_size(
 def _estimate_manifest_entry_size_bytes_using_previous_inflation(
     entry: ManifestEntry,
     operation_type: OperationType,
-    estimate_resources_params: EstimateResourcesParams = None,
+    estimate_resources_params: EstimateResourcesParams,
     **kwargs,
 ) -> Optional[float]:
 
@@ -91,7 +91,7 @@ def _estimate_manifest_entry_size_bytes_using_previous_inflation(
 def _estimate_manifest_entry_size_bytes_using_content_type_meta(
     entry: ManifestEntry,
     operation_type: OperationType,
-    estimate_resources_params: EstimateResourcesParams = None,
+    estimate_resources_params: EstimateResourcesParams,
     **kwargs,
 ) -> Optional[float]:
 
@@ -126,7 +126,7 @@ def _estimate_manifest_entry_size_bytes_using_content_type_meta(
 def _estimate_manifest_entry_size_bytes_using_intelligent_estimation(
     entry: ManifestEntry,
     operation_type: OperationType,
-    estimate_resources_params: EstimateResourcesParams = None,
+    estimate_resources_params: EstimateResourcesParams,
     **kwargs,
 ) -> Optional[float]:
 
@@ -182,7 +182,7 @@ RESOURCE_ESTIMATION_METHOD_TO_SIZE_ESTIMATION_FUNCTIONS = {
 def _estimate_manifest_entry_num_rows_using_previous_inflation(
     entry: ManifestEntry,
     operation_type: OperationType,
-    estimate_resources_params: EstimateResourcesParams = None,
+    estimate_resources_params: EstimateResourcesParams,
     **kwargs,
 ) -> Optional[int]:
     assert (
@@ -214,7 +214,7 @@ def _estimate_manifest_entry_num_rows_using_previous_inflation(
 def _estimate_manifest_entry_num_rows_using_content_type_meta(
     entry: ManifestEntry,
     operation_type: OperationType,
-    estimate_resources_params: EstimateResourcesParams = None,
+    estimate_resources_params: EstimateResourcesParams,
     **kwargs,
 ) -> Optional[int]:
     assert (
@@ -238,7 +238,7 @@ def _estimate_manifest_entry_num_rows_using_content_type_meta(
 def _estimate_manifest_entry_num_rows_using_intelligent_estimation(
     entry: ManifestEntry,
     operation_type: OperationType,
-    estimate_resources_params: EstimateResourcesParams = None,
+    estimate_resources_params: EstimateResourcesParams,
     **kwargs,
 ) -> Optional[int]:
     assert (
@@ -348,7 +348,6 @@ def estimate_manifest_entry_num_rows(
         )
 
     for func in functions:
-        print(func)
         num_rows = func(
             entry=entry,
             operation_type=operation_type,
