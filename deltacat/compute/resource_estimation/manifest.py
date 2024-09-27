@@ -95,15 +95,14 @@ def _estimate_manifest_entry_size_bytes_using_content_type_meta(
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
-    if not type_params:
+    if (
+        not type_params
+        or estimate_resources_params.parquet_to_pyarrow_inflation is None
+    ):
         return None
 
     if not type_params.row_groups_to_download:
         return 0
-
-    assert (
-        estimate_resources_params.parquet_to_pyarrow_inflation is not None
-    ), "Expected parquet_to_pyarrow_inflation when resource estimation method is CONTENT_TYPE_META"
 
     return (
         type_params.in_memory_size_bytes
@@ -124,15 +123,14 @@ def _estimate_manifest_entry_size_bytes_using_intelligent_estimation(
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
-    if not type_params:
+    if (
+        not type_params
+        or estimate_resources_params.parquet_to_pyarrow_inflation is None
+    ):
         return None
 
     if not type_params.row_groups_to_download:
         return 0
-
-    assert (
-        estimate_resources_params.parquet_to_pyarrow_inflation is not None
-    ), "Expected parquet_to_pyarrow_inflation when resource estimation method is INTELLIGENT_ESTIMATION"
 
     column_names = [
         type_params.pq_metadata.row_group(0).column(col).path_in_schema
@@ -356,7 +354,11 @@ def estimate_manifest_entry_column_size_bytes(
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
-    if not type_params or not type_params.pq_metadata:
+    if (
+        not type_params
+        or not type_params.pq_metadata
+        or not estimate_resources_params.parquet_to_pyarrow_inflation
+    ):
         return None
 
     if not columns or not type_params.row_groups_to_download:

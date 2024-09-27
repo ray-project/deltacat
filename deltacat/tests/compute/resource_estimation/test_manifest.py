@@ -427,6 +427,24 @@ class TestEstimateManifestEntryColumnSizeBytes:
             == 11000
         )
 
+    def test_when_default_v2_enabled_multiple_columns_and_inflation_not_passed(
+        self, sample_no_stats_entry
+    ):
+        estimate_resources_params = EstimateResourcesParams.of(
+            parquet_to_pyarrow_inflation=None,
+            resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
+        )
+
+        assert (
+            estimate_manifest_entry_column_size_bytes(
+                sample_no_stats_entry,
+                columns=["first_name", "id"],
+                operation_type=OperationType.PYARROW_DOWNLOAD,
+                estimate_resources_params=estimate_resources_params,
+            )
+            is None
+        )
+
     def test_when_intelligent_estimation_enabled_with_no_type_params(
         self, sample_with_no_type_params
     ):
@@ -610,6 +628,24 @@ class TestEstimateManifestEntryNumRows:
     def test_when_type_params_no_stats_with_default_v2(self, sample_no_stats_entry):
         estimate_resources_params = EstimateResourcesParams.of(
             parquet_to_pyarrow_inflation=1,
+            previous_inflation=7,
+            average_record_size_bytes=1000,
+            resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
+        )
+        assert (
+            estimate_manifest_entry_num_rows(
+                sample_no_stats_entry,
+                operation_type=OperationType.PYARROW_DOWNLOAD,
+                estimate_resources_params=estimate_resources_params,
+            )
+            == 1000
+        )
+
+    def test_when_type_params_parquet_inflation_absent_with_default_v2(
+        self, sample_no_stats_entry
+    ):
+        estimate_resources_params = EstimateResourcesParams.of(
+            parquet_to_pyarrow_inflation=None,
             previous_inflation=7,
             average_record_size_bytes=1000,
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -861,6 +897,23 @@ class TestEstimateManifestEntrySizeBytes:
         assert (
             estimate_manifest_entry_size_bytes(
                 sample_with_no_type_params,
+                operation_type=OperationType.PYARROW_DOWNLOAD,
+                estimate_resources_params=estimate_resources_params,
+            )
+            == 795403  # same as previous inflation
+        )
+
+    def test_when_type_params_but_inflation_absent_default_v2_method(
+        self, sample_with_stats_entry
+    ):
+        estimate_resources_params = EstimateResourcesParams.of(
+            parquet_to_pyarrow_inflation=None,
+            previous_inflation=7,
+            resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
+        )
+        assert (
+            estimate_manifest_entry_size_bytes(
+                sample_with_stats_entry,
                 operation_type=OperationType.PYARROW_DOWNLOAD,
                 estimate_resources_params=estimate_resources_params,
             )

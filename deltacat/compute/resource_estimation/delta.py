@@ -67,6 +67,9 @@ def _estimate_resources_required_to_process_delta_using_type_params(
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Number of rows can only be estimated for PYARROW_DOWNLOAD operation"
 
+    if estimate_resources_params.parquet_to_pyarrow_inflation is None:
+        return None
+
     if not delta.manifest:
         delta.manifest = deltacat_storage.get_delta_manifest(
             delta.locator,
