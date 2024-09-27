@@ -2,7 +2,7 @@ import pytest
 from deltacat.storage import ManifestEntry, ManifestMeta
 import pyarrow.parquet as papq
 from deltacat.types.partial_download import PartialParquetParameters
-from deltacat.compute.resource_estimation.utils import (
+from deltacat.compute.resource_estimation.manifest import (
     estimate_manifest_entry_column_size_bytes,
     estimate_manifest_entry_num_rows,
     estimate_manifest_entry_size_bytes,

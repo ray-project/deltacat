@@ -15,7 +15,7 @@ from deltacat.compute.resource_estimation.model import (
     EstimatedResources,
     Statistics,
 )
-from deltacat.compute.resource_estimation.utils import (
+from deltacat.compute.resource_estimation.manifest import (
     estimate_manifest_entry_size_bytes,
     estimate_manifest_entry_num_rows,
 )

@@ -4,7 +4,7 @@ from deltacat.compute.resource_estimation.model import (
     Statistics,
     EstimateResourcesParams,
 )
-from deltacat.compute.resource_estimation.utils import (
+from deltacat.compute.resource_estimation.manifest import (
     estimate_manifest_entry_column_size_bytes,
     estimate_manifest_entry_num_rows,
     estimate_manifest_entry_size_bytes,

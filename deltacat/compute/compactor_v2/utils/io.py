@@ -23,7 +23,9 @@ from deltacat.compute.compactor_v2.utils.content_type_params import (
 )
 from deltacat.utils.metrics import metrics
 from deltacat.compute.compactor_v2.constants import DISCOVER_DELTAS_METRIC_PREFIX
-from deltacat.compute.resource_estimation.utils import does_require_content_type_params
+from deltacat.compute.resource_estimation.manifest import (
+    does_require_content_type_params,
+)
 from deltacat.compute.resource_estimation.model import OperationType
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))

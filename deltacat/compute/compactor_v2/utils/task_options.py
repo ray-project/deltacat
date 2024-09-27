@@ -13,7 +13,7 @@ from deltacat.compute.compactor.model.round_completion_info import RoundCompleti
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
-from deltacat.compute.resource_estimation.utils import (
+from deltacat.compute.resource_estimation.manifest import (
     estimate_manifest_entry_num_rows,
     estimate_manifest_entry_size_bytes,
     estimate_manifest_entry_column_size_bytes,
