@@ -106,7 +106,7 @@ def _estimate_resources_required_to_process_delta_using_type_params(
             **kwargs,
         )
 
-        if not cur_memory or not cur_num_rows:
+        if cur_memory is None or cur_num_rows is None:
             return None
 
         in_memory_size += cur_memory
@@ -210,6 +210,11 @@ RESOURCE_ESTIMATION_METHOD_TO_DELTA_RESOURCE_ESTIMATION_FUNCTIONS = {
         _estimate_resources_required_to_process_delta_using_file_sampling
     ],
     ResourceEstimationMethod.DEFAULT: [
+        _estimate_resources_required_to_process_delta_using_previous_inflation,
+    ],
+    ResourceEstimationMethod.DEFAULT_V2: [
+        _estimate_resources_required_to_process_delta_using_type_params,
+        _estimate_resources_required_to_process_delta_using_file_sampling,
         _estimate_resources_required_to_process_delta_using_previous_inflation,
     ],
 }

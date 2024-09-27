@@ -76,12 +76,6 @@ def _estimate_manifest_entry_size_bytes_using_previous_inflation(
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Size can only be estimated for PYARROW_DOWNLOAD operation"
     assert (
-        estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.PREVIOUS_INFLATION
-        or estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.DEFAULT
-    ), f"Expected PREVIOUS_INFLATION but found {estimate_resources_params.resource_estimation_method}"
-    assert (
         estimate_resources_params.previous_inflation is not None
     ), "Expected previous_inflation when resource estimation method is PREVIOUS_INFLATION"
 
@@ -98,12 +92,6 @@ def _estimate_manifest_entry_size_bytes_using_content_type_meta(
     assert (
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Size can only be estimated for PYARROW_DOWNLOAD operation"
-    assert (
-        estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.CONTENT_TYPE_META
-        or estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.DEFAULT
-    ), f"Expected CONTENT_TYPE_META but found {estimate_resources_params.resource_estimation_method}"
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
@@ -133,10 +121,6 @@ def _estimate_manifest_entry_size_bytes_using_intelligent_estimation(
     assert (
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Size can only be estimated for PYARROW_DOWNLOAD operation"
-    assert (
-        estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.INTELLIGENT_ESTIMATION
-    ), f"Expected INTELLIGENT_ESTIMATION but found {estimate_resources_params.resource_estimation_method}"
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
@@ -176,6 +160,10 @@ RESOURCE_ESTIMATION_METHOD_TO_SIZE_ESTIMATION_FUNCTIONS = {
         _estimate_manifest_entry_size_bytes_using_content_type_meta,
         _estimate_manifest_entry_size_bytes_using_previous_inflation,
     ],
+    ResourceEstimationMethod.DEFAULT_V2: [
+        _estimate_manifest_entry_size_bytes_using_intelligent_estimation,
+        _estimate_manifest_entry_size_bytes_using_previous_inflation,
+    ],
 }
 
 
@@ -188,12 +176,6 @@ def _estimate_manifest_entry_num_rows_using_previous_inflation(
     assert (
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Number of rows can only be estimated for PYARROW_DOWNLOAD operation"
-    assert (
-        estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.PREVIOUS_INFLATION
-        or estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.DEFAULT
-    ), f"Expected PREVIOUS_INFLATION but found {estimate_resources_params.resource_estimation_method}"
     assert (
         estimate_resources_params.previous_inflation is not None
     ), "Expected previous_inflation when resource estimation method is PREVIOUS_INFLATION"
@@ -220,12 +202,6 @@ def _estimate_manifest_entry_num_rows_using_content_type_meta(
     assert (
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Number of rows can only be estimated for PYARROW_DOWNLOAD operation"
-    assert (
-        estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.CONTENT_TYPE_META
-        or estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.DEFAULT
-    ), f"Expected CONTENT_TYPE_META but found {estimate_resources_params.resource_estimation_method}"
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
@@ -244,10 +220,6 @@ def _estimate_manifest_entry_num_rows_using_intelligent_estimation(
     assert (
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Number of rows can only be estimated for PYARROW_DOWNLOAD operation"
-    assert (
-        estimate_resources_params.resource_estimation_method
-        == ResourceEstimationMethod.INTELLIGENT_ESTIMATION
-    ), f"Expected INTELLIGENT_ESTIMATION but found {estimate_resources_params.resource_estimation_method}"
 
     type_params = _get_parquet_type_params_if_exist(entry=entry)
 
@@ -269,6 +241,10 @@ RESOURCE_ESTIMATION_METHOD_TO_NUM_ROWS_ESTIMATION_FUNCTIONS = {
     ],
     ResourceEstimationMethod.DEFAULT: [
         _estimate_manifest_entry_num_rows_using_content_type_meta,
+        _estimate_manifest_entry_num_rows_using_previous_inflation,
+    ],
+    ResourceEstimationMethod.DEFAULT_V2: [
+        _estimate_manifest_entry_num_rows_using_intelligent_estimation,
         _estimate_manifest_entry_num_rows_using_previous_inflation,
     ],
 }
@@ -392,6 +368,8 @@ def estimate_manifest_entry_column_size_bytes(
     is_intelligent_estimation = (
         estimate_resources_params.resource_estimation_method
         == ResourceEstimationMethod.INTELLIGENT_ESTIMATION
+        or estimate_resources_params.resource_estimation_method
+        == ResourceEstimationMethod.DEFAULT_V2
     )
 
     columns_size = 0.0
