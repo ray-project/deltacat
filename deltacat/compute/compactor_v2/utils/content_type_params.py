@@ -35,6 +35,9 @@ def _contains_partial_parquet_parameters(entry: ManifestEntry) -> bool:
 
 
 APPEND_CONTENT_TYPE_PARAMS_CACHE = "append_content_type_params_cache"
+# At this point, it's better to fetch all parquet than to cache and
+# call actor which is not expected to support high throughput.
+MINIMUM_ENTRIES_TO_CACHE = 10
 
 
 @ray.remote
@@ -106,17 +109,25 @@ def append_content_type_params(
         )
         return None
 
-    cache = AppendContentTypeParamsCache.options(
-        name=APPEND_CONTENT_TYPE_PARAMS_CACHE, get_if_exists=True
-    ).remote()
-
-    cached_value = ray.get(cache.get.remote(delta.locator.hexdigest()))
-    if cached_value is not None:
+    if len(entry_indices_to_download) >= MINIMUM_ENTRIES_TO_CACHE:
         logger.info(
-            f"Using cached parquet meta for delta with locator {delta.locator}."
+            "Checking if cache contains parquet meta for "
+            f"delta locator {delta.locator}..."
         )
-        delta.manifest = cached_value.manifest
-        return
+        cache = AppendContentTypeParamsCache.options(
+            name=APPEND_CONTENT_TYPE_PARAMS_CACHE, get_if_exists=True
+        ).remote()
+
+        cached_value = ray.get(cache.get.remote(delta.locator.hexdigest()))
+        if cached_value is not None:
+            logger.info(
+                f"Using cached parquet meta for delta with locator {delta.locator}."
+            )
+            delta.manifest = cached_value.manifest
+            return
+        logger.info(
+            f"Cache doesn't contain parquet meta for delta with locator {delta.locator}."
+        )
 
     options_provider = functools.partial(
         append_content_type_params_options_provider,
@@ -168,4 +179,5 @@ def append_content_type_params(
             entry
         ), "partial parquet params validation failed."
 
-    ray.get(cache.put.remote(delta.locator.hexdigest(), delta))
+    if len(entry_indices_to_download) >= MINIMUM_ENTRIES_TO_CACHE:
+        ray.get(cache.put.remote(delta.locator.hexdigest(), delta))
