@@ -93,7 +93,7 @@ def _download_parquet_metadata_for_manifest_entry(
 
 def append_content_type_params(
     delta: Delta,
-    task_max_parallelism: int = TASK_MAX_PARALLELISM * 2,
+    task_max_parallelism: int = TASK_MAX_PARALLELISM,
     max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
@@ -122,19 +122,29 @@ def append_content_type_params(
         )
         return None
 
+    ray_namespace = ray.get_runtime_context().namespace
+    logger.info(
+        f"Got Ray namespace: {ray_namespace}. "
+        "Note that caching only works with non-anonymous namespace."
+        "To set a non-anonymous namespace, call ray.init(namespace='X')."
+    )
     if len(entry_indices_to_download) >= MINIMUM_ENTRIES_TO_CACHE:
         logger.info(
-            "Checking if cache contains parquet meta for "
-            f"delta locator {delta.locator}..."
+            f"Checking if cache contains parquet meta in namespace {ray_namespace} for "
+            f"delta locator {delta.locator} and digest {delta.locator.hexdigest()}..."
         )
         cache = AppendContentTypeParamsCache.options(
-            name=APPEND_CONTENT_TYPE_PARAMS_CACHE, get_if_exists=True
+            name=APPEND_CONTENT_TYPE_PARAMS_CACHE,
+            namespace=ray_namespace,
+            get_if_exists=True,
         ).remote()
 
+        logger.info(f"Got cache actor: {cache}")
         cached_value = ray.get(cache.get.remote(delta.locator.hexdigest()))
         if cached_value is not None:
             logger.info(
-                f"Using cached parquet meta for delta with locator {delta.locator}."
+                "Using cached parquet meta for delta with locator"
+                f" {delta.locator} and digest {delta.locator.hexdigest()}."
             )
             delta.manifest = cached_value.manifest
             return
@@ -194,6 +204,14 @@ def append_content_type_params(
 
     if len(entry_indices_to_download) >= MINIMUM_ENTRIES_TO_CACHE:
         cache = AppendContentTypeParamsCache.options(
-            name=APPEND_CONTENT_TYPE_PARAMS_CACHE, get_if_exists=True
+            name=APPEND_CONTENT_TYPE_PARAMS_CACHE,
+            namespace=ray_namespace,
+            get_if_exists=True,
         ).remote()
+        logger.info(f"Got cache actor when writing: {cache}")
+        logger.info(
+            f"Caching parquet meta for delta with locator {delta.locator} "
+            f"and digest {delta.locator.hexdigest()}..."
+        )
         ray.get(cache.put.remote(delta.locator.hexdigest(), delta))
+        assert ray.get(cache.get.remote(delta.locator.hexdigest())) is not None
