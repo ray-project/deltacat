@@ -34,6 +34,25 @@ def _contains_partial_parquet_parameters(entry: ManifestEntry) -> bool:
     )
 
 
+APPEND_CONTENT_TYPE_PARAMS_CACHE = "append_content_type_params_cache"
+
+
+@ray.remote
+class AppendContentTypeParamsCache:
+    """
+    This actor caches the delta that contains content type meta.
+    """
+
+    def __init__(self):
+        self.cache = {}
+
+    def get(self, key):
+        return self.cache.get(key)
+
+    def put(self, key, value):
+        self.cache[key] = value
+
+
 @ray.remote
 def _download_parquet_metadata_for_manifest_entry(
     delta: Delta,
@@ -58,11 +77,15 @@ def _download_parquet_metadata_for_manifest_entry(
 
 def append_content_type_params(
     delta: Delta,
-    task_max_parallelism: int = TASK_MAX_PARALLELISM,
+    task_max_parallelism: int = TASK_MAX_PARALLELISM * 2,
     max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> None:
+    """
+    This operation appends content type params into the delta entry. Note
+    that this operation can be time consuming, hence we cache it in a Ray actor.
+    """
 
     if not delta.meta:
         logger.warning(f"Delta with locator {delta.locator} doesn't contain meta.")
@@ -81,6 +104,18 @@ def append_content_type_params(
         logger.info(
             f"No parquet type params to download for delta with locator {delta.locator}."
         )
+        return None
+
+    cache = AppendContentTypeParamsCache.options(
+        name=APPEND_CONTENT_TYPE_PARAMS_CACHE, get_if_exists=True
+    ).remote()
+
+    cached_value = ray.get(cache.get.remote(delta.locator.hexdigest()))
+    if cached_value is not None:
+        logger.info(
+            f"Using cached parquet meta for delta with locator {delta.locator}."
+        )
+        delta.manifest = cached_value.manifest
         return
 
     options_provider = functools.partial(
@@ -132,3 +167,5 @@ def append_content_type_params(
         assert _contains_partial_parquet_parameters(
             entry
         ), "partial parquet params validation failed."
+
+    ray.get(cache.put.remote(delta.locator.hexdigest(), delta))
