@@ -155,11 +155,12 @@ def _timed_dedupe(
                 sort_keys.extend(
                     [
                         SortKey.of(
-                            sc._PARTITION_STREAM_POSITION_COLUMN_NAME,
+                            [sc._PARTITION_STREAM_POSITION_COLUMN_NAME],
                             SortOrder.ASCENDING,
                         ),
                         SortKey.of(
-                            sc._ORDERED_FILE_IDX_COLUMN_NAME, SortOrder.ASCENDING
+                            [sc._ORDERED_FILE_IDX_COLUMN_NAME],
+                            SortOrder.ASCENDING
                         ),
                     ]
                 )

@@ -2,12 +2,11 @@ import logging
 
 from typing import Any, Dict, List, Optional, Set, Union
 
-import daft.context
 from daft import DataFrame
 
 from deltacat import logs
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.exceptions import TableAlreadyExistsError, TableNotFoundError
+from deltacat.exceptions import TableAlreadyExistsError
 from deltacat.storage.iceberg.impl import _get_native_catalog
 from deltacat.storage.iceberg.model import PartitionSchemeMapper, SchemaMapper
 from deltacat.storage.model.partition import PartitionScheme
@@ -68,7 +67,7 @@ def write_to_table(
     #  this lets us re-use a single model-mapper instead of different per-catalog model mappers
     schema = SchemaMapper.unmap(table_definition.table_version.schema)
     partition_spec = PartitionSchemeMapper.unmap(
-        table_definition.table_version.partition_keys,
+        table_definition.table_version.partition_scheme,
         schema,
     )
     if isinstance(data, DataFrame):
@@ -131,7 +130,7 @@ def create_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Schema] = None,
     schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[PartitionScheme] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
     primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
@@ -178,7 +177,7 @@ def create_table(
         namespace=namespace,
         table_name=table,
         schema=schema,
-        partition_keys=partition_keys,
+        partition_scheme=partition_scheme,
         sort_keys=sort_keys,
         table_properties=table_properties,
         **kwargs,

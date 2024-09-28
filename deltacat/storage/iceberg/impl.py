@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from pyiceberg.typedef import Identifier, EMPTY_DICT
 from pyiceberg.table import Table as IcebergTable
@@ -122,7 +122,7 @@ def _try_get_stream(
         return StreamMapper.map(
             obj=table,
             metadata_timestamp=int(table_version) if table_version else None,
-            snapsbhot_id=int(stream_id) if stream_id else None,
+            snapshot_id=int(stream_id) if stream_id else None,
             catalog_properties=catalog_properties,
         )
     except StreamNotFoundError as e:
@@ -195,6 +195,7 @@ def list_deltas(
     last_stream_position: Optional[int] = None,
     ascending_order: Optional[bool] = None,
     include_manifest: bool = False,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> ListResult[Delta]:
@@ -204,8 +205,9 @@ def list_deltas(
     limited to inclusive first and last stream positions. Deltas are returned by
     descending stream position by default. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Raises an error if the given table
-    version or partition does not exist.
+    specified for unpartitioned tables. Partition scheme ID resolves to the
+    table version's current partition scheme by default. Raises an error if the
+    given table version or partition does not exist.
 
     To conserve memory, the deltas returned do not include manifests by
     default. The manifests can either be optionally retrieved as part of this
@@ -234,14 +236,17 @@ def get_delta(
     partition_values: Optional[List[Any]] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Delta]:
     """
     Gets the delta for the given table version, partition, and stream position.
     Table version resolves to the latest active table version if not specified.
-    Partition values should not be specified for unpartitioned tables. Raises
-    an error if the given table version or partition does not exist.
+    Partition values should not be specified for unpartitioned tables. Partition
+    scheme ID resolves to the table version's current partition scheme by
+    default. Raises an error if the given table version or partition does not
+    exist.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
@@ -256,6 +261,7 @@ def get_latest_delta(
     partition_values: Optional[List[Any]] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Delta]:
@@ -263,8 +269,9 @@ def get_latest_delta(
     Gets the latest delta (i.e. the delta with the greatest stream position) for
     the given table version and partition. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Raises an error if the given table
-    version or partition does not exist.
+    specified for unpartitioned tables. Partition scheme ID resolves to the
+    table version's current partition scheme by default. Raises an error if the
+    given table version or partition does not exist.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
@@ -358,8 +365,8 @@ def create_table_version(
     table_version: Optional[str] = None,
     schema: Optional[Schema] = None,
     schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[PartitionScheme] = None,
-    primary_key_column_names: Optional[Set[str]] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
+    primary_key_column_names: Optional[List[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -418,7 +425,7 @@ def create_table_version(
         case_sensitive=case_sensitive_col_names,
     )
     partition_spec = PartitionSchemeMapper.unmap(
-        obj=partition_keys,
+        obj=partition_scheme,
         schema=iceberg_schema,
         case_sensitive=case_sensitive_col_names,
     )
@@ -432,7 +439,7 @@ def create_table_version(
     )
     logger.info(f"Created table: {table}")
     # no snapshot is committed on table creation, so return an undefined stream
-    return Stream.of(locator=None, partition_keys=None)
+    return Stream.of(locator=None, partition_scheme=None)
 
 
 def update_table(

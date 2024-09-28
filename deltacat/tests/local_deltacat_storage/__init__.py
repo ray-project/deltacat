@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Set, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 import pyarrow as pa
 import daft
@@ -45,12 +45,8 @@ from deltacat.storage import (
     ManifestEntry,
     ManifestEntryList,
     EntryParams,
-    PartitionFilter,
     PartitionValues,
-    DeltaPartitionSpec,
-    StreamPartitionSpec,
     TransformName,
-    IdentityTransformParameters,
 )
 from deltacat.storage.model.manifest import Manifest, ManifestMeta, EntryType
 from deltacat.types.media import (
@@ -211,20 +207,13 @@ def list_deltas(
     last_stream_position: Optional[int] = None,
     ascending_order: Optional[bool] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> ListResult[Delta]:
     stream = get_stream(namespace, table_name, table_version, *args, **kwargs)
     if stream is None:
         return ListResult.of([], None, None)
-
-    if partition_values is not None and partition_filter is not None:
-        raise ValueError(
-            "Only one of partition_values or partition_filter must be provided"
-        )
-    if partition_filter is not None:
-        partition_values = partition_filter.partition_values
 
     partition = get_partition(stream.locator, partition_values, *args, **kwargs)
 
@@ -319,21 +308,13 @@ def get_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Delta]:
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
     stream = get_stream(namespace, table_name, table_version, *args, **kwargs)
-
-    if partition_values is not None and partition_filter is not None:
-        raise ValueError(
-            "Only one of partition_values or partition_filter must be provided"
-        )
-
-    if partition_filter is not None:
-        partition_values = partition_filter.partition_values
 
     partition = get_partition(stream.locator, partition_values, *args, **kwargs)
     delta_locator = DeltaLocator.of(partition.locator, stream_position)
@@ -360,7 +341,7 @@ def get_latest_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Delta]:
@@ -374,7 +355,7 @@ def get_latest_delta(
         last_stream_position=None,
         ascending_order=False,
         include_manifest=include_manifest,
-        partition_filter=partition_filter,
+        partition_scheme_id=partition_scheme_id,
         *args,
         **kwargs,
     ).all_items()
@@ -394,7 +375,6 @@ def download_delta(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
@@ -403,16 +383,7 @@ def download_delta(
         manifest = Delta(delta_like).manifest
     else:
         manifest = get_delta_manifest(delta_like, *args, **kwargs)
-    partition_values: PartitionValues = None
-    if partition_filter is not None:
-        partition_values = partition_filter.partition_values
     for entry_index in range(len(manifest.entries)):
-        if (
-            partition_values is not None
-            and partition_values != manifest.entries[entry_index].meta.partition_values
-        ):
-            continue
-
         result.append(
             download_delta_manifest_entry(
                 delta_like=delta_like,
@@ -560,36 +531,37 @@ def create_table_version(
     table_version: Optional[str] = None,
     schema: Optional[Union[pa.Schema, Any]] = None,
     schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[PartitionScheme] = None,
-    primary_key_column_names: Optional[Set[str]] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
+    primary_key_column_names: Optional[List[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
     table_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     supported_content_types: Optional[List[ContentType]] = None,
-    partition_spec: Optional[StreamPartitionSpec] = None,
     *args,
     **kwargs,
 ) -> Stream:
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
-    if partition_keys is not None and partition_spec is not None:
-        raise ValueError(
-            "Only one of partition_keys or partition_spec must be provided"
-        )
-    if partition_spec is not None:
+    if partition_scheme is not None:
         assert (
-            partition_spec.ordered_transforms is not None
-        ), "Ordered transforms must be specified when partition_spec is specified"
-        partition_keys = []
-        for transform in partition_spec.ordered_transforms:
-            assert transform.name == TransformName.IDENTITY, (
+                partition_scheme.keys is not None
+        ), "Partition keys must be specified with partition scheme"
+        for key in partition_scheme.keys:
+            assert key.transform is None or key.transform.name == TransformName.IDENTITY, (
                 "Local DeltaCAT storage does not support creating table versions "
                 "with non identity transform partition spec"
             )
-            transform_params: IdentityTransformParameters = transform.parameters
-            partition_keys.append(transform_params.column_name)
+    if sort_keys is not None:
+        assert (
+                sort_keys.keys is not None
+        ), "Sort keys must be specified with sort scheme"
+        for key in sort_keys.keys:
+            assert key.transform is None or key.transform.name == TransformName.IDENTITY, (
+                "Local DeltaCAT storage does not support creating table versions "
+                "with non identity transform sort spec"
+            )
 
     latest_version = get_latest_table_version(namespace, table_name, *args, **kwargs)
     if (
@@ -620,7 +592,7 @@ def create_table_version(
     table_version_obj = TableVersion.of(
         table_version_locator,
         schema=Schema.of(schema),
-        partition_keys=partition_keys,
+        partition_scheme=partition_scheme,
         primary_key_columns=primary_key_column_names,
         description=table_version_description,
         properties=properties,
@@ -631,7 +603,7 @@ def create_table_version(
         table_version_obj.locator, stream_id=stream_id, storage_type=STORAGE_TYPE
     )
     result_stream = Stream.of(
-        stream_locator, partition_keys=partition_keys, state=CommitState.COMMITTED
+        stream_locator, partition_scheme=partition_scheme, state=CommitState.COMMITTED
     )
 
     params = (
@@ -722,7 +694,7 @@ def update_table_version(
     table_version_obj = TableVersion.of(
         table_version_locator,
         schema=Schema.of(schema),
-        partition_keys=current_table_version_obj.partition_keys,
+        partition_scheme=current_table_version_obj.partition_scheme,
         primary_key_columns=current_table_version_obj.primary_keys,
         description=description,
         properties=tv_properties,
@@ -762,7 +734,7 @@ def stage_stream(
     )
     new_stream = Stream.of(
         new_stream_locator,
-        existing_stream.partition_keys,
+        existing_stream.partition_scheme,
         CommitState.STAGED,
         existing_stream.locator.canonical_string(),
     )
@@ -786,7 +758,7 @@ def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
     )
     stream_to_commit = Stream.of(
         stream.locator,
-        stream.partition_keys,
+        stream.partition_scheme,
         CommitState.COMMITTED,
         stream.previous_stream_id,
     )
@@ -994,8 +966,6 @@ def stage_delta(
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
-    partition_spec: Optional[DeltaPartitionSpec] = None,
-    partition_values: Optional[PartitionValues] = None,
     *args,
     **kwargs,
 ) -> Delta:
@@ -1016,12 +986,6 @@ def stage_delta(
         cur.execute("INSERT OR IGNORE INTO deltas VALUES (?, ?, ?)", params)
         con.commit()
         return delta
-
-    if partition_spec:
-        assert partition_values is not None, (
-            "partition_values must be provided as local "
-            "storage does not support computing it from input data"
-        )
 
     serialized_data = None
     if content_type == ContentType.PARQUET:
@@ -1050,7 +1014,6 @@ def stage_delta(
         source_content_length=data.nbytes,
         entry_type=entry_type,
         entry_params=entry_params,
-        partition_values=partition_values,
     )
 
     manifest = Manifest.of(

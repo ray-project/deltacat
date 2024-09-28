@@ -68,7 +68,7 @@ def create_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Schema] = None,
     schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[PartitionScheme] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
     primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,

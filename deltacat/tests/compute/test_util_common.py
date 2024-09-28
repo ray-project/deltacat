@@ -92,7 +92,7 @@ def _create_table(
         table_version,
         primary_key_column_names=list(primary_keys),
         sort_keys=sort_keys,
-        partition_keys=partition_keys,
+        partition_scheme=partition_keys,
         supported_content_types=[ContentType.PARQUET],
         **ds_mock_kwargs,
     )

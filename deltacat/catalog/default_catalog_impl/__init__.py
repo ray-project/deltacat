@@ -12,7 +12,11 @@ from deltacat.storage.model.types import (
     LocalTable,
     SchemaConsistencyType,
 )
-from deltacat.storage.model.partition import PartitionLocator, Partition
+from deltacat.storage.model.partition import (
+    Partition,
+    PartitionLocator,
+    PartitionScheme,
+)
 from deltacat.storage.model.table_version import TableVersion
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
 from deltacat.storage.model.delta import DeltaType
@@ -161,7 +165,7 @@ def create_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Union[pa.Schema, str, bytes]] = None,
     schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[List[Dict[str, Any]]] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
     primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[List[SortKey]] = None,
     description: Optional[str] = None,

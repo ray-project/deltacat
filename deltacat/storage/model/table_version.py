@@ -20,7 +20,7 @@ class TableVersion(dict):
     def of(
         locator: Optional[TableVersionLocator],
         schema: Optional[Schema],
-        partition_keys: Optional[partition.PartitionScheme] = None,
+        partition_scheme: Optional[partition.PartitionScheme] = None,
         primary_key_columns: Optional[List[str]] = None,
         description: Optional[str] = None,
         properties: Optional[TableVersionProperties] = None,
@@ -31,7 +31,7 @@ class TableVersion(dict):
         table_version = TableVersion()
         table_version.locator = locator
         table_version.schema = schema
-        table_version.partition_keys = partition_keys
+        table_version.partition_scheme = partition_scheme
         table_version.primary_keys = primary_key_columns
         table_version.description = description
         table_version.properties = properties
@@ -68,14 +68,14 @@ class TableVersion(dict):
         self["sortKeys"] = sort_keys
 
     @property
-    def partition_keys(self) -> Optional[partition.PartitionScheme]:
-        return self.get("partitionKeys")
+    def partition_scheme(self) -> Optional[partition.PartitionScheme]:
+        return self.get("partitionScheme")
 
-    @partition_keys.setter
-    def partition_keys(
-        self, partition_keys: Optional[partition.PartitionScheme]
+    @partition_scheme.setter
+    def partition_scheme(
+        self, partition_scheme: Optional[partition.PartitionScheme]
     ) -> None:
-        self["partitionKeys"] = partition_keys
+        self["partitionScheme"] = partition_scheme
 
     @property
     def primary_keys(self) -> Optional[List[str]]:

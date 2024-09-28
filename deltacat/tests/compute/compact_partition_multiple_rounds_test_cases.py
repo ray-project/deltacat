@@ -15,7 +15,7 @@ from deltacat.exceptions import ValidationError
 
 from deltacat.storage import (
     DeltaType,
-    DeleteParameters,
+    EntryParams,
 )
 
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
@@ -36,15 +36,15 @@ class MultipleRoundsTestCaseParams:
     Args:
         primary_keys: Set[str] - argument for the primary_keys parameter in compact_partition. Also needed for table/delta creation
         sort_keys: List[SortKey] - argument for the sort_keys parameter in compact_partition. Also needed for table/delta creation
-        partition_keys_param: List[PartitionKey] - argument for the partition_keys parameter. Needed for table/delta creation
-        partition_values_param: List[Optional[str]] - argument for the partition_valued parameter. Needed for table/delta creation
+        partition_keys: List[PartitionKey] - argument for the partition_keys parameter. Needed for table/delta creation
+        partition_values: List[Optional[str]] - argument for the partition_valued parameter. Needed for table/delta creation
         input_deltas: List[pa.Array] - argument required for delta creation during compact_partition test setup. Actual incoming deltas expressed as a PyArrow array (https://arrow.apache.org/docs/python/generated/pyarrow.array.html)
         expected_terminal_compact_partition_result: pa.Table - expected PyArrow table after compaction (i.e,. the state of the table after applying all row UPDATES/DELETES/INSERTS)
         expected_terminal_exception: BaseException - expected exception during compaction
         expected_terminal_exception_message: Optional[str] - expected exception message if present.
         do_create_placement_group: bool - toggles whether to create a placement group (https://docs.ray.io/en/latest/ray-core/scheduling/placement-group.html) or not
         records_per_compacted_file: int - argument for the records_per_compacted_file parameter in compact_partition
-        hash_bucket_count_param: int - argument for the hash_bucket_count parameter in compact_partition
+        hash_bucket_count: int - argument for the hash_bucket_count parameter in compact_partition
         read_kwargs_provider: Optional[ReadKwargsProvider] - argument for read_kwargs_provider parameter in compact_partition. If None then no ReadKwargsProvider is provided to compact_partition_params
         drop_duplicates: bool - argument for drop_duplicates parameter in compact_partition. Only recognized by compactor v2.
         skip_enabled_compact_partition_drivers: List[CompactorVersion] - skip whatever enabled_compact_partition_drivers are included in this list
@@ -57,7 +57,7 @@ class MultipleRoundsTestCaseParams:
     sort_keys: List[Optional[SortKey]]
     partition_keys: Optional[List[PartitionKey]]
     partition_values: List[Optional[str]]
-    input_deltas: Union[List[pa.Array], DeltaType, DeleteParameters]
+    input_deltas: Union[List[pa.Array], DeltaType]
     expected_terminal_compact_partition_result: pa.Table
     expected_terminal_exception: BaseException
     expected_terminal_exception_message: str
@@ -83,8 +83,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "1-multiple-rounds-sanity": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -177,8 +177,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "2-multiple-rounds-unique-values": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -270,8 +270,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "3-num-rounds-greater-than-deltas-count": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -364,8 +364,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "4-multiple-rounds-hb-count-equals-1": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -458,8 +458,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "5-multiple-rounds-only-supports-rebase": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -553,8 +553,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "6-multiple-rounds-test-pgm": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -690,7 +690,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(equality_column_names=["pk_col_1", "col_1"])
             ),
         ],
         rebase_expected_compact_partition_result=pa.Table.from_arrays(
@@ -758,7 +758,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(equality_column_names=["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -766,7 +766,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(equality_column_names=["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(

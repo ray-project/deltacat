@@ -1,6 +1,7 @@
 import pyarrow as pa
 from typing import List
-from deltacat.storage import PartitionLocator, SortKey
+from itertools import chain
+from deltacat.storage import PartitionLocator, SortKey, TransformName
 
 MAX_SORT_KEYS_BIT_WIDTH = 256
 
@@ -22,7 +23,13 @@ def validate_sort_keys(
         deltacat_storage_kwargs = {}
     total_sort_keys_bit_width = 0
     if sort_keys:
-        sort_key_names = [key.key_name for key in sort_keys]
+        sort_key_names = list(
+            chain.from_iterable([key.key_names for key in sort_keys])
+        )
+        assert all(
+            [key.transform is None or
+             key.transform.name == TransformName.IDENTITY for key in sort_keys]
+        ), f"Sort key transforms are not supported: {sort_keys}"
         assert len(sort_key_names) == len(
             set(sort_key_names)
         ), f"Sort key names must be unique: {sort_key_names}"

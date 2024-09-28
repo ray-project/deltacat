@@ -1,6 +1,10 @@
 from typing import Optional, Dict
 
-from deltacat.storage.model.manifest import Manifest, ManifestMeta
+from deltacat.storage.model.manifest import (
+    Manifest,
+    ManifestMeta,
+    ManifestEntryList,
+)
 from deltacat.storage import Partition, DeltaType, DeltaLocator, Delta
 from deltacat.utils.common import current_time_ms
 
@@ -17,7 +21,7 @@ def create_empty_delta(
 
     if manifest_entry_id:
         manifest = Manifest.of(
-            entries=[],
+            entries=ManifestEntryList.of([]),
             author=author,
             uuid=manifest_entry_id,
         )

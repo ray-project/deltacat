@@ -3,14 +3,13 @@ from __future__ import annotations
 
 import deltacat.storage.model.partition as partition
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import CommitState
-from deltacat.storage import PartitionValues
 
 
 class Stream(dict):
@@ -21,14 +20,14 @@ class Stream(dict):
     @staticmethod
     def of(
         locator: Optional[StreamLocator],
-        partition_keys: Optional[partition.PartitionScheme],
+        partition_scheme: Optional[partition.PartitionScheme],
         state: Optional[CommitState] = None,
         previous_stream_id: Optional[bytes] = None,
         native_object: Optional[Any] = None,
     ) -> Stream:
         stream = Stream()
         stream.locator = locator
-        stream.partition_keys = partition_keys
+        stream.partition_scheme = partition_scheme
         stream.state = state
         stream.previous_stream_id = previous_stream_id
         stream.native_object = native_object
@@ -46,7 +45,7 @@ class Stream(dict):
         self["streamLocator"] = stream_locator
 
     @property
-    def partition_keys(self) -> Optional[partition.PartitionScheme]:
+    def partition_scheme(self) -> Optional[partition.PartitionScheme]:
         """
         A table's partition keys are defined within the context of a
         Partition Scheme, which supports defining both fields to partition
@@ -54,16 +53,16 @@ class Stream(dict):
         derive the Partition Values that a given field, and its corresponding
         record, belong to.
         """
-        val: Dict[str, Any] = self.get("partitionKeys")
+        val: Dict[str, Any] = self.get("partitionScheme")
         if val is not None and not isinstance(val, partition.PartitionScheme):
-            self.partition_keys = val = partition.PartitionScheme(val)
+            self.partition_scheme = val = partition.PartitionScheme(val)
         return val
 
-    @partition_keys.setter
-    def partition_keys(
-        self, partition_keys: Optional[partition.PartitionScheme]
+    @partition_scheme.setter
+    def partition_scheme(
+        self, partition_scheme: Optional[partition.PartitionScheme]
     ) -> None:
-        self["partitionKeys"] = partition_keys
+        self["partitionScheme"] = partition_scheme
 
     @property
     def previous_stream_id(self) -> Optional[str]:
@@ -141,17 +140,6 @@ class Stream(dict):
         if stream_locator:
             return stream_locator.table_version
         return None
-
-    def validate_partition_values(self, partition_values: Optional[PartitionValues]):
-        # TODO (pdames): ensure value data types match key data types
-        partition_keys = self.partition_keys
-        num_keys = len(partition_keys) if partition_keys else 0
-        num_values = len(partition_values) if partition_values else 0
-        if num_values != num_keys:
-            raise ValueError(
-                f"Found {num_values} partition values but "
-                f"{num_keys} partition keys: {self}"
-            )
 
 
 class StreamLocator(Locator, dict):

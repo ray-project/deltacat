@@ -1,17 +1,12 @@
-import itertools
-import uuid
-
-import pyarrow
-import pyarrow as pa
 import pyarrow.parquet as pq
 
-from typing import Iterable, Iterator, List
+from typing import Iterator, List
 
 from pyarrow.fs import FileSystem
 
-from pyiceberg.io.pyarrow import schema_to_pyarrow, fill_parquet_file_metadata, \
+from pyiceberg.io.pyarrow import fill_parquet_file_metadata, \
     compute_statistics_plan, parquet_path_to_id_mapping
-from pyiceberg.table import Table, _MergingSnapshotProducer, WriteTask
+from pyiceberg.table import Table, _MergingSnapshotProducer
 from pyiceberg.table.snapshots import Operation
 from pyiceberg.manifest import DataFile, DataFileContent, FileFormat
 from pyiceberg.types import StructType, NestedField, IntegerType

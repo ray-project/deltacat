@@ -102,7 +102,7 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
             table=table_name,
             namespace=namespace,
             schema=SchemaMapper.map(schema),
-            partition_keys=PartitionSchemeMapper.map(partition_spec, schema),
+            partition_scheme=PartitionSchemeMapper.map(partition_spec, schema),
             sort_keys=SortSchemeMapper.map(sort_order, schema),
         )
         print(f"Created Glue Table: {table_definition}")

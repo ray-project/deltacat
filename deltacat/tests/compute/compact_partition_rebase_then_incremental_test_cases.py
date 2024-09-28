@@ -60,8 +60,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "1-rebase-then-incremental-sanity": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -121,7 +121,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "2-rebase-then-incremental-pk-multi": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1", "pk_col_2"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_names=["sk_col_1"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -302,7 +302,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "5-rebase-then-incremental-partial-deltas-on-incremental-deltas-2": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_names=["sk_col_1"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -358,8 +358,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "6-rebase-then-incremental-hash-bucket-GT-records-per-compacted-file-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("day", PartitionKeyType.TIMESTAMP)],
         partition_values=["2022-01-01T00:00:00.000Z"],
@@ -419,7 +419,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "7-rebase-then-incremental-no-pk-compactor-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys=ZERO_VALUED_PRIMARY_KEY,
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_names=["sk_col_1"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -528,8 +528,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "9-rebase-then-incremental-single-hash-bucket": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -589,7 +589,7 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "10-rebase-then-incremental-drop-duplicates-false-on-incremental-v2-only": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_names=["sk_col_1"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -645,8 +645,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "11-rebase-then-empty-incremental-delta": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -692,8 +692,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "12-rebase-then-incremental-hash-bucket-single": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -753,8 +753,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "13-rebase-then-empty-incremental-delta-hash-bucket-single": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -800,8 +800,8 @@ REBASE_THEN_INCREMENTAL_TEST_CASES = {
     "14-rebase-then-incremental-with-null-pk": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -1833,8 +1833,8 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
     "28-rebase-then-incremental-delete-type-delta-hash-bucket-single": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
-            SortKey.of(key_name="sk_col_2"),
+            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key_names=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -1924,7 +1924,7 @@ REBASE_THEN_INCREMENTAL_DELETE_DELTA_TYPE_TEST_CASES = {
     "29-rebase-then-incremental-delete-type-delta-no-pk-compactor": RebaseThenIncrementalCompactionTestCaseParams(
         primary_keys=ZERO_VALUED_PRIMARY_KEY,
         sort_keys=[
-            SortKey.of(key_name="sk_col_1"),
+            SortKey.of(key_names=["sk_col_1"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],

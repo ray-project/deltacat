@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from deltacat.storage.model.manifest import Manifest, ManifestMeta
-from deltacat.storage import ManifestAuthor, EntryParams, PartitionValues
+from deltacat.storage import ManifestAuthor, PartitionValues
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.partition import PartitionLocator
@@ -12,7 +12,6 @@ from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import DeltaType
-from deltacat.storage.model.partition_spec import DeltaPartitionSpec
 
 DeltaProperties = Dict[str, Any]
 
@@ -26,7 +25,6 @@ class Delta(dict):
         properties: Optional[DeltaProperties],
         manifest: Optional[Manifest],
         previous_stream_position: Optional[int] = None,
-        partition_spec: Optional[DeltaPartitionSpec] = None,
     ) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
@@ -40,7 +38,6 @@ class Delta(dict):
         delta.properties = properties
         delta.manifest = manifest
         delta.previous_stream_position = previous_stream_position
-        delta.partition_spec = partition_spec
         return delta
 
     @staticmethod
@@ -93,25 +90,10 @@ class Delta(dict):
                 f"Deltas to merge must all share the same delta type "
                 f"(found {len(distinct_delta_types)} delta types)."
             )
-        distinct_partition_scheme = set([d.partition_spec for d in deltas])
-        if len(distinct_partition_scheme) > 1:
-            raise ValueError(
-                f"Deltas to merge must all share the same partition scheme "
-                f"(found {len(distinct_partition_scheme)} partition schemes)."
-            )
         merged_manifest = Manifest.merge_manifests(
             manifests,
             manifest_author,
         )
-        distinct_delta_type = list(distinct_delta_types)[0]
-        merged_entry_params = None
-        if distinct_delta_type in [DeltaType.DELETE, DeltaType.UPSERT]:
-            entry_params: List[EntryParams] = [
-                d.meta.entry_params for d in deltas if d.meta.entry_params
-            ]
-            merged_entry_params: Optional[
-                EntryParams
-            ] = EntryParams.merge(entry_params)
         partition_locator = deltas[0].partition_locator
         prev_positions = [d.previous_stream_position for d in deltas]
         prev_position = None if None in prev_positions else max(prev_positions)
@@ -122,7 +104,6 @@ class Delta(dict):
             properties,
             merged_manifest,
             prev_position,
-            merged_entry_params,
         )
 
     @property
@@ -274,17 +255,6 @@ class Delta(dict):
             return delta_locator.stream_position
         return None
 
-    @property
-    def partition_spec(self) -> Optional[DeltaPartitionSpec]:
-        val: Dict[str, Any] = self.get("partitionSpec")
-        if val is not None and not isinstance(val, DeltaPartitionSpec):
-            self.partition_spec = val = DeltaPartitionSpec(val)
-        return val
-
-    @partition_spec.setter
-    def partition_spec(self, value: Optional[DeltaPartitionSpec]) -> None:
-        self["partitionSpec"] = value
-
 
 class DeltaLocator(Locator, dict):
     @staticmethod
@@ -310,6 +280,7 @@ class DeltaLocator(Locator, dict):
         storage_type: Optional[str],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
+        partition_scheme_id: Optional[str],
         stream_position: Optional[int],
     ) -> DeltaLocator:
         partition_locator = PartitionLocator.at(
@@ -320,6 +291,7 @@ class DeltaLocator(Locator, dict):
             storage_type,
             partition_values,
             partition_id,
+            partition_scheme_id,
         )
         return DeltaLocator.of(
             partition_locator,

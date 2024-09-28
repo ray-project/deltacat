@@ -63,7 +63,7 @@ class PartialParquetParameters(PartialFileDownloadParams):
         return self["row_groups_to_download"]
 
     @property
-    def num_row_groups(self) -> List[int]:
+    def num_row_groups(self) -> int:
         return self["num_row_groups"]
 
     @property

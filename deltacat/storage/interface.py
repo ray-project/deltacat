@@ -1,10 +1,9 @@
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from deltacat.storage import (
     EntryParams,
     Delta,
     DeltaLocator,
-    DeltaPartitionSpec,
     DeltaProperties,
     DeltaType,
     DistributedDataset,
@@ -16,7 +15,6 @@ from deltacat.storage import (
     Namespace,
     NamespaceProperties,
     Partition,
-    PartitionFilter,
     PartitionLocator,
     PartitionScheme,
     PartitionValues,
@@ -25,7 +23,6 @@ from deltacat.storage import (
     SortScheme,
     Stream,
     StreamLocator,
-    StreamPartitionSpec,
     Table,
     TableProperties,
     TableVersion,
@@ -100,7 +97,7 @@ def list_deltas(
     last_stream_position: Optional[int] = None,
     ascending_order: Optional[bool] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs
 ) -> ListResult[Delta]:
@@ -110,15 +107,13 @@ def list_deltas(
     limited to inclusive first and last stream positions. Deltas are returned by
     descending stream position by default. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Raises an error if the given table
-    version or partition does not exist.
+    specified for unpartitioned tables. Partition scheme ID resolves to the
+    table version's current partition scheme by default. Raises an error if the
+    given table version or partition does not exist.
 
     To conserve memory, the deltas returned do not include manifests by
     default. The manifests can either be optionally retrieved as part of this
     call or lazily loaded via subsequent calls to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("list_deltas not implemented")
 
@@ -149,22 +144,21 @@ def get_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs
 ) -> Optional[Delta]:
     """
     Gets the delta for the given table version, partition, and stream position.
     Table version resolves to the latest active table version if not specified.
-    Partition values should not be specified for unpartitioned tables. Raises
-    an error if the given table version or partition does not exist.
+    Partition values should not be specified for unpartitioned tables. Partition
+    scheme ID resolves to the table version's current partition scheme by
+    default. Raises an error if the given table version or partition does not
+    exist.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("get_delta not implemented")
 
@@ -175,7 +169,7 @@ def get_latest_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs
 ) -> Optional[Delta]:
@@ -183,15 +177,13 @@ def get_latest_delta(
     Gets the latest delta (i.e. the delta with the greatest stream position) for
     the given table version and partition. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Raises an error if the given table
-    version or partition does not exist.
+    specified for unpartitioned tables. Partition scheme ID resolves to the
+    table version's current partition scheme by default. Raises an error if the
+    given table version or partition does not exist.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("get_latest_delta not implemented")
 
@@ -205,7 +197,6 @@ def download_delta(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
@@ -215,12 +206,6 @@ def download_delta(
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
     the contents of ordered delta manifest entry N.
-
-    Partition filters are only applicable to multi-partition deltas (i.e.
-    deltas whose partition locator has a partition scheme with 1+ keys but
-    undefined partition values). Multi-partition deltas have partition values
-    defined for each manifest entry but do not use the same partition value
-    for all entries.
     """
     raise NotImplementedError("download_delta not implemented")
 
@@ -286,15 +271,14 @@ def create_table_version(
     table_version: Optional[str] = None,
     schema: Optional[Schema] = None,
     schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[PartitionScheme] = None,
-    primary_key_column_names: Optional[Set[str]] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
+    primary_key_column_names: Optional[List[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
     table_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     supported_content_types: Optional[List[ContentType]] = None,
-    partition_spec: Optional[StreamPartitionSpec] = None,
     *args,
     **kwargs
 ) -> Stream:
@@ -507,8 +491,6 @@ def stage_delta(
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
-    partition_spec: Optional[DeltaPartitionSpec] = None,
-    partition_values: Optional[PartitionValues] = None,
     *args,
     **kwargs
 ) -> Delta:

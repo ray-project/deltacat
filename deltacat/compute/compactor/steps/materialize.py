@@ -26,6 +26,7 @@ from deltacat.storage import (
     Partition,
     PartitionLocator,
     ManifestEntry,
+    ManifestEntryList,
 )
 from deltacat.storage.model.manifest import Manifest
 from deltacat.storage import interface as unimplemented_deltacat_storage
@@ -82,7 +83,10 @@ def materialize(
         assert (
             delta_type == DeltaType.UPSERT
         ), "Stage delta with existing manifest entries only supports UPSERT delta type!"
-        manifest = Manifest.of(entries=manifest_entry_list_reference, uuid=str(uuid4()))
+        manifest = Manifest.of(
+            entries=ManifestEntryList.of(manifest_entry_list_reference),
+            uuid=str(uuid4()),
+        )
         delta = Delta.of(
             locator=DeltaLocator.of(partition.locator),
             delta_type=delta_type,

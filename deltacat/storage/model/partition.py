@@ -9,6 +9,7 @@ from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
+from deltacat.storage.model.transform import Transform
 from deltacat.storage.model.types import CommitState
 from deltacat.types.media import ContentType
 
@@ -207,6 +208,7 @@ class PartitionLocator(Locator, dict):
         stream_locator: Optional[StreamLocator],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
+        partition_scheme_id: Optional[str] = None,
     ) -> PartitionLocator:
         """
         Creates a stream partition locator. Partition ID is
@@ -222,6 +224,7 @@ class PartitionLocator(Locator, dict):
         partition_locator.stream_locator = stream_locator
         partition_locator.partition_values = partition_values
         partition_locator.partition_id = partition_id
+        partition_locator.partition_scheme_id = partition_scheme_id
         return partition_locator
 
     @staticmethod
@@ -233,6 +236,7 @@ class PartitionLocator(Locator, dict):
         storage_type: Optional[str],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
+        partition_scheme_id: Optional[str],
     ) -> PartitionLocator:
         stream_locator = StreamLocator.at(
             namespace,
@@ -245,6 +249,7 @@ class PartitionLocator(Locator, dict):
             stream_locator,
             partition_values,
             partition_id,
+            partition_scheme_id,
         )
 
     @property
@@ -273,6 +278,14 @@ class PartitionLocator(Locator, dict):
     @partition_id.setter
     def partition_id(self, partition_id: Optional[str]) -> None:
         self["partitionId"] = partition_id
+
+    @property
+    def partition_scheme_id(self) -> Optional[str]:
+        return self.get("partitionSchemeId")
+
+    @partition_scheme_id.setter
+    def partition_scheme_id(self, partition_scheme_id: Optional[str]) -> None:
+        self["partitionSchemeId"] = partition_scheme_id
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -339,23 +352,24 @@ class PartitionLocator(Locator, dict):
         sl_hexdigest = self.stream_locator.hexdigest()
         partition_vals = str(self.partition_values)
         partition_id = self.partition_id
-        return f"{sl_hexdigest}|{partition_vals}|{partition_id}"
+        scheme_id = self.partition_scheme_id
+        return f"{sl_hexdigest}|{partition_vals}|{partition_id}|{scheme_id}"
 
 
 class PartitionKey(dict):
     @staticmethod
     def of(
-        key_name: Optional[str],
-        key_type: Optional[str],
+        key_names: Optional[List[str]],
+        key_types: Optional[List[str]],
         name: Optional[str] = None,
         id: Optional[str] = None,
-        transform: Optional[Any] = None,
+        transform: Optional[Transform] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionKey:
         return PartitionKey(
             {
-                "keyName": key_name,
-                "keyType": key_type,
+                "keyNames": key_names,
+                "keyTypes": key_types,
                 "name": name,
                 "id": id,
                 "transform": transform,
@@ -364,12 +378,12 @@ class PartitionKey(dict):
         )
 
     @property
-    def key_name(self) -> Optional[str]:
-        return self.get("keyName")
+    def key_names(self) -> Optional[List[str]]:
+        return self.get("keyNames")
 
     @property
-    def key_type(self) -> Optional[str]:
-        return self.get("keyType")
+    def key_types(self) -> Optional[List[str]]:
+        return self.get("keyTypes")
 
     @property
     def name(self) -> Optional[str]:
@@ -380,7 +394,7 @@ class PartitionKey(dict):
         return self.get("id")
 
     @property
-    def transform(self) -> Optional[Any]:
+    def transform(self) -> Optional[Transform]:
         return self.get("transform")
 
     @property
@@ -420,25 +434,3 @@ class PartitionScheme(dict):
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
-
-
-class PartitionFilter(dict):
-    """
-    This class represents a filter for partitions (e.g. an equality match
-    filter against an ordered list of partition values).
-    """
-
-    @staticmethod
-    def of(
-        partition_values: Optional[PartitionValues] = None,
-    ) -> PartitionFilter:
-        """
-        Creates a new PartitionFilter instance with the given partition values.
-        """
-        partition_filter = PartitionFilter()
-        partition_filter["partitionValues"] = partition_values
-        return partition_filter
-
-    @property
-    def partition_values(self) -> Optional[PartitionValues]:
-        return self.get("partitionValues")

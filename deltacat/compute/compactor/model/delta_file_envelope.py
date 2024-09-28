@@ -37,7 +37,9 @@ class DeltaFileEnvelope(dict):
                 pointing to a file from the uncompacted source table, False if
                 this Locator is pointing to a file in the compacted destination
                 table.
-            table_storage_strategy: The way the table object is stored in the delta file envelope. If None just stores the table normally
+            file_record_count: Record count in the delta file table.
+            table_storage_strategy: The way the table object is stored in the
+                delta file envelope. If None just stores the table normally
         Returns:
             A delta file envelope.
 

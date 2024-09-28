@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Dict, Any, List
+from typing import Optional, Any, List
+
+from deltacat.storage.model.transform import Transform
 
 
 class SortOrder(str, Enum):
@@ -10,7 +12,7 @@ class SortOrder(str, Enum):
     DESCENDING = "descending"
 
     @classmethod
-    def _missing_(cls, value):
+    def _missing_(cls, value: str):
         # pyiceberg.table.sorting.SortDirection mappings
         if value.lower() == "asc":
             return SortOrder.ASCENDING
@@ -24,7 +26,7 @@ class NullOrder(str, Enum):
     LAST = "last"
 
     @classmethod
-    def _missing_(cls, value):
+    def _missing_(cls, value: str):
         # pyiceberg.table.sorting.NullOrder mappings
         if value.lower() == "nulls-first":
             return NullOrder.FIRST
@@ -36,25 +38,20 @@ class NullOrder(str, Enum):
 class SortKey(tuple):
     @staticmethod
     def of(
-        key_name: Optional[str],
+        key_names: Optional[List[str]],
         sort_order: Optional[SortOrder] = SortOrder.ASCENDING,
         null_order: Optional[NullOrder] = NullOrder.LAST,
-        transform: Optional[Any] = None,
+        transform: Optional[Transform] = None,
         native_object: Optional[Any] = None,
     ) -> SortKey:
         """
         Create a sort key from a field name to use as the sort key, and
         the sort order for this key. If no sort order is specified, then the
-        data will be sorted in ascending order by default. Note that compaction
-        always keeps the LAST occurrence of this key post-sort. For example, if
-        you used an integer column as your sort key which contained the values
-        [2, 1, 3] specifying SortOrder.ASCENDING would ensure that the
-        value [3] is kept over [2, 1], and specifying SortOrder.DESCENDING
-        would ensure that [1] is kept over [2, 3].
+        data will be sorted in ascending order by default.
         """
         return SortKey(
             (
-                key_name,
+                key_names,
                 sort_order.value,
                 null_order,
                 transform,
@@ -63,7 +60,7 @@ class SortKey(tuple):
         )
 
     @property
-    def key_name(self) -> Optional[str]:
+    def key_names(self) -> Optional[List[str]]:
         return self[0]
 
     @property
@@ -75,7 +72,7 @@ class SortKey(tuple):
         return SortOrder(self[2]) if len(SortOrder) >= 3 else NullOrder.LAST
 
     @property
-    def transform(self) -> Optional[Dict[str, Any]]:
+    def transform(self) -> Optional[Transform]:
         return SortOrder(self[3]) if len(SortOrder) >= 4 else None
 
     @property

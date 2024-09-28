@@ -22,7 +22,18 @@ from pyiceberg.table.sorting import (
     NullOrder as IcebergNullOrder,
     SortOrder as IcebergSortOrder,
 )
-from pyiceberg.transforms import parse_transform
+from pyiceberg.transforms import (
+    BucketTransform as IcebergBucketTransform,
+    HourTransform as IcebergHourTransform,
+    DayTransform as IcebergDayTransform,
+    MonthTransform as IcebergMonthTransform,
+    YearTransform as IcebergYearTransform,
+    IdentityTransform as IcebergIdentityTransform,
+    TruncateTransform as IcebergTruncateTransform,
+    VoidTransform as IcebergIcebergVoidTransform,
+    UnknownTransform as IcebergUnknownTransform,
+    Transform as IcebergTransform,
+)
 from pyiceberg.typedef import Identifier, EMPTY_DICT
 
 from deltacat.exceptions import (
@@ -32,15 +43,29 @@ from deltacat.exceptions import (
     TableNotFoundError,
 )
 from deltacat.storage import (
-    Table,
-    TableLocator,
+    BucketingStrategy,
+    BucketTransform,
+    BucketTransformParameters,
+    DayTransform,
+    HourTransform,
+    IdentityTransform,
+    MonthTransform,
+    Namespace,
+    NamespaceLocator,
     Schema,
     StreamLocator,
     Stream,
-    TableVersionLocator,
+    Table,
+    TableLocator,
     TableVersion,
-    Namespace,
-    NamespaceLocator,
+    TableVersionLocator,
+    Transform,
+    TransformName,
+    TruncateTransform,
+    TruncateTransformParameters,
+    UnknownTransform,
+    VoidTransform,
+    YearTransform,
 )
 from deltacat.storage.model.interop import ModelMapper, OneWayModelMapper
 from deltacat.storage.model.partition import PartitionKey, PartitionScheme
@@ -168,6 +193,72 @@ def _get_current_sort_order_for_meta(meta: TableMetadata) -> SortOrder:
         raise ValueError(err_msg) from e
 
 
+class TransformMapper(ModelMapper[IcebergTransform, Transform]):
+    @staticmethod
+    def map(
+            obj: Optional[IcebergTransform],
+            **kwargs,
+    ) -> Optional[Transform]:
+        if obj is None:
+            return None
+        if isinstance(obj, IcebergIdentityTransform):
+            return IdentityTransform.of()
+        if isinstance(obj, IcebergHourTransform):
+            return HourTransform.of()
+        if isinstance(obj, IcebergDayTransform):
+            return DayTransform.of()
+        if isinstance(obj, IcebergMonthTransform):
+            return MonthTransform.of()
+        if isinstance(obj, IcebergYearTransform):
+            return YearTransform.of()
+        if isinstance(obj, IcebergIcebergVoidTransform):
+            return VoidTransform.of()
+        if isinstance(obj, IcebergBucketTransform):
+            return BucketTransform.of(
+                BucketTransformParameters.of(
+                    num_buckets=obj.num_buckets,
+                    bucketing_strategy=BucketingStrategy.ICEBERG,
+                ),
+            )
+        if isinstance(obj, IcebergTruncateTransform):
+            return TruncateTransform.of(
+                TruncateTransformParameters.of(width=obj.width),
+            )
+        return UnknownTransform.of()
+
+    @staticmethod
+    def unmap(
+            obj: Optional[Transform],
+            **kwargs,
+    ) -> Optional[IcebergTransform]:
+        if obj is None:
+            return None
+        if obj.name == TransformName.IDENTITY:
+            return IcebergIdentityTransform()
+        if obj.name == TransformName.HOUR:
+            return IcebergHourTransform()
+        if obj.name == TransformName.DAY:
+            return IcebergDayTransform()
+        if obj.name == TransformName.MONTH:
+            return IcebergMonthTransform()
+        if obj.name == TransformName.YEAR:
+            return IcebergYearTransform()
+        if obj.name == TransformName.VOID:
+            return IcebergIcebergVoidTransform()
+        if obj.name == TransformName.BUCKET:
+            parameters = BucketTransformParameters(obj.parameters)
+            strategy = parameters.bucketing_strategy
+            if strategy == BucketingStrategy.ICEBERG:
+                return IcebergBucketTransform(parameters.num_buckets)
+            else:
+                err_msg = f"Unsupported Iceberg Bucketing Strategy: {strategy}."
+                raise ValueError(err_msg)
+        if obj.name == TransformName.TRUNCATE:
+            parameters = TruncateTransformParameters(obj.parameters)
+            return IcebergTruncateTransform(parameters.width)
+        return IcebergUnknownTransform()
+
+
 class PartitionKeyMapper(ModelMapper[PartitionField, PartitionKey]):
     @staticmethod
     def map(
@@ -182,11 +273,11 @@ class PartitionKeyMapper(ModelMapper[PartitionField, PartitionKey]):
             raise ValueError(err_msg)
         field = schema.find_field(name_or_id=obj.source_id)
         return PartitionKey.of(
-            key_name=field.name,
-            key_type=str(field.field_type),
+            key_names=[field.name],
+            key_types=[str(field.field_type)],
             name=obj.name,
             id=str(obj.field_id),
-            transform=str(obj.transform),
+            transform=TransformMapper.map(obj.transform),
             native_object=obj,
         )
 
@@ -203,14 +294,17 @@ class PartitionKeyMapper(ModelMapper[PartitionField, PartitionKey]):
         if not schema:
             err_msg = "Schema is required for Partition Key conversion."
             raise ValueError(err_msg)
+        if len(obj.key_names) > 1:
+            err_msg = f"Iceberg only supports transforming 1 partition field."
+            raise ValueError(err_msg)
         field = schema.find_field(
-            name_or_id=obj.key_name,
+            name_or_id=obj.key_names[0],
             case_sensitive=case_sensitive,
         )
         return PartitionField(
             source_id=field.field_id,
             field_id=int(obj.id) if obj.id else None,
-            transform=parse_transform(obj.transform),
+            transform=TransformMapper.unmap(obj.transform),
             name=obj.name,
         )
 
@@ -269,8 +363,11 @@ class SortKeyMapper(ModelMapper[SortField, SortKey]):
         if not schema:
             err_msg = "Schema is required for Sort Key conversion."
             raise ValueError(err_msg)
+        if len(obj.key_names) > 1:
+            err_msg = f"Iceberg only supports transforming 1 sort field."
+            raise ValueError(err_msg)
         field = schema.find_field(
-            name_or_id=obj.key_name,
+            name_or_id=obj.key_names[0],
             case_sensitive=case_sensitive,
         )
         direction = (
@@ -289,7 +386,7 @@ class SortKeyMapper(ModelMapper[SortField, SortKey]):
         )
         return SortField(
             source_id=field.field_id,
-            transform=parse_transform(obj.transform),
+            transform=TransformMapper.unmap(obj.transform),
             direction=direction,
             null_order=null_order,
         )
@@ -307,10 +404,10 @@ class SortKeyMapper(ModelMapper[SortField, SortKey]):
             raise ValueError(err_msg)
         field = schema.find_field(name_or_id=obj.source_id)
         return SortKey.of(
-            key_name=field.name,
+            key_names=[field.name],
             sort_order=SortOrder(obj.direction.value or "ascending"),
             null_order=NullOrder(obj.null_order.value or "first"),
-            transform=str(obj.transform),
+            transform=TransformMapper.map(obj.transform),
             native_object=obj,
         )
 
@@ -355,14 +452,20 @@ class SortSchemeMapper(ModelMapper[IcebergSortOrder, SortScheme]):
 
 class SchemaMapper(ModelMapper[IcebergSchema, Schema]):
     @staticmethod
-    def map(obj: Optional[IcebergSchema], **kwargs) -> Optional[Schema]:
+    def map(
+        obj: Optional[IcebergSchema],
+        **kwargs
+    ) -> Optional[Schema]:
         if obj is None:
             return None
         schema = schema_to_pyarrow(obj)
         return Schema.of(schema=schema, native_object=obj)
 
     @staticmethod
-    def unmap(obj: Optional[Schema], **kwargs) -> Optional[IcebergSchema]:
+    def unmap(
+        obj: Optional[Schema],
+        **kwargs
+    ) -> Optional[IcebergSchema]:
         if obj is None:
             return None
         if obj.native_object and isinstance(obj.native_object, IcebergSchema):
@@ -383,7 +486,8 @@ class NamespaceLocatorMapper(
 ):
     @staticmethod
     def map(
-        obj: Optional[Union[Identifier, IcebergNamespace]], **kwargs
+        obj: Optional[Union[Identifier, IcebergNamespace]],
+        **kwargs
     ) -> Optional[NamespaceLocator]:
         if obj is None:
             return None
@@ -398,7 +502,10 @@ class NamespaceLocatorMapper(
         return NamespaceLocator.of(namespace)
 
     @staticmethod
-    def unmap(obj: Optional[NamespaceLocator], **kwargs) -> Optional[Identifier]:
+    def unmap(
+        obj: Optional[NamespaceLocator],
+        **kwargs
+    ) -> Optional[Identifier]:
         if obj is None:
             return None
         return tuple(obj.namespace.split("."))
@@ -407,7 +514,8 @@ class NamespaceLocatorMapper(
 class NamespaceMapper(ModelMapper[Union[Identifier, IcebergNamespace], Namespace]):
     @staticmethod
     def map(
-        obj: Optional[Union[Identifier, IcebergNamespace]], **kwargs
+        obj: Optional[Union[Identifier, IcebergNamespace]],
+        **kwargs
     ) -> Optional[Namespace]:
         if obj is None:
             return None
@@ -415,7 +523,10 @@ class NamespaceMapper(ModelMapper[Union[Identifier, IcebergNamespace], Namespace
         return Namespace.of(locator=locator, properties=None)
 
     @staticmethod
-    def unmap(obj: Optional[Namespace], **kwargs) -> Optional[Identifier]:
+    def unmap(
+        obj: Optional[Namespace],
+        **kwargs,
+    ) -> Optional[Identifier]:
         if obj is None:
             return None
         return NamespaceLocatorMapper.unmap(obj.locator)
@@ -424,7 +535,8 @@ class NamespaceMapper(ModelMapper[Union[Identifier, IcebergNamespace], Namespace
 class TableLocatorMapper(ModelMapper[Union[Identifier, TableIdentifier], TableLocator]):
     @staticmethod
     def map(
-        obj: Optional[Union[Identifier, TableIdentifier]], **kwargs
+        obj: Optional[Union[Identifier, TableIdentifier]],
+        **kwargs
     ) -> Optional[TableLocator]:
         if obj is None:
             return None
@@ -440,8 +552,10 @@ class TableLocatorMapper(ModelMapper[Union[Identifier, TableIdentifier], TableLo
 
     @staticmethod
     def unmap(
-        obj: Optional[TableLocator], catalog_name: Optional[str], **kwargs
-    ) -> Optional[Identifier]:
+        obj: Optional[TableLocator],
+        catalog_name: Optional[str] = None,
+        **kwargs
+    ) -> Optional[Union[Identifier, TableIdentifier]]:
         if obj is None:
             return None
         identifier = tuple(obj.namespace.split(".")) + (obj.table_name,)
@@ -450,7 +564,10 @@ class TableLocatorMapper(ModelMapper[Union[Identifier, TableIdentifier], TableLo
 
 class TableMapper(OneWayModelMapper[IcebergTable, Table]):
     @staticmethod
-    def map(obj: Optional[IcebergTable], **kwargs) -> Optional[Table]:
+    def map(
+        obj: Optional[IcebergTable],
+        **kwargs,
+    ) -> Optional[Table]:
         if obj is None:
             return None
         locator = TableLocatorMapper.map(obj.identifier)
@@ -465,7 +582,9 @@ class TableMapper(OneWayModelMapper[IcebergTable, Table]):
 class TableVersionLocatorMapper(OneWayModelMapper[IcebergTable, TableVersionLocator]):
     @staticmethod
     def map(
-        obj: Optional[IcebergTable], timestamp: Optional[int] = None, **kwargs
+        obj: Optional[IcebergTable],
+        timestamp: Optional[int] = None,
+        **kwargs
     ) -> Optional[TableVersionLocator]:
         if obj is None:
             return None
@@ -493,7 +612,7 @@ class TableVersionMapper(OneWayModelMapper[IcebergTable, TableVersion]):
         return TableVersion.of(
             locator=TableVersionLocatorMapper.map(obj, timestamp),
             schema=SchemaMapper.map(schema),
-            partition_keys=PartitionSchemeMapper.map(partition_spec, schema),
+            partition_scheme=PartitionSchemeMapper.map(partition_spec, schema),
             primary_key_columns=list(schema.identifier_field_names()) or None,
             description=None,
             properties=obj.properties,
@@ -544,7 +663,7 @@ class StreamMapper(OneWayModelMapper[IcebergTable, Stream]):
             obj, metadata_timestamp, catalog_properties
         )
         if not metadata.snapshots:
-            return Stream.of(locator=None, partition_keys=None)
+            return Stream.of(locator=None, partition_scheme=None)
         snapshot = _resolve_stream_snapshot(metadata, snapshot_id)
         schema = _get_current_schema_for_meta(metadata)
         partition_spec = _get_current_spec_for_meta(metadata)
@@ -554,7 +673,7 @@ class StreamMapper(OneWayModelMapper[IcebergTable, Stream]):
             locator=StreamLocatorMapper.map(
                 obj, metadata_timestamp, snapshot_id, catalog_properties
             ),
-            partition_keys=PartitionSchemeMapper.map(partition_spec, schema),
+            partition_scheme=PartitionSchemeMapper.map(partition_spec, schema),
             state=state,
             previous_stream_id=parent_snapshot_bytes,
             native_object=snapshot,

@@ -56,6 +56,7 @@ requests.
 
 ##### Creating a New Table
 We can now create our first table inside of `example-iceberg-catalog` .
+
 ```python
 import deltacat as dc
 
@@ -99,7 +100,7 @@ table_definition = dc.create_table(
     table=table_name,
     namespace=namespace,
     schema=schema,  # can be either dc.schema or pyiceberg.schema.Schema
-    partition_keys=partition_spec,  # can be either dc.PartitionScheme or pyiceberg.partitioning.PartitionSpec
+    partition_scheme=partition_spec,  # can be either dc.PartitionScheme or pyiceberg.partitioning.PartitionSpec
     sort_keys=sort_order,  # can be either dc.SortOrder or pyiceberg.table.sorting.SortOrder
 )
 print(f"Created Glue Iceberg Table: {table_definition}")

@@ -8,7 +8,6 @@ from typing import Optional, List, Dict, Any
 from uuid import uuid4
 
 from deltacat import logs
-from deltacat.storage import PartitionValues
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -29,7 +28,7 @@ class EntryType(str, Enum):
     query results, or applied physically to entry files during copy-on-write
     table compaction.
 
-    EQUALITY_DELETE: The entry contains a subset of field values from prior
+    EQUALITY_DELETE: The entry contains a subset of field values from the
     table records to find and delete. The full record of any matching data
     entries in Deltas with a lower stream position than this entry's Delta
     will be deleted. The fields used for record discovery are controlled by
@@ -74,22 +73,6 @@ class EntryParams(dict):
     def equality_column_names(self) -> Optional[List[str]]:
         return self.get("equality_column_names")
 
-    @staticmethod
-    def merge(
-            parameters: List[EntryParams],
-    ) -> Optional[EntryParams]:
-        if len(parameters) < 2:
-            return parameters
-        equality_column_names = parameters[0].equality_column_names
-        assert all(
-            prev.equality_column_names == curr.equality_column_names
-            for prev, curr in zip(
-                parameters, parameters[1:]
-            )
-        ), "Cannot merge entry parameters with different equality fields."
-        merged_params = EntryParams.of(equality_column_names)
-        return merged_params
-
 
 class Manifest(dict):
     """
@@ -122,7 +105,6 @@ class Manifest(dict):
         uuid: str = None,
         entry_type: Optional[EntryType] = None,
         entry_params: Optional[EntryParams] = None,
-        partition_values: Optional[PartitionValues] = None,
     ) -> Manifest:
         if not uuid:
             uuid = str(uuid4())
@@ -131,7 +113,6 @@ class Manifest(dict):
         total_source_content_length = 0
         content_type = None
         content_encoding = None
-        partition_values_set = set()
         if entries:
             content_type = entries[0].meta.content_type
             content_encoding = entries[0].meta.content_encoding
@@ -171,24 +152,10 @@ class Manifest(dict):
                         f"'{entry_params}' but found '{actual_entry_params}'"
                     )
                     raise ValueError(msg)
-                entry_partition_values = meta.partition_values
-                if (partition_values and
-                        (entry_partition_values != partition_values)):
-                    msg = (
-                        f"Expected all manifest entries to have partition "
-                        f"values '{partition_values}' but found "
-                        f"'{entry_partition_values}'"
-                    )
-                    raise ValueError(msg)
 
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
                 total_source_content_length += meta.source_content_length or 0
-                if len(partition_values_set) <= 1:
-                    partition_values_set.add(entry.meta.partition_values)
-
-        if len(partition_values_set) == 1:
-            partition_values = partition_values_set.pop()
 
         meta = ManifestMeta.of(
             total_record_count,
@@ -198,7 +165,6 @@ class Manifest(dict):
             total_source_content_length,
             entry_type,
             entry_params,
-            partition_values,
         )
         manifest = Manifest._build_manifest(meta, entries, author, uuid)
         return manifest
@@ -251,7 +217,6 @@ class ManifestMeta(dict):
             content_type_parameters: Optional[List[Dict[str, str]]] = None,
             entry_type: Optional[EntryType] = None,
             entry_params: Optional[EntryParams] = None,
-            partition_values: Optional[PartitionValues] = None,
     ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
@@ -272,8 +237,6 @@ class ManifestMeta(dict):
             manifest_meta["entry_type"] = entry_type.value
         if entry_params is not None:
             manifest_meta["entry_params"] = entry_params
-        if partition_values is not None:
-            manifest_meta["partition_values"] = partition_values
         return manifest_meta
 
     @property
@@ -316,12 +279,8 @@ class ManifestMeta(dict):
         return val
 
     @property
-    def entry_params(self) -> Optional[EntryType]:
+    def entry_params(self) -> Optional[EntryParams]:
         return self.get("entry_params")
-
-    @property
-    def partition_values(self) -> Optional[PartitionValues]:
-        return self.get("partition_values")
 
 
 class ManifestEntry(dict):

@@ -4,7 +4,7 @@ from ray.types import ObjectRef
 
 from typing import Any, Union
 
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.storage import (
     LocalTable,
@@ -15,7 +15,8 @@ LocalTableReference = Union[ObjectRef, LocalTable]
 
 
 class LocalTableStorageStrategy(ABC):
-    @abstractproperty
+    @property
+    @abstractmethod
     def object_store(cls) -> IObjectStore:
         pass
 

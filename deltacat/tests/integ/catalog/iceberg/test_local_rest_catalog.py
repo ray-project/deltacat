@@ -162,7 +162,7 @@ def test_create_table(
         table=table_name,
         namespace=namespace,
         schema=SchemaMapper.map(schema),
-        partition_keys=PartitionSchemeMapper.map(partition_spec, schema),
+        partition_scheme=PartitionSchemeMapper.map(partition_spec, schema),
         sort_keys=SortSchemeMapper.map(sort_order, schema),
     )
     assert table_definition
