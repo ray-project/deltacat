@@ -114,7 +114,7 @@ class DeltaAnnotated(Delta):
                 # (i.e. the previous compaction round ran a rebase)
                 if new_da and src_da.locator != new_da.locator:
                     groups.append(new_da)
-                    logger.info(
+                    logger.debug(
                         f"Due to different delta locator, Appending group of {da_group_entry_count} elements "
                         f"and {new_da_bytes} bytes"
                     )
@@ -133,12 +133,12 @@ class DeltaAnnotated(Delta):
                     or da_group_entry_count >= min_file_counts
                 ):
                     if new_da_bytes >= min_delta_bytes:
-                        logger.info(
+                        logger.debug(
                             f"Appending group of {da_group_entry_count} elements "
                             f"and {new_da_bytes} bytes to meet file size limit"
                         )
                     if da_group_entry_count >= min_file_counts:
-                        logger.info(
+                        logger.debug(
                             f"Appending group of {da_group_entry_count} elements "
                             f"and {da_group_entry_count} files to meet file count limit"
                         )
