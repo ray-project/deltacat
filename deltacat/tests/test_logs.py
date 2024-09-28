@@ -1,6 +1,7 @@
 import unittest
 import json
 import ray
+from unittest import mock
 from logging import LogRecord
 from deltacat.logs import JsonFormatter
 
@@ -185,6 +186,39 @@ class TestJsonFormatter(unittest.TestCase):
             {
                 "message": "test_message",
                 "additional_context": {"custom_key": "custom_val"},
+            },
+            json.loads(result),
+        )
+        self.assertFalse(ray.is_initialized())
+        self.assertNotIn("ray_runtime_context", json.loads(result))
+
+    @mock.patch("deltacat.logs.DELTACAT_LOGGER_CONTEXT", '{"DATABASE_URL": "mytemp"}')
+    def test_format_with_env_context_kwargs(self):
+        ray.shutdown()
+        formatter = JsonFormatter(
+            {"message": "msg"}, context_kwargs={"custom_key": "custom_val"}
+        )
+
+        record = LogRecord(
+            level="INFO",
+            name="test",
+            pathname="test",
+            lineno=0,
+            message="test_message",
+            msg="test_message",
+            args=None,
+            exc_info=None,
+        )
+
+        result = formatter.format(record)
+
+        self.assertEqual(
+            {
+                "message": "test_message",
+                "additional_context": {
+                    "custom_key": "custom_val",
+                    "DATABASE_URL": "mytemp",
+                },
             },
             json.loads(result),
         )

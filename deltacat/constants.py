@@ -28,6 +28,8 @@ DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME = env_string(
     "DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME",
     "application.debug.log",
 )
+# A json context which will be logged along with other context args.
+DELTACAT_LOGGER_CONTEXT = env_string("DELTACAT_LOGGER_CONTEXT", None)
 
 # Byte Units
 BYTES_PER_KIBIBYTE = 2**10

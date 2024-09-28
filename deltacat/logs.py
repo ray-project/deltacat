@@ -17,6 +17,7 @@ from deltacat.constants import (
     DELTACAT_SYS_INFO_LOG_BASE_FILE_NAME,
     DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME,
     DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME,
+    DELTACAT_LOGGER_CONTEXT,
 )
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -65,6 +66,13 @@ class JsonFormatter(logging.Formatter):
         else:
             self.ray_runtime_ctx = None
             self.context = {}
+
+        if DELTACAT_LOGGER_CONTEXT is not None:
+            try:
+                env_context = json.loads(DELTACAT_LOGGER_CONTEXT)
+                self.additional_context.update(env_context)
+            except Exception:
+                pass
 
     def usesTime(self) -> bool:
         """
