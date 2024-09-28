@@ -16,11 +16,24 @@ from typing import Dict, Optional, Any
 from deltacat.types.media import TableType
 from deltacat.types.media import ContentType
 from deltacat.types.partial_download import PartialParquetParameters
-from deltacat.compute.compactor_v2.utils.task_options import (
-    append_content_type_params_options_provider,
-)
+from deltacat.exceptions import RetryableError
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+def append_content_type_params_options_provider(
+    index: int, item: Any, max_parquet_meta_size_bytes: int, **kwargs
+) -> Dict:
+    task_opts = {
+        "num_cpus": 0.01,
+        "memory": max_parquet_meta_size_bytes,
+        "scheduling_strategy": "DEFAULT",
+    }
+
+    task_opts["max_retries"] = 3
+    task_opts["retry_exceptions"] = [RetryableError]
+
+    return task_opts
 
 
 def _contains_partial_parquet_parameters(entry: ManifestEntry) -> bool:
@@ -180,4 +193,7 @@ def append_content_type_params(
         ), "partial parquet params validation failed."
 
     if len(entry_indices_to_download) >= MINIMUM_ENTRIES_TO_CACHE:
+        cache = AppendContentTypeParamsCache.options(
+            name=APPEND_CONTENT_TYPE_PARAMS_CACHE, get_if_exists=True
+        ).remote()
         ray.get(cache.put.remote(delta.locator.hexdigest(), delta))

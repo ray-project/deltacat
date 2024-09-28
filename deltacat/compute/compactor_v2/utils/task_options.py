@@ -163,14 +163,6 @@ def _get_merge_task_options(
     return _get_task_options(0.01, total_memory, ray_custom_resources)
 
 
-def append_content_type_params_options_provider(
-    index: int, item: Any, max_parquet_meta_size_bytes: int, **kwargs
-) -> Dict:
-    return _get_task_options(
-        0.01, max_parquet_meta_size_bytes, scheduling_strategy="DEFAULT"
-    )
-
-
 def hash_bucket_resource_options_provider(
     index: int,
     item: DeltaAnnotated,
