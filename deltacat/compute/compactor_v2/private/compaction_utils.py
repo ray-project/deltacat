@@ -365,6 +365,8 @@ def _run_hash_and_merge(
     mutable_compaction_audit.set_telemetry_time_in_seconds(
         telemetry_this_round + previous_telemetry
     )
+    params.object_store.clear()
+
     return merge_results
 
 
