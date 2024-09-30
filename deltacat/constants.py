@@ -28,6 +28,8 @@ DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME = env_string(
     "DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME",
     "application.debug.log",
 )
+# A json context which will be logged along with other context args.
+DELTACAT_LOGGER_CONTEXT = env_string("DELTACAT_LOGGER_CONTEXT", None)
 
 # Byte Units
 BYTES_PER_KIBIBYTE = 2**10
@@ -53,3 +55,6 @@ PYARROW_INFLATION_MULTIPLIER = 2.5
 PYARROW_INFLATION_MULTIPLIER_ALL_COLUMNS = 6
 
 MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE
+
+# The number of bytes allocated to null values in string physical type in parquet
+NULL_SIZE_BYTES = 4

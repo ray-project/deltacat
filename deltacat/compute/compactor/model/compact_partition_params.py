@@ -13,6 +13,10 @@ from deltacat.storage import (
     PartitionLocator,
     SortKey,
 )
+from deltacat.compute.resource_estimation import (
+    ResourceEstimationMethod,
+    EstimateResourcesParams,
+)
 from deltacat.compute.compactor_v2.constants import (
     MAX_RECORDS_PER_COMPACTED_FILE,
     MIN_DELTA_BYTES_IN_BATCH,
@@ -23,6 +27,8 @@ from deltacat.compute.compactor_v2.constants import (
     TOTAL_MEMORY_BUFFER_PERCENTAGE,
     DEFAULT_DISABLE_COPY_BY_REFERENCE,
     DEFAULT_NUM_ROUNDS,
+    PARQUET_TO_PYARROW_INFLATION,
+    MAX_PARQUET_METADATA_SIZE,
 )
 from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
@@ -104,6 +110,22 @@ class CompactPartitionParams(dict):
         result.metrics_config = params.get("metrics_config")
 
         result.num_rounds = params.get("num_rounds", DEFAULT_NUM_ROUNDS)
+        result.parquet_to_pyarrow_inflation = params.get(
+            "parquet_to_pyarrow_inflation", PARQUET_TO_PYARROW_INFLATION
+        )
+        result.resource_estimation_method = ResourceEstimationMethod[
+            params.get(
+                "resource_estimation_method", ResourceEstimationMethod.DEFAULT.value
+            )
+        ]
+
+        # disable input split during rebase as the rebase files are already uniform
+        result.enable_input_split = (
+            params.get("rebase_source_partition_locator") is None
+        )
+        result.max_parquet_meta_size_bytes = params.get(
+            "max_parquet_meta_size_bytes", MAX_PARQUET_METADATA_SIZE
+        )
 
         if not importlib.util.find_spec("memray"):
             result.enable_profiler = False
@@ -414,12 +436,58 @@ class CompactPartitionParams(dict):
         self["num_rounds"] = num_rounds
 
     @property
-    def parquet_to_pyarrow_inflation(self) -> int:
+    def parquet_to_pyarrow_inflation(self) -> float:
+        """
+        The inflation factor for the parquet uncompressed_size_bytes to pyarrow table size.
+        """
         return self["parquet_to_pyarrow_inflation"]
 
     @parquet_to_pyarrow_inflation.setter
-    def parquet_to_pyarrow_inflation(self, value: int) -> None:
+    def parquet_to_pyarrow_inflation(self, value: float) -> None:
         self["parquet_to_pyarrow_inflation"] = value
+
+    @property
+    def enable_input_split(self) -> bool:
+        """
+        When this is True, the input split will be always enabled for parquet files.
+        The input split feature will split the parquet files into individual row groups
+        so that we could process them in different nodes in parallel.
+        By default, input split is enabled for incremental compaction and disabled for rebase or backfill.
+        """
+        return self["enable_input_split"]
+
+    @enable_input_split.setter
+    def enable_input_split(self, value: bool) -> None:
+        self["enable_input_split"] = value
+
+    @property
+    def max_parquet_meta_size_bytes(self) -> int:
+        """
+        The maximum size of the parquet metadata in bytes. Used for allocating tasks
+        to fetch parquet metadata.
+        """
+        return self["max_parquet_meta_size_bytes"]
+
+    @max_parquet_meta_size_bytes.setter
+    def max_parquet_meta_size_bytes(self, value: int) -> None:
+        self["max_parquet_meta_size_bytes"] = value
+
+    @property
+    def resource_estimation_method(self) -> ResourceEstimationMethod:
+        return self["resource_estimation_method"]
+
+    @resource_estimation_method.setter
+    def resource_estimation_method(self, value: ResourceEstimationMethod) -> None:
+        self["resource_estimation_method"] = value
+
+    @property
+    def estimate_resources_params(self) -> EstimateResourcesParams:
+        return EstimateResourcesParams.of(
+            resource_estimation_method=self.resource_estimation_method,
+            previous_inflation=self.previous_inflation,
+            parquet_to_pyarrow_inflation=self.parquet_to_pyarrow_inflation,
+            average_record_size_bytes=self.average_record_size_bytes,
+        )
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

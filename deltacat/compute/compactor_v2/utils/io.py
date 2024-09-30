@@ -1,6 +1,5 @@
 import logging
 import functools
-from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
 from deltacat.storage import (
     PartitionLocator,
     Delta,
@@ -9,11 +8,10 @@ from deltacat.storage import (
 from deltacat import logs
 from deltacat.compute.compactor.utils import io as io_v1
 from deltacat.compute.compactor import DeltaAnnotated
-from typing import Dict, List, Optional, Any
-from deltacat.compute.compactor_v2.constants import (
-    MIN_FILES_IN_BATCH,
-    MIN_DELTA_BYTES_IN_BATCH,
+from deltacat.compute.compactor.model.compact_partition_params import (
+    CompactPartitionParams,
 )
+from typing import Dict, List, Optional, Any
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
@@ -25,6 +23,10 @@ from deltacat.compute.compactor_v2.utils.content_type_params import (
 )
 from deltacat.utils.metrics import metrics
 from deltacat.compute.compactor_v2.constants import DISCOVER_DELTAS_METRIC_PREFIX
+from deltacat.compute.resource_estimation.manifest import (
+    does_require_content_type_params,
+)
+from deltacat.compute.resource_estimation.model import OperationType
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -90,10 +92,7 @@ def create_uniform_input_deltas(
     input_deltas: List[Delta],
     hash_bucket_count: int,
     compaction_audit: CompactionSessionAuditInfo,
-    min_delta_bytes: Optional[float] = MIN_DELTA_BYTES_IN_BATCH,
-    min_file_counts: Optional[float] = MIN_FILES_IN_BATCH,
-    previous_inflation: Optional[float] = PYARROW_INFLATION_MULTIPLIER,
-    enable_input_split: Optional[bool] = False,
+    compact_partition_params: CompactPartitionParams,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[DeltaAnnotated]:
@@ -104,11 +103,21 @@ def create_uniform_input_deltas(
     input_da_list = []
 
     for delta in input_deltas:
-        if enable_input_split:
+        if (
+            compact_partition_params.enable_input_split
+            or does_require_content_type_params(
+                compact_partition_params.resource_estimation_method
+            )
+        ):
+            logger.debug(
+                f"Delta with locator: {delta.locator} requires content type params..."
+            )
             append_content_type_params(
                 delta=delta,
                 deltacat_storage=deltacat_storage,
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
+                task_max_parallelism=compact_partition_params.task_max_parallelism,
+                max_parquet_meta_size_bytes=compact_partition_params.max_parquet_meta_size_bytes,
             )
 
         manifest_entries = delta.manifest.entries
@@ -118,7 +127,9 @@ def create_uniform_input_deltas(
             entry = manifest_entries[entry_index]
             delta_bytes += entry.meta.content_length
             estimated_da_bytes += estimate_manifest_entry_size_bytes(
-                entry=entry, previous_inflation=previous_inflation
+                entry=entry,
+                operation_type=OperationType.PYARROW_DOWNLOAD,
+                estimate_resources_params=compact_partition_params.estimate_resources_params,
             )
 
         delta_annotated = DeltaAnnotated.of(delta)
@@ -129,13 +140,16 @@ def create_uniform_input_deltas(
     logger.info(f"Input delta files to compact: {delta_manifest_entries_count}")
 
     size_estimation_function = functools.partial(
-        estimate_manifest_entry_size_bytes, previous_inflation=previous_inflation
+        estimate_manifest_entry_size_bytes,
+        operation_type=OperationType.PYARROW_DOWNLOAD,
+        estimate_resources_params=compact_partition_params.estimate_resources_params,
     )
     rebatched_da_list = DeltaAnnotated.rebatch(
         input_da_list,
-        min_delta_bytes=min_delta_bytes,
-        min_file_counts=min_file_counts,
+        min_delta_bytes=compact_partition_params.min_delta_bytes_in_batch,
+        min_file_counts=compact_partition_params.min_files_in_batch,
         estimation_function=size_estimation_function,
+        enable_input_split=compact_partition_params.enable_input_split,
     )
 
     compaction_audit.set_input_size_bytes(delta_bytes)

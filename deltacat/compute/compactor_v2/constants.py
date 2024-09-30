@@ -41,6 +41,9 @@ DROP_DUPLICATES = True
 # size in metadata to pyarrow table size.
 PARQUET_TO_PYARROW_INFLATION = 4
 
+# Maximum size of the parquet metadata
+MAX_PARQUET_METADATA_SIZE = 100_000_000  # 100 MB
+
 # By default, copy by reference is enabled
 DEFAULT_DISABLE_COPY_BY_REFERENCE = False
 

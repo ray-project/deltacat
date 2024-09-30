@@ -1,6 +1,6 @@
 import unittest
 import ray
-from deltacat.compute.compactor_v2.utils.task_options import get_task_options
+from deltacat.compute.compactor_v2.utils.task_options import _get_task_options
 
 
 @ray.remote
@@ -20,14 +20,14 @@ class TestTaskOptions(unittest.TestCase):
         super().setUpClass()
 
     def test_get_task_options_sanity(self):
-        opts = get_task_options(0.01, 0.01)
+        opts = _get_task_options(0.01, 0.01)
         result_ref = valid_func.options(**opts).remote()
         result = ray.get(result_ref)
 
         self.assertEqual(result, 2)
 
     def test_get_task_options_when_exception_is_thrown(self):
-        opts = get_task_options(0.01, 0.01)
+        opts = _get_task_options(0.01, 0.01)
         result_ref = throwing_func.options(**opts).remote()
 
         self.assertRaises(ConnectionAbortedError, lambda: ray.get(result_ref))

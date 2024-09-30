@@ -436,6 +436,22 @@ class CompactionSessionAuditInfo(dict):
         """
         return self.get("compactorVersion")
 
+    @property
+    def observed_input_inflation(self) -> float:
+        """
+        The average inflation observed for input files only.
+        This only accounts for files in the source.
+        """
+        return self.get("observedInputInflation")
+
+    @property
+    def observed_input_average_record_size_bytes(self) -> float:
+        """
+        The average record size observed for input files only.
+        This only accounts for files in the source.
+        """
+        return self.get("observedInputAverageRecordSizeBytes")
+
     # Setters follow
 
     def set_audit_url(self, audit_url: str) -> CompactionSessionAuditInfo:
@@ -754,6 +770,16 @@ class CompactionSessionAuditInfo(dict):
 
     def set_compactor_version(self, value: str) -> CompactionSessionAuditInfo:
         self["compactorVersion"] = value
+        return self
+
+    def set_observed_input_inflation(self, value: float) -> CompactionSessionAuditInfo:
+        self["observedInputInflation"] = value
+        return self
+
+    def set_observed_input_average_record_size_bytes(
+        self, value: float
+    ) -> CompactionSessionAuditInfo:
+        self["observedInputAverageRecordSizeBytes"] = value
         return self
 
     # High level methods to save stats

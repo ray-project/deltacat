@@ -19,6 +19,7 @@ from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_constant import (
     TEST_S3_RCF_BUCKET_NAME,
 )
+from deltacat.compute.resource_estimation import ResourceEstimationMethod
 from deltacat.tests.compute.test_util_common import get_rcf
 from deltacat.tests.test_utils.pyarrow import (
     stage_partition_from_file_paths,
@@ -399,3 +400,159 @@ class TestCompactionSession:
         assert compaction_audit.output_file_count == 2
         assert abs(compaction_audit.output_size_bytes - 1843) / 1843 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 2748) / 2748 <= self.ERROR_RATE
+
+    def test_compact_partition_when_incremental_then_intelligent_estimation_sanity(
+        self, s3_resource, local_deltacat_storage_kwargs
+    ):
+        """
+        A test case which asserts the RCF stats are correctly generated for
+        a rebase and incremental use-case.
+        """
+
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, [self.BACKFILL_FILE_PATH], **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 2,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                    "resource_estimation_method": ResourceEstimationMethod.INTELLIGENT_ESTIMATION,
+                }
+            )
+        )
+
+    def test_compact_partition_when_incremental_then_content_type_meta_estimation_sanity(
+        self, s3_resource, local_deltacat_storage_kwargs
+    ):
+        """
+        A test case which asserts the RCF stats are correctly generated for
+        a rebase and incremental use-case.
+        """
+
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, [self.BACKFILL_FILE_PATH], **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 2,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                    "resource_estimation_method": ResourceEstimationMethod.CONTENT_TYPE_META,
+                }
+            )
+        )
+
+    def test_compact_partition_when_incremental_then_previous_inflation_estimation_sanity(
+        self, s3_resource, local_deltacat_storage_kwargs
+    ):
+        """
+        A test case which asserts the RCF stats are correctly generated for
+        a rebase and incremental use-case.
+        """
+
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, [self.BACKFILL_FILE_PATH], **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 2,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                    "resource_estimation_method": ResourceEstimationMethod.PREVIOUS_INFLATION,
+                }
+            )
+        )
