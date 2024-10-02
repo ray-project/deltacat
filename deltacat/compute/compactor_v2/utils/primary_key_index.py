@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, Iterable
+from typing import List, Optional, Iterable, Set, Tuple
 
 import numpy as np
 import pyarrow as pa
@@ -289,7 +289,7 @@ def group_hash_bucket_indices(
     num_buckets: int,
     num_groups: int,
     object_store: Optional[IObjectStore] = None,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, Set]:
     """
     This method persists all tables for a given hash bucket into the object store
     and returns the object references for each hash group.
@@ -317,6 +317,7 @@ def group_hash_bucket_indices(
                 hash_group_to_size[hb_group] += casted_dfe.table_size_bytes
                 hash_group_to_num_rows[hb_group] += casted_dfe.table_num_rows
 
+    created_object_refs = set()
     for hb_group, obj in enumerate(hb_group_to_object):
         if obj is None:
             continue
@@ -326,12 +327,13 @@ def group_hash_bucket_indices(
             hash_group_to_size[hb_group],
             hash_group_to_num_rows[hb_group],
         )
+        created_object_refs.add(object_ref)
         del object_ref
 
     _, close_latency = timed_invocation(object_store.close)
     logger.info(f"Active connections to the object store closed in {close_latency}")
 
-    return hash_bucket_group_to_obj_id_size_tuple
+    return hash_bucket_group_to_obj_id_size_tuple, created_object_refs
 
 
 def hash_bucket_index_to_hash_group_index(hb_index: int, num_groups: int) -> int:

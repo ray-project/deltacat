@@ -5,6 +5,7 @@ import numpy as np
 
 class HashBucketResult(NamedTuple):
     hash_bucket_group_to_obj_id_tuple: np.ndarray
+    created_object_refs: set
     hb_size_bytes: np.int64
     hb_record_count: np.int64
     peak_memory_usage_bytes: np.double

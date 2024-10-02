@@ -227,6 +227,7 @@ def _run_hash_and_merge(
     previous_compacted_delta_manifest: Optional[Manifest],
     compacted_partition: Partition,
 ) -> List[MergeResult]:
+    created_object_refs = set()
     telemetry_time_hb = 0
     total_input_records_count = np.int64(0)
     total_hb_record_count = np.int64(0)
@@ -282,6 +283,9 @@ def _run_hash_and_merge(
             all_hash_group_idx_to_size_bytes[hb_group] = 0
 
         for hb_result in hb_results:
+            created_object_refs = created_object_refs.union(
+                hb_result.created_object_refs
+            )
             hb_data_processed_size_bytes += hb_result.hb_size_bytes
             total_input_records_count += hb_result.hb_record_count
             for hash_group_index, object_id_size_tuple in enumerate(
@@ -365,6 +369,7 @@ def _run_hash_and_merge(
     mutable_compaction_audit.set_telemetry_time_in_seconds(
         telemetry_this_round + previous_telemetry
     )
+    params.object_store.delete_many(list(created_object_refs))
 
     return merge_results
 

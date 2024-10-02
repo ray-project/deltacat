@@ -101,3 +101,23 @@ class TestRedisObjectStore(unittest.TestCase):
             self.object_store.put("test_ip")
 
         self.assertEqual(1, mock_client.Redis.return_value.set.call_count)
+
+    @mock.patch("deltacat.io.redis_object_store.redis")
+    def test_delete_sanity(self, mock_client):
+        mock_client.Redis.return_value.delete.return_value = 1
+
+        delete_success = self.object_store.delete("test_ip")
+
+        self.assertTrue(delete_success)
+        self.assertEqual(1, mock_client.Redis.return_value.delete.call_count)
+
+    @mock.patch("deltacat.io.redis_object_store.redis")
+    def test_delete_many_sanity(self, mock_client):
+        mock_client.Redis.return_value.delete.side_effect = [2, 1]
+
+        delete_success = self.object_store.delete_many(
+            ["test_ip", "test_ip", "test_ip2"]
+        )
+
+        self.assertTrue(delete_success)
+        self.assertEqual(2, mock_client.Redis.return_value.delete.call_count)

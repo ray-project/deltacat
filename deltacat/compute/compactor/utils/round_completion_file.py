@@ -63,7 +63,7 @@ def read_round_completion_file(
             logger.info(f"Read round completion info: {round_completion_info}")
             break
         else:
-            logger.warn(f"Round completion file not present at {rcf_uri}")
+            logger.warning(f"Round completion file not present at {rcf_uri}")
 
     return round_completion_info
 

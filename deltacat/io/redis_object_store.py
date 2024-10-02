@@ -95,6 +95,31 @@ class RedisObjectStore(IObjectStore):
         serialized = client.get(uid)
         return cloudpickle.loads(serialized)
 
+    def delete_many(self, refs: List[Any], *args, **kwargs) -> bool:
+        uid_per_ip = defaultdict(lambda: [])
+
+        start = time.monotonic()
+        for ref in refs:
+            uid, ip = ref.split(self.SEPARATOR)
+            uid_per_ip[ip].append(uid)
+
+        all_deleted = True
+        for (ip, uids) in uid_per_ip.items():
+            client = self._get_client_by_ip(ip)
+            num_keys_deleted = client.delete(*uids)
+            all_keys_deleted = num_keys_deleted == len(uids)
+            all_deleted = all_deleted and all_keys_deleted
+            if not all_keys_deleted:
+                logger.warning(f"Failed to fully delete uids: {uids}")
+
+        end = time.monotonic()
+
+        logger.info(
+            f"The total time taken to delete {len(refs)} objects is: {end - start}"
+        )
+
+        return all_deleted
+
     def _get_client_by_ip(self, ip_address: str):
         if ip_address in self.client_cache:
             return self.client_cache[ip_address]

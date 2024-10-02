@@ -84,3 +84,29 @@ class TestFileObjectStore(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(1, mock_file.call_count)
+
+    @mock.patch(
+        "deltacat.io.file_object_store.os.remove",
+    )
+    def test_delete_sanity(self, mock_remove):
+        from deltacat.io.file_object_store import FileObjectStore
+
+        object_store = FileObjectStore(dir_path="")
+
+        delete_success = object_store.delete("test")
+
+        self.assertTrue(delete_success)
+        self.assertEqual(1, mock_remove.call_count)
+
+    @mock.patch(
+        "deltacat.io.file_object_store.os.remove",
+    )
+    def test_delete_many_sanity(self, mock_remove):
+        from deltacat.io.file_object_store import FileObjectStore
+
+        object_store = FileObjectStore(dir_path="")
+
+        delete_success = object_store.delete_many(["test", "test"])
+
+        self.assertTrue(delete_success)
+        self.assertEqual(2, mock_remove.call_count)

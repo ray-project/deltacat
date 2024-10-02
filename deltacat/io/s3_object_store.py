@@ -42,3 +42,20 @@ class S3ObjectStore(IObjectStore):
 
         logger.info(f"The total time taken to read all objects is: {end - start}")
         return result
+
+    def delete_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
+        start = time.monotonic()
+        all_deleted = True
+        for ref in refs:
+            try:
+                s3_utils.delete_files_by_prefix(self.bucket, str(ref))
+            except Exception as e:
+                logger.warning(f"Failed to delete ref {ref}!", e)
+                all_deleted = False
+        end = time.monotonic()
+
+        logger.info(
+            f"The total time taken to attempt deleting {len(refs)} objects is: {end - start}"
+        )
+
+        return all_deleted

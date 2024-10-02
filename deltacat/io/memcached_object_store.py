@@ -193,6 +193,32 @@ class MemcachedObjectStore(IObjectStore):
 
         return cloudpickle.loads(serialized)
 
+    def delete_many(self, refs: List[Any], *args, **kwargs) -> bool:
+        refs_per_ip = defaultdict(lambda: [])
+        all_deleted = True
+
+        start = time.monotonic()
+        for ref in refs:
+            uid, ip, chunk_count = ref.split(self.SEPARATOR)
+            chunk_count = int(chunk_count)
+            for chunk_index in range(chunk_count):
+                current_ref = self._create_ref(uid, ip, chunk_index)
+                refs_per_ip[ip].append(current_ref)
+
+        for (ip, current_refs) in refs_per_ip.items():
+            client = self._get_client_by_ip(ip)
+            all_refs_deleted = client.delete_many(current_refs)
+            all_deleted = all_deleted and all_refs_deleted
+            if not all_refs_deleted:
+                logger.warning(f"Failed to fully delete refs: {current_refs}")
+        end = time.monotonic()
+
+        logger.info(
+            f"The total time taken to delete {len(refs)} objects is: {end - start}"
+        )
+
+        return all_deleted
+
     def clear(self) -> bool:
         flushed = all(
             [

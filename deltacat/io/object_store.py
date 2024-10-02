@@ -43,6 +43,19 @@ class IObjectStore:
         or may not return ordered results.
         """
 
+    def delete(self, obj: object, *args, **kwargs) -> bool:
+        """
+        Delete a single object from the object store.
+        """
+        return self.delete_many([obj])
+
+    def delete_many(self, objects: List[object], *args, **kwargs) -> bool:
+        ...
+
+        """
+        Delete many objects from the object store.
+        """
+
     def clear(self, *args, **kwargs) -> bool:
         ...
 
@@ -52,6 +65,7 @@ class IObjectStore:
 
     def close(self, *args, **kwargs) -> None:
         ...
+
         """
         Closes all the active connections to object store without clearing
         the data in the object store.

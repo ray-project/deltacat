@@ -291,7 +291,7 @@ def read_file(
             f"Retry download for: {s3_url} after receiving {type(e).__name__}"
         ) from e
     except BaseException as e:
-        logger.warn(
+        logger.warning(
             f"Read has failed for {s3_url} and content_type={content_type} "
             f"and encoding={content_encoding}. Error: {e}",
             exc_info=True,
@@ -416,7 +416,7 @@ def upload_table(
                 f"Retry upload for: {s3_url} after receiving {type(e).__name__}",
             ) from e
         except BaseException as e:
-            logger.warn(
+            logger.warning(
                 f"Upload has failed for {s3_url} and content_type={content_type}. Error: {e}",
                 exc_info=True,
             )
