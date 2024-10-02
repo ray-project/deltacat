@@ -180,6 +180,7 @@ def hash_bucket(input: HashBucketInput) -> HashBucketResult:
             hash_bucket_result[1],
             hash_bucket_result[2],
             hash_bucket_result[3],
+            hash_bucket_result[4],
             np.double(emit_metrics_time),
             hash_bucket_result[5],
         )
