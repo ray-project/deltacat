@@ -120,7 +120,7 @@ def _timed_hash_bucket(input: HashBucketInput):
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-        (hash_bucket_group_to_obj_id_tuple) = group_hash_bucket_indices(
+        hash_bucket_group_to_obj_id_tuple = group_hash_bucket_indices(
             hash_bucket_object_groups=delta_file_envelope_groups,
             num_buckets=input.num_hash_buckets,
             num_groups=input.num_hash_groups,

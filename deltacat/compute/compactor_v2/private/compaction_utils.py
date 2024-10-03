@@ -367,8 +367,9 @@ def _run_hash_and_merge(
     mutable_compaction_audit.set_telemetry_time_in_seconds(
         telemetry_this_round + previous_telemetry
     )
-    params.object_store.delete_many(list(created_object_refs))
-    logger.info(f"Detected {len(created_object_refs)} objects to be deleted...")
+    if params.num_rounds > 1:
+        logger.info(f"Detected {len(created_object_refs)} objects to be deleted...")
+        params.object_store.delete_many(list(created_object_refs))
 
     return merge_results
 

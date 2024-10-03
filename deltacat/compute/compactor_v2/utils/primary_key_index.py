@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, Iterable, Set, Tuple
+from typing import List, Optional, Iterable
 
 import numpy as np
 import pyarrow as pa
@@ -289,7 +289,7 @@ def group_hash_bucket_indices(
     num_buckets: int,
     num_groups: int,
     object_store: Optional[IObjectStore] = None,
-) -> Tuple[np.ndarray, Set]:
+) -> np.ndarray:
     """
     This method persists all tables for a given hash bucket into the object store
     and returns the object references for each hash group.
