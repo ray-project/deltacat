@@ -193,11 +193,15 @@ class MemcachedObjectStore(IObjectStore):
 
         start = time.monotonic()
 
+        total_refs = 0
+        fully_deleted_refs = 0
         for (ip, current_refs) in refs_per_ip.items():
             client = self._get_client_by_ip(ip)
+            total_refs += len(current_refs)
             try:
                 # always returns true
-                client.delete_many(current_refs)
+                client.delete_many(current_refs, no_reply=self.noreply)
+                fully_deleted_refs += len(current_refs)
             except Exception as e:
                 # if an exception is raised then all, some, or none of the keys may have been deleted
                 logger.warning(f"Failed to fully delete refs: {current_refs}", e)
@@ -205,6 +209,9 @@ class MemcachedObjectStore(IObjectStore):
 
         end = time.monotonic()
 
+        logger.info(
+            f"From {len(refs)} objects, found {total_refs} total chunk references, of which {fully_deleted_refs} were guaranteed to be successfully deleted."
+        )
         logger.info(
             f"The total time taken to attempt deleting {len(refs)} objects is: {end - start}"
         )
