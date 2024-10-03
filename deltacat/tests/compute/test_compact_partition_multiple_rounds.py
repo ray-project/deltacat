@@ -283,6 +283,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
     )
 
     execute_compaction_result_spy = mocker.spy(ExecutionCompactionResult, "__init__")
+    object_store_delete_many_spy = mocker.spy(RayPlasmaObjectStore, "delete_many")
 
     # execute
     rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
@@ -327,4 +328,5 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
     if assert_compaction_audit:
         if not assert_compaction_audit(compactor_version, compaction_audit):
             assert False, "Compaction audit assertion failed"
+    assert object_store_delete_many_spy.call_count, "Object store was never cleaned up!"
     return

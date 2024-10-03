@@ -43,13 +43,13 @@ class IObjectStore:
         or may not return ordered results.
         """
 
-    def delete(self, obj: object, *args, **kwargs) -> bool:
+    def delete(self, ref: Any, *args, **kwargs) -> bool:
         """
         Delete a single object from the object store.
         """
-        return self.delete_many([obj])
+        return self.delete_many([ref])
 
-    def delete_many(self, objects: List[object], *args, **kwargs) -> bool:
+    def delete_many(self, refs: List[Any], *args, **kwargs) -> bool:
         ...
 
         """

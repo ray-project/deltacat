@@ -1,12 +1,8 @@
-import logging
 import ray
 from ray import cloudpickle
-from deltacat import logs
 from deltacat.io.object_store import IObjectStore
 from typing import Any, List
 from ray.types import ObjectRef
-
-logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class RayPlasmaObjectStore(IObjectStore):

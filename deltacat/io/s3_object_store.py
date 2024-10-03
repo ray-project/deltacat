@@ -43,7 +43,7 @@ class S3ObjectStore(IObjectStore):
         logger.info(f"The total time taken to read all objects is: {end - start}")
         return result
 
-    def delete_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
+    def delete_many(self, refs: List[Any], *args, **kwargs) -> bool:
         start = time.monotonic()
         num_deleted = 0
         for ref in refs:
