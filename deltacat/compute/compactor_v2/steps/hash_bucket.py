@@ -120,10 +120,7 @@ def _timed_hash_bucket(input: HashBucketInput):
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,
         )
-        (
-            hash_bucket_group_to_obj_id_tuple,
-            created_object_refs,
-        ) = group_hash_bucket_indices(
+        (hash_bucket_group_to_obj_id_tuple) = group_hash_bucket_indices(
             hash_bucket_object_groups=delta_file_envelope_groups,
             num_buckets=input.num_hash_buckets,
             num_groups=input.num_hash_groups,
@@ -136,7 +133,6 @@ def _timed_hash_bucket(input: HashBucketInput):
         )
         return HashBucketResult(
             hash_bucket_group_to_obj_id_tuple,
-            created_object_refs,
             np.int64(total_size_bytes),
             np.int64(total_record_count),
             np.double(peak_memory_usage_bytes),
@@ -180,7 +176,6 @@ def hash_bucket(input: HashBucketInput) -> HashBucketResult:
             hash_bucket_result[1],
             hash_bucket_result[2],
             hash_bucket_result[3],
-            hash_bucket_result[4],
             np.double(emit_metrics_time),
             hash_bucket_result[5],
         )

@@ -49,16 +49,16 @@ class FileObjectStore(IObjectStore):
 
     def delete_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         start = time.monotonic()
-        all_deleted = True
+        num_deleted = 0
         for ref in refs:
             try:
                 os.remove(ref)
+                num_deleted += 1
             except Exception as e:
                 logger.warning(f"Failed to delete ref {ref}!", e)
-                all_deleted = False
         end = time.monotonic()
 
         logger.info(
-            f"The total time taken to attempt deleting {len(refs)} objects is: {end - start}"
+            f"The total time taken to delete {num_deleted} out of {len(refs)} objects is: {end - start}"
         )
-        return all_deleted
+        return num_deleted == len(refs)

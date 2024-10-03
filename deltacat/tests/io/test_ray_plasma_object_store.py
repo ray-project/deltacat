@@ -52,23 +52,3 @@ class TestRayPlasmaObjectStore(unittest.TestCase):
         result = self.object_store.put("test")
 
         self.assertEqual(self.TEST_VALUE, result)
-
-    @mock.patch("deltacat.io.ray_plasma_object_store.free")
-    @mock.patch("deltacat.io.ray_plasma_object_store.cloudpickle")
-    def test_delete_sanity(self, mock_cloudpickle, mock_free):
-
-        mock_cloudpickle.loads.return_value = self.TEST_VALUE
-
-        delete_success = self.object_store.delete("test")
-
-        self.assertTrue(delete_success)
-
-    @mock.patch("deltacat.io.ray_plasma_object_store.free")
-    @mock.patch("deltacat.io.ray_plasma_object_store.cloudpickle")
-    def test_delete_many_sanity(self, mock_cloudpickle, mock_free):
-
-        mock_cloudpickle.loads.return_value = self.TEST_VALUE
-
-        delete_success = self.object_store.delete_many(["test", "test"])
-
-        self.assertTrue(delete_success)

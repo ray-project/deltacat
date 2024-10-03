@@ -56,12 +56,9 @@ class RedisObjectStore(IObjectStore):
 
     def get_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         result = []
-        uid_per_ip = defaultdict(lambda: [])
+        uid_per_ip = self._get_uids_per_ip(refs)
 
         start = time.monotonic()
-        for ref in refs:
-            uid, ip = ref.split(self.SEPARATOR)
-            uid_per_ip[ip].append(uid)
 
         for (ip, uids) in uid_per_ip.items():
             client = self._get_client_by_ip(ip)
@@ -96,29 +93,27 @@ class RedisObjectStore(IObjectStore):
         return cloudpickle.loads(serialized)
 
     def delete_many(self, refs: List[Any], *args, **kwargs) -> bool:
-        uid_per_ip = defaultdict(lambda: [])
+        uid_per_ip = self._get_uids_per_ip(refs)
 
         start = time.monotonic()
-        for ref in refs:
-            uid, ip = ref.split(self.SEPARATOR)
-            uid_per_ip[ip].append(uid)
 
-        all_deleted = True
+        num_deleted = 0
         for (ip, uids) in uid_per_ip.items():
             client = self._get_client_by_ip(ip)
             num_keys_deleted = client.delete(*uids)
-            all_keys_deleted = num_keys_deleted == len(uids)
-            all_deleted = all_deleted and all_keys_deleted
-            if not all_keys_deleted:
-                logger.warning(f"Failed to fully delete uids: {uids}")
+            num_deleted += num_keys_deleted
+            if num_keys_deleted != len(uids):
+                logger.warning(
+                    f"Failed to delete {len(uids) - num_keys_deleted} out of {len(uids)} uids: {uids}"
+                )
 
         end = time.monotonic()
 
         logger.info(
-            f"The total time taken to delete {len(refs)} objects is: {end - start}"
+            f"The total time taken to delete {num_deleted} out of {len(refs)} objects is: {end - start}"
         )
 
-        return all_deleted
+        return num_deleted == len(refs)
 
     def _get_client_by_ip(self, ip_address: str):
         if ip_address in self.client_cache:
@@ -137,3 +132,11 @@ class RedisObjectStore(IObjectStore):
 
     def _create_ref(self, uid, ip):
         return f"{uid}{self.SEPARATOR}{ip}"
+
+    def _get_uids_per_ip(self, refs: List[Any]):
+        uid_per_ip = defaultdict(lambda: [])
+
+        for ref in refs:
+            uid, ip = ref.split(self.SEPARATOR)
+            uid_per_ip[ip].append(uid)
+        return uid_per_ip

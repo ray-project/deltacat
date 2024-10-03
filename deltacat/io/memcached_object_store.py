@@ -100,16 +100,10 @@ class MemcachedObjectStore(IObjectStore):
 
     def get_many(self, refs: List[Any], *args, **kwargs) -> List[object]:
         result = []
-        refs_per_ip = defaultdict(lambda: [])
+        refs_per_ip = self._get_refs_per_ip(refs)
         chunks_by_refs = defaultdict(lambda: [])
 
         start = time.monotonic()
-        for ref in refs:
-            uid, ip, chunk_count = ref.split(self.SEPARATOR)
-            chunk_count = int(chunk_count)
-            for chunk_index in range(chunk_count):
-                current_ref = self._create_ref(uid, ip, chunk_index)
-                refs_per_ip[ip].append(current_ref)
 
         total_ref_count = 0
         for (ip, current_refs) in refs_per_ip.items():
@@ -194,27 +188,25 @@ class MemcachedObjectStore(IObjectStore):
         return cloudpickle.loads(serialized)
 
     def delete_many(self, refs: List[Any], *args, **kwargs) -> bool:
-        refs_per_ip = defaultdict(lambda: [])
+        refs_per_ip = self._get_refs_per_ip(refs)
         all_deleted = True
 
         start = time.monotonic()
-        for ref in refs:
-            uid, ip, chunk_count = ref.split(self.SEPARATOR)
-            chunk_count = int(chunk_count)
-            for chunk_index in range(chunk_count):
-                current_ref = self._create_ref(uid, ip, chunk_index)
-                refs_per_ip[ip].append(current_ref)
 
         for (ip, current_refs) in refs_per_ip.items():
             client = self._get_client_by_ip(ip)
-            all_refs_deleted = client.delete_many(current_refs)
-            all_deleted = all_deleted and all_refs_deleted
-            if not all_refs_deleted:
-                logger.warning(f"Failed to fully delete refs: {current_refs}")
+            try:
+                # always returns true
+                client.delete_many(current_refs)
+            except Exception as e:
+                # if an exception is raised then all, some, or none of the keys may have been deleted
+                logger.warning(f"Failed to fully delete refs: {current_refs}", e)
+                all_deleted = False
+
         end = time.monotonic()
 
         logger.info(
-            f"The total time taken to delete {len(refs)} objects is: {end - start}"
+            f"The total time taken to attempt deleting {len(refs)} objects is: {end - start}"
         )
 
         return all_deleted
@@ -286,3 +278,14 @@ class MemcachedObjectStore(IObjectStore):
             self.current_ip = socket.gethostbyname(socket.gethostname())
 
         return self.current_ip
+
+    def _get_refs_per_ip(self, refs: List[Any]):
+        refs_per_ip = defaultdict(lambda: [])
+
+        for ref in refs:
+            uid, ip, chunk_count = ref.split(self.SEPARATOR)
+            chunk_count = int(chunk_count)
+            for chunk_index in range(chunk_count):
+                current_ref = self._create_ref(uid, ip, chunk_index)
+                refs_per_ip[ip].append(current_ref)
+        return refs_per_ip

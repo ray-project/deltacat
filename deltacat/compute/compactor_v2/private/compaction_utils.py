@@ -283,15 +283,13 @@ def _run_hash_and_merge(
             all_hash_group_idx_to_size_bytes[hb_group] = 0
 
         for hb_result in hb_results:
-            created_object_refs = created_object_refs.union(
-                hb_result.created_object_refs
-            )
             hb_data_processed_size_bytes += hb_result.hb_size_bytes
             total_input_records_count += hb_result.hb_record_count
             for hash_group_index, object_id_size_tuple in enumerate(
                 hb_result.hash_bucket_group_to_obj_id_tuple
             ):
                 if object_id_size_tuple:
+                    created_object_refs.add(object_id_size_tuple[0])
                     all_hash_group_idx_to_obj_id[hash_group_index].append(
                         object_id_size_tuple[0],
                     )
@@ -370,6 +368,7 @@ def _run_hash_and_merge(
         telemetry_this_round + previous_telemetry
     )
     params.object_store.delete_many(list(created_object_refs))
+    logger.info(f"Detected {len(created_object_refs)} objects to be deleted...")
 
     return merge_results
 
