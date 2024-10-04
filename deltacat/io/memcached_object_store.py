@@ -202,9 +202,11 @@ class MemcachedObjectStore(IObjectStore):
                 # always returns true
                 client.delete_many(current_refs, no_reply=self.noreply)
                 fully_deleted_refs += len(current_refs)
-            except Exception as e:
+            except Exception:
                 # if an exception is raised then all, some, or none of the keys may have been deleted
-                logger.warning(f"Failed to fully delete refs: {current_refs}", e)
+                logger.warning(
+                    f"Failed to fully delete refs: {current_refs}", exc_info=True
+                )
                 all_deleted = False
 
         end = time.monotonic()

@@ -41,7 +41,6 @@ class FileObjectStore(IObjectStore):
                 serialized = f.read()
                 loaded = cloudpickle.loads(serialized)
                 result.append(loaded)
-            os.remove(ref)
         end = time.monotonic()
 
         logger.info(f"The total time taken to read all objects is: {end - start}")
@@ -54,8 +53,8 @@ class FileObjectStore(IObjectStore):
             try:
                 os.remove(ref)
                 num_deleted += 1
-            except Exception as e:
-                logger.warning(f"Failed to delete ref {ref}!", e)
+            except Exception:
+                logger.warning(f"Failed to delete ref {ref}!", exc_info=True)
         end = time.monotonic()
 
         logger.info(

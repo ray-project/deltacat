@@ -50,8 +50,8 @@ class S3ObjectStore(IObjectStore):
             try:
                 s3_utils.delete_files_by_prefix(self.bucket, str(ref))
                 num_deleted += 1
-            except Exception as e:
-                logger.warning(f"Failed to delete ref {ref}!", e)
+            except Exception:
+                logger.warning(f"Failed to delete ref {ref}!", exc_info=True)
         end = time.monotonic()
 
         logger.info(
