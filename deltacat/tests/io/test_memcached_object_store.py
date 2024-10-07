@@ -28,6 +28,15 @@ class MockPyMemcacheClient:
     def get(self, key, *args, **kwargs):
         return self.store.get(key)
 
+    def delete(self, key, *args, **kwargs):
+        self.store.pop(key, None)
+        return True
+
+    def delete_many(self, keys, *args, **kwargs):
+        for key in keys:
+            self.store.pop(key, None)
+        return True
+
     def flush_all(self, *args, **kwargs):
         for key, value in self.store.items():
             self.store[key] = None
@@ -199,6 +208,37 @@ class TestMemcachedObjectStore(unittest.TestCase):
         # assert
         result = self.object_store.get(ref)
         self.assertEqual(result, self.TEST_VALUE_LARGE)
+
+    @mock.patch("deltacat.io.memcached_object_store.Client")
+    @mock.patch("deltacat.io.memcached_object_store.RetryingClient")
+    def test_delete_sanity(self, mock_retrying_client, mock_client):
+        mock_client.return_value = MockPyMemcacheClient()
+        mock_retrying_client.return_value = mock_client.return_value
+
+        # setup
+        ref = self.object_store.put(np.arange(100))
+
+        # action
+        delete_success = self.object_store.delete(ref)
+
+        # assert
+        self.assertTrue(delete_success)
+
+    @mock.patch("deltacat.io.memcached_object_store.Client")
+    @mock.patch("deltacat.io.memcached_object_store.RetryingClient")
+    def test_delete_many_sanity(self, mock_retrying_client, mock_client):
+        mock_client.return_value = MockPyMemcacheClient()
+        mock_retrying_client.return_value = mock_client.return_value
+
+        # setup
+        ref1 = self.object_store.put("a")
+        ref2 = self.object_store.put(np.arange(100))
+
+        # action
+        delete_success = self.object_store.delete_many([ref2, ref1])
+
+        # assert
+        self.assertTrue(delete_success)
 
     @mock.patch("deltacat.io.memcached_object_store.Client")
     @mock.patch("deltacat.io.memcached_object_store.RetryingClient")

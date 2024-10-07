@@ -227,6 +227,7 @@ def _run_hash_and_merge(
     previous_compacted_delta_manifest: Optional[Manifest],
     compacted_partition: Partition,
 ) -> List[MergeResult]:
+    created_obj_ids = set()
     telemetry_time_hb = 0
     total_input_records_count = np.int64(0)
     total_hb_record_count = np.int64(0)
@@ -288,6 +289,7 @@ def _run_hash_and_merge(
                 hb_result.hash_bucket_group_to_obj_id_tuple
             ):
                 if object_id_size_tuple:
+                    created_obj_ids.add(object_id_size_tuple[0])
                     all_hash_group_idx_to_obj_id[hash_group_index].append(
                         object_id_size_tuple[0],
                     )
@@ -365,6 +367,16 @@ def _run_hash_and_merge(
     mutable_compaction_audit.set_telemetry_time_in_seconds(
         telemetry_this_round + previous_telemetry
     )
+    if params.num_rounds > 1:
+        logger.info(
+            f"Detected number of rounds to be {params.num_rounds}, "
+            f"preparing to delete {len(created_obj_ids)} objects from object store..."
+        )
+        params.object_store.delete_many(list(created_obj_ids))
+    else:
+        logger.info(
+            f"Detected number of rounds to be {params.num_rounds}, not cleaning up object store..."
+        )
 
     return merge_results
 

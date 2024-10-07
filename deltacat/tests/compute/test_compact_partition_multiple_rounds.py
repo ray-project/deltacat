@@ -5,8 +5,9 @@ import pytest
 import boto3
 from boto3.resources.base import ServiceResource
 import pyarrow as pa
-from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
+from deltacat.io.file_object_store import FileObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
+import tempfile
 
 from deltacat.tests.compute.test_util_constant import (
     TEST_S3_RCF_BUCKET_NAME,
@@ -247,84 +248,99 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
         pgm = PlacementGroupManager(
             1, total_cpus, DEFAULT_WORKER_INSTANCE_CPUS, memory_per_bundle=4000000
         ).pgs[0]
-    compact_partition_params = CompactPartitionParams.of(
-        {
-            "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
-            "compacted_file_content_type": ContentType.PARQUET,
-            "dd_max_parallelism_ratio": 1.0,
-            "deltacat_storage": ds,
-            "deltacat_storage_kwargs": ds_mock_kwargs,
-            "destination_partition_locator": rebased_partition.locator,
-            "hash_bucket_count": hash_bucket_count_param,
-            "last_stream_position_to_compact": source_partition.stream_position,
-            "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
-            "object_store": RayPlasmaObjectStore(),
-            "pg_config": pgm,
-            "primary_keys": primary_keys,
-            "read_kwargs_provider": read_kwargs_provider_param,
-            "rebase_source_partition_locator": source_partition.locator,
-            "rebase_source_partition_high_watermark": rebased_partition.stream_position,
-            "records_per_compacted_file": records_per_compacted_file_param,
-            "s3_client_kwargs": {},
-            "source_partition_locator": rebased_partition.locator,
-            "sort_keys": sort_keys if sort_keys else None,
-            "num_rounds": num_rounds_param,
-            "drop_duplicates": drop_duplicates_param,
-            "min_delta_bytes": 560,
-        }
-    )
-    if expected_terminal_exception:
-        with pytest.raises(expected_terminal_exception) as exc_info:
-            benchmark(compact_partition_func, compact_partition_params)
-        assert expected_terminal_exception_message in str(exc_info.value)
+    with tempfile.TemporaryDirectory() as test_dir:
+        compact_partition_params = CompactPartitionParams.of(
+            {
+                "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                "compacted_file_content_type": ContentType.PARQUET,
+                "dd_max_parallelism_ratio": 1.0,
+                "deltacat_storage": ds,
+                "deltacat_storage_kwargs": ds_mock_kwargs,
+                "destination_partition_locator": rebased_partition.locator,
+                "hash_bucket_count": hash_bucket_count_param,
+                "last_stream_position_to_compact": source_partition.stream_position,
+                "list_deltas_kwargs": {
+                    **ds_mock_kwargs,
+                    **{"equivalent_table_types": []},
+                },
+                "object_store": FileObjectStore(test_dir),
+                "pg_config": pgm,
+                "primary_keys": primary_keys,
+                "read_kwargs_provider": read_kwargs_provider_param,
+                "rebase_source_partition_locator": source_partition.locator,
+                "rebase_source_partition_high_watermark": rebased_partition.stream_position,
+                "records_per_compacted_file": records_per_compacted_file_param,
+                "s3_client_kwargs": {},
+                "source_partition_locator": rebased_partition.locator,
+                "sort_keys": sort_keys if sort_keys else None,
+                "num_rounds": num_rounds_param,
+                "drop_duplicates": drop_duplicates_param,
+                "min_delta_bytes": 560,
+            }
+        )
+        if expected_terminal_exception:
+            with pytest.raises(expected_terminal_exception) as exc_info:
+                benchmark(compact_partition_func, compact_partition_params)
+            assert expected_terminal_exception_message in str(exc_info.value)
+            return
+        from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
+            ExecutionCompactionResult,
+        )
+
+        execute_compaction_result_spy = mocker.spy(
+            ExecutionCompactionResult, "__init__"
+        )
+        object_store_delete_many_spy = mocker.spy(FileObjectStore, "delete_many")
+
+        # execute
+        rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
+
+        round_completion_info: RoundCompletionInfo = get_rcf(
+            s3_resource, rcf_file_s3_uri
+        )
+        audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
+            round_completion_info.compaction_audit_url
+        )
+
+        compaction_audit_obj: Dict[str, Any] = read_s3_contents(
+            s3_resource, audit_bucket, audit_key
+        )
+        compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
+            **compaction_audit_obj
+        )
+
+        # Assert not in-place compacted
+        assert (
+            execute_compaction_result_spy.call_args.args[-1] is False
+        ), "Table version erroneously marked as in-place compacted!"
+        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
+            s3_resource, rcf_file_s3_uri
+        )
+        tables = ds.download_delta(
+            compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+        )
+        actual_rebase_compacted_table = pa.concat_tables(tables)
+        # if no primary key is specified then sort by sort_key for consistent assertion
+        sorting_cols: List[Any] = (
+            [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
+        )
+        rebase_expected_compact_partition_result = (
+            rebase_expected_compact_partition_result.combine_chunks().sort_by(
+                sorting_cols
+            )
+        )
+        actual_rebase_compacted_table = (
+            actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
+        )
+        assert actual_rebase_compacted_table.equals(
+            rebase_expected_compact_partition_result
+        ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
+
+        if assert_compaction_audit:
+            if not assert_compaction_audit(compactor_version, compaction_audit):
+                assert False, "Compaction audit assertion failed"
+        assert os.listdir(test_dir) == []
+        assert (
+            object_store_delete_many_spy.call_count
+        ), "Object store was never cleaned up!"
         return
-    from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
-        ExecutionCompactionResult,
-    )
-
-    execute_compaction_result_spy = mocker.spy(ExecutionCompactionResult, "__init__")
-
-    # execute
-    rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
-
-    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
-    audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
-        round_completion_info.compaction_audit_url
-    )
-
-    compaction_audit_obj: Dict[str, Any] = read_s3_contents(
-        s3_resource, audit_bucket, audit_key
-    )
-    compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
-        **compaction_audit_obj
-    )
-
-    # Assert not in-place compacted
-    assert (
-        execute_compaction_result_spy.call_args.args[-1] is False
-    ), "Table version erroneously marked as in-place compacted!"
-    compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-        s3_resource, rcf_file_s3_uri
-    )
-    tables = ds.download_delta(
-        compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
-    )
-    actual_rebase_compacted_table = pa.concat_tables(tables)
-    # if no primary key is specified then sort by sort_key for consistent assertion
-    sorting_cols: List[Any] = (
-        [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
-    )
-    rebase_expected_compact_partition_result = (
-        rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)
-    )
-    actual_rebase_compacted_table = (
-        actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
-    )
-    assert actual_rebase_compacted_table.equals(
-        rebase_expected_compact_partition_result
-    ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
-
-    if assert_compaction_audit:
-        if not assert_compaction_audit(compactor_version, compaction_audit):
-            assert False, "Compaction audit assertion failed"
-    return

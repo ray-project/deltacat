@@ -57,3 +57,12 @@ class TestS3ObjectStore(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(1, mock_upload.call_count)
+
+    @mock.patch("deltacat.io.s3_object_store.s3_utils.delete_files_by_prefix")
+    def test_delete_many_sanity(self, mock_delete):
+        self.ray_mock.cloudpickle.loads.return_value = self.TEST_VALUE
+
+        delete_success = self.object_store.delete_many(["test", "test"])
+
+        self.assertTrue(delete_success)
+        self.assertEqual(2, mock_delete.call_count)

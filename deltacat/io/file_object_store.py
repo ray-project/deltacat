@@ -41,8 +41,23 @@ class FileObjectStore(IObjectStore):
                 serialized = f.read()
                 loaded = cloudpickle.loads(serialized)
                 result.append(loaded)
-            os.remove(ref)
         end = time.monotonic()
 
         logger.info(f"The total time taken to read all objects is: {end - start}")
         return result
+
+    def delete_many(self, refs: List[Any], *args, **kwargs) -> bool:
+        start = time.monotonic()
+        num_deleted = 0
+        for ref in refs:
+            try:
+                os.remove(ref)
+                num_deleted += 1
+            except Exception:
+                logger.warning(f"Failed to delete ref {ref}!", exc_info=True)
+        end = time.monotonic()
+
+        logger.info(
+            f"The total time taken to delete {num_deleted} out of {len(refs)} objects is: {end - start}"
+        )
+        return num_deleted == len(refs)
