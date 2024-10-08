@@ -97,7 +97,7 @@ def append_content_type_params(
     max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
-) -> None:
+) -> bool:
     """
     This operation appends content type params into the delta entry. Note
     that this operation can be time consuming, hence we cache it in a Ray actor.
@@ -105,7 +105,7 @@ def append_content_type_params(
 
     if not delta.meta:
         logger.warning(f"Delta with locator {delta.locator} doesn't contain meta.")
-        return
+        return False
 
     entry_indices_to_download = []
     for entry_index, entry in enumerate(delta.manifest.entries):
@@ -120,7 +120,7 @@ def append_content_type_params(
         logger.info(
             f"No parquet type params to download for delta with locator {delta.locator}."
         )
-        return None
+        return False
 
     ray_namespace = ray.get_runtime_context().namespace
     logger.info(
@@ -147,7 +147,7 @@ def append_content_type_params(
                 f" {delta.locator} and digest {delta.locator.hexdigest()}."
             )
             delta.manifest = cached_value.manifest
-            return
+            return True
         logger.info(
             f"Cache doesn't contain parquet meta for delta with locator {delta.locator}."
         )
@@ -215,3 +215,5 @@ def append_content_type_params(
         )
         ray.get(cache.put.remote(delta.locator.hexdigest(), delta))
         assert ray.get(cache.get.remote(delta.locator.hexdigest())) is not None
+
+    return True

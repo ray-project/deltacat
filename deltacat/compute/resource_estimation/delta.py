@@ -42,7 +42,11 @@ def _estimate_resources_required_to_process_delta_using_previous_inflation(
     in_memory_size = (
         delta.meta.content_length * estimate_resources_params.previous_inflation
     )
-    num_rows = int(in_memory_size / estimate_resources_params.average_record_size_bytes)
+    num_rows = 0
+    if estimate_resources_params.average_record_size_bytes is not None:
+        num_rows = int(
+            in_memory_size / estimate_resources_params.average_record_size_bytes
+        )
 
     return EstimatedResources.of(
         memory_bytes=in_memory_size,
@@ -68,6 +72,10 @@ def _estimate_resources_required_to_process_delta_using_type_params(
     ), "Number of rows can only be estimated for PYARROW_DOWNLOAD operation"
 
     if estimate_resources_params.parquet_to_pyarrow_inflation is None:
+        logger.debug(
+            "Could not estimate using type params as "
+            f"parquet_to_pyarrow_inflation is None for {delta.locator}"
+        )
         return None
 
     if not delta.manifest:
@@ -86,11 +94,17 @@ def _estimate_resources_required_to_process_delta_using_type_params(
             ),
         )
 
-    append_content_type_params(
+    appended = append_content_type_params(
         delta=delta,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
     )
+
+    if not appended:
+        logger.debug(
+            f"Could not append content type params for {delta.locator}, returning None"
+        )
+        return None
 
     in_memory_size = 0.0
     num_rows = 0
