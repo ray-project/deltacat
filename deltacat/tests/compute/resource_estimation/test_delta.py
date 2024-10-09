@@ -526,6 +526,30 @@ class TestEstimateResourcesRequiredToProcessDelta:
             == parquet_delta_with_manifest.meta.content_length
         )
 
+    def test_parquet_delta_when_default_v2_without_avg_record_size_and_sampling(
+        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+    ):
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
+            previous_inflation=7,
+            parquet_to_pyarrow_inflation=1,
+        )
+
+        result = estimate_resources_required_to_process_delta(
+            delta=parquet_delta_with_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+
+        assert parquet_delta_with_manifest.manifest is not None
+        assert result.memory_bytes is not None
+        assert (
+            result.statistics.on_disk_size_bytes
+            == parquet_delta_with_manifest.meta.content_length
+        )
+
     def test_parquet_delta_when_default_v2_and_files_to_sample_zero(
         self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
@@ -573,6 +597,32 @@ class TestEstimateResourcesRequiredToProcessDelta:
 
         assert utsv_delta_with_manifest.manifest is not None
         assert result.memory_bytes is not None
+        assert (
+            result.statistics.on_disk_size_bytes
+            == utsv_delta_with_manifest.meta.content_length
+        )
+
+    def test_utsv_delta_when_default_v2_without_avg_record_size(
+        self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+    ):
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
+            previous_inflation=7,
+            average_record_size_bytes=None,  # note
+            parquet_to_pyarrow_inflation=1,
+        )
+
+        result = estimate_resources_required_to_process_delta(
+            delta=utsv_delta_with_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+
+        assert utsv_delta_with_manifest.manifest is not None
+        assert result.memory_bytes is not None
+        assert result.statistics.record_count == 0
         assert (
             result.statistics.on_disk_size_bytes
             == utsv_delta_with_manifest.meta.content_length
