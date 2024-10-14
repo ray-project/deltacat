@@ -218,6 +218,9 @@ class MemcachedObjectStore(IObjectStore):
             f"The total time taken to attempt deleting {len(refs)} objects is: {end - start}"
         )
 
+        # We need to clear the client cache in case of multi-round compaction because client cannot be pickled
+        self.client_cache.clear()
+
         return all_deleted
 
     def clear(self) -> bool:
