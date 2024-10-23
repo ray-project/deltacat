@@ -115,6 +115,21 @@ class RedisObjectStore(IObjectStore):
 
         return num_deleted == len(refs)
 
+    def clear(self) -> bool:
+        start = time.monotonic()
+        current_ip = self._get_current_ip()
+        client = self._get_client_by_ip(current_ip)
+        flushed = client.flushall()
+        self.client_cache.clear()
+        end = time.monotonic()
+
+        if flushed:
+            logger.info("Successfully cleared cache contents.")
+
+        logger.info(f"The total time taken to clear the cache is: {end - start}")
+
+        return flushed
+
     def _get_client_by_ip(self, ip_address: str):
         if ip_address in self.client_cache:
             return self.client_cache[ip_address]

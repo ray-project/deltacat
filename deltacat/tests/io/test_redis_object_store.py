@@ -121,3 +121,15 @@ class TestRedisObjectStore(unittest.TestCase):
 
         self.assertTrue(delete_success)
         self.assertEqual(2, mock_client.Redis.return_value.delete.call_count)
+
+    @mock.patch("deltacat.io.redis_object_store.redis")
+    def test_clear_sanity(self, mock_client):
+        # setup
+        mock_client.Redis.return_value.flushall.side_effect = [True]
+
+        # action
+        clear_success = self.object_store.clear()
+
+        # assert
+        self.assertTrue(clear_success)
+        self.assertEqual(1, mock_client.Redis.return_value.flushall.call_count)

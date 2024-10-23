@@ -205,7 +205,8 @@ class MemcachedObjectStore(IObjectStore):
             except BaseException:
                 # if an exception is raised then all, some, or none of the keys may have been deleted
                 logger.warning(
-                    f"Failed to fully delete refs: {current_refs}", exc_info=True
+                    f"Failed to fully delete {len(current_refs)} refs for ip: {ip}",
+                    exc_info=True,
                 )
                 all_deleted = False
 
@@ -224,6 +225,7 @@ class MemcachedObjectStore(IObjectStore):
         return all_deleted
 
     def clear(self) -> bool:
+        start = time.monotonic()
         flushed = all(
             [
                 self._get_client_by_ip(ip).flush_all(noreply=False)
@@ -231,9 +233,12 @@ class MemcachedObjectStore(IObjectStore):
             ]
         )
         self.client_cache.clear()
+        end = time.monotonic()
 
         if flushed:
             logger.info("Successfully cleared cache contents.")
+
+        logger.info(f"The total time taken to clear the cache is: {end - start}")
 
         return flushed
 
