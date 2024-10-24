@@ -147,10 +147,11 @@ def prepare_deletes(
     """
     if not input_deltas:
         return PrepareDeleteResult(input_deltas, [], None)
+    logger.info(f"Preparing deletes for Partition-{params.source_partition_locator}")
     assert all(
         input_deltas[i].stream_position <= input_deltas[i + 1].stream_position
         for i in range(len(input_deltas) - 1)
-    ), "Uniform deltas must be in non-decreasing order by stream position"
+    ), f"Uniform deltas of length: {len(input_deltas)} must be in non-decreasing order by stream position"
     start_stream_spos_to_delete_delta_sequence: Dict[
         int, List[Delta]
     ] = _aggregate_delete_deltas(input_deltas)
