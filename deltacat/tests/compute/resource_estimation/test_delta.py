@@ -437,6 +437,43 @@ class TestEstimateResourcesRequiredToProcessDelta:
             == parquet_delta_with_manifest.meta.content_length
         )
 
+    def test_parquet_delta_when_file_sampling_and_arrow_size_zero(
+        self,
+        local_deltacat_storage_kwargs,
+        parquet_delta_with_manifest: Delta,
+        monkeypatch,
+    ):
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING,
+            max_files_to_sample=2,
+        )
+
+        def mock_func(*args, **kwargs):
+            class MockedValue:
+                nbytes = 0
+
+                def __len__(self):
+                    return 0
+
+            return MockedValue()
+
+        monkeypatch.setattr(ds, "download_delta_manifest_entry", mock_func)
+
+        result = estimate_resources_required_to_process_delta(
+            delta=parquet_delta_with_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=ds,
+            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+
+        assert parquet_delta_with_manifest.manifest is not None
+        assert result.memory_bytes == 0
+        assert (
+            result.statistics.on_disk_size_bytes
+            == parquet_delta_with_manifest.meta.content_length
+        )
+
     def test_delta_manifest_utsv_when_file_sampling(
         self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
     ):

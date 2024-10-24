@@ -188,7 +188,7 @@ def _estimate_resources_required_to_process_delta_using_file_sampling(
         sampled_on_disk_size += delta.manifest.entries[entry_index].meta.content_length
         sampled_num_rows += len(tbl)
 
-    if not sampled_on_disk_size:
+    if not sampled_on_disk_size or not sampled_in_memory_size:
         return EstimatedResources.of(
             memory_bytes=0,
             statistics=Statistics.of(
