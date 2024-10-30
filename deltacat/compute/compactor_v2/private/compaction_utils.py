@@ -584,6 +584,7 @@ def _process_merge_results(
             f"Duplicate record count ({duplicate_hash_bucket_mat_results}) is as large "
             f"as or greater than params.num_rounds, which is {params.num_rounds}"
         )
+        # ensure start index is the first file index if task index is same
         hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
             hb_id_to_entry_indices_range.get(str(mat_result.task_index), [file_index])[
                 0
