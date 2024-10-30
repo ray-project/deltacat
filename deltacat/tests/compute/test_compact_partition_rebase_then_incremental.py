@@ -355,6 +355,16 @@ def test_compact_partition_rebase_then_incremental(
     compacted_delta_locator_incremental: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )
+    # assert if RCF covers all files
+    if compactor_version != CompactorVersion.V1.value:
+        previous_end = None
+        for start, end in round_completion_info.hb_index_to_entry_range.values():
+            assert (previous_end is None and start == 0) or start == previous_end
+            previous_end = end
+        assert (
+            previous_end == round_completion_info.compacted_pyarrow_write_result.files
+        )
+
     audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
         "s3://", ""
     ).split("/", 1)

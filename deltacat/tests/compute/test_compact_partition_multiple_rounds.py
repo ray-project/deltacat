@@ -309,6 +309,16 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
             **compaction_audit_obj
         )
 
+        # assert if RCF covers all files
+        # multiple rounds feature is only supported in V2 compactor
+        previous_end = None
+        for start, end in round_completion_info.hb_index_to_entry_range.values():
+            assert (previous_end is None and start == 0) or start == previous_end
+            previous_end = end
+        assert (
+            previous_end == round_completion_info.compacted_pyarrow_write_result.files
+        )
+
         # Assert not in-place compacted
         assert (
             execute_compaction_result_spy.call_args.args[-1] is False
