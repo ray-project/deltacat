@@ -585,7 +585,9 @@ def _process_merge_results(
             f"as or greater than params.num_rounds, which is {params.num_rounds}"
         )
         hb_id_to_entry_indices_range[str(mat_result.task_index)] = (
-            file_index,
+            hb_id_to_entry_indices_range.get(str(mat_result.task_index), [file_index])[
+                0
+            ],
             file_index + mat_result.pyarrow_write_result.files,
         )
 

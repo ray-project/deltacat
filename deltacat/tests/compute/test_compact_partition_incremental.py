@@ -328,6 +328,16 @@ def test_compact_partition_incremental(
         **compaction_audit_obj
     )
 
+    # assert if RCF covers all files
+    if compactor_version != CompactorVersion.V1.value:
+        previous_end = None
+        for start, end in round_completion_info.hb_index_to_entry_range.values():
+            assert (previous_end is None and start == 0) or start == previous_end
+            previous_end = end
+        assert (
+            previous_end == round_completion_info.compacted_pyarrow_write_result.files
+        )
+
     tables = ds.download_delta(
         compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
     )

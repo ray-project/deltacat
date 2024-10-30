@@ -299,6 +299,17 @@ def test_compact_partition_rebase_same_source_and_destination(
             round_completion_info.compaction_audit_url
         )
 
+        # assert if RCF covers all files
+        if compactor_version != CompactorVersion.V1.value:
+            previous_end = None
+            for start, end in round_completion_info.hb_index_to_entry_range.values():
+                assert (previous_end is None and start == 0) or start == previous_end
+                previous_end = end
+            assert (
+                previous_end
+                == round_completion_info.compacted_pyarrow_write_result.files
+            )
+
         compaction_audit_obj: Dict[str, Any] = read_s3_contents(
             s3_resource, audit_bucket, audit_key
         )
