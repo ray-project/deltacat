@@ -19,7 +19,6 @@ from deltacat.storage import (
     PartitionScheme,
     PartitionValues,
     Schema,
-    SchemaConsistencyType,
     SortScheme,
     Stream,
     StreamLocator,
@@ -270,9 +269,7 @@ def create_table_version(
     table_name: str,
     table_version: Optional[str] = None,
     schema: Optional[Schema] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
     partition_scheme: Optional[PartitionScheme] = None,
-    primary_key_column_names: Optional[List[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -284,28 +281,9 @@ def create_table_version(
 ) -> Stream:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
-    stream. Unless an individual catalog implementation requires otherwise,
-    table versions may be schemaless and unpartitioned, or partitioned by a list
-    of partition key names and types.
-
-    Individual catalog implementations can have different rules governing
-    partition/primary/sort-key support, name case-sensitivity, defaults, and
-    support for referencing keys not defined in the schema. Please refer to the
-    documentation of your catalog's implementation for further information.
-
-    Some catalogs also support using Schemas to inform the data consistency
-    checks run for each field. If supported, the schema can be used to enforce
-    the following column-level data consistency policies at table load time:
-
-    None: No consistency checks are run. May be mixed with the below two
-    policies by specifying column names to pass through together with
-    column names to coerce/validate.
-
-    Coerce: Coerce fields to fit the schema whenever possible. An explicit
-    subset of column names to coerce may optionally be specified.
-
-    Validate: Raise an error for any fields that don't fit the schema. An
-    explicit subset of column names to validate may optionally be specified.
+    stream. Table versions may be schemaless and unpartitioned to improve write
+    performance, or have their writes governed by a schema and partition scheme
+    to improve data consistency and read performance.
 
     Returns the stream for the created table version.
     Raises an error if the given namespace does not exist.
@@ -337,7 +315,6 @@ def update_table_version(
     table_version: str,
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Schema] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
     description: Optional[str] = None,
     properties: Optional[TableVersionProperties] = None,
     *args,

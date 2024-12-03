@@ -15,7 +15,8 @@ from deltacat.compute.compactor import (
     DeltaFileEnvelope,
     DeltaFileLocator,
 )
-from deltacat.storage.model.sort_key import SortKey, SortOrder
+from deltacat.storage.model.sort_key import SortKey
+from deltacat.storage import SortOrder
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.utils import system_columns as sc
 from deltacat.utils.ray_utils.runtime import (
@@ -160,11 +161,16 @@ def _timed_dedupe(
                         ),
                         SortKey.of(
                             [sc._ORDERED_FILE_IDX_COLUMN_NAME],
-                            SortOrder.ASCENDING
+                            SortOrder.ASCENDING,
                         ),
                     ]
                 )
-                table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
+                table = table.take(
+                    pc.sort_indices(
+                        table,
+                        sort_keys=[pa_key for key in sort_keys for pa_key in key.arrow],
+                    )
+                )
 
             # drop duplicates by primary key hash column
             logger.info(

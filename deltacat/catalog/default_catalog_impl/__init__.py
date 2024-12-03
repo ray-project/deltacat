@@ -1,16 +1,15 @@
 from typing import Any, Dict, List, Optional, Set, Union, Tuple
-import pyarrow as pa
 import logging
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.sort_key import SortKey
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace
+from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.types import (
     DistributedDataset,
     LifecycleState,
     LocalDataset,
     LocalTable,
-    SchemaConsistencyType,
 )
 from deltacat.storage.model.partition import (
     Partition,
@@ -148,7 +147,6 @@ def alter_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema_updates: Optional[Dict[str, Any]] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[List[SortKey]] = None,
     description: Optional[str] = None,
     properties: Optional[Dict[str, str]] = None,
@@ -163,10 +161,8 @@ def create_table(
     table: str,
     namespace: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema: Optional[Union[pa.Schema, str, bytes]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
+    schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
-    primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[List[SortKey]] = None,
     description: Optional[str] = None,
     properties: Optional[Dict[str, str]] = None,

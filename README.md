@@ -1,7 +1,7 @@
 # DeltaCAT
 
-DeltaCAT provides a portable Pythonic Data Catalog API powered by Ray. It provides distributed compute implementations
-allowing you to efficiently read, write, and manage your existing data catalogs reliably at scale using Ray. It lets you
+DeltaCAT provides a portable Pythonic Data Catalog powered by Ray. It provides distributed compute implementations
+allowing you to efficiently read, write, and manage a data catalog reliably at scale using Ray. It lets you
 define and manage fast, scalable, ACID-compliant data catalogs and has been used to successfully manage exabyte-scale
 enterprise data lakes.
 
@@ -19,7 +19,7 @@ pip install deltacat[iceberg]
 #### AWS Glue 
 ##### Initializing a Catalog
 We can initialize a DeltaCAT catalog against either a new or existing Iceberg catalog. If you initialize DeltaCAT
-against an existing catalog, you can immediately start reading and writing to any tables it contains. If you create
+against an existing catalog, you can immediately start reading and writing any tables it contains. If you create
 a new catalog, you can immediately start adding new tables to it and managing them.
 ```python
 import deltacat as dc

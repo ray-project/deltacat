@@ -3,14 +3,20 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.schema import (
+    FieldLocator,
+    Schema,
+)
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.transform import Transform
-from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.types import (
+    CommitState,
+    StreamFormat,
+)
 from deltacat.types.media import ContentType
 
 
@@ -171,7 +177,7 @@ class Partition(dict):
     def storage_type(self) -> Optional[str]:
         partition_locator = self.locator
         if partition_locator:
-            return partition_locator.storage_type
+            return partition_locator.stream_format
         return None
 
     @property
@@ -233,7 +239,7 @@ class PartitionLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[StreamFormat],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
         partition_scheme_id: Optional[str],
@@ -243,7 +249,7 @@ class PartitionLocator(Locator, dict):
             table_name,
             table_version,
             stream_id,
-            storage_type,
+            stream_format,
         )
         return PartitionLocator.of(
             stream_locator,
@@ -316,10 +322,10 @@ class PartitionLocator(Locator, dict):
         return None
 
     @property
-    def storage_type(self) -> Optional[str]:
+    def stream_format(self) -> Optional[str]:
         stream_locator = self.stream_locator
         if stream_locator:
-            return stream_locator.storage_type
+            return stream_locator.format
         return None
 
     @property
@@ -359,39 +365,33 @@ class PartitionLocator(Locator, dict):
 class PartitionKey(dict):
     @staticmethod
     def of(
-        key_names: Optional[List[str]],
-        key_types: Optional[List[str]],
+        key: List[FieldLocator],
         name: Optional[str] = None,
-        id: Optional[str] = None,
+        field_id: Optional[int] = None,
         transform: Optional[Transform] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionKey:
         return PartitionKey(
             {
-                "keyNames": key_names,
-                "keyTypes": key_types,
+                "key": key,
                 "name": name,
-                "id": id,
+                "fieldId": field_id,
                 "transform": transform,
                 "nativeObject": native_object,
             }
         )
 
     @property
-    def key_names(self) -> Optional[List[str]]:
-        return self.get("keyNames")
-
-    @property
-    def key_types(self) -> Optional[List[str]]:
-        return self.get("keyTypes")
+    def key(self) -> List[FieldLocator]:
+        return self.get("key")
 
     @property
     def name(self) -> Optional[str]:
         return self.get("name")
 
     @property
-    def id(self) -> Optional[str]:
-        return self.get("id")
+    def id(self) -> Optional[int]:
+        return self.get("fieldId")
 
     @property
     def transform(self) -> Optional[Transform]:
@@ -407,14 +407,14 @@ class PartitionScheme(dict):
     def of(
         keys: Optional[List[PartitionKey]],
         name: Optional[str] = None,
-        id: Optional[str] = None,
+        scheme_id: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionScheme:
         return PartitionScheme(
             {
                 "keys": keys,
                 "name": name,
-                "id": id,
+                "id": scheme_id,
                 "nativeObject": native_object,
             }
         )

@@ -505,7 +505,6 @@ class TestPrepareDeletes:
         )
 
         source_namespace, source_table_name, source_table_version = create_src_table(
-            set(self.TEST_PRIMARY_KEYS),
             None,
             None,
             local_deltacat_storage_kwargs,
@@ -550,7 +549,6 @@ class TestPrepareDeletes:
             destination_table_name,
             destination_table_version,
         ) = create_destination_table(
-            set(self.TEST_PRIMARY_KEYS),
             None,
             None,
             local_deltacat_storage_kwargs,

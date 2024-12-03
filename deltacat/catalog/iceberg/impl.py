@@ -20,7 +20,6 @@ from deltacat.storage.model.types import (
     LifecycleState,
     LocalDataset,
     LocalTable,
-    SchemaConsistencyType,
 )
 from deltacat.storage.iceberg import impl as IcebergStorage
 from deltacat.types.media import ContentType
@@ -129,7 +128,6 @@ def create_table(
     namespace: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Schema] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
     partition_scheme: Optional[PartitionScheme] = None,
     primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[SortScheme] = None,

@@ -1,46 +1,24 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from enum import Enum
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Tuple
 
+from pyarrow.compute import SortOptions
+
+from deltacat.storage.model.types import (
+    SortOrder,
+    NullOrder,
+)
+from deltacat.storage.model.schema import FieldLocator
 from deltacat.storage.model.transform import Transform
-
-
-class SortOrder(str, Enum):
-    ASCENDING = "ascending"
-    DESCENDING = "descending"
-
-    @classmethod
-    def _missing_(cls, value: str):
-        # pyiceberg.table.sorting.SortDirection mappings
-        if value.lower() == "asc":
-            return SortOrder.ASCENDING
-        elif value.lower() == "desc":
-            return SortOrder.DESCENDING
-        return None
-
-
-class NullOrder(str, Enum):
-    FIRST = "first"
-    LAST = "last"
-
-    @classmethod
-    def _missing_(cls, value: str):
-        # pyiceberg.table.sorting.NullOrder mappings
-        if value.lower() == "nulls-first":
-            return NullOrder.FIRST
-        elif value.lower() == "nulls-last":
-            return NullOrder.LAST
-        return None
 
 
 class SortKey(tuple):
     @staticmethod
     def of(
-        key_names: Optional[List[str]],
-        sort_order: Optional[SortOrder] = SortOrder.ASCENDING,
-        null_order: Optional[NullOrder] = NullOrder.LAST,
+        key: Optional[List[FieldLocator]],
+        sort_order: SortOrder = SortOrder.ASCENDING,
+        null_order: NullOrder = NullOrder.AT_END,
         transform: Optional[Transform] = None,
         native_object: Optional[Any] = None,
     ) -> SortKey:
@@ -51,7 +29,7 @@ class SortKey(tuple):
         """
         return SortKey(
             (
-                key_names,
+                key,
                 sort_order.value,
                 null_order,
                 transform,
@@ -60,24 +38,33 @@ class SortKey(tuple):
         )
 
     @property
-    def key_names(self) -> Optional[List[str]]:
+    def key(self) -> Optional[List[FieldLocator]]:
         return self[0]
 
     @property
-    def sort_order(self) -> Optional[SortOrder]:
+    def sort_order(self) -> SortOrder:
         return SortOrder(self[1])
 
     @property
-    def null_order(self) -> Optional[NullOrder]:
-        return SortOrder(self[2]) if len(SortOrder) >= 3 else NullOrder.LAST
+    def null_order(self) -> NullOrder:
+        return NullOrder(self[2])
 
     @property
     def transform(self) -> Optional[Transform]:
-        return SortOrder(self[3]) if len(SortOrder) >= 4 else None
+        return self[3] if len(self) >= 4 else None
+
+    @property
+    def arrow(self) -> List[Tuple[str, str]]:
+        # TODO(pdames): Convert unsupported field locators to arrow field names,
+        #   and transforms/multi-key-sorts to pyarrow compute expressions. Add
+        #   null order via SortOptions when supported per field by Arrow.
+        return (
+            [(field_locator, self[1]) for field_locator in self[0]] if self[0] else []
+        )
 
     @property
     def native_object(self) -> Optional[Any]:
-        return SortOrder(self[4]) if len(SortOrder) >= 5 else None
+        return self[4] if len(self) >= 5 else None
 
 
 class SortScheme(dict):
@@ -85,14 +72,14 @@ class SortScheme(dict):
     def of(
         keys: Optional[List[SortKey]],
         name: Optional[str] = None,
-        id: Optional[str] = None,
+        scheme_id: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> SortScheme:
         return SortScheme(
             {
                 "keys": keys,
                 "name": name,
-                "id": id,
+                "id": scheme_id,
                 "nativeObject": native_object,
             }
         )
@@ -108,6 +95,20 @@ class SortScheme(dict):
     @property
     def id(self) -> Optional[str]:
         return self.get("id")
+
+    @property
+    def arrow(self) -> SortOptions:
+        # TODO(pdames): Remove homogenous null ordering when supported by Arrow.
+        if self.keys:
+            if len(set([key.null_order for key in self.keys])) == 1:
+                return SortOptions(
+                    sort_keys=[pa_key for k in self.keys for pa_key in k.arrow],
+                    null_placement=self.keys[0].null_order.value,
+                )
+            else:
+                err_msg = "All arrow sort keys must use the same null order."
+                raise ValueError(err_msg)
+        return SortOptions()
 
     @property
     def native_object(self) -> Optional[Any]:

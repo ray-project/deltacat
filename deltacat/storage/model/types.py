@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 from typing import List, Union
 
@@ -18,10 +20,12 @@ LocalDataset = List[LocalTable]
 DistributedDataset = Union[Dataset, DaftDataFrame]
 
 
-class CatalogType(str, Enum):
+class StreamFormat(str, Enum):
+    DELTACAT = "deltacat"
     ICEBERG = "iceberg"
     HUDI = "hudi"
     DELTA_LAKE = "delta_lake"
+    SQLITE3 = "SQLITE3"  # used by tests
 
 
 class DeltaType(str, Enum):
@@ -48,19 +52,43 @@ class SchemaConsistencyType(str, Enum):
     """
     DeltaCAT table schemas can be used to inform the data consistency checks
     run for each field. When present, the schema can be used to enforce the
-    following column-level data consistency policies at table load time:
+    following field-level data consistency policies at table load time:
 
-    NONE: No consistency checks are run. May be mixed with the below two
-    policies by specifying column names to pass through together with
-    column names to coerce/validate.
+    NONE: No consistency checks are run.
 
-    COERCE: Coerce fields to fit the schema whenever possible. An explicit
-    subset of column names to coerce may optionally be specified.
+    COERCE: Coerce fields to fit the schema whenever possible.
 
-    VALIDATE: Raise an error for any fields that don't fit the schema. An
-    explicit subset of column names to validate may optionally be specified.
+    VALIDATE: Raise an error for any fields that don't fit the schema.
     """
 
     NONE = "none"
     COERCE = "coerce"
     VALIDATE = "validate"
+
+
+class SortOrder(str, Enum):
+    ASCENDING = "ascending"
+    DESCENDING = "descending"
+
+    @classmethod
+    def _missing_(cls, value: str):
+        # pyiceberg.table.sorting.SortDirection mappings
+        if value.lower() == "asc":
+            return SortOrder.ASCENDING
+        elif value.lower() == "desc":
+            return SortOrder.DESCENDING
+        return None
+
+
+class NullOrder(str, Enum):
+    AT_START = "at_start"
+    AT_END = "at_end"
+
+    @classmethod
+    def _missing_(cls, value: str):
+        # pyiceberg.table.sorting.NullOrder mappings
+        if value.lower() == "nulls-first":
+            return NullOrder.AT_START
+        elif value.lower() == "nulls-last":
+            return NullOrder.AT_END
+        return None

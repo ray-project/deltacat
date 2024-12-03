@@ -11,6 +11,7 @@ from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.types.media import ContentType
 from deltacat.storage.model.sort_key import SortScheme
+from deltacat.storage.model.types import LifecycleState
 
 TableVersionProperties = Dict[str, Any]
 
@@ -19,24 +20,24 @@ class TableVersion(dict):
     @staticmethod
     def of(
         locator: Optional[TableVersionLocator],
-        schema: Optional[Schema],
+        schema: Optional[Schema],  # TODO: change to collection of schemas
         partition_scheme: Optional[partition.PartitionScheme] = None,
-        primary_key_columns: Optional[List[str]] = None,
         description: Optional[str] = None,
         properties: Optional[TableVersionProperties] = None,
         content_types: Optional[List[ContentType]] = None,
-        sort_keys: Optional[SortScheme] = None,
+        sort_scheme: Optional[SortScheme] = None,
+        watermark: Optional[int] = None,
+        lifecycle_state: Optional[LifecycleState] = None,
         native_object: Optional[Any] = None,
     ) -> TableVersion:
         table_version = TableVersion()
         table_version.locator = locator
         table_version.schema = schema
         table_version.partition_scheme = partition_scheme
-        table_version.primary_keys = primary_key_columns
         table_version.description = description
         table_version.properties = properties
         table_version.content_types = content_types
-        table_version.sort_keys = sort_keys
+        table_version.sort_keys = sort_scheme
         table_version.native_object = native_object
         return table_version
 
@@ -76,14 +77,6 @@ class TableVersion(dict):
         self, partition_scheme: Optional[partition.PartitionScheme]
     ) -> None:
         self["partitionScheme"] = partition_scheme
-
-    @property
-    def primary_keys(self) -> Optional[List[str]]:
-        return self.get("primaryKeys")
-
-    @primary_keys.setter
-    def primary_keys(self, primary_keys: Optional[List[str]]) -> None:
-        self["primaryKeys"] = primary_keys
 
     @property
     def description(self) -> Optional[str]:

@@ -450,7 +450,9 @@ def _apply_upserts(
         # on non event based sort key does not produce consistent
         # compaction results. E.g., compaction(delta1, delta2, delta3)
         # will not be equal to compaction(compaction(delta1, delta2), delta3).
-        table = table.sort_by(input.sort_keys)
+        table = table.sort_by(
+            [pa_key for key in input.sort_keys for pa_key in key.arrow]
+        )
     hb_table_record_count = len(table) + (len(prev_table) if prev_table else 0)
     table, merge_time = timed_invocation(
         func=_merge_tables,

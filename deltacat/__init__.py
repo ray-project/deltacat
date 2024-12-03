@@ -32,12 +32,12 @@ from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage import (
     DistributedDataset,
+    Field,
     LifecycleState,
     ListResult,
     LocalDataset,
     LocalTable,
     Namespace,
-    NullOrder,
     PartitionKey,
     PartitionScheme,
     Schema,
@@ -45,6 +45,7 @@ from deltacat.storage import (
     SortKey,
     SortOrder,
     SortScheme,
+    NullOrder
 )
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode
@@ -81,6 +82,7 @@ __all__ = [
     "ContentType",
     "ContentEncoding",
     "DistributedDataset",
+    "Field",
     "IcebergCatalog",
     "LifecycleState",
     "ListResult",

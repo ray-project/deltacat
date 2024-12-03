@@ -24,21 +24,19 @@ class EntryType(str, Enum):
     entry will be targeted for update.
 
     POSITIONAL_DELETE: The entry contains pointers to records in other entries
-    to delete. Deletes will be applied logically when serving merge-on-read
-    query results, or applied physically to entry files during copy-on-write
-    table compaction.
+    to delete. Deleted records will be filtered from query results at runtime.
 
     EQUALITY_DELETE: The entry contains a subset of field values from the
     table records to find and delete. The full record of any matching data
     entries in Deltas with a lower stream position than this entry's Delta
     will be deleted. The fields used for record discovery are controlled by
     this entry's parameters. If no entry parameters are specified, then the
-    fields used for record discovery are linked to the parent table's primary
+    fields used for record discovery are linked to the parent table's merge
     keys. The entry may contain additional fields not used for delete record
-    discovery which will be ignored. Deletes will be applied logically when
-    serving merge-on-read query results, or applied physically to entry files
-    during copy-on-write table compaction.
+    discovery which will be ignored. Deleted records will be filtered from
+    query results at runtime.
     """
+
     DATA = "data"
     POSITIONAL_DELETE = "positional_delete"
     EQUALITY_DELETE = "equality_delete"
@@ -54,7 +52,7 @@ class EntryType(str, Enum):
 
 class EntryParams(dict):
     """
-    Parameters that control interpretation manifest entry interpretation.
+    Parameters that control manifest entry interpretation.
 
     For EQUALITY_DELETE manifest entry types, parameters include equality
     field identifiers.
@@ -62,7 +60,7 @@ class EntryParams(dict):
 
     @staticmethod
     def of(
-            equality_column_names: Optional[List[str]] = None,
+        equality_column_names: Optional[List[str]] = None,
     ) -> EntryParams:
         params = EntryParams()
         if equality_column_names is not None:
@@ -77,8 +75,9 @@ class EntryParams(dict):
 class Manifest(dict):
     """
     A DeltaCAT manifest contains metadata common to multiple manifest formats
-    like Amazon Redshift, Apache Iceberg, etc.
+    like Amazon Redshift and Apache Iceberg to simplify dataset import/export.
     """
+
     @staticmethod
     def _build_manifest(
         meta: Optional[ManifestMeta],
@@ -208,15 +207,15 @@ class Manifest(dict):
 class ManifestMeta(dict):
     @staticmethod
     def of(
-            record_count: Optional[int],
-            content_length: Optional[int],
-            content_type: Optional[str],
-            content_encoding: Optional[str],
-            source_content_length: Optional[int] = None,
-            credentials: Optional[Dict[str, str]] = None,
-            content_type_parameters: Optional[List[Dict[str, str]]] = None,
-            entry_type: Optional[EntryType] = None,
-            entry_params: Optional[EntryParams] = None,
+        record_count: Optional[int],
+        content_length: Optional[int],
+        content_type: Optional[str],
+        content_encoding: Optional[str],
+        source_content_length: Optional[int] = None,
+        credentials: Optional[Dict[str, str]] = None,
+        content_type_parameters: Optional[List[Dict[str, str]]] = None,
+        entry_type: Optional[EntryType] = None,
+        entry_params: Optional[EntryParams] = None,
     ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
@@ -280,7 +279,10 @@ class ManifestMeta(dict):
 
     @property
     def entry_params(self) -> Optional[EntryParams]:
-        return self.get("entry_params")
+        val: Dict[str, Any] = self.get("entry_params")
+        if val is not None and not isinstance(val, EntryParams):
+            self["entry_params"] = val = EntryParams(val)
+        return val
 
 
 class ManifestEntry(dict):

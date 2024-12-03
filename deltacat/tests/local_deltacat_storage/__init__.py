@@ -30,7 +30,6 @@ from deltacat.storage import (
     Partition,
     PartitionScheme,
     Schema,
-    SchemaConsistencyType,
     Stream,
     StreamLocator,
     Table,
@@ -47,6 +46,7 @@ from deltacat.storage import (
     EntryParams,
     PartitionValues,
     TransformName,
+    StreamFormat,
 )
 from deltacat.storage.model.manifest import Manifest, ManifestMeta, EntryType
 from deltacat.types.media import (
@@ -66,7 +66,7 @@ SQLITE_CUR_ARG = "sqlite3_cur"
 SQLITE_CON_ARG = "sqlite3_con"
 DB_FILE_PATH_ARG = "db_file_path"
 
-STORAGE_TYPE = "SQLITE3"
+STREAM_FORMAT = StreamFormat.SQLITE3
 STREAM_ID_PROPERTY = "stream_id"
 CREATE_NAMESPACES_TABLE = (
     "CREATE TABLE IF NOT EXISTS namespaces(locator, value, PRIMARY KEY (locator))"
@@ -530,9 +530,7 @@ def create_table_version(
     table_name: str,
     table_version: Optional[str] = None,
     schema: Optional[Union[pa.Schema, Any]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
     partition_scheme: Optional[PartitionScheme] = None,
-    primary_key_column_names: Optional[List[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -546,19 +544,23 @@ def create_table_version(
 
     if partition_scheme is not None:
         assert (
-                partition_scheme.keys is not None
+            partition_scheme.keys is not None
         ), "Partition keys must be specified with partition scheme"
         for key in partition_scheme.keys:
-            assert key.transform is None or key.transform.name == TransformName.IDENTITY, (
+            assert (
+                key.transform is None or key.transform.name == TransformName.IDENTITY
+            ), (
                 "Local DeltaCAT storage does not support creating table versions "
                 "with non identity transform partition spec"
             )
     if sort_keys is not None:
         assert (
-                sort_keys.keys is not None
+            sort_keys.keys is not None
         ), "Sort keys must be specified with sort scheme"
         for key in sort_keys.keys:
-            assert key.transform is None or key.transform.name == TransformName.IDENTITY, (
+            assert (
+                key.transform is None or key.transform.name == TransformName.IDENTITY
+            ), (
                 "Local DeltaCAT storage does not support creating table versions "
                 "with non identity transform sort spec"
             )
@@ -591,16 +593,15 @@ def create_table_version(
     properties = {**table_version_properties, STREAM_ID_PROPERTY: stream_id}
     table_version_obj = TableVersion.of(
         table_version_locator,
-        schema=Schema.of(schema),
+        schema=Schema.of(schema) if schema else None,
         partition_scheme=partition_scheme,
-        primary_key_columns=primary_key_column_names,
         description=table_version_description,
         properties=properties,
-        sort_keys=sort_keys,
+        sort_scheme=sort_keys,
         content_types=supported_content_types,
     )
     stream_locator = StreamLocator.of(
-        table_version_obj.locator, stream_id=stream_id, storage_type=STORAGE_TYPE
+        table_version_obj.locator, stream_id=stream_id, stream_format=STREAM_FORMAT
     )
     result_stream = Stream.of(
         stream_locator, partition_scheme=partition_scheme, state=CommitState.COMMITTED
@@ -659,7 +660,6 @@ def update_table_version(
     table_version: str,
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Union[pa.Schema, Any]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
     description: Optional[str] = None,
     properties: Optional[TableVersionProperties] = None,
     *args,
@@ -693,12 +693,11 @@ def update_table_version(
     tv_properties = {**properties, **current_props}
     table_version_obj = TableVersion.of(
         table_version_locator,
-        schema=Schema.of(schema),
+        schema=Schema.of(schema) if schema else None,
         partition_scheme=current_table_version_obj.partition_scheme,
-        primary_key_columns=current_table_version_obj.primary_keys,
         description=description,
         properties=tv_properties,
-        sort_keys=current_table_version_obj.sort_keys,
+        sort_scheme=current_table_version_obj.sort_keys,
         content_types=current_table_version_obj.content_types,
     )
 
@@ -730,7 +729,7 @@ def stage_stream(
 
     stream_id = uuid.uuid4().__str__()
     new_stream_locator = StreamLocator.of(
-        existing_table_version.locator, stream_id, STORAGE_TYPE
+        existing_table_version.locator, stream_id, STREAM_FORMAT
     )
     new_stream = Stream.of(
         new_stream_locator,
@@ -1005,7 +1004,9 @@ def stage_delta(
     stream_position = current_time_ms()
     delta_locator = DeltaLocator.of(partition.locator, stream_position=stream_position)
 
-    entry_type = EntryType.EQUALITY_DELETE if delta_type is DeltaType.DELETE else EntryType.DATA
+    entry_type = (
+        EntryType.EQUALITY_DELETE if delta_type is DeltaType.DELETE else EntryType.DATA
+    )
     meta = ManifestMeta.of(
         len(data),
         len(serialized_data),
@@ -1199,7 +1200,7 @@ def get_stream(
 
     cur, con = _get_sqlite3_cursor_con(kwargs)
     stream_locator = StreamLocator.of(
-        obj.locator, stream_id=stream_id, storage_type=STORAGE_TYPE
+        obj.locator, stream_id=stream_id, stream_format=STREAM_FORMAT
     )
     res = cur.execute(
         "SELECT * FROM streams WHERE locator = ?", (stream_locator.canonical_string(),)

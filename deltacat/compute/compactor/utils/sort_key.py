@@ -24,7 +24,7 @@ def validate_sort_keys(
     total_sort_keys_bit_width = 0
     if sort_keys:
         sort_key_names = list(
-            chain.from_iterable([key.key_names for key in sort_keys])
+            chain.from_iterable([key.key for key in sort_keys])
         )
         assert all(
             [key.transform is None or

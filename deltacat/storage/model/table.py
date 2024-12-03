@@ -5,11 +5,19 @@ from typing import Any, Dict, Optional
 
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.decorators import metafile
 
 TableProperties = Dict[str, Any]
 
 
+@metafile
 class Table(dict):
+    """
+    Tables store properties common to every table version including the
+    table's name, a high-level description of all table versions, and
+    properties shared by all table versions.
+    """
+
     @staticmethod
     def of(
         locator: Optional[TableLocator],

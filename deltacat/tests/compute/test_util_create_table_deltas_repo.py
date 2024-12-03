@@ -113,7 +113,6 @@ def create_incremental_deltas_on_source_table(
 
 
 def create_src_w_deltas_destination_plus_destination(
-    primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     input_deltas: pa.Table,
@@ -125,7 +124,7 @@ def create_src_w_deltas_destination_plus_destination(
     import deltacat.tests.local_deltacat_storage as ds
 
     source_namespace, source_table_name, source_table_version = create_src_table(
-        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+        sort_keys, partition_keys, ds_mock_kwargs
     )
 
     source_table_stream: Stream = ds.get_stream(
@@ -159,7 +158,7 @@ def create_src_w_deltas_destination_plus_destination(
             destination_table_name,
             destination_table_version,
         ) = create_destination_table(
-            primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+            sort_keys, partition_keys, ds_mock_kwargs
         )
     else:
         # not creating a table as in-place
@@ -184,7 +183,6 @@ def create_src_w_deltas_destination_plus_destination(
 
 
 def create_src_w_deltas_destination_rebase_w_deltas_strategy(
-    primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     input_deltas: pa.Table,
@@ -198,7 +196,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
 
     last_stream_position = current_time_ms()
     source_namespace, source_table_name, source_table_version = create_src_table(
-        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+        sort_keys, partition_keys, ds_mock_kwargs
     )
 
     source_table_stream: Stream = ds.get_stream(
@@ -231,14 +229,14 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         destination_table_name,
         destination_table_version,
     ) = create_destination_table(
-        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+        sort_keys, partition_keys, ds_mock_kwargs
     )
     # create the rebase table
     (
         rebase_table_namespace,
         rebase_table_name,
         rebase_table_version,
-    ) = create_rebase_table(primary_keys, sort_keys, partition_keys, ds_mock_kwargs)
+    ) = create_rebase_table(sort_keys, partition_keys, ds_mock_kwargs)
     rebasing_table_stream: Stream = ds.get_stream(
         namespace=rebase_table_namespace,
         table_name=rebase_table_name,
@@ -280,7 +278,6 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
 
 
 def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
-    primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     input_deltas: List[pa.Table],
@@ -291,7 +288,7 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
     from deltacat.storage import Partition, Stream
 
     source_namespace, source_table_name, source_table_version = create_src_table(
-        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+        sort_keys, partition_keys, ds_mock_kwargs
     )
 
     source_table_stream: Stream = ds.get_stream(
@@ -337,14 +334,14 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
         destination_table_name,
         destination_table_version,
     ) = create_destination_table(
-        primary_keys, sort_keys, partition_keys, ds_mock_kwargs
+        sort_keys, partition_keys, ds_mock_kwargs
     )
     # create the rebase table
     (
         rebase_table_namespace,
         rebase_table_name,
         rebase_table_version,
-    ) = create_rebase_table(primary_keys, sort_keys, partition_keys, ds_mock_kwargs)
+    ) = create_rebase_table(sort_keys, partition_keys, ds_mock_kwargs)
     rebasing_table_stream: Stream = ds.get_stream(
         namespace=rebase_table_namespace,
         table_name=rebase_table_name,

@@ -41,8 +41,8 @@ REBASE_TEST_CASES = {
     "1-rebase-sanity": RebaseCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -87,8 +87,8 @@ REBASE_TEST_CASES = {
     "2-rebase-with-null-pk": RebaseCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -133,7 +133,7 @@ REBASE_TEST_CASES = {
     "3-rebase-with-null-two-pk": RebaseCompactionTestCaseParams(
         primary_keys={"pk_col_1", "pk_col_2"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key=["sk_col_1"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -307,7 +307,7 @@ REBASE_TEST_CASES = {
     "7-rebase-drop-duplicates-false": RebaseCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
+            SortKey.of(key=["sk_col_1"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],

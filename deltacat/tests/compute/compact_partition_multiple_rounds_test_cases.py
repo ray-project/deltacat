@@ -83,8 +83,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "1-multiple-rounds-sanity": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -177,8 +177,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "2-multiple-rounds-unique-values": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -270,8 +270,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "3-num-rounds-greater-than-deltas-count": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -364,8 +364,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "4-multiple-rounds-hb-count-equals-1": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -458,8 +458,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "5-multiple-rounds-only-supports-rebase": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -553,8 +553,8 @@ MULTIPLE_ROUNDS_TEST_CASES = {
     "6-multiple-rounds-test-pgm": MultipleRoundsTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -897,7 +897,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(["pk_col_1", "col_1"]),
             ),
         ],
         rebase_expected_compact_partition_result=pa.Table.from_arrays(

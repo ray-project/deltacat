@@ -95,7 +95,7 @@ def test_create_table(
         get_catalog("iceberg")
         assert False
     except ValueError as e:
-        logger.debug("Caught Expected Exception: ", e)
+        logger.debug(f"Caught Expected Exception: {e}")
         assert True
 
     catalog_name = "test"

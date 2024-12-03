@@ -13,7 +13,6 @@ from deltacat.storage.model.types import (
     LifecycleState,
     LocalDataset,
     LocalTable,
-    SchemaConsistencyType,
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
@@ -75,7 +74,6 @@ def alter_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema_updates: Optional[Dict[str, Any]] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
@@ -90,7 +88,6 @@ def alter_table(
         lifecycle_state,
         schema_updates,
         partition_updates,
-        primary_keys,
         sort_keys,
         description,
         properties,
@@ -106,9 +103,7 @@ def create_table(
     catalog: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Schema] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
     partition_scheme: Optional[PartitionScheme] = None,
-    primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
@@ -128,7 +123,6 @@ def create_table(
         schema,
         schema_consistency,
         partition_scheme,
-        primary_keys,
         sort_keys,
         description,
         table_properties,

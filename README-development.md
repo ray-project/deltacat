@@ -19,7 +19,7 @@ make lint
 
 ### Makefile Targets
 We use `make` to automate common development tasks. If you feel that any recurring development routine is
-missing from the current set of Makefile targets, please create an issue to propose a new one!
+missing from the current set of Makefile targets, please propose a new one!
 
 #### venv
 ```shell
@@ -175,7 +175,7 @@ Simply run `make deploy-s3` to upload your local workspace to a wheel at
 If the deploy succeeds, you should see some text printed telling you how to install this wheel from a signed S3 URL:
 ```
 to install run:
-pip install deltacat @ {signed-s3-url}
+pip install deltacat @ `s3://deltacat-packages-{stage}/deltacat-{version}-{timestamp}-{python}-{abi}-{platform}.whl`
 ```
 The variables in the above S3 URL will be replaced as follows:
 
@@ -202,7 +202,7 @@ This uploads a wheel to
 `s3://deltacat-packages-dev/deltacat-{version}-{timestamp}-{python}-{abi}-{platform}.whl`.
 
 
-## Coding Quirks and Conventions
+## Coding Quirks
 ### Cloudpickle
 Some DeltaCAT compute functions interact with Cloudpickle differently than the typical Ray application. This allows
 us to improve compute stability and efficiency at the cost of managing our own distributed object garbage collection

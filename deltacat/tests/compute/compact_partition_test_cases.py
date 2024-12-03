@@ -194,8 +194,8 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -232,8 +232,8 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     "4-incremental-duplicate-pk": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
-            SortKey.of(key_names=["sk_col_1"]),
-            SortKey.of(key_names=["sk_col_2"]),
+            SortKey.of(key=["sk_col_1"]),
+            SortKey.of(key=["sk_col_2"]),
         ],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
@@ -268,7 +268,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "5-incremental-decimal-pk-simple": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
         input_deltas=pa.Table.from_arrays(
@@ -300,7 +300,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "6-incremental-integer-pk-simple": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
         input_deltas=pa.Table.from_arrays(
@@ -332,7 +332,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "7-incremental-timestamp-pk-simple": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
         input_deltas=pa.Table.from_arrays(
@@ -364,7 +364,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "8-incremental-decimal-timestamp-pk-multi": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1", "pk_col_2"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
         input_deltas=pa.Table.from_arrays(
@@ -398,7 +398,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "9-incremental-decimal-pk-multi-dup": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
         input_deltas=pa.Table.from_arrays(
@@ -430,7 +430,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "10-incremental-decimal-pk-partitionless": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
         partition_values=ZERO_VALUED_PARTITION_VALUES_PARAM,
         input_deltas=pa.Table.from_arrays(
@@ -462,7 +462,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "11-incremental-decimal-hash-bucket-single": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
         partition_values=ZERO_VALUED_PARTITION_VALUES_PARAM,
         input_deltas=pa.Table.from_arrays(
@@ -494,7 +494,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "12-incremental-decimal-single-hash-bucket": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
         partition_values=ZERO_VALUED_PARTITION_VALUES_PARAM,
         input_deltas=pa.Table.from_arrays(
@@ -526,7 +526,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "13-incremental-pkstr-skexists-isinplacecompacted": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
         input_deltas=pa.Table.from_arrays(
@@ -570,7 +570,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "14-incremental-pkstr-skexists-unhappy-hash-bucket-count-not-present": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_names=["sk_col_1"])],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
         partition_values=["1"],
         input_deltas=pa.Table.from_arrays(

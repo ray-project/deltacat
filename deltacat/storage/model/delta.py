@@ -3,15 +3,24 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.manifest import Manifest, ManifestMeta
-from deltacat.storage import ManifestAuthor, PartitionValues
+from deltacat.storage.model.manifest import (
+    Manifest,
+    ManifestMeta,
+    ManifestAuthor,
+)
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.partition import PartitionLocator
+from deltacat.storage.model.partition import (
+    PartitionLocator,
+    PartitionValues,
+)
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
-from deltacat.storage.model.types import DeltaType
+from deltacat.storage.model.types import (
+    DeltaType,
+    StreamFormat,
+)
 
 DeltaProperties = Dict[str, Any]
 
@@ -203,7 +212,7 @@ class Delta(dict):
     def storage_type(self) -> Optional[str]:
         delta_locator = self.locator
         if delta_locator:
-            return delta_locator.storage_type
+            return delta_locator.stream_format
         return None
 
     @property
@@ -277,7 +286,7 @@ class DeltaLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[StreamFormat],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
         partition_scheme_id: Optional[str],
@@ -288,7 +297,7 @@ class DeltaLocator(Locator, dict):
             table_name,
             table_version,
             stream_id,
-            storage_type,
+            stream_format,
             partition_values,
             partition_id,
             partition_scheme_id,
@@ -367,10 +376,10 @@ class DeltaLocator(Locator, dict):
         return None
 
     @property
-    def storage_type(self) -> Optional[str]:
+    def stream_format(self) -> Optional[str]:
         partition_locator = self.partition_locator
         if partition_locator:
-            return partition_locator.storage_type
+            return partition_locator.stream_format
         return None
 
     @property

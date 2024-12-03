@@ -5,7 +5,7 @@ from deltacat.storage.model.manifest import (
     ManifestAuthor,
     ManifestEntry,
     ManifestEntryList,
-    ManifestMeta, EntryParams,
+    ManifestMeta,
 )
 from deltacat.storage.model.delta import (
     Delta,
@@ -26,7 +26,14 @@ from deltacat.storage.model.partition import (
     PartitionScheme,
     PartitionValues,
 )
-from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.schema import (
+    Field,
+    FieldId,
+    FieldLocator,
+    FieldName,
+    NestedFieldName,
+    Schema,
+)
 from deltacat.storage.model.stream import Stream, StreamLocator
 from deltacat.storage.model.table import (
     Table,
@@ -63,11 +70,10 @@ from deltacat.storage.model.types import (
     LocalDataset,
     LocalTable,
     SchemaConsistencyType,
+    StreamFormat, SortOrder, NullOrder,
 )
 from deltacat.storage.model.sort_key import (
-    NullOrder,
     SortKey,
-    SortOrder,
     SortScheme,
 )
 
@@ -84,6 +90,10 @@ __all__ = [
     "DistributedDataset",
     "EntryType",
     "EntryParams",
+    "Field",
+    "FieldId",
+    "FieldLocator",
+    "FieldName",
     "HourTransform",
     "IdentityTransform",
     "LifecycleState",
@@ -100,7 +110,7 @@ __all__ = [
     "Namespace",
     "NamespaceLocator",
     "NamespaceProperties",
-    "NullOrder",
+    "NestedFieldName",
     "Partition",
     "PartitionKey",
     "PartitionLocator",
@@ -109,9 +119,9 @@ __all__ = [
     "Schema",
     "SchemaConsistencyType",
     "SortKey",
-    "SortOrder",
     "SortScheme",
     "Stream",
+    "StreamFormat",
     "StreamLocator",
     "Table",
     "TableLocator",

@@ -9,7 +9,10 @@ from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
-from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.types import (
+    CommitState,
+    StreamFormat,
+)
 
 
 class Stream(dict):
@@ -23,6 +26,7 @@ class Stream(dict):
         partition_scheme: Optional[partition.PartitionScheme],
         state: Optional[CommitState] = None,
         previous_stream_id: Optional[bytes] = None,
+        watermark: Optional[int] = None,
         native_object: Optional[Any] = None,
     ) -> Stream:
         stream = Stream()
@@ -147,7 +151,7 @@ class StreamLocator(Locator, dict):
     def of(
         table_version_locator: Optional[TableVersionLocator],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[StreamFormat],
     ) -> StreamLocator:
         """
         Creates a table version Stream Locator. All input parameters are
@@ -156,7 +160,7 @@ class StreamLocator(Locator, dict):
         stream_locator = StreamLocator()
         stream_locator.table_version_locator = table_version_locator
         stream_locator.stream_id = stream_id
-        stream_locator.storage_type = storage_type
+        stream_locator.format = stream_format
         return stream_locator
 
     @staticmethod
@@ -165,7 +169,7 @@ class StreamLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[str],
     ) -> StreamLocator:
         table_version_locator = TableVersionLocator.at(
             namespace,
@@ -175,7 +179,7 @@ class StreamLocator(Locator, dict):
         return StreamLocator.of(
             table_version_locator,
             stream_id,
-            storage_type,
+            stream_format,
         )
 
     @property
@@ -200,12 +204,12 @@ class StreamLocator(Locator, dict):
         self["streamId"] = stream_id
 
     @property
-    def storage_type(self) -> Optional[str]:
-        return self.get("storageType")
+    def format(self) -> Optional[str]:
+        return self.get("format")
 
-    @storage_type.setter
-    def storage_type(self, storage_type: Optional[str]) -> None:
-        self["storageType"] = storage_type
+    @format.setter
+    def format(self, stream_format: Optional[str]) -> None:
+        self["format"] = stream_format
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -250,5 +254,5 @@ class StreamLocator(Locator, dict):
         """
         tvl_hexdigest = self.table_version_locator.hexdigest()
         stream_id = self.stream_id
-        storage_type = self.storage_type
+        storage_type = self.format
         return f"{tvl_hexdigest}|{stream_id}|{storage_type}"

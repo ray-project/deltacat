@@ -27,11 +27,19 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 
-from deltacat.storage.model.partition import PartitionLocator
+from deltacat.storage.model.partition import (
+    PartitionLocator,
+    PartitionScheme,
+    PartitionKey as PartitionSchemeKey,
+)
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.sort_key import (
+    SortScheme,
+    SortKey,
+)
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 
 
@@ -77,7 +85,6 @@ def _create_table(
     namespace: str,
     table_name: str,
     table_version: str,
-    primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
@@ -86,13 +93,20 @@ def _create_table(
     from deltacat.types.media import ContentType
 
     ds.create_namespace(namespace, {}, **ds_mock_kwargs)
+    partition_scheme = (
+        PartitionScheme.of(
+            [PartitionSchemeKey.of(key.key_name) for key in partition_keys]
+        )
+        if partition_keys
+        else None
+    )
+    sort_scheme = SortScheme.of(sort_keys) if sort_keys else None
     ds.create_table_version(
         namespace,
         table_name,
         table_version,
-        primary_key_column_names=list(primary_keys),
-        sort_keys=sort_keys,
-        partition_scheme=partition_keys,
+        sort_keys=sort_scheme,
+        partition_scheme=partition_scheme,
         supported_content_types=[ContentType.PARQUET],
         **ds_mock_kwargs,
     )
@@ -100,7 +114,6 @@ def _create_table(
 
 
 def create_src_table(
-    primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
@@ -112,7 +125,6 @@ def create_src_table(
         source_namespace,
         source_table_name,
         source_table_version,
-        primary_keys,
         sort_keys,
         partition_keys,
         ds_mock_kwargs,
@@ -120,7 +132,6 @@ def create_src_table(
 
 
 def create_destination_table(
-    primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
@@ -132,7 +143,6 @@ def create_destination_table(
         destination_namespace,
         destination_table_name,
         destination_table_version,
-        primary_keys,
         sort_keys,
         partition_keys,
         ds_mock_kwargs,
@@ -140,7 +150,6 @@ def create_destination_table(
 
 
 def create_rebase_table(
-    primary_keys: Set[str],
     sort_keys: Optional[List[Any]],
     partition_keys: Optional[List[PartitionKey]],
     ds_mock_kwargs: Optional[Dict[str, Any]],
@@ -152,7 +161,6 @@ def create_rebase_table(
         rebasing_namespace,
         rebasing_table_name,
         rebasing_table_version,
-        primary_keys,
         sort_keys,
         partition_keys,
         ds_mock_kwargs,
