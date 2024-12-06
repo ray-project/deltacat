@@ -50,7 +50,7 @@ jobs:
                   if [ -f benchmark-requirements.txt ]; then pip install -r benchmark-requirements.txt; fi
             - name: Run unit tests + benchmarks
               run: >-
-                  python -m pytest --benchmark-json output.json
+                  python -m pytest -m "not integration" --benchmark-json output.json
             # Download previous benchmark result from cache (if exists)
             - name: Download previous benchmark data
               uses: actions/cache@v1

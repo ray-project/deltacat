@@ -697,7 +697,7 @@ def update_table_version(
         partition_scheme=current_table_version_obj.partition_scheme,
         description=description,
         properties=tv_properties,
-        sort_scheme=current_table_version_obj.sort_keys,
+        sort_scheme=current_table_version_obj.sort_scheme,
         content_types=current_table_version_obj.content_types,
     )
 

@@ -313,7 +313,7 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
             input_delta,
             staged_partition,
             input_delta_type,
-            delete_parameters=input_delta_parameters,
+            entry_params=input_delta_parameters,
             **ds_mock_kwargs,
         )
         ds.commit_delta(
@@ -363,7 +363,7 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
             input_delta,
             staged_partition,
             input_delta_type,
-            delete_parameters=input_delta_parameters,
+            entry_params=input_delta_parameters,
             **ds_mock_kwargs,
         )
         ds.commit_delta(

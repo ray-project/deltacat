@@ -5,6 +5,7 @@ import deltacat.storage.model.partition as partition
 
 from typing import Any, Dict, Optional
 
+from deltacat.storage.model.decorators import metafile
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
@@ -15,11 +16,13 @@ from deltacat.storage.model.types import (
 )
 
 
+@metafile
 class Stream(dict):
     """
     An unbounded stream of Deltas, where each delta's records are optionally
     partitioned according to the given partition scheme.
     """
+
     @staticmethod
     def of(
         locator: Optional[StreamLocator],
@@ -34,6 +37,7 @@ class Stream(dict):
         stream.partition_scheme = partition_scheme
         stream.state = state
         stream.previous_stream_id = previous_stream_id
+        stream.watermark = watermark
         stream.native_object = native_object
         return stream
 
@@ -75,6 +79,14 @@ class Stream(dict):
     @previous_stream_id.setter
     def previous_stream_id(self, previous_stream_id: Optional[str]) -> None:
         self["previousStreamId"] = previous_stream_id
+
+    @property
+    def watermark(self) -> Optional[int]:
+        return self.get("watermark")
+
+    @watermark.setter
+    def watermark(self, watermark: Optional[int]) -> None:
+        self["watermark"] = watermark
 
     @property
     def state(self) -> Optional[CommitState]:
@@ -169,7 +181,7 @@ class StreamLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
         stream_id: Optional[str],
-        stream_format: Optional[str],
+        stream_format: Optional[StreamFormat],
     ) -> StreamLocator:
         table_version_locator = TableVersionLocator.at(
             namespace,

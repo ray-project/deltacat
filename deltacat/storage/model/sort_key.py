@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Optional, Any, List, Tuple
+from typing import Optional, Any, List, Tuple, Dict
 
 from pyarrow.compute import SortOptions
 
@@ -51,7 +51,10 @@ class SortKey(tuple):
 
     @property
     def transform(self) -> Optional[Transform]:
-        return self[3] if len(self) >= 4 else None
+        val: Dict[str, Any] = self[3] if len(self) >= 4 else None
+        if val is not None and not isinstance(val, Transform):
+            self[3] = val = Transform.of(val)
+        return val
 
     @property
     def arrow(self) -> List[Tuple[str, str]]:
@@ -67,10 +70,27 @@ class SortKey(tuple):
         return self[4] if len(self) >= 5 else None
 
 
+class SortKeyList(List[SortKey]):
+    @staticmethod
+    def of(items: List[SortKey]) -> SortKeyList:
+        items = SortKeyList()
+        for entry in items:
+            if entry is not None and not isinstance(entry, SortKey):
+                entry = SortKey(entry)
+            items.append(entry)
+        return items
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, SortKey):
+            self[item] = val = SortKey(val)
+        return val
+
+
 class SortScheme(dict):
     @staticmethod
     def of(
-        keys: Optional[List[SortKey]],
+        keys: Optional[SortKeyList],
         name: Optional[str] = None,
         scheme_id: Optional[str] = None,
         native_object: Optional[Any] = None,
@@ -85,8 +105,11 @@ class SortScheme(dict):
         )
 
     @property
-    def keys(self) -> Optional[List[SortKey]]:
-        return self.get("keys")
+    def keys(self) -> Optional[SortKeyList]:
+        val: List[SortKey] = self.get("keys")
+        if val is not None and not isinstance(val, SortKeyList):
+            self["keys"] = val = SortKeyList.of(val)
+        return val
 
     @property
     def name(self) -> Optional[str]:

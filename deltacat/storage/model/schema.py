@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import pickle
+import msgpack
 from typing import Optional, Any, Dict, Union, List, Callable, Set
 
 import pyarrow as pa
@@ -263,7 +263,7 @@ class Field(dict):
         merge_order = None
         if field.metadata:
             bytes_val = field.metadata.get(FIELD_MERGE_ORDER_KEY_NAME)
-            merge_order = pickle.loads(bytes_val) if bytes_val else None
+            merge_order = msgpack.loads(bytes_val) if bytes_val else None
         return merge_order
 
     @staticmethod
@@ -279,7 +279,7 @@ class Field(dict):
         default = None
         if field.metadata:
             bytes_val = field.metadata.get(FIELD_PAST_DEFAULT_KEY_NAME)
-            default = pickle.loads(bytes_val) if bytes_val else None
+            default = msgpack.loads(bytes_val) if bytes_val else None
         return default
 
     @staticmethod
@@ -287,7 +287,7 @@ class Field(dict):
         default = None
         if field.metadata:
             bytes_val = field.metadata.get(FIELD_FUTURE_DEFAULT_KEY_NAME)
-            default = pickle.loads(bytes_val) if bytes_val else None
+            default = msgpack.loads(bytes_val) if bytes_val else None
         return default
 
     @staticmethod
@@ -356,10 +356,10 @@ class Field(dict):
             meta[FIELD_EVENT_TIME_KEY_NAME] = str(is_merge_key)
         if past_default is not None:
             Field._validate_default(past_default, field)
-            meta[FIELD_PAST_DEFAULT_KEY_NAME] = pickle.dumps(past_default)
+            meta[FIELD_PAST_DEFAULT_KEY_NAME] = msgpack.dumps(past_default)
         if future_default is not None:
             Field._validate_default(future_default, field)
-            meta[FIELD_FUTURE_DEFAULT_KEY_NAME] = pickle.dumps(future_default)
+            meta[FIELD_FUTURE_DEFAULT_KEY_NAME] = msgpack.dumps(future_default)
         if field_id is not None:
             meta[PARQUET_FIELD_ID_KEY_NAME] = (str(field_id),)
         if doc is not None:
@@ -453,7 +453,7 @@ class Schema(dict):
         if metadata is None:
             final_metadata.update(schema.metadata)
         final_metadata[SCHEMA_ID_KEY_NAME] = str(schema_id)
-        final_metadata[SOURCE_SCHEMA_ID_KEY_NAME] = pickle.dumps(
+        final_metadata[SOURCE_SCHEMA_ID_KEY_NAME] = msgpack.dumps(
             linked_schema_ids,
         )
         final_schema = pa.schema(
@@ -535,7 +535,7 @@ class Schema(dict):
         schema_ids = None
         if schema.metadata:
             bytes_val = schema.metadata.get(SOURCE_SCHEMA_ID_KEY_NAME)
-            schema_ids = pickle.loads(bytes_val.decode()) if bytes_val else None
+            schema_ids = msgpack.loads(bytes_val.decode()) if bytes_val else None
         return schema_ids
 
     @staticmethod

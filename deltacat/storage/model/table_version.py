@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 import deltacat.storage.model.partition as partition
+from deltacat.storage.model.decorators import metafile
 
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.locator import Locator
@@ -16,15 +17,19 @@ from deltacat.storage.model.types import LifecycleState
 TableVersionProperties = Dict[str, Any]
 
 
+@metafile
 class TableVersion(dict):
     @staticmethod
     def of(
         locator: Optional[TableVersionLocator],
-        schema: Optional[Schema],  # TODO: change to collection of schemas
+        # TODO: change to SchemaList
+        schema: Optional[Schema],
+        # TODO: change to PartitionSchemeList
         partition_scheme: Optional[partition.PartitionScheme] = None,
         description: Optional[str] = None,
         properties: Optional[TableVersionProperties] = None,
         content_types: Optional[List[ContentType]] = None,
+        # TODO: change to SortSchemeList
         sort_scheme: Optional[SortScheme] = None,
         watermark: Optional[int] = None,
         lifecycle_state: Optional[LifecycleState] = None,
@@ -37,7 +42,9 @@ class TableVersion(dict):
         table_version.description = description
         table_version.properties = properties
         table_version.content_types = content_types
-        table_version.sort_keys = sort_scheme
+        table_version.sort_scheme = sort_scheme
+        table_version.watermark = watermark
+        table_version.lifecycle_state = lifecycle_state
         table_version.native_object = native_object
         return table_version
 
@@ -61,16 +68,30 @@ class TableVersion(dict):
         self["schema"] = schema
 
     @property
-    def sort_keys(self) -> Optional[SortScheme]:
-        return self.get("sortKeys")
+    def sort_scheme(self) -> Optional[SortScheme]:
+        val: Dict[str, Any] = self.get("sortScheme")
+        if val is not None and not isinstance(val, SortScheme):
+            self["sortScheme"] = val = SortScheme(val)
+        return val
 
-    @sort_keys.setter
-    def sort_keys(self, sort_keys: Optional[SortScheme]) -> None:
-        self["sortKeys"] = sort_keys
+    @sort_scheme.setter
+    def sort_scheme(self, sort_scheme: Optional[SortScheme]) -> None:
+        self["sortScheme"] = sort_scheme
+
+    @property
+    def watermark(self) -> Optional[int]:
+        return self.get("watermark")
+
+    @watermark.setter
+    def watermark(self, watermark: Optional[int]) -> None:
+        self["watermark"] = watermark
 
     @property
     def partition_scheme(self) -> Optional[partition.PartitionScheme]:
-        return self.get("partitionScheme")
+        val: Dict[str, Any] = self.get("partitionScheme")
+        if val is not None and not isinstance(val, partition.PartitionScheme):
+            self["partitionScheme"] = val = partition.PartitionScheme(val)
+        return val
 
     @partition_scheme.setter
     def partition_scheme(

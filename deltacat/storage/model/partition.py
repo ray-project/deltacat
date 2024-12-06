@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from deltacat.storage.model.decorators import metafile
 from deltacat.storage.model.schema import (
     FieldLocator,
     Schema,
@@ -27,6 +28,7 @@ by applying one or more transforms to a table's fields.
 PartitionValues = List[Any]
 
 
+@metafile
 class Partition(dict):
     @staticmethod
     def of(
@@ -395,17 +397,37 @@ class PartitionKey(dict):
 
     @property
     def transform(self) -> Optional[Transform]:
-        return self.get("transform")
+        val: Dict[str, Any] = self.get("transform")
+        if val is not None and not isinstance(val, Transform):
+            self["transform"] = val = Transform.of(val)
+        return val
 
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
 
 
+class PartitionKeyList(List[PartitionKey]):
+    @staticmethod
+    def of(items: List[PartitionKey]) -> PartitionKeyList:
+        items = PartitionKeyList()
+        for entry in items:
+            if entry is not None and not isinstance(entry, PartitionKey):
+                entry = PartitionKey(entry)
+            items.append(entry)
+        return items
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, PartitionKey):
+            self[item] = val = PartitionKey(val)
+        return val
+
+
 class PartitionScheme(dict):
     @staticmethod
     def of(
-        keys: Optional[List[PartitionKey]],
+        keys: Optional[PartitionKeyList],
         name: Optional[str] = None,
         scheme_id: Optional[str] = None,
         native_object: Optional[Any] = None,
@@ -420,8 +442,11 @@ class PartitionScheme(dict):
         )
 
     @property
-    def keys(self) -> Optional[List[PartitionKey]]:
-        return self.get("keys")
+    def keys(self) -> Optional[PartitionKeyList]:
+        val: List[PartitionKey] = self.get("keys")
+        if val is not None and not isinstance(val, PartitionKeyList):
+            self["keys"] = val = PartitionKeyList.of(val)
+        return val
 
     @property
     def name(self) -> Optional[str]:

@@ -3,16 +3,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from deltacat.storage.model.decorators import metafile
 from deltacat.storage.model.locator import Locator
 
 NamespaceProperties = Dict[str, Any]
 
 
+@metafile
 class Namespace(dict):
     @staticmethod
     def of(
         locator: Optional[NamespaceLocator],
-        properties: Optional[NamespaceProperties],
+        properties: Optional[NamespaceProperties] = None,
     ) -> Namespace:
         namespace = Namespace()
         namespace.locator = locator

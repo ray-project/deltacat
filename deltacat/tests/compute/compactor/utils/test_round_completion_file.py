@@ -65,7 +65,7 @@ class TestReadWriteRoundCompletionFile:
         )
 
         assert (
-            rcf_url == "s3://rcf-bucket/f9829af39770d904dbb811bd8f4e886dd307f507.json"
+            rcf_url == "s3://rcf-bucket/4af646dce0b59509d3725bb6f53c747bf7d81875.json"
         )
         assert rcf == expected_rcf
 
@@ -95,7 +95,7 @@ class TestReadWriteRoundCompletionFile:
 
         assert (
             rcf_url
-            == "s3://rcf-bucket/f9829af39770d904dbb811bd8f4e886dd307f507/e9939deadc091b3289a2eb0ca56b1ba86b9892f4.json"
+            == "s3://rcf-bucket/4af646dce0b59509d3725bb6f53c747bf7d81875/fab129d84c77a7d284ef6f585ff4ea304786e211.json"
         )
         assert rcf == expected_rcf
 
