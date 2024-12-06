@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.decorators import metafile
+from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.schema import (
     FieldLocator,
     Schema,
@@ -28,8 +28,7 @@ by applying one or more transforms to a table's fields.
 PartitionValues = List[Any]
 
 
-@metafile
-class Partition(dict):
+class Partition(Metafile):
     @staticmethod
     def of(
         locator: Optional[PartitionLocator],

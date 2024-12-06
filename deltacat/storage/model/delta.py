@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.decorators import metafile
+from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.manifest import (
     Manifest,
     ManifestMeta,
@@ -25,8 +25,8 @@ from deltacat.storage.model.types import (
 
 DeltaProperties = Dict[str, Any]
 
-@metafile
-class Delta(dict):
+
+class Delta(Metafile):
     @staticmethod
     def of(
         locator: Optional[DeltaLocator],

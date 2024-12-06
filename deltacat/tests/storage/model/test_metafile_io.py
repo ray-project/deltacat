@@ -20,14 +20,13 @@ from deltacat.storage import (
 )
 
 
-class TestMetafileDecorator(unittest.TestCase):
+class TestMetafileIO(unittest.TestCase):
     def test_namespace_serde(self):
         temp_dir = tempfile.gettempdir()
         namespace_locator = NamespaceLocator.of("test_namespace")
         namespace = Namespace.of(namespace_locator)
-        temp_file_path = f"{temp_dir}/namespace.mpk"
         try:
-            namespace.write(temp_file_path)
+            temp_file_path = namespace.write(temp_dir)
             deserialized_namespace = Namespace.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
@@ -37,9 +36,8 @@ class TestMetafileDecorator(unittest.TestCase):
         temp_dir = tempfile.gettempdir()
         table_locator = TableLocator.at("test_namespace", "test_table")
         table = Table.of(table_locator, "test table description")
-        temp_file_path = f"{temp_dir}/table.mpk"
         try:
-            table.write(temp_file_path)
+            temp_file_path = table.write(temp_dir)
             deserialized_table = Table.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
@@ -53,9 +51,8 @@ class TestMetafileDecorator(unittest.TestCase):
             "test_table_version",
         )
         table_version = TableVersion.of(table_version_locator, schema=None)
-        temp_file_path = f"{temp_dir}/table_version.mpk"
         try:
-            table_version.write(temp_file_path)
+            temp_file_path = table_version.write(temp_dir)
             deserialized_table_version = Table.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
@@ -71,9 +68,8 @@ class TestMetafileDecorator(unittest.TestCase):
             StreamFormat.DELTACAT,
         )
         stream = Stream.of(stream_locator, None)
-        temp_file_path = f"{temp_dir}/stream.mpk"
         try:
-            stream.write(temp_file_path)
+            temp_file_path = stream.write(temp_dir)
             deserialized_stream = Table.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
@@ -92,9 +88,8 @@ class TestMetafileDecorator(unittest.TestCase):
             "test_partition_scheme_id",
         )
         partition = Partition.of(partition_locator, None, None)
-        temp_file_path = f"{temp_dir}/partition.mpk"
         try:
-            partition.write(temp_file_path)
+            temp_file_path = partition.write(temp_dir)
             deserialized_partition = Table.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
@@ -114,9 +109,8 @@ class TestMetafileDecorator(unittest.TestCase):
             1,
         )
         delta = Delta.of(delta_locator, DeltaType.APPEND, None, None, None)
-        temp_file_path = f"{temp_dir}/delta.mpk"
         try:
-            delta.write(temp_file_path)
+            temp_file_path = delta.write(temp_dir)
             deserialized_delta = Table.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
@@ -142,9 +136,8 @@ class TestMetafileDecorator(unittest.TestCase):
         }
 
         table = Table.of(table_locator, "test table description", properties)
-        temp_file_path = f"{temp_dir}/table.mpk"
         try:
-            table.write(temp_file_path)
+            temp_file_path = table.write(temp_dir)
             deserialized_table = Table.read(temp_file_path)
         finally:
             os.remove(temp_file_path)

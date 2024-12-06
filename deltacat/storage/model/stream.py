@@ -5,7 +5,7 @@ import deltacat.storage.model.partition as partition
 
 from typing import Any, Dict, Optional
 
-from deltacat.storage.model.decorators import metafile
+from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
@@ -16,8 +16,7 @@ from deltacat.storage.model.types import (
 )
 
 
-@metafile
-class Stream(dict):
+class Stream(Metafile):
     """
     An unbounded stream of Deltas, where each delta's records are optionally
     partitioned according to the given partition scheme.

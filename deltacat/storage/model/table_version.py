@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 import deltacat.storage.model.partition as partition
-from deltacat.storage.model.decorators import metafile
+from deltacat.storage.model.metafile import Metafile
 
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.locator import Locator
@@ -17,8 +17,7 @@ from deltacat.storage.model.types import LifecycleState
 TableVersionProperties = Dict[str, Any]
 
 
-@metafile
-class TableVersion(dict):
+class TableVersion(Metafile):
     @staticmethod
     def of(
         locator: Optional[TableVersionLocator],
