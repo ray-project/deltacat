@@ -21,7 +21,7 @@ available_node_types:
       InstanceType: r5n.8xlarge
       IamInstanceProfile:
         Arn: arn:aws:iam::571184238014:instance-profile/RayClusterInstanceProfilePdames
-      
+
 
   ray.worker.default:
     min_workers: 0

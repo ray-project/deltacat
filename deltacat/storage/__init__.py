@@ -70,7 +70,9 @@ from deltacat.storage.model.types import (
     LocalDataset,
     LocalTable,
     SchemaConsistencyType,
-    StreamFormat, SortOrder, NullOrder,
+    StreamFormat,
+    SortOrder,
+    NullOrder,
 )
 from deltacat.storage.model.sort_key import (
     SortKey,
@@ -111,6 +113,7 @@ __all__ = [
     "NamespaceLocator",
     "NamespaceProperties",
     "NestedFieldName",
+    "NullOrder",
     "Partition",
     "PartitionKey",
     "PartitionLocator",
@@ -119,6 +122,7 @@ __all__ = [
     "Schema",
     "SchemaConsistencyType",
     "SortKey",
+    "SortOrder",
     "SortScheme",
     "Stream",
     "StreamFormat",

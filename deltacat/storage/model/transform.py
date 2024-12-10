@@ -20,6 +20,7 @@ class TransformParameters(dict):
     This is a parent class that contains properties
     to be passed to the corresponding transform
     """
+
     pass
 
 
@@ -39,6 +40,7 @@ class BucketTransformParameters(TransformParameters):
     """
     Parameters for the bucket transform.
     """
+
     @staticmethod
     def of(
         num_buckets: int,
@@ -108,8 +110,8 @@ class Transform(dict):
 
     @parameters.setter
     def parameters(
-            self,
-            parameters: Optional[TransformParameters] = None,
+        self,
+        parameters: Optional[TransformParameters] = None,
     ) -> None:
         self["parameters"] = parameters
 

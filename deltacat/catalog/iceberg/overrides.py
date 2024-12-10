@@ -4,8 +4,11 @@ from typing import Iterator, List
 
 from pyarrow.fs import FileSystem
 
-from pyiceberg.io.pyarrow import fill_parquet_file_metadata, \
-    compute_statistics_plan, parquet_path_to_id_mapping
+from pyiceberg.io.pyarrow import (
+    fill_parquet_file_metadata,
+    compute_statistics_plan,
+    parquet_path_to_id_mapping,
+)
 from pyiceberg.table import Table, _MergingSnapshotProducer
 from pyiceberg.table.snapshots import Operation
 from pyiceberg.manifest import DataFile, DataFileContent, FileFormat
@@ -17,22 +20,7 @@ def append(table: Table, paths: List[str]) -> None:
     """
     Append files to the table.
     """
-    #if len(table.sort_order().fields) > 0:
-    #    raise ValueError("Cannot write to tables with a sort-order")
-
-    data_files = write_file(table, paths)
-    merge = _MergingSnapshotProducer(operation=Operation.APPEND, table=table)
-    for data_file in data_files:
-        merge.append_data_file(data_file)
-
-    merge.commit()
-
-
-def append(table: Table, paths: List[str]) -> None:
-    """
-    Append files to the table.
-    """
-    #if len(table.sort_order().fields) > 0:
+    # if len(table.sort_order().fields) > 0:
     #    raise ValueError("Cannot write to tables with a sort-order")
 
     data_files = write_file(table, paths)
@@ -57,7 +45,19 @@ def write_file(table: Table, paths: Iterator[str]) -> Iterator[DataFile]:
                 content=DataFileContent.DATA,
                 file_path=file_path,
                 file_format=FileFormat.PARQUET,
-                partition=Record(**{"struct": StructType(NestedField(0, table.spec().fields[0].name, IntegerType(), required=False)), **{table.spec().fields[0].name: partition_value}}),
+                partition=Record(
+                    **{
+                        "struct": StructType(
+                            NestedField(
+                                0,
+                                table.spec().fields[0].name,
+                                IntegerType(),
+                                required=False,
+                            )
+                        ),
+                        **{table.spec().fields[0].name: partition_value},
+                    }
+                ),
                 file_size_in_bytes=native_file.size(),
                 sort_order_id=None,
                 spec_id=table.spec().spec_id,
@@ -72,4 +72,3 @@ def write_file(table: Table, paths: Iterator[str]) -> Iterator[DataFile]:
             )
             data_files.append(data_file)
     return data_files
-

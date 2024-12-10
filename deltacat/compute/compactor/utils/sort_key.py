@@ -23,12 +23,12 @@ def validate_sort_keys(
         deltacat_storage_kwargs = {}
     total_sort_keys_bit_width = 0
     if sort_keys:
-        sort_key_names = list(
-            chain.from_iterable([key.key for key in sort_keys])
-        )
+        sort_key_names = list(chain.from_iterable([key.key for key in sort_keys]))
         assert all(
-            [key.transform is None or
-             key.transform.name == TransformName.IDENTITY for key in sort_keys]
+            [
+                key.transform is None or key.transform.name == TransformName.IDENTITY
+                for key in sort_keys
+            ]
         ), f"Sort key transforms are not supported: {sort_keys}"
         assert len(sort_key_names) == len(
             set(sort_key_names)

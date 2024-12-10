@@ -45,7 +45,7 @@ from deltacat.storage import (
     SortKey,
     SortOrder,
     SortScheme,
-    NullOrder
+    NullOrder,
 )
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode

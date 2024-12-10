@@ -3,8 +3,6 @@ import deltacat
 import daft
 import pyiceberg
 
-from deltacat.examples.common.fixtures import store_cli_args_in_os_environ
-
 
 def print_package_version_info():
     print(f"DeltaCAT Version: {deltacat.__version__}")

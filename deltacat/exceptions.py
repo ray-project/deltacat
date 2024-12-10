@@ -212,6 +212,7 @@ class DeltaCatSystemError(NonRetryableError):
 class UnrecognizedRayTaskError(NonRetryableError):
     error_name = DeltaCatErrorNames.UNRECOGNIZED_RAY_TASK_ERROR.value
 
+
 class NamespaceNotFoundError(NonRetryableError):
     error_name = DeltaCatErrorNames.NAMESPACE_NOT_FOUND_ERROR.value
 

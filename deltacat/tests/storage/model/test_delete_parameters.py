@@ -1,5 +1,3 @@
-import pytest
-
 from deltacat.storage import EntryParams
 
 

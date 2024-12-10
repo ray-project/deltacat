@@ -201,9 +201,7 @@ def _timed_hash_bucket(
     with memray.Tracker(
         f"hash_bucket_{worker_id}_{task_id}.bin"
     ) if enable_profiler else nullcontext():
-        sort_key_names = list(
-            chain.from_iterable([key.key for key in sort_keys])
-        )
+        sort_key_names = list(chain.from_iterable([key.key for key in sort_keys]))
         if not round_completion_info:
             is_src_delta = True
         else:

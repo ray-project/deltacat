@@ -19,7 +19,8 @@ from deltacat.compute.compactor.compaction_session import (
 from deltacat.utils.common import ReadKwargsProvider
 
 from deltacat.storage import (
-    DeltaType, EntryParams,
+    DeltaType,
+    EntryParams,
 )
 from deltacat.compute.compactor_v2.compaction_session import (
     compact_partition as compact_partition_v2,
@@ -99,9 +100,7 @@ class IncrementalCompactionTestCaseParams(BaseCompactorTestCase):
     """
 
     is_inplace: bool
-    add_late_deltas: Optional[
-        List[Tuple[pa.Table, DeltaType, Optional[EntryParams]]]
-    ]
+    add_late_deltas: Optional[List[Tuple[pa.Table, DeltaType, Optional[EntryParams]]]]
 
 
 @dataclass(frozen=True)

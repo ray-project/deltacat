@@ -1,33 +1,28 @@
 import os
 import logging
-import datetime
 
 import daft
 import deltacat as dc
 
 from deltacat import logs
 from deltacat import IcebergCatalog
-from deltacat.examples.common.fixtures import create_runtime_environment, \
-    store_cli_args_in_os_environ
+from deltacat.examples.common.fixtures import (
+    create_runtime_environment,
+    store_cli_args_in_os_environ,
+)
 
 from pyiceberg.schema import (
     Schema,
     NestedField,
     DoubleType,
     StringType,
-    TimestampType,
-    FloatType,
 )
 from pyiceberg.partitioning import PartitionSpec, PartitionField
-from pyiceberg.transforms import DayTransform, IdentityTransform, \
-    BucketTransform
-from pyiceberg.table.sorting import SortField, SortOrder
+from pyiceberg.transforms import BucketTransform
 
-from deltacat.exceptions import TableAlreadyExistsError
 from deltacat.storage.iceberg.model import (
     SchemaMapper,
     PartitionSchemeMapper,
-    SortSchemeMapper,
 )
 
 # initialize the driver logger
@@ -54,7 +49,11 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
                 name="example-iceberg-catalog",
                 # for additional properties see:
                 # https://py.iceberg.apache.org/configuration/
-                properties={"type": "glue", "region_name": "us-east-1", "warehouse": warehouse},
+                properties={
+                    "type": "glue",
+                    "region_name": "us-east-1",
+                    "warehouse": warehouse,
+                },
             )
         },
         # pass the runtime environment into ray.init()
@@ -71,7 +70,10 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
     # define a native Iceberg partition spec
     partition_spec = PartitionSpec(
         PartitionField(
-            source_id=1, field_id=1000, transform=BucketTransform(2), name="symbol_bucket"
+            source_id=1,
+            field_id=1000,
+            transform=BucketTransform(2),
+            name="symbol_bucket",
         )
     )
 
@@ -79,11 +81,13 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
     # sort_order = SortOrder(SortField(source_id=1, transform=IdentityTransform()))
 
     # define the Daft dataframe to write
-    df = daft.from_pydict({
-        "symbol": ["amzn", "goog", "meta", "msft"],
-        "bid": [157.16, 150.55, 392.03, 403.25],
-        "ask": [157.17, 150.56, 392.09, 403.27],
-    })
+    df = daft.from_pydict(
+        {
+            "symbol": ["amzn", "goog", "meta", "msft"],
+            "bid": [157.16, 150.55, 392.03, 403.25],
+            "ask": [157.17, 150.56, 392.09, 403.27],
+        }
+    )
 
     # write to a table named `test_namespace.test_table_bucketed`
     # we don't need to specify which catalog to create this table in since

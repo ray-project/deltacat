@@ -387,10 +387,7 @@ def get_stream(
 
 
 def stage_partition(
-    stream: Stream,
-    partition_values: Optional[PartitionValues] = None,
-    *args,
-    **kwargs
+    stream: Stream, partition_values: Optional[PartitionValues] = None, *args, **kwargs
 ) -> Partition:
     """
     Stages a new partition for the given stream and partition values. Returns

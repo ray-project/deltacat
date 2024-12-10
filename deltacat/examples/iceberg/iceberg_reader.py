@@ -4,8 +4,10 @@ import deltacat as dc
 
 from deltacat import logs
 from deltacat import IcebergCatalog
-from deltacat.examples.common.fixtures import create_runtime_environment, \
-    store_cli_args_in_os_environ
+from deltacat.examples.common.fixtures import (
+    create_runtime_environment,
+    store_cli_args_in_os_environ,
+)
 
 from pyiceberg.schema import (
     Schema,
@@ -51,7 +53,11 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
                 name="example-iceberg-catalog",
                 # for additional properties see:
                 # https://py.iceberg.apache.org/configuration/
-                properties={"type": "glue", "region_name": "us-east-1", "warehouse": warehouse},
+                properties={
+                    "type": "glue",
+                    "region_name": "us-east-1",
+                    "warehouse": warehouse,
+                },
             )
         },
         # pass the runtime environment into ray.init()

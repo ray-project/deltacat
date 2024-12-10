@@ -2,7 +2,8 @@ import pytest
 
 from deltacat.storage import (
     DeltaType,
-    Delta, EntryParams,
+    Delta,
+    EntryParams,
 )
 from deltacat.storage import (
     Partition,

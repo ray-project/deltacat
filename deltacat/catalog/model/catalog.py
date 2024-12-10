@@ -104,7 +104,9 @@ def init(
 
     # register custom serializer for catalogs since these may contain
     # unserializable objects like boto3 clients with SSLContext
-    ray.util.register_serializer(Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__)
+    ray.util.register_serializer(
+        Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__
+    )
 
     global all_catalogs
     all_catalogs = Catalogs.remote(

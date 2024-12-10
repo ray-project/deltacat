@@ -154,7 +154,7 @@ python runner.py aws glue deltacat/examples/basic_logging.py \
 
 ##### What Does it Do?
 1. Creates an S3 bucket at `s3://deltacat-packages-{stage}` if it doesn't already exist.
-2. **[Optional]** Builds a wheel containing your local workspace changes and uploads it to 
+2. **[Optional]** Builds a wheel containing your local workspace changes and uploads it to
 `s3://deltacat-packages-{stage}/` if the `--deploy-local-deltacat` flag is set.
 > [!IMPORTANT]
 > {stage} is replaced with `os.environ["USER"]` unless you set the `$DELTACAT_STAGE` environment variable.
@@ -164,7 +164,7 @@ python runner.py aws glue deltacat/examples/basic_logging.py \
 6. Run the `deltacat-runner-{stage}` Glue Job with either the newly built DeltaCAT wheel or the last used wheel.
 
 
-#### Other Environments: Install Wheel from a Signed S3 URL 
+#### Other Environments: Install Wheel from a Signed S3 URL
 If you'd like to run integration tests in any other custom environment, you can run a single command to package your
 local changes in a wheel, upload it to S3, then install it on your Ray cluster from a signed S3 URL.
 

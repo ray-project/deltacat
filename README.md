@@ -1,12 +1,17 @@
 # DeltaCAT
 
-DeltaCAT provides a portable Pythonic Data Catalog powered by Ray. It provides distributed compute implementations
-allowing you to efficiently read, write, and manage a data catalog reliably at scale using Ray. It lets you
-define and manage fast, scalable, ACID-compliant data catalogs and has been used to successfully manage exabyte-scale
-enterprise data lakes.
+DeltaCAT is a portable Pythonic multi-modal Data Lakehouse powered by Ray. It lets you define and manage fast, scalable,
+ACID-compliant multi-modal data lakes, and has been used to successfully manage exabyte-scale enterprise data lakes.
 
-DeltaCAT uses the Ray distributed compute framework together with Apache Arrow and Daft to efficiently scale common
+It uses the Ray distributed compute framework together with Apache Arrow and Daft to efficiently scale common
 table management tasks, like petabyte-scale merge-on-read and copy-on-write operations.
+
+DeltaCAT consists of the following high-level components:
+1. **Catalog**: High-level APIs to create, discover, organize, and manage datasets.
+2. **Compute**: Distributed data management jobs to read, write, and optimize datasets.
+3. **Storage**: In-memory and on-disk multi-modal dataset storage models based on Apache Arrow.
+4. **Sync**: Automatically synchronize DeltaCAT datasets to/from other data warehouses, datasets, and table formats.
+
 
 ## Getting Started
 
@@ -16,11 +21,11 @@ table management tasks, like petabyte-scale merge-on-read and copy-on-write oper
 pip install deltacat[iceberg]
 ```
 
-#### AWS Glue 
+#### AWS Glue
 ##### Initializing a Catalog
-We can initialize a DeltaCAT catalog against either a new or existing Iceberg catalog. If you initialize DeltaCAT
-against an existing catalog, you can immediately start reading and writing any tables it contains. If you create
-a new catalog, you can immediately start adding new tables to it and managing them.
+You can initialize a DeltaCAT catalog from any new or existing Iceberg catalog. When using an existing catalog, you can
+immediately read and write any tables it contains. When creating a new catalog, you can immediately start adding and
+managing new tables.
 ```python
 import deltacat as dc
 from deltacat import IcebergCatalog

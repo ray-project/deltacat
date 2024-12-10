@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 import datetime as dt
 from boto3.resources.base import ServiceResource
 from datetime import timezone
@@ -38,7 +38,6 @@ from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.sort_key import (
     SortScheme,
-    SortKey,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import msgpack
-from typing import Optional, Any, Dict, Union, List, Callable, Set
+from typing import Optional, Any, Dict, Union, List, Callable
 
 import pyarrow as pa
 from pyarrow import ArrowInvalid

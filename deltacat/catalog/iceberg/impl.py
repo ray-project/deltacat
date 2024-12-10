@@ -54,13 +54,16 @@ def write_to_table(
     # TODO (pdames): derive schema automatically from data if not
     #  explicitly specified in kwargs, and table needs to be created
     # kwargs["schema"] = kwargs["schema"] or derived_schema
-    kwargs["fail_if_exists"] = (mode == TableWriteMode.CREATE)
-    table_definition = create_table(
-        table,
-        namespace,
-        **kwargs,
-    ) if (mode == TableWriteMode.AUTO or mode == TableWriteMode.CREATE) \
+    kwargs["fail_if_exists"] = mode == TableWriteMode.CREATE
+    table_definition = (
+        create_table(
+            table,
+            namespace,
+            **kwargs,
+        )
+        if (mode == TableWriteMode.AUTO or mode == TableWriteMode.CREATE)
         else get_table(table, namespace, catalog=catalog)
+    )
 
     # TODO(pdames): Use native DeltaCAT models to map from Iceberg partitioning to Daft partitioning...
     #  this lets us re-use a single model-mapper instead of different per-catalog model mappers
@@ -77,26 +80,37 @@ def write_to_table(
                 table_location = table_definition.table.native_object.location()
                 path = kwargs.get("path") or f"{table_location}/data"
                 if content_type == ContentType.PARQUET:
-                    source_field = schema.find_field(name_or_id=partition_field.source_id)
+                    source_field = schema.find_field(
+                        name_or_id=partition_field.source_id
+                    )
                     out_df = data.write_parquet(
                         path,
                         partition_cols=[
-                            data[source_field.name].partitioning.iceberg_bucket(ice_bucket_transform.num_buckets),
+                            data[source_field.name].partitioning.iceberg_bucket(
+                                ice_bucket_transform.num_buckets
+                            ),
                         ],
                     )
                     # TODO(pdames): only append s3:// to output file paths when writing to S3!
                     out_file_paths = [f"s3://{val}" for val in out_df.to_arrow()[0]]
                     from deltacat.catalog.iceberg import overrides
+
                     overrides.append(
                         table_definition.table.native_object,
                         out_file_paths,
                     )
                 else:
-                    raise NotImplementedError(f"iceberg writes not implemented for content type: {content_type}")
+                    raise NotImplementedError(
+                        f"iceberg writes not implemented for content type: {content_type}"
+                    )
             else:
-                raise NotImplementedError(f"daft partitioning not implemented for iceberg transform: {partition_field.transform}")
+                raise NotImplementedError(
+                    f"daft partitioning not implemented for iceberg transform: {partition_field.transform}"
+                )
     else:
-        raise NotImplementedError(f"iceberg write-back not implemented for data type: {type(data)}")
+        raise NotImplementedError(
+            f"iceberg write-back not implemented for data type: {type(data)}"
+        )
 
 
 def read_table(
@@ -215,23 +229,17 @@ def get_table(
     exist."""
     catalog = _get_native_catalog(**kwargs)
     stream = IcebergStorage.get_stream(
-        namespace=namespace,
-        table_name=table,
-        catalog=catalog
+        namespace=namespace, table_name=table, catalog=catalog
     )
     if not stream:
         return None
     table_obj = IcebergStorage.get_table(
-        namespace=namespace,
-        table_name=table,
-        catalog=catalog
+        namespace=namespace, table_name=table, catalog=catalog
     )
     if not table_obj:
         return None
     table_version = IcebergStorage.get_latest_table_version(
-        namespace=namespace,
-        table_name=table,
-        catalog=catalog
+        namespace=namespace, table_name=table, catalog=catalog
     )
     if not table_version:
         return None

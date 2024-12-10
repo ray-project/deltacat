@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
 from deltacat.catalog.model.catalog import get_catalog
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -121,7 +121,6 @@ def create_table(
         namespace,
         lifecycle_state,
         schema,
-        schema_consistency,
         partition_scheme,
         sort_keys,
         description,

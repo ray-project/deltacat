@@ -1,6 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import pyarrow as pa
 
 from deltacat.tests.compute.test_util_common import (
@@ -157,9 +157,7 @@ def create_src_w_deltas_destination_plus_destination(
             destination_table_namespace,
             destination_table_name,
             destination_table_version,
-        ) = create_destination_table(
-            sort_keys, partition_keys, ds_mock_kwargs
-        )
+        ) = create_destination_table(sort_keys, partition_keys, ds_mock_kwargs)
     else:
         # not creating a table as in-place
         destination_table_namespace = source_namespace
@@ -228,9 +226,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy(
         destination_table_namespace,
         destination_table_name,
         destination_table_version,
-    ) = create_destination_table(
-        sort_keys, partition_keys, ds_mock_kwargs
-    )
+    ) = create_destination_table(sort_keys, partition_keys, ds_mock_kwargs)
     # create the rebase table
     (
         rebase_table_namespace,
@@ -333,9 +329,7 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
         destination_table_namespace,
         destination_table_name,
         destination_table_version,
-    ) = create_destination_table(
-        sort_keys, partition_keys, ds_mock_kwargs
-    )
+    ) = create_destination_table(sort_keys, partition_keys, ds_mock_kwargs)
     # create the rebase table
     (
         rebase_table_namespace,
