@@ -1,16 +1,17 @@
-# DeltaCAT
+![deltacat-header-logo](media/deltacat-logo-alpha.png)
 
-DeltaCAT is a portable Pythonic multi-modal Data Lakehouse powered by Ray. It lets you define and manage fast, scalable,
+DeltaCAT is a portable Data Lakehouse powered by Ray. It lets you define and manage fast, scalable,
 ACID-compliant multi-modal data lakes, and has been used to successfully manage exabyte-scale enterprise data lakes.
 
-It uses the Ray distributed compute framework together with Apache Arrow and Daft to efficiently scale common
-table management tasks, like petabyte-scale merge-on-read and copy-on-write operations.
+It uses the [Ray](https://github.com/ray-project/ray) distributed compute framework together with
+[Apache Arrow](https://github.com/apache/arrow) and [Daft](https://github.com/Eventual-Inc/Daft) to efficiently scale
+common table management tasks, like petabyte-scale merge-on-read and copy-on-write operations.
 
 DeltaCAT consists of the following high-level components:
 1. **Catalog**: High-level APIs to create, discover, organize, and manage datasets.
 2. **Compute**: Distributed data management jobs to read, write, and optimize datasets.
-3. **Storage**: In-memory and on-disk multi-modal dataset storage models based on Apache Arrow.
-4. **Sync**: Automatically synchronize DeltaCAT datasets to/from other data warehouses, datasets, and table formats.
+3. **Storage**: In-memory and on-disk multi-modal dataset models based on Apache Arrow.
+4. **Sync**: Interoperability tools to synchronize DeltaCAT datasets to or from other data warehouses, datasets, and table formats.
 
 
 ## Getting Started
@@ -60,7 +61,7 @@ The `iceberg` catalog is now registered as the default catalog for your Ray appl
 requests.
 
 ##### Creating a New Table
-We can now create our first table inside of `example-iceberg-catalog` .
+You can now create your first table in the `iceberg` catalog.
 
 ```python
 import deltacat as dc
