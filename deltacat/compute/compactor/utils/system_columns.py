@@ -13,6 +13,8 @@ _SYS_COL_UUID = "4000f124-dfbd-48c6-885b-7b22621a6d41"
 def _get_sys_col_name(suffix):
     return f"{_SYS_COL_UUID}_{suffix}"
 
+def _get_iceberg_sys_col_name(suffix):
+    return f"{suffix}"
 
 _PK_HASH_DIGEST_BYTE_WIDTH = 20
 _PK_HASH_COLUMN_NAME = _get_sys_col_name("hash")
@@ -56,11 +58,18 @@ _ORDERED_FILE_IDX_COLUMN_FIELD = pa.field(
     _ORDERED_FILE_IDX_COLUMN_TYPE,
 )
 
-_ORDERED_RECORD_IDX_COLUMN_NAME = _get_sys_col_name("record_index")
+_ORDERED_RECORD_IDX_COLUMN_NAME = _get_iceberg_sys_col_name("pos")
 _ORDERED_RECORD_IDX_COLUMN_TYPE = pa.int64()
 _ORDERED_RECORD_IDX_COLUMN_FIELD = pa.field(
     _ORDERED_RECORD_IDX_COLUMN_NAME,
     _ORDERED_RECORD_IDX_COLUMN_TYPE,
+)
+
+_FILE_PATH_COLUMN_NAME = _get_iceberg_sys_col_name("file_path")
+_FILE_PATH_COLUMN_TYPE = pa.string()
+_FILE_PATH_COLUMN_FIELD = pa.field(
+    _FILE_PATH_COLUMN_NAME,
+    _FILE_PATH_COLUMN_TYPE,
 )
 
 _DELTA_TYPE_COLUMN_NAME = _get_sys_col_name("delta_type")
