@@ -3,15 +3,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-import deltacat.storage.model.partition as partition
-from deltacat.storage.model.metafile import Metafile
+import pyarrow as pa
 
-from deltacat.storage.model.schema import Schema
+import deltacat.storage.model.partition as partition
+
+from deltacat.storage.model.metafile import Metafile
+from deltacat.storage.model.schema import Schema, SchemaList
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.types.media import ContentType
-from deltacat.storage.model.sort_key import SortScheme
+from deltacat.storage.model.sort_key import SortScheme, SortSchemeList
 from deltacat.storage.model.types import LifecycleState
 
 TableVersionProperties = Dict[str, Any]
@@ -21,17 +23,17 @@ class TableVersion(Metafile):
     @staticmethod
     def of(
         locator: Optional[TableVersionLocator],
-        # TODO: change to SchemaList
         schema: Optional[Schema],
-        # TODO: change to PartitionSchemeList
         partition_scheme: Optional[partition.PartitionScheme] = None,
         description: Optional[str] = None,
         properties: Optional[TableVersionProperties] = None,
         content_types: Optional[List[ContentType]] = None,
-        # TODO: change to SortSchemeList
         sort_scheme: Optional[SortScheme] = None,
         watermark: Optional[int] = None,
         lifecycle_state: Optional[LifecycleState] = None,
+        schemas: Optional[SchemaList] = None,
+        partition_schemes: Optional[partition.PartitionSchemeList] = None,
+        sort_schemes: Optional[SortSchemeList] = None,
         native_object: Optional[Any] = None,
     ) -> TableVersion:
         table_version = TableVersion()
@@ -44,6 +46,9 @@ class TableVersion(Metafile):
         table_version.sort_scheme = sort_scheme
         table_version.watermark = watermark
         table_version.lifecycle_state = lifecycle_state
+        table_version.schemas = schemas
+        table_version.partition_schemes = partition_schemes
+        table_version.sort_schemes = sort_schemes
         table_version.native_object = native_object
         return table_version
 
@@ -67,6 +72,17 @@ class TableVersion(Metafile):
         self["schema"] = schema
 
     @property
+    def schemas(self) -> Optional[SchemaList]:
+        val: List[Schema] = self.get("schemas")
+        if val is not None and not isinstance(val, SchemaList):
+            self["schemas"] = val = SchemaList.of(val)
+        return val
+
+    @schemas.setter
+    def schemas(self, schemas: Optional[SchemaList]) -> None:
+        self["schemas"] = schemas
+
+    @property
     def sort_scheme(self) -> Optional[SortScheme]:
         val: Dict[str, Any] = self.get("sortScheme")
         if val is not None and not isinstance(val, SortScheme):
@@ -76,6 +92,17 @@ class TableVersion(Metafile):
     @sort_scheme.setter
     def sort_scheme(self, sort_scheme: Optional[SortScheme]) -> None:
         self["sortScheme"] = sort_scheme
+
+    @property
+    def sort_schemes(self) -> Optional[SortSchemeList]:
+        val: Dict[str, Any] = self.get("sortSchemes")
+        if val is not None and not isinstance(val, SortSchemeList):
+            self["sortSchemes"] = val = SortSchemeList.of(val)
+        return val
+
+    @sort_schemes.setter
+    def sort_schemes(self, sort_schemes: Optional[SortSchemeList]) -> None:
+        self["sortSchemes"] = sort_schemes
 
     @property
     def watermark(self) -> Optional[int]:
@@ -97,6 +124,19 @@ class TableVersion(Metafile):
         self, partition_scheme: Optional[partition.PartitionScheme]
     ) -> None:
         self["partitionScheme"] = partition_scheme
+
+    @property
+    def partition_schemes(self) -> Optional[partition.PartitionSchemeList]:
+        val: Dict[str, Any] = self.get("partitionSchemes")
+        if val is not None and not isinstance(val, partition.PartitionSchemeList):
+            self["partitionSchemes"] = val = partition.PartitionSchemeList.of(val)
+        return val
+
+    @partition_schemes.setter
+    def partition_schemes(
+        self, partition_schemes: Optional[partition.PartitionSchemeList]
+    ) -> None:
+        self["partitionSchemes"] = partition_schemes
 
     @property
     def description(self) -> Optional[str]:
@@ -175,6 +215,24 @@ class TableVersion(Metafile):
         return (not supported_content_types) or (
             content_type in supported_content_types
         )
+
+    def to_serializable(self) -> TableVersion:
+        self.schema = self.schema.serialize().to_pybytes() if self.schema else None
+        self.schemas = (
+            [_.serialize().to_pybytes() for _ in self.schemas] if self.schemas else None
+        )
+        return self
+
+    def from_serializable(self) -> TableVersion:
+        self.schema = (
+            Schema.deserialize(pa.py_buffer(self.schema)) if self.schema else None
+        )
+        self.schemas = (
+            [Schema.deserialize(pa.py_buffer(_)) for _ in self.schemas]
+            if self.schemas
+            else None
+        )
+        return self
 
 
 class TableVersionLocator(Locator, dict):

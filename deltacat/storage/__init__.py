@@ -24,6 +24,7 @@ from deltacat.storage.model.partition import (
     PartitionLocator,
     PartitionKey,
     PartitionScheme,
+    PartitionSchemeList,
     PartitionValues,
 )
 from deltacat.storage.model.schema import (
@@ -33,6 +34,7 @@ from deltacat.storage.model.schema import (
     FieldName,
     NestedFieldName,
     Schema,
+    SchemaList,
 )
 from deltacat.storage.model.stream import Stream, StreamLocator
 from deltacat.storage.model.table import (
@@ -77,6 +79,7 @@ from deltacat.storage.model.types import (
 from deltacat.storage.model.sort_key import (
     SortKey,
     SortScheme,
+    SortSchemeList,
 )
 
 __all__ = [
@@ -118,12 +121,15 @@ __all__ = [
     "PartitionKey",
     "PartitionLocator",
     "PartitionScheme",
+    "PartitionSchemeList",
     "PartitionValues",
     "Schema",
+    "SchemaList",
     "SchemaConsistencyType",
     "SortKey",
     "SortOrder",
     "SortScheme",
+    "SortSchemeList",
     "Stream",
     "StreamFormat",
     "StreamLocator",

@@ -2,6 +2,7 @@ import unittest
 import tempfile
 import os
 
+from deltacat import Schema, Field
 from deltacat.storage import (
     Namespace,
     NamespaceLocator,
@@ -23,8 +24,8 @@ from deltacat.storage import (
 class TestMetafileIO(unittest.TestCase):
     def test_namespace_serde(self):
         temp_dir = tempfile.gettempdir()
-        namespace_locator = NamespaceLocator.of("test_namespace")
-        namespace = Namespace.of(namespace_locator)
+        namespace_locator = NamespaceLocator.of(namespace="test_namespace")
+        namespace = Namespace.of(locator=namespace_locator)
         try:
             temp_file_path = namespace.write(temp_dir)
             deserialized_namespace = Namespace.read(temp_file_path)
@@ -34,8 +35,14 @@ class TestMetafileIO(unittest.TestCase):
 
     def test_table_serde(self):
         temp_dir = tempfile.gettempdir()
-        table_locator = TableLocator.at("test_namespace", "test_table")
-        table = Table.of(table_locator, "test table description")
+        table_locator = TableLocator.at(
+            namespace="test_namespace",
+            table_name="test_table",
+        )
+        table = Table.of(
+            locator=table_locator,
+            description="test table description",
+        )
         try:
             temp_file_path = table.write(temp_dir)
             deserialized_table = Table.read(temp_file_path)
@@ -46,11 +53,35 @@ class TestMetafileIO(unittest.TestCase):
     def test_table_version_serde(self):
         temp_dir = tempfile.gettempdir()
         table_version_locator = TableVersionLocator.at(
-            "test_namespace",
-            "test_table",
-            "test_table_version",
+            namespace="test_namespace",
+            table_name="test_table",
+            table_version="test_table_version",
         )
-        table_version = TableVersion.of(table_version_locator, schema=None)
+        import pyarrow as pa
+
+        schema = Schema.of(
+            [
+                Field.of(
+                    field=pa.field("some_string", pa.string(), nullable=False),
+                    field_id=1,
+                    is_merge_key=True,
+                ),
+                Field.of(
+                    field=pa.field("some_int32", pa.int32(), nullable=False),
+                    field_id=2,
+                    is_merge_key=True,
+                ),
+                Field.of(
+                    field=pa.field("some_float64", pa.float64()),
+                    field_id=3,
+                    is_merge_key=False,
+                ),
+            ]
+        )
+        table_version = TableVersion.of(
+            locator=table_version_locator,
+            schema=schema,
+        )
         try:
             temp_file_path = table_version.write(temp_dir)
             deserialized_table_version = Table.read(temp_file_path)
@@ -61,13 +92,16 @@ class TestMetafileIO(unittest.TestCase):
     def test_stream_serde(self):
         temp_dir = tempfile.gettempdir()
         stream_locator = StreamLocator.at(
-            "test_namespace",
-            "test_table",
-            "test_table_version",
-            "test_stream_id",
-            StreamFormat.DELTACAT,
+            namespace="test_namespace",
+            table_name="test_table",
+            table_version="test_table_version",
+            stream_id="test_stream_id",
+            stream_format=StreamFormat.DELTACAT,
         )
-        stream = Stream.of(stream_locator, None)
+        stream = Stream.of(
+            locator=stream_locator,
+            partition_scheme=None,
+        )
         try:
             temp_file_path = stream.write(temp_dir)
             deserialized_stream = Table.read(temp_file_path)
@@ -78,14 +112,14 @@ class TestMetafileIO(unittest.TestCase):
     def test_partition_serde(self):
         temp_dir = tempfile.gettempdir()
         partition_locator = PartitionLocator.at(
-            "test_namespace",
-            "test_table",
-            "test_table_version",
-            "test_stream_id",
-            StreamFormat.DELTACAT,
-            ["a", 1],
-            "test_partition_id",
-            "test_partition_scheme_id",
+            namespace="test_namespace",
+            table_name="test_table",
+            table_version="test_table_version",
+            stream_id="test_stream_id",
+            stream_format=StreamFormat.DELTACAT,
+            partition_values=["a", 1],
+            partition_id="test_partition_id",
+            partition_scheme_id="test_partition_scheme_id",
         )
         partition = Partition.of(partition_locator, None, None)
         try:
@@ -98,17 +132,23 @@ class TestMetafileIO(unittest.TestCase):
     def test_delta_serde(self):
         temp_dir = tempfile.gettempdir()
         delta_locator = DeltaLocator.at(
-            "test_namespace",
-            "test_table",
-            "test_table_version",
-            "test_stream_id",
-            StreamFormat.DELTACAT,
-            ["a", 1],
-            "test_partition_id",
-            "test_partition_scheme_id",
-            1,
+            namespace="test_namespace",
+            table_name="test_table",
+            table_version="test_table_version",
+            stream_id="test_stream_id",
+            stream_format=StreamFormat.DELTACAT,
+            partition_values=["a", 1],
+            partition_id="test_partition_id",
+            partition_scheme_id="test_partition_scheme_id",
+            stream_position=1,
         )
-        delta = Delta.of(delta_locator, DeltaType.APPEND, None, None, None)
+        delta = Delta.of(
+            locator=delta_locator,
+            delta_type=DeltaType.APPEND,
+            meta=None,
+            properties=None,
+            manifest=None,
+        )
         try:
             temp_file_path = delta.write(temp_dir)
             deserialized_delta = Table.read(temp_file_path)
@@ -120,8 +160,8 @@ class TestMetafileIO(unittest.TestCase):
         temp_dir = tempfile.gettempdir()
         namespace_locator = NamespaceLocator.of("test_namespace")
         table_locator = TableLocator.of(namespace_locator, "test_table")
-        # test basic python types except set, frozenset, and range which
-        # msgpack can't serialize
+        # test basic python types
+        # (set, frozenset, and range can't be serialized by msgpack)
         properties = {
             "foo": 1,
             "bar": 2.0,
@@ -134,8 +174,11 @@ class TestMetafileIO(unittest.TestCase):
             "waldo": bytearray(3),
             "fred": memoryview(bytes(4)),
         }
-
-        table = Table.of(table_locator, "test table description", properties)
+        table = Table.of(
+            locator=table_locator,
+            description="test table description",
+            properties=properties,
+        )
         try:
             temp_file_path = table.write(temp_dir)
             deserialized_table = Table.read(temp_file_path)
@@ -143,9 +186,9 @@ class TestMetafileIO(unittest.TestCase):
             os.remove(temp_file_path)
         # exchange original table properties with the expected table properties
         expected_properties = properties.copy()
-        # msgpack will tranlate tuples to lists
+        # msgpack tranlates tuples to lists
         expected_properties["garply"] = [1, 2, 3]
-        # msgpack will expand bytearray and memoryview to the actual bytes
+        # msgpack unpacks bytearray and memoryview into bytes
         expected_properties["waldo"] = b"\x00\x00\x00"
         expected_properties["fred"] = b"\x00\x00\x00\x00"
         table.properties = expected_properties

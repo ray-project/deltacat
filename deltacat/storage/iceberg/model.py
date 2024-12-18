@@ -474,11 +474,9 @@ class SchemaMapper(ModelMapper[IcebergSchema, Schema]):
             final_fields.append(final_field)
         # TODO(pdames): Traverse DeltaCAT schemas to find one already related
         #  to this Iceberg schema.
-        linked_schema_ids = {stream_locator: str(obj.schema_id)}
         return Schema.of(
             schema=final_fields,
             metadata=schema.metadata,
-            linked_schema_ids=linked_schema_ids,
             native_object=obj,
         )
 

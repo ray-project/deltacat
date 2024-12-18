@@ -41,14 +41,14 @@ class Partition(Metafile):
         next_partition_id: Optional[str] = None,
     ) -> Partition:
         partition = Partition()
-        partition.locator = locator
-        partition.schema = schema
-        partition.content_types = content_types
-        partition.state = state
-        partition.previous_stream_position = previous_stream_position
-        partition.previous_partition_id = previous_partition_id
-        partition.stream_position = stream_position
-        partition.next_partition_id = next_partition_id
+        locator = locator
+        schema = schema
+        content_types = content_types
+        state = state
+        previous_stream_position = previous_stream_position
+        previous_partition_id = previous_partition_id
+        stream_position = stream_position
+        next_partition_id = next_partition_id
         return partition
 
     @property
@@ -458,3 +458,20 @@ class PartitionScheme(dict):
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
+
+
+class PartitionSchemeList(List[PartitionScheme]):
+    @staticmethod
+    def of(entries: List[PartitionScheme]) -> PartitionSchemeList:
+        entries = PartitionSchemeList()
+        for entry in entries:
+            if entry is not None and not isinstance(entry, PartitionScheme):
+                entry = PartitionScheme(entry)
+            entries.append(entry)
+        return entries
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, PartitionScheme):
+            self[item] = val = PartitionScheme(val)
+        return val

@@ -7,8 +7,6 @@ from typing import Optional, Any, Dict, Union, List, Callable
 import pyarrow as pa
 from pyarrow import ArrowInvalid
 
-from deltacat.storage.model.locator import Locator
-
 from deltacat.storage.model.types import (
     SchemaConsistencyType,
     SortOrder,
@@ -42,9 +40,6 @@ FIELD_CONSISTENCY_TYPE_KEY_NAME = b"DELTACAT:consistency_type"
 
 # PyArrow Schema Metadata Key used to store schema ID value.
 SCHEMA_ID_KEY_NAME = b"DELTACAT:schema_id"
-
-# PyArrow Schema Metadata Key used to store source schema ID value.
-SOURCE_SCHEMA_ID_KEY_NAME = b"DELTACAT:source_schema_id"
 
 # Set max field ID to INT32.MAX_VALUE - 200 for backwards-compatibility with
 # Apache Iceberg, which sets aside this range for reserved fields
@@ -300,7 +295,7 @@ class Field(dict):
 
     @staticmethod
     def _validate_merge_key(field: pa.Field):
-        if not pa.types.is_primitive(field.type):
+        if not (pa.types.is_string(field.type) or pa.types.is_primitive(field.type)):
             raise ValueError(f"Merge key {field} must be a primitive type.")
         if pa.types.is_floating(field.type):
             raise ValueError(f"Merge key {field} cannot be floating point.")
@@ -344,13 +339,13 @@ class Field(dict):
         future_default: Optional[Any],
         consistency_type: Optional[SchemaConsistencyType],
     ) -> pa.Field:
-        meta = None
+        meta = {}
         if is_merge_key:
             Field._validate_merge_key(field)
-            meta = {FIELD_MERGE_KEY_NAME: str(is_merge_key)}
+            meta[FIELD_MERGE_KEY_NAME] = str(is_merge_key)
         if merge_order:
             Field._validate_merge_order(field)
-            meta = {FIELD_MERGE_ORDER_KEY_NAME: str(is_merge_key)}
+            meta[FIELD_MERGE_ORDER_KEY_NAME] = str(is_merge_key)
         if is_event_time:
             Field._validate_event_time(field)
             meta[FIELD_EVENT_TIME_KEY_NAME] = str(is_merge_key)
@@ -361,7 +356,7 @@ class Field(dict):
             Field._validate_default(future_default, field)
             meta[FIELD_FUTURE_DEFAULT_KEY_NAME] = msgpack.dumps(future_default)
         if field_id is not None:
-            meta[PARQUET_FIELD_ID_KEY_NAME] = (str(field_id),)
+            meta[PARQUET_FIELD_ID_KEY_NAME] = str(field_id)
         if doc is not None:
             meta[FIELD_DOC_KEY_NAME] = doc
         if consistency_type is not None:
@@ -377,10 +372,9 @@ class Field(dict):
 class Schema(dict):
     @staticmethod
     def of(
-        schema: Union[pa.Schema, List[Field]],
+        schema: Union[List[Field], pa.Schema],
         schema_id: SchemaId = 0,
         metadata: Optional[Dict[str, Any]] = None,
-        linked_schema_ids: Optional[Dict[Locator, str]] = None,
         native_object: Optional[Any] = None,
     ) -> Schema:
         """
@@ -388,7 +382,7 @@ class Schema(dict):
         of DeltaCAT fields.
 
         Args:
-            schema (Union[pa.Schema, List[Field]]): Arrow base schema or list
+            schema (Union[List[Field], pa.Schema]): Arrow base schema or list
             of DeltaCAT fields. If an Arrow base schema is given, then a copy
             of the base schema is made with each Arrow field populated with
             additional metadata. Field IDs, merge keys, docs, and default vals
@@ -402,12 +396,6 @@ class Schema(dict):
             pairs associated with this schema. Overwrites Arrow base schema
             metadata if present. All values must be coercible to bytes.
 
-            linked_schema_ids (Optional[Dict[Locator, str]]): Maps stream
-            locators to the IDs of any linked schemas, if any, that this schema
-            is equivalent to. Used to track the schemas in sibling streams of
-            the same table version that have been synced to another format
-            (e.g. Iceberg).
-
             native_object (Optional[Any]): The native object, if any, that this
             schema was converted from.
         Returns:
@@ -415,6 +403,7 @@ class Schema(dict):
         """
         # discover assigned field IDs in the given pyarrow schema
         field_ids_to_fields = {}
+        final_metadata = metadata or {}
         if isinstance(schema, pa.Schema):
             visitor_dict = {"maxFieldId": 0}
             # find and save the schema's max field ID in the visitor dictionary
@@ -431,13 +420,14 @@ class Schema(dict):
                 visit=Schema._populate_fields,
                 visitor_dict=visitor_dict,
             )
+            if not final_metadata and schema.metadata:
+                final_metadata.update(schema.metadata)
         elif isinstance(schema, List):
             # convert input fields to a pyarrow schema to populate field paths
             return Schema.of(
                 schema=pa.schema(fields=[field.arrow for field in schema]),
                 schema_id=schema_id,
                 metadata=metadata,
-                linked_schema_ids=linked_schema_ids,
                 native_object=native_object,
             )
         else:
@@ -449,13 +439,7 @@ class Schema(dict):
             field.id for field in field_ids_to_fields.values() if field.is_merge_key
         ]
         # create a new pyarrow schema with field ID, doc, etc. field metadata
-        final_metadata = {} or metadata
-        if metadata is None:
-            final_metadata.update(schema.metadata)
         final_metadata[SCHEMA_ID_KEY_NAME] = str(schema_id)
-        final_metadata[SOURCE_SCHEMA_ID_KEY_NAME] = msgpack.dumps(
-            linked_schema_ids,
-        )
         final_schema = pa.schema(
             fields=[field.arrow for field in field_ids_to_fields.values()],
             metadata=final_metadata,
@@ -515,10 +499,6 @@ class Schema(dict):
         return Schema._schema_id(self.arrow)
 
     @property
-    def linked_schema_ids(self) -> Optional[Dict[Locator, str]]:
-        return Schema._linked_schema_ids(self.arrow)
-
-    @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
 
@@ -529,14 +509,6 @@ class Schema(dict):
             bytes_val = schema.metadata.get(SCHEMA_ID_KEY_NAME)
             schema_id = int(bytes_val.decode()) if bytes_val else None
         return schema_id
-
-    @staticmethod
-    def _linked_schema_ids(schema: pa.Schema) -> Optional[Dict[Locator, str]]:
-        schema_ids = None
-        if schema.metadata:
-            bytes_val = schema.metadata.get(SOURCE_SCHEMA_ID_KEY_NAME)
-            schema_ids = msgpack.loads(bytes_val.decode()) if bytes_val else None
-        return schema_ids
 
     @staticmethod
     def _field_name_to_field_id(
@@ -655,3 +627,20 @@ class Schema(dict):
             path=path,
         )
         field_ids_to_fields[field_id] = field
+
+
+class SchemaList(List[Schema]):
+    @staticmethod
+    def of(entries: List[Schema]) -> SchemaList:
+        entries = SchemaList()
+        for entry in entries:
+            if entry is not None and not isinstance(entry, Schema):
+                entry = Schema(entry)
+            entries.append(entry)
+        return entries
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, Schema):
+            self[item] = val = Schema(val)
+        return val

@@ -136,3 +136,20 @@ class SortScheme(dict):
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
+
+
+class SortSchemeList(List[SortScheme]):
+    @staticmethod
+    def of(entries: List[SortScheme]) -> SortSchemeList:
+        entries = SortSchemeList()
+        for entry in entries:
+            if entry is not None and not isinstance(entry, SortScheme):
+                entry = SortScheme(entry)
+            entries.append(entry)
+        return entries
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, SortScheme):
+            self[item] = val = SortScheme(val)
+        return val

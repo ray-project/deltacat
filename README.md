@@ -1,17 +1,18 @@
 ![deltacat-header-logo](media/deltacat-logo-alpha.png)
 
-DeltaCAT is a portable Data Lakehouse powered by Ray. It lets you define and manage fast, scalable,
-ACID-compliant multi-modal data lakes, and has been used to successfully manage exabyte-scale enterprise data lakes.
+DeltaCAT is a portable Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It lets you define and manage
+fast, scalable, ACID-compliant multi-modal data lakes, and has been used to [successfully manage exabyte-scale enterprise
+data lakes](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
 
-It uses the [Ray](https://github.com/ray-project/ray) distributed compute framework together with
-[Apache Arrow](https://github.com/apache/arrow) and [Daft](https://github.com/Eventual-Inc/Daft) to efficiently scale
-common table management tasks, like petabyte-scale merge-on-read and copy-on-write operations.
+It uses the Ray distributed compute framework together with [Apache Arrow](https://github.com/apache/arrow) and
+[Daft](https://github.com/Eventual-Inc/Daft) to efficiently scale common table management tasks, like petabyte-scale
+merge-on-read and copy-on-write operations.
 
-DeltaCAT consists of the following high-level components:
+DeltaCAT provides four high-level components:
 1. **Catalog**: High-level APIs to create, discover, organize, and manage datasets.
 2. **Compute**: Distributed data management jobs to read, write, and optimize datasets.
-3. **Storage**: In-memory and on-disk multi-modal dataset models based on Apache Arrow.
-4. **Sync**: Interoperability tools to synchronize DeltaCAT datasets to or from other data warehouses, datasets, and table formats.
+3. **Storage**: In-memory and on-disk multi-modal dataset formats based on Apache Arrow.
+4. **Sync**: Synchronize DeltaCAT datasets with other data warehouses and table formats.
 
 
 ## Getting Started
