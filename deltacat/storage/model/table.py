@@ -5,21 +5,30 @@ from typing import Any, Dict, Optional
 
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.metafile import Metafile
+
+TableProperties = Dict[str, Any]
 
 
-class Table(dict):
+class Table(Metafile):
+    """
+    Tables store properties common to every table version including the
+    table's name, a high-level description of all table versions, and
+    properties shared by all table versions.
+    """
+
     @staticmethod
     def of(
         locator: Optional[TableLocator],
-        permissions: Optional[Dict[str, Any]] = None,
         description: Optional[str] = None,
-        properties: Optional[Dict[str, str]] = None,
+        properties: Optional[TableProperties] = None,
+        native_object: Optional[Any] = None,
     ) -> Table:
         table = Table()
         table.locator = locator
-        table.permissions = permissions
         table.description = description
         table.properties = properties
+        table.native_object = native_object
         return table
 
     @property
@@ -34,14 +43,6 @@ class Table(dict):
         self["tableLocator"] = table_locator
 
     @property
-    def permissions(self) -> Optional[Dict[str, Any]]:
-        return self.get("permissions")
-
-    @permissions.setter
-    def permissions(self, permissions: Optional[Dict[str, Any]]) -> None:
-        self["permissions"] = permissions
-
-    @property
     def description(self) -> Optional[str]:
         return self.get("description")
 
@@ -50,12 +51,20 @@ class Table(dict):
         self["description"] = description
 
     @property
-    def properties(self) -> Optional[Dict[str, str]]:
+    def properties(self) -> Optional[TableProperties]:
         return self.get("properties")
 
     @properties.setter
-    def properties(self, properties: Optional[Dict[str, str]]) -> None:
+    def properties(self, properties: Optional[TableProperties]) -> None:
         self["properties"] = properties
+
+    @property
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")
+
+    @native_object.setter
+    def native_object(self, native_object: Optional[Any]) -> None:
+        self["nativeObject"] = native_object
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:

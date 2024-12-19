@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Set, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 import pyarrow as pa
 import daft
@@ -16,38 +16,39 @@ from deltacat.utils.common import current_time_ms
 from deltacat.storage import (
     Delta,
     DeltaLocator,
+    DeltaProperties,
     DeltaType,
     DistributedDataset,
     LifecycleState,
     ListResult,
     LocalDataset,
     LocalTable,
-    Manifest,
     ManifestAuthor,
     Namespace,
     NamespaceLocator,
+    NamespaceProperties,
     Partition,
-    SchemaConsistencyType,
+    PartitionScheme,
+    Schema,
     Stream,
     StreamLocator,
     Table,
     TableVersion,
     TableVersionLocator,
+    TableVersionProperties,
     TableLocator,
+    TableProperties,
     CommitState,
-    SortKey,
+    SortScheme,
     PartitionLocator,
-    ManifestMeta,
     ManifestEntry,
     ManifestEntryList,
-    DeleteParameters,
-    PartitionFilter,
+    EntryParams,
     PartitionValues,
-    DeltaPartitionSpec,
-    StreamPartitionSpec,
     TransformName,
-    IdentityTransformParameters,
+    StreamFormat,
 )
+from deltacat.storage.model.manifest import Manifest, ManifestMeta, EntryType
 from deltacat.types.media import (
     ContentType,
     StorageType,
@@ -65,7 +66,7 @@ SQLITE_CUR_ARG = "sqlite3_cur"
 SQLITE_CON_ARG = "sqlite3_con"
 DB_FILE_PATH_ARG = "db_file_path"
 
-STORAGE_TYPE = "SQLITE3"
+STREAM_FORMAT = StreamFormat.SQLITE3
 STREAM_ID_PROPERTY = "stream_id"
 CREATE_NAMESPACES_TABLE = (
     "CREATE TABLE IF NOT EXISTS namespaces(locator, value, PRIMARY KEY (locator))"
@@ -206,20 +207,13 @@ def list_deltas(
     last_stream_position: Optional[int] = None,
     ascending_order: Optional[bool] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> ListResult[Delta]:
     stream = get_stream(namespace, table_name, table_version, *args, **kwargs)
     if stream is None:
         return ListResult.of([], None, None)
-
-    if partition_values is not None and partition_filter is not None:
-        raise ValueError(
-            "Only one of partition_values or partition_filter must be provided"
-        )
-    if partition_filter is not None:
-        partition_values = partition_filter.partition_values
 
     partition = get_partition(stream.locator, partition_values, *args, **kwargs)
 
@@ -314,21 +308,13 @@ def get_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Delta]:
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
     stream = get_stream(namespace, table_name, table_version, *args, **kwargs)
-
-    if partition_values is not None and partition_filter is not None:
-        raise ValueError(
-            "Only one of partition_values or partition_filter must be provided"
-        )
-
-    if partition_filter is not None:
-        partition_values = partition_filter.partition_values
 
     partition = get_partition(stream.locator, partition_values, *args, **kwargs)
     delta_locator = DeltaLocator.of(partition.locator, stream_position)
@@ -355,7 +341,7 @@ def get_latest_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Delta]:
@@ -369,7 +355,7 @@ def get_latest_delta(
         last_stream_position=None,
         ascending_order=False,
         include_manifest=include_manifest,
-        partition_filter=partition_filter,
+        partition_scheme_id=partition_scheme_id,
         *args,
         **kwargs,
     ).all_items()
@@ -389,7 +375,6 @@ def download_delta(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
@@ -398,16 +383,7 @@ def download_delta(
         manifest = Delta(delta_like).manifest
     else:
         manifest = get_delta_manifest(delta_like, *args, **kwargs)
-    partition_values: PartitionValues = None
-    if partition_filter is not None:
-        partition_values = partition_filter.partition_values
     for entry_index in range(len(manifest.entries)):
-        if (
-            partition_values is not None
-            and partition_values != manifest.entries[entry_index].meta.partition_values
-        ):
-            continue
-
         result.append(
             download_delta_manifest_entry(
                 delta_like=delta_like,
@@ -515,11 +491,11 @@ def get_delta_manifest(
 
 
 def create_namespace(
-    namespace: str, permissions: Dict[str, Any], *args, **kwargs
+    namespace: str, properties: NamespaceProperties, *args, **kwargs
 ) -> Namespace:
     cur, con = _get_sqlite3_cursor_con(kwargs)
     locator = NamespaceLocator.of(namespace)
-    result = Namespace.of(locator, permissions)
+    result = Namespace.of(locator, properties)
     params = (locator.canonical_string(), json.dumps(result))
     cur.execute(CREATE_NAMESPACES_TABLE)
     cur.execute(CREATE_TABLES_TABLE)
@@ -535,7 +511,7 @@ def create_namespace(
 
 def update_namespace(
     namespace: str,
-    permissions: Optional[Dict[str, Any]] = None,
+    properties: NamespaceProperties = None,
     new_namespace: Optional[str] = None,
     *args,
     **kwargs,
@@ -543,7 +519,7 @@ def update_namespace(
     assert new_namespace is None, "namespace name cannot be changed"
     cur, con = _get_sqlite3_cursor_con(kwargs)
     locator = NamespaceLocator.of(namespace)
-    result = Namespace.of(locator, permissions)
+    result = Namespace.of(locator, properties)
     params = (json.dumps(result), locator.canonical_string())
     cur.execute("UPDATE namespaces SET value = ? WHERE locator = ?", params)
     con.commit()
@@ -553,39 +529,41 @@ def create_table_version(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
-    schema: Optional[Union[pa.Schema, str, bytes]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[List[Dict[str, Any]]] = None,
-    primary_key_column_names: Optional[Set[str]] = None,
-    sort_keys: Optional[List[SortKey]] = None,
+    schema: Optional[Union[pa.Schema, Any]] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
+    sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
-    table_version_properties: Optional[Dict[str, str]] = None,
-    table_permissions: Optional[Dict[str, Any]] = None,
+    table_version_properties: Optional[TableVersionProperties] = None,
     table_description: Optional[str] = None,
-    table_properties: Optional[Dict[str, str]] = None,
+    table_properties: Optional[TableProperties] = None,
     supported_content_types: Optional[List[ContentType]] = None,
-    partition_spec: Optional[StreamPartitionSpec] = None,
     *args,
     **kwargs,
 ) -> Stream:
     cur, con = _get_sqlite3_cursor_con(kwargs)
 
-    if partition_keys is not None and partition_spec is not None:
-        raise ValueError(
-            "Only one of partition_keys or partition_spec must be provided"
-        )
-    if partition_spec is not None:
+    if partition_scheme is not None:
         assert (
-            partition_spec.ordered_transforms is not None
-        ), "Ordered transforms must be specified when partition_spec is specified"
-        partition_keys = []
-        for transform in partition_spec.ordered_transforms:
-            assert transform.name == TransformName.IDENTITY, (
+            partition_scheme.keys is not None
+        ), "Partition keys must be specified with partition scheme"
+        for key in partition_scheme.keys:
+            assert (
+                key.transform is None or key.transform.name == TransformName.IDENTITY
+            ), (
                 "Local DeltaCAT storage does not support creating table versions "
                 "with non identity transform partition spec"
             )
-            transform_params: IdentityTransformParameters = transform.parameters
-            partition_keys.append(transform_params.column_name)
+    if sort_keys is not None:
+        assert (
+            sort_keys.keys is not None
+        ), "Sort keys must be specified with sort scheme"
+        for key in sort_keys.keys:
+            assert (
+                key.transform is None or key.transform.name == TransformName.IDENTITY
+            ), (
+                "Local DeltaCAT storage does not support creating table versions "
+                "with non identity transform sort spec"
+            )
 
     latest_version = get_latest_table_version(namespace, table_name, *args, **kwargs)
     if (
@@ -602,9 +580,7 @@ def create_table_version(
         )
 
     table_locator = TableLocator.of(NamespaceLocator.of(namespace), table_name)
-    table_obj = Table.of(
-        table_locator, table_permissions, table_description, table_properties
-    )
+    table_obj = Table.of(table_locator, table_description, table_properties)
     table_version_locator = TableVersionLocator.of(
         table_locator=table_locator, table_version=table_version
     )
@@ -617,19 +593,18 @@ def create_table_version(
     properties = {**table_version_properties, STREAM_ID_PROPERTY: stream_id}
     table_version_obj = TableVersion.of(
         table_version_locator,
-        schema=schema,
-        partition_keys=partition_keys,
-        primary_key_columns=primary_key_column_names,
+        schema=Schema.of(schema) if schema else None,
+        partition_scheme=partition_scheme,
         description=table_version_description,
         properties=properties,
-        sort_keys=sort_keys,
+        sort_scheme=sort_keys,
         content_types=supported_content_types,
     )
     stream_locator = StreamLocator.of(
-        table_version_obj.locator, stream_id=stream_id, storage_type=STORAGE_TYPE
+        table_version_obj.locator, stream_id=stream_id, stream_format=STREAM_FORMAT
     )
     result_stream = Stream.of(
-        stream_locator, partition_keys=partition_keys, state=CommitState.COMMITTED
+        stream_locator, partition_scheme=partition_scheme, state=CommitState.COMMITTED
     )
 
     params = (
@@ -658,16 +633,15 @@ def create_table_version(
 def update_table(
     namespace: str,
     table_name: str,
-    permissions: Optional[Dict[str, Any]] = None,
     description: Optional[str] = None,
-    properties: Optional[Dict[str, str]] = None,
+    properties: Optional[TableProperties] = None,
     new_table_name: Optional[str] = None,
     *args,
     **kwargs,
 ) -> None:
     cur, con = _get_sqlite3_cursor_con(kwargs)
     table_locator = TableLocator.of(NamespaceLocator.of(namespace), table_name)
-    table_obj = Table.of(table_locator, permissions, description, properties)
+    table_obj = Table.of(table_locator, description, properties)
 
     params = (table_locator.canonical_string(),)
     cur.execute("DELETE FROM tables WHERE locator = ?", params)
@@ -685,10 +659,9 @@ def update_table_version(
     table_name: str,
     table_version: str,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema: Optional[Union[pa.Schema, str, bytes]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
+    schema: Optional[Union[pa.Schema, Any]] = None,
     description: Optional[str] = None,
-    properties: Optional[Dict[str, str]] = None,
+    properties: Optional[TableVersionProperties] = None,
     *args,
     **kwargs,
 ) -> None:
@@ -720,12 +693,11 @@ def update_table_version(
     tv_properties = {**properties, **current_props}
     table_version_obj = TableVersion.of(
         table_version_locator,
-        schema=schema,
-        partition_keys=current_table_version_obj.partition_keys,
-        primary_key_columns=current_table_version_obj.primary_keys,
+        schema=Schema.of(schema) if schema else None,
+        partition_scheme=current_table_version_obj.partition_scheme,
         description=description,
         properties=tv_properties,
-        sort_keys=current_table_version_obj.sort_keys,
+        sort_scheme=current_table_version_obj.sort_scheme,
         content_types=current_table_version_obj.content_types,
     )
 
@@ -757,11 +729,11 @@ def stage_stream(
 
     stream_id = uuid.uuid4().__str__()
     new_stream_locator = StreamLocator.of(
-        existing_table_version.locator, stream_id, STORAGE_TYPE
+        existing_table_version.locator, stream_id, STREAM_FORMAT
     )
     new_stream = Stream.of(
         new_stream_locator,
-        existing_stream.partition_keys,
+        existing_stream.partition_scheme,
         CommitState.STAGED,
         existing_stream.locator.canonical_string(),
     )
@@ -785,9 +757,9 @@ def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
     )
     stream_to_commit = Stream.of(
         stream.locator,
-        stream.partition_keys,
+        stream.partition_scheme,
         CommitState.COMMITTED,
-        stream.previous_stream_digest,
+        stream.previous_stream_id,
     )
 
     existing_table_version.properties[
@@ -989,12 +961,10 @@ def stage_delta(
     delta_type: DeltaType = DeltaType.UPSERT,
     max_records_per_entry: Optional[int] = None,
     author: Optional[ManifestAuthor] = None,
-    properties: Optional[Dict[str, str]] = None,
+    properties: Optional[DeltaProperties] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
-    delete_parameters: Optional[DeleteParameters] = None,
-    partition_spec: Optional[DeltaPartitionSpec] = None,
-    partition_values: Optional[PartitionValues] = None,
+    entry_params: Optional[EntryParams] = None,
     *args,
     **kwargs,
 ) -> Delta:
@@ -1016,12 +986,6 @@ def stage_delta(
         con.commit()
         return delta
 
-    if partition_spec:
-        assert partition_values is not None, (
-            "partition_values must be provided as local "
-            "storage does not support computing it from input data"
-        )
-
     serialized_data = None
     if content_type == ContentType.PARQUET:
         buffer = io.BytesIO()
@@ -1040,25 +1004,35 @@ def stage_delta(
     stream_position = current_time_ms()
     delta_locator = DeltaLocator.of(partition.locator, stream_position=stream_position)
 
+    entry_type = (
+        EntryType.EQUALITY_DELETE if delta_type is DeltaType.DELETE else EntryType.DATA
+    )
     meta = ManifestMeta.of(
         len(data),
         len(serialized_data),
         content_type=content_type,
         content_encoding=ContentEncoding.IDENTITY,
         source_content_length=data.nbytes,
-        partition_values=partition_values,
+        entry_type=entry_type,
+        entry_params=entry_params,
     )
 
     manifest = Manifest.of(
         entries=ManifestEntryList.of(
             [
                 ManifestEntry.of(
-                    uri=uri, url=uri, meta=meta, mandatory=True, uuid=manifest_id
+                    uri=uri,
+                    url=uri,
+                    meta=meta,
+                    mandatory=True,
+                    uuid=manifest_id,
                 )
             ]
         ),
         author=author,
         uuid=manifest_id,
+        entry_type=entry_type,
+        entry_params=entry_params,
     )
 
     delta = Delta.of(
@@ -1068,7 +1042,6 @@ def stage_delta(
         properties=properties,
         manifest=manifest,
         previous_stream_position=partition.stream_position,
-        delete_parameters=delete_parameters,
     )
 
     params = (uri, serialized_data)
@@ -1194,7 +1167,7 @@ def get_table_version_schema(
     table_version: Optional[str] = None,
     *args,
     **kwargs,
-) -> Optional[Union[pa.Schema, str, bytes]]:
+) -> Optional[Union[pa.Schema, Any]]:
     obj = get_table_version(namespace, table_name, table_version, *args, **kwargs)
 
     return obj.schema
@@ -1227,7 +1200,7 @@ def get_stream(
 
     cur, con = _get_sqlite3_cursor_con(kwargs)
     stream_locator = StreamLocator.of(
-        obj.locator, stream_id=stream_id, storage_type=STORAGE_TYPE
+        obj.locator, stream_id=stream_id, stream_format=STREAM_FORMAT
     )
     res = cur.execute(
         "SELECT * FROM streams WHERE locator = ?", (stream_locator.canonical_string(),)

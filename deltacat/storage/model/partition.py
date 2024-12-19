@@ -1,23 +1,38 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Union
 
-import pyarrow as pa
-from deltacat.storage.model.partition_spec import PartitionValues
+from typing import Any, Dict, List, Optional
+
+from deltacat.storage.model.metafile import Metafile
+from deltacat.storage.model.schema import (
+    FieldLocator,
+    Schema,
+)
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
-from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.transform import Transform
+from deltacat.storage.model.types import (
+    CommitState,
+    StreamFormat,
+)
 from deltacat.types.media import ContentType
 
 
-class Partition(dict):
+"""
+An ordered list of partition values. Partition values are typically derived
+by applying one or more transforms to a table's fields.
+"""
+PartitionValues = List[Any]
+
+
+class Partition(Metafile):
     @staticmethod
     def of(
         locator: Optional[PartitionLocator],
-        schema: Optional[Union[pa.Schema, str, bytes]],
+        schema: Optional[Schema],
         content_types: Optional[List[ContentType]],
         state: Optional[CommitState] = None,
         previous_stream_position: Optional[int] = None,
@@ -48,11 +63,11 @@ class Partition(dict):
         self["partitionLocator"] = partition_locator
 
     @property
-    def schema(self) -> Optional[Union[pa.Schema, str, bytes]]:
+    def schema(self) -> Optional[Schema]:
         return self.get("schema")
 
     @schema.setter
-    def schema(self, schema: Optional[Union[pa.Schema, str, bytes]]) -> None:
+    def schema(self, schema: Optional[Schema]) -> None:
         self["schema"] = schema
 
     @property
@@ -163,7 +178,7 @@ class Partition(dict):
     def storage_type(self) -> Optional[str]:
         partition_locator = self.locator
         if partition_locator:
-            return partition_locator.storage_type
+            return partition_locator.stream_format
         return None
 
     @property
@@ -200,6 +215,7 @@ class PartitionLocator(Locator, dict):
         stream_locator: Optional[StreamLocator],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
+        partition_scheme_id: Optional[str] = None,
     ) -> PartitionLocator:
         """
         Creates a stream partition locator. Partition ID is
@@ -215,6 +231,7 @@ class PartitionLocator(Locator, dict):
         partition_locator.stream_locator = stream_locator
         partition_locator.partition_values = partition_values
         partition_locator.partition_id = partition_id
+        partition_locator.partition_scheme_id = partition_scheme_id
         return partition_locator
 
     @staticmethod
@@ -223,21 +240,23 @@ class PartitionLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[StreamFormat],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
+        partition_scheme_id: Optional[str],
     ) -> PartitionLocator:
         stream_locator = StreamLocator.at(
             namespace,
             table_name,
             table_version,
             stream_id,
-            storage_type,
+            stream_format,
         )
         return PartitionLocator.of(
             stream_locator,
             partition_values,
             partition_id,
+            partition_scheme_id,
         )
 
     @property
@@ -268,6 +287,14 @@ class PartitionLocator(Locator, dict):
         self["partitionId"] = partition_id
 
     @property
+    def partition_scheme_id(self) -> Optional[str]:
+        return self.get("partitionSchemeId")
+
+    @partition_scheme_id.setter
+    def partition_scheme_id(self, partition_scheme_id: Optional[str]) -> None:
+        self["partitionSchemeId"] = partition_scheme_id
+
+    @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
         stream_locator = self.stream_locator
         if stream_locator:
@@ -296,10 +323,10 @@ class PartitionLocator(Locator, dict):
         return None
 
     @property
-    def storage_type(self) -> Optional[str]:
+    def stream_format(self) -> Optional[str]:
         stream_locator = self.stream_locator
         if stream_locator:
-            return stream_locator.storage_type
+            return stream_locator.format
         return None
 
     @property
@@ -332,4 +359,119 @@ class PartitionLocator(Locator, dict):
         sl_hexdigest = self.stream_locator.hexdigest()
         partition_vals = str(self.partition_values)
         partition_id = self.partition_id
-        return f"{sl_hexdigest}|{partition_vals}|{partition_id}"
+        scheme_id = self.partition_scheme_id
+        return f"{sl_hexdigest}|{partition_vals}|{partition_id}|{scheme_id}"
+
+
+class PartitionKey(dict):
+    @staticmethod
+    def of(
+        key: List[FieldLocator],
+        name: Optional[str] = None,
+        field_id: Optional[int] = None,
+        transform: Optional[Transform] = None,
+        native_object: Optional[Any] = None,
+    ) -> PartitionKey:
+        return PartitionKey(
+            {
+                "key": key,
+                "name": name,
+                "fieldId": field_id,
+                "transform": transform,
+                "nativeObject": native_object,
+            }
+        )
+
+    @property
+    def key(self) -> List[FieldLocator]:
+        return self.get("key")
+
+    @property
+    def name(self) -> Optional[str]:
+        return self.get("name")
+
+    @property
+    def id(self) -> Optional[int]:
+        return self.get("fieldId")
+
+    @property
+    def transform(self) -> Optional[Transform]:
+        val: Dict[str, Any] = self.get("transform")
+        if val is not None and not isinstance(val, Transform):
+            self["transform"] = val = Transform.of(val)
+        return val
+
+    @property
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")
+
+
+class PartitionKeyList(List[PartitionKey]):
+    @staticmethod
+    def of(items: List[PartitionKey]) -> PartitionKeyList:
+        items = PartitionKeyList()
+        for entry in items:
+            if entry is not None and not isinstance(entry, PartitionKey):
+                entry = PartitionKey(entry)
+            items.append(entry)
+        return items
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, PartitionKey):
+            self[item] = val = PartitionKey(val)
+        return val
+
+
+class PartitionScheme(dict):
+    @staticmethod
+    def of(
+        keys: Optional[PartitionKeyList],
+        name: Optional[str] = None,
+        scheme_id: Optional[str] = None,
+        native_object: Optional[Any] = None,
+    ) -> PartitionScheme:
+        return PartitionScheme(
+            {
+                "keys": keys,
+                "name": name,
+                "id": scheme_id,
+                "nativeObject": native_object,
+            }
+        )
+
+    @property
+    def keys(self) -> Optional[PartitionKeyList]:
+        val: List[PartitionKey] = self.get("keys")
+        if val is not None and not isinstance(val, PartitionKeyList):
+            self["keys"] = val = PartitionKeyList.of(val)
+        return val
+
+    @property
+    def name(self) -> Optional[str]:
+        return self.get("name")
+
+    @property
+    def id(self) -> Optional[str]:
+        return self.get("id")
+
+    @property
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")
+
+
+class PartitionSchemeList(List[PartitionScheme]):
+    @staticmethod
+    def of(entries: List[PartitionScheme]) -> PartitionSchemeList:
+        entries = PartitionSchemeList()
+        for entry in entries:
+            if entry is not None and not isinstance(entry, PartitionScheme):
+                entry = PartitionScheme(entry)
+            entries.append(entry)
+        return entries
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, PartitionScheme):
+            self[item] = val = PartitionScheme(val)
+        return val

@@ -358,7 +358,7 @@ def fit_input_deltas(
 def _discover_deltas(
     source_partition_locator: PartitionLocator,
     start_position_exclusive: Optional[int],
-    end_position_inclusive: int,
+    end_position_inclusive: Optional[int],
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
     list_deltas_kwargs: Optional[Dict[str, Any]] = {},

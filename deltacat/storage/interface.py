@@ -1,38 +1,38 @@
-from typing import Any, Callable, Dict, List, Optional, Set, Union
-
-import pyarrow as pa
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from deltacat.storage import (
-    DeleteParameters,
+    EntryParams,
     Delta,
     DeltaLocator,
+    DeltaProperties,
     DeltaType,
     DistributedDataset,
     LifecycleState,
     ListResult,
     LocalDataset,
     LocalTable,
-    Manifest,
     ManifestAuthor,
     Namespace,
+    NamespaceProperties,
     Partition,
-    SchemaConsistencyType,
+    PartitionLocator,
+    PartitionScheme,
+    PartitionValues,
+    Schema,
+    SortScheme,
     Stream,
     StreamLocator,
     Table,
+    TableProperties,
     TableVersion,
-    SortKey,
-    PartitionLocator,
-    PartitionFilter,
-    PartitionValues,
-    DeltaPartitionSpec,
-    StreamPartitionSpec,
+    TableVersionProperties,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.types.media import (
     ContentType,
+    DistributedDatasetType,
     StorageType,
     TableType,
-    DistributedDatasetType,
 )
 from deltacat.utils.common import ReadKwargsProvider
 
@@ -96,7 +96,7 @@ def list_deltas(
     last_stream_position: Optional[int] = None,
     ascending_order: Optional[bool] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs
 ) -> ListResult[Delta]:
@@ -106,15 +106,13 @@ def list_deltas(
     limited to inclusive first and last stream positions. Deltas are returned by
     descending stream position by default. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Raises an error if the given table
-    version or partition does not exist.
+    specified for unpartitioned tables. Partition scheme ID resolves to the
+    table version's current partition scheme by default. Raises an error if the
+    given table version or partition does not exist.
 
     To conserve memory, the deltas returned do not include manifests by
     default. The manifests can either be optionally retrieved as part of this
     call or lazily loaded via subsequent calls to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("list_deltas not implemented")
 
@@ -145,22 +143,21 @@ def get_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs
 ) -> Optional[Delta]:
     """
     Gets the delta for the given table version, partition, and stream position.
     Table version resolves to the latest active table version if not specified.
-    Partition values should not be specified for unpartitioned tables. Raises
-    an error if the given table version or partition does not exist.
+    Partition values should not be specified for unpartitioned tables. Partition
+    scheme ID resolves to the table version's current partition scheme by
+    default. Raises an error if the given table version or partition does not
+    exist.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("get_delta not implemented")
 
@@ -171,7 +168,7 @@ def get_latest_delta(
     partition_values: Optional[PartitionValues] = None,
     table_version: Optional[str] = None,
     include_manifest: bool = False,
-    partition_filter: Optional[PartitionFilter] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs
 ) -> Optional[Delta]:
@@ -179,15 +176,13 @@ def get_latest_delta(
     Gets the latest delta (i.e. the delta with the greatest stream position) for
     the given table version and partition. Table version resolves to the latest
     active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Raises an error if the given table
-    version or partition does not exist.
+    specified for unpartitioned tables. Partition scheme ID resolves to the
+    table version's current partition scheme by default. Raises an error if the
+    given table version or partition does not exist.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
-
-    Note: partition_values is deprecated and will be removed in future releases.
-    Use partition_filter instead.
     """
     raise NotImplementedError("get_latest_delta not implemented")
 
@@ -201,7 +196,6 @@ def download_delta(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
-    partition_filter: Optional[PartitionFilter] = None,
     *args,
     **kwargs
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
@@ -211,10 +205,6 @@ def download_delta(
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
     the contents of ordered delta manifest entry N.
-
-    partition_filter is an optional parameter which determines which files to
-    download from the delta manifest. A delta manifest contains all the data files
-    for a given delta.
     """
     raise NotImplementedError("download_delta not implemented")
 
@@ -251,10 +241,10 @@ def get_delta_manifest(
 
 
 def create_namespace(
-    namespace: str, permissions: Dict[str, Any], *args, **kwargs
+    namespace: str, properties: NamespaceProperties, *args, **kwargs
 ) -> Namespace:
     """
-    Creates a table namespace with the given name and permissions. Returns
+    Creates a table namespace with the given name and properties. Returns
     the created namespace.
     """
     raise NotImplementedError("create_namespace not implemented")
@@ -262,13 +252,13 @@ def create_namespace(
 
 def update_namespace(
     namespace: str,
-    permissions: Optional[Dict[str, Any]] = None,
+    properties: NamespaceProperties = None,
     new_namespace: Optional[str] = None,
     *args,
     **kwargs
 ) -> None:
     """
-    Updates a table namespace's name and/or permissions. Raises an error if the
+    Updates a table namespace's name and/or properties. Raises an error if the
     given namespace does not exist.
     """
     raise NotImplementedError("update_namespace not implemented")
@@ -278,52 +268,25 @@ def create_table_version(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
-    schema: Optional[Union[pa.Schema, str, bytes]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[List[Dict[str, Any]]] = None,
-    primary_key_column_names: Optional[Set[str]] = None,
-    sort_keys: Optional[List[SortKey]] = None,
+    schema: Optional[Schema] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
+    sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
-    table_version_properties: Optional[Dict[str, str]] = None,
-    table_permissions: Optional[Dict[str, Any]] = None,
+    table_version_properties: Optional[TableVersionProperties] = None,
     table_description: Optional[str] = None,
-    table_properties: Optional[Dict[str, str]] = None,
+    table_properties: Optional[TableProperties] = None,
     supported_content_types: Optional[List[ContentType]] = None,
-    partition_spec: Optional[StreamPartitionSpec] = None,
     *args,
     **kwargs
 ) -> Stream:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
-    stream. Table versions may be schemaless and unpartitioned, or partitioned
-    according to a list of partition key names and types. Note that partition
-    keys are not required to exist in the table's schema, and can thus still be
-    used with schemaless tables. This can be useful for creating logical shards
-    of a delta stream where partition keys are known but not projected onto each
-    row of the table (e.g. all rows of a customer orders table are known to
-    correspond to a given order day, even if this column doesn't exist in the
-    table). Primary and sort keys must exist within the table's schema.
-    Permissions specified at the table level override any conflicting
-    permissions specified at the table namespace level. Returns the stream
-    for the created table version. Raises an error if the given namespace does
-    not exist.
+    stream. Table versions may be schemaless and unpartitioned to improve write
+    performance, or have their writes governed by a schema and partition scheme
+    to improve data consistency and read performance.
 
-    Schemas are optional for DeltaCAT tables and can be used to inform the data
-    consistency checks run for each field. If a schema is present, it can be
-    used to enforce the following column-level data consistency policies at
-    table load time:
-
-    None: No consistency checks are run. May be mixed with the below two
-    policies by specifying column names to pass through together with
-    column names to coerce/validate.
-
-    Coerce: Coerce fields to fit the schema whenever possible. An explicit
-    subset of column names to coerce may optionally be specified.
-
-    Validate: Raise an error for any fields that don't fit the schema. An
-    explicit subset of column names to validate may optionally be specified.
-
-    Either partition_keys or partition_spec must be specified but not both.
+    Returns the stream for the created table version.
+    Raises an error if the given namespace does not exist.
     """
     raise NotImplementedError("create_table_version not implemented")
 
@@ -331,18 +294,17 @@ def create_table_version(
 def update_table(
     namespace: str,
     table_name: str,
-    permissions: Optional[Dict[str, Any]] = None,
     description: Optional[str] = None,
-    properties: Optional[Dict[str, str]] = None,
+    properties: Optional[TableProperties] = None,
     new_table_name: Optional[str] = None,
     *args,
     **kwargs
 ) -> None:
     """
     Update table metadata describing the table versions it contains. By default,
-    a table's properties are empty, and its description and permissions are
-    equal to those given when its first table version was created. Raises an
-    error if the given table does not exist.
+    a table's properties are empty, and its description is equal to that given
+    when its first table version was created. Raises an error if the given
+    table does not exist.
     """
     raise NotImplementedError("update_table not implemented")
 
@@ -352,10 +314,9 @@ def update_table_version(
     table_name: str,
     table_version: str,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema: Optional[Union[pa.Schema, str, bytes]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
+    schema: Optional[Schema] = None,
     description: Optional[str] = None,
-    properties: Optional[Dict[str, str]] = None,
+    properties: Optional[TableVersionProperties] = None,
     *args,
     **kwargs
 ) -> None:
@@ -431,11 +392,11 @@ def stage_partition(
     """
     Stages a new partition for the given stream and partition values. Returns
     the staged partition. If this partition will replace another partition
-    with the same partition values, then it will have its previous partition ID
-    set to the ID of the partition being replaced. Partition keys should not be
-    specified for unpartitioned tables.
+    with the same partition values and scheme, then it will have its previous
+    partition ID set to the ID of the partition being replaced. Partition values
+    should not be specified for unpartitioned tables.
 
-    The partition_values must represents the results of transforms in a partition
+    The partition_values must represent the results of transforms in a partition
     spec specified in the stream.
     """
     raise NotImplementedError("stage_partition not implemented")
@@ -500,12 +461,10 @@ def stage_delta(
     delta_type: DeltaType = DeltaType.UPSERT,
     max_records_per_entry: Optional[int] = None,
     author: Optional[ManifestAuthor] = None,
-    properties: Optional[Dict[str, str]] = None,
+    properties: Optional[DeltaProperties] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
-    delete_parameters: Optional[DeleteParameters] = None,
-    partition_spec: Optional[DeltaPartitionSpec] = None,
-    partition_values: Optional[PartitionValues] = None,
+    entry_params: Optional[EntryParams] = None,
     *args,
     **kwargs
 ) -> Delta:
@@ -620,7 +579,7 @@ def get_table_version_schema(
     table_version: Optional[str] = None,
     *args,
     **kwargs
-) -> Optional[Union[pa.Schema, str, bytes]]:
+) -> Optional[Schema]:
     """
     Gets the schema for the specified table version, or for the latest active
     table version if none is specified. Returns None if the table version is

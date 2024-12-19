@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Tuple
+from typing import List, Tuple, Union
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
 from typing import Any, Dict, Optional
@@ -34,7 +34,7 @@ class RoundCompletionInfo(dict):
 
     @staticmethod
     def of(
-        high_watermark: HighWatermark,
+        high_watermark: Union[HighWatermark, int],
         compacted_delta_locator: DeltaLocator,
         compacted_pyarrow_write_result: PyArrowWriteResult,
         sort_keys_bit_width: int,
@@ -66,7 +66,7 @@ class RoundCompletionInfo(dict):
         return rci
 
     @property
-    def high_watermark(self) -> HighWatermark:
+    def high_watermark(self) -> Union[HighWatermark, int]:
         val: Dict[str, Any] = self.get("highWatermark")
         if (
             val is not None
@@ -111,7 +111,7 @@ class RoundCompletionInfo(dict):
         return self["hashBucketCount"]
 
     @property
-    def hb_index_to_entry_range(self) -> Optional[Dict[int, Tuple[int, int]]]:
+    def hb_index_to_entry_range(self) -> Optional[Dict[str, Tuple[int, int]]]:
         """
         The start index is inclusive and end index is exclusive by default.
         """
@@ -130,5 +130,5 @@ class RoundCompletionInfo(dict):
         return self.get("inputAverageRecordSizeBytes")
 
     @staticmethod
-    def get_audit_bucket_name_and_key(compaction_audit_url: str) -> Tuple[str, str]:
+    def get_audit_bucket_name_and_key(compaction_audit_url: str) -> List[str]:
         return compaction_audit_url.replace("s3://", "").split("/", 1)

@@ -27,9 +27,8 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
 from deltacat.storage import (
     Delta,
     DeltaLocator,
-    Manifest,
-    Partition,
 )
+from deltacat.storage.model.manifest import Manifest
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -139,7 +138,7 @@ def _execute_compaction(
         logger.info("No input deltas found to compact.")
         return ExecutionCompactionResult(None, None, None, False)
     build_uniform_deltas_result: tuple[
-        List[DeltaAnnotated], DeleteStrategy, List[DeleteFileEnvelope], Partition
+        List[DeltaAnnotated], DeleteStrategy, List[DeleteFileEnvelope]
     ] = _build_uniform_deltas(
         params, compaction_audit, input_deltas, delta_discovery_start
     )

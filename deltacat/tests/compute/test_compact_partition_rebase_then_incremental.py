@@ -229,7 +229,6 @@ def test_compact_partition_rebase_then_incremental(
         destination_table_stream,
         rebased_table_stream,
     ) = create_src_w_deltas_destination_rebase_w_deltas_strategy(
-        primary_keys,
         sort_keys,
         partition_keys,
         input_deltas_param,
@@ -293,7 +292,11 @@ def test_compact_partition_rebase_then_incremental(
     actual_rebase_compacted_table = pa.concat_tables(tables)
     # if no primary key is specified then sort by sort_key for consistent assertion
     sorting_cols: List[Any] = (
-        [(val, "ascending") for val in primary_keys] if primary_keys else sort_keys
+        [(val, "ascending") for val in primary_keys]
+        if primary_keys
+        else [pa_key for key in sort_keys for pa_key in key.arrow]
+        if sort_keys
+        else []
     )
     rebase_expected_compact_partition_result = (
         rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)

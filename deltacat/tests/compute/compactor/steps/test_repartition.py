@@ -5,7 +5,7 @@ from deltacat.compute.compactor.steps.repartition import repartition_range
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.repartition_result import RepartitionResult
 from deltacat.storage import (
-    PartitionLocator,
+    Partition,
 )
 
 """
@@ -46,7 +46,7 @@ class TestRepartitionRange(unittest.TestCase):
                 }
             ),
         ]
-        self.destination_partition: PartitionLocator = MagicMock()
+        self.destination_partition: Partition = MagicMock()
         self.repartition_args = {"column": "last_updated", "ranges": [1678665487112747]}
         self.max_records_per_output_file = 2
         self.s3_table_writer_kwargs = {}
