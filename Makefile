@@ -27,7 +27,7 @@ deploy-s3:
 
 install: venv
 	venv/bin/pip install --upgrade pip
-	venv/bin/pip install -r dev-requirements.txt
+	venv/bin/pip install -r benchmark-requirements.txt
 
 lint: install
 	venv/bin/pre-commit run --all-files
