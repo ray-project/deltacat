@@ -6,8 +6,8 @@ memray == 1.6.0; platform_system != "Windows" and sys_platform != "darwin" and p
 moto == 4.1.12
 pre-commit == 2.20.0
 pytest == 7.2.0
+pytest-benchmark == 4.0.0
 pytest-cov == 4.0.0
 pytest-mock == 3.14.0
-pytest_benchmark == 4.0.0
 requests-mock == 1.11.0
 sphinx == 7.2.6
