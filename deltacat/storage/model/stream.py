@@ -1,31 +1,43 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import deltacat.storage.model.partition as partition
 
+from typing import Any, Dict, Optional
+
+from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
-from deltacat.storage.model.types import CommitState
-from deltacat.storage.model.partition_spec import StreamPartitionSpec, PartitionValues
+from deltacat.storage.model.types import (
+    CommitState,
+    StreamFormat,
+)
 
 
-class Stream(dict):
+class Stream(Metafile):
+    """
+    An unbounded stream of Deltas, where each delta's records are optionally
+    partitioned according to the given partition scheme.
+    """
+
     @staticmethod
     def of(
         locator: Optional[StreamLocator],
-        partition_keys: Optional[List[Dict[str, Any]]],
+        partition_scheme: Optional[partition.PartitionScheme],
         state: Optional[CommitState] = None,
-        previous_stream_digest: Optional[bytes] = None,
-        partition_spec: Optional[StreamPartitionSpec] = None,
+        previous_stream_id: Optional[bytes] = None,
+        watermark: Optional[int] = None,
+        native_object: Optional[Any] = None,
     ) -> Stream:
         stream = Stream()
         stream.locator = locator
-        stream.partition_keys = partition_keys
+        stream.partition_scheme = partition_scheme
         stream.state = state
-        stream.previous_stream_digest = previous_stream_digest
-        stream.partition_spec = partition_spec
+        stream.previous_stream_id = previous_stream_id
+        stream.watermark = watermark
+        stream.native_object = native_object
         return stream
 
     @property
@@ -40,31 +52,40 @@ class Stream(dict):
         self["streamLocator"] = stream_locator
 
     @property
-    def partition_keys(self) -> Optional[List[Dict[str, Any]]]:
+    def partition_scheme(self) -> Optional[partition.PartitionScheme]:
         """
-        Ordered list of unique column names in the table schema on
-        which the underlying data is partitioned. Either partition_spec
-        or partition_keys must be specified but not both.
-
-        (Deprecated): Partition keys will be deprecated in the favor
-        of partition_spec in future releases.
+        A table's partition keys are defined within the context of a
+        Partition Scheme, which supports defining both fields to partition
+        a table by and optional transforms to apply to those fields to
+        derive the Partition Values that a given field, and its corresponding
+        record, belong to.
         """
-        return self.get("partitionKeys")
+        val: Dict[str, Any] = self.get("partitionScheme")
+        if val is not None and not isinstance(val, partition.PartitionScheme):
+            self.partition_scheme = val = partition.PartitionScheme(val)
+        return val
 
-    @partition_keys.setter
-    def partition_keys(self, partition_keys: Optional[List[Dict[str, Any]]]) -> None:
-        self["partitionKeys"] = partition_keys
+    @partition_scheme.setter
+    def partition_scheme(
+        self, partition_scheme: Optional[partition.PartitionScheme]
+    ) -> None:
+        self["partitionScheme"] = partition_scheme
 
     @property
-    def previous_stream_digest(self) -> Optional[str]:
-        """
-        Previous stream digest
-        """
-        return self.get("previousStreamDigest")
+    def previous_stream_id(self) -> Optional[str]:
+        return self.get("previousStreamId")
 
-    @previous_stream_digest.setter
-    def previous_stream_digest(self, previous_stream_digest: Optional[str]) -> None:
-        self["previousStreamDigest"] = previous_stream_digest
+    @previous_stream_id.setter
+    def previous_stream_id(self, previous_stream_id: Optional[str]) -> None:
+        self["previousStreamId"] = previous_stream_id
+
+    @property
+    def watermark(self) -> Optional[int]:
+        return self.get("watermark")
+
+    @watermark.setter
+    def watermark(self, watermark: Optional[int]) -> None:
+        self["watermark"] = watermark
 
     @property
     def state(self) -> Optional[CommitState]:
@@ -79,24 +100,12 @@ class Stream(dict):
         self["state"] = state
 
     @property
-    def partition_spec(self) -> Optional[StreamPartitionSpec]:
-        """
-        If a table uses complex partitioning instead of identity,
-        partition spec can be specified to define that strategy.
-        For example, a partition spec can define a bucketing strategy
-        on composite column values or can define iceberg compliant
-        bucketing.
+    def native_object(self) -> Optional[Any]:
+        return self.get("nativeObject")
 
-        Either partition_spec or partition_keys must be specified but not both.
-        """
-        val: Dict[str, Any] = self.get("partitionSpec")
-        if val is not None and not isinstance(val, StreamPartitionSpec):
-            self.partition_spec = val = StreamPartitionSpec(val)
-        return val
-
-    @partition_spec.setter
-    def partition_spec(self, spec: StreamPartitionSpec) -> None:
-        self["partitionSpec"] = spec
+    @native_object.setter
+    def native_object(self, native_object: Optional[Any]) -> None:
+        self["nativeObject"] = native_object
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -147,24 +156,13 @@ class Stream(dict):
             return stream_locator.table_version
         return None
 
-    def validate_partition_values(self, partition_values: Optional[PartitionValues]):
-        # TODO (pdames): ensure value data types match key data types
-        partition_keys = self.partition_keys
-        num_keys = len(partition_keys) if partition_keys else 0
-        num_values = len(partition_values) if partition_values else 0
-        if num_values != num_keys:
-            raise ValueError(
-                f"Found {num_values} partition values but "
-                f"{num_keys} partition keys: {self}"
-            )
-
 
 class StreamLocator(Locator, dict):
     @staticmethod
     def of(
         table_version_locator: Optional[TableVersionLocator],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[StreamFormat],
     ) -> StreamLocator:
         """
         Creates a table version Stream Locator. All input parameters are
@@ -173,7 +171,7 @@ class StreamLocator(Locator, dict):
         stream_locator = StreamLocator()
         stream_locator.table_version_locator = table_version_locator
         stream_locator.stream_id = stream_id
-        stream_locator.storage_type = storage_type
+        stream_locator.format = stream_format
         return stream_locator
 
     @staticmethod
@@ -182,7 +180,7 @@ class StreamLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[StreamFormat],
     ) -> StreamLocator:
         table_version_locator = TableVersionLocator.at(
             namespace,
@@ -192,7 +190,7 @@ class StreamLocator(Locator, dict):
         return StreamLocator.of(
             table_version_locator,
             stream_id,
-            storage_type,
+            stream_format,
         )
 
     @property
@@ -217,12 +215,12 @@ class StreamLocator(Locator, dict):
         self["streamId"] = stream_id
 
     @property
-    def storage_type(self) -> Optional[str]:
-        return self.get("storageType")
+    def format(self) -> Optional[str]:
+        return self.get("format")
 
-    @storage_type.setter
-    def storage_type(self, storage_type: Optional[str]) -> None:
-        self["storageType"] = storage_type
+    @format.setter
+    def format(self, stream_format: Optional[str]) -> None:
+        self["format"] = stream_format
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -267,5 +265,5 @@ class StreamLocator(Locator, dict):
         """
         tvl_hexdigest = self.table_version_locator.hexdigest()
         stream_id = self.stream_id
-        storage_type = self.storage_type
+        storage_type = self.format
         return f"{tvl_hexdigest}|{stream_id}|{storage_type}"

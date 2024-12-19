@@ -18,6 +18,7 @@ from deltacat.constants import (
     DELTACAT_APP_DEBUG_LOG_BASE_FILE_NAME,
     DELTACAT_SYS_DEBUG_LOG_BASE_FILE_NAME,
     DELTACAT_LOGGER_CONTEXT,
+    DELTACAT_LOGGER_USE_SINGLE_HANDLER,
 )
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -226,6 +227,7 @@ def _configure_logger(
     # This maintains log level of rotating file handlers
     primary_log_level = log_level
     logger.propagate = False
+    needs_handler = True
     if log_level <= logging.getLevelName("DEBUG"):
         if not _file_handler_exists(logger, log_dir, debug_log_base_file_name):
             handler = _create_rotating_file_handler(
@@ -235,8 +237,9 @@ def _configure_logger(
                 context_kwargs=context_kwargs,
             )
             _add_logger_handler(logger, handler)
+            needs_handler = not DELTACAT_LOGGER_USE_SINGLE_HANDLER
             primary_log_level = logging.getLevelName("INFO")
-    if not _file_handler_exists(logger, log_dir, log_base_file_name):
+    if not _file_handler_exists(logger, log_dir, log_base_file_name) and needs_handler:
         handler = _create_rotating_file_handler(
             log_dir,
             log_base_file_name,

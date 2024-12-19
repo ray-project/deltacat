@@ -138,7 +138,7 @@ def repartition(
     )
     logger.info(f"Getting {len(repar_tasks_pending)} task results...")
     repar_results: List[RepartitionResult] = ray.get(repar_tasks_pending)
-    repar_results: List[Delta] = [rp.range_deltas for rp in repar_results]
+    repar_results: List[List[Delta]] = [rp.range_deltas for rp in repar_results]
     transposed = list(itertools.zip_longest(*repar_results, fillvalue=None))
     ordered_deltas: List[Delta] = [
         i for sublist in transposed for i in sublist if i is not None

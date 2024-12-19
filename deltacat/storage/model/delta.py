@@ -3,29 +3,38 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.aws.redshift import Manifest, ManifestAuthor, ManifestMeta
-from deltacat.storage.model.delete_parameters import DeleteParameters
+from deltacat.storage.model.metafile import Metafile
+from deltacat.storage.model.manifest import (
+    Manifest,
+    ManifestMeta,
+    ManifestAuthor,
+)
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.partition import PartitionLocator
+from deltacat.storage.model.partition import (
+    PartitionLocator,
+    PartitionValues,
+)
 from deltacat.storage.model.stream import StreamLocator
 from deltacat.storage.model.table import TableLocator
 from deltacat.storage.model.table_version import TableVersionLocator
-from deltacat.storage.model.types import DeltaType
-from deltacat.storage.model.partition_spec import DeltaPartitionSpec, PartitionValues
+from deltacat.storage.model.types import (
+    DeltaType,
+    StreamFormat,
+)
+
+DeltaProperties = Dict[str, Any]
 
 
-class Delta(dict):
+class Delta(Metafile):
     @staticmethod
     def of(
         locator: Optional[DeltaLocator],
         delta_type: Optional[DeltaType],
         meta: Optional[ManifestMeta],
-        properties: Optional[Dict[str, str]],
+        properties: Optional[DeltaProperties],
         manifest: Optional[Manifest],
         previous_stream_position: Optional[int] = None,
-        delete_parameters: Optional[DeleteParameters] = None,
-        partition_spec: Optional[DeltaPartitionSpec] = None,
     ) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
@@ -39,8 +48,6 @@ class Delta(dict):
         delta.properties = properties
         delta.manifest = manifest
         delta.previous_stream_position = previous_stream_position
-        delta.delete_parameters = delete_parameters
-        delta.partition_spec = partition_spec
         return delta
 
     @staticmethod
@@ -48,7 +55,7 @@ class Delta(dict):
         deltas: List[Delta],
         manifest_author: Optional[ManifestAuthor] = None,
         stream_position: Optional[int] = None,
-        properties: Optional[Dict[str, str]] = None,
+        properties: Optional[DeltaProperties] = None,
     ) -> Delta:
         """
         Merges the input list of deltas into a single delta. All input deltas to
@@ -93,25 +100,10 @@ class Delta(dict):
                 f"Deltas to merge must all share the same delta type "
                 f"(found {len(distinct_delta_types)} delta types)."
             )
-        distinct_partition_spec = set([d.partition_spec for d in deltas])
-        if len(distinct_partition_spec) > 1:
-            raise ValueError(
-                f"Deltas to merge must all share the same partition spec "
-                f"(found {len(distinct_partition_spec)} partition specs)."
-            )
         merged_manifest = Manifest.merge_manifests(
             manifests,
             manifest_author,
         )
-        distinct_delta_type = list(distinct_delta_types)[0]
-        merged_delete_parameters = None
-        if distinct_delta_type is DeltaType.DELETE:
-            delete_parameters: List[DeleteParameters] = [
-                d.delete_parameters for d in deltas if d.delete_parameters
-            ]
-            merged_delete_parameters: Optional[
-                DeleteParameters
-            ] = DeleteParameters.merge_delete_parameters(delete_parameters)
         partition_locator = deltas[0].partition_locator
         prev_positions = [d.previous_stream_position for d in deltas]
         prev_position = None if None in prev_positions else max(prev_positions)
@@ -122,7 +114,6 @@ class Delta(dict):
             properties,
             merged_manifest,
             prev_position,
-            merged_delete_parameters,
         )
 
     @property
@@ -148,11 +139,11 @@ class Delta(dict):
         self["meta"] = meta
 
     @property
-    def properties(self) -> Optional[Dict[str, str]]:
+    def properties(self) -> Optional[DeltaProperties]:
         return self.get("properties")
 
     @properties.setter
-    def properties(self, properties: Optional[Dict[str, str]]) -> None:
+    def properties(self, properties: Optional[DeltaProperties]) -> None:
         self["properties"] = properties
 
     @property
@@ -222,7 +213,7 @@ class Delta(dict):
     def storage_type(self) -> Optional[str]:
         delta_locator = self.locator
         if delta_locator:
-            return delta_locator.storage_type
+            return delta_locator.stream_format
         return None
 
     @property
@@ -274,28 +265,6 @@ class Delta(dict):
             return delta_locator.stream_position
         return None
 
-    @property
-    def delete_parameters(self) -> Optional[DeleteParameters]:
-        delete_parameters = self.get("delete_parameters")
-        return (
-            None if delete_parameters is None else DeleteParameters(delete_parameters)
-        )
-
-    @delete_parameters.setter
-    def delete_parameters(self, delete_parameters: Optional[DeleteParameters]) -> None:
-        self["delete_parameters"] = delete_parameters
-
-    @property
-    def partition_spec(self) -> Optional[DeltaPartitionSpec]:
-        val: Dict[str, Any] = self.get("partitionSpec")
-        if val is not None and not isinstance(val, DeltaPartitionSpec):
-            self.partition_spec = val = DeltaPartitionSpec(val)
-        return val
-
-    @partition_spec.setter
-    def partition_spec(self, value: Optional[DeltaPartitionSpec]) -> None:
-        self["partitionSpec"] = value
-
 
 class DeltaLocator(Locator, dict):
     @staticmethod
@@ -318,9 +287,10 @@ class DeltaLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
         stream_id: Optional[str],
-        storage_type: Optional[str],
+        stream_format: Optional[StreamFormat],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
+        partition_scheme_id: Optional[str],
         stream_position: Optional[int],
     ) -> DeltaLocator:
         partition_locator = PartitionLocator.at(
@@ -328,9 +298,10 @@ class DeltaLocator(Locator, dict):
             table_name,
             table_version,
             stream_id,
-            storage_type,
+            stream_format,
             partition_values,
             partition_id,
+            partition_scheme_id,
         )
         return DeltaLocator.of(
             partition_locator,
@@ -406,10 +377,10 @@ class DeltaLocator(Locator, dict):
         return None
 
     @property
-    def storage_type(self) -> Optional[str]:
+    def stream_format(self) -> Optional[str]:
         partition_locator = self.partition_locator
         if partition_locator:
-            return partition_locator.storage_type
+            return partition_locator.stream_format
         return None
 
     @property

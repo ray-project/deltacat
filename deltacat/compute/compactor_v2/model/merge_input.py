@@ -43,7 +43,7 @@ class MergeInput(Dict):
         round_completion_info: Optional[RoundCompletionInfo] = None,
         object_store: Optional[IObjectStore] = None,
         delete_strategy: Optional[DeleteStrategy] = None,
-        delete_file_envelopes: Optional[List] = None,
+        delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None,
         deltacat_storage=unimplemented_deltacat_storage,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
         memory_logs_enabled: Optional[bool] = None,

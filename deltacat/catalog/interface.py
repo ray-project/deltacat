@@ -1,17 +1,17 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
-import pyarrow as pa
-
+from deltacat.storage.model.partition import PartitionScheme
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.storage.model.sort_key import SortKey
+from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
-from deltacat.storage.model.namespace import Namespace
+from deltacat.storage.model.namespace import Namespace, NamespaceProperties
+from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.table import TableProperties
 from deltacat.storage.model.types import (
     DistributedDataset,
     LifecycleState,
     LocalDataset,
     LocalTable,
-    SchemaConsistencyType,
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
@@ -50,10 +50,9 @@ def alter_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema_updates: Optional[Dict[str, Any]] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    primary_keys: Optional[Set[str]] = None,
-    sort_keys: Optional[List[SortKey]] = None,
+    sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
-    properties: Optional[Dict[str, str]] = None,
+    properties: Optional[TableProperties] = None,
     *args,
     **kwargs
 ) -> None:
@@ -65,21 +64,19 @@ def create_table(
     table: str,
     namespace: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema: Optional[Union[pa.Schema, str, bytes]] = None,
-    schema_consistency: Optional[Dict[str, SchemaConsistencyType]] = None,
-    partition_keys: Optional[List[Dict[str, Any]]] = None,
-    primary_keys: Optional[Set[str]] = None,
-    sort_keys: Optional[List[SortKey]] = None,
+    schema: Optional[Schema] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
+    sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
-    properties: Optional[Dict[str, str]] = None,
-    permissions: Optional[Dict[str, Any]] = None,
+    table_properties: Optional[TableProperties] = None,
+    namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
-    replace_existing_table: bool = False,
+    fail_if_exists: bool = True,
     *args,
     **kwargs
 ) -> TableDefinition:
     """Create an empty table. Raises an error if the table already exists and
-    `replace_existing_table` is False."""
+    `fail_if_exists` is True (default behavior)."""
     raise NotImplementedError("create_table not implemented")
 
 
@@ -149,16 +146,16 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
 
 
 def create_namespace(
-    namespace: str, permissions: Dict[str, Any], *args, **kwargs
+    namespace: str, properties: NamespaceProperties, *args, **kwargs
 ) -> Namespace:
-    """Creates a table namespace with the given name and permissions. Returns
+    """Creates a table namespace with the given name and properties. Returns
     the created namespace. Raises an error if the namespace already exists."""
     raise NotImplementedError("create_namespace not implemented")
 
 
 def alter_namespace(
     namespace: str,
-    permissions: Optional[Dict[str, Any]] = None,
+    properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
     *args,
     **kwargs
@@ -173,12 +170,13 @@ def drop_namespace(namespace: str, purge: bool = False, *args, **kwargs) -> None
     raise NotImplementedError("drop_namespace not implemented")
 
 
-def default_namespace() -> str:
+def default_namespace(*args, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
     raise NotImplementedError("default_namespace not implemented")
 
 
 # catalog functions
-def initialize(*args, **kwargs) -> None:
-    """Initializes the data catalog with the given arguments."""
+def initialize(*args, **kwargs) -> Optional[Any]:
+    """Initializes the data catalog with the given arguments. Returns the
+    underlying native catalog object if it exists."""
     raise NotImplementedError("initialize not implemented")

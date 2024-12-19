@@ -11,10 +11,10 @@ from deltacat import logs
 from deltacat.storage import (
     Delta,
     DeltaType,
-    Manifest,
     ManifestEntry,
     ManifestEntryList,
 )
+from deltacat.storage.model.manifest import Manifest
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -107,7 +107,7 @@ class DeltaAnnotated(Delta):
             assert len(src_da_annotations) == len(src_da_entries), (
                 f"Unexpected Error: Length of delta annotations "
                 f"({len(src_da_annotations)}) doesn't mach the length of "
-                f"delta manifest entries ({len(src_da_entries)}).",
+                f"delta manifest entries ({len(src_da_entries)})."
             )
             for i, src_entry in enumerate(src_da_entries):
                 # create a new da group if src and dest has different delta locator
@@ -161,7 +161,7 @@ class DeltaAnnotated(Delta):
         assert len(src_da_annotations) == len(src_da_entries), (
             f"Unexpected Error: Length of delta annotations "
             f"({len(src_da_annotations)}) doesn't mach the length of "
-            f"delta manifest entries ({len(src_da_entries)}).",
+            f"delta manifest entries ({len(src_da_entries)})."
         )
         src_da_entries_length = len(src_da_entries)
         equal_length = src_da_entries_length // pieces

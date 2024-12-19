@@ -63,7 +63,7 @@ from deltacat.compute.compactor_v2.steps import merge as mg
 from deltacat.compute.compactor_v2.steps import hash_bucket as hb
 from deltacat.compute.compactor_v2.utils import io
 
-from typing import List, Optional
+from typing import List, Optional, Union
 from collections import defaultdict
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
@@ -83,7 +83,7 @@ def _fetch_compaction_metadata(
 
     # read the results from any previously completed compaction round
     round_completion_info: Optional[RoundCompletionInfo] = None
-    high_watermark: Optional[HighWatermark] = None
+    high_watermark: Optional[Union[HighWatermark, int]] = None
     previous_compacted_delta_manifest: Optional[Manifest] = None
 
     if not params.rebase_source_partition_locator:
@@ -129,7 +129,7 @@ def _build_uniform_deltas(
     mutable_compaction_audit: CompactionSessionAuditInfo,
     input_deltas: List[Delta],
     delta_discovery_start: float,
-) -> tuple[List[DeltaAnnotated], DeleteStrategy, List[DeleteFileEnvelope], Partition]:
+) -> tuple[List[DeltaAnnotated], DeleteStrategy, List[DeleteFileEnvelope]]:
 
     delete_strategy: Optional[DeleteStrategy] = None
     delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None
@@ -222,7 +222,7 @@ def _run_hash_and_merge(
     uniform_deltas: List[DeltaAnnotated],
     round_completion_info: RoundCompletionInfo,
     delete_strategy: Optional[DeleteStrategy],
-    delete_file_envelopes: Optional[DeleteFileEnvelope],
+    delete_file_envelopes: Optional[List[DeleteFileEnvelope]],
     mutable_compaction_audit: CompactionSessionAuditInfo,
     previous_compacted_delta_manifest: Optional[Manifest],
     compacted_partition: Partition,
@@ -389,7 +389,7 @@ def _merge(
     all_hash_group_idx_to_obj_id: dict,
     compacted_partition: Partition,
     delete_strategy: DeleteStrategy,
-    delete_file_envelopes: DeleteFileEnvelope,
+    delete_file_envelopes: List[DeleteFileEnvelope],
 ) -> tuple[List[MergeResult], float]:
     merge_options_provider = functools.partial(
         task_resource_options_provider,

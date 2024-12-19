@@ -31,9 +31,11 @@ class DeltaFileLocator(Locator, tuple):
 
             file_index: Index of the file in the Delta Manifest.
 
+            file_record_count: Count of records in the Delta File.
+
         Returns:
             delta_file_locator: The Delta File Locator Tuple as
-            (is_source_delta, stream_position, file_index).
+            (is_src_delta, stream_position, file_index, file_record_count).
         """
         return DeltaFileLocator(
             (is_src_delta, stream_position, file_index, file_record_count)

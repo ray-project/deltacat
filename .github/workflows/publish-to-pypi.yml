@@ -28,7 +28,7 @@ jobs:
                   if [ -f benchmark-requirements.txt ]; then pip install -r benchmark-requirements.txt; fi
             - name: Run unit tests
               run: >-
-                  python -m pytest
+                  python -m pytest "not integration"
             - name: Echo release tag
               run: echo ${{ github.ref_name }}
             - name: Build a binary wheel and a source tarball

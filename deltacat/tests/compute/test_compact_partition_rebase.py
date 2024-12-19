@@ -224,7 +224,6 @@ def test_compact_partition_rebase_same_source_and_destination(
         _,
         rebased_table_stream,
     ) = create_src_w_deltas_destination_rebase_w_deltas_strategy(
-        primary_keys,
         sort_keys,
         partition_keys,
         input_deltas_param,
@@ -336,7 +335,7 @@ def test_compact_partition_rebase_same_source_and_destination(
         if primary_keys:
             sorting_cols.extend([(val, "ascending") for val in primary_keys])
         if sort_keys:
-            sorting_cols.extend(sort_keys)
+            sorting_cols.extend([pa_key for key in sort_keys for pa_key in key.arrow])
 
         rebase_expected_compact_partition_result = (
             rebase_expected_compact_partition_result.combine_chunks().sort_by(

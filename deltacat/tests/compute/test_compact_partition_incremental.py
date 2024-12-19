@@ -232,7 +232,6 @@ def test_compact_partition_incremental(
         source_table_name,
         source_table_version,
     ) = create_src_w_deltas_destination_plus_destination(
-        primary_keys,
         sort_keys,
         partition_keys,
         input_deltas,

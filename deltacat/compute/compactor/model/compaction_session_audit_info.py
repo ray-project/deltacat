@@ -8,6 +8,7 @@ from typing import List, Union
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor.model.dedupe_result import DedupeResult
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
+from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.resources import ClusterUtilization, get_size_of_object_in_bytes
 from deltacat.compute.compactor import PyArrowWriteResult
@@ -670,13 +671,13 @@ class CompactionSessionAuditInfo(dict):
         self, output_size_bytes: float
     ) -> CompactionSessionAuditInfo:
         self["outputSizeBytes"] = output_size_bytes
-        return output_size_bytes
+        return self
 
     def set_output_size_pyarrow_bytes(
         self, output_size_pyarrow_bytes: float
     ) -> CompactionSessionAuditInfo:
         self["outputSizePyarrowBytes"] = output_size_pyarrow_bytes
-        return output_size_pyarrow_bytes
+        return self
 
     def set_total_cluster_memory_bytes(
         self, total_cluster_memory_bytes: float
@@ -787,7 +788,10 @@ class CompactionSessionAuditInfo(dict):
         self,
         step_name: str,
         task_results: Union[
-            List[HashBucketResult], List[DedupeResult], List[MaterializeResult]
+            List[HashBucketResult],
+            List[DedupeResult],
+            List[MaterializeResult],
+            List[MergeResult],
         ],
         task_results_retrieved_at: float,
         invoke_time_in_seconds: float,

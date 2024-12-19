@@ -3,6 +3,7 @@ import pytest
 from deltacat.storage import (
     DeltaType,
     Delta,
+    EntryParams,
 )
 from deltacat.storage import (
     Partition,
@@ -26,8 +27,6 @@ from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 import pyarrow as pa
-from deltacat.storage import DeleteParameters
-
 
 DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
     "db_file_path",
@@ -41,7 +40,7 @@ class PrepareDeleteTestCaseParams:
     A pytest parameterized test case for the `prepare_deletes` function.
     """
 
-    deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]]
+    deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[EntryParams]]]
     expected_delta_file_envelopes_len: int
     expected_delete_table: List[pa.Table]
     expected_non_delete_deltas_length: int
@@ -84,7 +83,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
                 ),
                 DeltaType.UPSERT,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         0,
@@ -102,7 +101,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         1,
@@ -140,7 +139,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         1,
@@ -176,7 +175,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -223,7 +222,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1"]),
+                EntryParams.of(["pk_col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -233,7 +232,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1"]),
+                EntryParams.of(["pk_col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -254,7 +253,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         2,
@@ -296,7 +295,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -307,7 +306,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1", "col_1"]),
+                EntryParams.of(["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -317,7 +316,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["pk_col_1"]),
+                EntryParams.of(["pk_col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -338,7 +337,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         4,
@@ -413,7 +412,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -423,7 +422,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -433,7 +432,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -443,7 +442,7 @@ TEST_CASES_PREPARE_DELETE = {
                     names=["col_1"],
                 ),
                 DeltaType.DELETE,
-                DeleteParameters.of(["col_1"]),
+                EntryParams.of(["col_1"]),
             ),
         ],
         1,
@@ -496,7 +495,7 @@ class TestPrepareDeletes:
         self,
         local_deltacat_storage_kwargs: Dict[str, Any],
         test_name: str,
-        deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[DeleteParameters]]],
+        deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[EntryParams]]],
         expected_delta_file_envelopes_len: int,
         expected_delete_tables,
         expected_non_delete_deltas_length,
@@ -507,7 +506,6 @@ class TestPrepareDeletes:
         )
 
         source_namespace, source_table_name, source_table_version = create_src_table(
-            set(self.TEST_PRIMARY_KEYS),
             None,
             None,
             local_deltacat_storage_kwargs,
@@ -529,7 +527,7 @@ class TestPrepareDeletes:
                         incremental_delta,
                         staged_partition,
                         delta_type,
-                        delete_parameters=delete_parameters,
+                        entry_params=delete_parameters,
                         **local_deltacat_storage_kwargs,
                     ),
                     **local_deltacat_storage_kwargs,
@@ -552,7 +550,6 @@ class TestPrepareDeletes:
             destination_table_name,
             destination_table_version,
         ) = create_destination_table(
-            set(self.TEST_PRIMARY_KEYS),
             None,
             None,
             local_deltacat_storage_kwargs,
