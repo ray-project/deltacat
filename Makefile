@@ -27,7 +27,7 @@ deploy-s3:
 
 install: venv
 	venv/bin/pip install --upgrade pip
-	venv/bin/pip install -r benchmark-requirements.txt
+	venv/bin/pip install -r dev-requirements.txt
 
 lint: install
 	venv/bin/pre-commit run --all-files
@@ -47,3 +47,6 @@ test-integration-rebuild:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml rm -f
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml build --no-cache
+
+benchmark-aws: install
+	venv/bin/pytest deltacat/benchmarking/benchmark_parquet_reads.py --benchmark-only --benchmark-group-by=group,param:name

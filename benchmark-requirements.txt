@@ -1,4 +1,0 @@
--r requirements.txt
--r dev-requirements.txt
-
-pytest-benchmark == 4.0.0

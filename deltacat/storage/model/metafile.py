@@ -14,8 +14,8 @@ from deltacat.storage.model.list_result import ListResult
 class Metafile(dict):
     """
     Base class for DeltaCAT metadata files, with read and write methods
-    for dict-based DeltaCAT models. Uses msgpack (https://msgpack.org/) to
-    serialize and deserialize metadata files.
+    for dict-based DeltaCAT models. Uses msgpack (https://msgpack.org/) for
+    cross-language-compatible serialization and deserialization.
     """
 
     @staticmethod

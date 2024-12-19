@@ -16,7 +16,6 @@ make test-integration
 make lint
 ```
 
-
 ### Makefile Targets
 We use `make` to automate common development tasks. If you feel that any recurring development routine is
 missing from the current set of Makefile targets, please propose a new one!
@@ -94,6 +93,11 @@ make test-integration-rebuild
 ```
 Rebuild the integration test environment.
 
+#### benchmark-aws
+```shell
+make benchmark-aws
+```
+Run AWS benchmarks.
 
 ## Cloud Integration Testing
 ### AWS
@@ -201,6 +205,18 @@ make deploy-s3
 This uploads a wheel to
 `s3://deltacat-packages-dev/deltacat-{version}-{timestamp}-{python}-{abi}-{platform}.whl`.
 
+#### Benchmarks
+You can benchmark your DeltaCAT changes on AWS by running:
+```shell
+make benchmark-aws
+```
+> [!NOTE]
+> We recommend running benchmarks in an environment configured for high bandwidth access to cloud storage.
+> For example, on an EC2 instance with enhanced networking support: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/enhanced-networking.html.
+
+###### Adding Benchmarks
+**Parquet Reads**: Modify the `SINGLE_COLUMN_BENCHMARKS` and `ALL_COLUMN_BENCHMARKS` fixtures in `deltacat/benchmarking/benchmark_parquet_reads.py`
+to add more files and benchmark test cases.
 
 ## Coding Quirks
 ### Cloudpickle
