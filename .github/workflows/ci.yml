@@ -6,7 +6,7 @@ on:
             - edited
             - synchronize
             - reopened
-        branches: [main, phash_main]
+        branches: [main, phash_main, '2.0']
 jobs:
     lint:
         runs-on: ubuntu-latest
