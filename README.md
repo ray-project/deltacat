@@ -11,7 +11,7 @@ merge-on-read and copy-on-write operations.
 DeltaCAT provides four high-level components:
 1. **Catalog**: High-level APIs to create, discover, organize, and manage datasets.
 2. **Compute**: Distributed data management jobs to read, write, and optimize datasets.
-3. **Storage**: In-memory and on-disk multi-modal dataset formats based on Apache Arrow.
+3. **Storage**: In-memory and on-disk multi-modal dataset formats.
 4. **Sync**: Synchronize DeltaCAT datasets with other data warehouses and table formats.
 
 
