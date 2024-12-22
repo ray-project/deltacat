@@ -27,7 +27,7 @@ class Stream(Metafile):
         locator: Optional[StreamLocator],
         partition_scheme: Optional[partition.PartitionScheme],
         state: Optional[CommitState] = None,
-        previous_stream_id: Optional[bytes] = None,
+        previous_stream_id: Optional[str] = None,
         watermark: Optional[int] = None,
         native_object: Optional[Any] = None,
     ) -> Stream:

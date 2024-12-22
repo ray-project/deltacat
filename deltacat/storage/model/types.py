@@ -35,6 +35,7 @@ class DeltaType(str, Enum):
 
 
 class LifecycleState(str, Enum):
+    CREATED = "created"
     UNRELEASED = "unreleased"
     ACTIVE = "active"
     DEPRECATED = "deprecated"

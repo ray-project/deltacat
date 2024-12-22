@@ -690,7 +690,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                EntryParams.of(equality_column_names=["pk_col_1", "col_1"]),
+                EntryParams.of(equality_field_locators=["pk_col_1", "col_1"]),
             ),
         ],
         rebase_expected_compact_partition_result=pa.Table.from_arrays(
@@ -758,7 +758,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                EntryParams.of(equality_column_names=["pk_col_1", "col_1"]),
+                EntryParams.of(equality_field_locators=["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -766,7 +766,7 @@ MULTIPLE_ROUNDS_TEST_CASES = {
                     names=["pk_col_1", "col_1"],
                 ),
                 DeltaType.DELETE,
-                EntryParams.of(equality_column_names=["pk_col_1", "col_1"]),
+                EntryParams.of(equality_field_locators=["pk_col_1", "col_1"]),
             ),
             (
                 pa.Table.from_arrays(

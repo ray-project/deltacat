@@ -103,17 +103,14 @@ class Transform(dict):
 
     @property
     def parameters(self) -> Optional[TransformParameters]:
-        val: Dict[str, Any] = self.get("parameters")
-        if val is not None and not isinstance(val, TransformParameters):
-            self["parameters"] = val = TransformParameters(val)
-        return val
+        return NAME_TO_TRANSFORM[self.name].parameters
 
     @parameters.setter
     def parameters(
         self,
         parameters: Optional[TransformParameters] = None,
     ) -> None:
-        self["parameters"] = parameters
+        NAME_TO_TRANSFORM[self.name].parameters = parameters
 
 
 class BucketTransform(Transform):
@@ -125,12 +122,22 @@ class BucketTransform(Transform):
     def of(parameters: BucketTransformParameters) -> BucketTransform:
         transform = BucketTransform()
         transform.name = TransformName.BUCKET
-        super().parameters = parameters
+        transform.parameters = parameters
         return transform
 
     @property
     def parameters(self) -> BucketTransformParameters:
-        return BucketTransformParameters(super().parameters)
+        val: Dict[str, Any] = self.get("parameters")
+        if val is not None and not isinstance(val, BucketTransformParameters.__class__):
+            self["parameters"] = val = BucketTransformParameters(val)
+        return val
+
+    @parameters.setter
+    def parameters(
+        self,
+        parameters: Optional[BucketTransformParameters] = None,
+    ) -> None:
+        self["parameters"] = parameters
 
 
 class TruncateTransform(Transform):
@@ -142,12 +149,22 @@ class TruncateTransform(Transform):
     def of(parameters: TruncateTransformParameters) -> TruncateTransform:
         transform = TruncateTransform()
         transform.name = TransformName.TRUNCATE
-        super().parameters = parameters
+        transform.parameters = parameters
         return transform
 
     @property
     def parameters(self) -> TruncateTransformParameters:
-        return TruncateTransformParameters(super().parameters)
+        val: Dict[str, Any] = self.get("parameters")
+        if val is not None and not isinstance(val, TruncateTransformParameters):
+            self["parameters"] = val = TruncateTransformParameters(val)
+        return val
+
+    @parameters.setter
+    def parameters(
+        self,
+        parameters: Optional[TruncateTransformParameters] = None,
+    ) -> None:
+        self["parameters"] = parameters
 
 
 class IdentityTransform(Transform):
@@ -232,3 +249,16 @@ class UnknownTransform(Transform):
         transform = UnknownTransform()
         transform.name = TransformName.UNKNOWN
         return transform
+
+
+NAME_TO_TRANSFORM: Dict[TransformName, Transform] = {
+    TransformName.IDENTITY: IdentityTransform,
+    TransformName.BUCKET: BucketTransform,
+    TransformName.YEAR: YearTransform,
+    TransformName.MONTH: MonthTransform,
+    TransformName.DAY: DayTransform,
+    TransformName.HOUR: HourTransform,
+    TransformName.TRUNCATE: TruncateTransform,
+    TransformName.VOID: VoidTransform,
+    TransformName.UNKNOWN: UnknownTransform,
+}

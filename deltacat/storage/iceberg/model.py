@@ -692,8 +692,8 @@ class StreamMapper(OneWayModelMapper[IcebergTable, Stream]):
         snapshot = _resolve_stream_snapshot(metadata, snapshot_id)
         schema = _get_current_schema_for_meta(metadata)
         partition_spec = _get_current_spec_for_meta(metadata)
-        parent_snapshot_bytes = (
-            snapshot.parent_snapshot_id.to_bytes(8, "big")
+        parent_snapshot_str = (
+            str(snapshot.parent_snapshot_id)
             if snapshot.parent_snapshot_id
             else None
         )
@@ -703,6 +703,6 @@ class StreamMapper(OneWayModelMapper[IcebergTable, Stream]):
             ),
             partition_scheme=PartitionSchemeMapper.map(partition_spec, schema),
             state=state,
-            previous_stream_id=parent_snapshot_bytes,
+            previous_stream_id=parent_snapshot_str,
             native_object=snapshot,
         )

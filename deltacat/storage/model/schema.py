@@ -631,13 +631,13 @@ class Schema(dict):
 
 class SchemaList(List[Schema]):
     @staticmethod
-    def of(entries: List[Schema]) -> SchemaList:
-        entries = SchemaList()
-        for entry in entries:
-            if entry is not None and not isinstance(entry, Schema):
-                entry = Schema(entry)
-            entries.append(entry)
-        return entries
+    def of(items: List[Schema]) -> SchemaList:
+        typed_items = SchemaList()
+        for item in items:
+            if item is not None and not isinstance(item, Schema):
+                item = Schema(item)
+            typed_items.append(item)
+        return typed_items
 
     def __getitem__(self, item):
         val = super().__getitem__(item)

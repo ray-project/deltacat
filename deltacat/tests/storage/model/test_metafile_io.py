@@ -2,22 +2,48 @@ import unittest
 import tempfile
 import os
 
-from deltacat import Schema, Field
+import pyarrow as pa
+
+from deltacat import (
+    Schema,
+    Field,
+    PartitionScheme,
+    PartitionKey,
+    ContentEncoding,
+    ContentType,
+    SortScheme,
+    SortKey,
+    SortOrder,
+    NullOrder,
+    LifecycleState,
+)
 from deltacat.storage import (
+    BucketTransform,
+    BucketTransformParameters,
+    BucketingStrategy,
+    CommitState,
+    DeltaLocator,
+    Delta,
+    DeltaType,
+    EntryParams,
+    EntryType,
+    Manifest,
+    ManifestAuthor,
+    ManifestEntry,
+    ManifestMeta,
     Namespace,
     NamespaceLocator,
+    PartitionLocator,
+    Partition,
+    StreamLocator,
+    StreamFormat,
+    Stream,
     Table,
     TableLocator,
     TableVersionLocator,
     TableVersion,
-    StreamLocator,
-    StreamFormat,
-    Stream,
-    PartitionLocator,
-    Partition,
-    DeltaLocator,
-    Delta,
-    DeltaType,
+    TruncateTransform,
+    TruncateTransformParameters,
 )
 
 
@@ -57,8 +83,6 @@ class TestMetafileIO(unittest.TestCase):
             table_name="test_table",
             table_version="test_table_version",
         )
-        import pyarrow as pa
-
         schema = Schema.of(
             [
                 Field.of(
@@ -78,13 +102,57 @@ class TestMetafileIO(unittest.TestCase):
                 ),
             ]
         )
+        bucket_transform = BucketTransform.of(
+            BucketTransformParameters.of(
+                num_buckets=2,
+                bucketing_strategy=BucketingStrategy.DEFAULT,
+            )
+        )
+        partition_keys = [
+            PartitionKey.of(
+                key=["some_string", "some_int32"],
+                name="test_partition_key",
+                field_id="test_field_id",
+                transform=bucket_transform,
+            )
+        ]
+        partition_scheme = PartitionScheme.of(
+            keys=partition_keys,
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id",
+        )
+        sort_keys = [
+            SortKey.of(
+                key=["some_int32"],
+                sort_order=SortOrder.DESCENDING,
+                null_order=NullOrder.AT_START,
+                transform=TruncateTransform.of(
+                    TruncateTransformParameters.of(width=3),
+                ),
+            )
+        ]
+        sort_scheme = SortScheme.of(
+            keys=sort_keys,
+            name="test_sort_scheme",
+            scheme_id="test_sort_scheme_id",
+        )
         table_version = TableVersion.of(
             locator=table_version_locator,
             schema=schema,
+            partition_scheme=partition_scheme,
+            description="test table version description",
+            properties={"test_property_key": "test_property_value"},
+            content_types=[ContentType.PARQUET],
+            sort_scheme=sort_scheme,
+            watermark=1,
+            lifecycle_state=LifecycleState.CREATED,
+            schemas=[schema, schema, schema],
+            partition_schemes=[partition_scheme, partition_scheme],
+            sort_schemes=[sort_scheme, sort_scheme],
         )
         try:
             temp_file_path = table_version.write(temp_dir)
-            deserialized_table_version = Table.read(temp_file_path)
+            deserialized_table_version = TableVersion.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
         assert table_version == deserialized_table_version
@@ -98,13 +166,35 @@ class TestMetafileIO(unittest.TestCase):
             stream_id="test_stream_id",
             stream_format=StreamFormat.DELTACAT,
         )
+        bucket_transform = BucketTransform.of(
+            BucketTransformParameters.of(
+                num_buckets=2,
+                bucketing_strategy=BucketingStrategy.DEFAULT,
+            )
+        )
+        partition_keys = [
+            PartitionKey.of(
+                key=["some_string", "some_int32"],
+                name="test_partition_key",
+                field_id="test_field_id",
+                transform=bucket_transform,
+            )
+        ]
+        partition_scheme = PartitionScheme.of(
+            keys=partition_keys,
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id",
+        )
         stream = Stream.of(
             locator=stream_locator,
-            partition_scheme=None,
+            partition_scheme=partition_scheme,
+            state=CommitState.STAGED,
+            previous_stream_id="test_previous_stream_id",
+            watermark=1,
         )
         try:
             temp_file_path = stream.write(temp_dir)
-            deserialized_stream = Table.read(temp_file_path)
+            deserialized_stream = Stream.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
         assert stream == deserialized_stream
@@ -121,10 +211,38 @@ class TestMetafileIO(unittest.TestCase):
             partition_id="test_partition_id",
             partition_scheme_id="test_partition_scheme_id",
         )
-        partition = Partition.of(partition_locator, None, None)
+        schema = Schema.of(
+            [
+                Field.of(
+                    field=pa.field("some_string", pa.string(), nullable=False),
+                    field_id=1,
+                    is_merge_key=True,
+                ),
+                Field.of(
+                    field=pa.field("some_int32", pa.int32(), nullable=False),
+                    field_id=2,
+                    is_merge_key=True,
+                ),
+                Field.of(
+                    field=pa.field("some_float64", pa.float64()),
+                    field_id=3,
+                    is_merge_key=False,
+                ),
+            ]
+        )
+        partition = Partition.of(
+            locator=partition_locator,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+            state=CommitState.STAGED,
+            previous_stream_position=0,
+            previous_partition_id="test_previous_partition_id",
+            stream_position=1,
+            next_partition_id="test_next_partition_id",
+        )
         try:
             temp_file_path = partition.write(temp_dir)
-            deserialized_partition = Table.read(temp_file_path)
+            deserialized_partition = Partition.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
         assert partition == deserialized_partition
@@ -142,16 +260,45 @@ class TestMetafileIO(unittest.TestCase):
             partition_scheme_id="test_partition_scheme_id",
             stream_position=1,
         )
+        manifest_entry_params = EntryParams.of(
+            equality_field_locators=["some_string", "some_int32"],
+        )
+        manifest_meta = ManifestMeta.of(
+            record_count=1,
+            content_length=10,
+            content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            source_content_length=100,
+            credentials={"foo": "bar"},
+            content_type_parameters=[{"param1": "value1"}],
+            entry_type=EntryType.EQUALITY_DELETE,
+            entry_params=manifest_entry_params,
+        )
+        manifest = Manifest.of(
+            entries=[
+                ManifestEntry.of(
+                    url="s3://test/url",
+                    meta=manifest_meta,
+                )
+            ],
+            author=ManifestAuthor.of(
+                name="deltacat",
+                version="2.0",
+            ),
+            entry_type=EntryType.EQUALITY_DELETE,
+            entry_params=manifest_entry_params,
+        )
         delta = Delta.of(
             locator=delta_locator,
             delta_type=DeltaType.APPEND,
-            meta=None,
-            properties=None,
-            manifest=None,
+            meta=manifest_meta,
+            properties={"property1": "value1"},
+            manifest=manifest,
+            previous_stream_position=0,
         )
         try:
             temp_file_path = delta.write(temp_dir)
-            deserialized_delta = Table.read(temp_file_path)
+            deserialized_delta = Delta.read(temp_file_path)
         finally:
             os.remove(temp_file_path)
         assert delta == deserialized_delta

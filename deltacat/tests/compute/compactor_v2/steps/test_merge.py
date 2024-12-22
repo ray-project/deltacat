@@ -290,7 +290,9 @@ class TestMerge(unittest.TestCase):
             [self.DEDUPE_DELETE_DATA],
             **delete_kwargs,
         )
-        delete_columns: List[str] = delete_delta.meta.entry_params.equality_column_names
+        delete_columns: List[
+            str
+        ] = delete_delta.meta.entry_params.equality_field_locators
         delete_table = download_delta(delete_delta, **delete_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
@@ -371,7 +373,9 @@ class TestMerge(unittest.TestCase):
             [self.DEDUPE_DELETE_DATA],
             **delete_kwargs,
         )
-        delete_columns: List[str] = delete_delta.meta.entry_params.equality_column_names
+        delete_columns: List[
+            str
+        ] = delete_delta.meta.entry_params.equality_field_locators
         delete_table = download_delta(delete_delta, **delete_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
