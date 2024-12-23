@@ -100,11 +100,14 @@ class TableLocator(Locator, dict):
 
     @staticmethod
     def at(namespace: Optional[str], table_name: Optional[str]) -> TableLocator:
-        namespace_locator = NamespaceLocator.of(namespace)
+        namespace_locator = NamespaceLocator.of(namespace) if namespace else None
         return TableLocator.of(namespace_locator, table_name)
 
+    def parent(self) -> Optional[NamespaceLocator]:
+        return self.namespace_locator
+
     @property
-    def namespace_locator(self) -> NamespaceLocator:
+    def namespace_locator(self) -> Optional[NamespaceLocator]:
         val: Dict[str, Any] = self.get("namespaceLocator")
         if val is not None and not isinstance(val, NamespaceLocator):
             self.namespace_locator = val = NamespaceLocator(val)
@@ -135,6 +138,8 @@ class TableLocator(Locator, dict):
         for equality checks (i.e. two locators are equal if they have
         the same canonical string).
         """
-        nl_hexdigest = self.namespace_locator.hexdigest()
+        nl_hexdigest = (
+            self.namespace_locator.hexdigest() if self.namespace_locator else None
+        )
         table_name = self.table_name
         return f"{nl_hexdigest}|{table_name}"

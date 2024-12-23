@@ -1,7 +1,18 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
+from typing import Optional
+
 from deltacat.utils.common import sha1_digest, sha1_hexdigest
 
 
 class Locator:
+    def parent(self) -> Optional[Locator]:
+        """
+        Returns the parent of this locator, if any.
+        """
+        raise NotImplementedError()
+
     def canonical_string(self) -> str:
         """
         Returns a unique string for the given locator that can be used

@@ -266,12 +266,16 @@ class PartitionLocator(Locator, dict):
         partition_id: Optional[str],
         partition_scheme_id: Optional[str],
     ) -> PartitionLocator:
-        stream_locator = StreamLocator.at(
-            namespace,
-            table_name,
-            table_version,
-            stream_id,
-            stream_format,
+        stream_locator = (
+            StreamLocator.at(
+                namespace,
+                table_name,
+                table_version,
+                stream_id,
+                stream_format,
+            )
+            if stream_id and stream_format
+            else None
         )
         return PartitionLocator.of(
             stream_locator,
@@ -279,6 +283,9 @@ class PartitionLocator(Locator, dict):
             partition_id,
             partition_scheme_id,
         )
+
+    def parent(self) -> Optional[StreamLocator]:
+        return self.stream_locator
 
     @property
     def stream_locator(self) -> Optional[StreamLocator]:
@@ -377,7 +384,7 @@ class PartitionLocator(Locator, dict):
         for equality checks (i.e. two locators are equal if they have
         the same canonical string).
         """
-        sl_hexdigest = self.stream_locator.hexdigest()
+        sl_hexdigest = self.stream_locator.hexdigest() if self.stream_locator else None
         partition_vals = str(self.partition_values)
         partition_id = self.partition_id
         scheme_id = self.partition_scheme_id

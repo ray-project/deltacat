@@ -364,7 +364,7 @@ def upload_table(
     **s3_client_kwargs,
 ) -> ManifestEntryList:
     """
-    Writes the given table to 1 or more S3 files and return Redshift
+    Writes the given table to 1 or more S3 files and return
     manifest entries describing the uploaded files.
     """
     if s3_table_writer_kwargs is None:

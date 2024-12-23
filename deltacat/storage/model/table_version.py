@@ -265,8 +265,11 @@ class TableVersionLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
     ) -> TableVersionLocator:
-        table_locator = TableLocator.at(namespace, table_name)
+        table_locator = TableLocator.at(namespace, table_name) if table_name else None
         return TableVersionLocator.of(table_locator, table_version)
+
+    def parent(self) -> Optional[TableLocator]:
+        return self.table_locator
 
     @property
     def table_locator(self) -> Optional[TableLocator]:
@@ -314,6 +317,6 @@ class TableVersionLocator(Locator, dict):
         for equality checks (i.e. two locators are equal if they have
         the same canonical string).
         """
-        tl_hexdigest = self.table_locator.hexdigest()
+        tl_hexdigest = self.table_locator.hexdigest() if self.table_locator else None
         table_version = self.table_version
         return f"{tl_hexdigest}|{table_version}"
