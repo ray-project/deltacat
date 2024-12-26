@@ -1,15 +1,25 @@
 import typing
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Protocol, Generator, Any, TypeVar, Type, Generic, List, Iterator, Optional
+from typing import (
+    Protocol,
+    Generator,
+    Any,
+    TypeVar,
+    Type,
+    Generic,
+    List,
+    Iterator,
+    Optional,
+)
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 
-FILE_FORMAT = TypeVar('FILE_FORMAT')
-MEMORY_FORMAT = TypeVar('MEMORY_FORMAT')
+FILE_FORMAT = TypeVar("FILE_FORMAT")
+MEMORY_FORMAT = TypeVar("MEMORY_FORMAT")
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 @dataclass
@@ -19,11 +29,16 @@ class RowAndPrimaryKey(Generic[FILE_FORMAT]):
     Note that record batches store data by column, so the row index should be
     used to index into each column array
     """
+
     row: FILE_FORMAT
     primary_key: Any
 
 
-class FileReader(Protocol[FILE_FORMAT], Iterator[RowAndPrimaryKey[FILE_FORMAT]], typing.ContextManager):
+class FileReader(
+    Protocol[FILE_FORMAT],
+    Iterator[RowAndPrimaryKey[FILE_FORMAT]],
+    typing.ContextManager,
+):
     """
     Interface for reading specific file
 
@@ -32,7 +47,9 @@ class FileReader(Protocol[FILE_FORMAT], Iterator[RowAndPrimaryKey[FILE_FORMAT]],
     """
 
     @abstractmethod
-    def __init__(self, sst_row: SSTableRow, file_store: FileStore, primary_key: str) -> None:
+    def __init__(
+        self, sst_row: SSTableRow, file_store: FileStore, primary_key: str
+    ) -> None:
         """
         Required constructor (see: FileReaderRegistrar)
 
@@ -77,8 +94,9 @@ class DataReader(Protocol[FILE_FORMAT]):
     """
 
     @abstractmethod
-    def deserialize_records(self, records: FILE_FORMAT, output_type: Type[MEMORY_FORMAT]) -> Generator[
-        MEMORY_FORMAT, None, None]:
+    def deserialize_records(
+        self, records: FILE_FORMAT, output_type: Type[MEMORY_FORMAT]
+    ) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Deserialize records into the specified format.
 
@@ -92,10 +110,12 @@ class DataReader(Protocol[FILE_FORMAT]):
         ...
 
     @abstractmethod
-    def join_deserialize_records(self, records: List[FILE_FORMAT],
-                                 output_type: Type[MEMORY_FORMAT],
-                                 join_key: str) -> Generator[
-        MEMORY_FORMAT, None, None]:
+    def join_deserialize_records(
+        self,
+        records: List[FILE_FORMAT],
+        output_type: Type[MEMORY_FORMAT],
+        join_key: str,
+    ) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Deserialize records into the specified format.
 

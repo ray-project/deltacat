@@ -1,5 +1,4 @@
 import pytest
-import pyarrow as pa
 
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.dataset import Dataset
@@ -10,20 +9,15 @@ from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 
 @pytest.fixture
 def sample_schema():
-    return Schema({
-        'id': Datatype('int32'),
-        'name': Datatype('string'),
-        'age': Datatype('int32')
-    }, primary_key='id')
+    return Schema(
+        {"id": Datatype("int32"), "name": Datatype("string"), "age": Datatype("int32")},
+        primary_key="id",
+    )
 
 
 @pytest.fixture
 def sample_pydict():
-    return {
-        'id': [1, 2, 3],
-        'name': ['Alice', 'Bob', 'Charlie'],
-        'age': [25, 30, 35]
-    }
+    return {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
 
 
 def test_dataset_creation(tmp_path):
@@ -40,9 +34,9 @@ def test_dataset_from_pydict(tmp_path, sample_pydict):
     dataset = Dataset.from_pydict(base_uri, sample_pydict, "id")
 
     assert dataset.schema is not None
-    assert 'id' in dataset.schema
-    assert 'name' in dataset.schema
-    assert 'age' in dataset.schema
+    assert "id" in dataset.schema
+    assert "name" in dataset.schema
+    assert "age" in dataset.schema
 
 
 def test_dataset_new_field_group(tmp_path, sample_schema):
@@ -52,7 +46,7 @@ def test_dataset_new_field_group(tmp_path, sample_schema):
 
     field_group = dataset.new_field_group(sample_schema)
     assert field_group in dataset.field_groups
-    assert dataset.schema.primary_key.name == 'id'
+    assert dataset.schema.primary_key.name == "id"
 
 
 def test_dataset_conflicting_field_groups(tmp_path, sample_schema):
@@ -64,13 +58,18 @@ def test_dataset_conflicting_field_groups(tmp_path, sample_schema):
     dataset.new_field_group(sample_schema)
 
     # Create conflicting schema with same field name
-    conflicting_schema = Schema({
-        'id': Datatype('int32'),
-        'name': Datatype('string'),  # Conflicting field
-    }, primary_key='id')
+    conflicting_schema = Schema(
+        {
+            "id": Datatype("int32"),
+            "name": Datatype("string"),  # Conflicting field
+        },
+        primary_key="id",
+    )
 
     # Should raise error due to conflicting 'name' field
-    with pytest.raises(ValueError, match="Ambiguous field 'name' present in multiple field groups"):
+    with pytest.raises(
+        ValueError, match="Ambiguous field 'name' present in multiple field groups"
+    ):
         dataset.new_field_group(conflicting_schema)
 
 
@@ -102,7 +101,7 @@ def test_dataset_select_fields(tmp_path, sample_schema):
     dataset.new_field_group(sample_schema)
 
     # Select subset of fields
-    selected = dataset.select(['id', 'name'])
+    selected = dataset.select(["id", "name"])
     assert selected is dataset  # Should return self for chaining
 
 
@@ -112,12 +111,17 @@ def test_dataset_different_primary_keys(tmp_path, sample_schema):
     dataset = Dataset(base_uri)
     dataset.new_field_group(sample_schema)
 
-    different_pk_schema = Schema({
-        'user_id': Datatype('int32'),  # Different primary key
-        'email': Datatype('string'),
-    }, primary_key='user_id')
+    different_pk_schema = Schema(
+        {
+            "user_id": Datatype("int32"),  # Different primary key
+            "email": Datatype("string"),
+        },
+        primary_key="user_id",
+    )
 
-    with pytest.raises(ValueError, match="Field group .* must use dataset's primary key"):
+    with pytest.raises(
+        ValueError, match="Field group .* must use dataset's primary key"
+    ):
         dataset.new_field_group(different_pk_schema)
 
 

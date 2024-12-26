@@ -26,10 +26,8 @@ def make_tmpdir():
         shutil.rmtree(tmpdir)
         pass
 
-def write_mvp_table_to_riv(table: MvpTable,
-                           schema: Schema,
-                           dir: str,
-                           file_format=None):
+
+def write_mvp_table_to_riv(table: MvpTable, schema: Schema, dir: str, file_format=None):
     dataset = Dataset(dir)
     fg = dataset.new_field_group(schema)
     with dataset.writer(fg, file_format) as writer:
@@ -37,28 +35,28 @@ def write_mvp_table_to_riv(table: MvpTable,
         writer.write([record_batch])
     return dataset
 
+
 def write_mvp_table(writer: DatasetWriter, table: MvpTable):
     writer.write(table.to_rows_list())
 
 
-def mvp_table_to_record_batches(table: MvpTable,
-                                schema: Schema) -> RecordBatch:
+def mvp_table_to_record_batches(table: MvpTable, schema: Schema) -> RecordBatch:
     data = table.to_rows_list()
     columns = {key: [d.get(key) for d in data] for key in schema.keys()}
     record_batch = RecordBatch.from_pydict(columns, schema=schema.to_pyarrow_schema())
     return record_batch
 
 
-def compare_mvp_table_to_scan_results(table: MvpTable,
-                                      scan_results: List[dict],
-                                      pk: str):
+def compare_mvp_table_to_scan_results(
+    table: MvpTable, scan_results: List[dict], pk: str
+):
     table_row_list = table.to_rows_list()
-    assert (len(scan_results) == len(table_row_list))
+    assert len(scan_results) == len(table_row_list)
     rows_by_pk: Dict[str, MvpRow] = table.to_rows_by_pk(pk)
-    assert (len(rows_by_pk) == len(scan_results))
+    assert len(rows_by_pk) == len(scan_results)
     for record in scan_results:
         pk_val = record[pk]
-        assert (rows_by_pk[pk_val].data == record)
+        assert rows_by_pk[pk_val].data == record
 
 
 def validate_with_full_scan(dataset: Dataset, expected: MvpTable, schema: Schema):
@@ -80,7 +78,7 @@ def assert_data_file_extension(dataset: Dataset, file_extension: str):
         data_file_count += 1
         assert data_file.endswith(file_extension)
     assert data_file_count > 0, "No data files found in dataset"
-    print(f'Asserted that {data_file_count} data files end with {file_extension}')
+    print(f"Asserted that {data_file_count} data files end with {file_extension}")
 
 
 def assert_data_file_extension_set(dataset: Dataset, file_extension_set: Set[str]):
@@ -98,8 +96,12 @@ def assert_data_file_extension_set(dataset: Dataset, file_extension_set: Set[str
                 break
 
     assert data_file_count > 0, "No data files found in dataset"
-    assert found_extensions == file_extension_set, f"Missing extensions: {file_extension_set - found_extensions}"
-    print(f'Asserted that among {data_file_count} data files, all extensions {file_extension_set} were found')
+    assert (
+        found_extensions == file_extension_set
+    ), f"Missing extensions: {file_extension_set - found_extensions}"
+    print(
+        f"Asserted that among {data_file_count} data files, all extensions {file_extension_set} were found"
+    )
 
 
 def create_dataset_for_method(temp_dir: str):

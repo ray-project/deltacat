@@ -18,9 +18,12 @@ class DataSerializerFactory:
     """
 
     @classmethod
-    def get_serializer(self, schema: Schema,
-                       location_provider: FileLocationProvider,
-                       user_provided_format: str | None = None) -> DataSerializer:
+    def get_serializer(
+        self,
+        schema: Schema,
+        location_provider: FileLocationProvider,
+        user_provided_format: str | None = None,
+    ) -> DataSerializer:
         if user_provided_format == "parquet":
             return ParquetDataSerializer(location_provider, schema)
         elif user_provided_format == "feather":
@@ -29,7 +32,10 @@ class DataSerializerFactory:
             raise ValueError("Unsupported format. Must be 'parquet' or 'feather'.")
 
         # Default engine logic. For now, if there is image or binary use feather
-        has_binary_or_image = any(field.datatype.type_name.startswith(('binary', 'image')) for field in schema.values())
+        has_binary_or_image = any(
+            field.datatype.type_name.startswith(("binary", "image"))
+            for field in schema.values()
+        )
         if has_binary_or_image:
             return FeatherDataSerializer(location_provider, schema)
         else:

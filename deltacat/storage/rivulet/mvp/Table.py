@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Dict, Any, Mapping
+from typing import List, Dict, Any
 from typing import Iterable
 
 from collections.abc import Mapping
@@ -55,7 +55,9 @@ class MvpTable(Iterable[Dict[str, Any]]):
 
         # Iterate over the rows
         for i in range(row_count):
-            row_data = {field_name: field_arr[i] for field_name, field_arr in self.data.items()}
+            row_data = {
+                field_name: field_arr[i] for field_name, field_arr in self.data.items()
+            }
             yield row_data
 
     def to_rows_by_pk(self, pk: str) -> Dict[str, "MvpRow"]:
@@ -64,14 +66,19 @@ class MvpTable(Iterable[Dict[str, Any]]):
         pk_col = self.data[pk]
         row_data: Dict[str, MvpRow] = {}
         for i, value in enumerate(pk_col):
-            row_data[value] = MvpRow({field_name: field_arr[i] for field_name, field_arr in self.data.items()})
+            row_data[value] = MvpRow(
+                {
+                    field_name: field_arr[i]
+                    for field_name, field_arr in self.data.items()
+                }
+            )
         return row_data
 
     def to_rows_list(self) -> List[Dict[str, Any]]:
         return [r for r in self]
 
     @classmethod
-    def merge(cls, dataset1: 'MvpTable', dataset2: 'MvpTable', pk: str) -> 'MvpTable':
+    def merge(cls, dataset1: "MvpTable", dataset2: "MvpTable", pk: str) -> "MvpTable":
 
         merged_data: Dict[str, List[Any]] = {}
         # Initialize merged_data with keys from both datasets

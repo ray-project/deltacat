@@ -12,13 +12,15 @@ from deltacat.storage.rivulet.metastore.manifest import ManifestContext
 from deltacat.storage.rivulet.metastore.sst import SSTable, SSTableRow
 from deltacat.storage.rivulet import Schema
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 # Can be replaced with itertools.pairwise once we're on python 3.10+
 def pairwise(iterable):
     a, b = tee(iterable)
     next(b, None)
     return zip(a, b)
+
 
 class Block(NamedTuple):
     row: SSTableRow
@@ -61,6 +63,7 @@ class BlockGroup:
     for any given point query, range query, or scan. For instance, if the user queries for key=3, we know
     to read BlockGroup1, or key[0-10] to read BlockGroup1+BlockGroup2.
     """
+
     key_min: T
     """
     Key min is inclusive (the block group covers data where primary key>=key_min)
@@ -94,9 +97,10 @@ class OrderedBlockGroups:
 
     For example, a boundary table of [1,3,5,10] has blocks: [1,3), [3,5), [5,10]
     """
+
     key_min: T
     """
-    Key min is inclusive 
+    Key min is inclusive
     """
     key_max: T
     """
@@ -139,10 +143,9 @@ class BlockIntervalTree:
             else:
                 self.max_key_map[row.key_max].append(interval)
 
-    def get_sorted_block_groups(self,
-                                min_key: Any | None = None,
-                                max_key: Any | None = None
-                                ) -> OrderedBlockGroups:
+    def get_sorted_block_groups(
+        self, min_key: Any | None = None, max_key: Any | None = None
+    ) -> OrderedBlockGroups:
         """
         Returns an ordered list of block group by primary key range
         The IntervalTree boundary table contains each boundary where the set of intervals change
@@ -200,7 +203,9 @@ class BlockIntervalTree:
         # Note that we need to expand min_key_idx and max_key_idx by 1 to cover cases where
         # the pairwise traversal (x,y) has x>=min_key>=y and x<=max_key<=y
         if min_key is not None and max_key is not None and min_key > max_key:
-            raise ValueError(f'min_key {min_key} cannot be greater than max_key {max_key}')
+            raise ValueError(
+                f"min_key {min_key} cannot be greater than max_key {max_key}"
+            )
 
         min_key_idx = bisect_left(key_boundaries, min_key) - 1 if min_key else None
         max_key_idx = bisect_right(key_boundaries, max_key) + 1 if max_key else None
@@ -222,14 +227,28 @@ class BlockIntervalTree:
                 field_group_to_blocks[schema].add(data)
 
             # freeze dict to make it hashable
-            field_group_to_blocks = {k: frozenset(v) for k, v in field_group_to_blocks.items()}
+            field_group_to_blocks = {
+                k: frozenset(v) for k, v in field_group_to_blocks.items()
+            }
 
             # Special case - if this is the very last iteration, set key_max_inclusive to True
             max_key_inclusive = upper_bound == boundary_table[-1]
 
-            block_group = BlockGroup(lower_bound, upper_bound, field_group_to_blocks, max_key_inclusive)
-            block_groups_min = lower_bound if block_groups_min is None else min(block_groups_min, lower_bound)
-            block_groups_max = upper_bound if block_groups_max is None else max(block_groups_max, upper_bound)
+            block_group = BlockGroup(
+                lower_bound, upper_bound, field_group_to_blocks, max_key_inclusive
+            )
+            block_groups_min = (
+                lower_bound
+                if block_groups_min is None
+                else min(block_groups_min, lower_bound)
+            )
+            block_groups_max = (
+                upper_bound
+                if block_groups_max is None
+                else max(block_groups_max, upper_bound)
+            )
             block_groups.append(block_group)
 
-        return OrderedBlockGroups(block_groups_min, block_groups_max, block_groups, boundary_table)
+        return OrderedBlockGroups(
+            block_groups_min, block_groups_max, block_groups, boundary_table
+        )

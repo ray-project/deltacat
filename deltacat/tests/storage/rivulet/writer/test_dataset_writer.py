@@ -3,8 +3,16 @@ import shutil
 import tempfile
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.writer.memtable_dataset_writer import MemtableDatasetWriter
-from ..test_utils import write_mvp_table, mvp_table_to_record_batches, validate_with_full_scan, assert_data_file_extension, create_dataset_for_method
+from deltacat.storage.rivulet.writer.memtable_dataset_writer import (
+    MemtableDatasetWriter,
+)
+from ..test_utils import (
+    write_mvp_table,
+    mvp_table_to_record_batches,
+    validate_with_full_scan,
+    assert_data_file_extension,
+    create_dataset_for_method,
+)
 
 MemtableDatasetWriter.MAX_ROW_SIZE = 100
 

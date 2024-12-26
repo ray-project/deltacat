@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from typing import Generator, Dict, Type, NamedTuple, List, Optional
+from typing import Optional
 
 from pyarrow import RecordBatch
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
-from deltacat.storage.rivulet.reader.data_reader import DataReader, RowAndPrimaryKey, FileReader, FILE_FORMAT, MEMORY_FORMAT
+from deltacat.storage.rivulet.reader.data_reader import (
+    RowAndPrimaryKey,
+    FileReader,
+    FILE_FORMAT,
+)
 from deltacat.storage.rivulet.reader.pyarrow_data_reader import RecordBatchRowIndex
 import pyarrow.parquet as pq
 import pyarrow as pa
+
 
 class ParquetFileReader(FileReader[RecordBatchRowIndex]):
     """
@@ -17,11 +22,18 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
 
     This class is not thread safe
     """
-    def __init__(self, sst_row: SSTableRow, file_store: FileStore, primary_key: str, iter_batch_size=1000):
+
+    def __init__(
+        self,
+        sst_row: SSTableRow,
+        file_store: FileStore,
+        primary_key: str,
+        iter_batch_size=1000,
+    ):
         self.sst_row = sst_row
         self.input = file_store.new_input_file(self.sst_row.uri)
 
-        self.primary_key=primary_key
+        self.primary_key = primary_key
         self.parquet_file: pa.parquet.ParquetFile | None = None
         self.iter_batch_size = iter_batch_size
 
@@ -46,7 +58,9 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
         :return: Optional of RowAndPrimaryKey
         """
         if not self.__is_initialized():
-            raise RuntimeError("ParquetFileReader must be initialized with __enter__ before reading")
+            raise RuntimeError(
+                "ParquetFileReader must be initialized with __enter__ before reading"
+            )
 
         if self.__need_to_advance_record_batch():
             try:
@@ -55,11 +69,15 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
                 return None
 
         pk = self._pk_col[self._curr_row_offset].as_py()
-        return RowAndPrimaryKey(RecordBatchRowIndex(self._curr_batch, self._curr_row_offset), pk)
+        return RowAndPrimaryKey(
+            RecordBatchRowIndex(self._curr_batch, self._curr_row_offset), pk
+        )
 
     def __next__(self) -> RowAndPrimaryKey[FILE_FORMAT]:
         if not self.__is_initialized():
-            raise RuntimeError("ParquetFileReader must be initialized with __enter__ before reading")
+            raise RuntimeError(
+                "ParquetFileReader must be initialized with __enter__ before reading"
+            )
 
         if self.__need_to_advance_record_batch():
             self.__advance_record_batch()
@@ -76,7 +94,9 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
             self.parquet_file = pq.ParquetFile(f)
             # Initialize _curr_batch
             row_groups = list(range(self.sst_row.offset_start, self.sst_row.offset_end))
-            self._record_batch_iter = self.parquet_file.iter_batches(self.iter_batch_size, row_groups)
+            self._record_batch_iter = self.parquet_file.iter_batches(
+                self.iter_batch_size, row_groups
+            )
             self.__advance_record_batch()
 
     def __exit__(self, __exc_type, __exc_value, __traceback):

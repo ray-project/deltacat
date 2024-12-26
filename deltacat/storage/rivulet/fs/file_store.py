@@ -1,6 +1,11 @@
 from typing import Tuple, Iterator
 
-from deltacat.storage.rivulet.fs.file_system import FileSystem, FSInputFile, FSOutputFile, NormalizedPath
+from deltacat.storage.rivulet.fs.file_system import (
+    FileSystem,
+    FSInputFile,
+    FSOutputFile,
+    NormalizedPath,
+)
 from deltacat.storage.rivulet.fs.input_file import InputFile
 from deltacat.storage.rivulet.fs.local_fs import LocalFS
 from deltacat.storage.rivulet.fs.output_file import OutputFile

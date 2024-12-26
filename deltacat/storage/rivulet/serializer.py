@@ -5,6 +5,7 @@ import pyarrow as pa
 
 MEMTABLE_DATA = Union[Iterable[Dict[str, Any]], pa.Table]
 
+
 class DataSerializer(Protocol):
     """
     Interface for writing data only.

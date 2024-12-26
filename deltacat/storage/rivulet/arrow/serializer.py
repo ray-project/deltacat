@@ -14,9 +14,7 @@ class ArrowSerializer(DataSerializer, ABC):
     and then using the provided serialization function
     """
 
-    def __init__(self,
-                 location_provider: FileLocationProvider,
-                 schema: Schema):
+    def __init__(self, location_provider: FileLocationProvider, schema: Schema):
         self.schema = schema
         self.location_provider = location_provider
         self.arrow_schema = self.schema.to_pyarrow_schema()
@@ -63,8 +61,7 @@ class ArrowSerializer(DataSerializer, ABC):
         table = self._to_arrow_table(sorted_records)
         return self.serialize(table)
 
-    def write(self,
-              sorted_records: MEMTABLE_DATA) -> List[SSTableRow]:
+    def write(self, sorted_records: MEMTABLE_DATA) -> List[SSTableRow]:
         """
         Write records using the provided serialization function
 

@@ -9,6 +9,7 @@ from deltacat.storage.rivulet.fs.output_file import OutputFile, OutputStream
 NormalizedPath = str
 """Alias for the normalized path generated upon resolution."""
 
+
 class FileSystem(Protocol):
     """Interface for interacting with a given file system"""
 
@@ -70,6 +71,6 @@ class FSInputFile(InputFile):
         return self.fs.exists(self._location)
 
     @contextmanager
-    def open(self, seekable = False) -> InputStream:
+    def open(self, seekable=False) -> InputStream:
         with self.fs.open(self._location) as f:
             yield f
