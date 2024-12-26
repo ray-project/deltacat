@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, Any, List, Iterable, Union
+import pyarrow as pa
 
 from deltacat.storage.rivulet.glob_path import GlobPath
 from deltacat.storage.rivulet.dataset_executor import DatasetExecutor
@@ -46,8 +47,10 @@ class Dataset:
     def from_pydict(cls,
                     base_uri: str,
                     data: Dict[str, List[Any]],
-                    schema: Schema):
-        return cls(base_uri, field_groups=[PydictFieldGroup(data, schema)])
+                    primary_key: str):
+        table = pa.Table.from_pydict(data)
+        riv_schema = Schema.from_pyarrow_schema(table.schema, primary_key)
+        return cls(base_uri, field_groups=[PydictFieldGroup(data, riv_schema)])
 
     def add_field_group(self, field_group: FieldGroup) -> None:
         """

@@ -86,6 +86,29 @@ class Schema(MutableMapping[str, Field]):
             fields.append(pa.field(name, field.datatype.to_pyarrow()))
         return pa.schema(fields)
 
+    @classmethod
+    def from_pyarrow_schema(cls, pyarrow_schema: pa.Schema, primary_key: str) -> 'Schema':
+        """
+        Create a Schema instance from a PyArrow schema.
+
+        Args:
+            pyarrow_schema: PyArrow Schema to convert
+            primary_key: Name of the field to use as primary key
+
+        Returns:
+            Schema: New Schema instance
+
+        Raises:
+            ValueError: If primary_key is not found in schema
+        """
+        fields = {}
+
+        for field in pyarrow_schema:
+            dtype = Datatype.from_pyarrow(field.type)
+            fields[field.name] = Field(field.name, dtype)
+
+        return cls(fields, primary_key)
+
     def __dict__(self) -> Dict[str, Dict[str, str]]:
         """
         for json encoding

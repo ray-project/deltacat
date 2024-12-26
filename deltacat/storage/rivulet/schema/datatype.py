@@ -4,7 +4,7 @@
 #   It also has the unique responsibility of representing multi-modal (e.g. image) types
 from typing import Optional
 
-import pyarrow
+import pyarrow as pa
 
 
 # OPEN QUESTIONs:
@@ -58,10 +58,14 @@ class Datatype:
         return cls(type_name='int32')
 
     @classmethod
+    def int64(cls):
+        return cls(type_name='int64')
+
+    @classmethod
     def bool(cls):
         return cls(type_name='bool')
 
-    def to_pyarrow(self) -> pyarrow.field:
+    def to_pyarrow(self) -> pa.field:
         """
         In the future we want to be more thoughtful about how we do type conversions
 
@@ -71,20 +75,54 @@ class Datatype:
         :return: pyarrow type
         """
         if self.type_name == 'string':
-            return pyarrow.string()
+            return pa.string()
         elif self.type_name == 'float':
-            return pyarrow.float64()
+            return pa.float64()
         elif self.type_name == 'int16':
-            return pyarrow.int16()
+            return pa.int16()
         elif self.type_name == 'int32':
-            return pyarrow.int32()
+            return pa.int32()
+        elif self.type_name == 'int64':
+            return pa.int64()
         elif self.type_name == 'bool':
-            return pyarrow.bool_()
+            return pa.bool_()
         elif self.type_name.startswith('image(') or self.type_name.startswith('binary('):
             # TODO we will need to think about how custom types work with tabular libraries
-            return pyarrow.binary()
+            return pa.binary()
         else:
-            raise ValueError(f"Unsupported type conversion to pyarrow: {self.type_name}")
+            raise ValueError(f"Unsupported type conversion to pa: {self.type_name}")
+
+    @classmethod
+    def from_pyarrow(cls, pa_type: pa.DataType) -> 'Datatype':
+        """
+        Convert a pa type to a Rivulet Datatype.
+
+        Args:
+            pa_type: pa DataType to convert
+
+        Returns:
+            Datatype: Corresponding Rivulet Datatype
+
+        Raises:
+            ValueError: If the pa type is not supported
+        """
+        if pa.types.is_string(pa_type):
+            return cls.string()
+        elif pa.types.is_float64(pa_type):
+            return cls.float()
+        elif pa.types.is_int16(pa_type):
+            return cls.int16()
+        elif pa.types.is_int32(pa_type):
+            return cls.int32()
+        elif pa.types.is_int64(pa_type):
+            return cls.int64()
+        elif pa.types.is_boolean(pa_type):
+            return cls.bool()
+        elif pa.types.is_binary(pa_type):
+            # TODO: Use pyarrow metadata on schema field to map correctly into image and other binary types
+            return cls.binary('binary')  # Default binary format
+        else:
+            raise ValueError(f"Unsupported pa type: {pa_type}")
 
     def __repr__(self):
         return f"Datatype({self.type_name})"

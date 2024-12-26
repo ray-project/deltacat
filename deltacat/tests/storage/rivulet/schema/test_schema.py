@@ -1,5 +1,7 @@
 import pytest
 
+import pyarrow as pa
+
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.schema.datatype import Datatype
 
@@ -59,6 +61,29 @@ def test_schema_to_pyarrow():
     assert str(pa_schema.types[0]) == 'int32'
     assert str(pa_schema.types[1]) == 'string'
 
+
+def test_from_pyarrow_schema():
+    """Test creating Schema from PyArrow schema"""
+    # Create a PyArrow schema
+    pa_schema = pa.schema([
+        ('id', pa.int32()),
+        ('name', pa.string()),
+        ('age', pa.int32())
+    ])
+
+    # Convert to Rivulet Schema
+    schema = Schema.from_pyarrow_schema(pa_schema, primary_key='id')
+
+    # Verify conversion
+    assert schema.primary_key.name == 'id'
+    assert schema.primary_key.datatype == Datatype('int32')
+    assert len(schema) == 3
+    assert schema['name'].datatype == Datatype('string')
+    assert schema['age'].datatype == Datatype('int32')
+
+    # Test invalid primary key
+    with pytest.raises(ValueError, match="Did not find primary key 'invalid_key' in Schema"):
+        Schema.from_pyarrow_schema(pa_schema, primary_key='invalid_key')
 
 def test_schema_json_serialization():
     """Test JSON serialization and deserialization"""
