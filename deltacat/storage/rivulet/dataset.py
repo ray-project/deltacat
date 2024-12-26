@@ -12,7 +12,7 @@ from deltacat.storage.rivulet.reader.data_scan import DataScan
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 from deltacat.storage.rivulet.reader.dataset_reader import DatasetReader
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.writer.dataset_writer import DatasetWriter
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
 from deltacat.storage.rivulet.writer.memtable_dataset_writer import MemtableDatasetWriter

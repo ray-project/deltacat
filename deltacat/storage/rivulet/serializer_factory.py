@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from deltacat.storage.rivulet.parquet.serializer import ParquetDataSerializer
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.serializer import DataSerializer
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
 

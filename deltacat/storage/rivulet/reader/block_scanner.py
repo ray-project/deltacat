@@ -9,7 +9,7 @@ from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 from deltacat.storage.rivulet.reader.pyarrow_data_reader import ArrowDataReader
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet.reader.reader_type_registrar import FileReaderRegistrar
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 
 import heapq
 

@@ -10,7 +10,7 @@ from intervaltree import Interval, IntervalTree
 
 from deltacat.storage.rivulet.metastore.manifest import ManifestContext
 from deltacat.storage.rivulet.metastore.sst import SSTable, SSTableRow
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 
 T = TypeVar('T')
 

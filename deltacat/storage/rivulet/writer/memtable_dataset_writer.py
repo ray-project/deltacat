@@ -7,7 +7,7 @@ from typing import Any, List, Set, Protocol, TypeVar, Dict, Iterable
 from pyarrow import RecordBatch, Table
 from deltacat.storage.rivulet.metastore.manifest import ManifestIO, JsonManifestIO
 
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstWriter
 from deltacat.storage.rivulet.serializer import MEMTABLE_DATA, DataSerializer
 from deltacat.storage.rivulet.serializer_factory import DataSerializerFactory

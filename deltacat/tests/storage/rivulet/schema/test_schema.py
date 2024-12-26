@@ -1,7 +1,7 @@
 import pytest
 
-from deltacat.storage.rivulet.schema import Schema, Field
-from deltacat.storage.rivulet.datatype import Datatype
+from deltacat.storage.rivulet import Schema
+from deltacat.storage.rivulet.schema.datatype import Datatype
 
 
 def test_schema_creation():

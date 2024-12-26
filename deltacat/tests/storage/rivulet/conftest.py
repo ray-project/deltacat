@@ -3,9 +3,9 @@ import io
 import pytest
 from faker import Faker
 
-from deltacat.storage.rivulet.datatype import Datatype
+from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.mvp.Table import MvpTable
-from deltacat.storage.rivulet.schema import Field, Schema
+from deltacat.storage.rivulet.schema.schema import Field, Schema
 import random
 import string
 from PIL import Image

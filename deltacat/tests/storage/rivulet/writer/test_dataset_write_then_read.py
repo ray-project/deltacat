@@ -11,7 +11,7 @@ from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.manifest import JsonManifestIO, ManifestIO, TreeLevel
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.writer.memtable_dataset_writer import MemtableDatasetWriter
 
 from deltacat.tests.storage.rivulet.test_utils import FIXTURE_ROW_COUNT

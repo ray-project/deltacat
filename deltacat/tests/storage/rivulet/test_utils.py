@@ -11,7 +11,7 @@ import shutil
 import tempfile
 
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from typing import Dict, List, Generator, Set
 
 FIXTURE_ROW_COUNT = 10000

@@ -5,8 +5,8 @@ import pytest
 from deltacat.storage.rivulet.metastore.manifest import ManifestContext
 from deltacat.storage.rivulet.metastore.sst import SSTable, SSTableRow
 from deltacat.storage.rivulet.metastore.sst_interval_tree import BlockIntervalTree, BlockGroup, OrderedBlockGroups, Block
-from deltacat.storage.rivulet.datatype import Datatype
-from deltacat.storage.rivulet.schema import Schema, Field
+from deltacat.storage.rivulet.schema.datatype import Datatype
+from deltacat.storage.rivulet import Schema, Field
 
 
 @pytest.fixture

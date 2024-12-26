@@ -3,8 +3,7 @@ from typing import List, Callable, Any, Protocol
 
 from deltacat.storage.rivulet.dataset_executor import DatasetExecutor
 from deltacat.storage.rivulet.mvp.Table import MvpTable
-from deltacat.storage.rivulet.schema import Schema
-from copy import deepcopy
+from deltacat.storage.rivulet import Schema
 
 
 class DatasetOperation(Protocol):

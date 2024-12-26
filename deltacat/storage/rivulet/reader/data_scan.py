@@ -4,7 +4,7 @@ import pyarrow as pa
 
 from deltacat.storage.rivulet.reader.dataset_reader import DatasetReader
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 
 
 class DataScan:

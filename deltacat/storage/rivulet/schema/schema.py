@@ -4,7 +4,7 @@ from typing import MutableMapping, List, Dict
 from dataclasses import dataclass
 import pyarrow as pa
 
-from deltacat.storage.rivulet.datatype import Datatype
+from deltacat.storage.rivulet.schema.datatype import Datatype
 
 
 @dataclass

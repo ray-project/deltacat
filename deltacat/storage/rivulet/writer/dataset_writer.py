@@ -28,5 +28,3 @@ class DatasetWriter(Protocol):
         :return: URI of manifest written for commit
         """
         ...
-
-

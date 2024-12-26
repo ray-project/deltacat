@@ -1,10 +1,10 @@
 import os
 
 from deltacat.tests.storage.rivulet.test_utils import make_tmpdir
-from deltacat.storage.rivulet.datatype import Datatype
+from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.manifest import JsonManifestIO
-from deltacat.storage.rivulet.schema import Schema, Field
+from deltacat.storage.rivulet import Schema, Field
 
 
 

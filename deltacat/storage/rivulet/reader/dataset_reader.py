@@ -6,7 +6,7 @@ from deltacat.storage.rivulet.metastore.sst_interval_tree import BlockIntervalTr
 from deltacat.storage.rivulet.reader.block_scanner import BlockScanner
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore, ManifestAccessor
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 
 # The type of data returned to reader
 T = TypeVar('T')

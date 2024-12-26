@@ -4,7 +4,7 @@ from typing import List, Callable, Any
 
 from deltacat.storage.rivulet.field_group import FieldGroup
 from deltacat.storage.rivulet.mvp.Table import MvpTable
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.reader.data_scan import DataScan
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 from deltacat.storage.rivulet.reader.dataset_reader import DatasetReader

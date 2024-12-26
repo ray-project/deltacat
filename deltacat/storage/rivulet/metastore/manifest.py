@@ -4,7 +4,7 @@ import json
 
 from deltacat.storage.rivulet.fs.input_file import InputFile
 from deltacat.storage.rivulet.fs.output_file import OutputFile
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 
 StreamPosition= str
 """The stream position for creating a consistent ordering of manifests."""

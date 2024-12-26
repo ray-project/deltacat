@@ -1,10 +1,10 @@
-from typing import Iterator, List, Any
+from typing import List, Any
 
 import pyarrow as pa
 from pyarrow.parquet import FileMetaData
 
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.arrow.serializer import ArrowSerializer
 
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider

@@ -1,6 +1,6 @@
 from typing import Protocol, Dict, Any, List, runtime_checkable
 from deltacat.storage.rivulet.glob_path import GlobPath
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 
 
 @runtime_checkable

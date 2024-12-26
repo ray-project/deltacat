@@ -3,7 +3,7 @@ from typing import Iterator, List, Any
 import pyarrow as pa
 
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
-from deltacat.storage.rivulet.schema import Schema
+from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.serializer import DataSerializer, MEMTABLE_DATA
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
 
