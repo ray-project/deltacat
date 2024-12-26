@@ -34,6 +34,19 @@ class DeltaType(str, Enum):
     DELETE = "delete"
 
 
+class TransactionType(str, Enum):
+    RESTATE = "restate"
+    OVERWRITE = "overwrite"
+    APPEND = "append"
+    DELETE = "delete"
+
+
+class TransactionOperationType(str, Enum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
 class LifecycleState(str, Enum):
     CREATED = "created"
     UNRELEASED = "unreleased"

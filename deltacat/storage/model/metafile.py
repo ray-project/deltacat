@@ -8,10 +8,151 @@ import pyarrow.fs
 import os
 import uuid
 
-from ray.data.datasource.file_meta_provider import _expand_directory, _get_file_infos
+from ray.data.datasource.file_meta_provider import _get_file_infos
 
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.types import (
+    TransactionType,
+    TransactionOperationType,
+)
+
+
+class TransactionOperation(dict):
+    """
+    Base class for DeltaCAT transaction operations against individual metafiles.
+    """
+
+    @staticmethod
+    def of(
+        operation_type: Optional[TransactionOperationType],
+        metafile: Optional[Metafile],
+    ) -> TransactionOperation:
+        """
+        Creates a Delta metadata model with the given Delta Locator, Delta Type,
+        manifest metadata, properties, manifest, and previous delta stream
+        position.
+        """
+        transaction_operation = TransactionOperation()
+        transaction_operation.type = operation_type
+        transaction_operation.metafile = metafile
+        return transaction_operation
+
+    @property
+    def type(self) -> TransactionOperationType:
+        """
+        Returns the type of the transaction operation.
+        """
+        return TransactionOperationType(self["type"])
+
+    @type.setter
+    def type(self, txn_op_type: TransactionOperationType):
+        self["type"] = txn_op_type
+
+    @property
+    def metafile(self) -> Metafile:
+        """
+        Returns the data of the transaction operation.
+        """
+        return self["metafile"]
+
+    @metafile.setter
+    def metafile(self, metafile: Metafile):
+        self["metafile"] = metafile
+
+
+class TransactionOperationList(List[TransactionOperation]):
+    @staticmethod
+    def of(items: List[TransactionOperation]) -> TransactionOperationList:
+        typed_items = TransactionOperationList()
+        for item in items:
+            if item is not None and not isinstance(item, TransactionOperation):
+                item = TransactionOperation(item)
+            typed_items.append(item)
+        return typed_items
+
+    def __getitem__(self, item):
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, TransactionOperation):
+            self[item] = val = TransactionOperation(val)
+        return val
+
+
+class Transaction(dict):
+    """
+    Base class for DeltaCAT transactions against a list of metafiles.
+    """
+
+    @staticmethod
+    def of(
+        txn_type: Optional[TransactionType],
+        txn_operations: Optional[TransactionOperationList],
+    ) -> Transaction:
+        """
+        Creates a Delta metadata model with the given Delta Locator, Delta Type,
+        manifest metadata, properties, manifest, and previous delta stream
+        position.
+        """
+        transaction = Transaction()
+        # TODO(pdames): validate proposed transaction type against operations
+        #  (e.g., an APPEND transaction can't delete metafiles)
+        transaction.type = txn_type
+        transaction.operations = txn_operations
+        return transaction
+
+    @property
+    def uuid(self) -> str:
+        _uuid = self.get("uuid")
+        if not _uuid:
+            _uuid = self["uuid"] = str(uuid.uuid4())
+        return _uuid
+
+    @property
+    def type(self) -> TransactionType:
+        """
+        Returns the type of the transaction.
+        """
+        return TransactionType(self["type"])
+
+    @type.setter
+    def type(self, txn_type: TransactionType):
+        self["type"] = txn_type
+
+    @property
+    def operations(self) -> TransactionOperationList:
+        """
+        Returns the list of transaction operations.
+        """
+        return TransactionOperationList(self["operations"])
+
+    @operations.setter
+    def operations(self, operations: TransactionOperationList):
+        self["operations"] = operations
+
+    def commit(
+        self,
+        root: str,
+        separator: str = "/",
+        filesystem: pyarrow.fs.FileSystem = None,
+    ) -> List[str]:
+        write_paths = []
+        for operation in self.operations:
+            write_path = operation.metafile.write(
+                root=root,
+                txn_operation_type=operation.type,
+                txn_uuid=self.uuid,
+                separator=separator,
+                filesystem=filesystem,
+            )
+            write_paths.append(write_path)
+        # TODO(pdames): enforce tabel-version-level transaction isolation
+        # record the transaction as complete
+        path, fs = Metafile.file_system(root, filesystem)
+        uuid_file_path = separator.join([path, "transactions", self.uuid])
+        fs.create_dir(os.path.dirname(uuid_file_path), recursive=True)
+        with fs.open_output_stream(uuid_file_path):
+            pass  # Just create an empty UUID file for the transaction
+        return write_paths
 
 
 class Metafile(dict):
@@ -29,15 +170,41 @@ class Metafile(dict):
         and deterministic references (e.g. for generating a table file path that
         remains the same regardless of renames).
         """
-        return self.get("uuid")
-
-    @uuid.setter
-    def uuid(self, uuid: Optional[str]) -> None:
-        self["uuid"] = uuid
+        _uuid = self.get("uuid")
+        if not _uuid:
+            _uuid = self["uuid"] = str(uuid.uuid4())
+        return _uuid
 
     @property
     def locator(self) -> Optional[Locator]:
         raise NotImplementedError()
+
+    @staticmethod
+    def _locator_to_uuid(
+        locator: Locator,
+        root: str,
+        filesystem: pyarrow.fs.FileSystem,
+        separator: str = "/",
+    ) -> str:
+        """
+        Resolves the metafile UUID for the given locator.
+        """
+        locator_path = locator.path(
+            root,
+            separator,
+        )
+        file_paths_and_sizes = _get_file_infos(
+            locator_path,
+            filesystem,
+        )
+        assert len(file_paths_and_sizes) == 1
+        metafile_uuid = os.path.basename(file_paths_and_sizes[0][0])
+        try:
+            uuid.UUID(metafile_uuid)
+        except ValueError as e:
+            err_msg = f"No valid metafile UUID found for locator: {locator}"
+            raise ValueError(err_msg) from e
+        return metafile_uuid
 
     def ancestor_uuids(
         self,
@@ -60,16 +227,12 @@ class Metafile(dict):
                 parent_locators.append(parent_locator)
                 parent_locator = parent_locator.parent()
             while parent_locators:
-                ancestor_path = parent_locators.pop().path(
+                ancestor_uuid = Metafile._locator_to_uuid(
+                    parent_locators.pop(),
                     root,
+                    filesystem,
                     separator,
                 )
-                file_paths_and_sizes = _get_file_infos(
-                    ancestor_path,
-                    filesystem,
-                )
-                assert len(file_paths_and_sizes) == 1
-                ancestor_uuid = os.path.basename(file_paths_and_sizes[0][0])
                 root = separator.join([root, ancestor_uuid])
                 ancestor_uuids.append(ancestor_uuid)
         return ancestor_uuids
@@ -77,6 +240,8 @@ class Metafile(dict):
     def generate_file_path(
         self,
         root: str,
+        txn_operation_type: TransactionOperationType,
+        txn_uuid: str,
         filesystem: pyarrow.fs.FileSystem,
         separator: str = "/",
         extension: str = "mpk",
@@ -85,8 +250,6 @@ class Metafile(dict):
         Generates the fully qualified path for this metafile based in the given
         root directory.
         """
-        if not self.uuid:
-            self.uuid = str(uuid.uuid4())
         ancestor_path_elements = self.ancestor_uuids(
             root,
             filesystem,
@@ -99,24 +262,26 @@ class Metafile(dict):
             filesystem,
             True,
         )
-        assert (
-            not file_paths_and_sizes
-        ), f"Locator {self.locator} digest {self.locator.hexdigest()} already mapped to ID {os.path.basename(file_paths_and_sizes[0][0])}"
+        assert not file_paths_and_sizes, (
+            f"Locator {self.locator} digest {self.locator.hexdigest()} already "
+            f"mapped to ID {os.path.basename(file_paths_and_sizes[0][0])}"
+        )
         uuid_path_elements = [
             uuid_dir_path,
             self.uuid,
         ]
         uuid_file_path = separator.join(uuid_path_elements)
         filesystem.create_dir(os.path.dirname(uuid_file_path), recursive=True)
-        with filesystem.open_output_stream(uuid_file_path) as f:
+        with filesystem.open_output_stream(uuid_file_path):
             pass  # Just create an empty UUID file to map to the locator
-        # TODO(pdames): resolve actual version number together with
-        #  transaction ID and staged/committed status
-        version_number = 1
+        # TODO(pdames): resolve actual revision number together with
+        #  transaction ID and staged/committed status... use CAS on writes
+        #  that require version number updates (e.g., metafile update)
+        revision_number = 1
         metafile_path_elements = [
             ancestor_path,
             self.uuid,
-            f"{version_number:020}.{extension}",
+            f"{revision_number:020}_{txn_uuid}.{extension}",
         ]
         return separator.join(metafile_path_elements)
 
@@ -184,6 +349,8 @@ class Metafile(dict):
     def write(
         self,
         root: str,
+        txn_operation_type: TransactionOperationType,
+        txn_uuid: str,
         separator: str = "/",
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> str:
@@ -195,12 +362,17 @@ class Metafile(dict):
         :return: File path of the written metadata file.
         """
         path, fs = Metafile.file_system(root, filesystem)
-        path = self.generate_file_path(root, fs, separator)
+        path = self.generate_file_path(
+            root=root,
+            txn_operation_type=txn_operation_type,
+            txn_uuid=txn_uuid,
+            filesystem=fs,
+            separator=separator,
+        )
         fs.create_dir(os.path.dirname(path), recursive=True)
         with fs.open_output_stream(path) as file:
             packed = msgpack.dumps(self.to_serializable())
             file.write(packed)
-            # TODO(pdames): Add to locator -> metafile_uuid map
         return path
 
     @classmethod

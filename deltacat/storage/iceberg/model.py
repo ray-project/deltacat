@@ -693,9 +693,7 @@ class StreamMapper(OneWayModelMapper[IcebergTable, Stream]):
         schema = _get_current_schema_for_meta(metadata)
         partition_spec = _get_current_spec_for_meta(metadata)
         parent_snapshot_str = (
-            str(snapshot.parent_snapshot_id)
-            if snapshot.parent_snapshot_id
-            else None
+            str(snapshot.parent_snapshot_id) if snapshot.parent_snapshot_id else None
         )
         return Stream.of(
             locator=StreamLocatorMapper.map(
