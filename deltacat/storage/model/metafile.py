@@ -91,11 +91,14 @@ class Transaction(dict):
         return transaction
 
     @property
-    def uuid(self) -> str:
-        _uuid = self.get("uuid")
-        if not _uuid:
-            _uuid = self["uuid"] = str(uuid.uuid4())
-        return _uuid
+    def id(self) -> str:
+        """
+        Returns this transaction's unique ID.
+        """
+        identifier = self.get("id")
+        if not identifier:
+            identifier = self["id"] = str(uuid.uuid4())
+        return identifier
 
     @property
     def type(self) -> TransactionType:
@@ -130,7 +133,7 @@ class Transaction(dict):
             write_path = operation.metafile.write(
                 root=root,
                 txn_operation_type=operation.type,
-                txn_uuid=self.uuid,
+                txn_id=self.id,
                 separator=separator,
                 filesystem=filesystem,
             )
@@ -138,11 +141,28 @@ class Transaction(dict):
         # TODO(pdames): enforce tabel-version-level transaction isolation
         # record the transaction as complete
         path, fs = Metafile.file_system(root, filesystem)
-        uuid_file_path = separator.join([path, "transactions", self.uuid])
-        fs.create_dir(os.path.dirname(uuid_file_path), recursive=True)
-        with fs.open_output_stream(uuid_file_path):
+        id_file_path = separator.join([path, "transactions", self.id])
+        fs.create_dir(os.path.dirname(id_file_path), recursive=True)
+        with fs.open_output_stream(id_file_path):
             pass  # Just create an empty UUID file for the transaction
         return write_paths
+
+
+class MetafileUrl:
+    def __init__(self, url: str):
+
+        from urllib.parse import urlparse
+
+        self._parsed = urlparse(url, allow_fragments=False)  # support '#' in path
+        if not self._parsed.scheme:  # support paths w/o 's3://' scheme
+            url = f"s3://{url}"
+            self._parsed = urlparse(url, allow_fragments=False)
+        if self._parsed.query:  # support '?' in path
+            self.key = f"{self._parsed.path.lstrip('/')}?{self._parsed.query}"
+        else:
+            self.key = self._parsed.path.lstrip("/")
+        self.bucket = self._parsed.netloc
+        self.url = self._parsed.geturl()
 
 
 class Metafile(dict):
@@ -153,31 +173,39 @@ class Metafile(dict):
     """
 
     @property
-    def uuid(self) -> Optional[str]:
+    def id(self) -> Optional[str]:
         """
-        Returns an immutable UUID for the given metafile that can be used for
-        equality checks (i.e. 2 metafiles are equal if they have the same UUID)
+        Returns an immutable ID for the given metafile that can be used for
+        equality checks (i.e. 2 metafiles are equal if they have the same ID)
         and deterministic references (e.g. for generating a table file path that
         remains the same regardless of renames).
         """
-        _uuid = self.get("uuid")
-        if not _uuid:
-            _uuid = self["uuid"] = str(uuid.uuid4())
-        return _uuid
+        identifier = self.get("id")
+        if not identifier:
+            identifier = self["id"] = str(uuid.uuid4())
+        return identifier
 
     @property
     def locator(self) -> Optional[Locator]:
         raise NotImplementedError()
 
     @staticmethod
-    def _locator_to_uuid(
+    def _validate_id(metafile_id: str):
+        try:
+            uuid.UUID(metafile_id)
+        except ValueError as e:
+            err_msg = f"Metafile ID is malformed (UUID expected): {metafile_id}"
+            raise ValueError(err_msg) from e
+
+    @staticmethod
+    def _locator_to_id(
         locator: Locator,
         root: str,
         filesystem: pyarrow.fs.FileSystem,
         separator: str = "/",
     ) -> str:
         """
-        Resolves the metafile UUID for the given locator.
+        Resolves the metafile ID for the given locator.
         """
         locator_path = locator.path(
             root,
@@ -187,27 +215,33 @@ class Metafile(dict):
             locator_path,
             filesystem,
         )
-        assert len(file_paths_and_sizes) == 1
-        metafile_uuid = os.path.basename(file_paths_and_sizes[0][0])
-        try:
-            uuid.UUID(metafile_uuid)
-        except ValueError as e:
-            err_msg = f"No valid metafile UUID found for locator: {locator}"
-            raise ValueError(err_msg) from e
-        return metafile_uuid
 
-    def ancestor_uuids(
+        if len(file_paths_and_sizes) != 1:
+            err_msg = (
+                f"Expected to find 1 locator to Metafile ID mapping at "
+                f"`{locator_path}` but found {len(file_paths_and_sizes)}"
+            )
+            raise ValueError(err_msg)
+        metafile_id = os.path.basename(file_paths_and_sizes[0][0])
+        try:
+            Metafile._validate_id(metafile_id)
+        except ValueError as e:
+            err_msg = f"No valid metafile ID found for locator: {locator}"
+            raise ValueError(err_msg) from e
+        return metafile_id
+
+    def ancestor_ids(
         self,
         root: str,
         filesystem: pyarrow.fs.FileSystem,
         separator: str = "/",
     ) -> List[str]:
         """
-        Returns the UUIDs for this metafile's ancestor metafiles. UUIDs are
+        Returns the IDs for this metafile's ancestor metafiles. IDs are
         listed in order from root to immediate parent.
         """
-        ancestor_uuids = self.get("ancestor_uuids") or []
-        if not ancestor_uuids:
+        ancestor_ids = self.get("ancestor_ids") or []
+        if not ancestor_ids:
             parent_locators = []
             # TODO(pdames): Correctly resolve missing parents and K of N
             #  specified ancestors by using placeholder IDs for missing
@@ -217,21 +251,21 @@ class Metafile(dict):
                 parent_locators.append(parent_locator)
                 parent_locator = parent_locator.parent()
             while parent_locators:
-                ancestor_uuid = Metafile._locator_to_uuid(
+                ancestor_id = Metafile._locator_to_id(
                     parent_locators.pop(),
                     root,
                     filesystem,
                     separator,
                 )
-                root = separator.join([root, ancestor_uuid])
-                ancestor_uuids.append(ancestor_uuid)
-        return ancestor_uuids
+                root = separator.join([root, ancestor_id])
+                ancestor_ids.append(ancestor_id)
+        return ancestor_ids
 
     def generate_file_path(
         self,
         root: str,
         txn_operation_type: TransactionOperationType,
-        txn_uuid: str,
+        txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
         separator: str = "/",
         extension: str = "mpk",
@@ -240,15 +274,15 @@ class Metafile(dict):
         Generates the fully qualified path for this metafile based in the given
         root directory.
         """
-        ancestor_path_elements = self.ancestor_uuids(
+        ancestor_path_elements = self.ancestor_ids(
             root,
             filesystem,
             separator,
         )
         ancestor_path = separator.join([root] + ancestor_path_elements)
-        uuid_dir_path = self.locator.path(ancestor_path, separator)
+        id_dir_path = self.locator.path(ancestor_path, separator)
         file_paths_and_sizes = _get_file_infos(
-            uuid_dir_path,
+            id_dir_path,
             filesystem,
             True,
         )
@@ -256,22 +290,22 @@ class Metafile(dict):
             f"Locator {self.locator} digest {self.locator.hexdigest()} already "
             f"mapped to ID {os.path.basename(file_paths_and_sizes[0][0])}"
         )
-        uuid_path_elements = [
-            uuid_dir_path,
-            self.uuid,
+        id_path_elements = [
+            id_dir_path,
+            self.id,
         ]
-        uuid_file_path = separator.join(uuid_path_elements)
-        filesystem.create_dir(os.path.dirname(uuid_file_path), recursive=True)
-        with filesystem.open_output_stream(uuid_file_path):
-            pass  # Just create an empty UUID file to map to the locator
+        id_file_path = separator.join(id_path_elements)
+        filesystem.create_dir(os.path.dirname(id_file_path), recursive=True)
+        with filesystem.open_output_stream(id_file_path):
+            pass  # Just create an empty ID file to map to the locator
         # TODO(pdames): resolve actual revision number together with
         #  transaction ID and staged/committed status... use CAS on writes
-        #  that require version number updates (e.g., metafile update)
+        #  that require revision number updates (e.g., metafile update)
         revision_number = 1
         metafile_path_elements = [
             ancestor_path,
-            self.uuid,
-            f"{revision_number:020}_{txn_uuid}.{extension}",
+            self.id,
+            f"{revision_number:020}_{txn_id}.{extension}",
         ]
         return separator.join(metafile_path_elements)
 
@@ -340,7 +374,7 @@ class Metafile(dict):
         self,
         root: str,
         txn_operation_type: TransactionOperationType,
-        txn_uuid: str,
+        txn_id: str,
         separator: str = "/",
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> str:
@@ -355,7 +389,7 @@ class Metafile(dict):
         path = self.generate_file_path(
             root=root,
             txn_operation_type=txn_operation_type,
-            txn_uuid=txn_uuid,
+            txn_id=txn_id,
             filesystem=fs,
             separator=separator,
         )

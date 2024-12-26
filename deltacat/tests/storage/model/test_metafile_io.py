@@ -306,7 +306,7 @@ class TestMetafileIO(unittest.TestCase):
             deserialized_table = Table.read(write_paths.pop())
             deserialized_namespace = Namespace.read(write_paths.pop())
             assert os.path.exists(
-                os.path.join(temp_dir, "transactions", transaction.uuid)
+                os.path.join(temp_dir, "transactions", transaction.id)
             )
         finally:
             shutil.rmtree(temp_dir)
