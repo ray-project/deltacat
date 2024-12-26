@@ -42,6 +42,7 @@ setuptools.setup(
         "aws-embedded-metrics == 3.2.0",
         "boto3 ~= 1.34",
         "getdaft == 0.3.6",
+        "intervaltree == 3.1.0",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
         "pyarrow == 12.0.1",

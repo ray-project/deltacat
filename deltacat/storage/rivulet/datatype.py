@@ -1,0 +1,105 @@
+# Similar to daft's datatype, this is a big ole enum of all possible types
+#   In the long term, this will have to be interoperable with pandas/daft/spark/parquet/iceberg/etc type systems
+#   Our Spec will need to publish data type mappings, such as Iceberg's data type mappings: https://iceberg.apache.org/spec/#file-system-operations
+#   It also has the unique responsibility of representing multi-modal (e.g. image) types
+from typing import Optional
+
+import pyarrow
+
+
+# OPEN QUESTIONs:
+# Do we want to support the notion of logical vs physical type like parquet?
+
+# TODO turn into an interface or otherwise allow pluggable datatypes
+class Datatype:
+    def __init__(self, type_name):
+        self.type_name = type_name
+
+    @property
+    def subtype(self) -> Optional[str]:
+        """
+        Higher level formats like binary or image will have "subtype", such as image(jpg) or binary(np_array)
+        TODO - Note that we are replacing this schema system with DeltaCat schema model, which supports extended/decorated pyarrow types
+        For now going to do a super minimal/hacky implementation of types like binary and image, where
+        :return: Subtype if it exists, or None
+        """
+        if not self.type_name.endswith(')'):
+            return None
+        if self.type_name.startswith('binary(') or self.type_name.startswith('image('):
+            return self.type_name[self.type_name.find('(') + 1:-1]
+        return None
+
+    @classmethod
+    def binary(cls, binary_format):
+        """
+        :param binary_format:
+        :return:
+        """
+        return cls(type_name=f'binary({binary_format})')
+
+    @classmethod
+    def image(cls, image_format):
+        return cls(type_name=f'image({image_format})')
+
+    @classmethod
+    def string(cls):
+        return cls(type_name='string')
+
+    @classmethod
+    def float(cls):
+        return cls(type_name='float')
+
+    @classmethod
+    def int16(cls):
+        return cls(type_name='int16')
+
+    @classmethod
+    def int32(cls):
+        return cls(type_name='int32')
+
+    @classmethod
+    def bool(cls):
+        return cls(type_name='bool')
+
+    def to_pyarrow(self) -> pyarrow.field:
+        """
+        In the future we want to be more thoughtful about how we do type conversions
+
+        For now, just build a simple mapping of every time to pyarrow
+        For what it's worth, Daft schema types have a giant if/else like this
+
+        :return: pyarrow type
+        """
+        if self.type_name == 'string':
+            return pyarrow.string()
+        elif self.type_name == 'float':
+            return pyarrow.float64()
+        elif self.type_name == 'int16':
+            return pyarrow.int16()
+        elif self.type_name == 'int32':
+            return pyarrow.int32()
+        elif self.type_name == 'bool':
+            return pyarrow.bool_()
+        elif self.type_name.startswith('image(') or self.type_name.startswith('binary('):
+            # TODO we will need to think about how custom types work with tabular libraries
+            return pyarrow.binary()
+        else:
+            raise ValueError(f"Unsupported type conversion to pyarrow: {self.type_name}")
+
+    def __repr__(self):
+        return f"Datatype({self.type_name})"
+
+    def __eq__(self, other):
+        if isinstance(other, Datatype):
+            return self.type_name == other.type_name
+        return False
+
+    def __hash__(self):
+        return hash(self.type_name)
+
+
+class Enum(Datatype):
+    def __init__(self, name, values):
+        super().__init__(type_name='enum')
+        self.name = name
+        self.values = values
