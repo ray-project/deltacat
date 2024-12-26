@@ -22,12 +22,13 @@ class ParquetDataSerializer(ArrowSerializer):
         file = self.location_provider.new_data_file_uri("parquet")
         with file.create() as outfile:
             metadata_collector: list[Any] = []
-            pa.parquet.write_table(table=table,
-                                   where=outfile,
-                                   metadata_collector=metadata_collector
-                                   )
+            pa.parquet.write_table(
+                table=table, where=outfile, metadata_collector=metadata_collector
+            )
             # look for file metadata
-            file_metadata: FileMetaData = next(item for item in metadata_collector if isinstance(item, FileMetaData))
+            file_metadata: FileMetaData = next(
+                item for item in metadata_collector if isinstance(item, FileMetaData)
+            )
             row_group_count = file_metadata.num_row_groups
 
         # Because ParquetWriter only writes one row group, it only creates one SSTableRow

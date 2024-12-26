@@ -21,6 +21,7 @@ class SelectOperation(DatasetOperation):
 
     TODO in the future this should support basic filters (e.g. on primary key)
     """
+
     fields: List[str]
 
     def visit(self, executor: DatasetExecutor):
@@ -35,6 +36,7 @@ class MapOperation(DatasetOperation):
     TODO need more sophistication in the interface of the callable function
     For now we will be super simple and just call the transform on each record
     """
+
     transform: Callable[[Any], Any]
 
     def visit(self, executor: DatasetExecutor):
@@ -69,16 +71,20 @@ class LogicalPlan:
         self.operations: List[DatasetOperation] = []
         self.schema = schema
         # Tracks effective schema to perform each operation on
-        self.effective_schema : Schema = schema.__deepcopy__()
+        self.effective_schema: Schema = schema.__deepcopy__()
 
     def select(self, filter: List[str]) -> "LogicalPlan":
         # Validate that select statement is allowed and mutate effective schema for future validations
-        invalid_fields = [field for field in filter if field not in self.effective_schema.fields]
+        invalid_fields = [
+            field for field in filter if field not in self.effective_schema.fields
+        ]
         if invalid_fields:
             raise ValueError(f"Invalid fields: {', '.join(invalid_fields)}")
 
         # remove fields from effective schema if they are not in chosen fields
-        remove_fields = [field for field in self.effective_schema.keys() if field not in filter]
+        remove_fields = [
+            field for field in self.effective_schema.keys() if field not in filter
+        ]
         for field in remove_fields:
             self.effective_schema.__delitem__(field)
 

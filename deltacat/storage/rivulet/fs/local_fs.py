@@ -3,13 +3,18 @@ import os
 from contextlib import contextmanager
 from typing import Iterator, IO
 
-from deltacat.storage.rivulet.fs.file_system import FileSystem, FSInputFile, NormalizedPath
+from deltacat.storage.rivulet.fs.file_system import (
+    FileSystem,
+    FSInputFile,
+    NormalizedPath,
+)
 from deltacat.storage.rivulet.fs.input_file import InputFile, InputStream
 from deltacat.storage.rivulet.fs.output_file import OutputStream
 
 
 class FSInputStream(InputStream):
     """InputStream implementation for local disk."""
+
     def __init__(self, stream: IO):
         self.stream: IO = stream
 
@@ -38,6 +43,7 @@ class FSInputStream(InputStream):
 
 class FSOutputStream(OutputStream):
     """OutputStream implementation for local disk."""
+
     def __init__(self, stream: IO):
         self.stream: IO = stream
 

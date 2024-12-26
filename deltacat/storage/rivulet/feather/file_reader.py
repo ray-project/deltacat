@@ -7,7 +7,11 @@ from pyarrow import RecordBatch, RecordBatchFileReader
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
-from deltacat.storage.rivulet.reader.data_reader import RowAndPrimaryKey, FileReader, FILE_FORMAT
+from deltacat.storage.rivulet.reader.data_reader import (
+    RowAndPrimaryKey,
+    FileReader,
+    FILE_FORMAT,
+)
 from deltacat.storage.rivulet.reader.pyarrow_data_reader import RecordBatchRowIndex
 
 
@@ -50,7 +54,9 @@ class FeatherFileReader(FileReader[RecordBatchRowIndex]):
         :return: Optional of RowAndPrimaryKey
         """
         if not self.__is_initialized():
-            raise RuntimeError("ParquetFileReader must be initialized with __enter__ before reading")
+            raise RuntimeError(
+                "ParquetFileReader must be initialized with __enter__ before reading"
+            )
 
         if self.__need_to_advance_record_batch():
             try:
@@ -59,11 +65,15 @@ class FeatherFileReader(FileReader[RecordBatchRowIndex]):
                 return None
 
         pk = self._pk_col[self._curr_row_offset].as_py()
-        return RowAndPrimaryKey(RecordBatchRowIndex(self._curr_batch, self._curr_row_offset), pk)
+        return RowAndPrimaryKey(
+            RecordBatchRowIndex(self._curr_batch, self._curr_row_offset), pk
+        )
 
     def __next__(self) -> RowAndPrimaryKey[FILE_FORMAT]:
         if not self.__is_initialized():
-            raise RuntimeError("ParquetFileReader must be initialized with __enter__ before reading")
+            raise RuntimeError(
+                "ParquetFileReader must be initialized with __enter__ before reading"
+            )
 
         if self.__need_to_advance_record_batch():
             self.__advance_record_batch()
@@ -106,4 +116,4 @@ class FeatherFileReader(FileReader[RecordBatchRowIndex]):
             self._curr_row_offset = 0
             self._pk_col = self._curr_batch[self.primary_key]
         except ValueError:
-            raise StopIteration(f'Ended iteration at batch {self._curr_batch_index}')
+            raise StopIteration(f"Ended iteration at batch {self._curr_batch_index}")

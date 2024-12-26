@@ -54,6 +54,9 @@ class NamespaceLocator(Locator, dict):
         namespace_locator.namespace = namespace
         return namespace_locator
 
+    def parent(self) -> Optional[Locator]:
+        return None
+
     @property
     def namespace(self) -> Optional[str]:
         return self.get("namespace")

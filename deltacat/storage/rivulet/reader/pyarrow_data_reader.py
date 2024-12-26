@@ -15,6 +15,7 @@ class RecordBatchRowIndex(NamedTuple):
     Note that record batches store data by column, so the row index should be
     used to index into each column array
     """
+
     batch: RecordBatch
     row_index: int
 
@@ -28,8 +29,9 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
 
         self.file_store = metastore.file_store
 
-    def deserialize_records(self, record: RecordBatchRowIndex, output_type: Type[MEMORY_FORMAT]) -> \
-            Generator[MEMORY_FORMAT, None, None]:
+    def deserialize_records(
+        self, record: RecordBatchRowIndex, output_type: Type[MEMORY_FORMAT]
+    ) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Deserialize records into the specified format.
 
@@ -43,8 +45,10 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
         batch, row_idx = record[0].batch, record[0].row_index
 
         if output_type == Dict:
-            yield {column: batch.column(column_idx)[row_idx].as_py()
-                   for column_idx, column in enumerate(batch.column_names)}
+            yield {
+                column: batch.column(column_idx)[row_idx].as_py()
+                for column_idx, column in enumerate(batch.column_names)
+            }
 
         elif output_type == RecordBatch:
             # only yield full record batch if row_idx is 0.
@@ -52,8 +56,12 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
             if row_idx == 0:
                 yield batch
 
-    def join_deserialize_records(self, records: List[RecordBatchRowIndex], output_type: Type[MEMORY_FORMAT],
-                                 join_key: str) -> Generator[MEMORY_FORMAT, None, None]:
+    def join_deserialize_records(
+        self,
+        records: List[RecordBatchRowIndex],
+        output_type: Type[MEMORY_FORMAT],
+        join_key: str,
+    ) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Deserialize records into the specified format.
 
@@ -88,13 +96,16 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
                 col = batch.column(column_idx)
                 if len(col) <= row_idx:
                     raise IndexError(
-                        f"row index {row_idx} out of bounds for column {column} with length {len(col)}")
+                        f"row index {row_idx} out of bounds for column {column} with length {len(col)}"
+                    )
 
                 out.update({column: col[row_idx].as_py()})
         return out
 
     @staticmethod
-    def __join_records_as_record_batch(records: List[RecordBatchRowIndex], join_key: str) -> RecordBatch:
+    def __join_records_as_record_batch(
+        records: List[RecordBatchRowIndex], join_key: str
+    ) -> RecordBatch:
         """
         Deserialize records into a RecordBatch
 
@@ -111,5 +122,5 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
                 out = pa.Table.from_batches([batch_slice])
             else:
                 table2 = pa.Table.from_batches([batch_slice])
-                out = out.join(table2, keys=join_key, join_type='inner')
+                out = out.join(table2, keys=join_key, join_type="inner")
         return out.to_batches()[0]

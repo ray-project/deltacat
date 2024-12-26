@@ -15,6 +15,7 @@ class SSTableRow:
     Note that the actual file format for SSTables can omit some of these fields (e.g. key_end and offset_end) taking
     advantage of sorted nature of file.
     """
+
     key_min: Any
     """The first primary key found in referenced data range, inclusive."""
     key_max: Any
@@ -26,9 +27,9 @@ class SSTableRow:
     """
     offset_start: int
     """
-    offset start for data range within uri. 
+    offset start for data range within uri.
     Note this offset is format dependent - e.g. for Parquet it will be zero-indexed row group
-    For other formats it will be byte offset into file 
+    For other formats it will be byte offset into file
     """
     offset_end: int
     """
@@ -36,8 +37,8 @@ class SSTableRow:
     """
 
     """The starting offset into the data file for data referenced by this row.
-    Note that offset is format dependent. 
-        E.g. for parquet files it is row group, for other formats it is byte offset 
+    Note that offset is format dependent.
+        E.g. for parquet files it is row group, for other formats it is byte offset
     """
 
 
@@ -48,6 +49,7 @@ class SSTable:
 
     List of references to data file ranges with statistics to enable pruning by primary key.
     """
+
     rows: List[SSTableRow]
     """Sorted List of rows by key"""
     min_key: Any

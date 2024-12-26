@@ -3,20 +3,25 @@ from typing import Protocol
 
 from deltacat.storage.rivulet.fs.input_file import InputFile
 
+
 class OutputStream(Protocol):  # pragma: no cover
     """A protocol with a subset of IOBase for file-like output objects"""
 
     @abstractmethod
-    def write(self, b: bytes) -> int: ...
+    def write(self, b: bytes) -> int:
+        ...
 
     @abstractmethod
-    def close(self) -> None: ...
+    def close(self) -> None:
+        ...
 
     @abstractmethod
-    def __enter__(self) -> "OutputStream": ...
+    def __enter__(self) -> "OutputStream":
+        ...
 
     @abstractmethod
-    def __exit__(self, exc_type, exc_value, traceback) -> None: ...
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        ...
 
 
 class OutputFile(ABC):

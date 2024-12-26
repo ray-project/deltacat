@@ -15,8 +15,7 @@ class DatasetWriter(Protocol):
     When the user either closes the dataset writer or calls commit(), this triggers all buffered data and metadata to be flushed.
     """
 
-    def write(self, record: DATA
-              ) -> None:
+    def write(self, record: DATA) -> None:
         ...
 
     def flush(self) -> str:

@@ -24,26 +24,36 @@ def ds1_dataset() -> MvpTable:
 
     # Function to generate random names
     def generate_random_name():
-        return ''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase, k=random.randint(3, 10)))
+        return "".join(
+            random.choices(
+                string.ascii_uppercase + string.ascii_lowercase, k=random.randint(3, 10)
+            )
+        )
 
     # Create a list of numbers from 1 to TEST_ROW_COUNT
     ids = list(range(1, FIXTURE_ROW_COUNT + 1))
     random.shuffle(ids)
 
     # Generate one million rows
-    return MvpTable({
-        "id": ids,
-        "name": [generate_random_name() for _ in range(FIXTURE_ROW_COUNT)],
-        "age": [random.randint(18, 100) for _ in range(FIXTURE_ROW_COUNT)]
-    })
+    return MvpTable(
+        {
+            "id": ids,
+            "name": [generate_random_name() for _ in range(FIXTURE_ROW_COUNT)],
+            "age": [random.randint(18, 100) for _ in range(FIXTURE_ROW_COUNT)],
+        }
+    )
 
 
 @pytest.fixture
 def ds1_schema():
-    return Schema({
-        "id": Field("id", Datatype.int32()),
-        "name": Field("name", Datatype.string()),
-        "age": Field("age", Datatype.int32())}, "id")
+    return Schema(
+        {
+            "id": Field("id", Datatype.int32()),
+            "name": Field("name", Datatype.string()),
+            "age": Field("age", Datatype.int32()),
+        },
+        "id",
+    )
 
 
 @pytest.fixture
@@ -59,29 +69,39 @@ def ds2_dataset():
     fake = Faker()
 
     # Generate one million rows
-    return MvpTable({
-        "id": ids,
-        "address": [fake.address() for _ in range(FIXTURE_ROW_COUNT)],
-        "zip": [fake.zipcode() for _ in range(FIXTURE_ROW_COUNT)]
-    })
+    return MvpTable(
+        {
+            "id": ids,
+            "address": [fake.address() for _ in range(FIXTURE_ROW_COUNT)],
+            "zip": [fake.zipcode() for _ in range(FIXTURE_ROW_COUNT)],
+        }
+    )
 
 
 @pytest.fixture
 def ds2_schema():
-    return Schema({
-        "id": Field("id", Datatype.int32()),
-        "address": Field("address", Datatype.string()),
-        "zip": Field("zip", Datatype.string())}, "id")
+    return Schema(
+        {
+            "id": Field("id", Datatype.int32()),
+            "address": Field("address", Datatype.string()),
+            "zip": Field("zip", Datatype.string()),
+        },
+        "id",
+    )
 
 
 @pytest.fixture
 def combined_schema(ds1_schema, ds2_schema):
-    return Schema({
-        "id": Field("id", Datatype.int32()),
-        "address": Field("address", Datatype.string()),
-        "zip": Field("zip", Datatype.string()),
-        "name": Field("name", Datatype.string()),
-        "age": Field("age", Datatype.int32())}, "id")
+    return Schema(
+        {
+            "id": Field("id", Datatype.int32()),
+            "address": Field("address", Datatype.string()),
+            "zip": Field("zip", Datatype.string()),
+            "name": Field("name", Datatype.string()),
+            "age": Field("age", Datatype.int32()),
+        },
+        "id",
+    )
 
 
 @pytest.fixture
@@ -92,26 +112,38 @@ def dataset_images_with_label() -> (MvpTable, Schema):
     """
     ROW_COUNT = 1000
     fake = Faker()
-    schema = Schema({
-        "id": Field("id", Datatype.int32()),
-        "image": Field("image", Datatype.image("jpg")),
-        "label": Field("label", Datatype.string())}, "id")
+    schema = Schema(
+        {
+            "id": Field("id", Datatype.int32()),
+            "image": Field("image", Datatype.image("jpg")),
+            "label": Field("label", Datatype.string()),
+        },
+        "id",
+    )
 
     # Create a list of numbers from 1 to ROW_COUNT
     ids = list(range(1, ROW_COUNT + 1))
     random.shuffle(ids)
 
-    fake_image = Image.new("RGB", (512, 512), color=(
-        random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+    fake_image = Image.new(
+        "RGB",
+        (512, 512),
+        color=(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)),
+    )
     # get bytes from image encoded as png
     buffer = io.BytesIO()
-    fake_image.save(buffer, format='PNG')
+    fake_image.save(buffer, format="PNG")
     # seek to start of buffer since we just wrote to it
     buffer.seek(0)
     image_bytes = buffer.read()
     # Generate one million rows
-    return (MvpTable({
-        "id": ids,
-        "image": [image_bytes for _ in range(ROW_COUNT)],
-        "label": [fake.name() for _ in range(ROW_COUNT)]
-    }), schema)
+    return (
+        MvpTable(
+            {
+                "id": ids,
+                "image": [image_bytes for _ in range(ROW_COUNT)],
+                "label": [fake.name() for _ in range(ROW_COUNT)],
+            }
+        ),
+        schema,
+    )

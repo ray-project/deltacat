@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import copy
 from typing import Any, Dict, List, Optional
 
 import pyarrow as pa
@@ -65,7 +66,10 @@ class TableVersion(Metafile):
 
     @property
     def schema(self) -> Optional[Schema]:
-        return self.get("schema")
+        val: Dict[str, Any] = self.get("schema")
+        if val is not None and not isinstance(val, Schema):
+            self.schema = val = Schema(val)
+        return val
 
     @schema.setter
     def schema(self, schema: Optional[Schema]) -> None:
@@ -217,21 +221,31 @@ class TableVersion(Metafile):
         )
 
     def to_serializable(self) -> TableVersion:
-        self.schema = self.schema.serialize().to_pybytes() if self.schema else None
-        self.schemas = (
-            [_.serialize().to_pybytes() for _ in self.schemas] if self.schemas else None
-        )
-        return self
-
-    def from_serializable(self) -> TableVersion:
-        self.schema = (
-            Schema.deserialize(pa.py_buffer(self.schema)) if self.schema else None
-        )
-        self.schemas = (
-            [Schema.deserialize(pa.py_buffer(_)) for _ in self.schemas]
-            if self.schemas
+        serializable = TableVersion(copy.deepcopy(self))
+        serializable.schema = (
+            serializable.schema.serialize().to_pybytes()
+            if serializable.schema
             else None
         )
+        serializable.schemas = (
+            [_.serialize().to_pybytes() for _ in serializable.schemas]
+            if serializable.schemas
+            else None
+        )
+        return serializable
+
+    def from_serializable(self) -> TableVersion:
+        self["schema"] = (
+            Schema.deserialize(pa.py_buffer(self["schema"])) if self["schema"] else None
+        )
+        self.schemas = (
+            [Schema.deserialize(pa.py_buffer(_)) for _ in self["schemas"]]
+            if self["schemas"]
+            else None
+        )
+        # force list-to-tuple conversion of sort keys via property invocation
+        self.sort_scheme.keys
+        [sort_scheme.keys for sort_scheme in self.sort_schemes]
         return self
 
 
@@ -251,8 +265,11 @@ class TableVersionLocator(Locator, dict):
         table_name: Optional[str],
         table_version: Optional[str],
     ) -> TableVersionLocator:
-        table_locator = TableLocator.at(namespace, table_name)
+        table_locator = TableLocator.at(namespace, table_name) if table_name else None
         return TableVersionLocator.of(table_locator, table_version)
+
+    def parent(self) -> Optional[TableLocator]:
+        return self.table_locator
 
     @property
     def table_locator(self) -> Optional[TableLocator]:
@@ -300,6 +317,6 @@ class TableVersionLocator(Locator, dict):
         for equality checks (i.e. two locators are equal if they have
         the same canonical string).
         """
-        tl_hexdigest = self.table_locator.hexdigest()
+        tl_hexdigest = self.table_locator.hexdigest() if self.table_locator else None
         table_version = self.table_version
         return f"{tl_hexdigest}|{table_version}"

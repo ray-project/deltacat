@@ -4,15 +4,16 @@ from shutil import rmtree
 import fsspec
 import pytest
 
-from deltacat.storage.rivulet.fs.file_system import FSInputFile, FSOutputFile, FileSystem
+from deltacat.storage.rivulet.fs.file_system import (
+    FSInputFile,
+    FSOutputFile,
+    FileSystem,
+)
 from deltacat.storage.rivulet.fs.fsspec_fs import FsspecFileSystem
 from deltacat.storage.rivulet.fs.local_fs import LocalFS
 
 
-@pytest.mark.parametrize('fs', [
-    LocalFS(),
-    FsspecFileSystem(fsspec.filesystem("file"))
-])
+@pytest.mark.parametrize("fs", [LocalFS(), FsspecFileSystem(fsspec.filesystem("file"))])
 class TestLocalFileSystem:
     temp_dir: str
     """The (path) URI to pass into the FileSystem"""

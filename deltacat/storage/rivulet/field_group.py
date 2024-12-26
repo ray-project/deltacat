@@ -54,7 +54,9 @@ class PydictFieldGroup(FieldGroup):
         if data:
             pk_col = data[schema.primary_key.name]
             for i, value in enumerate(pk_col):
-                self._row_data[value] = {field_name: field_arr[i] for field_name, field_arr in data.items()}
+                self._row_data[value] = {
+                    field_name: field_arr[i] for field_name, field_arr in data.items()
+                }
 
     @property
     def schema(self) -> Schema:

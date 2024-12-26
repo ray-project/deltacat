@@ -13,10 +13,7 @@ class Field:
     datatype: Datatype
 
     def __dict__(self):
-        return {
-            "name": self.name,
-            "datatype": self.datatype.type_name
-        }
+        return {"name": self.name, "datatype": self.datatype.type_name}
 
 
 class Schema(MutableMapping[str, Field]):
@@ -64,13 +61,19 @@ class Schema(MutableMapping[str, Field]):
         elif isinstance(field, Field):
             self.fields[name] = field
         else:
-            raise TypeError("The field must be an instance of the Field class or a Datatype.")
+            raise TypeError(
+                "The field must be an instance of the Field class or a Datatype."
+            )
 
     def filter(self, fields: List[str]):
         # Remove fields which are not in the filter list. Raise exception if primary key not present
-        fields_to_remove = {field for field in self.fields.keys() if field not in fields}
+        fields_to_remove = {
+            field for field in self.fields.keys() if field not in fields
+        }
         if self.primary_key.name in fields_to_remove:
-            raise ValueError(f"Schema filter must contain the primary key field: '{self.primary_key.name}'")
+            raise ValueError(
+                f"Schema filter must contain the primary key field: '{self.primary_key.name}'"
+            )
         for field_name in fields_to_remove:
             self.__delitem__(field_name)
 
@@ -87,7 +90,9 @@ class Schema(MutableMapping[str, Field]):
         return pa.schema(fields)
 
     @classmethod
-    def from_pyarrow_schema(cls, pyarrow_schema: pa.Schema, primary_key: str) -> 'Schema':
+    def from_pyarrow_schema(
+        cls, pyarrow_schema: pa.Schema, primary_key: str
+    ) -> "Schema":
         """
         Create a Schema instance from a PyArrow schema.
 
@@ -115,31 +120,28 @@ class Schema(MutableMapping[str, Field]):
         """
         fields = [f.__dict__() for f in self.fields.values()]
 
-        return {
-            "fields": fields,
-            "primary_key": self.primary_key.__dict__()
-        }
+        return {"fields": fields, "primary_key": self.primary_key.__dict__()}
 
     @classmethod
-    def from_json(cls, json_data: Dict) -> 'Schema':
+    def from_json(cls, json_data: Dict) -> "Schema":
         """
         Construct a Schema instance from JSON data.
 
         Raises:
             ValueError: If the JSON data is invalid or missing required fields.
         """
-        if 'fields' not in json_data or 'primary_key' not in json_data:
+        if "fields" not in json_data or "primary_key" not in json_data:
             raise ValueError("Invalid JSON data: missing 'fields' or 'primary_key'")
 
         fields = {}
-        for field_data in json_data['fields']:
-            if 'name' not in field_data or 'datatype' not in field_data:
+        for field_data in json_data["fields"]:
+            if "name" not in field_data or "datatype" not in field_data:
                 raise ValueError("Invalid field data: missing 'name' or 'datatype'")
-            name = field_data['name']
-            datatype = Datatype(field_data['datatype'])
+            name = field_data["name"]
+            datatype = Datatype(field_data["datatype"])
             fields[name] = Field(name, datatype)
 
-        primary_key = json_data['primary_key']['name']
+        primary_key = json_data["primary_key"]["name"]
         return cls(fields, primary_key)
 
     def __len__(self):
@@ -153,7 +155,9 @@ class Schema(MutableMapping[str, Field]):
             self.fields[key] = Field(key, value)
         elif isinstance(value, Field):
             if value.name != key:
-                raise ValueError(f"Field name '{value.name}' does not match schema key '{key}'")
+                raise ValueError(
+                    f"Field name '{value.name}' does not match schema key '{key}'"
+                )
             self.fields[key] = value
         else:
             raise TypeError(f"Invalid type for field '{key}': {type(value)}")
@@ -164,8 +168,12 @@ class Schema(MutableMapping[str, Field]):
         del self.fields[key]
 
     def __repr__(self):
-        field_reprs = [f"{name}: {field.datatype}" for name, field in self.fields.items()]
-        return f"Schema({', '.join(field_reprs)}, primary_key='{self.primary_key.name}')"
+        field_reprs = [
+            f"{name}: {field.datatype}" for name, field in self.fields.items()
+        ]
+        return (
+            f"Schema({', '.join(field_reprs)}, primary_key='{self.primary_key.name}')"
+        )
 
     def __iter__(self):
         return iter(self.fields.values())
@@ -181,7 +189,9 @@ class Schema(MutableMapping[str, Field]):
 
     def __hash__(self):
         # Create a frozenset of (name, datatype) tuples for all fields
-        field_tuples = frozenset((name, field.datatype) for name, field in self.fields.items())
+        field_tuples = frozenset(
+            (name, field.datatype) for name, field in self.fields.items()
+        )
 
         # Combine the hash of the field_tuples with the hash of the primary key name
         return hash((field_tuples, self.primary_key.name))

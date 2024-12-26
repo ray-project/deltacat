@@ -7,7 +7,12 @@ from deltacat.storage.rivulet.glob_path import GlobPath
 from deltacat.storage.rivulet.dataset_executor import DatasetExecutor
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.mvp.Table import MvpTable
-from deltacat.storage.rivulet.field_group import FieldGroup, FileSystemFieldGroup, GlobPathFieldGroup, PydictFieldGroup
+from deltacat.storage.rivulet.field_group import (
+    FieldGroup,
+    FileSystemFieldGroup,
+    GlobPathFieldGroup,
+    PydictFieldGroup,
+)
 from deltacat.storage.rivulet.logical_plan import LogicalPlan
 from deltacat.storage.rivulet.reader.data_scan import DataScan
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
@@ -16,15 +21,15 @@ from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.writer.dataset_writer import DatasetWriter
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
-from deltacat.storage.rivulet.writer.memtable_dataset_writer import MemtableDatasetWriter
+from deltacat.storage.rivulet.writer.memtable_dataset_writer import (
+    MemtableDatasetWriter,
+)
 
 
 class Dataset:
     __plan: LogicalPlan = None
 
-    def __init__(self,
-                 base_uri: str,
-                 field_groups: List[FieldGroup] = None):
+    def __init__(self, base_uri: str, field_groups: List[FieldGroup] = None):
         self._file_store: FileStore = FileStore()
 
         # Set and maintain:
@@ -33,21 +38,17 @@ class Dataset:
         self._schema: Schema | None = None
         self._fieldToFieldGroup: Dict[str, FieldGroup] = {}
         self._location_provider = FileLocationProvider(base_uri, self._file_store)
-        self._metastore: DatasetMetastore = DatasetMetastore(self._location_provider, self._file_store)
+        self._metastore: DatasetMetastore = DatasetMetastore(
+            self._location_provider, self._file_store
+        )
         self.__append_field_groups(field_groups or [])
 
     @classmethod
-    def from_glob_path(cls,
-                       base_uri: str,
-                       glob_path: GlobPath,
-                       schema: Schema):
+    def from_glob_path(cls, base_uri: str, glob_path: GlobPath, schema: Schema):
         return cls(base_uri, field_groups=[GlobPathFieldGroup(glob_path, schema)])
 
     @classmethod
-    def from_pydict(cls,
-                    base_uri: str,
-                    data: Dict[str, List[Any]],
-                    primary_key: str):
+    def from_pydict(cls, base_uri: str, data: Dict[str, List[Any]], primary_key: str):
         table = pa.Table.from_pydict(data)
         riv_schema = Schema.from_pyarrow_schema(table.schema, primary_key)
         return cls(base_uri, field_groups=[PydictFieldGroup(data, riv_schema)])
@@ -70,9 +71,11 @@ class Dataset:
         self.__append_field_groups([field_group])
         return field_group
 
-    def writer(self,
-               field_groups: Union[FieldGroup, Iterable[FieldGroup]] = None,
-               file_format: str | None = None,) -> DatasetWriter:
+    def writer(
+        self,
+        field_groups: Union[FieldGroup, Iterable[FieldGroup]] = None,
+        file_format: str | None = None,
+    ) -> DatasetWriter:
         """Create a new (stateful) writer using the schema at the conjunction of given field groups.
 
         Invoking this will register any unregistered field groups.
@@ -88,7 +91,9 @@ class Dataset:
             if not isinstance(field_groups, Iterable):
                 field_groups = [field_groups]
             if not field_groups:
-                raise ValueError("Writer must contain one or more field groups or schemas")
+                raise ValueError(
+                    "Writer must contain one or more field groups or schemas"
+                )
             self.__append_field_groups(field_groups)
             schemas = [fg.schema for fg in field_groups]
             # merge the schema together
@@ -209,19 +214,24 @@ class Dataset:
         for field_group in add_field_groups:
             # If this is the first time initializing schema, initialize it to first field group schema
             if self._schema is None:
-                self._schema = Schema(field_group.schema.fields, field_group.schema.primary_key.name)
+                self._schema = Schema(
+                    field_group.schema.fields, field_group.schema.primary_key.name
+                )
                 continue
             elif field_group in self.field_groups:
                 continue
             if field_group.schema.primary_key != self._schema.primary_key:
                 raise ValueError(
-                    f"Field group '{field_group}' must use dataset's primary key of '{self._schema.primary_key}'")
+                    f"Field group '{field_group}' must use dataset's primary key of '{self._schema.primary_key}'"
+                )
 
             for field_name, field in field_group.schema.items():
                 if field_name == self._schema.primary_key.name:
                     continue
                 if field_name in self._schema:
-                    raise ValueError(f"Ambiguous field '{field_name}' present in multiple field groups")
+                    raise ValueError(
+                        f"Ambiguous field '{field_name}' present in multiple field groups"
+                    )
                 self._schema[field_name] = field
                 self._fieldToFieldGroup[field_name] = field_group
 

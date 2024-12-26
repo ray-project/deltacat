@@ -15,7 +15,7 @@ from deltacat.storage.rivulet.writer.dataset_writer import DatasetWriter, DATA
 from deltacat.storage.rivulet.metastore.sst import SSTWriter
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
 
-INPUT_ROW = TypeVar('INPUT_ROW')
+INPUT_ROW = TypeVar("INPUT_ROW")
 
 
 class Memtable(Protocol[INPUT_ROW]):
@@ -56,8 +56,7 @@ class DictMemTable(Memtable[Dict[str, Any]]):
         2. Probably we will re-write in rust
     """
 
-    def __init__(self,
-                 primary_key: str):
+    def __init__(self, primary_key: str):
         self.row_size = 0
         self.primary_key = primary_key
 
@@ -80,8 +79,7 @@ class DictMemTable(Memtable[Dict[str, Any]]):
         :return: iterator over sorted record
         """
         with self.lock:
-            self._records.sort(key=lambda x:
-            x.__getitem__(self.primary_key))
+            self._records.sort(key=lambda x: x.__getitem__(self.primary_key))
             return self._records
 
 
@@ -90,8 +88,7 @@ class RecordBatchMemTable(Memtable[RecordBatch]):
     Note that this will not respect max row size.
     """
 
-    def __init__(self,
-                 primary_key: str):
+    def __init__(self, primary_key: str):
         self.row_size = 0
         self.primary_key = primary_key
 
@@ -116,7 +113,9 @@ class RecordBatchMemTable(Memtable[RecordBatch]):
         """
         with self.lock:
             # Note that we are providing schema so that pyarrow does not infer it
-            table = Table.from_batches(self._records_batches, schema.to_pyarrow_schema())
+            table = Table.from_batches(
+                self._records_batches, schema.to_pyarrow_schema()
+            )
             return table.sort_by(self.primary_key)
 
 
@@ -134,12 +133,14 @@ class MemtableDatasetWriter(DatasetWriter):
     1. Maybe we should re-write this class in Rust (pending testing)
     """
 
-    def __init__(self,
-                 location_provider: FileLocationProvider,
-                 schema: Schema,
-                 file_format: str | None = None,
-                 sst_writer: SSTWriter = None,
-                 manifest_io: ManifestIO = None):
+    def __init__(
+        self,
+        location_provider: FileLocationProvider,
+        schema: Schema,
+        file_format: str | None = None,
+        sst_writer: SSTWriter = None,
+        manifest_io: ManifestIO = None,
+    ):
 
         if not sst_writer:
             sst_writer = JsonSstWriter()
@@ -148,8 +149,9 @@ class MemtableDatasetWriter(DatasetWriter):
 
         self.schema = schema
         self.location_provider = location_provider
-        self.data_serializer: DataSerializer = DataSerializerFactory.get_serializer(self.schema, self.location_provider,
-                                                                                    file_format)
+        self.data_serializer: DataSerializer = DataSerializerFactory.get_serializer(
+            self.schema, self.location_provider, file_format
+        )
         self.sst_writer = sst_writer
         self.manifest_io = manifest_io
 
@@ -199,10 +201,14 @@ class MemtableDatasetWriter(DatasetWriter):
                 elif isinstance(x, RecordBatch):
                     self.write_record_batch(x)
                 else:
-                    raise ValueError(f"Iterable contained unsupported type {type(x).__name__}."
-                                     f" Supported data types to write are: {DATA}")
+                    raise ValueError(
+                        f"Iterable contained unsupported type {type(x).__name__}."
+                        f" Supported data types to write are: {DATA}"
+                    )
         else:
-            raise ValueError(f"Unsupported data type {type(data).__name__}. Supported data types to write are: {DATA}")
+            raise ValueError(
+                f"Unsupported data type {type(data).__name__}. Supported data types to write are: {DATA}"
+            )
 
     def flush(self) -> str:
         """
@@ -255,7 +261,9 @@ class MemtableDatasetWriter(DatasetWriter):
         Called asynchronously in background thread
         """
 
-        sst_metadata_list = self.data_serializer.flush_batch(memtable.get_sorted_records(self.schema))
+        sst_metadata_list = self.data_serializer.flush_batch(
+            memtable.get_sorted_records(self.schema)
+        )
 
         # short circuit if no data/metadata written
         if not sst_metadata_list:
@@ -270,7 +278,9 @@ class MemtableDatasetWriter(DatasetWriter):
         with self.__rlock:
             self.sst_writer.write(sst_file, sst_metadata_list)
             self._sst_files.add(sst_file.location)
-            self._data_files.update([sst_metadata.uri for sst_metadata in sst_metadata_list])
+            self._data_files.update(
+                [sst_metadata.uri for sst_metadata in sst_metadata_list]
+            )
             if memtable in self.__open_memtables:
                 self.__open_memtables.remove(memtable)
 

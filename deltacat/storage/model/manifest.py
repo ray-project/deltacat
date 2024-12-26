@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from deltacat import logs
 
+from deltacat.storage.model.schema import FieldLocator
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
@@ -60,16 +62,16 @@ class EntryParams(dict):
 
     @staticmethod
     def of(
-        equality_column_names: Optional[List[str]] = None,
+        equality_field_locators: Optional[List[FieldLocator]] = None,
     ) -> EntryParams:
         params = EntryParams()
-        if equality_column_names is not None:
-            params["equality_column_names"] = equality_column_names
+        if equality_field_locators is not None:
+            params["equality_field_locators"] = equality_field_locators
         return params
 
     @property
-    def equality_column_names(self) -> Optional[List[str]]:
-        return self.get("equality_column_names")
+    def equality_field_locators(self) -> Optional[List[FieldLocator]]:
+        return self.get("equality_field_locators")
 
 
 class Manifest(dict):
@@ -233,7 +235,9 @@ class ManifestMeta(dict):
         if credentials is not None:
             manifest_meta["credentials"] = credentials
         if entry_type is not None:
-            manifest_meta["entry_type"] = entry_type.value
+            manifest_meta["entry_type"] = (
+                entry_type.value if isinstance(entry_type, EntryType) else entry_type
+            )
         if entry_params is not None:
             manifest_meta["entry_params"] = entry_params
         return manifest_meta

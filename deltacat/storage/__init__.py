@@ -14,6 +14,11 @@ from deltacat.storage.model.delta import (
 )
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.metafile import (
+    Metafile,
+    Transaction,
+    TransactionOperation,
+)
 from deltacat.storage.model.namespace import (
     Namespace,
     NamespaceLocator,
@@ -71,10 +76,12 @@ from deltacat.storage.model.types import (
     LifecycleState,
     LocalDataset,
     LocalTable,
+    NullOrder,
     SchemaConsistencyType,
     StreamFormat,
     SortOrder,
-    NullOrder,
+    TransactionType,
+    TransactionOperationType,
 )
 from deltacat.storage.model.sort_key import (
     SortKey,
@@ -111,6 +118,7 @@ __all__ = [
     "ManifestEntry",
     "ManifestEntryList",
     "ManifestMeta",
+    "Metafile",
     "MonthTransform",
     "Namespace",
     "NamespaceLocator",
@@ -139,6 +147,10 @@ __all__ = [
     "TableVersion",
     "TableVersionLocator",
     "TableVersionProperties",
+    "Transaction",
+    "TransactionType",
+    "TransactionOperation",
+    "TransactionOperationType",
     "Transform",
     "TransformName",
     "TransformParameters",

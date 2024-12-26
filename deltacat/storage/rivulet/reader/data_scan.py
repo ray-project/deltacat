@@ -32,10 +32,10 @@ class DataScan:
     """
 
     def __init__(
-            self,
-            dataset_schema: Schema,
-            query: QueryExpression,
-            dataset_reader: DatasetReader
+        self,
+        dataset_schema: Schema,
+        query: QueryExpression,
+        dataset_reader: DatasetReader,
     ):
         self.dataset_schema = dataset_schema
         self.query = query
@@ -47,18 +47,10 @@ class DataScan:
 
         TODO how to make the .to_x methods pluggable?
         """
-        return self.dataset_reader.scan(
-            self.dataset_schema,
-            pa.RecordBatch,
-            self.query
-        )
+        return self.dataset_reader.scan(self.dataset_schema, pa.RecordBatch, self.query)
 
     def to_pydict(self) -> Generator[Dict, None, None]:
         """
         Generates scan results as a Dict for each row
         """
-        return self.dataset_reader.scan(
-            self.dataset_schema,
-            Dict,
-            self.query
-        )
+        return self.dataset_reader.scan(self.dataset_schema, Dict, self.query)

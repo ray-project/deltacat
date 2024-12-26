@@ -23,10 +23,10 @@ class Datatype:
         For now going to do a super minimal/hacky implementation of types like binary and image, where
         :return: Subtype if it exists, or None
         """
-        if not self.type_name.endswith(')'):
+        if not self.type_name.endswith(")"):
             return None
-        if self.type_name.startswith('binary(') or self.type_name.startswith('image('):
-            return self.type_name[self.type_name.find('(') + 1:-1]
+        if self.type_name.startswith("binary(") or self.type_name.startswith("image("):
+            return self.type_name[self.type_name.find("(") + 1 : -1]
         return None
 
     @classmethod
@@ -35,35 +35,35 @@ class Datatype:
         :param binary_format:
         :return:
         """
-        return cls(type_name=f'binary({binary_format})')
+        return cls(type_name=f"binary({binary_format})")
 
     @classmethod
     def image(cls, image_format):
-        return cls(type_name=f'image({image_format})')
+        return cls(type_name=f"image({image_format})")
 
     @classmethod
     def string(cls):
-        return cls(type_name='string')
+        return cls(type_name="string")
 
     @classmethod
     def float(cls):
-        return cls(type_name='float')
+        return cls(type_name="float")
 
     @classmethod
     def int16(cls):
-        return cls(type_name='int16')
+        return cls(type_name="int16")
 
     @classmethod
     def int32(cls):
-        return cls(type_name='int32')
+        return cls(type_name="int32")
 
     @classmethod
     def int64(cls):
-        return cls(type_name='int64')
+        return cls(type_name="int64")
 
     @classmethod
     def bool(cls):
-        return cls(type_name='bool')
+        return cls(type_name="bool")
 
     def to_pyarrow(self) -> pa.field:
         """
@@ -74,26 +74,28 @@ class Datatype:
 
         :return: pyarrow type
         """
-        if self.type_name == 'string':
+        if self.type_name == "string":
             return pa.string()
-        elif self.type_name == 'float':
+        elif self.type_name == "float":
             return pa.float64()
-        elif self.type_name == 'int16':
+        elif self.type_name == "int16":
             return pa.int16()
-        elif self.type_name == 'int32':
+        elif self.type_name == "int32":
             return pa.int32()
-        elif self.type_name == 'int64':
+        elif self.type_name == "int64":
             return pa.int64()
-        elif self.type_name == 'bool':
+        elif self.type_name == "bool":
             return pa.bool_()
-        elif self.type_name.startswith('image(') or self.type_name.startswith('binary('):
+        elif self.type_name.startswith("image(") or self.type_name.startswith(
+            "binary("
+        ):
             # TODO we will need to think about how custom types work with tabular libraries
             return pa.binary()
         else:
             raise ValueError(f"Unsupported type conversion to pa: {self.type_name}")
 
     @classmethod
-    def from_pyarrow(cls, pa_type: pa.DataType) -> 'Datatype':
+    def from_pyarrow(cls, pa_type: pa.DataType) -> "Datatype":
         """
         Convert a pa type to a Rivulet Datatype.
 
@@ -120,7 +122,7 @@ class Datatype:
             return cls.bool()
         elif pa.types.is_binary(pa_type):
             # TODO: Use pyarrow metadata on schema field to map correctly into image and other binary types
-            return cls.binary('binary')  # Default binary format
+            return cls.binary("binary")  # Default binary format
         else:
             raise ValueError(f"Unsupported pa type: {pa_type}")
 
@@ -138,6 +140,6 @@ class Datatype:
 
 class Enum(Datatype):
     def __init__(self, name, values):
-        super().__init__(type_name='enum')
+        super().__init__(type_name="enum")
         self.name = name
         self.values = values

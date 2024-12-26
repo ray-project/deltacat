@@ -20,7 +20,12 @@ class DatasetExecutor:
     LogicalPlan is responsible for constructor an executor and ordering operations appropriately
     """
 
-    def __init__(self, field_groups: List[FieldGroup], schema: Schema, metastore: DatasetMetastore):
+    def __init__(
+        self,
+        field_groups: List[FieldGroup],
+        schema: Schema,
+        metastore: DatasetMetastore,
+    ):
         self.effective_schema: Schema = schema.__deepcopy__()
         self.field_groups = field_groups
         self.output: MvpTable | None = None
@@ -42,7 +47,11 @@ class DatasetExecutor:
         # Calculate effective schema and apply it to data
         self.effective_schema.filter(fields)
         self.output = MvpTable(
-            {key: value for key, value in self.output.data.items() if key in self.effective_schema},
+            {
+                key: value
+                for key, value in self.output.data.items()
+                if key in self.effective_schema
+            },
         )
         return self
 
@@ -67,7 +76,11 @@ class DatasetExecutor:
             return merged
 
     def _read_as_mvp_table(self, schema: Schema, field_group: FieldGroup):
-        data = list(DataScan(schema, QueryExpression(), DatasetReader(self._metastore)).to_pydict())
+        data = list(
+            DataScan(
+                schema, QueryExpression(), DatasetReader(self._metastore)
+            ).to_pydict()
+        )
         output = {}
         for key in schema.fields.keys():
             output[key] = [d.get(key) for d in data]

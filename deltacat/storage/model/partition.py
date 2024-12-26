@@ -1,6 +1,9 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import copy
+import pyarrow as pa
+
 from typing import Any, Dict, List, Optional
 
 from deltacat.storage.model.metafile import Metafile
@@ -64,7 +67,10 @@ class Partition(Metafile):
 
     @property
     def schema(self) -> Optional[Schema]:
-        return self.get("schema")
+        val: Dict[str, Any] = self.get("schema")
+        if val is not None and not isinstance(val, Schema):
+            self.schema = val = Schema(val)
+        return val
 
     @schema.setter
     def schema(self, schema: Optional[Schema]) -> None:
@@ -208,6 +214,21 @@ class Partition(Metafile):
             content_type in supported_content_types
         )
 
+    def to_serializable(self) -> Partition:
+        serializable = Partition(copy.deepcopy(self))
+        serializable.schema = (
+            serializable.schema.serialize().to_pybytes()
+            if serializable.schema
+            else None
+        )
+        return serializable
+
+    def from_serializable(self) -> Partition:
+        self["schema"] = (
+            Schema.deserialize(pa.py_buffer(self["schema"])) if self["schema"] else None
+        )
+        return self
+
 
 class PartitionLocator(Locator, dict):
     @staticmethod
@@ -245,12 +266,16 @@ class PartitionLocator(Locator, dict):
         partition_id: Optional[str],
         partition_scheme_id: Optional[str],
     ) -> PartitionLocator:
-        stream_locator = StreamLocator.at(
-            namespace,
-            table_name,
-            table_version,
-            stream_id,
-            stream_format,
+        stream_locator = (
+            StreamLocator.at(
+                namespace,
+                table_name,
+                table_version,
+                stream_id,
+                stream_format,
+            )
+            if stream_id and stream_format
+            else None
         )
         return PartitionLocator.of(
             stream_locator,
@@ -258,6 +283,9 @@ class PartitionLocator(Locator, dict):
             partition_id,
             partition_scheme_id,
         )
+
+    def parent(self) -> Optional[StreamLocator]:
+        return self.stream_locator
 
     @property
     def stream_locator(self) -> Optional[StreamLocator]:
@@ -356,7 +384,7 @@ class PartitionLocator(Locator, dict):
         for equality checks (i.e. two locators are equal if they have
         the same canonical string).
         """
-        sl_hexdigest = self.stream_locator.hexdigest()
+        sl_hexdigest = self.stream_locator.hexdigest() if self.stream_locator else None
         partition_vals = str(self.partition_values)
         partition_id = self.partition_id
         scheme_id = self.partition_scheme_id
@@ -409,12 +437,12 @@ class PartitionKey(dict):
 class PartitionKeyList(List[PartitionKey]):
     @staticmethod
     def of(items: List[PartitionKey]) -> PartitionKeyList:
-        items = PartitionKeyList()
-        for entry in items:
-            if entry is not None and not isinstance(entry, PartitionKey):
-                entry = PartitionKey(entry)
-            items.append(entry)
-        return items
+        typed_items = PartitionKeyList()
+        for item in items:
+            if item is not None and not isinstance(item, PartitionKey):
+                item = PartitionKey(item)
+            typed_items.append(item)
+        return typed_items
 
     def __getitem__(self, item):
         val = super().__getitem__(item)
@@ -462,13 +490,13 @@ class PartitionScheme(dict):
 
 class PartitionSchemeList(List[PartitionScheme]):
     @staticmethod
-    def of(entries: List[PartitionScheme]) -> PartitionSchemeList:
-        entries = PartitionSchemeList()
-        for entry in entries:
-            if entry is not None and not isinstance(entry, PartitionScheme):
-                entry = PartitionScheme(entry)
-            entries.append(entry)
-        return entries
+    def of(items: List[PartitionScheme]) -> PartitionSchemeList:
+        typed_items = PartitionSchemeList()
+        for item in items:
+            if item is not None and not isinstance(item, PartitionScheme):
+                item = PartitionScheme(item)
+            typed_items.append(item)
+        return typed_items
 
     def __getitem__(self, item):
         val = super().__getitem__(item)

@@ -4,7 +4,12 @@ import json
 
 from deltacat.storage.rivulet.fs.input_file import InputFile
 from deltacat.storage.rivulet.fs.output_file import OutputFile
-from deltacat.storage.rivulet.metastore.sst import SSTWriter, SSTableRow, SSTReader, SSTable
+from deltacat.storage.rivulet.metastore.sst import (
+    SSTWriter,
+    SSTableRow,
+    SSTReader,
+    SSTable,
+)
 
 
 class JsonSstWriter(SSTWriter):
@@ -14,6 +19,7 @@ class JsonSstWriter(SSTWriter):
     TODO use a more efficient format or compression. Also can factor out URI prefix across rows
     We can also optimize by omitting offset_end if sequential rows use the same uri
     """
+
     def write(self, file: OutputFile, rows: List[SSTableRow]) -> None:
         """
         Writes SST file
@@ -32,7 +38,7 @@ class JsonSstWriter(SSTWriter):
                 "key_min": row.key_min,
                 "key_max": row.key_max,
                 "offset": row.offset_start,
-                "uri": row.uri
+                "uri": row.uri,
             }
             for row in rows
         ]
@@ -41,7 +47,7 @@ class JsonSstWriter(SSTWriter):
             "key_min": min_key,
             "key_max": max_key,
             "offset_end": offset_end,
-            "metadata": file_rows
+            "metadata": file_rows,
         }
 
         try:
@@ -58,6 +64,7 @@ class JsonSstReader(SSTReader):
     """
     interface for reading SST files
     """
+
     def read(self, file: InputFile) -> SSTable:
         with file.open() as f:
             data = json.loads(f.read())
@@ -70,20 +77,24 @@ class JsonSstReader(SSTReader):
         for row1, row2 in zip_longest(data["metadata"], data["metadata"][1:]):
             # if not row2, we are on the very last row and need to use file metadata for key and offset end
             if not row2:
-                sst_rows.append(SSTableRow(
-                    row1["key_min"],
-                    row1["key_max"],
-                    row1["uri"],
-                    row1["offset"],
-                    file_offset_end
-                ))
+                sst_rows.append(
+                    SSTableRow(
+                        row1["key_min"],
+                        row1["key_max"],
+                        row1["uri"],
+                        row1["offset"],
+                        file_offset_end,
+                    )
+                )
             else:
-                sst_rows.append(SSTableRow(
-                    row1["key_min"],
-                    row1["key_max"],
-                    row1["uri"],
-                    row1["offset"],
-                    file_offset_end
-                ))
+                sst_rows.append(
+                    SSTableRow(
+                        row1["key_min"],
+                        row1["key_max"],
+                        row1["uri"],
+                        row1["offset"],
+                        file_offset_end,
+                    )
+                )
 
         return SSTable(sst_rows, data["key_min"], data["key_max"])

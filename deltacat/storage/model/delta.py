@@ -293,20 +293,27 @@ class DeltaLocator(Locator, dict):
         partition_scheme_id: Optional[str],
         stream_position: Optional[int],
     ) -> DeltaLocator:
-        partition_locator = PartitionLocator.at(
-            namespace,
-            table_name,
-            table_version,
-            stream_id,
-            stream_format,
-            partition_values,
-            partition_id,
-            partition_scheme_id,
+        partition_locator = (
+            PartitionLocator.at(
+                namespace,
+                table_name,
+                table_version,
+                stream_id,
+                stream_format,
+                partition_values,
+                partition_id,
+                partition_scheme_id,
+            )
+            if partition_values and partition_id and partition_scheme_id
+            else None
         )
         return DeltaLocator.of(
             partition_locator,
             stream_position,
         )
+
+    def parent(self) -> Optional[PartitionLocator]:
+        return self.partition_locator
 
     @property
     def partition_locator(self) -> Optional[PartitionLocator]:
@@ -410,6 +417,8 @@ class DeltaLocator(Locator, dict):
         for equality checks (i.e. two locators are equal if they have
         the same canonical string).
         """
-        pl_hexdigest = self.partition_locator.hexdigest()
+        pl_hexdigest = (
+            self.partition_locator.hexdigest() if self.partition_locator else None
+        )
         stream_position = self.stream_position
         return f"{pl_hexdigest}|{stream_position}"

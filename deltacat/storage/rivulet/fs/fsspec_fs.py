@@ -3,7 +3,11 @@ from typing import Iterator
 
 from fsspec import AbstractFileSystem
 
-from deltacat.storage.rivulet.fs.file_system import FileSystem, FSInputFile, NormalizedPath
+from deltacat.storage.rivulet.fs.file_system import (
+    FileSystem,
+    FSInputFile,
+    NormalizedPath,
+)
 from deltacat.storage.rivulet.fs.input_file import InputFile, InputStream
 from deltacat.storage.rivulet.fs.local_fs import FSInputStream, FSOutputStream
 from deltacat.storage.rivulet.fs.output_file import OutputStream
@@ -11,6 +15,7 @@ from deltacat.storage.rivulet.fs.output_file import OutputStream
 
 class FsspecFileSystem(FileSystem):
     """Adapter FS implementation around fsspec FileSystem implementations."""
+
     def __init__(self, delegate: AbstractFileSystem):
         self.delegate: AbstractFileSystem = delegate
 
@@ -33,5 +38,5 @@ class FsspecFileSystem(FileSystem):
         if not self.delegate.isdir(location):
             yield
         for entry in self.delegate.listdir(location, detail=True):
-            if entry['type'] == 'file':
-                yield FSInputFile(entry['name'], self)
+            if entry["type"] == "file":
+                yield FSInputFile(entry["name"], self)

@@ -30,8 +30,8 @@ class SortKey(tuple):
         return SortKey(
             (
                 key,
-                sort_order.value,
-                null_order,
+                sort_order.value if isinstance(sort_order, SortOrder) else sort_order,
+                null_order.value if isinstance(null_order, NullOrder) else null_order,
                 transform,
                 native_object,
             )
@@ -73,12 +73,12 @@ class SortKey(tuple):
 class SortKeyList(List[SortKey]):
     @staticmethod
     def of(items: List[SortKey]) -> SortKeyList:
-        items = SortKeyList()
-        for entry in items:
-            if entry is not None and not isinstance(entry, SortKey):
-                entry = SortKey(entry)
-            items.append(entry)
-        return items
+        typed_items = SortKeyList()
+        for item in items:
+            if item is not None and not isinstance(item, SortKey):
+                item = SortKey(item)
+            typed_items.append(item)
+        return typed_items
 
     def __getitem__(self, item):
         val = super().__getitem__(item)
@@ -140,13 +140,13 @@ class SortScheme(dict):
 
 class SortSchemeList(List[SortScheme]):
     @staticmethod
-    def of(entries: List[SortScheme]) -> SortSchemeList:
-        entries = SortSchemeList()
-        for entry in entries:
-            if entry is not None and not isinstance(entry, SortScheme):
-                entry = SortScheme(entry)
-            entries.append(entry)
-        return entries
+    def of(items: List[SortScheme]) -> SortSchemeList:
+        typed_items = SortSchemeList()
+        for item in items:
+            if item is not None and not isinstance(item, SortScheme):
+                item = SortScheme(item)
+            typed_items.append(item)
+        return typed_items
 
     def __getitem__(self, item):
         val = super().__getitem__(item)

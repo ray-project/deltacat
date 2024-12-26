@@ -93,7 +93,7 @@ def _get_delete_file_envelopes(
             ), "Delete type deltas are required to have delete parameters defined"
             delete_columns: Optional[
                 List[str]
-            ] = delete_delta.meta.entry_params.equality_column_names
+            ] = delete_delta.meta.entry_params.equality_field_locators
             assert len(delete_columns) > 0, "At least 1 delete column is required"
             # delete columns should exist in underlying table
             delete_dataset = params.deltacat_storage.download_delta(

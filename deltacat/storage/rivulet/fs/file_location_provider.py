@@ -17,6 +17,7 @@ class FileLocationProvider:
 
     This may allow for idempotency if jobs get re-run. Note in the iceberg-spark case that it will be non-idempotent since Spark uses new task ids.
     """
+
     uri: str
 
     def __init__(self, uri, file_store: FileStore):
@@ -48,7 +49,7 @@ class FileLocationProvider:
         return [f"{self.uri}/metadata/manifests/"]
 
     def generate_manifest_uris(self) -> Generator[InputFile, None, None]:
-        """ Given a rivulet base uri, generate all SST URIs
+        """Given a rivulet base uri, generate all SST URIs
         TODO (deltacat integration?) Consider whehter we want a wrapper class for managing rivulet structure. This may end up being delta cat. So for now just using FileLocationProvider
         TODO (support filesystem interface) Abstract to work on any filesystem or S3-like interface
         """
@@ -58,7 +59,7 @@ class FileLocationProvider:
                 yield p
 
     def generate_sst_uris(self) -> Generator[InputFile, None, None]:
-        """ Given a rivulet base uri, generate all SST URIs
+        """Given a rivulet base uri, generate all SST URIs
 
         TODO (deltacat integration?) Consider whehter we want a wrapper class for managing rivulet structure. This may end up being delta cat. So for now just using FileLocationProvider
         """

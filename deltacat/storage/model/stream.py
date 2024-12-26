@@ -27,7 +27,7 @@ class Stream(Metafile):
         locator: Optional[StreamLocator],
         partition_scheme: Optional[partition.PartitionScheme],
         state: Optional[CommitState] = None,
-        previous_stream_id: Optional[bytes] = None,
+        previous_stream_id: Optional[str] = None,
         watermark: Optional[int] = None,
         native_object: Optional[Any] = None,
     ) -> Stream:
@@ -182,16 +182,23 @@ class StreamLocator(Locator, dict):
         stream_id: Optional[str],
         stream_format: Optional[StreamFormat],
     ) -> StreamLocator:
-        table_version_locator = TableVersionLocator.at(
-            namespace,
-            table_name,
-            table_version,
+        table_version_locator = (
+            TableVersionLocator.at(
+                namespace,
+                table_name,
+                table_version,
+            )
+            if table_version
+            else None
         )
         return StreamLocator.of(
             table_version_locator,
             stream_id,
             stream_format,
         )
+
+    def parent(self) -> Optional[TableVersionLocator]:
+        return self.table_version_locator
 
     @property
     def table_version_locator(self) -> Optional[TableVersionLocator]:
@@ -263,7 +270,11 @@ class StreamLocator(Locator, dict):
         for equality checks (i.e. two locators are equal if they have
         the same canonical string).
         """
-        tvl_hexdigest = self.table_version_locator.hexdigest()
+        tvl_hexdigest = (
+            self.table_version_locator.hexdigest()
+            if self.table_version_locator
+            else None
+        )
         stream_id = self.stream_id
         storage_type = self.format
         return f"{tvl_hexdigest}|{stream_id}|{storage_type}"
