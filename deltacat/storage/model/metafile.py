@@ -28,11 +28,6 @@ class TransactionOperation(dict):
         operation_type: Optional[TransactionOperationType],
         metafile: Optional[Metafile],
     ) -> TransactionOperation:
-        """
-        Creates a Delta metadata model with the given Delta Locator, Delta Type,
-        manifest metadata, properties, manifest, and previous delta stream
-        position.
-        """
         transaction_operation = TransactionOperation()
         transaction_operation.type = operation_type
         transaction_operation.metafile = metafile
@@ -52,7 +47,7 @@ class TransactionOperation(dict):
     @property
     def metafile(self) -> Metafile:
         """
-        Returns the data of the transaction operation.
+        Returns the metafile that is the target of this transaction operation.
         """
         return self["metafile"]
 
@@ -88,11 +83,6 @@ class Transaction(dict):
         txn_type: Optional[TransactionType],
         txn_operations: Optional[TransactionOperationList],
     ) -> Transaction:
-        """
-        Creates a Delta metadata model with the given Delta Locator, Delta Type,
-        manifest metadata, properties, manifest, and previous delta stream
-        position.
-        """
         transaction = Transaction()
         # TODO(pdames): validate proposed transaction type against operations
         #  (e.g., an APPEND transaction can't delete metafiles)
