@@ -1,6 +1,4 @@
 import pytest
-from typing import Dict, List, Any
-import pyarrow as pa
 
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.schema.datatype import Datatype
@@ -9,26 +7,21 @@ from deltacat.storage.rivulet.field_group import (
     FieldGroup,
     GlobPathFieldGroup,
     PydictFieldGroup,
-    FileSystemFieldGroup
+    FileSystemFieldGroup,
 )
 
 
 @pytest.fixture
 def sample_schema():
-    return Schema({
-        'id': Datatype('int32'),
-        'name': Datatype('string'),
-        'age': Datatype('int32')
-    }, primary_key='id')
+    return Schema(
+        {"id": Datatype("int32"), "name": Datatype("string"), "age": Datatype("int32")},
+        primary_key="id",
+    )
 
 
 @pytest.fixture
 def sample_data():
-    return {
-        'id': [1, 2, 3],
-        'name': ['Alice', 'Bob', 'Charlie'],
-        'age': [25, 30, 35]
-    }
+    return {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
 
 
 def test_glob_path_field_group(sample_schema):
@@ -48,7 +41,9 @@ def test_glob_path_field_group(sample_schema):
     assert fg2.schema == sample_schema
 
     # Test string representation
-    assert str(fg1) == f"GlobPathFieldGroup(glob_path={str_path}, schema={sample_schema})"
+    assert (
+        str(fg1) == f"GlobPathFieldGroup(glob_path={str_path}, schema={sample_schema})"
+    )
 
 
 def test_pydict_field_group(sample_schema, sample_data):
@@ -60,9 +55,9 @@ def test_pydict_field_group(sample_schema, sample_data):
 
     # Test row data construction
     assert len(fg._row_data) == 3
-    assert fg._row_data[1] == {'id': 1, 'name': 'Alice', 'age': 25}
-    assert fg._row_data[2] == {'id': 2, 'name': 'Bob', 'age': 30}
-    assert fg._row_data[3] == {'id': 3, 'name': 'Charlie', 'age': 35}
+    assert fg._row_data[1] == {"id": 1, "name": "Alice", "age": 25}
+    assert fg._row_data[2] == {"id": 2, "name": "Bob", "age": 30}
+    assert fg._row_data[3] == {"id": 3, "name": "Charlie", "age": 35}
 
     # Test empty data
     empty_fg = PydictFieldGroup({}, sample_schema)
@@ -85,10 +80,9 @@ def test_filesystem_field_group(sample_schema):
     assert fg1 != "not a field group"
 
     # Test with different schema
-    different_schema = Schema({
-        'id': Datatype('int32'),
-        'email': Datatype('string')
-    }, primary_key='id')
+    different_schema = Schema(
+        {"id": Datatype("int32"), "email": Datatype("string")}, primary_key="id"
+    )
     fg3 = FileSystemFieldGroup(different_schema)
     assert fg1 != fg3
 
@@ -99,10 +93,9 @@ def test_filesystem_field_group(sample_schema):
 def test_field_group_protocol():
     """Test that all field group classes implement the FieldGroup protocol"""
     # Create instances to test
-    sample_schema = Schema({
-        'id': Datatype('int32'),
-        'name': Datatype('string')
-    }, primary_key='id')
+    sample_schema = Schema(
+        {"id": Datatype("int32"), "name": Datatype("string")}, primary_key="id"
+    )
 
     glob_fg = GlobPathFieldGroup("/test/*.parquet", sample_schema)
     pydict_fg = PydictFieldGroup({}, sample_schema)

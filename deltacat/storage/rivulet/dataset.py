@@ -54,7 +54,7 @@ class Dataset:
         return cls(base_uri, field_groups=[PydictFieldGroup(data, riv_schema)])
 
     @classmethod
-    def from_parquet(cls, base_uri: str, primary_key: str, schema_mode: str = 'union'):
+    def from_parquet(cls, base_uri: str, primary_key: str, schema_mode: str = "union"):
         """
         Create a Dataset from parquet files.
 
@@ -70,7 +70,7 @@ class Dataset:
         """
         dataset = pa.dataset.dataset(base_uri)
 
-        if schema_mode == 'intersect':
+        if schema_mode == "intersect":
             schemas = [pa.parquet.read_schema(f) for f in dataset.files]
             # Find common columns across all schemas
             common_columns = set(schemas[0].names)

@@ -31,7 +31,9 @@ class FieldGroup(Protocol):
 # Field group whose data is backed by a glob path
 class GlobPathFieldGroup(FieldGroup):
     def __init__(self, glob_path: str | GlobPath, schema: Schema):
-        self._glob_path = GlobPath(glob_path) if isinstance(glob_path, str) else glob_path
+        self._glob_path = (
+            GlobPath(glob_path) if isinstance(glob_path, str) else glob_path
+        )
         self._schema = schema
 
     @property
