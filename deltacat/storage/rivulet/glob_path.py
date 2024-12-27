@@ -1,7 +1,7 @@
 # Defines a glob path, allowing for files in the path to include variables
 #       This is useful if external data contains keys within file path
 class GlobPath:
-    def __init__(self, path):
+    def __init__(self, path: str):
         """
         GlobPath allows for a mix of literal path components and variable placeholders.
         Variable placeholders are denoted by ${variable_name}
@@ -18,18 +18,18 @@ class GlobPath:
         :param path: A string representing a glob path with variable placeholders.
         """
         self.path = path
-        self.vars = self.parse_path()
+        self.elements = self.parse_path()
 
     def parse_path(self):
         # Split the path into elements.
-        vars = []
+        elements = []
         path_parts = self.path.split("/")
         for part in path_parts:
             if part.startswith("${") and part.endswith("}"):
                 # Variable element (e.g., ${date})
                 # Append just the column name (e.g. "date")
-                vars.append(part[2:-1])
-        return vars
+                elements.append(part[2:-1])
+        return elements
 
     def __str__(self):
         return f"GlobPath: {self.path}\nElements: {self.elements}"
