@@ -53,6 +53,42 @@ class Dataset:
         riv_schema = Schema.from_pyarrow_schema(table.schema, primary_key)
         return cls(base_uri, field_groups=[PydictFieldGroup(data, riv_schema)])
 
+    @classmethod
+    def from_parquet(cls, base_uri: str, primary_key: str, schema_mode: str = 'union'):
+        """
+        Create a Dataset from parquet files.
+
+        Args:
+            base_uri: Base URI for the dataset
+            primary_key: Field to use as primary key
+            schema_mode: Schema combination mode. Options:
+                - 'union': Use unified schema with all columns
+                - 'intersect': Use only common columns across files
+
+        Returns:
+            Dataset: New dataset instance with parquet data
+        """
+        dataset = pa.dataset.dataset(base_uri)
+
+        if schema_mode == 'intersect':
+            schemas = [pa.parquet.read_schema(f) for f in dataset.files]
+            # Find common columns across all schemas
+            common_columns = set(schemas[0].names)
+            for schema in schemas[1:]:
+                common_columns.intersection_update(schema.names)
+
+            # Create a new schema with only common columns
+            intersect_schema = pa.schema(
+                [(name, schemas[0].field(name).type) for name in common_columns]
+            )
+            dataset_schema = intersect_schema
+        else:
+            schemas = [pa.parquet.read_schema(f) for f in dataset.files]
+            dataset_schema = pa.unify_schemas(schemas)
+
+        riv_schema = Schema.from_pyarrow_schema(dataset_schema, primary_key)
+        return cls(base_uri, field_groups=[GlobPathFieldGroup(base_uri, riv_schema)])
+
     def add_field_group(self, field_group: FieldGroup) -> None:
         """
         Add a new field group to the dataset
