@@ -1,10 +1,10 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from deltacat.storage.model.metafile import Metafile
-from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.locator import Locator, LocatorName
 
 NamespaceProperties = Dict[str, Any]
 
@@ -47,12 +47,26 @@ class Namespace(Metafile):
         self["properties"] = properties
 
 
+class NamespaceLocatorName(LocatorName):
+    def __init__(self, locator: NamespaceLocator):
+        self.locator = locator
+
+    def immutable_id(self) -> Optional[str]:
+        return None
+
+    def parts(self) -> List[str]:
+        return [self.locator.namespace]
+
+
 class NamespaceLocator(Locator, dict):
     @staticmethod
     def of(namespace: Optional[str]) -> NamespaceLocator:
         namespace_locator = NamespaceLocator()
         namespace_locator.namespace = namespace
         return namespace_locator
+
+    def name(self) -> NamespaceLocatorName:
+        return NamespaceLocatorName(self)
 
     def parent(self) -> Optional[Locator]:
         return None
@@ -64,11 +78,3 @@ class NamespaceLocator(Locator, dict):
     @namespace.setter
     def namespace(self, namespace: Optional[str]) -> None:
         self["namespace"] = namespace
-
-    def canonical_string(self) -> str:
-        """
-        Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
-        """
-        return self.namespace

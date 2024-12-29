@@ -51,13 +51,15 @@ from deltacat.storage import (
     TruncateTransform,
     TruncateTransformParameters,
 )
+from deltacat.storage.model.metafile import TXN_DIR_NAME
 
 
 class TestMetafileIO(unittest.TestCase):
     def test_e2e_serde(self):
-        # namespace
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+
+        # namespace
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
         namespace = Namespace.of(locator=namespace_locator)
 
@@ -188,7 +190,6 @@ class TestMetafileIO(unittest.TestCase):
             stream_format=StreamFormat.DELTACAT,
             partition_values=["a", 1],
             partition_id="test_partition_id",
-            partition_scheme_id="test_partition_scheme_id",
         )
         schema = Schema.of(
             [
@@ -218,6 +219,7 @@ class TestMetafileIO(unittest.TestCase):
             previous_partition_id="test_previous_partition_id",
             stream_position=1,
             next_partition_id="test_next_partition_id",
+            partition_scheme_id="test_partition_scheme_id",
         )
 
         # delta
@@ -229,7 +231,6 @@ class TestMetafileIO(unittest.TestCase):
             stream_format=StreamFormat.DELTACAT,
             partition_values=["a", 1],
             partition_id="test_partition_id",
-            partition_scheme_id="test_partition_scheme_id",
             stream_position=1,
         )
         manifest_entry_params = EntryParams.of(
@@ -305,9 +306,7 @@ class TestMetafileIO(unittest.TestCase):
             deserialized_table_version = TableVersion.read(write_paths.pop())
             deserialized_table = Table.read(write_paths.pop())
             deserialized_namespace = Namespace.read(write_paths.pop())
-            assert os.path.exists(
-                os.path.join(temp_dir, "transactions", transaction.id)
-            )
+            assert os.path.exists(os.path.join(temp_dir, TXN_DIR_NAME, transaction.id))
         finally:
             shutil.rmtree(temp_dir)
         assert delta == deserialized_delta
@@ -516,7 +515,6 @@ class TestMetafileIO(unittest.TestCase):
             stream_format=None,
             partition_values=["a", 1],
             partition_id="test_partition_id",
-            partition_scheme_id="test_partition_scheme_id",
         )
         schema = Schema.of(
             [
@@ -546,6 +544,7 @@ class TestMetafileIO(unittest.TestCase):
             previous_partition_id="test_previous_partition_id",
             stream_position=1,
             next_partition_id="test_next_partition_id",
+            partition_scheme_id="test_partition_scheme_id",
         )
         try:
             write_paths = Transaction.of(
@@ -573,7 +572,6 @@ class TestMetafileIO(unittest.TestCase):
             stream_format=None,
             partition_values=None,
             partition_id=None,
-            partition_scheme_id=None,
             stream_position=1,
         )
         manifest_entry_params = EntryParams.of(
@@ -635,7 +633,8 @@ class TestMetafileIO(unittest.TestCase):
             table_name="test_table",
         )
         # test basic python types
-        # (set, frozenset, and range can't be serialized by msgpack)
+        # set, frozenset, and range can't be serialized by msgpack
+        # memoryview can't be pickled by copy.deepcopy
         properties = {
             "foo": 1,
             "bar": 2.0,
@@ -646,7 +645,6 @@ class TestMetafileIO(unittest.TestCase):
             "grault": {"foo": "bar"},
             "garply": (1, 2, 3),
             "waldo": bytearray(3),
-            "fred": memoryview(bytes(4)),
         }
         table = Table.of(
             locator=table_locator,
@@ -670,8 +668,7 @@ class TestMetafileIO(unittest.TestCase):
         expected_properties = properties.copy()
         # msgpack tranlates tuples to lists
         expected_properties["garply"] = [1, 2, 3]
-        # msgpack unpacks bytearray and memoryview into bytes
+        # msgpack unpacks bytearray into bytes
         expected_properties["waldo"] = b"\x00\x00\x00"
-        expected_properties["fred"] = b"\x00\x00\x00\x00"
         table.properties = expected_properties
         assert table == deserialized_table

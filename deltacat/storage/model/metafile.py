@@ -5,9 +5,10 @@ from typing import Optional, Tuple, List
 
 import msgpack
 import pyarrow.fs
-import os
+import posixpath
 import uuid
 
+from ray.data.datasource.path_util import _resolve_paths_and_filesystem
 from ray.data.datasource.file_meta_provider import _get_file_infos
 
 from deltacat.storage.model.list_result import ListResult
@@ -16,6 +17,11 @@ from deltacat.storage.model.types import (
     TransactionType,
     TransactionOperationType,
 )
+
+TXN_ID_SEPARATOR = "_"
+TXN_DIR_NAME: str = "txn"
+REVISION_DIR_NAME: str = "rev"
+METAFILE_EXT = "mpk"
 
 
 class TransactionOperation(dict):
@@ -125,7 +131,6 @@ class Transaction(dict):
     def commit(
         self,
         root: str,
-        separator: str = "/",
         filesystem: pyarrow.fs.FileSystem = None,
     ) -> List[str]:
         write_paths = []
@@ -134,35 +139,17 @@ class Transaction(dict):
                 root=root,
                 txn_operation_type=operation.type,
                 txn_id=self.id,
-                separator=separator,
                 filesystem=filesystem,
             )
             write_paths.append(write_path)
-        # TODO(pdames): enforce tabel-version-level transaction isolation
+        # TODO(pdames): enforce table-version-level transaction isolation
         # record the transaction as complete
-        path, fs = Metafile.file_system(root, filesystem)
-        id_file_path = separator.join([path, "transactions", self.id])
-        fs.create_dir(os.path.dirname(id_file_path), recursive=True)
+        path, fs = Metafile.filesystem(root, filesystem)
+        id_file_path = posixpath.join(path, TXN_DIR_NAME, self.id)
+        fs.create_dir(posixpath.dirname(id_file_path), recursive=True)
         with fs.open_output_stream(id_file_path):
-            pass  # Just create an empty UUID file for the transaction
+            pass  # Just create an empty ID file for the transaction
         return write_paths
-
-
-class MetafileUrl:
-    def __init__(self, url: str):
-
-        from urllib.parse import urlparse
-
-        self._parsed = urlparse(url, allow_fragments=False)  # support '#' in path
-        if not self._parsed.scheme:  # support paths w/o 's3://' scheme
-            url = f"s3://{url}"
-            self._parsed = urlparse(url, allow_fragments=False)
-        if self._parsed.query:  # support '?' in path
-            self.key = f"{self._parsed.path.lstrip('/')}?{self._parsed.query}"
-        else:
-            self.key = self._parsed.path.lstrip("/")
-        self.bucket = self._parsed.netloc
-        self.url = self._parsed.geturl()
 
 
 class Metafile(dict):
@@ -173,68 +160,130 @@ class Metafile(dict):
     """
 
     @property
-    def id(self) -> Optional[str]:
+    def id(self) -> str:
         """
         Returns an immutable ID for the given metafile that can be used for
         equality checks (i.e. 2 metafiles are equal if they have the same ID)
         and deterministic references (e.g. for generating a table file path that
         remains the same regardless of renames).
         """
-        identifier = self.get("id")
-        if not identifier:
-            identifier = self["id"] = str(uuid.uuid4())
-        return identifier
+        _id = self.get("id")
+        if not _id:
+            # check if the locator name can be reused as an immutable ID
+            # or if we need to generate a new immutable ID
+            _id = self["id"] = self.locator.name().immutable_id() or str(uuid.uuid4())
+        return _id
 
     @property
     def locator(self) -> Optional[Locator]:
         raise NotImplementedError()
 
     @staticmethod
-    def _validate_id(metafile_id: str):
-        try:
-            uuid.UUID(metafile_id)
-        except ValueError as e:
-            err_msg = f"Metafile ID is malformed (UUID expected): {metafile_id}"
-            raise ValueError(err_msg) from e
+    def _latest_committed_metafile_path(
+        base_metafile_path: str,
+        filesystem: pyarrow.fs.FileSystem,
+        parent_number=0,
+    ) -> Metafile:
+        # resolve the directory path of the target metafile
+        current_dir = posixpath.dirname(posixpath.dirname(base_metafile_path))
+        while parent_number and current_dir != posixpath.pathsep:
+            current_dir = posixpath.dirname(current_dir)
+            parent_number -= 1
+        target_metafile_revisions_dir = posixpath.join(
+            current_dir,
+            REVISION_DIR_NAME,
+        )
+        # resolve the directory path of the transaction log
+        transaction_log_dir = None
+        while not transaction_log_dir:
+            # TODO(pdames): Allow caller to inject transaction log dir
+            transaction_log_dir = posixpath.join(
+                current_dir,
+                TXN_DIR_NAME,
+            )
+            try:
+                _get_file_infos(transaction_log_dir, filesystem)
+            except FileNotFoundError as e:
+                if current_dir == posixpath.pathsep:
+                    break
+                current_dir = posixpath.dirname(current_dir)
+                transaction_log_dir = None
+        if not transaction_log_dir:
+            err_msg = f"No transaction log found for: {base_metafile_path}."
+            raise ValueError(err_msg)
+        # find the latest committed revision of the target metafile
+        file_paths_and_sizes = _get_file_infos(
+            target_metafile_revisions_dir,
+            filesystem,
+        )
+        if not file_paths_and_sizes:
+            err_msg = (
+                f"Expected to find at least 1 Metafile at "
+                f"{target_metafile_revisions_dir} but found none."
+            )
+            raise ValueError(err_msg)
+        file_paths = list(zip(*file_paths_and_sizes))[0]
+        sorted_metafile_paths = sorted(file_paths, reverse=True)
+        latest_committed_metafile_path = None
+        while sorted_metafile_paths:
+            latest_metafile_path = sorted_metafile_paths.pop()
+            latest_metafile_name = posixpath.basename(latest_metafile_path)
+            metafile_and_ext = posixpath.splitext(latest_metafile_name)
+            if metafile_and_ext[1] != f".{METAFILE_EXT}":
+                err_msg = (
+                    f"File at {latest_metafile_path} does not appear to be a valid "
+                    f"Metafile. Expected extension {METAFILE_EXT} but found "
+                    f"{metafile_and_ext[1]}"
+                )
+                raise ValueError(err_msg)
+            metafile_rev_and_txn_id = metafile_and_ext[0]
+            txn_id = metafile_rev_and_txn_id.split(TXN_ID_SEPARATOR)[1]
+            file_paths_and_sizes = _get_file_infos(
+                posixpath.join(transaction_log_dir, txn_id),
+                filesystem,
+            )
+            if file_paths_and_sizes:
+                latest_committed_metafile_path = latest_metafile_path
+                break
+        if not latest_committed_metafile_path:
+            err_msg = (
+                f"No completed transaction with ID {txn_id} found at "
+                f"{transaction_log_dir}."
+            )
+            raise ValueError(err_msg)
+        return latest_committed_metafile_path
 
     @staticmethod
     def _locator_to_id(
         locator: Locator,
         root: str,
         filesystem: pyarrow.fs.FileSystem,
-        separator: str = "/",
     ) -> str:
         """
         Resolves the metafile ID for the given locator.
         """
-        locator_path = locator.path(
-            root,
-            separator,
-        )
-        file_paths_and_sizes = _get_file_infos(
-            locator_path,
-            filesystem,
-        )
-
-        if len(file_paths_and_sizes) != 1:
-            err_msg = (
-                f"Expected to find 1 locator to Metafile ID mapping at "
-                f"`{locator_path}` but found {len(file_paths_and_sizes)}"
+        metafile_id = locator.name().immutable_id()
+        if not metafile_id:
+            # the locator name is mutable, so we need to resolve the mapping
+            # from the locator back to its immutable metafile ID
+            locator_path = locator.path(root)
+            file_paths_and_sizes = _get_file_infos(
+                locator_path,
+                filesystem,
             )
-            raise ValueError(err_msg)
-        metafile_id = os.path.basename(file_paths_and_sizes[0][0])
-        try:
-            Metafile._validate_id(metafile_id)
-        except ValueError as e:
-            err_msg = f"No valid metafile ID found for locator: {locator}"
-            raise ValueError(err_msg) from e
+            if len(file_paths_and_sizes) != 1:
+                err_msg = (
+                    f"Expected to find 1 Locator to Metafile ID mapping at "
+                    f"`{locator_path}` but found {len(file_paths_and_sizes)}"
+                )
+                raise ValueError(err_msg)
+            metafile_id = posixpath.basename(file_paths_and_sizes[0][0])
         return metafile_id
 
     def ancestor_ids(
         self,
         root: str,
         filesystem: pyarrow.fs.FileSystem,
-        separator: str = "/",
     ) -> List[str]:
         """
         Returns the IDs for this metafile's ancestor metafiles. IDs are
@@ -255,11 +304,32 @@ class Metafile(dict):
                     parent_locators.pop(),
                     root,
                     filesystem,
-                    separator,
                 )
-                root = separator.join([root, ancestor_id])
+                root = posixpath.join(root, ancestor_id)
                 ancestor_ids.append(ancestor_id)
         return ancestor_ids
+
+    def _generate_locator_to_id_map_file(
+        self,
+        parent_path: str,
+        filesystem: pyarrow.fs.FileSystem,
+    ):
+        # the locator name is mutable, so we need to persist a mapping
+        # from the locator back to its immutable metafile ID
+        id_dir_path = self.locator.path(parent_path)
+        file_paths_and_sizes = _get_file_infos(
+            id_dir_path,
+            filesystem,
+            True,
+        )
+        assert not file_paths_and_sizes, (
+            f"Locator {self.locator} digest {self.locator.hexdigest()} already "
+            f"mapped to ID {posixpath.basename(file_paths_and_sizes[0][0])}"
+        )
+        id_file_path = posixpath.join(id_dir_path, self.id)
+        filesystem.create_dir(posixpath.dirname(id_file_path), recursive=True)
+        with filesystem.open_output_stream(id_file_path):
+            pass  # Just create an empty ID file to map to the locator
 
     def generate_file_path(
         self,
@@ -267,8 +337,6 @@ class Metafile(dict):
         txn_operation_type: TransactionOperationType,
         txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
-        separator: str = "/",
-        extension: str = "mpk",
     ) -> str:
         """
         Generates the fully qualified path for this metafile based in the given
@@ -277,40 +345,26 @@ class Metafile(dict):
         ancestor_path_elements = self.ancestor_ids(
             root,
             filesystem,
-            separator,
         )
-        ancestor_path = separator.join([root] + ancestor_path_elements)
-        id_dir_path = self.locator.path(ancestor_path, separator)
-        file_paths_and_sizes = _get_file_infos(
-            id_dir_path,
-            filesystem,
-            True,
-        )
-        assert not file_paths_and_sizes, (
-            f"Locator {self.locator} digest {self.locator.hexdigest()} already "
-            f"mapped to ID {os.path.basename(file_paths_and_sizes[0][0])}"
-        )
-        id_path_elements = [
-            id_dir_path,
-            self.id,
-        ]
-        id_file_path = separator.join(id_path_elements)
-        filesystem.create_dir(os.path.dirname(id_file_path), recursive=True)
-        with filesystem.open_output_stream(id_file_path):
-            pass  # Just create an empty ID file to map to the locator
-        # TODO(pdames): resolve actual revision number together with
-        #  transaction ID and staged/committed status... use CAS on writes
-        #  that require revision number updates (e.g., metafile update)
+        parent_path = posixpath.join(*[root] + ancestor_path_elements)
+        if not self.locator.name().immutable_id():
+            self._generate_locator_to_id_map_file(
+                parent_path,
+                filesystem,
+            )
+        # TODO(pdames): resolve actual revision number together with staged or
+        #  committed status... use CAS on writes that require revision number
+        #  updates (e.g., metafile update)
         revision_number = 1
-        metafile_path_elements = [
-            ancestor_path,
+        return posixpath.join(
+            parent_path,
             self.id,
-            f"{revision_number:020}_{txn_id}.{extension}",
-        ]
-        return separator.join(metafile_path_elements)
+            REVISION_DIR_NAME,
+            f"{revision_number:020}{TXN_ID_SEPARATOR}{txn_id}.{METAFILE_EXT}",
+        )
 
     @staticmethod
-    def file_system(
+    def filesystem(
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Tuple[str, pyarrow.fs.FileSystem]:
@@ -320,9 +374,8 @@ class Metafile(dict):
         :param filesystem: File system to use for path IO.
         :return: Normalized path and resolved file system for that path.
         """
-        from ray.data.datasource.path_util import _resolve_paths_and_filesystem
-
         # TODO(pdames): resolve and cache filesystem at catalog root level
+        #   ensure returned paths are normalized as posix paths
         paths, filesystem = _resolve_paths_and_filesystem(path, filesystem)
         assert len(paths) == 1, len(paths)
         return paths[0], filesystem
@@ -362,7 +415,11 @@ class Metafile(dict):
         """
         return self
 
-    def from_serializable(self) -> Metafile:
+    def from_serializable(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Metafile:
         """
         Restore any non-serializable types from a serializable version of this
         object.
@@ -375,25 +432,25 @@ class Metafile(dict):
         root: str,
         txn_operation_type: TransactionOperationType,
         txn_id: str,
-        separator: str = "/",
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> str:
         """
         Serialize and write this object to a metadata file.
         :param root: Root directory of the metadata file.
-        :param separator: Separator to use in the metadata file path.
         :param filesystem: File system to use for writing the metadata file.
         :return: File path of the written metadata file.
         """
-        path, fs = Metafile.file_system(root, filesystem)
+        path, fs = Metafile.filesystem(
+            path=root,
+            filesystem=filesystem,
+        )
         path = self.generate_file_path(
             root=root,
             txn_operation_type=txn_operation_type,
             txn_id=txn_id,
             filesystem=fs,
-            separator=separator,
         )
-        fs.create_dir(os.path.dirname(path), recursive=True)
+        fs.create_dir(posixpath.dirname(path), recursive=True)
         with fs.open_output_stream(path) as file:
             packed = msgpack.dumps(self.to_serializable())
             file.write(packed)
@@ -401,7 +458,9 @@ class Metafile(dict):
 
     @classmethod
     def read(
-        cls, path: str, filesystem: Optional[pyarrow.fs.FileSystem] = None
+        cls,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Metafile:
         """
         Read a metadata file and return the deserialized object.
@@ -409,8 +468,8 @@ class Metafile(dict):
         :param filesystem: File system to use for reading the metadata file.
         :return: Deserialized object from the metadata file.
         """
-        path, fs = Metafile.file_system(path, filesystem)
+        path, fs = Metafile.filesystem(path, filesystem)
         with fs.open_input_stream(path) as file:
             binary = file.readall()
-        obj = cls(**msgpack.loads(binary)).from_serializable()
+        obj = cls(**msgpack.loads(binary)).from_serializable(path, fs)
         return obj

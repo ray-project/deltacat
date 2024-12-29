@@ -1,14 +1,24 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import copy
+
+import pyarrow
+
 import deltacat.storage.model.partition as partition
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from deltacat.storage.model.metafile import Metafile
-from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.locator import (
+    Locator,
+    LocatorName,
+)
 from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table import (
+    TableLocator,
+    Table,
+)
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import (
     CommitState,
@@ -156,6 +166,49 @@ class Stream(Metafile):
             return stream_locator.table_version
         return None
 
+    def to_serializable(self) -> Stream:
+        serializable = self
+        if serializable.table_locator:
+            serializable = Stream(copy.deepcopy(self))
+            # remove the mutable table locator
+            serializable.table_version_locator.table_locator = TableLocator.at(
+                self.id,
+                self.id,
+            )
+        return serializable
+
+    def from_serializable(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Stream:
+        # restore the table locator from its mapped immutable metafile ID
+        if self.table_locator and self.table_locator.table_name == self.id:
+            table = Table.read(
+                Metafile._latest_committed_metafile_path(
+                    base_metafile_path=path,
+                    filesystem=filesystem,
+                    parent_number=2,
+                ),
+                filesystem,
+            )
+            self.table_version_locator.table_locator = table.locator
+        return self
+
+
+class StreamLocatorName(LocatorName):
+    def __init__(self, locator: StreamLocator):
+        self.locator = locator
+
+    def immutable_id(self) -> Optional[str]:
+        return self.locator.stream_id
+
+    def parts(self) -> List[str]:
+        return [
+            self.locator.stream_id,
+            self.locator.format,
+        ]
+
 
 class StreamLocator(Locator, dict):
     @staticmethod
@@ -196,6 +249,9 @@ class StreamLocator(Locator, dict):
             stream_id,
             stream_format,
         )
+
+    def name(self) -> StreamLocatorName:
+        return StreamLocatorName(self)
 
     def parent(self) -> Optional[TableVersionLocator]:
         return self.table_version_locator
@@ -263,18 +319,3 @@ class StreamLocator(Locator, dict):
         if table_version_locator:
             return table_version_locator.table_version
         return None
-
-    def canonical_string(self) -> str:
-        """
-        Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
-        """
-        tvl_hexdigest = (
-            self.table_version_locator.hexdigest()
-            if self.table_version_locator
-            else None
-        )
-        stream_id = self.stream_id
-        storage_type = self.format
-        return f"{tvl_hexdigest}|{stream_id}|{storage_type}"

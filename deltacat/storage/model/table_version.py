@@ -4,15 +4,22 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional
 
+import pyarrow
 import pyarrow as pa
 
 import deltacat.storage.model.partition as partition
 
 from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.schema import Schema, SchemaList
-from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.locator import (
+    Locator,
+    LocatorName,
+)
 from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table import (
+    TableLocator,
+    Table,
+)
 from deltacat.types.media import ContentType
 from deltacat.storage.model.sort_key import SortScheme, SortSchemeList
 from deltacat.storage.model.types import LifecycleState
@@ -232,9 +239,19 @@ class TableVersion(Metafile):
             if serializable.schemas
             else None
         )
+        if serializable.table_locator:
+            # remove the mutable table locator
+            serializable.locator.table_locator = TableLocator.at(
+                self.id,
+                self.id,
+            )
         return serializable
 
-    def from_serializable(self) -> TableVersion:
+    def from_serializable(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> TableVersion:
         self["schema"] = (
             Schema.deserialize(pa.py_buffer(self["schema"])) if self["schema"] else None
         )
@@ -246,7 +263,29 @@ class TableVersion(Metafile):
         # force list-to-tuple conversion of sort keys via property invocation
         self.sort_scheme.keys
         [sort_scheme.keys for sort_scheme in self.sort_schemes]
+        # restore the table locator from its mapped immutable metafile ID
+        if self.table_locator and self.table_locator.table_name == self.id:
+            table = Table.read(
+                Metafile._latest_committed_metafile_path(
+                    base_metafile_path=path,
+                    filesystem=filesystem,
+                    parent_number=1,
+                ),
+                filesystem,
+            )
+            self.locator.table_locator = table.locator
         return self
+
+
+class TableVersionLocatorName(LocatorName):
+    def __init__(self, locator: TableVersionLocator):
+        self.locator = locator
+
+    def immutable_id(self) -> Optional[str]:
+        return self.locator.table_version
+
+    def parts(self) -> List[str]:
+        return [self.locator.table_version]
 
 
 class TableVersionLocator(Locator, dict):
@@ -267,6 +306,9 @@ class TableVersionLocator(Locator, dict):
     ) -> TableVersionLocator:
         table_locator = TableLocator.at(namespace, table_name) if table_name else None
         return TableVersionLocator.of(table_locator, table_version)
+
+    def name(self):
+        return TableVersionLocatorName(self)
 
     def parent(self) -> Optional[TableLocator]:
         return self.table_locator
@@ -310,13 +352,3 @@ class TableVersionLocator(Locator, dict):
         if table_locator:
             return table_locator.table_name
         return None
-
-    def canonical_string(self) -> str:
-        """
-        Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
-        """
-        tl_hexdigest = self.table_locator.hexdigest() if self.table_locator else None
-        table_version = self.table_version
-        return f"{tl_hexdigest}|{table_version}"
