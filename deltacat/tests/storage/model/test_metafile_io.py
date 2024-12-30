@@ -325,8 +325,10 @@ class TestMetafileIO(unittest.TestCase):
             )
             write_paths = transaction.commit(temp_dir)
 
-            # ensure all new metafiles read return the new table name
+            # ensure that only the table metafile was overwritten
             assert len(write_paths) == 1
+
+            # ensure all new metafiles read return the new table name
             actual_table = Table.read(write_paths[0])
             assert expected_table == actual_table
             actual_table_name = Delta.read(commit_results[5][2]).table_name
@@ -338,7 +340,7 @@ class TestMetafileIO(unittest.TestCase):
             actual_table_name = TableVersion.read(commit_results[2][2]).table_name
             assert actual_table_name == "test_table_renamed"
 
-            # ensure the initial metafiles read return the prior table name
+            # ensure the initial metafiles read return the original table name
             previous_table_name = Delta(commit_results[5][1]).table_name
             assert (
                 previous_table_name == commit_results[5][0].table_name == "test_table"
@@ -358,12 +360,78 @@ class TestMetafileIO(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir)
 
+    def test_rename_namespace(self):
+        temp_dir = tempfile.gettempdir()
+        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+        try:
+            commit_results = _commit_single_delta_table(temp_dir)
+            for expected, actual, _ in commit_results:
+                assert expected == actual
+            expected_namespace = commit_results[0][1]
+            expected_namespace.locator = NamespaceLocator.of(
+                namespace="test_namespace_renamed",
+            )
+            txn_operations = [
+                TransactionOperation.of(
+                    TransactionOperationType.UPDATE,
+                    expected_namespace,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.RESTATE,
+                txn_operations=txn_operations,
+            )
+            write_paths = transaction.commit(temp_dir)
+
+            # ensure that only the namespace metafile was rewritten
+            assert len(write_paths) == 1
+
+            # ensure all new metafiles read return the new namespace name
+            actual_namespace = Namespace.read(write_paths[0])
+            assert expected_namespace == actual_namespace
+            actual_namespace_name = Delta.read(commit_results[5][2]).namespace
+            assert actual_namespace_name == "test_namespace_renamed"
+            actual_namespace = Partition.read(commit_results[4][2]).namespace
+            assert actual_namespace == "test_namespace_renamed"
+            actual_namespace = Stream.read(commit_results[3][2]).namespace
+            assert actual_namespace == "test_namespace_renamed"
+            actual_namespace = TableVersion.read(commit_results[2][2]).namespace
+            assert actual_namespace == "test_namespace_renamed"
+            actual_namespace = Table.read(commit_results[1][2]).namespace
+            assert actual_namespace == "test_namespace_renamed"
+
+            # ensure the initial metafiles read return the original namespace name
+            previous_namespace = Delta(commit_results[5][1]).namespace
+            assert (
+                previous_namespace == commit_results[5][0].namespace == "test_namespace"
+            )
+            previous_namespace = Partition(commit_results[4][1]).namespace
+            assert (
+                previous_namespace == commit_results[4][0].namespace == "test_namespace"
+            )
+            previous_namespace = Stream(commit_results[3][1]).namespace
+            assert (
+                previous_namespace == commit_results[3][0].namespace == "test_namespace"
+            )
+            previous_namespace = TableVersion(commit_results[2][1]).namespace
+            assert (
+                previous_namespace == commit_results[2][0].namespace == "test_namespace"
+            )
+            previous_namespace = Table(commit_results[1][1]).namespace
+            assert (
+                previous_namespace == commit_results[1][0].namespace == "test_namespace"
+            )
+        finally:
+            shutil.rmtree(temp_dir)
+
     def test_e2e_serde(self):
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
 
         try:
             commit_results = _commit_single_delta_table(temp_dir)
+            for expected, actual, _ in commit_results:
+                assert expected == actual
         finally:
             shutil.rmtree(temp_dir)
         for expected, actual, _ in commit_results:
