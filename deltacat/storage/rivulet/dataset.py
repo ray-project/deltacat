@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List, Iterable, Union
+import os
+from typing import Dict, Any, List, Iterable, Union, Optional
 import pyarrow as pa
 
 from deltacat.storage.rivulet.glob_path import GlobPath
@@ -34,6 +35,7 @@ class Dataset:
 
         # Set and maintain:
         # field_groups, _schema, _fieldToFieldGroup
+        self.base_uri = base_uri
         self.field_groups: List[FieldGroup] = []
         self._schema: Schema | None = None
         self._fieldToFieldGroup: Dict[str, FieldGroup] = {}
@@ -53,22 +55,31 @@ class Dataset:
         riv_schema = Schema.from_pyarrow_schema(table.schema, primary_key)
         return cls(base_uri, field_groups=[PydictFieldGroup(data, riv_schema)])
 
+    # TODO: Just realized that base_uri is where the manifests are stored, storage_uri should be where the files are at.
     @classmethod
-    def from_parquet(cls, base_uri: str, primary_key: str, schema_mode: str = "union"):
+    def from_parquet(
+        cls,
+        file_uri: str,
+        primary_key: str,
+        base_uri: Optional[str] = None,
+        schema_mode: str = "union",
+    ):
         """
         Create a Dataset from parquet files.
 
         Args:
-            base_uri: Base URI for the dataset
+            base_uri: Base URI for the dataset, where dataset metadata is stored. If not specified, will be placed in ${file_uri}/riv-meta
+            file_uri: Path to parquet file(s)
             primary_key: Field to use as primary key
             schema_mode: Schema combination mode. Options:
                 - 'union': Use unified schema with all columns
                 - 'intersect': Use only common columns across files
 
         Returns:
-            Dataset: New dataset instance with parquet data
+            Dataset: New dataset instance with the schema automatically inferred from the source parquet files
         """
-        dataset = pa.dataset.dataset(base_uri)
+        base_uri = base_uri or os.path.join(file_uri, "riv-meta")
+        dataset = pa.dataset.dataset(file_uri)
 
         if schema_mode == "intersect":
             schemas = [pa.parquet.read_schema(f) for f in dataset.files]
@@ -87,7 +98,7 @@ class Dataset:
             dataset_schema = pa.unify_schemas(schemas)
 
         riv_schema = Schema.from_pyarrow_schema(dataset_schema, primary_key)
-        return cls(base_uri, field_groups=[GlobPathFieldGroup(base_uri, riv_schema)])
+        return cls(base_uri, field_groups=[GlobPathFieldGroup(file_uri, riv_schema)])
 
     def add_field_group(self, field_group: FieldGroup) -> None:
         """

@@ -250,3 +250,24 @@ def test_from_parquet_glob_path_schema_modes(
     assert dataset_union.schema["name"].datatype == Datatype("string")
     assert dataset_union.schema["age"].datatype == Datatype("int64")
     assert dataset_union.schema["zip"].datatype == Datatype("int64")
+
+
+def test_from_parquet_separate_uris(
+    tmp_path, sample_pydict, sample_schema_overlap_pydict
+):
+    """Test that file_uri and base_uri are handled separately"""
+    # Create sample parquet files
+    sample_pydict_path = tmp_path / "sample_pydict.parquet"
+    write_parquet_file_from_dict(sample_pydict_path, sample_pydict)
+
+    # Different paths for file_uri and base_uri
+    file_uri = str(tmp_path)
+    base_uri = str(tmp_path / "some-other-metadata-path")
+
+    # Create dataset with separate uris
+    dataset = Dataset.from_parquet(
+        primary_key="id", file_uri=file_uri, base_uri=base_uri
+    )
+
+    assert dataset.base_uri == base_uri
+    assert len(dataset.schema) == 3  # Verify schema still works
