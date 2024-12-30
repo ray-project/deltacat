@@ -11,7 +11,7 @@ from deltacat.storage.model.namespace import (
     NamespaceLocator,
     Namespace,
 )
-from deltacat.storage.model.metafile import Metafile
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo
 
 TableProperties = Dict[str, Any]
 
@@ -109,11 +109,11 @@ class Table(Metafile):
         # restore the namespace locator from its mapped immutable metafile ID
         if self.namespace_locator and self.namespace_locator.namespace == self.id:
             namespace = Namespace.read(
-                Metafile._latest_committed_metafile_path(
+                MetafileCommitInfo.read(
                     base_metafile_path=path,
                     filesystem=filesystem,
                     parent_number=1,
-                ),
+                ).path,
                 filesystem,
             )
             self.locator.namespace_locator = namespace.locator

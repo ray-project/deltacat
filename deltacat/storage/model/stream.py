@@ -9,7 +9,7 @@ import deltacat.storage.model.partition as partition
 
 from typing import Any, Dict, Optional, List
 
-from deltacat.storage.model.metafile import Metafile
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo
 from deltacat.storage.model.locator import (
     Locator,
     LocatorName,
@@ -185,11 +185,11 @@ class Stream(Metafile):
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
             table = Table.read(
-                Metafile._latest_committed_metafile_path(
+                MetafileCommitInfo.read(
                     base_metafile_path=path,
                     filesystem=filesystem,
                     parent_number=2,
-                ),
+                ).path,
                 filesystem,
             )
             self.table_version_locator.table_locator = table.locator

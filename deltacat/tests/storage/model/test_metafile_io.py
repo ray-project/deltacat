@@ -3,6 +3,7 @@ import unittest
 import tempfile
 import os
 import uuid
+from typing import List, Tuple
 
 import pyarrow as pa
 
@@ -51,270 +52,322 @@ from deltacat.storage import (
     TruncateTransform,
     TruncateTransformParameters,
 )
-from deltacat.storage.model.metafile import TXN_DIR_NAME
+from deltacat.storage.model.metafile import TXN_DIR_NAME, Metafile
+
+
+def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, str]]:
+    # namespace
+    namespace_locator = NamespaceLocator.of(namespace="test_namespace")
+    namespace = Namespace.of(locator=namespace_locator)
+
+    # table
+    table_locator = TableLocator.at(
+        namespace="test_namespace",
+        table_name="test_table",
+    )
+    table = Table.of(
+        locator=table_locator,
+        description="test table description",
+    )
+
+    # stream
+    table_version_locator = TableVersionLocator.at(
+        namespace="test_namespace",
+        table_name="test_table",
+        table_version="test_table_version",
+    )
+    schema = Schema.of(
+        [
+            Field.of(
+                field=pa.field("some_string", pa.string(), nullable=False),
+                field_id=1,
+                is_merge_key=True,
+            ),
+            Field.of(
+                field=pa.field("some_int32", pa.int32(), nullable=False),
+                field_id=2,
+                is_merge_key=True,
+            ),
+            Field.of(
+                field=pa.field("some_float64", pa.float64()),
+                field_id=3,
+                is_merge_key=False,
+            ),
+        ]
+    )
+    bucket_transform = BucketTransform.of(
+        BucketTransformParameters.of(
+            num_buckets=2,
+            bucketing_strategy=BucketingStrategy.DEFAULT,
+        )
+    )
+    partition_keys = [
+        PartitionKey.of(
+            key=["some_string", "some_int32"],
+            name="test_partition_key",
+            field_id="test_field_id",
+            transform=bucket_transform,
+        )
+    ]
+    partition_scheme = PartitionScheme.of(
+        keys=partition_keys,
+        name="test_partition_scheme",
+        scheme_id="test_partition_scheme_id",
+    )
+    sort_keys = [
+        SortKey.of(
+            key=["some_int32"],
+            sort_order=SortOrder.DESCENDING,
+            null_order=NullOrder.AT_START,
+            transform=TruncateTransform.of(
+                TruncateTransformParameters.of(width=3),
+            ),
+        )
+    ]
+    sort_scheme = SortScheme.of(
+        keys=sort_keys,
+        name="test_sort_scheme",
+        scheme_id="test_sort_scheme_id",
+    )
+    table_version = TableVersion.of(
+        locator=table_version_locator,
+        schema=schema,
+        partition_scheme=partition_scheme,
+        description="test table version description",
+        properties={"test_property_key": "test_property_value"},
+        content_types=[ContentType.PARQUET],
+        sort_scheme=sort_scheme,
+        watermark=1,
+        lifecycle_state=LifecycleState.CREATED,
+        schemas=[schema, schema, schema],
+        partition_schemes=[partition_scheme, partition_scheme],
+        sort_schemes=[sort_scheme, sort_scheme],
+    )
+
+    stream_locator = StreamLocator.at(
+        namespace="test_namespace",
+        table_name="test_table",
+        table_version="test_table_version",
+        stream_id="test_stream_id",
+        stream_format=StreamFormat.DELTACAT,
+    )
+    bucket_transform = BucketTransform.of(
+        BucketTransformParameters.of(
+            num_buckets=2,
+            bucketing_strategy=BucketingStrategy.DEFAULT,
+        )
+    )
+    partition_keys = [
+        PartitionKey.of(
+            key=["some_string", "some_int32"],
+            name="test_partition_key",
+            field_id="test_field_id",
+            transform=bucket_transform,
+        )
+    ]
+    partition_scheme = PartitionScheme.of(
+        keys=partition_keys,
+        name="test_partition_scheme",
+        scheme_id="test_partition_scheme_id",
+    )
+    stream = Stream.of(
+        locator=stream_locator,
+        partition_scheme=partition_scheme,
+        state=CommitState.STAGED,
+        previous_stream_id="test_previous_stream_id",
+        watermark=1,
+    )
+
+    # partition
+    partition_locator = PartitionLocator.at(
+        namespace="test_namespace",
+        table_name="test_table",
+        table_version="test_table_version",
+        stream_id="test_stream_id",
+        stream_format=StreamFormat.DELTACAT,
+        partition_values=["a", 1],
+        partition_id="test_partition_id",
+    )
+    schema = Schema.of(
+        [
+            Field.of(
+                field=pa.field("some_string", pa.string(), nullable=False),
+                field_id=1,
+                is_merge_key=True,
+            ),
+            Field.of(
+                field=pa.field("some_int32", pa.int32(), nullable=False),
+                field_id=2,
+                is_merge_key=True,
+            ),
+            Field.of(
+                field=pa.field("some_float64", pa.float64()),
+                field_id=3,
+                is_merge_key=False,
+            ),
+        ]
+    )
+    partition = Partition.of(
+        locator=partition_locator,
+        schema=schema,
+        content_types=[ContentType.PARQUET],
+        state=CommitState.STAGED,
+        previous_stream_position=0,
+        previous_partition_id="test_previous_partition_id",
+        stream_position=1,
+        next_partition_id="test_next_partition_id",
+        partition_scheme_id="test_partition_scheme_id",
+    )
+
+    # delta
+    delta_locator = DeltaLocator.at(
+        namespace="test_namespace",
+        table_name="test_table",
+        table_version="test_table_version",
+        stream_id="test_stream_id",
+        stream_format=StreamFormat.DELTACAT,
+        partition_values=["a", 1],
+        partition_id="test_partition_id",
+        stream_position=1,
+    )
+    manifest_entry_params = EntryParams.of(
+        equality_field_locators=["some_string", "some_int32"],
+    )
+    manifest_meta = ManifestMeta.of(
+        record_count=1,
+        content_length=10,
+        content_type=ContentType.PARQUET.value,
+        content_encoding=ContentEncoding.IDENTITY.value,
+        source_content_length=100,
+        credentials={"foo": "bar"},
+        content_type_parameters=[{"param1": "value1"}],
+        entry_type=EntryType.EQUALITY_DELETE,
+        entry_params=manifest_entry_params,
+    )
+    manifest = Manifest.of(
+        entries=[
+            ManifestEntry.of(
+                url="s3://test/url",
+                meta=manifest_meta,
+            )
+        ],
+        author=ManifestAuthor.of(
+            name="deltacat",
+            version="2.0",
+        ),
+        entry_type=EntryType.EQUALITY_DELETE,
+        entry_params=manifest_entry_params,
+    )
+    delta = Delta.of(
+        locator=delta_locator,
+        delta_type=DeltaType.APPEND,
+        meta=manifest_meta,
+        properties={"property1": "value1"},
+        manifest=manifest,
+        previous_stream_position=0,
+    )
+    meta_to_create = [
+        namespace,
+        table,
+        table_version,
+        stream,
+        partition,
+        delta,
+    ]
+    txn_operations = [
+        TransactionOperation.of(
+            TransactionOperationType.CREATE,
+            meta,
+        )
+        for meta in meta_to_create
+    ]
+    transaction = Transaction.of(
+        txn_type=TransactionType.APPEND,
+        txn_operations=txn_operations,
+    )
+    write_paths = transaction.commit(temp_dir)
+    write_paths_copy = write_paths.copy()
+    assert os.path.exists(os.path.join(temp_dir, TXN_DIR_NAME, transaction.id))
+    metafiles_created = [
+        Delta.read(write_paths.pop()),
+        Partition.read(write_paths.pop()),
+        Stream.read(write_paths.pop()),
+        TableVersion.read(write_paths.pop()),
+        Table.read(write_paths.pop()),
+        Namespace.read(write_paths.pop()),
+    ]
+    metafiles_created.reverse()
+    return list(zip(meta_to_create, metafiles_created, write_paths_copy))
 
 
 class TestMetafileIO(unittest.TestCase):
+    def test_rename_table(self):
+        temp_dir = tempfile.gettempdir()
+        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+        try:
+            commit_results = _commit_single_delta_table(temp_dir)
+            for expected, actual, _ in commit_results:
+                assert expected == actual
+            expected_table = commit_results[1][1]
+            expected_table.locator = TableLocator.at(
+                namespace="test_namespace",
+                table_name="test_table_renamed",
+            )
+            txn_operations = [
+                TransactionOperation.of(
+                    TransactionOperationType.UPDATE,
+                    expected_table,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.RESTATE,
+                txn_operations=txn_operations,
+            )
+            write_paths = transaction.commit(temp_dir)
+
+            # ensure all new metafiles read return the new table name
+            assert len(write_paths) == 1
+            actual_table = Table.read(write_paths[0])
+            assert expected_table == actual_table
+            actual_table_name = Delta.read(commit_results[5][2]).table_name
+            assert actual_table_name == "test_table_renamed"
+            actual_table_name = Partition.read(commit_results[4][2]).table_name
+            assert actual_table_name == "test_table_renamed"
+            actual_table_name = Stream.read(commit_results[3][2]).table_name
+            assert actual_table_name == "test_table_renamed"
+            actual_table_name = TableVersion.read(commit_results[2][2]).table_name
+            assert actual_table_name == "test_table_renamed"
+
+            # ensure the initial metafiles read return the prior table name
+            previous_table_name = Delta(commit_results[5][1]).table_name
+            assert (
+                previous_table_name == commit_results[5][0].table_name == "test_table"
+            )
+            previous_table_name = Partition(commit_results[4][1]).table_name
+            assert (
+                previous_table_name == commit_results[4][0].table_name == "test_table"
+            )
+            previous_table_name = Stream(commit_results[3][1]).table_name
+            assert (
+                previous_table_name == commit_results[3][0].table_name == "test_table"
+            )
+            previous_table_name = TableVersion(commit_results[2][1]).table_name
+            assert (
+                previous_table_name == commit_results[2][0].table_name == "test_table"
+            )
+        finally:
+            shutil.rmtree(temp_dir)
+
     def test_e2e_serde(self):
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
 
-        # namespace
-        namespace_locator = NamespaceLocator.of(namespace="test_namespace")
-        namespace = Namespace.of(locator=namespace_locator)
-
-        # table
-        table_locator = TableLocator.at(
-            namespace="test_namespace",
-            table_name="test_table",
-        )
-        table = Table.of(
-            locator=table_locator,
-            description="test table description",
-        )
-
-        # stream
-        table_version_locator = TableVersionLocator.at(
-            namespace="test_namespace",
-            table_name="test_table",
-            table_version="test_table_version",
-        )
-        schema = Schema.of(
-            [
-                Field.of(
-                    field=pa.field("some_string", pa.string(), nullable=False),
-                    field_id=1,
-                    is_merge_key=True,
-                ),
-                Field.of(
-                    field=pa.field("some_int32", pa.int32(), nullable=False),
-                    field_id=2,
-                    is_merge_key=True,
-                ),
-                Field.of(
-                    field=pa.field("some_float64", pa.float64()),
-                    field_id=3,
-                    is_merge_key=False,
-                ),
-            ]
-        )
-        bucket_transform = BucketTransform.of(
-            BucketTransformParameters.of(
-                num_buckets=2,
-                bucketing_strategy=BucketingStrategy.DEFAULT,
-            )
-        )
-        partition_keys = [
-            PartitionKey.of(
-                key=["some_string", "some_int32"],
-                name="test_partition_key",
-                field_id="test_field_id",
-                transform=bucket_transform,
-            )
-        ]
-        partition_scheme = PartitionScheme.of(
-            keys=partition_keys,
-            name="test_partition_scheme",
-            scheme_id="test_partition_scheme_id",
-        )
-        sort_keys = [
-            SortKey.of(
-                key=["some_int32"],
-                sort_order=SortOrder.DESCENDING,
-                null_order=NullOrder.AT_START,
-                transform=TruncateTransform.of(
-                    TruncateTransformParameters.of(width=3),
-                ),
-            )
-        ]
-        sort_scheme = SortScheme.of(
-            keys=sort_keys,
-            name="test_sort_scheme",
-            scheme_id="test_sort_scheme_id",
-        )
-        table_version = TableVersion.of(
-            locator=table_version_locator,
-            schema=schema,
-            partition_scheme=partition_scheme,
-            description="test table version description",
-            properties={"test_property_key": "test_property_value"},
-            content_types=[ContentType.PARQUET],
-            sort_scheme=sort_scheme,
-            watermark=1,
-            lifecycle_state=LifecycleState.CREATED,
-            schemas=[schema, schema, schema],
-            partition_schemes=[partition_scheme, partition_scheme],
-            sort_schemes=[sort_scheme, sort_scheme],
-        )
-
-        stream_locator = StreamLocator.at(
-            namespace="test_namespace",
-            table_name="test_table",
-            table_version="test_table_version",
-            stream_id="test_stream_id",
-            stream_format=StreamFormat.DELTACAT,
-        )
-        bucket_transform = BucketTransform.of(
-            BucketTransformParameters.of(
-                num_buckets=2,
-                bucketing_strategy=BucketingStrategy.DEFAULT,
-            )
-        )
-        partition_keys = [
-            PartitionKey.of(
-                key=["some_string", "some_int32"],
-                name="test_partition_key",
-                field_id="test_field_id",
-                transform=bucket_transform,
-            )
-        ]
-        partition_scheme = PartitionScheme.of(
-            keys=partition_keys,
-            name="test_partition_scheme",
-            scheme_id="test_partition_scheme_id",
-        )
-        stream = Stream.of(
-            locator=stream_locator,
-            partition_scheme=partition_scheme,
-            state=CommitState.STAGED,
-            previous_stream_id="test_previous_stream_id",
-            watermark=1,
-        )
-
-        # partition
-        partition_locator = PartitionLocator.at(
-            namespace="test_namespace",
-            table_name="test_table",
-            table_version="test_table_version",
-            stream_id="test_stream_id",
-            stream_format=StreamFormat.DELTACAT,
-            partition_values=["a", 1],
-            partition_id="test_partition_id",
-        )
-        schema = Schema.of(
-            [
-                Field.of(
-                    field=pa.field("some_string", pa.string(), nullable=False),
-                    field_id=1,
-                    is_merge_key=True,
-                ),
-                Field.of(
-                    field=pa.field("some_int32", pa.int32(), nullable=False),
-                    field_id=2,
-                    is_merge_key=True,
-                ),
-                Field.of(
-                    field=pa.field("some_float64", pa.float64()),
-                    field_id=3,
-                    is_merge_key=False,
-                ),
-            ]
-        )
-        partition = Partition.of(
-            locator=partition_locator,
-            schema=schema,
-            content_types=[ContentType.PARQUET],
-            state=CommitState.STAGED,
-            previous_stream_position=0,
-            previous_partition_id="test_previous_partition_id",
-            stream_position=1,
-            next_partition_id="test_next_partition_id",
-            partition_scheme_id="test_partition_scheme_id",
-        )
-
-        # delta
-        delta_locator = DeltaLocator.at(
-            namespace="test_namespace",
-            table_name="test_table",
-            table_version="test_table_version",
-            stream_id="test_stream_id",
-            stream_format=StreamFormat.DELTACAT,
-            partition_values=["a", 1],
-            partition_id="test_partition_id",
-            stream_position=1,
-        )
-        manifest_entry_params = EntryParams.of(
-            equality_field_locators=["some_string", "some_int32"],
-        )
-        manifest_meta = ManifestMeta.of(
-            record_count=1,
-            content_length=10,
-            content_type=ContentType.PARQUET.value,
-            content_encoding=ContentEncoding.IDENTITY.value,
-            source_content_length=100,
-            credentials={"foo": "bar"},
-            content_type_parameters=[{"param1": "value1"}],
-            entry_type=EntryType.EQUALITY_DELETE,
-            entry_params=manifest_entry_params,
-        )
-        manifest = Manifest.of(
-            entries=[
-                ManifestEntry.of(
-                    url="s3://test/url",
-                    meta=manifest_meta,
-                )
-            ],
-            author=ManifestAuthor.of(
-                name="deltacat",
-                version="2.0",
-            ),
-            entry_type=EntryType.EQUALITY_DELETE,
-            entry_params=manifest_entry_params,
-        )
-        delta = Delta.of(
-            locator=delta_locator,
-            delta_type=DeltaType.APPEND,
-            meta=manifest_meta,
-            properties={"property1": "value1"},
-            manifest=manifest,
-            previous_stream_position=0,
-        )
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
-            txn_operations=[
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    namespace,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    table,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    table_version,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    stream,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    partition,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    delta,
-                ),
-            ],
-        )
         try:
-            write_paths = transaction.commit(temp_dir)
-            deserialized_delta = Delta.read(write_paths.pop())
-            deserialized_partition = Partition.read(write_paths.pop())
-            deserialized_stream = Stream.read(write_paths.pop())
-            deserialized_table_version = TableVersion.read(write_paths.pop())
-            deserialized_table = Table.read(write_paths.pop())
-            deserialized_namespace = Namespace.read(write_paths.pop())
-            assert os.path.exists(os.path.join(temp_dir, TXN_DIR_NAME, transaction.id))
+            commit_results = _commit_single_delta_table(temp_dir)
         finally:
             shutil.rmtree(temp_dir)
-        assert delta == deserialized_delta
-        assert partition == deserialized_partition
-        assert stream == deserialized_stream
-        assert table_version == deserialized_table_version
-        assert table == deserialized_table
-        assert namespace == deserialized_namespace
+        for expected, actual, _ in commit_results:
+            assert expected == actual
 
     def test_namespace_serde(self):
         temp_dir = tempfile.gettempdir()

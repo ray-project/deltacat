@@ -89,9 +89,34 @@ class Transaction(dict):
         txn_type: Optional[TransactionType],
         txn_operations: Optional[TransactionOperationList],
     ) -> Transaction:
+        operation_types = set([op.type for op in txn_operations])
+        if (
+            len(operation_types) == 1
+            and TransactionOperationType.CREATE in operation_types
+        ):
+            if txn_type != TransactionType.APPEND:
+                raise ValueError(
+                    "Transactions with only CREATE operations must be "
+                    "specified as part of an APPEND transaction."
+                )
+        elif TransactionOperationType.DELETE in operation_types:
+            if txn_type != TransactionType.DELETE:
+                raise ValueError(
+                    "DELETE transaction operations must be specified as part "
+                    "of a DELETE transaction."
+                )
+        elif TransactionOperationType.UPDATE in operation_types:
+            if len(operation_types) == 1 and txn_type != TransactionType.RESTATE:
+                raise ValueError(
+                    "Transactions with only UPDATE operations must be "
+                    "specified as part of a RESTATE transaction."
+                )
+            elif txn_type not in {TransactionType.OVERWRITE, TransactionType.RESTATE}:
+                raise ValueError(
+                    "Mixed UPDATE+CREATE operations must be specified as part "
+                    "of a RESTATE or OVERWRITE transaction."
+                )
         transaction = Transaction()
-        # TODO(pdames): validate proposed transaction type against operations
-        #  (e.g., an APPEND transaction can't delete metafiles)
         transaction.type = txn_type
         transaction.operations = txn_operations
         return transaction
@@ -133,6 +158,23 @@ class Transaction(dict):
         root: str,
         filesystem: pyarrow.fs.FileSystem = None,
     ) -> List[str]:
+        # TODO(pdames): (1) enforce table-version-level transaction isolation
+        #  APPEND transactions run concurrently
+        #  DELETE/RESTATE/OVERWRITE transactions run serially
+        #  APPEND transactions may auto-resolve all conflicts via retry
+        #  DELETE/RESTATE/OVERWRITE txns fail all conflicts with each-other
+        #  (2) support catalog global and table-version-local transaction
+        #  pointer queries and rollback/rollforward
+        #  (3) allow transaction changes to be durably staged and resumed
+        #  across multiple sessions prior to commit
+
+        # create the transaction directory first to telegraph that at least 1
+        # transaction at this root has been attempted
+        path, fs = Metafile.filesystem(root, filesystem)
+        txn_dir_path = posixpath.join(path, TXN_DIR_NAME)
+        fs.create_dir(txn_dir_path, recursive=True)
+
+        # write each metafile associated with the transaction
         write_paths = []
         for operation in self.operations:
             write_path = operation.metafile.write(
@@ -142,14 +184,131 @@ class Transaction(dict):
                 filesystem=filesystem,
             )
             write_paths.append(write_path)
-        # TODO(pdames): enforce table-version-level transaction isolation
-        # record the transaction as complete
+
+        # record the completed transaction
         path, fs = Metafile.filesystem(root, filesystem)
-        id_file_path = posixpath.join(path, TXN_DIR_NAME, self.id)
-        fs.create_dir(posixpath.dirname(id_file_path), recursive=True)
+        id_file_path = posixpath.join(txn_dir_path, self.id)
         with fs.open_output_stream(id_file_path):
-            pass  # Just create an empty ID file for the transaction
+            pass  # Just create an empty transaction ID file for now
         return write_paths
+
+
+class MetafileCommitInfo(dict):
+    """
+    Base class for DeltaCAT metadata file commit info, with read and write
+    methods for dict-based DeltaCAT models. Uses msgpack for
+    cross-language-compatible serialization and deserialization.
+    """
+
+    @staticmethod
+    def read(
+        base_metafile_path: str,
+        filesystem: pyarrow.fs.FileSystem,
+        parent_number: int = 0,
+        transaction_log_dir: Optional[str] = None,
+        ignore_missing_commit: bool = False,
+    ) -> MetafileCommitInfo:
+        # TODO(pdames): Stop parent traversal at catalog root.
+
+        # resolve the directory path of the target metafile
+        current_dir = posixpath.dirname(posixpath.dirname(base_metafile_path))
+        while parent_number and current_dir != posixpath.sep:
+            current_dir = posixpath.dirname(current_dir)
+            parent_number -= 1
+        target_metafile_revisions_dir = posixpath.join(
+            current_dir,
+            REVISION_DIR_NAME,
+        )
+        # resolve the directory path of the transaction log
+        while not transaction_log_dir:
+            transaction_log_dir = posixpath.join(
+                current_dir,
+                TXN_DIR_NAME,
+            )
+            try:
+                _get_file_infos(transaction_log_dir, filesystem)
+            except FileNotFoundError:
+                transaction_log_dir = None
+                if current_dir == posixpath.sep:
+                    break
+                current_dir = posixpath.dirname(current_dir)
+        if not transaction_log_dir:
+            err_msg = f"No transaction log found for: {base_metafile_path}."
+            raise ValueError(err_msg)
+        # find the latest committed revision of the target metafile
+        file_paths_and_sizes = _get_file_infos(
+            target_metafile_revisions_dir,
+            filesystem,
+            ignore_missing_path=ignore_missing_commit,
+        )
+        if not file_paths_and_sizes and not ignore_missing_commit:
+            err_msg = (
+                f"Expected to find at least 1 Metafile at "
+                f"{target_metafile_revisions_dir} but found none."
+            )
+            raise ValueError(err_msg)
+        file_paths = list(zip(*file_paths_and_sizes))[0] if file_paths_and_sizes else []
+        sorted_metafile_paths = sorted(file_paths)
+        revision = None
+        txn_id = None
+        latest_committed_metafile_path = None
+        while sorted_metafile_paths:
+            latest_metafile_path = sorted_metafile_paths.pop()
+            latest_metafile_name = posixpath.basename(latest_metafile_path)
+            metafile_and_ext = posixpath.splitext(latest_metafile_name)
+            if metafile_and_ext[1] != f".{METAFILE_EXT}":
+                err_msg = (
+                    f"File at {latest_metafile_path} does not appear to be a valid "
+                    f"Metafile. Expected extension {METAFILE_EXT} but found "
+                    f"{metafile_and_ext[1]}"
+                )
+                raise ValueError(err_msg)
+            metafile_rev_and_txn_id = metafile_and_ext[0]
+            rev_and_txn_id_split = metafile_rev_and_txn_id.split(TXN_ID_SEPARATOR)
+            revision = rev_and_txn_id_split[0]
+            txn_id = rev_and_txn_id_split[1]
+            file_paths_and_sizes = _get_file_infos(
+                posixpath.join(transaction_log_dir, txn_id),
+                filesystem,
+            )
+            if file_paths_and_sizes:
+                latest_committed_metafile_path = latest_metafile_path
+                break
+        if not latest_committed_metafile_path and not ignore_missing_commit:
+            err_msg = (
+                f"No completed transaction with ID {txn_id} found at "
+                f"{transaction_log_dir}."
+            )
+            raise ValueError(err_msg)
+        mci = MetafileCommitInfo()
+        mci.revision = int(revision) if revision else 0
+        mci.txn_id = txn_id
+        mci.path = latest_committed_metafile_path
+        return mci
+
+    @property
+    def revision(self) -> int:
+        return self["revision"]
+
+    @revision.setter
+    def revision(self, revision: int):
+        self["revision"] = revision
+
+    @property
+    def txn_id(self) -> Optional[str]:
+        return self["txn_id"]
+
+    @txn_id.setter
+    def txn_id(self, txn_id: str):
+        self["txn_id"] = txn_id
+
+    @property
+    def path(self) -> Optional[str]:
+        return self["path"]
+
+    @path.setter
+    def path(self, path: str):
+        self["path"] = path
 
 
 class Metafile(dict):
@@ -179,81 +338,6 @@ class Metafile(dict):
         raise NotImplementedError()
 
     @staticmethod
-    def _latest_committed_metafile_path(
-        base_metafile_path: str,
-        filesystem: pyarrow.fs.FileSystem,
-        parent_number=0,
-    ) -> Metafile:
-        # resolve the directory path of the target metafile
-        current_dir = posixpath.dirname(posixpath.dirname(base_metafile_path))
-        while parent_number and current_dir != posixpath.pathsep:
-            current_dir = posixpath.dirname(current_dir)
-            parent_number -= 1
-        target_metafile_revisions_dir = posixpath.join(
-            current_dir,
-            REVISION_DIR_NAME,
-        )
-        # resolve the directory path of the transaction log
-        transaction_log_dir = None
-        while not transaction_log_dir:
-            # TODO(pdames): Allow caller to inject transaction log dir
-            transaction_log_dir = posixpath.join(
-                current_dir,
-                TXN_DIR_NAME,
-            )
-            try:
-                _get_file_infos(transaction_log_dir, filesystem)
-            except FileNotFoundError as e:
-                if current_dir == posixpath.pathsep:
-                    break
-                current_dir = posixpath.dirname(current_dir)
-                transaction_log_dir = None
-        if not transaction_log_dir:
-            err_msg = f"No transaction log found for: {base_metafile_path}."
-            raise ValueError(err_msg)
-        # find the latest committed revision of the target metafile
-        file_paths_and_sizes = _get_file_infos(
-            target_metafile_revisions_dir,
-            filesystem,
-        )
-        if not file_paths_and_sizes:
-            err_msg = (
-                f"Expected to find at least 1 Metafile at "
-                f"{target_metafile_revisions_dir} but found none."
-            )
-            raise ValueError(err_msg)
-        file_paths = list(zip(*file_paths_and_sizes))[0]
-        sorted_metafile_paths = sorted(file_paths, reverse=True)
-        latest_committed_metafile_path = None
-        while sorted_metafile_paths:
-            latest_metafile_path = sorted_metafile_paths.pop()
-            latest_metafile_name = posixpath.basename(latest_metafile_path)
-            metafile_and_ext = posixpath.splitext(latest_metafile_name)
-            if metafile_and_ext[1] != f".{METAFILE_EXT}":
-                err_msg = (
-                    f"File at {latest_metafile_path} does not appear to be a valid "
-                    f"Metafile. Expected extension {METAFILE_EXT} but found "
-                    f"{metafile_and_ext[1]}"
-                )
-                raise ValueError(err_msg)
-            metafile_rev_and_txn_id = metafile_and_ext[0]
-            txn_id = metafile_rev_and_txn_id.split(TXN_ID_SEPARATOR)[1]
-            file_paths_and_sizes = _get_file_infos(
-                posixpath.join(transaction_log_dir, txn_id),
-                filesystem,
-            )
-            if file_paths_and_sizes:
-                latest_committed_metafile_path = latest_metafile_path
-                break
-        if not latest_committed_metafile_path:
-            err_msg = (
-                f"No completed transaction with ID {txn_id} found at "
-                f"{transaction_log_dir}."
-            )
-            raise ValueError(err_msg)
-        return latest_committed_metafile_path
-
-    @staticmethod
     def _locator_to_id(
         locator: Locator,
         root: str,
@@ -272,6 +356,7 @@ class Metafile(dict):
                 filesystem,
             )
             if len(file_paths_and_sizes) != 1:
+                # TODO(pdames): Account for mappings from failed transactions
                 err_msg = (
                     f"Expected to find 1 Locator to Metafile ID mapping at "
                     f"`{locator_path}` but found {len(file_paths_and_sizes)}"
@@ -322,10 +407,13 @@ class Metafile(dict):
             filesystem,
             True,
         )
-        assert not file_paths_and_sizes, (
-            f"Locator {self.locator} digest {self.locator.hexdigest()} already "
-            f"mapped to ID {posixpath.basename(file_paths_and_sizes[0][0])}"
-        )
+        if file_paths_and_sizes:
+            # TODO(pdames): Ensure that the locator-to-id mapping is part
+            #  of a committed transaction
+            raise ValueError(
+                f"Locator {self.locator} digest {self.locator.hexdigest()} already "
+                f"mapped to ID {posixpath.basename(file_paths_and_sizes[0][0])}"
+            )
         id_file_path = posixpath.join(id_dir_path, self.id)
         filesystem.create_dir(posixpath.dirname(id_file_path), recursive=True)
         with filesystem.open_output_stream(id_file_path):
@@ -352,10 +440,26 @@ class Metafile(dict):
                 parent_path,
                 filesystem,
             )
-        # TODO(pdames): resolve actual revision number together with staged or
-        #  committed status... use CAS on writes that require revision number
-        #  updates (e.g., metafile update)
-        revision_number = 1
+        metafile_path = posixpath.join(
+            parent_path,
+            self.id,
+            REVISION_DIR_NAME,
+            "temp_file_name",
+        )
+        is_create_txn = txn_operation_type == TransactionOperationType.CREATE
+        metafile_commit_info = MetafileCommitInfo.read(
+            metafile_path,
+            filesystem,
+            ignore_missing_commit=is_create_txn,
+        )
+        latest_revision_number = metafile_commit_info.revision
+        # validate the transaction operation type
+        if latest_revision_number and is_create_txn:
+            raise ValueError(
+                f"Metafile creation failed. Metafile commit at "
+                f"{metafile_commit_info.path} already exists."
+            )
+        revision_number = latest_revision_number + 1
         return posixpath.join(
             parent_path,
             self.id,
@@ -410,7 +514,8 @@ class Metafile(dict):
     def to_serializable(self) -> Metafile:
         """
         Prepare the object for serialization by converting any non-serializable
-        types to serializable types.
+        types to serializable types. May also run any required pre-write
+        validations on the serialized or deserialized object.
         :return: a serializable version of the object
         """
         return self
@@ -422,8 +527,9 @@ class Metafile(dict):
     ) -> Metafile:
         """
         Restore any non-serializable types from a serializable version of this
-        object.
-        :return: a fully deserialized version of the object
+        object. May also run any required post-read validations on the
+        serialized or deserialized object.
+        :return: a deserialized version of the object
         """
         return self
 
@@ -437,6 +543,8 @@ class Metafile(dict):
         """
         Serialize and write this object to a metadata file.
         :param root: Root directory of the metadata file.
+        :param txn_operation_type: Transaction operation type.
+        :param txn_id: Transaction ID.
         :param filesystem: File system to use for writing the metadata file.
         :return: File path of the written metadata file.
         """
