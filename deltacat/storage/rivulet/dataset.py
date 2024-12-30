@@ -55,7 +55,6 @@ class Dataset:
         riv_schema = Schema.from_pyarrow_schema(table.schema, primary_key)
         return cls(base_uri, field_groups=[PydictFieldGroup(data, riv_schema)])
 
-    # TODO: Just realized that base_uri is where the manifests are stored, storage_uri should be where the files are at.
     @classmethod
     def from_parquet(
         cls,
