@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List, Iterable, Union
+import os
+from typing import Dict, Any, List, Iterable, Union, Optional
 import pyarrow as pa
 
 from deltacat.storage.rivulet.glob_path import GlobPath
@@ -34,6 +35,7 @@ class Dataset:
 
         # Set and maintain:
         # field_groups, _schema, _fieldToFieldGroup
+        self.base_uri = base_uri
         self.field_groups: List[FieldGroup] = []
         self._schema: Schema | None = None
         self._fieldToFieldGroup: Dict[str, FieldGroup] = {}
@@ -52,6 +54,50 @@ class Dataset:
         table = pa.Table.from_pydict(data)
         riv_schema = Schema.from_pyarrow_schema(table.schema, primary_key)
         return cls(base_uri, field_groups=[PydictFieldGroup(data, riv_schema)])
+
+    @classmethod
+    def from_parquet(
+        cls,
+        file_uri: str,
+        primary_key: str,
+        base_uri: Optional[str] = None,
+        schema_mode: str = "union",
+    ):
+        """
+        Create a Dataset from parquet files.
+
+        Args:
+            base_uri: Base URI for the dataset, where dataset metadata is stored. If not specified, will be placed in ${file_uri}/riv-meta
+            file_uri: Path to parquet file(s)
+            primary_key: Field to use as primary key
+            schema_mode: Schema combination mode. Options:
+                - 'union': Use unified schema with all columns
+                - 'intersect': Use only common columns across files
+
+        Returns:
+            Dataset: New dataset instance with the schema automatically inferred from the source parquet files
+        """
+        base_uri = base_uri or os.path.join(file_uri, "riv-meta")
+        dataset = pa.dataset.dataset(file_uri)
+
+        if schema_mode == "intersect":
+            schemas = [pa.parquet.read_schema(f) for f in dataset.files]
+            # Find common columns across all schemas
+            common_columns = set(schemas[0].names)
+            for schema in schemas[1:]:
+                common_columns.intersection_update(schema.names)
+
+            # Create a new schema with only common columns
+            intersect_schema = pa.schema(
+                [(name, schemas[0].field(name).type) for name in common_columns]
+            )
+            dataset_schema = intersect_schema
+        else:
+            schemas = [pa.parquet.read_schema(f) for f in dataset.files]
+            dataset_schema = pa.unify_schemas(schemas)
+
+        riv_schema = Schema.from_pyarrow_schema(dataset_schema, primary_key)
+        return cls(base_uri, field_groups=[GlobPathFieldGroup(file_uri, riv_schema)])
 
     def add_field_group(self, field_group: FieldGroup) -> None:
         """

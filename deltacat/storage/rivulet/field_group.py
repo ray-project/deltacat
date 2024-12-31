@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Protocol, Dict, Any, List, runtime_checkable
 from deltacat.storage.rivulet.glob_path import GlobPath
 from deltacat.storage.rivulet import Schema
@@ -28,8 +30,10 @@ class FieldGroup(Protocol):
 
 # Field group whose data is backed by a glob path
 class GlobPathFieldGroup(FieldGroup):
-    def __init__(self, glob_path: GlobPath, schema: Schema):
-        self._glob_path = glob_path
+    def __init__(self, glob_path: str | GlobPath, schema: Schema):
+        self._glob_path = (
+            GlobPath(glob_path) if isinstance(glob_path, str) else glob_path
+        )
         self._schema = schema
 
     @property
@@ -37,7 +41,7 @@ class GlobPathFieldGroup(FieldGroup):
         return self._schema
 
     def __str__(self) -> str:
-        return f"GlobPathFieldGroup(glob_path={self._glob_path}, schema={self._schema})"
+        return f"GlobPathFieldGroup(glob_path={self._glob_path.path}, schema={self._schema})"
 
     def __repr__(self) -> str:
         return self.__str__()
