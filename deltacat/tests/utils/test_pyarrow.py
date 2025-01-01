@@ -7,7 +7,9 @@ from deltacat.utils.pyarrow import (
     s3_file_to_table,
     ReadKwargsProviderPyArrowSchemaOverride,
     RAISE_ON_EMPTY_CSV_KWARG,
+    RAISE_ON_DECIMAL_OVERFLOW,
 )
+import decimal
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
 from pyarrow.parquet import ParquetFile
@@ -16,6 +18,12 @@ import pyarrow as pa
 PARQUET_FILE_PATH = "deltacat/tests/utils/data/test_file.parquet"
 EMPTY_UTSV_PATH = "deltacat/tests/utils/data/empty.csv"
 NON_EMPTY_VALID_UTSV_PATH = "deltacat/tests/utils/data/non_empty_valid.csv"
+OVERFLOWING_DECIMAL_PRECISION_UTSV_PATH = (
+    "deltacat/tests/utils/data/overflowing_decimal_precision.csv"
+)
+OVERFLOWING_DECIMAL_SCALE_UTSV_PATH = (
+    "deltacat/tests/utils/data/overflowing_decimal_scale.csv"
+)
 GZIP_COMPRESSED_FILE_UTSV_PATH = "deltacat/tests/utils/data/non_empty_compressed.gz"
 BZ2_COMPRESSED_FILE_UTSV_PATH = "deltacat/tests/utils/data/non_empty_compressed.bz2"
 
@@ -406,6 +414,130 @@ class TestReadCSV(TestCase):
                 EMPTY_UTSV_PATH, **{**kwargs, RAISE_ON_EMPTY_CSV_KWARG: True}
             ),
         )
+
+    def test_read_csv_when_decimal_precision_overflows_and_raise_kwarg_specified(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("decimal_value", pa.decimal128(4, 2))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "decimal_value"],
+            ["is_active", "decimal_value"],
+            kwargs,
+        )
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+        self.assertRaises(
+            pa.lib.ArrowInvalid,
+            lambda: pyarrow_read_csv(
+                OVERFLOWING_DECIMAL_PRECISION_UTSV_PATH,
+                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True}
+            ),
+        )
+
+    def test_read_csv_when_decimal_precision_overflows_sanity(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("decimal_value", pa.decimal128(4, 2))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "decimal_value"],
+            ["is_active", "decimal_value"],
+            kwargs,
+        )
+
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        result = pyarrow_read_csv(OVERFLOWING_DECIMAL_PRECISION_UTSV_PATH, **kwargs)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(
+            result[1][0].as_py(), decimal.Decimal("322236.65")
+        )  # read higher precision successfully
+        self.assertEqual(result[1][1].as_py(), decimal.Decimal("32.33"))  # not rounded
+        self.assertEqual(len(result.column_names), 2)
+        result_schema = result.schema
+        self.assertEqual(result_schema.field(0).type, "string")
+        self.assertEqual(
+            result_schema.field(1).type, pa.decimal128(38, 2)
+        )  # the precision has changed
+
+    def test_read_csv_when_decimal_scale_overflows_and_raise_kwarg_specified(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("decimal_value", pa.decimal128(20, 2))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "decimal_value"],
+            ["is_active", "decimal_value"],
+            kwargs,
+        )
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        self.assertRaises(
+            pa.lib.ArrowInvalid,
+            lambda: pyarrow_read_csv(
+                OVERFLOWING_DECIMAL_SCALE_UTSV_PATH,
+                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True}
+            ),
+        )
+
+    def test_read_csv_when_decimal_scale_overflows_sanity(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("decimal_value", pa.decimal128(20, 2))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "decimal_value"],
+            ["is_active", "decimal_value"],
+            kwargs,
+        )
+
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        result = pyarrow_read_csv(OVERFLOWING_DECIMAL_SCALE_UTSV_PATH, **kwargs)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(
+            result[1][0].as_py(), decimal.Decimal("322236.66")
+        )  # rounding decimal
+        self.assertEqual(result[1][1].as_py(), decimal.Decimal("32.33"))  # not rounded
+        self.assertEqual(len(result.column_names), 2)
+        result_schema = result.schema
+        self.assertEqual(result_schema.field(0).type, "string")
+        self.assertEqual(result_schema.field(1).type, pa.decimal128(20, 2))
+
+    def test_read_csv_when_decimal_scale_overflows_with_decimal256(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("decimal_value", pa.decimal256(20, 2))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "decimal_value"],
+            ["is_active", "decimal_value"],
+            kwargs,
+        )
+
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        self.assertRaises(
+            pa.lib.ArrowNotImplementedError,
+            lambda: pyarrow_read_csv(OVERFLOWING_DECIMAL_SCALE_UTSV_PATH, **kwargs),
+        )  # decimal256 conversion isn't implemented yet
 
 
 class TestS3FileToTable(TestCase):

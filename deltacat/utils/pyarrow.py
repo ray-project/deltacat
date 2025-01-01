@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import copy
 import bz2
 import gzip
 import io
@@ -47,6 +48,18 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 RAISE_ON_EMPTY_CSV_KWARG = "raise_on_empty_csv"
 READER_TYPE_KWARG = "reader_type"
 
+"""
+By default, round decimal values using half_to_even round mode when
+rescaling a decimal to the given scale and precision in the schema would cause
+data loss. Setting any non null value of this argument will result
+in an error instead.
+"""
+RAISE_ON_DECIMAL_OVERFLOW = "raise_on_decimal_overflow"
+RAISE_ON_DECIMAL_PRECISION_OVERFLOW = "raise_on_decimal_precision_overflow"
+# Note the maximum from https://arrow.apache.org/docs/python/generated/pyarrow.Decimal256Type.html#pyarrow.Decimal256Type
+DECIMAL128_MAX_PRECISION = 38
+DECIMAL256_MAX_PRECISION = 76
+
 
 def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Schema:
 
@@ -64,43 +77,183 @@ def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Sche
     return target_schema
 
 
-def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
-    try:
-        new_kwargs = sanitize_kwargs_by_supported_kwargs(
-            ["read_options", "parse_options", "convert_options", "memory_pool"], kwargs
+def _extract_arrow_schema_from_read_csv_kwargs(kwargs: Dict[str, Any]) -> pa.Schema:
+    schema = None
+    if (
+        "convert_options" in kwargs
+        and kwargs["convert_options"].column_types is not None
+    ):
+        schema = kwargs["convert_options"].column_types
+        if not isinstance(schema, pa.Schema):
+            schema = pa.schema(schema)
+        if kwargs["convert_options"].include_columns:
+            schema = _filter_schema_for_columns(
+                schema, kwargs["convert_options"].include_columns
+            )
+        elif (
+            kwargs.get("read_options") is not None
+            and kwargs["read_options"].column_names
+        ):
+            schema = _filter_schema_for_columns(
+                schema, kwargs["read_options"].column_names
+            )
+    else:
+        logger.debug(
+            "Schema not specified in the kwargs."
+            " Hence, schema could not be inferred from the empty CSV."
         )
-        return pacsv.read_csv(*args, **new_kwargs)
+
+    return schema
+
+
+def _new_schema_with_replaced_fields(
+    schema: pa.Schema, field_to_replace: Callable[[pa.Field], Optional[pa.Field]]
+) -> pa.Schema:
+    if schema is None:
+        return None
+
+    new_schema_fields = []
+    for field in schema:
+        new_field = field_to_replace(field)
+        if new_field is not None:
+            new_schema_fields.append(new_field)
+        else:
+            new_schema_fields.append(field)
+
+    return pa.schema(new_schema_fields, metadata=schema.metadata)
+
+
+def _read_csv_while_rounding_decimal_columns_to_fit_scale(
+    schema: pa.Schema, reader_args: List[Any], reader_kwargs: Dict[str, Any]
+) -> pa.Table:
+    # Note: We read decimals as strings first because CSV
+    # conversion to decimal256 isn't implemented as of pyarrow==12.0.1
+    new_schema = _new_schema_with_replaced_fields(
+        schema,
+        lambda fld: pa.field(fld.name, pa.string(), metadata=fld.metadata)
+        if pa.types.is_decimal128(fld.type) or pa.types.is_decimal256(fld.type)
+        else None,
+    )
+    # Creating a shallow copy for efficiency
+    new_convert_options = copy.copy(reader_kwargs["convert_options"])
+    new_convert_options.column_types = new_schema
+    new_reader_kwargs = {**reader_kwargs, "convert_options": new_convert_options}
+    arrow_table = pacsv.read_csv(*reader_args, **new_reader_kwargs)
+
+    for column_index, field in enumerate(schema):
+        if pa.types.is_decimal128(field.type) or pa.types.is_decimal256(field.type):
+            column_array = arrow_table[field.name]
+            # We always cast to decimal256 to accomodate fixed scale of 38
+            cast_to_type = pa.decimal256(
+                DECIMAL256_MAX_PRECISION, DECIMAL128_MAX_PRECISION
+            )
+            casted_decimal_array = pc.cast(column_array, cast_to_type)
+            # Note that scale can be negative
+            rounded_column_array = pc.round(
+                casted_decimal_array, ndigits=field.type.scale
+            )
+            final_decimal_array = pc.cast(rounded_column_array, field.type)
+            arrow_table = arrow_table.set_column(
+                column_index, field, final_decimal_array
+            )
+            logger.debug(
+                f"Rounded decimal column: {field.name} to {field.type.scale} scale"
+            )
+
+    return arrow_table
+
+
+def pyarrow_read_csv_with_error_handling(*args, **kwargs):
+    try:
+        return pacsv.read_csv(*args, **kwargs)
     except pa.lib.ArrowInvalid as e:
-        if e.__str__() == "Empty CSV file" and not kwargs.get(RAISE_ON_EMPTY_CSV_KWARG):
-            schema = None
-            if (
-                "convert_options" in kwargs
-                and kwargs["convert_options"].column_types is not None
-            ):
-                schema = kwargs["convert_options"].column_types
-                if not isinstance(schema, pa.Schema):
-                    schema = pa.schema(schema)
-                if kwargs["convert_options"].include_columns:
-                    schema = _filter_schema_for_columns(
-                        schema, kwargs["convert_options"].include_columns
-                    )
-                elif (
-                    kwargs.get("read_options") is not None
-                    and kwargs["read_options"].column_names
-                ):
-                    schema = _filter_schema_for_columns(
-                        schema, kwargs["read_options"].column_names
-                    )
+        error_str = e.__str__()
+        schema = _extract_arrow_schema_from_read_csv_kwargs(kwargs)
 
-            else:
-                logger.debug(
-                    "Schema not specified in the kwargs."
-                    " Hence, schema could not be inferred from the empty CSV."
-                )
-
+        if error_str == "Empty CSV file" and not kwargs.get(RAISE_ON_EMPTY_CSV_KWARG):
             logger.debug(f"Read CSV empty schema being used: {schema}")
             return pa.Table.from_pylist([], schema=schema)
+        elif not kwargs.get(RAISE_ON_DECIMAL_OVERFLOW):
+            # Note, this logic requires expensive casting. To prevent downgrading performance
+            # for happy path reads, we are handling this case in response to an error.
+            logger.warning(
+                "Rescaling Decimal to the given scale and precision in the schema. "
+                f"Original error: {error_str}"
+            )
+
+            if schema is not None and "convert_options" in kwargs:
+                if (
+                    "Rescaling Decimal" in error_str
+                    and "value would cause data loss" in error_str
+                ):
+                    return _read_csv_while_rounding_decimal_columns_to_fit_scale(
+                        schema=schema, reader_args=args, reader_kwargs=kwargs
+                    )
+
+                elif "precision not supported by type" in error_str and not kwargs.get(
+                    RAISE_ON_DECIMAL_PRECISION_OVERFLOW
+                ):
+                    new_schema = _new_schema_with_replaced_fields(
+                        schema,
+                        lambda fld: pa.field(
+                            fld.name,
+                            pa.decimal128(DECIMAL128_MAX_PRECISION, fld.type.scale),
+                            metadata=fld.metadata,
+                        )
+                        if pa.types.is_decimal128(fld.type)
+                        else None,
+                    )
+                    new_schema = _new_schema_with_replaced_fields(
+                        new_schema,
+                        lambda fld: pa.field(
+                            fld.name,
+                            pa.decimal256(DECIMAL256_MAX_PRECISION, fld.type.scale),
+                            metadata=fld.metadata,
+                        )
+                        if pa.types.is_decimal256(fld.type)
+                        else None,
+                    )
+                    logger.debug(
+                        f"Attempting to download file with args: {args} using "
+                        f"new schema: {new_schema}, old schema: {schema}"
+                    )
+                    new_convert_options = copy.copy(kwargs["convert_options"])
+                    new_convert_options.column_types = new_schema
+
+                    # Setting RAISE_ON_DECIMAL_PRECISION_OVERFLOW to prevent infinite download attempts
+                    new_reader_kwargs = {
+                        **kwargs,
+                        "convert_options": new_convert_options,
+                        RAISE_ON_DECIMAL_PRECISION_OVERFLOW: True,
+                    }
+                    return pyarrow_read_csv(*args, **new_reader_kwargs)
+            else:
+                logger.debug(
+                    "Schema is None when trying to adjust decimal values. "
+                    "Hence, bubbling up exception..."
+                )
+
         raise e
+
+
+def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
+    new_kwargs = sanitize_kwargs_by_supported_kwargs(
+        ["read_options", "parse_options", "convert_options", "memory_pool"], kwargs
+    )
+    schema = _extract_arrow_schema_from_read_csv_kwargs(kwargs)
+
+    # CSV conversion to decimal256 isn't supported as of pyarrow=12.0.1
+    # Below ensures decimal256 is casted properly.
+    schema_includes_decimal256 = (
+        True if any([pa.types.is_decimal256(x.type) for x in schema]) else False
+    )
+    if schema_includes_decimal256:
+        # falling back to expensive method of reading CSV
+        return _read_csv_while_rounding_decimal_columns_to_fit_scale(
+            schema,
+        )
+    else:
+        return pyarrow_read_csv_with_error_handling(*args, **new_kwargs)
 
 
 CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
