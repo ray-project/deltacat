@@ -122,7 +122,7 @@ def _new_schema_with_replaced_fields(
     return pa.schema(new_schema_fields, metadata=schema.metadata)
 
 
-def _read_csv_rounding_decimal_columns_to_fit_precision_scale(
+def _read_csv_rounding_decimal_columns_to_fit_scale(
     schema: pa.Schema, reader_args: List[Any], reader_kwargs: Dict[str, Any]
 ) -> pa.Table:
     # Note: We read decimals as strings first because CSV
@@ -155,20 +155,15 @@ def _read_csv_rounding_decimal_columns_to_fit_precision_scale(
             rounded_column_array = pc.round(
                 casted_decimal_array, ndigits=field.type.scale
             )
-            # Note that, decimal128 types are now upcasted to decimal256
-            # The assumption here is that, if scale specified in the schema
-            # can be wrong, so is the precision.
-            new_type = pa.decimal256(DECIMAL256_MAX_PRECISION, field.type.scale)
-
-            final_decimal_array = pc.cast(rounded_column_array, new_type)
+            final_decimal_array = pc.cast(rounded_column_array, field.type)
             arrow_table = arrow_table.set_column(
                 column_index,
-                pa.field(field.name, new_type, field.metadata),
+                field,
                 final_decimal_array,
             )
             logger.debug(
-                f"Rounded decimal column: {field.name} to {new_type.scale} scale and"
-                f" {new_type.precision} precision"
+                f"Rounded decimal column: {field.name} to {field.type.scale} scale and"
+                f" {field.type.precision} precision"
             )
 
     return arrow_table
@@ -188,11 +183,11 @@ def pyarrow_read_csv_default(*args, **kwargs):
         if error_str == "Empty CSV file" and not kwargs.get(RAISE_ON_EMPTY_CSV_KWARG):
             logger.debug(f"Read CSV empty schema being used: {schema}")
             return pa.Table.from_pylist([], schema=schema)
-        elif not kwargs.get(RAISE_ON_DECIMAL_OVERFLOW):
+        if not kwargs.get(RAISE_ON_DECIMAL_OVERFLOW):
             # Note, this logic requires expensive casting. To prevent downgrading performance
             # for happy path reads, we are handling this case in response to an error.
             logger.warning(
-                "Rescaling Decimal to the given scale and precision in the schema. "
+                "Rescaling Decimal to the given scale in the schema. "
                 f"Original error: {error_str}"
             )
 
@@ -200,8 +195,8 @@ def pyarrow_read_csv_default(*args, **kwargs):
                 if (
                     "Rescaling Decimal" in error_str
                     and "value would cause data loss" in error_str
-                ) or "precision not supported by type" in error_str:
-                    return _read_csv_rounding_decimal_columns_to_fit_precision_scale(
+                ):
+                    return _read_csv_rounding_decimal_columns_to_fit_scale(
                         schema=schema, reader_args=args, reader_kwargs=kwargs
                     )
             else:
@@ -223,10 +218,10 @@ def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
         if schema is not None
         else None
     )
-    if schema_includes_decimal256:
+    if schema_includes_decimal256 and not kwargs.get(RAISE_ON_DECIMAL_OVERFLOW):
         # falling back to expensive method of reading CSV
-        return _read_csv_rounding_decimal_columns_to_fit_precision_scale(
-            *args, **kwargs
+        return _read_csv_rounding_decimal_columns_to_fit_scale(
+            schema, reader_args=args, reader_kwargs=kwargs
         )
     else:
         return pyarrow_read_csv_default(*args, **kwargs)
