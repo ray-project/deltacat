@@ -602,6 +602,37 @@ class TestReadCSV(TestCase):
             lambda: pyarrow_read_csv(OVERFLOWING_DECIMAL_SCALE_UTSV_PATH, **kwargs),
         )
 
+    def test_read_csv_when_decimal_scale_overflow_and_file_like_obj_passed(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("decimal_value", pa.decimal128(15, 2))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "decimal_value"],
+            ["is_active", "decimal_value"],
+            kwargs,
+        )
+
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        with open(OVERFLOWING_DECIMAL_SCALE_UTSV_PATH, "rb") as file:
+            result = pyarrow_read_csv(file, **kwargs)
+
+            self.assertEqual(len(result), 3)
+            self.assertEqual(
+                result[1][0].as_py(), decimal.Decimal("322236.66")
+            )  # rounding decimal
+            self.assertEqual(
+                result[1][1].as_py(), decimal.Decimal("32.33")
+            )  # not rounded
+            self.assertEqual(len(result.column_names), 2)
+            result_schema = result.schema
+            self.assertEqual(result_schema.field(0).type, "string")
+            self.assertEqual(result_schema.field(1).type, pa.decimal128(15, 2))
+
 
 class TestS3FileToTable(TestCase):
     def test_s3_file_to_table_identity_sanity(self):

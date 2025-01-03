@@ -196,6 +196,11 @@ def pyarrow_read_csv_default(*args, **kwargs):
                     "Rescaling Decimal" in error_str
                     and "value would cause data loss" in error_str
                 ):
+                    logger.debug(f"Checking if the file: {args[0]}...")
+                    # Since we are re-reading the file, we have to seek to beginning
+                    if isinstance(args[0], io.IOBase) and args[0].seekable():
+                        logger.debug(f"Seeking to the beginning of the file {args[0]}")
+                        args[0].seek(0)
                     return _read_csv_rounding_decimal_columns_to_fit_scale(
                         schema=schema, reader_args=args, reader_kwargs=kwargs
                     )
