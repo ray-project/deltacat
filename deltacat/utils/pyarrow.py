@@ -56,7 +56,7 @@ in an error instead.
 """
 RAISE_ON_DECIMAL_OVERFLOW = "raise_on_decimal_overflow"
 # Note the maximum from https://arrow.apache.org/docs/python/generated/pyarrow.Decimal256Type.html#pyarrow.Decimal256Type
-DECIMAL128_MAX_PRECISION = 38
+DECIMAL256_DEFAULT_SCALE = 38
 DECIMAL256_MAX_PRECISION = 76
 
 
@@ -148,7 +148,7 @@ def _read_csv_rounding_decimal_columns_to_fit_scale(
             column_array = arrow_table[field.name]
             # We always cast to decimal256 to accomodate fixed scale of 38
             cast_to_type = pa.decimal256(
-                DECIMAL256_MAX_PRECISION, DECIMAL128_MAX_PRECISION
+                DECIMAL256_MAX_PRECISION, DECIMAL256_DEFAULT_SCALE
             )
             casted_decimal_array = pc.cast(column_array, cast_to_type)
             # Note that scale can be negative
