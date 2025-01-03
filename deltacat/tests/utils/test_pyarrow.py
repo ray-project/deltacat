@@ -509,6 +509,35 @@ class TestReadCSV(TestCase):
         self.assertEqual(result_schema.field(0).type, "string")
         self.assertEqual(result_schema.field(1).type, pa.decimal128(20, 2))
 
+    def test_read_csv_when_decimal_scale_overflows_and_negative_scale(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("decimal_value", pa.decimal128(20, -2))]
+        )
+        kwargs = content_type_to_reader_kwargs(ContentType.UNESCAPED_TSV.value)
+        _add_column_kwargs(
+            ContentType.UNESCAPED_TSV.value,
+            ["is_active", "decimal_value"],
+            ["is_active", "decimal_value"],
+            kwargs,
+        )
+
+        read_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+
+        kwargs = read_kwargs_provider(ContentType.UNESCAPED_TSV.value, kwargs)
+
+        result = pyarrow_read_csv(OVERFLOWING_DECIMAL_SCALE_UTSV_PATH, **kwargs)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(
+            result[1][0].as_py(),
+            decimal.Decimal("322200"),  # consequence of negative scale
+        )  # rounding decimal
+        self.assertEqual(result[1][1].as_py(), decimal.Decimal("00"))
+        self.assertEqual(len(result.column_names), 2)
+        result_schema = result.schema
+        self.assertEqual(result_schema.field(0).type, "string")
+        self.assertEqual(result_schema.field(1).type, pa.decimal128(20, -2))
+
     def test_read_csv_when_decimal_scale_overflows_with_decimal256(self):
         schema = pa.schema(
             [("is_active", pa.string()), ("decimal_value", pa.decimal256(20, 2))]
