@@ -17,7 +17,7 @@ class ArrowSerializer(DataSerializer, ABC):
     def __init__(self, location_provider: FileLocationProvider, schema: Schema):
         self.schema = schema
         self.location_provider = location_provider
-        self.arrow_schema = self.schema.to_pyarrow_schema()
+        self.arrow_schema = self.schema.to_pyarrow()
 
     @abstractmethod
     def serialize(self, table: pa.Table) -> List[SSTableRow]:

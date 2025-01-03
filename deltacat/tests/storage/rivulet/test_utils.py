@@ -43,7 +43,7 @@ def write_mvp_table(writer: DatasetWriter, table: MvpTable):
 def mvp_table_to_record_batches(table: MvpTable, schema: Schema) -> RecordBatch:
     data = table.to_rows_list()
     columns = {key: [d.get(key) for d in data] for key in schema.keys()}
-    record_batch = RecordBatch.from_pydict(columns, schema=schema.to_pyarrow_schema())
+    record_batch = RecordBatch.from_pydict(columns, schema=schema.to_pyarrow())
     return record_batch
 
 

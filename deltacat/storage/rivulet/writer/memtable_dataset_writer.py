@@ -113,9 +113,7 @@ class RecordBatchMemTable(Memtable[RecordBatch]):
         """
         with self.lock:
             # Note that we are providing schema so that pyarrow does not infer it
-            table = Table.from_batches(
-                self._records_batches, schema.to_pyarrow_schema()
-            )
+            table = Table.from_batches(self._records_batches, schema.to_pyarrow())
             return table.sort_by(self.primary_key)
 
 

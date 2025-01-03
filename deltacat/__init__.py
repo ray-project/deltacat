@@ -47,6 +47,7 @@ from deltacat.storage import (
     SortScheme,
     NullOrder,
 )
+from deltacat.storage.rivulet import Dataset, Datatype
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode
 
@@ -82,6 +83,8 @@ __all__ = [
     "ContentType",
     "ContentEncoding",
     "DistributedDataset",
+    "Dataset",
+    "Datatype",
     "Field",
     "IcebergCatalog",
     "LifecycleState",

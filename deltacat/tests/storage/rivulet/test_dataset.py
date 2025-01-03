@@ -1,22 +1,19 @@
-from typing import Dict
-
 import pytest
 
 import pyarrow as pa
-
-from deltacat.storage.rivulet import Schema
+from deltacat.storage.rivulet import Schema, Field, Datatype
 from deltacat.storage.rivulet.dataset import Dataset
-from deltacat.storage.rivulet.field_group import GlobPathFieldGroup
-from deltacat.storage.rivulet.schema.datatype import Datatype
-from deltacat.storage.rivulet.glob_path import GlobPath
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 
 
 @pytest.fixture
 def sample_schema():
     return Schema(
-        {"id": Datatype("int32"), "name": Datatype("string"), "age": Datatype("int32")},
-        primary_key="id",
+        fields=[
+            Field("id", Datatype.int32(), is_merge_key=True),
+            Field("name", Datatype.string()),
+            Field("age", Datatype.int32()),
+        ]
     )
 
 
@@ -26,248 +23,342 @@ def sample_pydict():
 
 
 @pytest.fixture
-def sample_extra_records_pydict():
-    return {"id": [4, 5, 6], "name": ["Alice", "Bob", "McKenzie"], "age": [19, 30, 54]}
+def sample_parquet_data(tmp_path, sample_pydict):
+    parquet_path = tmp_path / "test.parquet"
+    table = pa.Table.from_pydict(sample_pydict)
+    pa.parquet.write_table(table, parquet_path)
+    return parquet_path
 
 
-@pytest.fixture
-def sample_schema_overlap_pydict():
-    return {
-        "id": [7, 8, 9],
-        "name": ["Rahul", "Priya", "Matthew"],
-        "zip": [48072, 91048, 49320],
-    }
+# Updated Tests
 
 
-def write_parquet_file_from_dict(path: str, data: Dict):
-    # Helper function to create temporary parquet files from dictionaries
-    table = pa.Table.from_pydict(data)
-    pa.parquet.write_table(table, path)
+def test_dataset_creation_with_schema(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    assert len(dataset.fields) == 3
+    assert "id" in dataset.fields
+    assert dataset.fields["id"].is_merge_key
 
 
-def test_dataset_creation(tmp_path):
-    """Test basic dataset creation"""
-    base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset(base_uri)
-    assert len(dataset.field_groups) == 0
-    assert dataset._schema is None
+def test_dataset_initialization_with_metadata(tmp_path):
+    dataset = Dataset(dataset_name="test_dataset", metadata_uri=str(tmp_path))
+    assert dataset.dataset_name == "test_dataset"
+    assert dataset._metadata_folder.startswith(".riv-meta")
 
 
-def test_dataset_from_pydict(tmp_path, sample_pydict):
-    """Test creating dataset from Python dictionary"""
-    base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset.from_pydict(base_uri, sample_pydict, "id")
-
-    assert dataset.schema is not None
-    assert "id" in dataset.schema
-    assert "name" in dataset.schema
-    assert "age" in dataset.schema
+def test_invalid_dataset_initialization():
+    with pytest.raises(ValueError, match="Name must be a non-empty string"):
+        Dataset(dataset_name="")
 
 
-def test_dataset_new_field_group(tmp_path, sample_schema):
-    """Test adding new field group to dataset"""
-    base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset(base_uri)
+def test_fields_accessor_add_field(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    dataset.fields.add("new_field", Datatype.float())
+    assert "new_field" in dataset.fields
+    assert dataset.fields["new_field"].datatype == Datatype.float()
 
-    field_group = dataset.new_field_group(sample_schema)
-    assert field_group in dataset.field_groups
-    assert dataset.schema.primary_key.name == "id"
+    dataset.fields["new_field2"] = Field("new_field2", Datatype.int32())
+    assert "new_field2" in dataset.fields
+    assert "new_field2" in dataset.schemas["all"]
+    with pytest.raises(TypeError):
+        dataset.fields["new_field3"] = 2
 
 
-def test_dataset_conflicting_field_groups(tmp_path, sample_schema):
-    """Test adding field groups with conflicting fields"""
-    base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset(base_uri)
+def test_field_removal(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    del dataset.fields["age"]
+    assert "age" not in dataset.fields
+    with pytest.raises(ValueError):
+        del dataset.fields["age"]
+    with pytest.raises(KeyError):
+        _ = dataset.fields["age"]
 
-    # Add first field group
-    dataset.new_field_group(sample_schema)
 
-    # Create conflicting schema with same field name
-    conflicting_schema = Schema(
-        {
-            "id": Datatype("int32"),
-            "name": Datatype("string"),  # Conflicting field
-        },
-        primary_key="id",
+def test_fields_accessor_repr(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    repr_output = repr(dataset.fields)
+    for field_name in ["id", "name", "age"]:
+        assert field_name in repr_output, f"Field '{field_name}' missing in repr output"
+
+
+def test_schemas_accessor_add_group(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    dataset.schemas["analytics"] = ["id", "name"]
+    assert "analytics" in dataset.schemas
+    assert len(dataset.schemas["analytics"]) == 2
+
+
+def test_schema_removal(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    with pytest.raises(ValueError):
+        del dataset.schemas["all"]
+    with pytest.raises(ValueError):
+        del dataset.schemas["does_not_exist"]
+    dataset.schemas["new"] = ["id", "name"]
+    del dataset.schemas["new"]
+    with pytest.raises(KeyError):
+        _ = dataset.schemas["new"]
+
+
+def test_dataset_from_parquet(tmp_path, sample_parquet_data):
+    dataset = Dataset.from_parquet(
+        name="test_dataset",
+        file_uri=str(sample_parquet_data),
+        merge_keys="id",
     )
-
-    # Should raise error due to conflicting 'name' field
-    with pytest.raises(
-        ValueError, match="Ambiguous field 'name' present in multiple field groups"
-    ):
-        dataset.new_field_group(conflicting_schema)
+    assert len(dataset.fields) == 3
+    assert "id" in dataset.fields
+    assert dataset.fields["id"].is_merge_key
 
 
-def test_dataset_writer(tmp_path, sample_schema):
-    """Test dataset writer creation"""
-    base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset(base_uri)
-    field_group = dataset.new_field_group(sample_schema)
+def test_parquet_schema_modes(tmp_path, sample_pydict):
+    # Create two parquet files with overlapping and unique schemas
+    data_1 = {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
+    data_2 = {"id": [4, 5, 6], "age": [25, 30, 35]}
 
-    writer = dataset.writer(field_group)
+    path_1 = tmp_path / "data1.parquet"
+    path_2 = tmp_path / "data2.parquet"
+    pa.parquet.write_table(pa.Table.from_pydict(data_1), path_1)
+    pa.parquet.write_table(pa.Table.from_pydict(data_2), path_2)
+
+    dataset_union = Dataset.from_parquet(
+        name="test_dataset_union",
+        file_uri=str(tmp_path),
+        merge_keys="id",
+        schema_mode="union",
+    )
+    assert len(dataset_union.fields) == 3  # id, name, age
+
+    dataset_intersect = Dataset.from_parquet(
+        name="test_dataset_intersect",
+        file_uri=str(tmp_path),
+        merge_keys="id",
+        schema_mode="intersect",
+    )
+    assert len(dataset_intersect.fields) == 1  # Only id
+
+
+def test_merge_all_schemas():
+    schema1 = Schema(
+        fields=[
+            Field("id", Datatype.int32(), is_merge_key=True),
+            Field("name", Datatype.string()),
+        ]
+    )
+    schema2 = Schema(
+        fields=[
+            Field("id", Datatype.int32(), is_merge_key=True),
+            Field("age", Datatype.int32()),
+        ]
+    )
+    merged_schema = Schema.merge_all([schema1, schema2])
+    assert len(merged_schema) == 3
+    assert "id" in merged_schema
+    assert "name" in merged_schema
+    assert "age" in merged_schema
+
+
+def test_writer_creation_with_custom_format(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    writer = dataset.writer(file_format="feather")
     assert writer is not None
 
 
-def test_dataset_scan(tmp_path, sample_schema):
-    """Test dataset scanning"""
-    base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset(base_uri)
-    dataset.new_field_group(sample_schema)
-
-    scan = dataset.scan(QueryExpression())
+def test_scan_with_query(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    query = QueryExpression()  # Placeholder query
+    scan = dataset.scan(query)
     assert scan is not None
-    assert scan.dataset_schema == dataset.schema
 
 
-def test_dataset_select_fields(tmp_path, sample_schema):
-    """Test field selection"""
+def test_add_schema_to_new_schemas(tmp_path):
+    """Test adding a schema to a new field group."""
     base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset(base_uri)
-    dataset.new_field_group(sample_schema)
+    dataset = Dataset(dataset_name=base_uri)
 
-    # Select subset of fields
-    selected = dataset.select(["id", "name"])
-    assert selected is dataset  # Should return self for chaining
-
-
-def test_dataset_different_primary_keys(tmp_path, sample_schema):
-    """Test adding field groups with different primary keys"""
-    base_uri = str(tmp_path / "test_dataset")
-    dataset = Dataset(base_uri)
-    dataset.new_field_group(sample_schema)
-
-    different_pk_schema = Schema(
-        {
-            "user_id": Datatype("int32"),  # Different primary key
-            "email": Datatype("string"),
-        },
-        primary_key="user_id",
+    schema = Schema(
+        [
+            ("id", Datatype.int32()),
+            ("name", Datatype.string()),
+            ("age", Datatype.int32()),
+        ],
+        merge_keys=["id"],
     )
+
+    dataset.add_schema(schema, schema_name="new_group")
+
+    # Verify the field group is added
+    assert "new_group" in dataset.schemas
+    assert len(dataset.schemas["new_group"]) == 3
+    assert dataset.schemas["new_group"]["id"].datatype == Datatype.int32()
+    assert dataset.schemas["new_group"]["name"].datatype == Datatype.string()
+    assert dataset.schemas["new_group"]["age"].datatype == Datatype.int32()
+
+
+def test_add_schema_to_existing_schemas(tmp_path):
+    """Test merging a schema into an existing field group."""
+    base_uri = str(tmp_path / "test_dataset")
+    dataset = Dataset(dataset_name=base_uri)
+
+    schema_1 = Schema(
+        [
+            ("id", Datatype.int32()),
+            ("name", Datatype.string()),
+        ],
+        merge_keys=["id"],
+    )
+
+    dataset.add_schema(schema_1, schema_name="existing_group")
+
+    schema_2 = Schema(
+        [
+            ("age", Datatype.int32()),
+            ("email", Datatype.string()),
+        ],
+        merge_keys=["id"],
+    )
+
+    dataset.add_schema(schema_2, schema_name="existing_group")
+
+    # Verify the merged schema
+    assert "existing_group" in dataset.schemas
+    assert len(dataset.schemas["existing_group"]) == 4
+    assert dataset.schemas["existing_group"]["id"].datatype == Datatype.int32()
+    assert dataset.schemas["existing_group"]["name"].datatype == Datatype.string()
+    assert dataset.schemas["existing_group"]["age"].datatype == Datatype.int32()
+    assert dataset.schemas["existing_group"]["email"].datatype == Datatype.string()
+
+
+def test_add_schema_conflicting_fields(tmp_path):
+    """Test adding a schema with conflicting fields."""
+    base_uri = str(tmp_path / "test_dataset")
+    dataset = Dataset(dataset_name=base_uri)
+
+    schema_1 = Schema(
+        [
+            ("id", Datatype.int32()),
+            ("name", Datatype.string()),
+        ],
+        merge_keys=["id"],
+    )
+
+    dataset.add_schema(schema_1, schema_name="conflicting_group")
+
+    schema_2 = Schema(
+        [
+            ("id", Datatype.string()),  # Conflict: datatype mismatch
+            ("age", Datatype.int32()),
+        ],
+        merge_keys=["id"],
+    )
+
+    with pytest.raises(ValueError, match="already exists"):
+        dataset.add_schema(schema_2, schema_name="conflicting_group")
+
+
+def test_add_schema_to_nonexistent_schemas(tmp_path):
+    """Test adding a schema to a nonexistent field group."""
+    base_uri = str(tmp_path / "test_dataset")
+    dataset = Dataset(dataset_name=base_uri)
+
+    schema = Schema(
+        [
+            ("id", Datatype.int32()),
+            ("name", Datatype.string()),
+        ],
+        merge_keys=["id"],
+    )
+
+    # Add to a non-existent field group
+    dataset.add_schema(schema, schema_name="nonexistent_group")
+
+    # Verify the field group is created
+    assert "nonexistent_group" in dataset.schemas
+    assert len(dataset.schemas["nonexistent_group"]) == 2
+
+
+def test_add_missing_field_to_schema_raises_error(tmp_path, sample_schema):
+    """
+    Test that attempting to add a missing field to the 'all' schema raises a ValueError.
+    """
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+
+    # Attempt to add a non-existent field to the 'all' schema
+    with pytest.raises(
+        ValueError, match="Field 'missing_field' does not exist in the dataset."
+    ):
+        dataset.schemas["all"] = [
+            "missing_field"
+        ]  # Attempt to set a list with a missing field
+
+
+def test_schemas_accessor_methods(tmp_path, sample_schema):
+    """
+    Test the __iter__, __len__, and __repr__ methods of SchemasAccessor.
+    """
+    dataset = Dataset(
+        dataset_name="test_dataset", schema=sample_schema
+    )  # Default schema is defined automatically
+    dataset.schemas["schema_1"] = ["id", "name"]
+    dataset.schemas["schema_2"] = ["age"]
+
+    # Test __iter__
+    schema_names = list(iter(dataset.schemas))
+    assert set(schema_names) == {
+        "schema_1",
+        "schema_2",
+        "all",
+        "default",
+    }, "Schema names do not match expected values"
+
+    # Test __len__
+    assert len(dataset.schemas) == 4, "Length of schemas accessor is incorrect"
+
+    # Test __repr__
+    repr_output = repr(dataset.schemas)
+    for schema_name in ["schema_1", "schema_2", "all"]:
+        assert (
+            schema_name in repr_output
+        ), f"Schema '{schema_name}' missing in repr output"
+
+
+def test_get_merge_keys(tmp_path, sample_schema):
+    """
+    Test the get_merge_keys method to ensure it returns all merge keys in the dataset.
+    """
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+
+    # Add fields with additional merge key to the dataset
+    other_schema = Schema(
+        [("id2", Datatype.int32()), ("zip", Datatype.string())], merge_keys=["id2"]
+    )
+
+    dataset.add_schema(other_schema, "id2+zip")
+
+    # Call get_merge_keys and validate the result
+    merge_keys = dataset.get_merge_keys()
+    assert merge_keys == [
+        "id",
+        "id2",
+    ], f"Expected merge keys ['id', 'id2'], got {merge_keys}"
+
+
+def test_add_fields_no_fields_raises_error(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset")
+    with pytest.raises(ValueError):
+        dataset.add_fields(fields=[])
+
+
+def test_add_fields_mismatched_merge_keys_raises_error(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset")
+    with pytest.raises(TypeError, match="Merge key status conflict"):
+        dataset.add_fields(fields=sample_schema.values(), merge_keys=["does_not_exist"])
 
     with pytest.raises(
-        ValueError, match="Field group .* must use dataset's primary key"
+        ValueError,
+        match="The following merge keys not found in the provided fields: does_not_exist",
     ):
-        dataset.new_field_group(different_pk_schema)
-
-
-def test_dataset_from_glob_path(tmp_path, sample_schema):
-    """Test creating dataset from glob path"""
-    base_uri = str(tmp_path / "test_dataset")
-    glob_path = GlobPath("test/*.parquet")
-    dataset = Dataset.from_glob_path(base_uri, glob_path, sample_schema)
-
-    assert dataset.schema == sample_schema
-    assert len(dataset.field_groups) == 1
-
-
-def test_from_parquet_single_file(tmp_path, sample_pydict):
-    """Test creating Dataset from parquet file"""
-    # First create a sample parquet file
-    table = pa.Table.from_pydict(sample_pydict)
-
-    # Write sample data to parquet
-    parquet_file_path = tmp_path / "test.parquet"
-    pa.parquet.write_table(table, str(parquet_file_path))
-
-    # Test creating dataset from parquet
-    dataset = Dataset.from_parquet(str(parquet_file_path), primary_key="id")
-
-    # Verify the dataset
-    assert len(dataset.field_groups) == 1
-    assert isinstance(dataset.field_groups[0], GlobPathFieldGroup)
-    assert dataset.schema.primary_key.name == "id"
-    assert len(dataset.schema) == 3
-    # Note: we're auto-inferring the schema using pyarrow, not using the fixture's int32 schema, so it ends up as int64
-    assert dataset.schema["id"].datatype == Datatype("int64")
-    assert dataset.schema["name"].datatype == Datatype("string")
-    assert dataset.schema["age"].datatype == Datatype("int64")
-
-    # Test file not found
-    with pytest.raises(FileNotFoundError):
-        Dataset.from_parquet(str(tmp_path / "nonexistent.parquet"), primary_key="id")
-
-
-def test_from_parquet_glob_path(tmp_path, sample_pydict, sample_extra_records_pydict):
-    """Test creating Dataset from multiple parquet files"""
-    # First create sample parquet files
-    sample_pydict_path = tmp_path / "sample_pydict.parquet"
-    sample_extra_records_pydict_path = tmp_path / "sample_extra_records_pydict.parquet"
-    write_parquet_file_from_dict(sample_pydict_path, sample_pydict)
-    write_parquet_file_from_dict(
-        sample_extra_records_pydict_path, sample_extra_records_pydict
-    )
-
-    # Test creating dataset from parquet base path containing both files
-    dataset = Dataset.from_parquet(str(tmp_path), primary_key="id")
-
-    # Verify the dataset, both source files have the same schema, so we should just have one field_group
-    assert len(dataset.field_groups) == 1
-    assert isinstance(dataset.field_groups[0], GlobPathFieldGroup)
-    assert dataset.schema.primary_key.name == "id"
-    assert len(dataset.schema) == 3
-    # Note: we're auto-inferring the schema using pyarrow, not using the fixture's int32 schema, so it ends up as int64
-    assert dataset.schema["id"].datatype == Datatype("int64")
-    assert dataset.schema["name"].datatype == Datatype("string")
-    assert dataset.schema["age"].datatype == Datatype("int64")
-
-
-def test_from_parquet_glob_path_schema_modes(
-    tmp_path, sample_pydict, sample_schema_overlap_pydict
-):
-    """Test creating Dataset from multiple parquet files with different schema modes"""
-    # First create sample parquet files
-    sample_pydict_path = tmp_path / "sample_pydict.parquet"
-    sample_schema_overlap_pydict_path = (
-        tmp_path / "sample_schema_overlap_pydict.parquet"
-    )
-    write_parquet_file_from_dict(sample_pydict_path, sample_pydict)
-    write_parquet_file_from_dict(
-        sample_schema_overlap_pydict_path, sample_schema_overlap_pydict
-    )
-
-    # Test intersect schema mode (default)
-    dataset_intersect = Dataset.from_parquet(
-        str(tmp_path), primary_key="id", schema_mode="intersect"
-    )
-    assert len(dataset_intersect.field_groups) == 1
-    assert isinstance(dataset_intersect.field_groups[0], GlobPathFieldGroup)
-    assert dataset_intersect.schema.primary_key.name == "id"
-    assert len(dataset_intersect.schema) == 2  # Only common columns: 'id' and 'name'
-    assert "id" in dataset_intersect.schema
-    assert "name" in dataset_intersect.schema
-    assert "age" not in dataset_intersect.schema
-    assert "zip" not in dataset_intersect.schema
-
-    # Test union schema mode
-    dataset_union = Dataset.from_parquet(
-        str(tmp_path), primary_key="id", schema_mode="union"
-    )
-    assert len(dataset_union.field_groups) == 1
-    assert isinstance(dataset_union.field_groups[0], GlobPathFieldGroup)
-    assert dataset_union.schema.primary_key.name == "id"
-    assert len(dataset_union.schema) == 4  # All columns: 'id', 'name', 'age', 'zip'
-    assert dataset_union.schema["id"].datatype == Datatype("int64")
-    assert dataset_union.schema["name"].datatype == Datatype("string")
-    assert dataset_union.schema["age"].datatype == Datatype("int64")
-    assert dataset_union.schema["zip"].datatype == Datatype("int64")
-
-
-def test_from_parquet_separate_uris(
-    tmp_path, sample_pydict, sample_schema_overlap_pydict
-):
-    """Test that file_uri and base_uri are handled separately"""
-    # Create sample parquet files
-    sample_pydict_path = tmp_path / "sample_pydict.parquet"
-    write_parquet_file_from_dict(sample_pydict_path, sample_pydict)
-
-    # Different paths for file_uri and base_uri
-    file_uri = str(tmp_path)
-    base_uri = str(tmp_path / "some-other-metadata-path")
-
-    # Create dataset with separate uris
-    dataset = Dataset.from_parquet(
-        primary_key="id", file_uri=file_uri, base_uri=base_uri
-    )
-
-    assert dataset.base_uri == base_uri
-    assert len(dataset.schema) == 3  # Verify schema still works
+        dataset.add_fields(
+            fields=[("id", Datatype.int32()), ("name", Datatype.string())],
+            merge_keys=["does_not_exist"],
+        )
