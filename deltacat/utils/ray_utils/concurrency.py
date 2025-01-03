@@ -58,6 +58,8 @@ def invoke_parallel(
 
         opt = {}
         if options_provider:
+            print(f"options_provider_I:{i}")
+            print(f"options_provider_item:{item}")
             opt = options_provider(i, item)
         if not kwargs_provider:
             pending_id = ray_task.options(**opt).remote(item, *args, **kwargs)
