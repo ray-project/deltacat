@@ -188,6 +188,16 @@ class Schema(MutableMapping[str, Field]):
     def __iter__(self):
         return iter(self._fields.keys())
 
+    def __hash__(self):
+        return hash((frozenset(self._fields.items())))
+
+    def __eq__(self, other):
+        if isinstance(other, Schema):
+            return (
+                self._fields == other._fields
+            )
+        return False
+
     def add_field(self, field: Field):
         """Adds a Field object using its name as the key"""
         self[field.name] = field
