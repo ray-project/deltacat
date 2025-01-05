@@ -154,7 +154,7 @@ def s3_file_to_dataframe(
     s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
     logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
     pd_read_func = CONTENT_TYPE_TO_PD_READ_FUNC[content_type]
-    args = [io.BytesIO(s3_obj["Body"].read())]
+    args = [io.BytesIO(s3_obj["Body"].current())]
     kwargs = content_type_to_reader_kwargs(content_type)
     _add_column_kwargs(content_type, column_names, include_columns, kwargs)
 

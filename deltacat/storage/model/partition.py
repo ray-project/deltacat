@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import copy
+import posixpath
 
 import pyarrow
 import pyarrow as pa
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
 from deltacat.storage.model.schema import (
     FieldLocator,
     Schema,
@@ -49,7 +50,6 @@ class Partition(Metafile):
         previous_stream_position: Optional[int] = None,
         previous_partition_id: Optional[str] = None,
         stream_position: Optional[int] = None,
-        next_partition_id: Optional[str] = None,
         partition_scheme_id: Optional[str] = None,
     ) -> Partition:
         partition = Partition()
@@ -60,7 +60,6 @@ class Partition(Metafile):
         partition.previous_stream_position = previous_stream_position
         partition.previous_partition_id = previous_partition_id
         partition.stream_position = stream_position
-        partition.next_partition_id = next_partition_id
         partition.partition_scheme_id = partition_scheme_id
         return partition
 
@@ -133,14 +132,6 @@ class Partition(Metafile):
     @stream_position.setter
     def stream_position(self, stream_position: Optional[int]):
         self["streamPosition"] = stream_position
-
-    @property
-    def next_partition_id(self) -> Optional[str]:
-        return self.get("nextPartitionId")
-
-    @next_partition_id.setter
-    def next_partition_id(self, next_partition_id: Optional[str]):
-        self["nextPartitionId"] = next_partition_id
 
     @property
     def partition_scheme_id(self) -> Optional[str]:
@@ -257,11 +248,23 @@ class Partition(Metafile):
         )
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
+            parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
+                base_metafile_path=path,
+                parent_number=3,
+            )
+            txn_log_dir = posixpath.join(
+                posixpath.dirname(
+                    posixpath.dirname(
+                        posixpath.dirname(parent_rev_dir_path),
+                    )
+                ),
+                TXN_DIR_NAME,
+            )
             table = Table.read(
-                MetafileCommitInfo.read(
-                    base_metafile_path=path,
+                MetafileCommitInfo.current(
+                    commit_dir_path=parent_rev_dir_path,
                     filesystem=filesystem,
-                    parent_number=3,
+                    txn_log_dir=txn_log_dir,
                 ).path,
                 filesystem,
             )

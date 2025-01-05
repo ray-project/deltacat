@@ -1,3 +1,4 @@
+import copy
 import shutil
 import unittest
 import tempfile
@@ -215,7 +216,6 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
         previous_stream_position=0,
         previous_partition_id="test_previous_partition_id",
         stream_position=1,
-        next_partition_id="test_next_partition_id",
         partition_scheme_id="test_partition_scheme_id",
     )
 
@@ -308,7 +308,8 @@ class TestMetafileIO(unittest.TestCase):
             commit_results = _commit_single_delta_table(temp_dir)
             for expected, actual, _ in commit_results:
                 assert expected == actual
-            expected_table = commit_results[1][1]
+            previous_table = commit_results[1][1]
+            expected_table = copy.deepcopy(commit_results[1][1])
             expected_table.locator = TableLocator.at(
                 namespace="test_namespace",
                 table_name="test_table_renamed",
@@ -317,6 +318,7 @@ class TestMetafileIO(unittest.TestCase):
                 TransactionOperation.of(
                     TransactionOperationType.UPDATE,
                     expected_table,
+                    previous_table,
                 )
             ]
             transaction = Transaction.of(
@@ -341,24 +343,19 @@ class TestMetafileIO(unittest.TestCase):
             assert actual_table_name == "test_table_renamed"
 
             # ensure the initial metafiles read return the original table name
-            previous_table_name = Delta(commit_results[5][1]).table_name
-            assert (
-                previous_table_name == commit_results[5][0].table_name == "test_table"
-            )
-            previous_table_name = Partition(commit_results[4][1]).table_name
-            assert (
-                previous_table_name == commit_results[4][0].table_name == "test_table"
-            )
-            previous_table_name = Stream(commit_results[3][1]).table_name
-            assert (
-                previous_table_name == commit_results[3][0].table_name == "test_table"
-            )
-            previous_table_name = TableVersion(commit_results[2][1]).table_name
-            assert (
-                previous_table_name == commit_results[2][0].table_name == "test_table"
-            )
+            prev_table_name = Delta(commit_results[5][1]).table_name
+            assert prev_table_name == commit_results[5][0].table_name == "test_table"
+            prev_table_name = Partition(commit_results[4][1]).table_name
+            assert prev_table_name == commit_results[4][0].table_name == "test_table"
+            prev_table_name = Stream(commit_results[3][1]).table_name
+            assert prev_table_name == commit_results[3][0].table_name == "test_table"
+            prev_table_name = TableVersion(commit_results[2][1]).table_name
+            assert prev_table_name == commit_results[2][0].table_name == "test_table"
+
+            # TODO(pdames): Ensure that read-from/write-to old table name fails
         finally:
-            shutil.rmtree(temp_dir)
+            # shutil.rmtree(temp_dir)
+            pass
 
     def test_rename_namespace(self):
         temp_dir = tempfile.gettempdir()
@@ -367,7 +364,8 @@ class TestMetafileIO(unittest.TestCase):
             commit_results = _commit_single_delta_table(temp_dir)
             for expected, actual, _ in commit_results:
                 assert expected == actual
-            expected_namespace = commit_results[0][1]
+            previous_namespace = commit_results[0][1]
+            expected_namespace = copy.deepcopy(commit_results[0][1])
             expected_namespace.locator = NamespaceLocator.of(
                 namespace="test_namespace_renamed",
             )
@@ -375,6 +373,7 @@ class TestMetafileIO(unittest.TestCase):
                 TransactionOperation.of(
                     TransactionOperationType.UPDATE,
                     expected_namespace,
+                    previous_namespace,
                 )
             ]
             transaction = Transaction.of(
@@ -401,26 +400,18 @@ class TestMetafileIO(unittest.TestCase):
             assert actual_namespace == "test_namespace_renamed"
 
             # ensure the initial metafiles read return the original namespace name
-            previous_namespace = Delta(commit_results[5][1]).namespace
-            assert (
-                previous_namespace == commit_results[5][0].namespace == "test_namespace"
-            )
-            previous_namespace = Partition(commit_results[4][1]).namespace
-            assert (
-                previous_namespace == commit_results[4][0].namespace == "test_namespace"
-            )
-            previous_namespace = Stream(commit_results[3][1]).namespace
-            assert (
-                previous_namespace == commit_results[3][0].namespace == "test_namespace"
-            )
-            previous_namespace = TableVersion(commit_results[2][1]).namespace
-            assert (
-                previous_namespace == commit_results[2][0].namespace == "test_namespace"
-            )
-            previous_namespace = Table(commit_results[1][1]).namespace
-            assert (
-                previous_namespace == commit_results[1][0].namespace == "test_namespace"
-            )
+            prev_namespace = Delta(commit_results[5][1]).namespace
+            assert prev_namespace == commit_results[5][0].namespace == "test_namespace"
+            prev_namespace = Partition(commit_results[4][1]).namespace
+            assert prev_namespace == commit_results[4][0].namespace == "test_namespace"
+            prev_namespace = Stream(commit_results[3][1]).namespace
+            assert prev_namespace == commit_results[3][0].namespace == "test_namespace"
+            prev_namespace = TableVersion(commit_results[2][1]).namespace
+            assert prev_namespace == commit_results[2][0].namespace == "test_namespace"
+            prev_namespace = Table(commit_results[1][1]).namespace
+            assert prev_namespace == commit_results[1][0].namespace == "test_namespace"
+
+            # TODO(pdames): Ensure that read-from/write-to old namespace name fails
         finally:
             shutil.rmtree(temp_dir)
 
@@ -664,7 +655,6 @@ class TestMetafileIO(unittest.TestCase):
             previous_stream_position=0,
             previous_partition_id="test_previous_partition_id",
             stream_position=1,
-            next_partition_id="test_next_partition_id",
             partition_scheme_id="test_partition_scheme_id",
         )
         try:

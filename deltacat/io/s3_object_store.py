@@ -35,7 +35,7 @@ class S3ObjectStore(IObjectStore):
         start = time.monotonic()
         for ref in refs:
             cur = s3_utils.download(f"s3://{self.bucket}/{ref}")
-            serialized = cur["Body"].read()
+            serialized = cur["Body"].current()
             loaded = cloudpickle.loads(serialized)
             result.append(loaded)
         end = time.monotonic()

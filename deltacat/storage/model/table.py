@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import posixpath
 from typing import Any, Dict, Optional, List
 
 import pyarrow
@@ -11,7 +12,7 @@ from deltacat.storage.model.namespace import (
     NamespaceLocator,
     Namespace,
 )
-from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
 
 TableProperties = Dict[str, Any]
 
@@ -108,11 +109,21 @@ class Table(Metafile):
     ) -> Table:
         # restore the namespace locator from its mapped immutable metafile ID
         if self.namespace_locator and self.namespace_locator.namespace == self.id:
+            parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
+                base_metafile_path=path,
+                parent_number=1,
+            )
+            txn_log_dir = posixpath.join(
+                posixpath.dirname(
+                    posixpath.dirname(parent_rev_dir_path),
+                ),
+                TXN_DIR_NAME,
+            )
             namespace = Namespace.read(
-                MetafileCommitInfo.read(
-                    base_metafile_path=path,
+                MetafileCommitInfo.current(
+                    commit_dir_path=parent_rev_dir_path,
                     filesystem=filesystem,
-                    parent_number=1,
+                    txn_log_dir=txn_log_dir,
                 ).path,
                 filesystem,
             )

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import posixpath
 
 import pyarrow
 
@@ -9,7 +10,7 @@ import deltacat.storage.model.partition as partition
 
 from typing import Any, Dict, Optional, List
 
-from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
 from deltacat.storage.model.locator import (
     Locator,
     LocatorName,
@@ -184,11 +185,23 @@ class Stream(Metafile):
     ) -> Stream:
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
+            parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
+                base_metafile_path=path,
+                parent_number=2,
+            )
+            txn_log_dir = posixpath.join(
+                posixpath.dirname(
+                    posixpath.dirname(
+                        posixpath.dirname(parent_rev_dir_path),
+                    )
+                ),
+                TXN_DIR_NAME,
+            )
             table = Table.read(
-                MetafileCommitInfo.read(
-                    base_metafile_path=path,
+                MetafileCommitInfo.current(
+                    commit_dir_path=parent_rev_dir_path,
                     filesystem=filesystem,
-                    parent_number=2,
+                    txn_log_dir=txn_log_dir,
                 ).path,
                 filesystem,
             )
