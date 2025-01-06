@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import MutableMapping, Dict, Iterable, Tuple, Optional
 
 import pyarrow as pa
@@ -8,19 +8,11 @@ import pyarrow as pa
 from deltacat.storage.rivulet.schema.datatype import Datatype
 
 
-@dataclass
+@dataclass(frozen=True)
 class Field:
     name: str
     datatype: Datatype
     is_merge_key: bool = False
-
-    def __dict__(self):
-        # Enable field lookup by name
-        return {"name": self.name}
-
-    def __hash__(self):
-        return hash((self.name, self.datatype, self.is_merge_key))
-
 
 class Schema(MutableMapping[str, Field]):
     """
@@ -107,6 +99,19 @@ class Schema(MutableMapping[str, Field]):
         # Add all other fields (including other merge keys)
         for field in processed_fields:
             self.add_field(field)
+
+    @classmethod
+    def from_dict(cls, data):
+        fields = [
+            Field(
+                name=field_data["name"],
+                datatype=Datatype(**field_data["datatype"]) if isinstance(field_data["datatype"], dict) else field_data[
+                    "datatype"],
+                is_merge_key=field_data["is_merge_key"],
+            )
+            for field_data in data["fields"]
+        ]
+        return cls(fields)
 
     @classmethod
     def from_pyarrow(
@@ -197,6 +202,10 @@ class Schema(MutableMapping[str, Field]):
                 self._fields == other._fields
             )
         return False
+
+    # Has a spurious type check problem in @dataclass + asdict(): https://youtrack.jetbrains.com/issue/PY-76059/Incorrect-Type-warning-with-asdict-and-Dataclass
+    def to_dict(self):
+        return {"fields": [asdict(field) for field in self._fields.values()]}
 
     def add_field(self, field: Field):
         """Adds a Field object using its name as the key"""

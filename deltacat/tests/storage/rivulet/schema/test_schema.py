@@ -10,11 +10,6 @@ def test_field_initialization():
     assert field.is_merge_key
 
 
-def test_field_dict_conversion():
-    field = Field(name="test_field", datatype=Datatype.int32())
-    assert field.__dict__() == {"name": "test_field"}
-
-
 def test_schema_initialization():
     fields = [("id", Datatype.int64()), ("name", Datatype.string())]
     schema = Schema(fields, merge_keys=["id"])

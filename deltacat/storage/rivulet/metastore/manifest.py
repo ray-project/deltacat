@@ -89,7 +89,7 @@ class JsonManifestIO(ManifestIO):
                         "data_files": list(data_files),
                         "sst_files": list(sst_files),
                         "level": level,
-                        "schema": schema.__dict__(),
+                        "schema": schema.to_dict()
                     }
                 ).encode()
             )
@@ -99,7 +99,7 @@ class JsonManifestIO(ManifestIO):
             data = json.loads(f.read())
         data_files = data["data_files"]
         sst_files = data["sst_files"]
-        schema = Schema.from_json(data["schema"])
+        schema = Schema.from_dict(data["schema"])
         stream_position = file.location  # TODO: use the actual stream position
         level = data.get(
             "level", 0
