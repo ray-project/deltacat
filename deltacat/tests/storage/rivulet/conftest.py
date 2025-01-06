@@ -48,9 +48,9 @@ def ds1_dataset() -> MvpTable:
 def ds1_schema():
     return Schema(
         {
-            "id": Field("id", Datatype.int32()),
-            "name": Field("name", Datatype.string()),
-            "age": Field("age", Datatype.int32()),
+            ("id", Datatype.int32()),
+            ("name", Datatype.string()),
+            ("age", Datatype.int32()),
         },
         "id",
     )
@@ -82,9 +82,9 @@ def ds2_dataset():
 def ds2_schema():
     return Schema(
         {
-            "id": Field("id", Datatype.int32()),
-            "address": Field("address", Datatype.string()),
-            "zip": Field("zip", Datatype.string()),
+            ("id", Datatype.int32()),
+            ("address", Datatype.string()),
+            ("zip", Datatype.string()),
         },
         "id",
     )
@@ -94,11 +94,11 @@ def ds2_schema():
 def combined_schema(ds1_schema, ds2_schema):
     return Schema(
         {
-            "id": Field("id", Datatype.int32()),
-            "address": Field("address", Datatype.string()),
-            "zip": Field("zip", Datatype.string()),
-            "name": Field("name", Datatype.string()),
-            "age": Field("age", Datatype.int32()),
+            ("id", Datatype.int32()),
+            ("address", Datatype.string()),
+            ("zip", Datatype.string()),
+            ("name", Datatype.string()),
+            ("age", Datatype.int32()),
         },
         "id",
     )
@@ -114,9 +114,9 @@ def dataset_images_with_label() -> (MvpTable, Schema):
     fake = Faker()
     schema = Schema(
         {
-            "id": Field("id", Datatype.int32()),
-            "image": Field("image", Datatype.image("jpg")),
-            "label": Field("label", Datatype.string()),
+            ("id", Datatype.int32()),
+            ("image", Datatype.image("jpg")),
+            ("label", Datatype.string()),
         },
         "id",
     )

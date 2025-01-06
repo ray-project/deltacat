@@ -44,7 +44,7 @@ class ArrowSerializer(DataSerializer, ABC):
         """
         Get min and max primary key values from table
         """
-        key_col = table[self.schema.primary_key.name]
+        key_col = table[self.schema.get_merge_key()]
         return key_col[0].as_py(), key_col[len(key_col) - 1].as_py()
 
     def flush_batch(self, sorted_records: MEMTABLE_DATA) -> List[SSTableRow]:

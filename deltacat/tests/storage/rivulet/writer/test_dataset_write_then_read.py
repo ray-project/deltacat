@@ -35,13 +35,11 @@ MemtableDatasetWriter.MAX_ROW_SIZE = 100
 
 class TestBasicEndToEnd:
     temp_dir = None
-    file_store: FileStore
 
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.dataset: Dataset = Dataset(cls.temp_dir)
-        cls.file_store = FileStore()
+        cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
 
     @classmethod
     def teardown_class(cls):
@@ -49,21 +47,20 @@ class TestBasicEndToEnd:
         pass
 
     @pytest.fixture
-    def ds1_field_group(self, ds1_schema: Schema, ds1_dataset: MvpTable):
-        field_group = self.dataset.new_field_group(ds1_schema)
-        with self.dataset.writer(field_group) as writer:
+    def ds1_schema(self, ds1_schema: Schema, ds1_dataset: MvpTable):
+        self.dataset.add_schema(ds1_schema, "ds1_schema")
+        with self.dataset.writer("ds1_schema") as writer:
             write_mvp_table(writer, ds1_dataset)
-        return field_group
+        return ds1_schema
 
-    def test_end_to_end_scan_pydict(self, ds1_field_group, ds1_dataset):
-        # Read out dataset written to ds1_field_group fixture, with full scan
+    def test_end_to_end_scan_pydict(self, ds1_schema, ds1_dataset):
+        # Read out dataset written to ds1_schema fixture, with full scan
         read_records: List[Dict] = list(
             self.dataset.scan(QueryExpression()).to_pydict()
         )  # compare all_records to ds1
-        pk = ds1_field_group.schema.primary_key.name
-        compare_mvp_table_to_scan_results(ds1_dataset, read_records, pk)
+        compare_mvp_table_to_scan_results(ds1_dataset, read_records, ds1_schema.get_merge_key())
 
-    def test_end_to_end_scan_key_range(self, ds1_field_group, ds1_dataset):
+    def test_end_to_end_scan_key_range(self, ds1_schema, ds1_dataset):
         read_records_range: List[Dict] = list(
             self.dataset.scan(
                 QueryExpression().with_primary_range(100, 500)
@@ -71,18 +68,17 @@ class TestBasicEndToEnd:
         )
         assert len(read_records_range) == 401
 
-    def test_end_to_end_scan_single_key(self, ds1_field_group, ds1_dataset):
+    def test_end_to_end_scan_single_key(self, ds1_schema, ds1_dataset):
         read_records_single_key: List[Dict] = list(
             self.dataset.scan(QueryExpression().with_primary_key(600)).to_pydict()
         )
         assert len(read_records_single_key) == 1
         assert read_records_single_key[0]["id"] == 600
 
-    def test_end_to_end_scan_pyarrow(self, ds1_field_group, ds1_dataset):
+    def test_end_to_end_scan_pyarrow(self, ds1_schema, ds1_dataset):
         batches: Iterator[RecordBatch] = self.dataset.scan(QueryExpression()).to_arrow()
         read_records = [record for batch in batches for record in batch.to_pylist()]
-        pk = ds1_field_group.schema.primary_key.name
-        compare_mvp_table_to_scan_results(ds1_dataset, read_records, pk)
+        compare_mvp_table_to_scan_results(ds1_dataset, read_records, ds1_schema.get_merge_key())
 
 
 class TestMultiLayerCompactionEndToEnd:
@@ -111,7 +107,7 @@ class TestMultiLayerCompactionEndToEnd:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.dataset: Dataset = Dataset(cls.temp_dir)
+        cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
         cls.file_store = FileStore()
         cls.manifest_io = JsonManifestIO()
 
@@ -183,17 +179,17 @@ class TestMultiLayerCompactionEndToEnd:
         self, ds1_schema, ds1_dataset, l2_ignored, l0_overwrite, l1_overwrite
     ):
         print(f"Writing test data to directory {self.temp_dir}")
-        field_group = self.dataset.new_field_group(ds1_schema)
+        self.dataset.add_schema(ds1_schema, "ds1_schema")
         # oldest at L0 (should take precedence)
-        self.write_dataset(field_group, l0_overwrite)
+        self.write_dataset("ds1_schema", l0_overwrite)
         # original dataset (at L1)
-        uri = self.write_dataset(field_group, ds1_dataset)
+        uri = self.write_dataset("ds1_schema", ds1_dataset)
         self.rewrite_at_level(uri, 1)
         # newer dataset at L1 (should take precedence)
-        uri = self.write_dataset(field_group, l1_overwrite)
+        uri = self.write_dataset("ds1_schema", l1_overwrite)
         self.rewrite_at_level(uri, 1)
         # newer at L2 (loses out to L0 data)
-        uri = self.write_dataset(field_group, l2_ignored)
+        uri = self.write_dataset("ds1_schema", l2_ignored)
         self.rewrite_at_level(uri, 2)
 
     def test_end_to_end_scan(self, ds1_written_uri, ds1_schema, expected_dataset):
@@ -201,12 +197,12 @@ class TestMultiLayerCompactionEndToEnd:
         read_records: List[Dict] = list(
             self.dataset.scan(QueryExpression()).to_pydict()
         )
-        pk = ds1_schema.primary_key.name
-        rows_by_pk: Dict[str, MvpRow] = expected_dataset.to_rows_by_pk(pk)
-        assert len(read_records) == len(rows_by_pk)
+        key = ds1_schema.get_merge_key()
+        rows_by_key: Dict[str, MvpRow] = expected_dataset.to_rows_by_key(key)
+        assert len(read_records) == len(rows_by_key)
         for record in read_records:
-            pk_val = record[pk]
-            assert record == rows_by_pk[pk_val].data
+            pk_val = record[key]
+            assert record == rows_by_key[pk_val].data
 
         # Test scan primary key range
         read_records_range: List[Dict] = list(
@@ -223,8 +219,8 @@ class TestMultiLayerCompactionEndToEnd:
         assert len(read_records_single_key) == 1
         assert read_records_single_key[0]["id"] == 600
 
-    def write_dataset(self, field_group, dataset) -> str:
-        ds1_writer = self.dataset.writer(field_group)
+    def write_dataset(self, schema_name: str, dataset) -> str:
+        ds1_writer = self.dataset.writer(schema_name)
         write_mvp_table(ds1_writer, dataset)
         return ds1_writer.flush()
 
@@ -252,7 +248,7 @@ class TestZipperMergeEndToEnd:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.dataset: Dataset = Dataset(cls.temp_dir)
+        cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
         cls.file_store = FileStore()
 
     @classmethod
@@ -260,23 +256,23 @@ class TestZipperMergeEndToEnd:
         shutil.rmtree(cls.temp_dir)
 
     @pytest.fixture
-    def field_group1(self, ds1_dataset: MvpTable, ds1_schema: Schema):
-        field_group = self.dataset.new_field_group(ds1_schema)
-        with self.dataset.writer(field_group) as writer:
+    def schema1(self, ds1_dataset: MvpTable, ds1_schema: Schema):
+        self.dataset.add_schema(ds1_schema, "ds1_schema")
+        with self.dataset.writer("ds1_schema") as writer:
             write_mvp_table(writer, ds1_dataset)
-        return field_group
+        return ds1_schema
 
     @pytest.fixture
-    def field_group2(self, ds2_dataset: MvpTable, ds2_schema: Schema):
-        field_group = self.dataset.new_field_group(ds2_schema)
-        with self.dataset.writer(field_group) as writer:
+    def schema2(self, ds2_dataset: MvpTable, ds2_schema: Schema):
+        self.dataset.add_schema(ds2_schema, "ds2_schema")
+        with self.dataset.writer("ds2_schema") as writer:
             write_mvp_table(writer, ds2_dataset)
-        return field_group
+        return ds2_schema
 
     def test_end_to_end_scan(
         self,
-        field_group1,
-        field_group2,
+        schema1,
+        schema2,
         ds1_schema,
         ds1_dataset,
         ds2_dataset,
@@ -287,13 +283,13 @@ class TestZipperMergeEndToEnd:
             self.dataset.scan(QueryExpression()).to_pydict()
         )
 
-        pk = ds1_schema.primary_key.name
-        ds1_rows_by_pk: Dict[str, MvpRow] = ds1_dataset.to_rows_by_pk(pk)
-        ds2_rows_by_pk: Dict[str, MvpRow] = ds2_dataset.to_rows_by_pk(pk)
+        merge_key = ds1_schema.get_merge_key()
+        ds1_rows_by_pk: Dict[str, MvpRow] = ds1_dataset.to_rows_by_key(merge_key)
+        ds2_rows_by_pk: Dict[str, MvpRow] = ds2_dataset.to_rows_by_key(merge_key)
 
         assert len(read_records) == len(ds1_rows_by_pk)
         for record in read_records:
-            pk_val = record[pk]
+            pk_val = record[merge_key]
             ds1_row = ds1_rows_by_pk[pk_val]
             ds2_row = ds2_rows_by_pk[pk_val]
             expected_merged_record = ds1_row.data | ds2_row.data
@@ -333,12 +329,12 @@ class TestDataFormatSupport:
     def test_mixed_content_dataset(self, dataset_images_with_label):
         dataset = create_dataset_for_method(self.temp_dir)
         table, schema = dataset_images_with_label
-        field_group = dataset.new_field_group(schema)
-        with dataset.writer(field_group, "feather") as writer:
+        dataset.add_schema(schema, "schema")
+        with dataset.writer("schema", "feather") as writer:
             record_batch = mvp_table_to_record_batches(table, schema)
             writer.write([record_batch])
 
-        with dataset.writer(field_group, "parquet") as writer:
+        with dataset.writer("schema", "parquet") as writer:
             record_batch = mvp_table_to_record_batches(table, schema)
             writer.write([record_batch])
 

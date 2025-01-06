@@ -255,6 +255,21 @@ def test_add_schema_conflicting_fields(tmp_path):
     with pytest.raises(ValueError, match="already exists"):
         dataset.add_schema(schema_2, schema_name="conflicting_group")
 
+    schema_3 = Schema(
+        [
+            ("id", Datatype.int32()),  # Conflict: datatype mismatch
+            ("age", Datatype.int32()),
+        ],
+        merge_keys=["id"],
+    )
+
+    dataset.add_schema(schema_3, schema_name="conflicting_group")
+    assert "conflicting_group" in dataset.schemas
+    assert len(dataset.schemas["conflicting_group"]) == 3
+    assert dataset.schemas["conflicting_group"]["id"].datatype == Datatype.int32()
+    assert dataset.schemas["conflicting_group"]["name"].datatype == Datatype.string()
+    assert dataset.schemas["conflicting_group"]["age"].datatype == Datatype.int32()
+
 
 def test_add_schema_to_nonexistent_schemas(tmp_path):
     """Test adding a schema to a nonexistent field group."""

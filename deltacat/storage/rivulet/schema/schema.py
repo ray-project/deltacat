@@ -211,6 +211,20 @@ class Schema(MutableMapping[str, Field]):
         """Adds a Field object using its name as the key"""
         self[field.name] = field
 
+    def get_merge_keys(self) -> Iterable[str]:
+        """Return a list of all merge keys."""
+        return [
+            field.name for field in self._fields.values() if field.is_merge_key
+        ]
+
+    def get_merge_key(self) -> str:
+        """Returns a single merge key if there is one, or raises if not. Used for simple schemas w/ a single key"""
+        # Get the merge key
+        merge_keys = list(self.get_merge_keys())
+        if len(merge_keys) != 1:
+            raise ValueError(f"Schema must have exactly one merge key, but found {merge_keys}")
+        return merge_keys[0]
+
     def merge(self, other: Schema) -> None:
         """Merges another schema's fields into the current schema."""
         if not other:

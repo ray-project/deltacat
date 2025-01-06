@@ -348,7 +348,9 @@ class Dataset:
         # Check for any fields that already exist
         for field in schema.values():
             if field.name in self.schemas["all"]:
-                raise ValueError(f"Field '{field.name}' already exists.")
+                existing_field = self.schemas["all"][field.name]
+                if existing_field is not None and field != existing_field:
+                    raise ValueError(f"Field '{field.name}' already exists and is of a different type: New({field}) Existing({existing_field}).")
 
         # Begin adding fields, this must be completed as a transaction w/o error or the field maps will be
         # left in an undefined state.
@@ -364,34 +366,26 @@ class Dataset:
 
     def get_merge_keys(self) -> Iterable[str]:
         """Return a list of all merge keys."""
-        return [
-            field.name for field in self.schemas["all"].values() if field.is_merge_key
-        ]
+        return self.schemas["all"].get_merge_keys()
 
     def writer(
         self,
-        schemas: Schema | Iterable[Schema] = None,
+        schema_name: str = None,
         file_format: str | None = None,
     ) -> DatasetWriter:
         """Create a new (stateful) writer using the schema at the conjunction of given schemas.
 
         Invoking this will register any unregistered schemas.
 
-        :param schemas: one or more schemas that form the schema of the data being written.
-                             If None, uses the dataset-level schema
+        :param schema_name: The schema to use for write, if None, uses the 'all' schema
         :param file_format Write data to this format. Options are [parquet, feather]. If not specified, library will choose
             based on schema
         :return: new dataset writer with a schema at the conjunction of the given schemas
         """
-        # Listify single schema
-        schemas = [schemas] if not isinstance(schemas, Iterable) else schemas
-        # If no schema was specified, use 'all' schema
-        if not schemas:
-            schemas = self.schemas["all"]
+        schema_name = schema_name or "all"
 
-        merged_schema = Schema.merge_all(schemas)
         return MemtableDatasetWriter(
-            self._location_provider, merged_schema, file_format
+            self._location_provider, self.schemas[schema_name], file_format
         )
 
     def scan(
