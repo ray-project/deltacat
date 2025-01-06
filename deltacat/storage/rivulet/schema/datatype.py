@@ -126,4 +126,3 @@ class Datatype:
             return pa.binary()
         else:
             raise ValueError(f"Unsupported type conversion to pa: {self.type_name}")
-

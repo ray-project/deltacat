@@ -6,7 +6,6 @@ from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.writer.memtable_dataset_writer import (
     MemtableDatasetWriter,
 )
-from rivulet.fs.file_location_provider import FileLocationProvider
 from ..test_utils import (
     write_mvp_table,
     mvp_table_to_record_batches,

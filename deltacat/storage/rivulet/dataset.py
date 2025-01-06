@@ -350,7 +350,9 @@ class Dataset:
             if field.name in self.schemas["all"]:
                 existing_field = self.schemas["all"][field.name]
                 if existing_field is not None and field != existing_field:
-                    raise ValueError(f"Field '{field.name}' already exists and is of a different type: New({field}) Existing({existing_field}).")
+                    raise ValueError(
+                        f"Field '{field.name}' already exists and is of a different type: New({field}) Existing({existing_field})."
+                    )
 
         # Begin adding fields, this must be completed as a transaction w/o error or the field maps will be
         # left in an undefined state.

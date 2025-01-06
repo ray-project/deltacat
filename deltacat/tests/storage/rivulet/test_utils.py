@@ -53,7 +53,9 @@ def compare_mvp_table_to_scan_results(
 def validate_with_full_scan(dataset: Dataset, expected: MvpTable, schema: Schema):
     # best way to validate is to use dataset reader and read records
     read_records = list(dataset.scan(QueryExpression()).to_pydict())
-    compare_mvp_table_to_scan_results(expected, read_records, list(dataset.get_merge_keys())[0])
+    compare_mvp_table_to_scan_results(
+        expected, read_records, list(dataset.get_merge_keys())[0]
+    )
 
 
 def generate_data_files(dataset: Dataset) -> Generator[str, None, None]:
@@ -102,4 +104,6 @@ def create_dataset_for_method(temp_dir: str):
     caller_frame = inspect.getouterframes(inspect.currentframe())[1]
     dataset_dir = os.path.join(temp_dir, caller_frame.function)
     os.makedirs(dataset_dir)
-    return Dataset(dataset_name=f"dataset-${caller_frame.function}", metadata_uri=dataset_dir)
+    return Dataset(
+        dataset_name=f"dataset-${caller_frame.function}", metadata_uri=dataset_dir
+    )

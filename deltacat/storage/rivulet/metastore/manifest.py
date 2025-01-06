@@ -89,7 +89,7 @@ class JsonManifestIO(ManifestIO):
                         "data_files": list(data_files),
                         "sst_files": list(sst_files),
                         "level": level,
-                        "schema": schema.to_dict()
+                        "schema": schema.to_dict(),
                     }
                 ).encode()
             )

@@ -14,6 +14,7 @@ class Field:
     datatype: Datatype
     is_merge_key: bool = False
 
+
 class Schema(MutableMapping[str, Field]):
     """
     A mutable mapping representing a schema for structured data, requiring at least one merge key field.
@@ -105,8 +106,9 @@ class Schema(MutableMapping[str, Field]):
         fields = [
             Field(
                 name=field_data["name"],
-                datatype=Datatype(**field_data["datatype"]) if isinstance(field_data["datatype"], dict) else field_data[
-                    "datatype"],
+                datatype=Datatype(**field_data["datatype"])
+                if isinstance(field_data["datatype"], dict)
+                else field_data["datatype"],
                 is_merge_key=field_data["is_merge_key"],
             )
             for field_data in data["fields"]
@@ -198,9 +200,7 @@ class Schema(MutableMapping[str, Field]):
 
     def __eq__(self, other):
         if isinstance(other, Schema):
-            return (
-                self._fields == other._fields
-            )
+            return self._fields == other._fields
         return False
 
     # Has a spurious type check problem in @dataclass + asdict(): https://youtrack.jetbrains.com/issue/PY-76059/Incorrect-Type-warning-with-asdict-and-Dataclass
@@ -213,16 +213,16 @@ class Schema(MutableMapping[str, Field]):
 
     def get_merge_keys(self) -> Iterable[str]:
         """Return a list of all merge keys."""
-        return [
-            field.name for field in self._fields.values() if field.is_merge_key
-        ]
+        return [field.name for field in self._fields.values() if field.is_merge_key]
 
     def get_merge_key(self) -> str:
         """Returns a single merge key if there is one, or raises if not. Used for simple schemas w/ a single key"""
         # Get the merge key
         merge_keys = list(self.get_merge_keys())
         if len(merge_keys) != 1:
-            raise ValueError(f"Schema must have exactly one merge key, but found {merge_keys}")
+            raise ValueError(
+                f"Schema must have exactly one merge key, but found {merge_keys}"
+            )
         return merge_keys[0]
 
     def merge(self, other: Schema) -> None:

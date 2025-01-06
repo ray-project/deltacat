@@ -11,7 +11,7 @@ from deltacat.storage.rivulet.metastore.sst_interval_tree import (
     Block,
 )
 from deltacat.storage.rivulet.schema.datatype import Datatype
-from deltacat.storage.rivulet import Schema, Field
+from deltacat.storage.rivulet import Schema
 
 
 @pytest.fixture

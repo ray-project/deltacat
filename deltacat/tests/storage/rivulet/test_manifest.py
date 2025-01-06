@@ -4,7 +4,11 @@ from typing import Set
 from deltacat.tests.storage.rivulet.test_utils import make_tmpdir
 from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.metastore.manifest import JsonManifestIO, ManifestContext, Manifest
+from deltacat.storage.rivulet.metastore.manifest import (
+    JsonManifestIO,
+    ManifestContext,
+    Manifest,
+)
 from deltacat.storage.rivulet import Schema
 
 
@@ -56,10 +60,14 @@ def test_manifest_hash():
     )
 
     # Test hashes for identical manifests
-    assert hash(manifest1) == hash(manifest2), "Hashes for identical manifests should match."
+    assert hash(manifest1) == hash(
+        manifest2
+    ), "Hashes for identical manifests should match."
 
     # Test hashes for different manifests
-    assert hash(manifest1) != hash(manifest3), "Hashes for different manifests should not match."
+    assert hash(manifest1) != hash(
+        manifest3
+    ), "Hashes for different manifests should not match."
 
     # Test using manifests in a set
     manifest_set: Set[Manifest] = {manifest1, manifest2, manifest3}

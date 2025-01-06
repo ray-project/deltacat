@@ -58,7 +58,9 @@ class TestBasicEndToEnd:
         read_records: List[Dict] = list(
             self.dataset.scan(QueryExpression()).to_pydict()
         )  # compare all_records to ds1
-        compare_mvp_table_to_scan_results(ds1_dataset, read_records, ds1_schema.get_merge_key())
+        compare_mvp_table_to_scan_results(
+            ds1_dataset, read_records, ds1_schema.get_merge_key()
+        )
 
     def test_end_to_end_scan_key_range(self, ds1_schema, ds1_dataset):
         read_records_range: List[Dict] = list(
@@ -78,7 +80,9 @@ class TestBasicEndToEnd:
     def test_end_to_end_scan_pyarrow(self, ds1_schema, ds1_dataset):
         batches: Iterator[RecordBatch] = self.dataset.scan(QueryExpression()).to_arrow()
         read_records = [record for batch in batches for record in batch.to_pylist()]
-        compare_mvp_table_to_scan_results(ds1_dataset, read_records, ds1_schema.get_merge_key())
+        compare_mvp_table_to_scan_results(
+            ds1_dataset, read_records, ds1_schema.get_merge_key()
+        )
 
 
 class TestMultiLayerCompactionEndToEnd:
