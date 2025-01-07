@@ -42,7 +42,7 @@ class ArrowSerializer(DataSerializer, ABC):
 
     def _get_min_max_key(self, table: pa.Table) -> (Any, Any):
         """
-        Get min and max primary key values from table
+        Get min and max values for the merge key from the table
         """
         key_col = table[self.schema.get_merge_key()]
         return key_col[0].as_py(), key_col[len(key_col) - 1].as_py()

@@ -61,7 +61,7 @@ class MvpTable(Iterable[Dict[str, Any]]):
             yield row_data
 
     def to_rows_by_key(self, mk: str) -> Dict[str, "MvpRow"]:
-        # Find the primary key field in the schema
+        # Find the provided key field in the schema
         # build row data
         pk_col = self.data[mk]
         row_data: Dict[str, MvpRow] = {}

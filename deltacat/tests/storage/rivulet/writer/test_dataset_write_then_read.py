@@ -64,15 +64,13 @@ class TestBasicEndToEnd:
 
     def test_end_to_end_scan_key_range(self, ds1_schema, ds1_dataset):
         read_records_range: List[Dict] = list(
-            self.dataset.scan(
-                QueryExpression().with_primary_range(100, 500)
-            ).to_pydict()
+            self.dataset.scan(QueryExpression().with_range(100, 500)).to_pydict()
         )
         assert len(read_records_range) == 401
 
     def test_end_to_end_scan_single_key(self, ds1_schema, ds1_dataset):
         read_records_single_key: List[Dict] = list(
-            self.dataset.scan(QueryExpression().with_primary_key(600)).to_pydict()
+            self.dataset.scan(QueryExpression().with_key(600)).to_pydict()
         )
         assert len(read_records_single_key) == 1
         assert read_records_single_key[0]["id"] == 600
@@ -210,15 +208,13 @@ class TestMultiLayerCompactionEndToEnd:
 
         # Test scan primary key range
         read_records_range: List[Dict] = list(
-            self.dataset.scan(
-                QueryExpression().with_primary_range(100, 500)
-            ).to_pydict()
+            self.dataset.scan(QueryExpression().with_range(100, 500)).to_pydict()
         )
         assert len(read_records_range) == 401
 
         # Test scan single primary key
         read_records_single_key: List[Dict] = list(
-            self.dataset.scan(QueryExpression().with_primary_key(600)).to_pydict()
+            self.dataset.scan(QueryExpression().with_key(600)).to_pydict()
         )
         assert len(read_records_single_key) == 1
         assert read_records_single_key[0]["id"] == 600
@@ -301,15 +297,13 @@ class TestZipperMergeEndToEnd:
 
         # Test scan primary key range
         read_records_range: List[Dict] = list(
-            self.dataset.scan(
-                QueryExpression().with_primary_range(100, 500)
-            ).to_pydict()
+            self.dataset.scan(QueryExpression().with_range(100, 500)).to_pydict()
         )
         assert len(read_records_range) == 401
 
         # Test scan single primary key
         read_records_single_key: List[Dict] = list(
-            self.dataset.scan(QueryExpression().with_primary_key(600)).to_pydict()
+            self.dataset.scan(QueryExpression().with_key(600)).to_pydict()
         )
         assert len(read_records_single_key) == 1
         assert read_records_single_key[0]["id"] == 600

@@ -30,7 +30,7 @@ class Schema(MutableMapping[str, Field]):
        _fields (dict): Maps field names to Field objects.
 
     Methods:
-       from_pyarrow(pyarrow_schema: pa.Schema, primary_key: str) -> Schema:
+       from_pyarrow(pyarrow_schema: pa.Schema, key: str) -> Schema:
            Creates a Schema instance from a PyArrow schema.
 
        __len__() -> int: Returns number of fields.
@@ -61,9 +61,7 @@ class Schema(MutableMapping[str, Field]):
                     "It is invalid to specify merge keys when no fields are specified. Add fields or remove the merge keys."
                 )
             return
-        # Convert all input tuples to Field objects
-        processed_fields = set()
-        merge_key_field = None
+        # Convert all input tuples to Field objects and add to fields
         for field in fields:
             if isinstance(field, tuple):
                 name, datatype = field
@@ -85,24 +83,10 @@ class Schema(MutableMapping[str, Field]):
                         )
             else:
                 raise TypeError(f"Unexpected field type: {type(field)}")
-
-            # Locate a merge key to add, and assemble list of fields
-            if processed_field.is_merge_key:
-                merge_key_field = processed_field
-            else:
-                processed_fields.add(processed_field)
-
-        # if merge_key_field is None:
-        #    raise ValueError("Schema must contain at least one merge key field.")
-        # Add merge key first
-        if merge_key_field:
-            self.add_field(merge_key_field)
-        # Add all other fields (including other merge keys)
-        for field in processed_fields:
-            self.add_field(field)
+            self.add_field(processed_field)
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data) -> Schema:
         fields = [
             Field(
                 name=field_data["name"],
@@ -131,7 +115,7 @@ class Schema(MutableMapping[str, Field]):
             Schema: New Schema instance
 
         Raises:
-            ValueError: If primary_key is not found in schema
+            ValueError: If key is not found in schema
         """
         merge_keys = [merge_keys] if isinstance(merge_keys, str) else merge_keys
         fields = {}
@@ -159,10 +143,12 @@ class Schema(MutableMapping[str, Field]):
             merged.merge(schema)
         return merged
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> Field:
         return self._fields[key]
 
-    def __setitem__(self, key: str, value: Field | Datatype | Tuple[Datatype, bool]):
+    def __setitem__(
+        self, key: str, value: Field | Datatype | Tuple[Datatype, bool]
+    ) -> None:
         # Create field from [str, Datatype, bool] where bool is merge_key
         if isinstance(value, Field):
             processed_field = value
@@ -183,32 +169,36 @@ class Schema(MutableMapping[str, Field]):
 
         self._fields[processed_field.name] = processed_field
 
-    def __delitem__(self, key: str):
+    def __delitem__(self, key: str) -> None:
         field = self._fields[key]
         if field.is_merge_key:
             raise ValueError("Cannot delete a merge key field")
         del self._fields[key]
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._fields)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[str]:
         return iter(self._fields.keys())
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((frozenset(self._fields.items())))
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if isinstance(other, Schema):
             return self._fields == other._fields
         return False
 
     # Has a spurious type check problem in @dataclass + asdict(): https://youtrack.jetbrains.com/issue/PY-76059/Incorrect-Type-warning-with-asdict-and-Dataclass
-    def to_dict(self):
+    def to_dict(self) -> dict[str, list[dict[str, Field]]]:
         return {"fields": [asdict(field) for field in self._fields.values()]}
 
-    def add_field(self, field: Field):
-        """Adds a Field object using its name as the key"""
+    def add_field(self, field: Field) -> None:
+        """Adds a Field object using its name as the key, raises ValueError if it already exists"""
+        if field.name in self._fields:
+            raise ValueError(
+                f"Attempting to add a field with the same name as an existing field: {field.name}"
+            )
         self[field.name] = field
 
     def get_merge_keys(self) -> Iterable[str]:
@@ -251,11 +241,11 @@ class Schema(MutableMapping[str, Field]):
             fields.append(pa.field(name, field.datatype.to_pyarrow()))
         return pa.schema(fields)
 
-    def keys(self):
+    def keys(self) -> Iterable[str]:
         return self._fields.keys()
 
-    def values(self):
+    def values(self) -> Iterable[Field]:
         return self._fields.values()
 
-    def items(self):
+    def items(self) -> Iterable[tuple[str, Field]]:
         return self._fields.items()

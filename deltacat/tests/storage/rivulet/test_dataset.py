@@ -271,6 +271,13 @@ def test_add_schema_conflicting_fields(tmp_path):
     assert dataset.schemas["conflicting_group"]["age"].datatype == Datatype.int32()
 
 
+def test_add_fields_with_merge_key_field(tmp_path):
+    base_uri = str(tmp_path / "test_dataset")
+    dataset = Dataset(dataset_name=base_uri)
+    dataset.add_fields([Field("my_merge_key", Datatype.string(), True)])
+    assert dataset.schemas["default"].get_merge_key() == "my_merge_key"
+
+
 def test_add_schema_to_nonexistent_schemas(tmp_path):
     """Test adding a schema to a nonexistent field group."""
     base_uri = str(tmp_path / "test_dataset")
@@ -366,14 +373,14 @@ def test_add_fields_no_fields_raises_error(tmp_path, sample_schema):
 
 def test_add_fields_mismatched_merge_keys_raises_error(tmp_path, sample_schema):
     dataset = Dataset(dataset_name="test_dataset")
-    with pytest.raises(TypeError, match="Merge key status conflict"):
-        dataset.add_fields(fields=sample_schema.values(), merge_keys=["does_not_exist"])
-
     with pytest.raises(
         ValueError,
-        match="The following merge keys not found in the provided fields: does_not_exist",
+        match="The following merge keys were not found in the provided fields: does_not_exist",
     ):
+        dataset.add_fields(fields=sample_schema.values(), merge_keys=["does_not_exist"])
+
+    with pytest.raises(TypeError, match="Merge key status conflict"):
         dataset.add_fields(
-            fields=[("id", Datatype.int32()), ("name", Datatype.string())],
-            merge_keys=["does_not_exist"],
+            fields=[Field("id", Datatype.int32()), Field("name", Datatype.string())],
+            merge_keys=["id"],
         )

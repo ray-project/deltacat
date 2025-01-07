@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional, Tuple, Iterable
+from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
@@ -20,44 +20,47 @@ from deltacat.storage.rivulet.writer.memtable_dataset_writer import (
 
 import pyarrow as pa
 
+# These are the hardcoded default schema names
+ALL = "all"
+DEFAULT = "default"
+
 
 class FieldsAccessor:
     """Accessor class used to make it easy to do actions like dataset.fields['name'] to work with fields in the Dataset.
     All field mutation and access should come through this class, or through the public helper functions in the dataset
-    class, e.g. 'add_fields()'. Do not use internal functions or directly access _schemas, as it may result in
-    unexpected behavior, such as fields being removed from the dataset while still showing up in the schemas.
+    class, e.g. 'add_fields()'.
     """
 
     def __init__(self, dataset: Dataset):
         self.dataset = dataset
 
     def __getitem__(self, field_name: str) -> Field:
-        if field_name not in self.dataset.schemas["all"]:
+        if field_name not in self.dataset.schemas[ALL]:
             raise KeyError(f"Field '{field_name}' not found in dataset.")
-        return self.dataset.schemas["all"][field_name]
+        return self.dataset.schemas[ALL][field_name]
 
     def __setitem__(self, field_name: str, field: Field):
         if not isinstance(field, Field):
             raise TypeError("Value must be a Field object")
-        self.dataset.schemas["all"][field_name] = field
+        self.dataset.schemas[ALL][field_name] = field
 
     def __delitem__(self, field_name: str):
-        if field_name not in self.dataset.schemas["all"]:
+        if field_name not in self.dataset.schemas[ALL]:
             raise ValueError(f"Field '{field_name}' does not exist.")
-        del self.dataset.schemas["all"][field_name]
+        del self.dataset.schemas[ALL][field_name]
         for schema in self.dataset._schemas.values():
             if field_name in schema:
                 del schema[field_name]
 
     def __contains__(self, field_name: str) -> bool:
         """Allows 'field_name in dataset.fields' checks."""
-        return field_name in self.dataset.schemas["all"]
+        return field_name in self.dataset.schemas[ALL]
 
     def __iter__(self):
-        return iter(self.dataset.schemas["all"].items())
+        return iter(self.dataset.schemas[ALL].items())
 
     def __len__(self):
-        return len(self.dataset.schemas["all"])
+        return len(self.dataset.schemas[ALL])
 
     def __repr__(self):
         return f"Fields({list(self.dataset.schemas['all'].keys())})"
@@ -67,7 +70,7 @@ class FieldsAccessor:
         name: str,
         datatype: Datatype,
         *,
-        schema_name: str = "default",
+        schema_name: str = DEFAULT,
         is_merge_key: bool = False,
     ):
         """Simple helper to add a field when you don't have a Field object"""
@@ -81,8 +84,7 @@ class FieldsAccessor:
 class SchemasAccessor:
     """Accessor class used to make it easy to do actions like dataset.schemas['all'] to work with schemas in the Dataset.
     All schema mutation and access should come through this class, or through the public helper functions in the dataset
-    class, e.g. 'add_fields()'. Do not use internal functions or directly access _schemas, as it may result in
-    unexpected behavior.
+    class, e.g. 'add_fields()'.
     """
 
     def __init__(self, dataset: Dataset):
@@ -93,28 +95,28 @@ class SchemasAccessor:
             raise KeyError(f"Schema '{name}' not found.")
         return self.dataset._schemas[name]
 
-    def __setitem__(self, schema_name: str, field_names: List[str]):
+    def __setitem__(self, schema_name: str, field_names: List[str]) -> None:
         self.dataset._add_fields_to_schema(
             field_names=field_names, schema_name=schema_name
         )
 
-    def __delitem__(self, schema_name: str):
+    def __delitem__(self, schema_name: str) -> None:
         if schema_name not in self.dataset._schemas:
             raise ValueError(f"Schema '{schema_name}' does not exist.")
-        if schema_name == "all":
+        if schema_name == ALL:
             raise ValueError("Cannot remove the 'all' schema.")
         del self.dataset._schemas[schema_name]
 
     def __contains__(self, schema_name: str) -> bool:
         return schema_name in self.dataset._schemas
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self.dataset._schemas.keys())
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.dataset._schemas)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"SchemasAccessor({list(self.dataset._schemas.keys())})"
 
 
@@ -140,7 +142,7 @@ class Dataset:
             _metadata_folder (str):
                 The folder name where metadata for the dataset is kept. It will always be
                 '.riv-meta-{dataset_name}', and be stored under `metadata_uri`.
-            _schemas (dict[str, dict[str, Field]]):
+            _schemas (dict[str, Schema]):
                 Maps a schemas by name (e.g., "default", "analytics"). This is how fields in the dataset are grouped and accessed.
             _file_store (FileStore):
                 The FileStore used by the Dataset class for reading and writing metadata files.
@@ -160,7 +162,7 @@ class Dataset:
             self._metadata_path = self._metadata_folder
 
         # Map of schema_name -> {field_name -> Field}, with initial empty 'all' schema
-        self._schemas: Dict[str, Schema] = {"all": Schema()}
+        self._schemas: Dict[str, Schema] = {ALL: Schema()}
 
         # Initialize metadata handling
         self._file_store = FileStore()
@@ -185,7 +187,7 @@ class Dataset:
         merge_keys: str | Iterable[str],
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
-    ):
+    ) -> Dataset:
         """
         Create a Dataset from parquet files.
 
@@ -244,7 +246,7 @@ class Dataset:
         # Input Validation
         # Ensure all fields exist
         for name in field_names:
-            if name not in self.schemas["all"]:
+            if name not in self.schemas[ALL]:
                 raise ValueError(f"Field '{name}' does not exist in the dataset.")
 
         # Begin adding schema/fields to the schema map, this must be completed as a transaction w/o error or the schemas will be
@@ -257,12 +259,12 @@ class Dataset:
 
         # Add the (existing) fields from the 'all' schema to the defined schema
         for name in field_names:
-            self._schemas[schema_name].add_field(self.schemas["all"][name])
+            self._schemas[schema_name].add_field(self.schemas[ALL][name])
 
     def add_fields(
         self,
         fields: Iterable[Tuple[str, Datatype] | Field],
-        schema_name: str = "default",
+        schema_name: str = DEFAULT,
         merge_keys: Optional[Iterable[str]] = None,
     ) -> None:
         """
@@ -299,15 +301,13 @@ class Dataset:
             elif isinstance(field, Field):
                 processed_field = field
                 name = field.name
-                # Check if merge key status conflicts
-                if merge_keys is not None:
-                    expected_merge_key_status = name in merge_keys
-                    if processed_field.is_merge_key != expected_merge_key_status:
+                # Check if merge key status on field conflicts with any provided status form merge_key list
+                if name in merge_keys:
+                    if processed_field.is_merge_key is not True:
                         raise TypeError(
-                            f"Merge key status conflict for field '{name}': "
-                            f"Provided as merge key: {expected_merge_key_status}, "
-                            f"Field's current status: {processed_field.is_merge_key}. "
-                            f"Merge keys should only be defined if raw (name, Datatype) tuples are used."
+                            f"Merge key status conflict for field '{name}'. "
+                            f"Field({name}).is_merge_key is set to 'false', but was '{name}' was provided in the merge_keys list. "
+                            f"Remove {name} from merge_keys or change Field({name}).is_merge_key to true."
                         )
             else:
                 raise TypeError(f"Unexpected field type: {type(field)}")
@@ -321,17 +321,13 @@ class Dataset:
             missing_keys = set(merge_keys) - field_names
             if missing_keys:
                 raise ValueError(
-                    f"The following merge keys not found in the provided fields: {', '.join(missing_keys)}"
+                    f"The following merge keys were not found in the provided fields: {', '.join(missing_keys)}"
                 )
-
-        # If this is a new schema it must have a merge key defined.
-        # if schema_name not in self._schemas and merge_keys is None:
-        #    raise ValueError(f"New schemas must have at least one merge_key defined.")
 
         # Add/update the schema
         self.add_schema(Schema(processed_fields), schema_name=schema_name)
 
-    def add_schema(self, schema: Schema, schema_name: str = "default") -> None:
+    def add_schema(self, schema: Schema, schema_name: str = DEFAULT) -> None:
         """
         Merges the provided schema into the existing schema, or creates a new schema if it doesn't exist.
         Will also add all fields to the 'all' schema.
@@ -343,12 +339,12 @@ class Dataset:
         Raises:
             ValueError: If fields in the provided schema conflict with existing fields in the dataset.
         """
-        schema_name = schema_name or "default"
+        schema_name = schema_name or DEFAULT
 
         # Check for any fields that already exist
         for field in schema.values():
-            if field.name in self.schemas["all"]:
-                existing_field = self.schemas["all"][field.name]
+            if field.name in self.schemas[ALL]:
+                existing_field = self.schemas[ALL][field.name]
                 if existing_field is not None and field != existing_field:
                     raise ValueError(
                         f"Field '{field.name}' already exists and is of a different type: New({field}) Existing({existing_field})."
@@ -364,11 +360,11 @@ class Dataset:
 
         # Merge new schema into 'all' and provided schema_name
         self._schemas[schema_name].merge(schema)
-        self._schemas["all"].merge(schema)
+        self._schemas[ALL].merge(schema)
 
     def get_merge_keys(self) -> Iterable[str]:
         """Return a list of all merge keys."""
-        return self.schemas["all"].get_merge_keys()
+        return self.schemas[ALL].get_merge_keys()
 
     def writer(
         self,
@@ -384,14 +380,14 @@ class Dataset:
             based on schema
         :return: new dataset writer with a schema at the conjunction of the given schemas
         """
-        schema_name = schema_name or "all"
+        schema_name = schema_name or ALL
 
         return MemtableDatasetWriter(
             self._location_provider, self.schemas[schema_name], file_format
         )
 
     def scan(
-        self, query: QueryExpression = QueryExpression(), schema_name: str = "all"
+        self, query: QueryExpression = QueryExpression(), schema_name: str = ALL
     ) -> DataScan:
         dataset_reader = DatasetReader(self._metastore)
         return DataScan(self.schemas[schema_name], query, dataset_reader)

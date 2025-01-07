@@ -15,7 +15,9 @@ def test_schema_initialization():
     schema = Schema(fields, merge_keys=["id"])
     assert len(schema) == 2
     assert "id" in schema.keys()
+    assert schema["id"].datatype == Datatype.int64()
     assert "name" in schema.keys()
+    assert schema["name"].datatype == Datatype.string()
 
 
 def test_merge_key_conflict_on_init():
@@ -27,12 +29,35 @@ def test_merge_key_conflict_on_init():
         Schema(fields, merge_keys=["id"])  # Merge key on here
 
 
+def test_simultaneous_duplicate_field():
+    with pytest.raises(ValueError):
+        Schema(
+            [
+                ("id", Datatype.int32()),
+                ("name", Datatype.string()),
+                ("age", Datatype.int32()),
+                ("age", Datatype.string()),
+            ],
+            merge_keys=["id"],
+        )
+
+
 def test_add_field():
     schema = Schema()
     field = Field("new_field", Datatype.float(), True)
     schema.add_field(field)
     assert len(schema) == 1
     assert "new_field" in schema.keys()
+    assert schema["new_field"].datatype == Datatype.float()
+
+    field2 = Field("another_field", Datatype.string(), True)
+    schema.add_field(field2)
+    assert len(schema) == 2
+    assert "another_field" in schema.keys()
+    assert schema["another_field"].datatype == Datatype.string()
+
+    with pytest.raises(ValueError):
+        schema.add_field(field2)
 
 
 def test_setitem_field():
@@ -83,11 +108,34 @@ def test_merge_schemas():
     assert "other_id" in schema1.keys()
 
 
+def test_merge_schemas_same_merge_key():
+    schema1 = Schema(
+        [("id", Datatype.int64()), ("name", Datatype.string())], merge_keys=["id"]
+    )
+    schema2 = Schema(
+        [("id", Datatype.int64()), ("other_name", Datatype.string())],
+        merge_keys="id",
+    )
+    schema1.merge(schema2)
+    assert len(schema1) == 3
+    assert "id" in schema1.keys()
+    assert "name" in schema1.keys()
+    assert "other_name" in schema1.keys()
+
+
 def test_merge_schema_conflict():
     schema1 = Schema([("id", Datatype.int64())], merge_keys=["id"])
+    schema1_dup = Schema([("id", Datatype.int64())], merge_keys=["id"])
     schema2 = Schema([("id", Datatype.string())], merge_keys=["id"])
+
     with pytest.raises(ValueError):
         schema1.merge(schema2)
+
+    schema1.merge(
+        schema1_dup
+    )  # Merging the same field is allowed (unlike using add_field)
+    assert schema1["id"].datatype == Datatype.int64()
+    assert len(schema1) == 1
 
 
 def test_to_pyarrow_schema():
