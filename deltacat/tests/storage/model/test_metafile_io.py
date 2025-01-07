@@ -308,17 +308,17 @@ class TestMetafileIO(unittest.TestCase):
             commit_results = _commit_single_delta_table(temp_dir)
             for expected, actual, _ in commit_results:
                 assert expected == actual
-            previous_table = commit_results[1][1]
-            expected_table = copy.deepcopy(commit_results[1][1])
-            expected_table.locator = TableLocator.at(
+            original_table = commit_results[1][1]
+            renamed_table = copy.deepcopy(original_table)
+            renamed_table.locator = TableLocator.at(
                 namespace="test_namespace",
                 table_name="test_table_renamed",
             )
             txn_operations = [
                 TransactionOperation.of(
                     TransactionOperationType.UPDATE,
-                    expected_table,
-                    previous_table,
+                    renamed_table,
+                    original_table,
                 )
             ]
             transaction = Transaction.of(
@@ -330,31 +330,97 @@ class TestMetafileIO(unittest.TestCase):
             # ensure that only the table metafile was overwritten
             assert len(write_paths) == 1
 
-            # ensure all new metafiles read return the new table name
+            # ensure that the table was successfully renamed
             actual_table = Table.read(write_paths[0])
-            assert expected_table == actual_table
-            actual_table_name = Delta.read(commit_results[5][2]).table_name
-            assert actual_table_name == "test_table_renamed"
-            actual_table_name = Partition.read(commit_results[4][2]).table_name
-            assert actual_table_name == "test_table_renamed"
-            actual_table_name = Stream.read(commit_results[3][2]).table_name
-            assert actual_table_name == "test_table_renamed"
-            actual_table_name = TableVersion.read(commit_results[2][2]).table_name
-            assert actual_table_name == "test_table_renamed"
+            assert renamed_table == actual_table
 
-            # ensure the initial metafiles read return the original table name
-            prev_table_name = Delta(commit_results[5][1]).table_name
-            assert prev_table_name == commit_results[5][0].table_name == "test_table"
-            prev_table_name = Partition(commit_results[4][1]).table_name
-            assert prev_table_name == commit_results[4][0].table_name == "test_table"
-            prev_table_name = Stream(commit_results[3][1]).table_name
-            assert prev_table_name == commit_results[3][0].table_name == "test_table"
-            prev_table_name = TableVersion(commit_results[2][1]).table_name
-            assert prev_table_name == commit_results[2][0].table_name == "test_table"
+            # ensure all new metafiles read return the new table name
+            child_metafiles_read_post_rename = [
+                Delta.read(commit_results[5][2]),
+                Partition.read(commit_results[4][2]),
+                Stream.read(commit_results[3][2]),
+                TableVersion.read(commit_results[2][2]),
+            ]
+            for metafile in child_metafiles_read_post_rename:
+                assert metafile.table_name == "test_table_renamed"
 
-            # TODO(pdames): Ensure that read-from/write-to old table name fails
+            # ensure the original metafiles return the original table name
+            original_child_metafiles_to_create = [
+                Delta(commit_results[5][0]),
+                Partition(commit_results[4][0]),
+                Stream(commit_results[3][0]),
+                TableVersion(commit_results[2][0]),
+            ]
+            original_child_metafiles_created = [
+                Delta(commit_results[5][1]),
+                Partition(commit_results[4][1]),
+                Stream(commit_results[3][1]),
+                TableVersion(commit_results[2][1]),
+            ]
+            for i in range(len(original_child_metafiles_to_create)):
+                assert (
+                    original_child_metafiles_created[i].table_name
+                    == original_child_metafiles_to_create[i].table_name
+                    == "test_table"
+                )
+
+            # ensure that table updates using the old table name fail
+            previous_table_copy = copy.deepcopy(original_table)
+            bad_txn_operations = [
+                TransactionOperation.of(
+                    TransactionOperationType.UPDATE,
+                    previous_table_copy,
+                    original_table,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.RESTATE,
+                txn_operations=bad_txn_operations,
+            )
+            self.assertRaises(
+                ValueError,
+                transaction.commit,
+                root=temp_dir,
+            )
+
+            # ensure that table deletes using the old table name fail
+            bad_txn_operations = [
+                TransactionOperation.of(
+                    TransactionOperationType.DELETE,
+                    previous_table_copy,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.DELETE,
+                txn_operations=bad_txn_operations,
+            )
+            self.assertRaises(
+                ValueError,
+                transaction.commit,
+                root=temp_dir,
+            )
+
+            # ensure that delta/partition/stream/table-version creation using
+            # the old table name fails
+            for metafile in original_child_metafiles_created:
+                bad_txn_operations = [
+                    TransactionOperation.of(
+                        TransactionOperationType.CREATE,
+                        metafile,
+                    )
+                ]
+                transaction = Transaction.of(
+                    txn_type=TransactionType.APPEND,
+                    txn_operations=bad_txn_operations,
+                )
+                self.assertRaises(
+                    ValueError,
+                    transaction.commit,
+                    root=temp_dir,
+                )
+
         finally:
-            # shutil.rmtree(temp_dir)
+            shutil.rmtree(temp_dir)
             pass
 
     def test_rename_namespace(self):

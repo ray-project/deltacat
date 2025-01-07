@@ -466,7 +466,11 @@ class Metafile(dict):
 
     @staticmethod
     def _locator_to_id(
-        locator: Locator, root: str, filesystem: pyarrow.fs.FileSystem, txn_id: str
+        locator: Locator,
+        catalog_root: str,
+        metafile_root: str,
+        filesystem: pyarrow.fs.FileSystem,
+        txn_id: str,
     ) -> str:
         """
         Resolves the metafile ID for the given locator.
@@ -475,19 +479,26 @@ class Metafile(dict):
         if not metafile_id:
             # the locator name is mutable, so we need to resolve the mapping
             # from the locator back to its immutable metafile ID
-            locator_path = locator.path(root)
+            locator_path = locator.path(metafile_root)
             mci = MetafileCommitInfo.current(
                 commit_dir_path=locator_path,
                 filesystem=filesystem,
                 current_txn_id=txn_id,
-                txn_log_dir=posixpath.join(root, TXN_DIR_NAME),
+                txn_log_dir=posixpath.join(catalog_root, TXN_DIR_NAME),
             )
+            if mci.txn_operation_type == TransactionOperationType.DELETE:
+                err_msg = (
+                    f"Locator {locator} to metafile ID resolution failed "
+                    f"because its metafile ID mapping was deleted. You may "
+                    f"have an old reference to a renamed or deleted object."
+                )
+                raise ValueError(err_msg)
             metafile_id = posixpath.splitext(mci.path)[1][1:]
         return metafile_id
 
     def ancestor_ids(
         self,
-        root: str,
+        catalog_root: str,
         filesystem: pyarrow.fs.FileSystem,
         txn_id: str,
     ) -> List[str]:
@@ -505,14 +516,19 @@ class Metafile(dict):
             while parent_locator:
                 parent_locators.append(parent_locator)
                 parent_locator = parent_locator.parent()
+            metafile_root = catalog_root
             while parent_locators:
                 ancestor_id = Metafile._locator_to_id(
                     locator=parent_locators.pop(),
-                    root=root,
+                    catalog_root=catalog_root,
+                    metafile_root=metafile_root,
                     filesystem=filesystem,
                     txn_id=txn_id,
                 )
-                root = posixpath.join(root, ancestor_id)
+                metafile_root = posixpath.join(
+                    metafile_root,
+                    ancestor_id,
+                )
                 ancestor_ids.append(ancestor_id)
         return ancestor_ids
 
@@ -550,7 +566,7 @@ class Metafile(dict):
         root directory.
         """
         ancestor_path_elements = self.ancestor_ids(
-            root=root,
+            catalog_root=root,
             filesystem=filesystem,
             txn_id=txn_id,
         )
