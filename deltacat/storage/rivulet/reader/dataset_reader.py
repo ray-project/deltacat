@@ -133,10 +133,10 @@ class DatasetReader:
         Helper method to check whether a query expression has overlap with a primary key range
         """
         # If no PK range set, the query is across all primary keys, so return true
-        if not query.primary_key_range:
+        if not query.key_range:
             return True
 
-        query_start, query_end = query.primary_key_range
+        query_start, query_end = query.key_range
         if query_end < min_key:
             return False
         elif query_start > max_key:

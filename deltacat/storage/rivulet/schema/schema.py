@@ -1,207 +1,251 @@
 from __future__ import annotations
 
-from typing import MutableMapping, List, Dict
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from typing import MutableMapping, Dict, Iterable, Tuple, Optional
+
 import pyarrow as pa
 
 from deltacat.storage.rivulet.schema.datatype import Datatype
 
 
-@dataclass
+@dataclass(frozen=True)
 class Field:
     name: str
     datatype: Datatype
-
-    def __dict__(self):
-        return {"name": self.name, "datatype": self.datatype.type_name}
+    is_merge_key: bool = False
 
 
 class Schema(MutableMapping[str, Field]):
     """
+    A mutable mapping representing a schema for structured data, requiring at least one merge key field.
+
     TODO FUTURE ITERATIONS
     1. We may use Deltacat for schema
     2. We almost certainly want our schema system based on arrow types,
-        since many libraries we are integration wtih (e.g. daft) are
-        interoperable with arrow schemas
-
-    A class representing a schema for structured data. The Schema class holds a collection of fields, each with a name and a datatype.
-
-    In riv-connector libraries, we will add helpers to generate riv Schema from other Schema systems
+       since many libraries we are integrating with (e.g. daft) are
+       interoperable with arrow schemas
 
     Attributes:
-        fields (dict): A dictionary mapping field names to Field objects.
+        name: The name of the schema (for storing in dict/map)
+       _fields (dict): Maps field names to Field objects.
 
     Methods:
-        add_field(name: str, field: Field | Datatype): Adds a new field to the schema.
+       from_pyarrow(pyarrow_schema: pa.Schema, key: str) -> Schema:
+           Creates a Schema instance from a PyArrow schema.
 
-        __len__(): Returns the number of fields in the schema.
-        __getitem__(key): Allows accessing fields using square bracket notation.
-        __repr__(): Returns a string representation of the schema.
-        __iter__(): Allows iterating over the fields in the schema.
-        keys(): Returns an iterator over the field names.
-        values(): Returns an iterator over the Field objects.
-        items(): Returns an iterator over (name, Field) pairs.
+       __len__() -> int: Returns number of fields.
+       __getitem__(key: str) -> Field: Gets field by name.
+       __setitem__(key: str, value: Field | Datatype): Adds/updates field.
+       __delitem__(key: str): Deletes field if not a merge key.
+       __iter__(): Iterates over fields.
+
+       add_field(field: Field): Adds a Field using its name as the key.
+       to_pyarrow() -> pa.Schema:
+           Converts schema to PyArrow format.
+
+       keys(): Returns field names.
+       values(): Returns Field objects.
+       items(): Returns (name, Field) pairs.
     """
 
-    def __init__(self, fields: dict[str, Field | Datatype], primary_key: str):
-        self.fields: dict[str, Field] = {}
-        found_pk = False
-        for name, field in fields.items():
-            self.__setitem__(name, field)
-            # Validate we have traversed primary key somewhere in schema
-            if name == primary_key:
-                found_pk = True
-                self.primary_key: Field = self.fields[name]
-        if not found_pk:
-            raise ValueError(f"Did not find primary key '{primary_key}' in Schema")
+    def __init__(
+        self,
+        fields: Iterable[Tuple[str, Datatype] | Field] = None,
+        merge_keys: Optional[Iterable[str]] = None,
+    ):
+        self._fields: Dict[str, Field] = {}
+        merge_keys = merge_keys or {}
+        if len(fields or []) == 0:
+            if len(merge_keys) > 0:
+                raise TypeError(
+                    "It is invalid to specify merge keys when no fields are specified. Add fields or remove the merge keys."
+                )
+            return
+        # Convert all input tuples to Field objects and add to fields
+        for field in fields:
+            if isinstance(field, tuple):
+                name, datatype = field
+                processed_field = Field(
+                    name=name, datatype=datatype, is_merge_key=(name in merge_keys)
+                )
+            elif isinstance(field, Field):
+                processed_field = field
+                name = field.name
+                # Check if merge key status conflicts
+                if len(merge_keys) > 0:
+                    expected_merge_key_status = name in merge_keys
+                    if processed_field.is_merge_key != expected_merge_key_status:
+                        raise TypeError(
+                            f"Merge key status conflict for field '{name}': "
+                            f"Provided as merge key: {expected_merge_key_status}, "
+                            f"Field's current status: {processed_field.is_merge_key}. "
+                            f"Merge keys should only be defined if raw (name, Datatype) tuples are used."
+                        )
+            else:
+                raise TypeError(f"Unexpected field type: {type(field)}")
+            self.add_field(processed_field)
 
-    def add_field(self, name: str, field: Field | Datatype):
-        if isinstance(field, Datatype):
-            self.fields[name] = Field(name, field)
-        elif isinstance(field, Field):
-            self.fields[name] = field
+    @classmethod
+    def from_dict(cls, data) -> Schema:
+        fields = [
+            Field(
+                name=field_data["name"],
+                datatype=Datatype(**field_data["datatype"])
+                if isinstance(field_data["datatype"], dict)
+                else field_data["datatype"],
+                is_merge_key=field_data["is_merge_key"],
+            )
+            for field_data in data["fields"]
+        ]
+        return cls(fields)
+
+    @classmethod
+    def from_pyarrow(
+        cls, pyarrow_schema: pa.Schema, merge_keys: str | Iterable[str] = None
+    ) -> Schema:
+        """
+        Create a Schema instance from a PyArrow schema.
+
+        Args:
+            pyarrow_schema: PyArrow Schema to convert
+            merge_keys: The optional set of merge keys to add to the schema as it's being translated.
+                        These keys must be present in the schema.
+
+        Returns:
+            Schema: New Schema instance
+
+        Raises:
+            ValueError: If key is not found in schema
+        """
+        merge_keys = [merge_keys] if isinstance(merge_keys, str) else merge_keys
+        fields = {}
+
+        for field in pyarrow_schema:
+            dtype = Datatype.from_pyarrow(field.type)
+            fields[field.name] = Field(
+                field.name, dtype, is_merge_key=(field.name in merge_keys)
+            )
+
+        # Validate that the defined merge_keys are present in the fields being added
+        missing_keys = merge_keys - fields.keys()
+        if missing_keys:
+            raise ValueError(
+                f"The following merge keys not found in the provided schema: {', '.join(missing_keys)}"
+            )
+
+        return cls(fields.values())
+
+    @classmethod
+    def merge_all(cls, schemas: Iterable[Schema]) -> Schema:
+        """Merges a list of schemas into a new schema"""
+        merged = cls({})
+        for schema in schemas:
+            merged.merge(schema)
+        return merged
+
+    def __getitem__(self, key: str) -> Field:
+        return self._fields[key]
+
+    def __setitem__(
+        self, key: str, value: Field | Datatype | Tuple[Datatype, bool]
+    ) -> None:
+        # Create field from [str, Datatype, bool] where bool is merge_key
+        if isinstance(value, Field):
+            processed_field = value
+        elif isinstance(value, Datatype):
+            processed_field = Field(
+                key, value
+            )  # is_merge_key is always false in this case
+        elif isinstance(value, tuple):
+            (datatype, merge_key) = value
+            processed_field = Field(key, datatype, merge_key)
         else:
             raise TypeError(
-                "The field must be an instance of the Field class or a Datatype."
+                "The field must be an instance of the Field class, Datatype, or Tuple[Datatype, bool], where bool is whether the field is a merge key."
             )
+        processed_field: Field = processed_field
+        # if len(self._fields) == 0 and not processed_field.is_merge_key:
+        #    raise TypeError("The first field set on a Schema must be a merge key.")
 
-    def filter(self, fields: List[str]):
-        # Remove fields which are not in the filter list. Raise exception if primary key not present
-        fields_to_remove = {
-            field for field in self.fields.keys() if field not in fields
-        }
-        if self.primary_key.name in fields_to_remove:
+        self._fields[processed_field.name] = processed_field
+
+    def __delitem__(self, key: str) -> None:
+        field = self._fields[key]
+        if field.is_merge_key:
+            raise ValueError("Cannot delete a merge key field")
+        del self._fields[key]
+
+    def __len__(self) -> int:
+        return len(self._fields)
+
+    def __iter__(self) -> Iterable[str]:
+        return iter(self._fields.keys())
+
+    def __hash__(self) -> int:
+        return hash((frozenset(self._fields.items())))
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, Schema):
+            return self._fields == other._fields
+        return False
+
+    # Has a spurious type check problem in @dataclass + asdict(): https://youtrack.jetbrains.com/issue/PY-76059/Incorrect-Type-warning-with-asdict-and-Dataclass
+    def to_dict(self) -> dict[str, list[dict[str, Field]]]:
+        return {"fields": [asdict(field) for field in self._fields.values()]}
+
+    def add_field(self, field: Field) -> None:
+        """Adds a Field object using its name as the key, raises ValueError if it already exists"""
+        if field.name in self._fields:
             raise ValueError(
-                f"Schema filter must contain the primary key field: '{self.primary_key.name}'"
+                f"Attempting to add a field with the same name as an existing field: {field.name}"
             )
-        for field_name in fields_to_remove:
-            self.__delitem__(field_name)
+        self[field.name] = field
 
-    def to_pyarrow_schema(self) -> pa.Schema:
+    def get_merge_keys(self) -> Iterable[str]:
+        """Return a list of all merge keys."""
+        return [field.name for field in self._fields.values() if field.is_merge_key]
+
+    def get_merge_key(self) -> str:
+        """Returns a single merge key if there is one, or raises if not. Used for simple schemas w/ a single key"""
+        # Get the merge key
+        merge_keys = list(self.get_merge_keys())
+        if len(merge_keys) != 1:
+            raise ValueError(
+                f"Schema must have exactly one merge key, but found {merge_keys}"
+            )
+        return merge_keys[0]
+
+    def merge(self, other: Schema) -> None:
+        """Merges another schema's fields into the current schema."""
+        if not other:
+            return
+        for name, field in other._fields.items():
+            if name in self._fields:
+                if self._fields[name] != field:
+                    raise ValueError(
+                        f"Field '{name}' already exists in the current schema with different definition"
+                    )
+            else:
+                self.add_field(field)
+
+    def to_pyarrow(self) -> pa.Schema:
         """
         Convert the Schema to a PyArrow schema.
 
         Returns:
             pyarrow.schema: A PyArrow schema representation of this Schema.
         """
+        # TODO: Should we track merge_keys as it goes to/from pyarrow?
         fields = []
-        for name, field in self.fields.items():
+        for name, field in self._fields.items():
             fields.append(pa.field(name, field.datatype.to_pyarrow()))
         return pa.schema(fields)
 
-    @classmethod
-    def from_pyarrow_schema(
-        cls, pyarrow_schema: pa.Schema, primary_key: str
-    ) -> "Schema":
-        """
-        Create a Schema instance from a PyArrow schema.
+    def keys(self) -> Iterable[str]:
+        return self._fields.keys()
 
-        Args:
-            pyarrow_schema: PyArrow Schema to convert
-            primary_key: Name of the field to use as primary key
+    def values(self) -> Iterable[Field]:
+        return self._fields.values()
 
-        Returns:
-            Schema: New Schema instance
-
-        Raises:
-            ValueError: If primary_key is not found in schema
-        """
-        fields = {}
-
-        for field in pyarrow_schema:
-            dtype = Datatype.from_pyarrow(field.type)
-            fields[field.name] = Field(field.name, dtype)
-
-        return cls(fields, primary_key)
-
-    def __dict__(self) -> Dict[str, Dict[str, str]]:
-        """
-        for json encoding
-        """
-        fields = [f.__dict__() for f in self.fields.values()]
-
-        return {"fields": fields, "primary_key": self.primary_key.__dict__()}
-
-    @classmethod
-    def from_json(cls, json_data: Dict) -> "Schema":
-        """
-        Construct a Schema instance from JSON data.
-
-        Raises:
-            ValueError: If the JSON data is invalid or missing required fields.
-        """
-        if "fields" not in json_data or "primary_key" not in json_data:
-            raise ValueError("Invalid JSON data: missing 'fields' or 'primary_key'")
-
-        fields = {}
-        for field_data in json_data["fields"]:
-            if "name" not in field_data or "datatype" not in field_data:
-                raise ValueError("Invalid field data: missing 'name' or 'datatype'")
-            name = field_data["name"]
-            datatype = Datatype(field_data["datatype"])
-            fields[name] = Field(name, datatype)
-
-        primary_key = json_data["primary_key"]["name"]
-        return cls(fields, primary_key)
-
-    def __len__(self):
-        return len(self.fields)
-
-    def __getitem__(self, key: str):
-        return self.fields[key]
-
-    def __setitem__(self, key: str, value: Field | Datatype):
-        if isinstance(value, Datatype):
-            self.fields[key] = Field(key, value)
-        elif isinstance(value, Field):
-            if value.name != key:
-                raise ValueError(
-                    f"Field name '{value.name}' does not match schema key '{key}'"
-                )
-            self.fields[key] = value
-        else:
-            raise TypeError(f"Invalid type for field '{key}': {type(value)}")
-
-    def __delitem__(self, key: str):
-        if key == self.primary_key.name:
-            raise ValueError("Cannot delete the primary key field")
-        del self.fields[key]
-
-    def __repr__(self):
-        field_reprs = [
-            f"{name}: {field.datatype}" for name, field in self.fields.items()
-        ]
-        return (
-            f"Schema({', '.join(field_reprs)}, primary_key='{self.primary_key.name}')"
-        )
-
-    def __iter__(self):
-        return iter(self.fields.values())
-
-    def keys(self):
-        return self.fields.keys()
-
-    def values(self):
-        return self.fields.values()
-
-    def items(self):
-        return self.fields.items()
-
-    def __hash__(self):
-        # Create a frozenset of (name, datatype) tuples for all fields
-        field_tuples = frozenset(
-            (name, field.datatype) for name, field in self.fields.items()
-        )
-
-        # Combine the hash of the field_tuples with the hash of the primary key name
-        return hash((field_tuples, self.primary_key.name))
-
-    def __deepcopy__(self):
-        """
-        Create and return a deep copy of the Schema.
-        """
-        new_fields = {
-            name: Field(field.name, field.datatype)
-            for name, field in self.fields.items()
-        }
-        return Schema(new_fields, self.primary_key.name)
+    def items(self) -> Iterable[tuple[str, Field]]:
+        return self._fields.items()

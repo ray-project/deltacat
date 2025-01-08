@@ -27,15 +27,6 @@ def make_tmpdir():
         pass
 
 
-def write_mvp_table_to_riv(table: MvpTable, schema: Schema, dir: str, file_format=None):
-    dataset = Dataset(dir)
-    fg = dataset.new_field_group(schema)
-    with dataset.writer(fg, file_format) as writer:
-        record_batch = mvp_table_to_record_batches(table, schema)
-        writer.write([record_batch])
-    return dataset
-
-
 def write_mvp_table(writer: DatasetWriter, table: MvpTable):
     writer.write(table.to_rows_list())
 
@@ -43,7 +34,7 @@ def write_mvp_table(writer: DatasetWriter, table: MvpTable):
 def mvp_table_to_record_batches(table: MvpTable, schema: Schema) -> RecordBatch:
     data = table.to_rows_list()
     columns = {key: [d.get(key) for d in data] for key in schema.keys()}
-    record_batch = RecordBatch.from_pydict(columns, schema=schema.to_pyarrow_schema())
+    record_batch = RecordBatch.from_pydict(columns, schema=schema.to_pyarrow())
     return record_batch
 
 
@@ -52,7 +43,7 @@ def compare_mvp_table_to_scan_results(
 ):
     table_row_list = table.to_rows_list()
     assert len(scan_results) == len(table_row_list)
-    rows_by_pk: Dict[str, MvpRow] = table.to_rows_by_pk(pk)
+    rows_by_pk: Dict[str, MvpRow] = table.to_rows_by_key(pk)
     assert len(rows_by_pk) == len(scan_results)
     for record in scan_results:
         pk_val = record[pk]
@@ -62,8 +53,9 @@ def compare_mvp_table_to_scan_results(
 def validate_with_full_scan(dataset: Dataset, expected: MvpTable, schema: Schema):
     # best way to validate is to use dataset reader and read records
     read_records = list(dataset.scan(QueryExpression()).to_pydict())
-    pk = schema.primary_key.name
-    compare_mvp_table_to_scan_results(expected, read_records, pk)
+    compare_mvp_table_to_scan_results(
+        expected, read_records, list(dataset.get_merge_keys())[0]
+    )
 
 
 def generate_data_files(dataset: Dataset) -> Generator[str, None, None]:
@@ -112,4 +104,6 @@ def create_dataset_for_method(temp_dir: str):
     caller_frame = inspect.getouterframes(inspect.currentframe())[1]
     dataset_dir = os.path.join(temp_dir, caller_frame.function)
     os.makedirs(dataset_dir)
-    return Dataset(dataset_dir)
+    return Dataset(
+        dataset_name=f"dataset-${caller_frame.function}", metadata_uri=dataset_dir
+    )

@@ -60,10 +60,10 @@ class MvpTable(Iterable[Dict[str, Any]]):
             }
             yield row_data
 
-    def to_rows_by_pk(self, pk: str) -> Dict[str, "MvpRow"]:
-        # Find the primary key field in the schema
+    def to_rows_by_key(self, mk: str) -> Dict[str, "MvpRow"]:
+        # Find the provided key field in the schema
         # build row data
-        pk_col = self.data[pk]
+        pk_col = self.data[mk]
         row_data: Dict[str, MvpRow] = {}
         for i, value in enumerate(pk_col):
             row_data[value] = MvpRow(
@@ -86,8 +86,8 @@ class MvpTable(Iterable[Dict[str, Any]]):
             merged_data[k] = []
 
         # Create dictionaries for quick lookup
-        row_data_ds1: dict[str, MvpRow] = dataset1.to_rows_by_pk(pk)
-        row_data_ds2: dict[str, MvpRow] = dataset2.to_rows_by_pk(pk)
+        row_data_ds1: dict[str, MvpRow] = dataset1.to_rows_by_key(pk)
+        row_data_ds2: dict[str, MvpRow] = dataset2.to_rows_by_key(pk)
 
         # Merge the datasets
         all_keys = set(row_data_ds1.keys()) | set(row_data_ds2.keys())

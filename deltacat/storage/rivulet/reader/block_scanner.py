@@ -19,7 +19,7 @@ from deltacat.storage.rivulet.metastore.sst_interval_tree import (
     BlockGroup,
     Block,
 )
-from deltacat.storage.rivulet.reader.data_reader import RowAndPrimaryKey, FileReader
+from deltacat.storage.rivulet.reader.data_reader import RowAndKey, FileReader
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 from deltacat.storage.rivulet.reader.pyarrow_data_reader import ArrowDataReader
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
@@ -41,25 +41,25 @@ class ZipperMergeHeapRecord(NamedTuple):
     """
     Named tuple for data structure we're putting into heap during zipper merge
 
-    Note we override the equality/comparison operators to use primary key
-        so that we can add these items to a heap by primary key
+    Note we override the equality/comparison operators to use key
+        so that we can add these items to a heap by key
     """
 
-    primary_key: Any
+    key: Any
     data: FILE_FORMAT
     reader: FileReaderWithContext
 
     def __lt__(self, other):
-        return self.primary_key < other.primary_key
+        return self.key < other.key
 
     def __le__(self, other):
-        return self.primary_key <= other.primary_key
+        return self.key <= other.key
 
     def __gt__(self, other):
-        return self.primary_key > other.primary_key
+        return self.key > other.key
 
     def __ge__(self, other):
-        return self.primary_key >= other.primary_key
+        return self.key >= other.key
 
 
 class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
@@ -96,7 +96,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
     def scan(self) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Perform N-wise zipper across N field groups.
-        Within each field group, there is a set of blocks which belong in this BlockGroup's primary key range
+        Within each field group, there is a set of blocks which belong in this BlockGroup's key range
 
         As a simplified example, we may have:
         FieldGroup1: [BlockA, BlockB]
@@ -108,8 +108,8 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
         The algorithm to merge these looks like:
         1. Load each block in DataReader to get iterator over sorted keys
         2. Build a heap of records across blocks across field groups
-        3. Pop record(s) from heap as long as they have equal primary keys. For up to N records, merge column wise
-        4. Continue until all blocks are read OR the primary key range in query is exceeded
+        3. Pop record(s) from heap as long as they have equal keys. For up to N records, merge column wise
+        4. Continue until all blocks are read OR the key range in query is exceeded
         """
         for block_group in self.ordered_block_groups.block_groups:
 
@@ -140,14 +140,14 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
                 # TODO (multi format support) we need to handle joining across data readers in the future
                 # For now, assume all data readers MUST read to Arrow intermediate format
                 for result in ArrowDataReader(self.metastore).join_deserialize_records(
-                    records, self.deserialize_to, self.result_schema.primary_key.name
+                    records, self.deserialize_to, self.result_schema.get_merge_key()
                 ):
                     yield result
 
     def _dedupe_records(
         self, records: List[ZipperMergeHeapRecord]
     ) -> List[ZipperMergeHeapRecord]:
-        """Deduplicate records with the same primary key (as a sorted list of records).
+        """Deduplicate records with the same key (as a sorted list of records).
 
         Deduplication chooses records based on the following rules of precedence
 
@@ -186,14 +186,14 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
         Algorithm is:
         (1) Pop lowest element from heap. Includes pointer to the iterator it came from.
                 Push next largest element from that generator back onto heap
-        (2) Buffer records of same primary key and peek/pop the heap as long as there is a primary key match
+        (2) Buffer records of same key and peek/pop the heap as long as there is a key match
                 For any record popped, push next largest element from generator back onto heap
         (3) Yield merged record by invoking Data Reader
 
         This solution maintains the following invariants:
         (1) the heap will have at most N records, where N=total blocks in BlockGroup
         (2) the heap has the N smallest records globally
-        (3) any data that needs to be merged for a given primary key exists in the heap
+        (3) any data that needs to be merged for a given key exists in the heap
 
         :param record_heap: seeded heap of ZipperMergeHeapRecords.
         :param block_group: block group being traversed
@@ -202,18 +202,18 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
         if not record_heap:
             return
 
-        # Keep iterating until heap is empty or primary key range is exceeded
+        # Keep iterating until heap is empty or key range is exceeded
         while record_heap:
             curr_heap_record = heapq.heappop(record_heap)
-            curr_pk = curr_heap_record.primary_key
+            curr_pk = curr_heap_record.key
 
             if not self.query.matches_query(curr_pk):
                 continue
 
-            # Sanity check - assert that primary key we are looking at is in block group's range
+            # Sanity check - assert that key we are looking at is in block group's range
             if not block_group.key_in_range(curr_pk):
                 raise RuntimeError(
-                    f"Did not expect to find primary key {curr_pk} on zipper merge heap"
+                    f"Did not expect to find key {curr_pk} on zipper merge heap"
                     f"for block group {block_group}"
                 )
 
@@ -223,7 +223,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
             self.__push_next_row_back_to_heap(
                 block_group, curr_heap_record.reader, record_heap
             )
-            # For the rest of the heap elements - peek/pop as long as they equal primary key
+            # For the rest of the heap elements - peek/pop as long as they equal key
             # Note that heap[0] is equivalent to peek operation
             while record_heap and record_heap[0][0] == curr_pk:
                 merge_heap_record: ZipperMergeHeapRecord = heapq.heappop(record_heap)
@@ -254,8 +254,8 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
 
         file_reader = row_context.reader
         while file_reader.peek() is not None and (
-            block_group.key_below_range(file_reader.peek().primary_key)
-            or self.query.below_query_range(file_reader.peek().primary_key)
+            block_group.key_below_range(file_reader.peek().key)
+            or self.query.below_query_range(file_reader.peek().key)
         ):
             try:
                 # call next() on file reader to throw out key which is below range of block group
@@ -267,14 +267,14 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
 
         if (
             file_reader.peek()
-            and self.query.matches_query(file_reader.peek().primary_key)
-            and block_group.key_in_range(file_reader.peek().primary_key)
+            and self.query.matches_query(file_reader.peek().key)
+            and block_group.key_in_range(file_reader.peek().key)
         ):
             try:
-                r: RowAndPrimaryKey = next(file_reader)
+                r: RowAndKey = next(file_reader)
                 heapq.heappush(
                     record_heap,
-                    ZipperMergeHeapRecord(r.primary_key, r.row, row_context),
+                    ZipperMergeHeapRecord(r.key, r.row, row_context),
                 )
             except StopIteration:
                 # This means we have exhausted the open FileReader and should close it
@@ -293,7 +293,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
                 file_reader = FileReaderRegistrar.construct_reader_instance(
                     sst_row,
                     self.metastore.file_store,
-                    self.result_schema.primary_key.name,
+                    self.result_schema.get_merge_key(),
                     self.file_readers,
                 )
                 file_reader.__enter__()
@@ -337,21 +337,18 @@ class BlockScanner:
             file_reader = FileReaderRegistrar.construct_reader_instance(
                 block,
                 self.metastore.file_store,
-                schema.primary_key.name,
+                schema.get_merge_key(),
                 self.file_readers,
             )
             with file_reader:
                 for generated_records in file_reader.__iter__():
-                    # Check whether row matches primary key in query before deserializing
-                    if query.primary_key_range:
-                        start, end = query.primary_key_range
-                        if (
-                            generated_records.primary_key < start
-                            or generated_records.primary_key > end
-                        ):
+                    # Check whether row matches key in query before deserializing
+                    if query.key_range:
+                        start, end = query.key_range
+                        if generated_records.key < start or generated_records.key > end:
                             continue
 
-                    # Otherwise, primary key predicate matched and yield deserialized row
+                    # Otherwise, key predicate matched and yield deserialized row
                     for deserialized_row in data_reader.deserialize_records(
                         generated_records, deserialize_to
                     ):

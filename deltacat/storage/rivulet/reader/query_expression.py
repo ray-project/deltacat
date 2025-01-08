@@ -25,52 +25,50 @@ class QueryExpression(typing.Generic[T]):
     """
 
     def __init__(self):
-        self.primary_key_range: Optional[(T, T)] = None
+        self.key_range: Optional[(T, T)] = None
 
-    def with_primary_key(self, val: T) -> "QueryExpression":
+    def with_key(self, val: T) -> "QueryExpression":
         """
-        Syntactic sugar for setting primary key range to a single value
+        Syntactic sugar for setting key range to a single value
         """
-        if self.primary_key_range:
+        if self.key_range:
             raise ValueError(
-                f"Query expression already has set primary key range to: {self.primary_key_range}"
+                f"Query expression already has set key range to: {self.key_range}"
             )
-        self.primary_key_range = (val, val)
+        self.key_range = (val, val)
         return self
 
-    def with_primary_range(self, bound1: T, bound2: T) -> "QueryExpression":
-        if self.primary_key_range:
-            raise ValueError(
-                f"Primary key range already set to {self.primary_key_range}"
-            )
-        self.primary_key_range = tuple(sorted([bound1, bound2]))
+    def with_range(self, bound1: T, bound2: T) -> "QueryExpression":
+        if self.key_range:
+            raise ValueError(f"Key range already set to {self.key_range}")
+        self.key_range = tuple(sorted([bound1, bound2]))
         return self
 
     @property
     def min_key(self) -> T | None:
-        if not self.primary_key_range:
+        if not self.key_range:
             return None
-        return self.primary_key_range[0]
+        return self.key_range[0]
 
     @property
     def max_key(self) -> T | None:
-        if not self.primary_key_range:
+        if not self.key_range:
             return None
-        return self.primary_key_range[1]
+        return self.key_range[1]
 
-    def matches_query(self, primary_key: any) -> bool:
+    def matches_query(self, key: any) -> bool:
         """
-        Returns true if the primary key is within the range of the query expression
+        Returns true if the key is within the range of the query expression
         """
-        if not self.primary_key_range:
+        if not self.key_range:
             return True
-        return self.min_key <= primary_key <= self.max_key
+        return self.min_key <= key <= self.max_key
 
-    def below_query_range(self, primary_key: any) -> bool:
+    def below_query_range(self, key: any) -> bool:
         """
-        Returns true if the primary key is below the range of the query expression
-        will return false if primary key range is not set
+        Returns true if the key is below the range of the query expression
+        will return false if key range is not set
         """
-        if not self.primary_key_range:
+        if not self.key_range:
             return False
-        return self.min_key > primary_key
+        return self.min_key > key

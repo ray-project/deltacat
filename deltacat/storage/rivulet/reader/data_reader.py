@@ -23,7 +23,7 @@ T = TypeVar("T")
 
 
 @dataclass
-class RowAndPrimaryKey(Generic[FILE_FORMAT]):
+class RowAndKey(Generic[FILE_FORMAT]):
     """
     Named tuple for a record batch with an index into a specific row
     Note that record batches store data by column, so the row index should be
@@ -31,12 +31,12 @@ class RowAndPrimaryKey(Generic[FILE_FORMAT]):
     """
 
     row: FILE_FORMAT
-    primary_key: Any
+    key: Any
 
 
 class FileReader(
     Protocol[FILE_FORMAT],
-    Iterator[RowAndPrimaryKey[FILE_FORMAT]],
+    Iterator[RowAndKey[FILE_FORMAT]],
     typing.ContextManager,
 ):
     """
@@ -59,7 +59,7 @@ class FileReader(
         ...
 
     @abstractmethod
-    def peek(self) -> Optional[RowAndPrimaryKey[FILE_FORMAT]]:
+    def peek(self) -> Optional[RowAndKey[FILE_FORMAT]]:
         """
         Peek at the next RowAndPrimaryKey without advancing the iterator
         :return: Optional of RowAndPrimaryKey
@@ -67,7 +67,7 @@ class FileReader(
         ...
 
     @abstractmethod
-    def __next__(self) -> RowAndPrimaryKey[FILE_FORMAT]:
+    def __next__(self) -> RowAndKey[FILE_FORMAT]:
         """
         Fetch the next RowAndPrimaryKey and advance iterator
         """

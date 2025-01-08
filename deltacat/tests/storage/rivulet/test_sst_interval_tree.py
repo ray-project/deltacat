@@ -11,16 +11,16 @@ from deltacat.storage.rivulet.metastore.sst_interval_tree import (
     Block,
 )
 from deltacat.storage.rivulet.schema.datatype import Datatype
-from deltacat.storage.rivulet import Schema, Field
+from deltacat.storage.rivulet import Schema
 
 
 @pytest.fixture
 def schema1() -> Schema:
     return Schema(
         {
-            "id": Field("id", Datatype.int32()),
-            "name": Field("name", Datatype.string()),
-            "age": Field("age", Datatype.int32()),
+            ("id", Datatype.int32()),
+            ("name", Datatype.string()),
+            ("age", Datatype.int32()),
         },
         "id",
     )
@@ -30,9 +30,9 @@ def schema1() -> Schema:
 def schema2() -> Schema:
     return Schema(
         {
-            "id": Field("id", Datatype.int32()),
-            "address": Field("address", Datatype.string()),
-            "zip": Field("zip", Datatype.string()),
+            ("id", Datatype.int32()),
+            ("address", Datatype.string()),
+            ("zip", Datatype.string()),
         },
         "id",
     )

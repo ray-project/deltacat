@@ -20,7 +20,7 @@ class FileLocationProvider:
 
     uri: str
 
-    def __init__(self, uri, file_store: FileStore):
+    def __init__(self, uri, file_store: FileStore = FileStore()):
         self.uri = uri
         self._file_store: FileStore = file_store
 

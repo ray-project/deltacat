@@ -1,116 +1,241 @@
 import pytest
-
 import pyarrow as pa
-
-from deltacat.storage.rivulet import Schema
-from deltacat.storage.rivulet.schema.datatype import Datatype
+from deltacat.storage.rivulet import Schema, Field, Datatype
 
 
-def test_schema_creation():
-    """Test basic schema creation with valid fields"""
-    fields = {
-        "id": Datatype("int32"),
-        "name": Datatype("string"),
-        "age": Datatype("int32"),
-    }
-    schema = Schema(fields, primary_key="id")
-
-    assert len(schema) == 3
-    assert schema["id"].datatype == Datatype("int32")
-    assert schema.primary_key.name == "id"
+def test_field_initialization():
+    field = Field(name="test_field", datatype=Datatype.string(), is_merge_key=True)
+    assert field.name == "test_field"
+    assert field.datatype == Datatype.string()
+    assert field.is_merge_key
 
 
-def test_schema_invalid_primary_key():
-    """Test schema creation with invalid primary key"""
-    fields = {"id": Datatype("int32"), "name": Datatype("string")}
-    with pytest.raises(
-        ValueError, match="Did not find primary key 'invalid_key' in Schema"
-    ):
-        Schema(fields, primary_key="invalid_key")
+def test_schema_initialization():
+    fields = [("id", Datatype.int64()), ("name", Datatype.string())]
+    schema = Schema(fields, merge_keys=["id"])
+    assert len(schema) == 2
+    assert "id" in schema.keys()
+    assert schema["id"].datatype == Datatype.int64()
+    assert "name" in schema.keys()
+    assert schema["name"].datatype == Datatype.string()
 
 
-def test_schema_field_operations():
-    """Test adding and removing fields"""
-    schema = Schema({"id": Datatype("int32")}, primary_key="id")
-
-    # Add field
-    schema.add_field("name", Datatype("string"))
-    assert "name" in schema
-    assert schema["name"].datatype == Datatype("string")
-
-    # Delete field
-    del schema["name"]
-    assert "name" not in schema
-
-    # Try to delete primary key
-    with pytest.raises(ValueError, match="Cannot delete the primary key field"):
-        del schema["id"]
+def test_merge_key_conflict_on_init():
+    fields = [
+        Field("id", Datatype.int64(), is_merge_key=False),  # Merge key off here
+        ("name", Datatype.string()),
+    ]
+    with pytest.raises(TypeError):
+        Schema(fields, merge_keys=["id"])  # Merge key on here
 
 
-def test_schema_to_pyarrow():
-    """Test conversion to PyArrow schema"""
-    fields = {"id": Datatype("int32"), "name": Datatype("string")}
-    schema = Schema(fields, primary_key="id")
-    pa_schema = schema.to_pyarrow_schema()
+def test_simultaneous_duplicate_field():
+    with pytest.raises(ValueError):
+        Schema(
+            [
+                ("id", Datatype.int32()),
+                ("name", Datatype.string()),
+                ("age", Datatype.int32()),
+                ("age", Datatype.string()),
+            ],
+            merge_keys=["id"],
+        )
 
-    assert pa_schema.names == ["id", "name"]
-    assert str(pa_schema.types[0]) == "int32"
-    assert str(pa_schema.types[1]) == "string"
+
+def test_add_field():
+    schema = Schema()
+    field = Field("new_field", Datatype.float(), True)
+    schema.add_field(field)
+    assert len(schema) == 1
+    assert "new_field" in schema.keys()
+    assert schema["new_field"].datatype == Datatype.float()
+
+    field2 = Field("another_field", Datatype.string(), True)
+    schema.add_field(field2)
+    assert len(schema) == 2
+    assert "another_field" in schema.keys()
+    assert schema["another_field"].datatype == Datatype.string()
+
+    with pytest.raises(ValueError):
+        schema.add_field(field2)
+
+
+def test_setitem_field():
+    schema = Schema()
+    field = Field("test_field", Datatype.int64(), is_merge_key=True)
+    schema["test_field"] = field
+    assert schema["test_field"] == field
+
+
+def test_setitem_datatype():
+    schema = Schema()
+    schema["id"] = (Datatype.int64(), True)
+    schema["test_field"] = Datatype.int64()
+    assert schema["test_field"].name == "test_field"
+    assert schema["test_field"].datatype == Datatype.int64()
+    assert not schema["test_field"].is_merge_key
+
+
+def test_setitem_tuple_with_merge_key():
+    schema = Schema()
+    schema["test_field"] = (Datatype.int64(), True)
+    assert schema["test_field"].name == "test_field"
+    assert schema["test_field"].datatype == Datatype.int64()
+    assert schema["test_field"].is_merge_key
+
+
+def test_setitem_invalid_type():
+    schema = Schema()
+    with pytest.raises(TypeError):
+        schema["test_field"] = "invalid"
+
+
+def test_non_empty_merge_key():
+    with pytest.raises(TypeError):
+        _ = Schema([], merge_keys=["id"])
+
+
+def test_merge_schemas():
+    schema1 = Schema([("id", Datatype.int64())], merge_keys=["id"])
+    schema2 = Schema(
+        [("other_id", Datatype.string()), ("name", Datatype.string())],
+        merge_keys="other_id",
+    )
+    schema1.merge(schema2)
+    assert len(schema1) == 3
+    assert "id" in schema1.keys()
+    assert "name" in schema1.keys()
+    assert "other_id" in schema1.keys()
+
+
+def test_merge_schemas_same_merge_key():
+    schema1 = Schema(
+        [("id", Datatype.int64()), ("name", Datatype.string())], merge_keys=["id"]
+    )
+    schema2 = Schema(
+        [("id", Datatype.int64()), ("other_name", Datatype.string())],
+        merge_keys="id",
+    )
+    schema1.merge(schema2)
+    assert len(schema1) == 3
+    assert "id" in schema1.keys()
+    assert "name" in schema1.keys()
+    assert "other_name" in schema1.keys()
+
+
+def test_merge_schema_conflict():
+    schema1 = Schema([("id", Datatype.int64())], merge_keys=["id"])
+    schema1_dup = Schema([("id", Datatype.int64())], merge_keys=["id"])
+    schema2 = Schema([("id", Datatype.string())], merge_keys=["id"])
+
+    with pytest.raises(ValueError):
+        schema1.merge(schema2)
+
+    schema1.merge(
+        schema1_dup
+    )  # Merging the same field is allowed (unlike using add_field)
+    assert schema1["id"].datatype == Datatype.int64()
+    assert len(schema1) == 1
+
+
+def test_to_pyarrow_schema():
+    fields = [("id", Datatype.int64()), ("name", Datatype.string())]
+    schema = Schema(fields, merge_keys=["id"])
+    pa_schema = schema.to_pyarrow()
+    assert isinstance(pa_schema, pa.Schema)
+    assert len(pa_schema) == 2
+    assert pa_schema.field("id").type == pa.int64()
+    assert pa_schema.field("name").type == pa.string()
 
 
 def test_from_pyarrow_schema():
-    """Test creating Schema from PyArrow schema"""
-    # Create a PyArrow schema
-    pa_schema = pa.schema(
-        [("id", pa.int32()), ("name", pa.string()), ("age", pa.int32())]
-    )
-
-    # Convert to Rivulet Schema
-    schema = Schema.from_pyarrow_schema(pa_schema, primary_key="id")
-
-    # Verify conversion
-    assert schema.primary_key.name == "id"
-    assert schema.primary_key.datatype == Datatype("int32")
-    assert len(schema) == 3
-    assert schema["name"].datatype == Datatype("string")
-    assert schema["age"].datatype == Datatype("int32")
-
-    # Test invalid primary key
-    with pytest.raises(
-        ValueError, match="Did not find primary key 'invalid_key' in Schema"
-    ):
-        Schema.from_pyarrow_schema(pa_schema, primary_key="invalid_key")
-
-
-def test_schema_json_serialization():
-    """Test JSON serialization and deserialization"""
-    original_schema = Schema(
-        {"id": Datatype("int32"), "name": Datatype("string")}, primary_key="id"
-    )
-
-    # Convert to dict and back
-    schema_dict = original_schema.__dict__()
-    restored_schema = Schema.from_json(schema_dict)
-
-    assert len(restored_schema) == len(original_schema)
-    assert restored_schema.primary_key.name == original_schema.primary_key.name
-    assert restored_schema["id"].datatype == original_schema["id"].datatype
-
-
-def test_schema_filter():
-    """Test schema field filtering"""
-    schema = Schema(
-        {"id": Datatype("int32"), "name": Datatype("string"), "age": Datatype("int32")},
-        primary_key="id",
-    )
-
-    schema.filter(["id", "name"])
+    pa_schema = pa.schema([("id", pa.int64()), ("name", pa.string())])
+    schema = Schema.from_pyarrow(pa_schema, merge_keys=["id"])
     assert len(schema) == 2
-    assert "age" not in schema
-    assert "id" in schema  # Primary key should remain
+    assert schema["id"].is_merge_key
 
-    # Try to filter out primary key
-    with pytest.raises(
-        ValueError, match="Schema filter must contain the primary key field"
-    ):
-        schema.filter(["name"])
+
+def test_from_pyarrow_schema_invalid_merge_keys():
+    pa_schema = pa.schema([("id", pa.int64()), ("name", pa.string())])
+    with pytest.raises(ValueError):
+        Schema.from_pyarrow(pa_schema, merge_keys=["bad_key"])
+
+
+def test_get_field():
+    schema = Schema([("id", Datatype.int64())], merge_keys=["id"])
+    field = schema["id"]
+    assert field.name == "id"
+    assert field.datatype == Datatype.int64()
+
+
+def test_set_field():
+    schema = Schema([("id", Datatype.int64())], merge_keys=["id"])
+    schema["name"] = Field("name", Datatype.string())
+    assert len(schema) == 2
+    assert "name" in schema.keys()
+    assert schema["name"].datatype == Datatype.string()
+
+
+def test_delete_field():
+    schema = Schema(
+        [("name", Datatype.string()), ("zip", Datatype.int32())], merge_keys=["name"]
+    )
+    del schema["zip"]
+    assert "zip" not in schema.keys()
+    assert "name" in schema.keys()
+
+
+def test_delete_merge_key_field():
+    schema = Schema([("id", Datatype.int64())], merge_keys=["id"])
+    with pytest.raises(ValueError):
+        del schema["id"]
+
+
+def test_schema_iter():
+    fields = [
+        Field("id", Datatype.int32(), is_merge_key=True),
+        Field("name", Datatype.string()),
+    ]
+    schema = Schema(fields)
+    iter_result = list(iter(schema))
+    assert len(iter_result) == 2
+    assert all(isinstance(item, str) for item in iter_result)
+
+
+def test_merge_all():
+    schema1 = Schema(
+        [
+            Field("id", Datatype.int64(), is_merge_key=True),
+            Field("name", Datatype.string()),
+        ]
+    )
+    schema2 = Schema(
+        [
+            Field("age", Datatype.int32()),
+            Field("email", Datatype.string(), is_merge_key=True),
+        ]
+    )
+    merged_schema = Schema.merge_all([schema1, schema2])
+    assert len(merged_schema) == 4
+
+
+def test_schema_values():
+    fields = [
+        Field("id", Datatype.int64(), is_merge_key=True),
+        Field("name", Datatype.string()),
+    ]
+    schema = Schema(fields)
+    values = list(schema.values())
+    assert len(values) == 2
+    assert all(isinstance(v, Field) for v in values)
+
+
+def test_schema_items():
+    fields = [
+        Field("id", Datatype.int64(), is_merge_key=True),
+        Field("name", Datatype.string()),
+    ]
+    schema = Schema(fields)
+    items = list(schema.items())
+    assert len(items) == 2
+    assert all(isinstance(k, str) and isinstance(v, Field) for k, v in items)

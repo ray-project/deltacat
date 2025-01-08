@@ -33,32 +33,32 @@ class TestWriter:
 
     def test_write_unsupported_data_type(self, ds1_dataset, ds1_schema):
         dataset = create_dataset_for_method(self.temp_dir)
-        field_group = dataset.new_field_group(ds1_schema)
-        with dataset.writer(field_group) as writer:
+        dataset.add_schema(ds1_schema, "ds1_schema")
+        with dataset.writer("ds1_schema") as writer:
             with pytest.raises(ValueError):
                 writer.write("a string")
 
     def test_write_pydict(self, ds1_dataset, ds1_schema):
         dataset = create_dataset_for_method(self.temp_dir)
-        field_group = dataset.new_field_group(ds1_schema)
-        with dataset.writer(field_group) as writer:
+        dataset.add_schema(ds1_schema, "ds1_schema")
+        with dataset.writer("ds1_schema") as writer:
             write_mvp_table(writer, ds1_dataset)
 
         validate_with_full_scan(dataset, ds1_dataset, ds1_schema)
 
-    def test_write_recordbatch(self, ds1_dataset, ds1_schema):
+    def test_write_record_batch(self, ds1_dataset, ds1_schema):
         dataset = create_dataset_for_method(self.temp_dir)
-        field_group = dataset.new_field_group(ds1_schema)
-        with dataset.writer(field_group) as writer:
+        dataset.add_schema(ds1_schema, "ds1_schema")
+        with dataset.writer("ds1_schema") as writer:
             record_batch = mvp_table_to_record_batches(ds1_dataset, ds1_schema)
             writer.write(record_batch)
 
         validate_with_full_scan(dataset, ds1_dataset, ds1_schema)
 
-    def test_write_list_of_recordbatch(self, ds1_dataset, ds1_schema):
+    def test_write_list_of_record_batch(self, ds1_dataset, ds1_schema):
         dataset = create_dataset_for_method(self.temp_dir)
-        field_group = dataset.new_field_group(ds1_schema)
-        with dataset.writer(field_group, "feather") as writer:
+        dataset.add_schema(ds1_schema, "ds1_schema")
+        with dataset.writer("ds1_schema", "feather") as writer:
             record_batch = mvp_table_to_record_batches(ds1_dataset, ds1_schema)
             writer.write([record_batch])
 
@@ -69,8 +69,8 @@ class TestWriter:
         dataset = create_dataset_for_method(self.temp_dir)
 
         table, schema = dataset_images_with_label
-        field_group = dataset.new_field_group(schema)
-        with dataset.writer(field_group, "feather") as writer:
+        dataset.add_schema(schema, "schema")
+        with dataset.writer("schema", "feather") as writer:
             record_batch = mvp_table_to_record_batches(table, schema)
             writer.write([record_batch])
 

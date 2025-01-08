@@ -2,18 +2,19 @@
 #   In the long term, this will have to be interoperable with pandas/daft/spark/parquet/iceberg/etc type systems
 #   Our Spec will need to publish data type mappings, such as Iceberg's data type mappings: https://iceberg.apache.org/spec/#file-system-operations
 #   It also has the unique responsibility of representing multi-modal (e.g. image) types
+from dataclasses import dataclass
 from typing import Optional
 
 import pyarrow as pa
 
 
-# OPEN QUESTIONs:
+# OPEN QUESTIONS:
 # Do we want to support the notion of logical vs physical type like parquet?
 
 # TODO turn into an interface or otherwise allow pluggable datatypes
+@dataclass(frozen=True)
 class Datatype:
-    def __init__(self, type_name):
-        self.type_name = type_name
+    type_name: str
 
     @property
     def subtype(self) -> Optional[str]:
@@ -65,35 +66,6 @@ class Datatype:
     def bool(cls):
         return cls(type_name="bool")
 
-    def to_pyarrow(self) -> pa.field:
-        """
-        In the future we want to be more thoughtful about how we do type conversions
-
-        For now, just build a simple mapping of every time to pyarrow
-        For what it's worth, Daft schema types have a giant if/else like this
-
-        :return: pyarrow type
-        """
-        if self.type_name == "string":
-            return pa.string()
-        elif self.type_name == "float":
-            return pa.float64()
-        elif self.type_name == "int16":
-            return pa.int16()
-        elif self.type_name == "int32":
-            return pa.int32()
-        elif self.type_name == "int64":
-            return pa.int64()
-        elif self.type_name == "bool":
-            return pa.bool_()
-        elif self.type_name.startswith("image(") or self.type_name.startswith(
-            "binary("
-        ):
-            # TODO we will need to think about how custom types work with tabular libraries
-            return pa.binary()
-        else:
-            raise ValueError(f"Unsupported type conversion to pa: {self.type_name}")
-
     @classmethod
     def from_pyarrow(cls, pa_type: pa.DataType) -> "Datatype":
         """
@@ -126,20 +98,31 @@ class Datatype:
         else:
             raise ValueError(f"Unsupported pa type: {pa_type}")
 
-    def __repr__(self):
-        return f"Datatype({self.type_name})"
+    def to_pyarrow(self) -> pa.field:
+        """
+        In the future we want to be more thoughtful about how we do type conversions
 
-    def __eq__(self, other):
-        if isinstance(other, Datatype):
-            return self.type_name == other.type_name
-        return False
+        For now, just build a simple mapping of every time to pyarrow
+        For what it's worth, Daft schema types have a giant if/else like this
 
-    def __hash__(self):
-        return hash(self.type_name)
-
-
-class Enum(Datatype):
-    def __init__(self, name, values):
-        super().__init__(type_name="enum")
-        self.name = name
-        self.values = values
+        :return: pyarrow type
+        """
+        if self.type_name == "string":
+            return pa.string()
+        elif self.type_name == "float":
+            return pa.float64()
+        elif self.type_name == "int16":
+            return pa.int16()
+        elif self.type_name == "int32":
+            return pa.int32()
+        elif self.type_name == "int64":
+            return pa.int64()
+        elif self.type_name == "bool":
+            return pa.bool_()
+        elif self.type_name.startswith("image(") or self.type_name.startswith(
+            "binary("
+        ):
+            # TODO we will need to think about how custom types work with tabular libraries
+            return pa.binary()
+        else:
+            raise ValueError(f"Unsupported type conversion to pa: {self.type_name}")

@@ -56,9 +56,9 @@ class DictMemTable(Memtable[Dict[str, Any]]):
         2. Probably we will re-write in rust
     """
 
-    def __init__(self, primary_key: str):
+    def __init__(self, merge_key: str):
         self.row_size = 0
-        self.primary_key = primary_key
+        self.merge_key = merge_key
 
         self._records: List[Dict[str, Any]] = []
         self.lock = threading.Lock()
@@ -79,7 +79,7 @@ class DictMemTable(Memtable[Dict[str, Any]]):
         :return: iterator over sorted record
         """
         with self.lock:
-            self._records.sort(key=lambda x: x.__getitem__(self.primary_key))
+            self._records.sort(key=lambda x: x.__getitem__(self.merge_key))
             return self._records
 
 
@@ -88,9 +88,9 @@ class RecordBatchMemTable(Memtable[RecordBatch]):
     Note that this will not respect max row size.
     """
 
-    def __init__(self, primary_key: str):
+    def __init__(self, merge_key: str):
         self.row_size = 0
-        self.primary_key = primary_key
+        self.merge_key = merge_key
 
         # list of full record batches in memtable
         self._records_batches: List[RecordBatch] = []
@@ -113,10 +113,8 @@ class RecordBatchMemTable(Memtable[RecordBatch]):
         """
         with self.lock:
             # Note that we are providing schema so that pyarrow does not infer it
-            table = Table.from_batches(
-                self._records_batches, schema.to_pyarrow_schema()
-            )
-            return table.sort_by(self.primary_key)
+            table = Table.from_batches(self._records_batches, schema.to_pyarrow())
+            return table.sort_by(self.merge_key)
 
 
 class MemtableDatasetWriter(DatasetWriter):
@@ -148,6 +146,7 @@ class MemtableDatasetWriter(DatasetWriter):
             manifest_io = JsonManifestIO()
 
         self.schema = schema
+
         self.location_provider = location_provider
         self.data_serializer: DataSerializer = DataSerializerFactory.get_serializer(
             self.schema, self.location_provider, file_format
@@ -163,8 +162,9 @@ class MemtableDatasetWriter(DatasetWriter):
         self.__open_threads: List[Thread] = []
 
     def write_dict(self, record: Dict[str, Any]) -> None:
+
         # Construct memtable if doesn't exist. If previous memtable wrong type, rotate
-        memtable_ctor = lambda: DictMemTable(self.schema.primary_key.name)
+        memtable_ctor = lambda: DictMemTable(self.schema.get_merge_key())
         if not self.__curr_memtable:
             self.__curr_memtable = memtable_ctor()
         try:
@@ -178,7 +178,7 @@ class MemtableDatasetWriter(DatasetWriter):
 
     def write_record_batch(self, record: RecordBatch) -> None:
         # Construct memtable if doesn't exist. If previous memtable wrong type, rotate
-        memtable_ctor = lambda: RecordBatchMemTable(self.schema.primary_key.name)
+        memtable_ctor = lambda: RecordBatchMemTable(self.schema.get_merge_key())
         if not self.__curr_memtable:
             self.__curr_memtable = memtable_ctor()
 
