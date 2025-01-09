@@ -255,6 +255,13 @@ class Delta(Metafile):
         return None
 
     @property
+    def stream_format(self) -> Optional[str]:
+        delta_locator = self.locator
+        if delta_locator:
+            return delta_locator.stream_format
+        return None
+
+    @property
     def partition_id(self) -> Optional[str]:
         delta_locator = self.locator
         if delta_locator:

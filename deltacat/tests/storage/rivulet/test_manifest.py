@@ -1,7 +1,6 @@
 import os
 from typing import Set
 
-from deltacat.tests.storage.rivulet.test_utils import make_tmpdir
 from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.manifest import (

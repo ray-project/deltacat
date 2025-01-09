@@ -127,17 +127,15 @@ class Transaction(dict):
                     "DELETE transaction operations must be specified as part "
                     "of a DELETE transaction."
                 )
-        elif TransactionOperationType.UPDATE in operation_types:
-            if len(operation_types) == 1 and txn_type != TransactionType.RESTATE:
-                raise ValueError(
-                    "Transactions with only UPDATE operations must be "
-                    "specified as part of a RESTATE transaction."
-                )
-            elif txn_type not in {TransactionType.OVERWRITE, TransactionType.RESTATE}:
-                raise ValueError(
-                    "Mixed UPDATE+CREATE operations must be specified as part "
-                    "of a RESTATE or OVERWRITE transaction."
-                )
+        elif TransactionOperationType.UPDATE in operation_types and txn_type not in {
+            TransactionType.ALTER,
+            TransactionType.RESTATE,
+            TransactionType.OVERWRITE,
+        }:
+            raise ValueError(
+                "Transactions with UPDATE operations must be specified "
+                "as part of an ALTER, RESTATE, or OVERWRITE transaction."
+            )
         transaction = Transaction()
         transaction.type = txn_type
         transaction.operations = txn_operations
@@ -182,9 +180,9 @@ class Transaction(dict):
     ) -> List[str]:
         # TODO(pdames): (1) enforce table-version-level transaction isolation
         #  APPEND transactions run concurrently
-        #  DELETE/RESTATE/OVERWRITE transactions run serially
+        #  DELETE/UPDATE/OVERWRITE transactions run serially
         #  APPEND transactions may auto-resolve all conflicts via retry
-        #  DELETE/RESTATE/OVERWRITE txns fail all conflicts with each-other
+        #  DELETE/UPDATE/OVERWRITE txns fail all conflicts with each-other
         #  (2) support catalog global and table-version-local transaction
         #  pointer queries and rollback/rollforward
         #  (3) allow transaction changes to be durably staged and resumed
@@ -251,7 +249,7 @@ class MetafileCommitInfo(dict):
         file_paths_and_sizes = _get_file_infos(
             commit_dir_path,
             filesystem,
-            ignore_missing_path=ignore_missing_commit,
+            ignore_missing_path=True,
         )
         if not file_paths_and_sizes and not ignore_missing_commit:
             err_msg = (
@@ -282,6 +280,7 @@ class MetafileCommitInfo(dict):
                 file_paths_and_sizes = _get_file_infos(
                     posixpath.join(txn_log_dir, txn_id),
                     filesystem,
+                    ignore_missing_path=True,
                 )
                 if file_paths_and_sizes:
                     latest_committed_metafile_path = latest_metafile_path
@@ -434,11 +433,12 @@ class Metafile(dict):
         and deterministic references (e.g. for generating a table file path that
         remains the same regardless of renames).
         """
-        _id = self.get("id")
+
+        # check if the locator name can be reused as an immutable ID
+        # or if we need to use a generated UUID as an immutable ID
+        _id = self.locator.name().immutable_id() or self.get("id")
         if not _id:
-            # check if the locator name can be reused as an immutable ID
-            # or if we need to generate a new immutable ID
-            _id = self["id"] = self.locator.name().immutable_id() or str(uuid.uuid4())
+            _id = self["id"] = str(uuid.uuid4())
         return _id
 
     @property
@@ -518,8 +518,9 @@ class Metafile(dict):
                 parent_locator = parent_locator.parent()
             metafile_root = catalog_root
             while parent_locators:
+                parent_locator = parent_locators.pop()
                 ancestor_id = Metafile._locator_to_id(
-                    locator=parent_locators.pop(),
+                    locator=parent_locator,
                     catalog_root=catalog_root,
                     metafile_root=metafile_root,
                     filesystem=filesystem,
@@ -529,6 +530,13 @@ class Metafile(dict):
                     metafile_root,
                     ancestor_id,
                 )
+                try:
+                    _get_file_infos(metafile_root, filesystem)
+                except FileNotFoundError:
+                    raise ValueError(
+                        f"Ancestor {parent_locator} does not exist at: "
+                        f"{metafile_root}"
+                    )
                 ancestor_ids.append(ancestor_id)
         return ancestor_ids
 

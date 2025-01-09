@@ -156,6 +156,13 @@ class Partition(Metafile):
         return None
 
     @property
+    def stream_format(self) -> Optional[str]:
+        partition_locator = self.locator
+        if partition_locator:
+            return partition_locator.stream_format
+        return None
+
+    @property
     def partition_values(self) -> Optional[PartitionValues]:
         partition_locator = self.locator
         if partition_locator:

@@ -1,14 +1,11 @@
 import inspect
 import os
-from contextlib import contextmanager
 
 from pyarrow import RecordBatch
 
 from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet.writer.dataset_writer import DatasetWriter
-import shutil
-import tempfile
 
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
 from deltacat.storage.rivulet import Schema
@@ -17,14 +14,13 @@ from typing import Dict, List, Generator, Set
 FIXTURE_ROW_COUNT = 10000
 
 
-@contextmanager
-def make_tmpdir():
-    tmpdir = tempfile.mkdtemp()
-    try:
-        yield tmpdir
-    finally:
-        shutil.rmtree(tmpdir)
-        pass
+def write_mvp_table_to_riv(table: MvpTable, schema: Schema, dir: str, file_format=None):
+    dataset = Dataset(dir)
+    fg = dataset.new_field_group(schema)
+    with dataset.writer(fg, file_format) as writer:
+        record_batch = mvp_table_to_record_batches(table, schema)
+        writer.write([record_batch])
+    return dataset
 
 
 def write_mvp_table(writer: DatasetWriter, table: MvpTable):

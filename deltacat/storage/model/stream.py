@@ -147,6 +147,13 @@ class Stream(Metafile):
         return None
 
     @property
+    def stream_format(self) -> Optional[str]:
+        stream_locator = self.locator
+        if stream_locator:
+            return stream_locator.format
+        return None
+
+    @property
     def namespace(self) -> Optional[str]:
         stream_locator = self.locator
         if stream_locator:
@@ -237,7 +244,11 @@ class StreamLocator(Locator, dict):
         stream_locator = StreamLocator()
         stream_locator.table_version_locator = table_version_locator
         stream_locator.stream_id = stream_id
-        stream_locator.format = stream_format
+        stream_locator.format = (
+            stream_format.value
+            if isinstance(stream_format, StreamFormat)
+            else stream_format
+        )
         return stream_locator
 
     @staticmethod
