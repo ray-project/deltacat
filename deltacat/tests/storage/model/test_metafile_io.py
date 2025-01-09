@@ -301,6 +301,128 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
 
 
 class TestMetafileIO(unittest.TestCase):
+    def test_create_stream_bad_order_txn_op_chaining(self):
+        temp_dir = tempfile.gettempdir()
+        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+        try:
+            commit_results = _commit_single_delta_table(temp_dir)
+            for expected, actual, _ in commit_results:
+                assert expected == actual
+            # given a transaction containing:
+
+            # 1. a new table version
+            original_table_created = Table(commit_results[1][1])
+            original_table_version_created = TableVersion(commit_results[2][1])
+            new_table_version = copy.deepcopy(original_table_version_created)
+            new_table_version.locator = TableVersionLocator.at(
+                namespace=original_table_version_created.namespace,
+                table_name=original_table_created.table_name,
+                table_version=original_table_version_created.table_version + "_2",
+            )
+            # 2. a new stream in the new table version
+            original_stream_created = Stream(commit_results[3][1])
+            new_stream = copy.deepcopy(original_stream_created)
+            new_stream.locator = StreamLocator.at(
+                namespace=original_stream_created.namespace,
+                table_name=original_stream_created.table_name,
+                table_version=new_table_version.table_version,
+                stream_id="test_stream_id",
+                stream_format=StreamFormat.DELTACAT,
+            )
+            # 3. ordered transaction operations that try to put the new stream
+            # in the new table version before it is created
+            txn_operations = [
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    new_stream,
+                ),
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    new_table_version,
+                ),
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.APPEND,
+                txn_operations=txn_operations,
+            )
+            # when the transaction is committed,
+            # expect stream creation to fail
+            self.assertRaises(
+                ValueError,
+                transaction.commit,
+                root=temp_dir,
+            )
+            # when a transaction with the operations reversed is committed,
+            transaction = Transaction.of(
+                txn_type=TransactionType.APPEND,
+                txn_operations=list(reversed(txn_operations)),
+            )
+            # expect table version and stream creation to succeed
+            write_paths = transaction.commit(temp_dir)
+            assert len(write_paths) == 2
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_table_rename_bad_order_txn_op_chaining(self):
+        temp_dir = tempfile.gettempdir()
+        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+        try:
+            commit_results = _commit_single_delta_table(temp_dir)
+            for expected, actual, _ in commit_results:
+                assert expected == actual
+            original_table: Table = commit_results[1][1]
+            # given a transaction containing:
+            # 1. a table rename
+            renamed_table: Table = copy.deepcopy(original_table)
+            renamed_table.locator = TableLocator.at(
+                namespace="test_namespace",
+                table_name="test_table_renamed",
+            )
+            # 2. a new table version in a renamed table
+            original_table_version_created = TableVersion(commit_results[2][1])
+            new_table_version_to_create = copy.deepcopy(original_table_version_created)
+            new_table_version_to_create.locator = TableVersionLocator.at(
+                namespace=original_table_version_created.namespace,
+                table_name=renamed_table.table_name,
+                table_version=original_table_version_created.table_version + "_2",
+            )
+            # 3. ordered transaction operations that try to put the new table
+            # version in the renamed table before the table is renamed
+            txn_operations = [
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    new_table_version_to_create,
+                ),
+                TransactionOperation.of(
+                    TransactionOperationType.UPDATE,
+                    renamed_table,
+                    original_table,
+                ),
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.ALTER,
+                txn_operations=txn_operations,
+            )
+            # when the transaction is committed,
+            # expect the transaction to fail due to incorrect operation order
+            self.assertRaises(
+                ValueError,
+                transaction.commit,
+                root=temp_dir,
+            )
+            # when a transaction with the operations reversed is committed,
+            transaction = Transaction.of(
+                txn_type=TransactionType.ALTER,
+                txn_operations=list(reversed(txn_operations)),
+            )
+            # expect table and table version creation to succeed
+            write_paths = transaction.commit(temp_dir)
+            assert len(write_paths) == 2
+        finally:
+            shutil.rmtree(temp_dir)
+
+    # TODO(pdames): Test isolation of creating a duplicate namespace/table/etc.
+    #  between multiple concurrent transactions.
     def test_create_duplicate_namespace(self):
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
@@ -337,8 +459,7 @@ class TestMetafileIO(unittest.TestCase):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
         namespace = Namespace.of(locator=namespace_locator)
         try:
-            # given a transaction that tries to create two namespaces with
-            # the same name
+            # given a transaction that tries to create the same namespace twice
             transaction = Transaction.of(
                 txn_type=TransactionType.APPEND,
                 txn_operations=[
@@ -353,7 +474,7 @@ class TestMetafileIO(unittest.TestCase):
                 ],
             )
             # when the transaction is committed,
-            # expect namespace creation to fail
+            # expect duplicate namespace creation to fail
             self.assertRaises(
                 ValueError,
                 transaction.commit,
@@ -362,7 +483,7 @@ class TestMetafileIO(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir)
 
-    def test_create_stream_in_bad_table_version(self):
+    def test_create_stream_in_missing_table_version(self):
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
         try:
@@ -399,7 +520,7 @@ class TestMetafileIO(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir)
 
-    def test_create_table_version_in_bad_namespace(self):
+    def test_create_table_version_in_missing_namespace(self):
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
         try:
@@ -434,7 +555,7 @@ class TestMetafileIO(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir)
 
-    def test_create_table_version_in_bad_table(self):
+    def test_create_table_version_in_missing_table(self):
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
         try:
@@ -469,7 +590,7 @@ class TestMetafileIO(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir)
 
-    def test_create_table_in_bad_namespace(self):
+    def test_create_table_in_missing_namespace(self):
         temp_dir = tempfile.gettempdir()
         temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
         table_locator = TableLocator.at(

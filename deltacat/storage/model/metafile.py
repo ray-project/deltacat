@@ -8,6 +8,7 @@ import pyarrow.fs
 import posixpath
 import uuid
 
+# TODO(pdames): Create internal DeltaCAT ports of these Ray Data functions.
 from ray.data.datasource.path_util import _resolve_paths_and_filesystem
 from ray.data.datasource.file_meta_provider import _get_file_infos
 
@@ -236,7 +237,10 @@ class MetafileCommitInfo(dict):
                 TXN_DIR_NAME,
             )
             try:
-                _get_file_infos(txn_log_dir, filesystem)
+                _get_file_infos(
+                    path=txn_log_dir,
+                    filesystem=filesystem,
+                )
             except FileNotFoundError:
                 txn_log_dir = None
                 if current_dir == posixpath.sep:
@@ -247,8 +251,8 @@ class MetafileCommitInfo(dict):
             raise ValueError(err_msg)
         # find the latest committed revision of the target metafile
         file_paths_and_sizes = _get_file_infos(
-            commit_dir_path,
-            filesystem,
+            path=commit_dir_path,
+            filesystem=filesystem,
             ignore_missing_path=True,
         )
         if not file_paths_and_sizes and not ignore_missing_commit:
@@ -278,8 +282,8 @@ class MetafileCommitInfo(dict):
                 break
             else:
                 file_paths_and_sizes = _get_file_infos(
-                    posixpath.join(txn_log_dir, txn_id),
-                    filesystem,
+                    path=posixpath.join(txn_log_dir, txn_id),
+                    filesystem=filesystem,
                     ignore_missing_path=True,
                 )
                 if file_paths_and_sizes:
@@ -531,7 +535,10 @@ class Metafile(dict):
                     ancestor_id,
                 )
                 try:
-                    _get_file_infos(metafile_root, filesystem)
+                    _get_file_infos(
+                        path=metafile_root,
+                        filesystem=filesystem,
+                    )
                 except FileNotFoundError:
                     raise ValueError(
                         f"Ancestor {parent_locator} does not exist at: "
@@ -672,7 +679,10 @@ class Metafile(dict):
         """
         # TODO(pdames): resolve and cache filesystem at catalog root level
         #   ensure returned paths are normalized as posix paths
-        paths, filesystem = _resolve_paths_and_filesystem(path, filesystem)
+        paths, filesystem = _resolve_paths_and_filesystem(
+            paths=path,
+            filesystem=filesystem,
+        )
         assert len(paths) == 1, len(paths)
         return paths[0], filesystem
 
