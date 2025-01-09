@@ -9,5 +9,5 @@ def read_s3_contents(
     s3_resource: ServiceResource, bucket_name: str, key: str
 ) -> Dict[str, Any]:
     response = s3_resource.Object(bucket_name, key).get()
-    file_content: str = response["Body"].current().decode("utf-8")
+    file_content: str = response["Body"].read().decode("utf-8")
     return json.loads(file_content)

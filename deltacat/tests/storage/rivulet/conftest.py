@@ -135,7 +135,7 @@ def dataset_images_with_label() -> (MvpTable, Schema):
     fake_image.save(buffer, format="PNG")
     # seek to start of buffer since we just wrote to it
     buffer.seek(0)
-    image_bytes = buffer.current()
+    image_bytes = buffer.read()
     # Generate one million rows
     return (
         MvpTable(

@@ -76,7 +76,7 @@ class Locator:
         if parent_hexdigest:
             parts.append(parent_hexdigest)
         parts.extend(self.name().parts())
-        return separator.join(parts)
+        return separator.join([str(part) for part in parts])
 
     def digest(self) -> bytes:
         """

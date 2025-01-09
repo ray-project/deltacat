@@ -72,7 +72,7 @@ class TestDownloadUpload(unittest.TestCase):
         assert uploaded_file is not None
         assert uploaded_file["ResponseMetadata"]["HTTPStatusCode"] == 200
         downloaded_file = s3u.download(uri)
-        downloaded_body = downloaded_file["Body"].current().decode("utf-8")
+        downloaded_body = downloaded_file["Body"].read().decode("utf-8")
         assert downloaded_file["ResponseMetadata"]["HTTPStatusCode"] == 200
         assert downloaded_body == body
 

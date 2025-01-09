@@ -58,7 +58,7 @@ def read_round_completion_file(
         logger.info(f"Reading round completion file from: {rcf_uri}")
         result = s3_utils.download(rcf_uri, False, **s3_client_kwargs)
         if result:
-            json_str = result["Body"].current().decode("utf-8")
+            json_str = result["Body"].read().decode("utf-8")
             round_completion_info = RoundCompletionInfo(json.loads(json_str))
             logger.info(f"Read round completion info: {round_completion_info}")
             break

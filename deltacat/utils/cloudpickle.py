@@ -26,7 +26,7 @@ def dump_into_chunks(obj: Any, max_size_bytes: int) -> List[bytes]:
     while current_size > 0:
         to_read_size = min(max_size_bytes, current_size)
         bytes_io.seek(-to_read_size, 1)
-        cur = bytes_io.current(to_read_size)
+        cur = bytes_io.read(to_read_size)
         observed_total_size += len(cur)
         bytes_io.seek(-to_read_size, 1)
         bytes_io.truncate()

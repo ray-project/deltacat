@@ -1,12 +1,9 @@
 import copy
-import shutil
-import unittest
-import tempfile
 import os
-import uuid
 from typing import List, Tuple
 
 import pyarrow as pa
+import pytest
 
 from deltacat import (
     Schema,
@@ -300,299 +297,241 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
     return list(zip(meta_to_create, metafiles_created, write_paths_copy))
 
 
-class TestMetafileIO(unittest.TestCase):
-    def test_create_stream_bad_order_txn_op_chaining(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            # given a transaction containing:
+class TestMetafileIO:
+    def test_create_stream_bad_order_txn_op_chaining(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        # given a transaction containing:
 
-            # 1. a new table version
-            original_table_created = Table(commit_results[1][1])
-            original_table_version_created = TableVersion(commit_results[2][1])
-            new_table_version = copy.deepcopy(original_table_version_created)
-            new_table_version.locator = TableVersionLocator.at(
-                namespace=original_table_version_created.namespace,
-                table_name=original_table_created.table_name,
-                table_version=original_table_version_created.table_version + "_2",
-            )
-            # 2. a new stream in the new table version
-            original_stream_created = Stream(commit_results[3][1])
-            new_stream = copy.deepcopy(original_stream_created)
-            new_stream.locator = StreamLocator.at(
-                namespace=original_stream_created.namespace,
-                table_name=original_stream_created.table_name,
-                table_version=new_table_version.table_version,
-                stream_id="test_stream_id",
-                stream_format=StreamFormat.DELTACAT,
-            )
-            # 3. ordered transaction operations that try to put the new stream
-            # in the new table version before it is created
-            txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    new_stream,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    new_table_version,
-                ),
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=txn_operations,
-            )
-            # when the transaction is committed,
-            # expect stream creation to fail
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-            # when a transaction with the operations reversed is committed,
-            transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=list(reversed(txn_operations)),
-            )
-            # expect table version and stream creation to succeed
-            write_paths = transaction.commit(temp_dir)
-            assert len(write_paths) == 2
-        finally:
-            shutil.rmtree(temp_dir)
+        # 1. a new table version
+        original_table_created = Table(commit_results[1][1])
+        original_table_version_created = TableVersion(commit_results[2][1])
+        new_table_version = copy.deepcopy(original_table_version_created)
+        new_table_version.locator = TableVersionLocator.at(
+            namespace=original_table_version_created.namespace,
+            table_name=original_table_created.table_name,
+            table_version=original_table_version_created.table_version + "_2",
+        )
+        # 2. a new stream in the new table version
+        original_stream_created = Stream(commit_results[3][1])
+        new_stream = copy.deepcopy(original_stream_created)
+        new_stream.locator = StreamLocator.at(
+            namespace=original_stream_created.namespace,
+            table_name=original_stream_created.table_name,
+            table_version=new_table_version.table_version,
+            stream_id="test_stream_id",
+            stream_format=StreamFormat.DELTACAT,
+        )
+        # 3. ordered transaction operations that try to put the new stream
+        # in the new table version before it is created
+        txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.CREATE,
+                new_stream,
+            ),
+            TransactionOperation.of(
+                TransactionOperationType.CREATE,
+                new_table_version,
+            ),
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed,
+        # expect stream creation to fail
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+        # when a transaction with the operations reversed is committed,
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=list(reversed(txn_operations)),
+        )
+        # expect table version and stream creation to succeed
+        write_paths = transaction.commit(temp_dir)
+        assert len(write_paths) == 2
 
-    def test_table_rename_bad_order_txn_op_chaining(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            original_table: Table = commit_results[1][1]
-            # given a transaction containing:
-            # 1. a table rename
-            renamed_table: Table = copy.deepcopy(original_table)
-            renamed_table.locator = TableLocator.at(
-                namespace="test_namespace",
-                table_name="test_table_renamed",
-            )
-            # 2. a new table version in a renamed table
-            original_table_version_created = TableVersion(commit_results[2][1])
-            new_table_version_to_create = copy.deepcopy(original_table_version_created)
-            new_table_version_to_create.locator = TableVersionLocator.at(
-                namespace=original_table_version_created.namespace,
-                table_name=renamed_table.table_name,
-                table_version=original_table_version_created.table_version + "_2",
-            )
-            # 3. ordered transaction operations that try to put the new table
-            # version in the renamed table before the table is renamed
-            txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    new_table_version_to_create,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.UPDATE,
-                    renamed_table,
-                    original_table,
-                ),
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.ALTER,
-                txn_operations=txn_operations,
-            )
-            # when the transaction is committed,
-            # expect the transaction to fail due to incorrect operation order
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-            # when a transaction with the operations reversed is committed,
-            transaction = Transaction.of(
-                txn_type=TransactionType.ALTER,
-                txn_operations=list(reversed(txn_operations)),
-            )
-            # expect table and table version creation to succeed
-            write_paths = transaction.commit(temp_dir)
-            assert len(write_paths) == 2
-        finally:
-            shutil.rmtree(temp_dir)
+    def test_table_rename_bad_order_txn_op_chaining(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_table: Table = commit_results[1][1]
+        # given a transaction containing:
+        # 1. a table rename
+        renamed_table: Table = copy.deepcopy(original_table)
+        renamed_table.locator = TableLocator.at(
+            namespace="test_namespace",
+            table_name="test_table_renamed",
+        )
+        # 2. a new table version in a renamed table
+        original_table_version_created = TableVersion(commit_results[2][1])
+        new_table_version_to_create = copy.deepcopy(original_table_version_created)
+        new_table_version_to_create.locator = TableVersionLocator.at(
+            namespace=original_table_version_created.namespace,
+            table_name=renamed_table.table_name,
+            table_version=original_table_version_created.table_version + "_2",
+        )
+        # 3. ordered transaction operations that try to put the new table
+        # version in the renamed table before the table is renamed
+        txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.CREATE,
+                new_table_version_to_create,
+            ),
+            TransactionOperation.of(
+                TransactionOperationType.UPDATE,
+                renamed_table,
+                original_table,
+            ),
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed,
+        # expect the transaction to fail due to incorrect operation order
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+        # when a transaction with the operations reversed is committed,
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=list(reversed(txn_operations)),
+        )
+        # expect table and table version creation to succeed
+        write_paths = transaction.commit(temp_dir)
+        assert len(write_paths) == 2
 
     # TODO(pdames): Test isolation of creating a duplicate namespace/table/etc.
     #  between multiple concurrent transactions.
-    def test_create_duplicate_namespace(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_create_duplicate_namespace(self, temp_dir):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
         namespace = Namespace.of(locator=namespace_locator)
-        try:
-            # given serial transaction that try to create two namespaces with
-            # the same name
-            transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        namespace,
-                    ),
-                ],
-            )
-            # expect the first transaction to be successfully committed
-            write_paths = transaction.commit(temp_dir)
-            deserialized_namespace = Namespace.read(write_paths.pop())
-            assert namespace == deserialized_namespace
-            # but expect the second transaction to fail
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-        finally:
-            shutil.rmtree(temp_dir)
+        # given serial transaction that try to create two namespaces with
+        # the same name
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    namespace,
+                ),
+            ],
+        )
+        # expect the first transaction to be successfully committed
+        write_paths = transaction.commit(temp_dir)
+        deserialized_namespace = Namespace.read(write_paths.pop())
+        assert namespace == deserialized_namespace
+        # but expect the second transaction to fail
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
 
-    def test_create_duplicate_namespace_txn_op_chaining(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_create_duplicate_namespace_txn_op_chaining(self, temp_dir):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
         namespace = Namespace.of(locator=namespace_locator)
-        try:
-            # given a transaction that tries to create the same namespace twice
-            transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        namespace,
-                    ),
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        namespace,
-                    ),
-                ],
-            )
-            # when the transaction is committed,
-            # expect duplicate namespace creation to fail
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-        finally:
-            shutil.rmtree(temp_dir)
+        # given a transaction that tries to create the same namespace twice
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    namespace,
+                ),
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    namespace,
+                ),
+            ],
+        )
+        # when the transaction is committed,
+        # expect duplicate namespace creation to fail
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
 
-    def test_create_stream_in_missing_table_version(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            # given a transaction that tries to create a single stream
-            # in a table version that doesn't exist
-            original_stream_created = Stream(commit_results[3][1])
-            new_stream = copy.deepcopy(original_stream_created)
-            new_stream.locator = StreamLocator.at(
-                namespace=original_stream_created.namespace,
-                table_name=original_stream_created.table_name,
-                table_version="missing_table_version",
-                stream_id="test_stream_id",
-                stream_format=StreamFormat.DELTACAT,
-            )
-            transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        new_stream,
-                    )
-                ],
-            )
-            # when the transaction is committed,
-            # expect stream creation to fail
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-        finally:
-            shutil.rmtree(temp_dir)
+    def test_create_stream_in_missing_table_version(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        # given a transaction that tries to create a single stream
+        # in a table version that doesn't exist
+        original_stream_created = Stream(commit_results[3][1])
+        new_stream = copy.deepcopy(original_stream_created)
+        new_stream.locator = StreamLocator.at(
+            namespace=original_stream_created.namespace,
+            table_name=original_stream_created.table_name,
+            table_version="missing_table_version",
+            stream_id="test_stream_id",
+            stream_format=StreamFormat.DELTACAT,
+        )
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    new_stream,
+                )
+            ],
+        )
+        # when the transaction is committed,
+        # expect stream creation to fail
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
 
-    def test_create_table_version_in_missing_namespace(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            # given a transaction that tries to create a single table version
-            # in a namespace that doesn't exist
-            original_table_version_created = TableVersion(commit_results[2][1])
-            new_table_version = copy.deepcopy(original_table_version_created)
-            new_table_version.locator = TableVersionLocator.at(
-                namespace="missing_namespace",
-                table_name=original_table_version_created.table_name,
-                table_version="test_table_version",
-            )
-            transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        new_table_version,
-                    )
-                ],
-            )
-            # when the transaction is committed,
-            # expect table version creation to fail
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-        finally:
-            shutil.rmtree(temp_dir)
+    def test_create_table_version_in_missing_namespace(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        # given a transaction that tries to create a single table version
+        # in a namespace that doesn't exist
+        original_table_version_created = TableVersion(commit_results[2][1])
+        new_table_version = copy.deepcopy(original_table_version_created)
+        new_table_version.locator = TableVersionLocator.at(
+            namespace="missing_namespace",
+            table_name=original_table_version_created.table_name,
+            table_version="test_table_version",
+        )
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    new_table_version,
+                )
+            ],
+        )
+        # when the transaction is committed,
+        # expect table version creation to fail
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
 
-    def test_create_table_version_in_missing_table(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            # given a transaction that tries to create a single table version
-            # in a table that doesn't exist
-            original_table_version_created = TableVersion(commit_results[2][1])
-            new_table_version = copy.deepcopy(original_table_version_created)
-            new_table_version.locator = TableVersionLocator.at(
-                namespace=original_table_version_created.namespace,
-                table_name="missing_table",
-                table_version="test_table_version",
-            )
-            transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        new_table_version,
-                    )
-                ],
-            )
-            # when the transaction is committed,
-            # expect table version creation to fail
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-        finally:
-            shutil.rmtree(temp_dir)
+    def test_create_table_version_in_missing_table(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        # given a transaction that tries to create a single table version
+        # in a table that doesn't exist
+        original_table_version_created = TableVersion(commit_results[2][1])
+        new_table_version = copy.deepcopy(original_table_version_created)
+        new_table_version.locator = TableVersionLocator.at(
+            namespace=original_table_version_created.namespace,
+            table_name="missing_table",
+            table_version="test_table_version",
+        )
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    new_table_version,
+                )
+            ],
+        )
+        # when the transaction is committed,
+        # expect table version creation to fail
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
 
-    def test_create_table_in_missing_namespace(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_create_table_in_missing_namespace(self, temp_dir):
         table_locator = TableLocator.at(
             namespace="missing_namespace",
             table_name="test_table",
@@ -601,435 +540,384 @@ class TestMetafileIO(unittest.TestCase):
             locator=table_locator,
             description="test table description",
         )
-        try:
-            # given a transaction that tries to create a single table in a
-            # namespace that doesn't exist
+        # given a transaction that tries to create a single table in a
+        # namespace that doesn't exist
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    table,
+                )
+            ],
+        )
+        # when the transaction is committed,
+        # expect table creation to fail
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+    def test_rename_table_txn_op_chaining(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_table: Table = commit_results[1][1]
+        # given a transaction containing:
+        # 1. a table rename
+        renamed_table: Table = copy.deepcopy(original_table)
+        renamed_table.locator = TableLocator.at(
+            namespace="test_namespace",
+            table_name="test_table_renamed",
+        )
+        original_delta_created = Delta(commit_results[5][1])
+        original_partition_created = Partition(commit_results[4][1])
+        original_stream_created = Stream(commit_results[3][1])
+        original_table_version_created = TableVersion(commit_results[2][1])
+        # 2. a new table version in the renamed table
+        new_table_version_to_create = copy.deepcopy(original_table_version_created)
+        new_table_version_to_create.locator = TableVersionLocator.at(
+            namespace=original_table_version_created.namespace,
+            table_name=renamed_table.table_name,
+            table_version=original_table_version_created.table_version + "_2",
+        )
+        # 3. a new stream in the new table version in the renamed table
+        new_stream_to_create = copy.deepcopy(original_stream_created)
+        new_stream_to_create.locator = StreamLocator.at(
+            namespace=original_stream_created.namespace,
+            table_name=renamed_table.table_name,
+            table_version=new_table_version_to_create.table_version,
+            stream_id=original_stream_created.stream_id + "_2",
+            stream_format=original_stream_created.stream_format,
+        )
+        # 4. a new partition in the new stream in the new table version
+        # in the renamed table
+        new_partition_to_create = copy.deepcopy(original_partition_created)
+        new_partition_to_create.locator = PartitionLocator.at(
+            namespace=original_partition_created.namespace,
+            table_name=renamed_table.table_name,
+            table_version=new_table_version_to_create.table_version,
+            stream_id=new_stream_to_create.stream_id,
+            stream_format=original_partition_created.stream_format,
+            partition_values=original_partition_created.partition_values,
+            partition_id=original_partition_created.partition_id + "_2",
+        )
+        # 5. a new delta in the new partition in the new stream in the new
+        # table version in the renamed table
+        new_delta_to_create = copy.deepcopy(original_delta_created)
+        new_delta_to_create.locator = DeltaLocator.at(
+            namespace=original_delta_created.namespace,
+            table_name=renamed_table.table_name,
+            table_version=new_table_version_to_create.table_version,
+            stream_id=new_stream_to_create.stream_id,
+            stream_format=original_delta_created.stream_format,
+            partition_values=original_delta_created.partition_values,
+            partition_id=new_partition_to_create.partition_id,
+            stream_position=original_delta_created.stream_position + 1,
+        )
+        # 6. ordered transaction operations that ensure all prior
+        # dependencies are satisfied
+        txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.UPDATE,
+                renamed_table,
+                original_table,
+            ),
+            TransactionOperation.of(
+                TransactionOperationType.CREATE,
+                new_table_version_to_create,
+            ),
+            TransactionOperation.of(
+                TransactionOperationType.CREATE,
+                new_stream_to_create,
+            ),
+            TransactionOperation.of(
+                TransactionOperationType.CREATE,
+                new_partition_to_create,
+            ),
+            TransactionOperation.of(
+                TransactionOperationType.CREATE,
+                new_delta_to_create,
+            ),
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect the transaction to successfully create 5 new metafiles
+        assert len(write_paths) == 5
+
+        # expect the table to be successfully renamed
+        actual_table = Table.read(write_paths[0])
+        assert renamed_table == actual_table
+
+        # expect the new table version in the renamed table to be
+        # successfully created
+        actual_table_version = TableVersion.read(write_paths[1])
+        assert new_table_version_to_create == actual_table_version
+
+        # expect the new stream in the new table version in the renamed
+        # table to be successfully created
+        actual_stream = Stream.read(write_paths[2])
+        assert new_stream_to_create == actual_stream
+
+        # expect the new partition in the new stream in the new table
+        # version in the renamed table to be successfully created
+        actual_partition = Partition.read(write_paths[3])
+        assert new_partition_to_create == actual_partition
+
+        # expect the new delta in the new partition in the new stream in
+        # the new table version in the renamed table to be successfully
+        # created
+        actual_delta = Delta.read(write_paths[4])
+        assert new_delta_to_create == actual_delta
+
+    def test_rename_table(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_table: Table = commit_results[1][1]
+
+        # given a transaction containing a table rename
+        renamed_table: Table = copy.deepcopy(original_table)
+        renamed_table.locator = TableLocator.at(
+            namespace="test_namespace",
+            table_name="test_table_renamed",
+        )
+        txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.UPDATE,
+                renamed_table,
+                original_table,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect only one new table metafile to be written
+        assert len(write_paths) == 1
+
+        # expect the table to be successfully renamed
+        actual_table = Table.read(write_paths[0])
+        assert renamed_table == actual_table
+
+        # expect all new child metafiles read to return the new table name
+        child_metafiles_read_post_rename = [
+            Delta.read(commit_results[5][2]),
+            Partition.read(commit_results[4][2]),
+            Stream.read(commit_results[3][2]),
+            TableVersion.read(commit_results[2][2]),
+        ]
+        for metafile in child_metafiles_read_post_rename:
+            assert metafile.table_name == renamed_table.table_name
+
+        # expect all original metafiles to return the original table name
+        original_child_metafiles_to_create = [
+            Delta(commit_results[5][0]),
+            Partition(commit_results[4][0]),
+            Stream(commit_results[3][0]),
+            TableVersion(commit_results[2][0]),
+        ]
+        original_child_metafiles_created = [
+            Delta(commit_results[5][1]),
+            Partition(commit_results[4][1]),
+            Stream(commit_results[3][1]),
+            TableVersion(commit_results[2][1]),
+        ]
+        for i in range(len(original_child_metafiles_to_create)):
+            assert (
+                original_child_metafiles_created[i].table_name
+                == original_child_metafiles_to_create[i].table_name
+                == original_table.table_name
+            )
+
+        # expect a subsequent table update from the old table name to fail
+        previous_table_copy = copy.deepcopy(original_table)
+        bad_txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.UPDATE,
+                previous_table_copy,
+                original_table,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect table deletes of the old table name fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.DELETE,
+                previous_table_copy,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.DELETE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect child metafile creation under the old table name to fail
+        for metafile in original_child_metafiles_created:
+            bad_txn_operations = [
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    metafile,
+                )
+            ]
             transaction = Transaction.of(
                 txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        table,
-                    )
-                ],
-            )
-            # when the transaction is committed,
-            # expect table creation to fail
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-        finally:
-            shutil.rmtree(temp_dir)
-
-    def test_rename_table_txn_op_chaining(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            original_table: Table = commit_results[1][1]
-            # given a transaction containing:
-            # 1. a table rename
-            renamed_table: Table = copy.deepcopy(original_table)
-            renamed_table.locator = TableLocator.at(
-                namespace="test_namespace",
-                table_name="test_table_renamed",
-            )
-            original_delta_created = Delta(commit_results[5][1])
-            original_partition_created = Partition(commit_results[4][1])
-            original_stream_created = Stream(commit_results[3][1])
-            original_table_version_created = TableVersion(commit_results[2][1])
-            # 2. a new table version in the renamed table
-            new_table_version_to_create = copy.deepcopy(original_table_version_created)
-            new_table_version_to_create.locator = TableVersionLocator.at(
-                namespace=original_table_version_created.namespace,
-                table_name=renamed_table.table_name,
-                table_version=original_table_version_created.table_version + "_2",
-            )
-            # 3. a new stream in the new table version in the renamed table
-            new_stream_to_create = copy.deepcopy(original_stream_created)
-            new_stream_to_create.locator = StreamLocator.at(
-                namespace=original_stream_created.namespace,
-                table_name=renamed_table.table_name,
-                table_version=new_table_version_to_create.table_version,
-                stream_id=original_stream_created.stream_id + "_2",
-                stream_format=original_stream_created.stream_format,
-            )
-            # 4. a new partition in the new stream in the new table version
-            # in the renamed table
-            new_partition_to_create = copy.deepcopy(original_partition_created)
-            new_partition_to_create.locator = PartitionLocator.at(
-                namespace=original_partition_created.namespace,
-                table_name=renamed_table.table_name,
-                table_version=new_table_version_to_create.table_version,
-                stream_id=new_stream_to_create.stream_id,
-                stream_format=original_partition_created.stream_format,
-                partition_values=original_partition_created.partition_values,
-                partition_id=original_partition_created.partition_id + "_2",
-            )
-            # 5. a new delta in the new partition in the new stream in the new
-            # table version in the renamed table
-            new_delta_to_create = copy.deepcopy(original_delta_created)
-            new_delta_to_create.locator = DeltaLocator.at(
-                namespace=original_delta_created.namespace,
-                table_name=renamed_table.table_name,
-                table_version=new_table_version_to_create.table_version,
-                stream_id=new_stream_to_create.stream_id,
-                stream_format=original_delta_created.stream_format,
-                partition_values=original_delta_created.partition_values,
-                partition_id=new_partition_to_create.partition_id,
-                stream_position=original_delta_created.stream_position + 1,
-            )
-            # 6. ordered transaction operations that ensure all prior
-            # dependencies are satisfied
-            txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.UPDATE,
-                    renamed_table,
-                    original_table,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    new_table_version_to_create,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    new_stream_to_create,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    new_partition_to_create,
-                ),
-                TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    new_delta_to_create,
-                ),
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.ALTER,
-                txn_operations=txn_operations,
-            )
-            # when the transaction is committed
-            write_paths = transaction.commit(temp_dir)
-
-            # expect the transaction to successfully create 5 new metafiles
-            assert len(write_paths) == 5
-
-            # expect the table to be successfully renamed
-            actual_table = Table.read(write_paths[0])
-            assert renamed_table == actual_table
-
-            # expect the new table version in the renamed table to be
-            # successfully created
-            actual_table_version = TableVersion.read(write_paths[1])
-            assert new_table_version_to_create == actual_table_version
-
-            # expect the new stream in the new table version in the renamed
-            # table to be successfully created
-            actual_stream = Stream.read(write_paths[2])
-            assert new_stream_to_create == actual_stream
-
-            # expect the new partition in the new stream in the new table
-            # version in the renamed table to be successfully created
-            actual_partition = Partition.read(write_paths[3])
-            assert new_partition_to_create == actual_partition
-
-            # expect the new delta in the new partition in the new stream in
-            # the new table version in the renamed table to be successfully
-            # created
-            actual_delta = Delta.read(write_paths[4])
-            assert new_delta_to_create == actual_delta
-        finally:
-            shutil.rmtree(temp_dir)
-
-    def test_rename_table(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            original_table: Table = commit_results[1][1]
-
-            # given a transaction containing a table rename
-            renamed_table: Table = copy.deepcopy(original_table)
-            renamed_table.locator = TableLocator.at(
-                namespace="test_namespace",
-                table_name="test_table_renamed",
-            )
-            txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.UPDATE,
-                    renamed_table,
-                    original_table,
-                )
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.ALTER,
-                txn_operations=txn_operations,
-            )
-            # when the transaction is committed
-            write_paths = transaction.commit(temp_dir)
-
-            # expect only one new table metafile to be written
-            assert len(write_paths) == 1
-
-            # expect the table to be successfully renamed
-            actual_table = Table.read(write_paths[0])
-            assert renamed_table == actual_table
-
-            # expect all new child metafiles read to return the new table name
-            child_metafiles_read_post_rename = [
-                Delta.read(commit_results[5][2]),
-                Partition.read(commit_results[4][2]),
-                Stream.read(commit_results[3][2]),
-                TableVersion.read(commit_results[2][2]),
-            ]
-            for metafile in child_metafiles_read_post_rename:
-                assert metafile.table_name == renamed_table.table_name
-
-            # expect all original metafiles to return the original table name
-            original_child_metafiles_to_create = [
-                Delta(commit_results[5][0]),
-                Partition(commit_results[4][0]),
-                Stream(commit_results[3][0]),
-                TableVersion(commit_results[2][0]),
-            ]
-            original_child_metafiles_created = [
-                Delta(commit_results[5][1]),
-                Partition(commit_results[4][1]),
-                Stream(commit_results[3][1]),
-                TableVersion(commit_results[2][1]),
-            ]
-            for i in range(len(original_child_metafiles_to_create)):
-                assert (
-                    original_child_metafiles_created[i].table_name
-                    == original_child_metafiles_to_create[i].table_name
-                    == original_table.table_name
-                )
-
-            # expect a subsequent table update from the old table name to fail
-            previous_table_copy = copy.deepcopy(original_table)
-            bad_txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.UPDATE,
-                    previous_table_copy,
-                    original_table,
-                )
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.ALTER,
                 txn_operations=bad_txn_operations,
             )
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
+            with pytest.raises(ValueError):
+                transaction.commit(temp_dir)
+
+    def test_rename_namespace(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_namespace = commit_results[0][1]
+        # given a transaction containing a namespace rename
+        renamed_namespace = copy.deepcopy(original_namespace)
+        renamed_namespace.locator = NamespaceLocator.of(
+            namespace="test_namespace_renamed",
+        )
+        txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.UPDATE,
+                renamed_namespace,
+                original_namespace,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect only one new namespace metafile to be written
+        assert len(write_paths) == 1
+
+        # expect the namespace to be successfully renamed
+        actual_namespace = Namespace.read(write_paths[0])
+        assert renamed_namespace == actual_namespace
+
+        # expect all child metafiles read to return the new namespace
+        child_metafiles_read_post_rename = [
+            Delta.read(commit_results[5][2]),
+            Partition.read(commit_results[4][2]),
+            Stream.read(commit_results[3][2]),
+            TableVersion.read(commit_results[2][2]),
+            Table.read(commit_results[1][2]),
+        ]
+        for metafile in child_metafiles_read_post_rename:
+            assert metafile.namespace == "test_namespace_renamed"
+
+        # expect the original metafiles to return the original namespace
+        original_child_metafiles_to_create = [
+            Delta(commit_results[5][0]),
+            Partition(commit_results[4][0]),
+            Stream(commit_results[3][0]),
+            TableVersion(commit_results[2][0]),
+            Table(commit_results[1][0]),
+        ]
+        original_child_metafiles_created = [
+            Delta(commit_results[5][1]),
+            Partition(commit_results[4][1]),
+            Stream(commit_results[3][1]),
+            TableVersion(commit_results[2][1]),
+            Table(commit_results[1][1]),
+        ]
+        for i in range(len(original_child_metafiles_to_create)):
+            assert (
+                original_child_metafiles_created[i].namespace
+                == original_child_metafiles_to_create[i].namespace
+                == "test_namespace"
             )
 
-            # expect table deletes of the old table name fail
+        # expect a subsequent update of the old namespace name to fail
+        previous_namespace_copy = copy.deepcopy(original_namespace)
+        bad_txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.UPDATE,
+                previous_namespace_copy,
+                original_namespace,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect namespace deletes of the old namespace name fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                TransactionOperationType.DELETE,
+                previous_namespace_copy,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.DELETE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect child metafile creation under the old namespace to fail
+        for metafile in original_child_metafiles_created:
             bad_txn_operations = [
                 TransactionOperation.of(
-                    TransactionOperationType.DELETE,
-                    previous_table_copy,
+                    TransactionOperationType.CREATE,
+                    metafile,
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.DELETE,
+                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
+            with pytest.raises(ValueError):
+                transaction.commit(temp_dir)
 
-            # expect child metafile creation under the old table name to fail
-            for metafile in original_child_metafiles_created:
-                bad_txn_operations = [
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        metafile,
-                    )
-                ]
-                transaction = Transaction.of(
-                    txn_type=TransactionType.APPEND,
-                    txn_operations=bad_txn_operations,
-                )
-                self.assertRaises(
-                    ValueError,
-                    transaction.commit,
-                    root=temp_dir,
-                )
-        finally:
-            shutil.rmtree(temp_dir)
+    def test_e2e_serde(self, temp_dir):
+        # given a transaction that creates a single namespace, table,
+        # table version, stream, partition, and delta
+        commit_results = _commit_single_delta_table(temp_dir)
+        # when the transaction is committed, expect all actual metafiles
+        # created to match the expected/input metafiles to create
+        for expected, actual, _ in commit_results:
+            assert expected == actual
 
-    def test_rename_namespace(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            commit_results = _commit_single_delta_table(temp_dir)
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-            original_namespace = commit_results[0][1]
-            # given a transaction containing a namespace rename
-            renamed_namespace = copy.deepcopy(original_namespace)
-            renamed_namespace.locator = NamespaceLocator.of(
-                namespace="test_namespace_renamed",
-            )
-            txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.UPDATE,
-                    renamed_namespace,
-                    original_namespace,
-                )
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.ALTER,
-                txn_operations=txn_operations,
-            )
-            # when the transaction is committed
-            write_paths = transaction.commit(temp_dir)
-
-            # expect only one new namespace metafile to be written
-            assert len(write_paths) == 1
-
-            # expect the namespace to be successfully renamed
-            actual_namespace = Namespace.read(write_paths[0])
-            assert renamed_namespace == actual_namespace
-
-            # expect all child metafiles read to return the new namespace
-            child_metafiles_read_post_rename = [
-                Delta.read(commit_results[5][2]),
-                Partition.read(commit_results[4][2]),
-                Stream.read(commit_results[3][2]),
-                TableVersion.read(commit_results[2][2]),
-                Table.read(commit_results[1][2]),
-            ]
-            for metafile in child_metafiles_read_post_rename:
-                assert metafile.namespace == "test_namespace_renamed"
-
-            # expect the original metafiles to return the original namespace
-            original_child_metafiles_to_create = [
-                Delta(commit_results[5][0]),
-                Partition(commit_results[4][0]),
-                Stream(commit_results[3][0]),
-                TableVersion(commit_results[2][0]),
-                Table(commit_results[1][0]),
-            ]
-            original_child_metafiles_created = [
-                Delta(commit_results[5][1]),
-                Partition(commit_results[4][1]),
-                Stream(commit_results[3][1]),
-                TableVersion(commit_results[2][1]),
-                Table(commit_results[1][1]),
-            ]
-            for i in range(len(original_child_metafiles_to_create)):
-                assert (
-                    original_child_metafiles_created[i].namespace
-                    == original_child_metafiles_to_create[i].namespace
-                    == "test_namespace"
-                )
-
-            # expect a subsequent update of the old namespace name to fail
-            previous_namespace_copy = copy.deepcopy(original_namespace)
-            bad_txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.UPDATE,
-                    previous_namespace_copy,
-                    original_namespace,
-                )
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.ALTER,
-                txn_operations=bad_txn_operations,
-            )
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-
-            # expect namespace deletes of the old namespace name fail
-            bad_txn_operations = [
-                TransactionOperation.of(
-                    TransactionOperationType.DELETE,
-                    previous_namespace_copy,
-                )
-            ]
-            transaction = Transaction.of(
-                txn_type=TransactionType.DELETE,
-                txn_operations=bad_txn_operations,
-            )
-            self.assertRaises(
-                ValueError,
-                transaction.commit,
-                root=temp_dir,
-            )
-
-            # expect child metafile creation under the old namespace to fail
-            for metafile in original_child_metafiles_created:
-                bad_txn_operations = [
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        metafile,
-                    )
-                ]
-                transaction = Transaction.of(
-                    txn_type=TransactionType.APPEND,
-                    txn_operations=bad_txn_operations,
-                )
-                self.assertRaises(
-                    ValueError,
-                    transaction.commit,
-                    root=temp_dir,
-                )
-        finally:
-            shutil.rmtree(temp_dir)
-
-    def test_e2e_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
-        try:
-            # given a transaction that creates a single namespace, table,
-            # table version, stream, partition, and delta
-            commit_results = _commit_single_delta_table(temp_dir)
-            # when the transaction is committed, expect all actual metafiles
-            # created to match the expected/input metafiles to create
-            for expected, actual, _ in commit_results:
-                assert expected == actual
-        finally:
-            shutil.rmtree(temp_dir)
-
-    def test_namespace_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_namespace_serde(self, temp_dir):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
         namespace = Namespace.of(locator=namespace_locator)
-        try:
-            # given a transaction that creates a single namespace
-            write_paths = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        namespace,
-                    )
-                ],
-            ).commit(temp_dir)
-            # when the transaction is committed,
-            # expect the namespace created to match the namespace given
-            deserialized_namespace = Namespace.read(write_paths.pop())
-            assert namespace == deserialized_namespace
-        finally:
-            shutil.rmtree(temp_dir)
+        # given a transaction that creates a single namespace
+        write_paths = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    namespace,
+                )
+            ],
+        ).commit(temp_dir)
+        # when the transaction is committed,
+        # expect the namespace created to match the namespace given
+        deserialized_namespace = Namespace.read(write_paths.pop())
+        assert namespace == deserialized_namespace
 
-    def test_table_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_table_serde(self, temp_dir):
         table_locator = TableLocator.at(
             namespace=None,
             table_name="test_table",
@@ -1038,27 +926,22 @@ class TestMetafileIO(unittest.TestCase):
             locator=table_locator,
             description="test table description",
         )
-        try:
-            # given a transaction that creates a single table
-            write_paths = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        table,
-                    )
-                ],
-            ).commit(temp_dir)
-            # when the transaction is committed,
-            # expect the table created to match the table given
-            deserialized_table = Table.read(write_paths.pop())
-            assert table == deserialized_table
-        finally:
-            shutil.rmtree(temp_dir)
+        # given a transaction that creates a single table
+        write_paths = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    table,
+                )
+            ],
+        ).commit(temp_dir)
+        # when the transaction is committed,
+        # expect the table created to match the table given
+        deserialized_table = Table.read(write_paths.pop())
+        assert table == deserialized_table
 
-    def test_table_version_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_table_version_serde(self, temp_dir):
         table_version_locator = TableVersionLocator.at(
             namespace=None,
             table_name=None,
@@ -1131,27 +1014,22 @@ class TestMetafileIO(unittest.TestCase):
             partition_schemes=[partition_scheme, partition_scheme],
             sort_schemes=[sort_scheme, sort_scheme],
         )
-        try:
-            # given a transaction that creates a single table version
-            write_paths = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        table_version,
-                    )
-                ],
-            ).commit(temp_dir)
-            # when the transaction is committed,
-            # expect the table version created to match the table version given
-            deserialized_table_version = TableVersion.read(write_paths.pop())
-            assert table_version == deserialized_table_version
-        finally:
-            shutil.rmtree(temp_dir)
+        # given a transaction that creates a single table version
+        write_paths = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    table_version,
+                )
+            ],
+        ).commit(temp_dir)
+        # when the transaction is committed,
+        # expect the table version created to match the table version given
+        deserialized_table_version = TableVersion.read(write_paths.pop())
+        assert table_version == deserialized_table_version
 
-    def test_stream_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_stream_serde(self, temp_dir):
         stream_locator = StreamLocator.at(
             namespace=None,
             table_name=None,
@@ -1185,27 +1063,22 @@ class TestMetafileIO(unittest.TestCase):
             previous_stream_id="test_previous_stream_id",
             watermark=1,
         )
-        try:
-            # given a transaction that creates a single stream
-            write_paths = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        stream,
-                    )
-                ],
-            ).commit(temp_dir)
-            # when the transaction is committed,
-            # expect the stream created to match the stream given
-            deserialized_stream = Stream.read(write_paths.pop())
-            assert stream == deserialized_stream
-        finally:
-            shutil.rmtree(temp_dir)
+        # given a transaction that creates a single stream
+        write_paths = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    stream,
+                )
+            ],
+        ).commit(temp_dir)
+        # when the transaction is committed,
+        # expect the stream created to match the stream given
+        deserialized_stream = Stream.read(write_paths.pop())
+        assert stream == deserialized_stream
 
-    def test_partition_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_partition_serde(self, temp_dir):
         partition_locator = PartitionLocator.at(
             namespace=None,
             table_name=None,
@@ -1244,27 +1117,22 @@ class TestMetafileIO(unittest.TestCase):
             stream_position=1,
             partition_scheme_id="test_partition_scheme_id",
         )
-        try:
-            # given a transaction that creates a single partition
-            write_paths = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        partition,
-                    )
-                ],
-            ).commit(temp_dir)
-            # when the transaction is committed,
-            # expect the partition created to match the partition given
-            deserialized_partition = Partition.read(write_paths.pop())
-            assert partition == deserialized_partition
-        finally:
-            shutil.rmtree(temp_dir)
+        # given a transaction that creates a single partition
+        write_paths = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    partition,
+                )
+            ],
+        ).commit(temp_dir)
+        # when the transaction is committed,
+        # expect the partition created to match the partition given
+        deserialized_partition = Partition.read(write_paths.pop())
+        assert partition == deserialized_partition
 
-    def test_delta_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_delta_serde(self, temp_dir):
         delta_locator = DeltaLocator.at(
             namespace=None,
             table_name=None,
@@ -1311,27 +1179,22 @@ class TestMetafileIO(unittest.TestCase):
             manifest=manifest,
             previous_stream_position=0,
         )
-        try:
-            # given a transaction that creates a single delta
-            write_paths = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        delta,
-                    )
-                ],
-            ).commit(temp_dir)
-            # when the transaction is committed,
-            # expect the delta created to match the delta given
-            deserialized_delta = Delta.read(write_paths.pop())
-            assert delta == deserialized_delta
-        finally:
-            shutil.rmtree(temp_dir)
+        # given a transaction that creates a single delta
+        write_paths = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    delta,
+                )
+            ],
+        ).commit(temp_dir)
+        # when the transaction is committed,
+        # expect the delta created to match the delta given
+        deserialized_delta = Delta.read(write_paths.pop())
+        assert delta == deserialized_delta
 
-    def test_python_type_serde(self):
-        temp_dir = tempfile.gettempdir()
-        temp_dir = os.path.join(temp_dir, str(uuid.uuid4()))
+    def test_python_type_serde(self, temp_dir):
         table_locator = TableLocator.at(
             namespace=None,
             table_name="test_table",
@@ -1355,20 +1218,17 @@ class TestMetafileIO(unittest.TestCase):
             description="test table description",
             properties=properties,
         )
-        try:
-            # when a transaction commits this table
-            write_paths = Transaction.of(
-                txn_type=TransactionType.APPEND,
-                txn_operations=[
-                    TransactionOperation.of(
-                        TransactionOperationType.CREATE,
-                        table,
-                    )
-                ],
-            ).commit(temp_dir)
-            deserialized_table = Table.read(write_paths.pop())
-        finally:
-            shutil.rmtree(temp_dir)
+        # when a transaction commits this table
+        write_paths = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    TransactionOperationType.CREATE,
+                    table,
+                )
+            ],
+        ).commit(temp_dir)
+        deserialized_table = Table.read(write_paths.pop())
         # expect the following SerDe transformations of the original properties:
         expected_properties = properties.copy()
         # 1. msgpack tranlates tuple to list
