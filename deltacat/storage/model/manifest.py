@@ -114,9 +114,13 @@ class Manifest(dict):
         total_source_content_length = 0
         content_type = None
         content_encoding = None
+        credentials = None
+        content_type_params = None
         if entries:
             content_type = entries[0].meta.content_type
             content_encoding = entries[0].meta.content_encoding
+            credentials = entries[0].meta.credentials
+            content_type_params = entries[0].meta.content_type_parameters
             for entry in entries:
                 meta = entry.meta
                 if meta.content_type != content_type:
@@ -153,19 +157,37 @@ class Manifest(dict):
                         f"'{entry_params}' but found '{actual_entry_params}'"
                     )
                     raise ValueError(msg)
+                actual_credentials = meta.credentials
+                if credentials and (actual_credentials != credentials):
+                    msg = (
+                        f"Expected all manifest entries to have credentials "
+                        f"'{credentials}' but found '{actual_credentials}'"
+                    )
+                    raise ValueError(msg)
+                actual_content_type_params = meta.content_type_parameters
+                if content_type_params and (
+                    actual_content_type_params != content_type_params
+                ):
+                    msg = (
+                        f"Expected all manifest entries to have content type params "
+                        f"'{content_type_params}' but found '{actual_content_type_params}'"
+                    )
+                    raise ValueError(msg)
 
                 total_record_count += meta.record_count or 0
                 total_content_length += meta.content_length or 0
                 total_source_content_length += meta.source_content_length or 0
 
         meta = ManifestMeta.of(
-            total_record_count,
-            total_content_length,
-            content_type,
-            content_encoding,
-            total_source_content_length,
-            entry_type,
-            entry_params,
+            record_count=total_record_count,
+            content_length=total_content_length,
+            content_type=content_type,
+            content_encoding=content_encoding,
+            source_content_length=total_source_content_length,
+            credentials=credentials,
+            content_type_parameters=content_type_params,
+            entry_type=entry_type,
+            entry_params=entry_params,
         )
         manifest = Manifest._build_manifest(meta, entries, author, uuid)
         return manifest
@@ -327,11 +349,11 @@ class ManifestEntry(dict):
         s3_obj = s3_utils.get_object_at_url(url, **s3_client_kwargs)
         logger.debug(f"Building manifest entry from {url}: {s3_obj}")
         manifest_entry_meta = ManifestMeta.of(
-            record_count,
-            s3_obj["ContentLength"],
-            s3_obj["ContentType"],
-            s3_obj["ContentEncoding"],
-            source_content_length,
+            record_count=record_count,
+            content_length=s3_obj["ContentLength"],
+            content_type=s3_obj["ContentType"],
+            content_encoding=s3_obj["ContentEncoding"],
+            source_content_length=source_content_length,
         )
         manifest_entry = ManifestEntry.of(url, manifest_entry_meta)
         return manifest_entry

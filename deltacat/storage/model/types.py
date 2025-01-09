@@ -35,9 +35,24 @@ class DeltaType(str, Enum):
 
 
 class TransactionType(str, Enum):
-    RESTATE = "restate"
-    OVERWRITE = "overwrite"
+    # the transaction only appends new data
+    # conflicts with other transaction types can be auto-resolved
     APPEND = "append"
+    # the transaction alters existing data
+    # (even if it also appends data)
+    # conflicts with other alters/overwrites/restates/deletes fail
+    ALTER = "alter"
+    # the transaction overwrites existing data
+    # (even if it also appends or alters data)
+    # conflicts with other alters/overwrites/restates/deletes fail
+    OVERWRITE = "overwrite"
+    # the transaction restates existing data with a new layout
+    # (even if it appends, alters, or overwrites data to do so)
+    # conflicts with other alters/overwrites/restates/deletes fail
+    RESTATE = "restate"
+    # the transaction deletes existing data
+    # (even if it also appends, alters, overwrites, or restates data)
+    # conflicts with other alters/overwrites/restates/deletes fail
     DELETE = "delete"
 
 

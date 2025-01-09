@@ -1,6 +1,8 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import copy
+
 import msgpack
 from typing import Optional, Any, Dict, Union, List, Callable
 
@@ -184,7 +186,7 @@ class Field(dict):
         return Field(
             {
                 "arrow": final_field,
-                "path": path,
+                "path": copy.deepcopy(path),
                 "nativeObject": native_object,
             }
         )
@@ -312,7 +314,7 @@ class Field(dict):
             and not pa.types.is_floating(field.type)
             and not pa.types.is_date(field.type)
         ):
-            raise ValueError(f"Merge key {field} must be numeric or date type.")
+            raise ValueError(f"Event time {field} must be numeric or date type.")
 
     @staticmethod
     def _validate_default(
@@ -345,10 +347,10 @@ class Field(dict):
             meta[FIELD_MERGE_KEY_NAME] = str(is_merge_key)
         if merge_order:
             Field._validate_merge_order(field)
-            meta[FIELD_MERGE_ORDER_KEY_NAME] = str(is_merge_key)
+            meta[FIELD_MERGE_ORDER_KEY_NAME] = msgpack.dumps(merge_order)
         if is_event_time:
             Field._validate_event_time(field)
-            meta[FIELD_EVENT_TIME_KEY_NAME] = str(is_merge_key)
+            meta[FIELD_EVENT_TIME_KEY_NAME] = str(is_event_time)
         if past_default is not None:
             Field._validate_default(past_default, field)
             meta[FIELD_PAST_DEFAULT_KEY_NAME] = msgpack.dumps(past_default)
@@ -592,6 +594,9 @@ class Schema(dict):
                         *args,
                         **kwargs,
                     )
+            path.pop()
+        else:
+            raise ValueError(f"Unexpected Schema Field Type: {type(current)}")
 
     @staticmethod
     def _find_max_field_id(
