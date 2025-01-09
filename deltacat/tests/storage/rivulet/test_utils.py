@@ -14,15 +14,6 @@ from typing import Dict, List, Generator, Set
 FIXTURE_ROW_COUNT = 10000
 
 
-def write_mvp_table_to_riv(table: MvpTable, schema: Schema, dir: str, file_format=None):
-    dataset = Dataset(dir)
-    fg = dataset.new_field_group(schema)
-    with dataset.writer(fg, file_format) as writer:
-        record_batch = mvp_table_to_record_batches(table, schema)
-        writer.write([record_batch])
-    return dataset
-
-
 def write_mvp_table(writer: DatasetWriter, table: MvpTable):
     writer.write(table.to_rows_list())
 
