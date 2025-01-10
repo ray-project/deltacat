@@ -569,8 +569,8 @@ def s3_file_to_table(
                 **s3_client_kwargs,
             )
 
-        if READER_TYPE_KWARG in kwargs:
-            kwargs.pop(READER_TYPE_KWARG)
+    if READER_TYPE_KWARG in kwargs:
+        kwargs.pop(READER_TYPE_KWARG, None)
 
     filesystem = io
     if s3_url.startswith("s3://"):
