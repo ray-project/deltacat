@@ -1,6 +1,7 @@
 import pyarrow as pa
 import pyarrow.parquet as pq
 import deltacat as dc
+from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 
 # Step 1: Create a simple 3x3 Parquet file using pyarrow
 parquet_file_path = "../contacts.parquet"
@@ -75,6 +76,6 @@ dataset_writer.write(new_columns_existing_rows)
 # Write dataset data/metadata into feather files.
 dataset_writer.flush()
 
-# Step 5 (Optional): Read data from feather file.
-#read_feather = feather.read_feather('./.riv-meta-contacts/data/<replace with generated file>')
-#print(read_feather)
+# Step 5: Read data from feather file.
+read_records = list(dataset.scan(QueryExpression()).to_arrow())
+[print(record) for record in read_records]
