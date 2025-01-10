@@ -16,6 +16,7 @@ from pyarrow.parquet import ParquetFile
 import pyarrow as pa
 
 PARQUET_FILE_PATH = "deltacat/tests/utils/data/test_file.parquet"
+PARQUET_GZIP_COMPRESSED_FILE_PATH = "deltacat/tests/utils/data/test_file.parquet.gz"
 EMPTY_UTSV_PATH = "deltacat/tests/utils/data/empty.csv"
 NON_EMPTY_VALID_UTSV_PATH = "deltacat/tests/utils/data/non_empty_valid.csv"
 OVERFLOWING_DECIMAL_PRECISION_UTSV_PATH = (
@@ -789,3 +790,25 @@ class TestS3FileToTable(TestCase):
             self.assertEqual(field.name, schema.field(index).name)
 
         self.assertEqual(result.schema.field(1).type, "string")
+
+    def test_s3_file_to_table_when_parquet_gzip(self):
+
+        pa_kwargs_provider = lambda content_type, kwargs: {
+            "reader_type": "pyarrow",
+            **kwargs,
+        }
+
+        result = s3_file_to_table(
+            PARQUET_GZIP_COMPRESSED_FILE_PATH,
+            ContentType.PARQUET.value,
+            ContentEncoding.GZIP.value,
+            ["n_legs", "animal"],
+            ["n_legs"],
+            pa_read_func_kwargs_provider=pa_kwargs_provider,
+        )
+
+        self.assertEqual(len(result), 6)
+        self.assertEqual(len(result.column_names), 1)
+        schema = result.schema
+        schema_index = schema.get_field_index("n_legs")
+        self.assertEqual(schema.field(schema_index).type, "int64")
