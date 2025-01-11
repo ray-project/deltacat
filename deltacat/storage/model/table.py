@@ -135,6 +135,7 @@ class TableLocatorName(LocatorName):
     def __init__(self, locator: TableLocator):
         self.locator = locator
 
+    @property
     def immutable_id(self) -> Optional[str]:
         return None
 
@@ -157,9 +158,11 @@ class TableLocator(Locator, dict):
         namespace_locator = NamespaceLocator.of(namespace) if namespace else None
         return TableLocator.of(namespace_locator, table_name)
 
+    @property
     def name(self) -> TableLocatorName:
         return TableLocatorName(self)
 
+    @property
     def parent(self) -> Optional[NamespaceLocator]:
         return self.namespace_locator
 

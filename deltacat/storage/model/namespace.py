@@ -51,6 +51,7 @@ class NamespaceLocatorName(LocatorName):
     def __init__(self, locator: NamespaceLocator):
         self.locator = locator
 
+    @property
     def immutable_id(self) -> Optional[str]:
         return None
 
@@ -65,9 +66,11 @@ class NamespaceLocator(Locator, dict):
         namespace_locator.namespace = namespace
         return namespace_locator
 
+    @property
     def name(self) -> NamespaceLocatorName:
         return NamespaceLocatorName(self)
 
+    @property
     def parent(self) -> Optional[Locator]:
         return None
 

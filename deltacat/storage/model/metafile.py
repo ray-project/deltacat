@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import copy
 from typing import Optional, Tuple, List
 
 import msgpack
@@ -429,6 +430,82 @@ class Metafile(dict):
     cross-language-compatible serialization and deserialization.
     """
 
+    @staticmethod
+    def update_for(other: Optional[Metafile]) -> Optional[Metafile]:
+        """
+        Returns a new metafile that can be used as the destination metafile
+        in an update transaction operation against the input source metafile.
+        The returned metafile starts as an identical deep copy of the input
+        metafile such that, if the output is changed and committed as part of
+        an update transaction operation on the source metafile, then it will
+        update instead of replace the source metafile.
+        :param other: Source metafile for the copy.
+        :return: New copy of the source metafile.
+        """
+        return copy.deepcopy(other) if other is not None else None
+
+    @staticmethod
+    def based_on(
+        other: Optional[Metafile],
+        new_id: Optional[Locator] = None,
+    ) -> Optional[Metafile]:
+        """
+        Returns a new metafile equivalent to the input metafile, but with a new
+        ID assigned to distinguish it as a separate catalog object. This means
+        that, if the output is simply committed as part of an update transaction
+        operation on the source metafile, then it will replace instead of update
+        the source metafile.
+        :param other: Source metafile that is the basis for the new metafile.
+        :param new_id: New immutable ID to assign to the new metafile. Should
+        not be specified for metafiles with mutable names (e.g., namespaces and
+        tables).
+        :return: A new metafile based on the input metafile with a different ID.
+        """
+        metafile_copy = Metafile.update_for(other)
+        if metafile_copy:
+            # remove the source metafile ID so that this is treated as a
+            # different catalog object with otherwise identical properties
+            if not other.named_immutable_id:
+                metafile_copy.pop("id", None)
+                if new_id:
+                    raise ValueError(
+                        f"New Locator cannot be specified for metafiles that "
+                        f"don't have a named immutable ID."
+                    )
+            else:
+                if not new_id:
+                    raise ValueError(
+                        f"New ID must be specified for metafiles that have a "
+                        f"named immutable ID."
+                    )
+                metafile_copy.named_immutable_id = new_id
+            # remove all ancestors of the original source metafile
+            metafile_copy.pop("ancestor_ids", None)
+        return metafile_copy
+
+    @property
+    def named_immutable_id(self) -> Optional[str]:
+        """
+        If this metafile's locator name is immutable (i.e., if the object it
+        refers to can't be renamed) then returns an immutable ID suitable for
+        use in URLS or filesystem paths. Returns None if this locator name is
+        mutable (i.e., if the object it refers to can be renamed).
+        """
+        return self.locator.name.immutable_id
+
+    @named_immutable_id.setter
+    def named_immutable_id(self, immutable_id: Optional[str]) -> None:
+        """
+        If this metafile's locator name is immutable (i.e., if the object it
+        refers to can't be renamed), then sets an immutable ID for this
+        locator name suitable for use in URLS or filesystem paths. Note that
+        the ID is only considered immutable in durable catalog storage, and
+        remains mutable in transient memory (i.e., this setter remains
+        functional regardless of whether an ID is already assigned, but each
+        update causes it to refer to a new, distinct object in durable storage).
+        """
+        self.locator.name.immutable_id = immutable_id
+
     @property
     def id(self) -> str:
         """
@@ -440,7 +517,7 @@ class Metafile(dict):
 
         # check if the locator name can be reused as an immutable ID
         # or if we need to use a generated UUID as an immutable ID
-        _id = self.locator.name().immutable_id() or self.get("id")
+        _id = self.locator.name.immutable_id or self.get("id")
         if not _id:
             _id = self["id"] = str(uuid.uuid4())
         return _id
@@ -474,12 +551,12 @@ class Metafile(dict):
         catalog_root: str,
         metafile_root: str,
         filesystem: pyarrow.fs.FileSystem,
-        txn_id: str,
+        txn_id: Optional[str] = None,
     ) -> str:
         """
         Resolves the metafile ID for the given locator.
         """
-        metafile_id = locator.name().immutable_id()
+        metafile_id = locator.name.immutable_id
         if not metafile_id:
             # the locator name is mutable, so we need to resolve the mapping
             # from the locator back to its immutable metafile ID
@@ -503,23 +580,28 @@ class Metafile(dict):
     def ancestor_ids(
         self,
         catalog_root: str,
-        filesystem: pyarrow.fs.FileSystem,
-        txn_id: str,
+        txn_id: Optional[str] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> List[str]:
         """
         Returns the IDs for this metafile's ancestor metafiles. IDs are
         listed in order from root to immediate parent.
         """
+        if not filesystem:
+            catalog_root, filesystem = Metafile.filesystem(
+                path=catalog_root,
+                filesystem=filesystem,
+            )
         ancestor_ids = self.get("ancestor_ids") or []
         if not ancestor_ids:
             parent_locators = []
             # TODO(pdames): Correctly resolve missing parents and K of N
             #  specified ancestors by using placeholder IDs for missing
             #  ancestors
-            parent_locator = self.locator.parent()
+            parent_locator = self.locator.parent
             while parent_locator:
                 parent_locators.append(parent_locator)
-                parent_locator = parent_locator.parent()
+                parent_locator = parent_locator.parent
             metafile_root = catalog_root
             while parent_locators:
                 parent_locator = parent_locators.pop()
@@ -545,6 +627,7 @@ class Metafile(dict):
                         f"{metafile_root}"
                     )
                 ancestor_ids.append(ancestor_id)
+            self["ancestor_ids"] = ancestor_ids
         return ancestor_ids
 
     def _generate_locator_to_id_map_file(
@@ -569,7 +652,7 @@ class Metafile(dict):
         with filesystem.open_output_stream(id_file_path):
             pass  # Just create an empty ID file to map to the locator
 
-    def generate_file_paths(
+    def _generate_file_paths(
         self,
         root: str,
         txn_operation: TransactionOperation,
@@ -577,19 +660,19 @@ class Metafile(dict):
         filesystem: pyarrow.fs.FileSystem,
     ) -> List[str]:
         """
-        Generates the fully qualified path for this metafile based in the given
-        root directory.
+        Generates the fully qualified paths required to write this metafile as
+        part of the given transaction. All paths returned will be based in the
+        given root directory.
         """
         ancestor_path_elements = self.ancestor_ids(
             catalog_root=root,
-            filesystem=filesystem,
             txn_id=txn_id,
+            filesystem=filesystem,
         )
         parent_path = posixpath.join(*[root] + ancestor_path_elements)
-        if not self.locator.name().immutable_id():
+        if not self.named_immutable_id:
             # the locator name is mutable, so we need to persist a mapping
             # from the locator back to its immutable metafile ID
-            # TODO(pdames): Mark replaces as updates.
             if (
                 txn_operation.type == TransactionOperationType.UPDATE
                 and txn_operation.src_metafile.locator
@@ -748,13 +831,13 @@ class Metafile(dict):
         :param txn_operation: Transaction operation.
         :param txn_id: Transaction ID.
         :param filesystem: File system to use for writing the metadata file.
-        :return: File path of the written metadata file.
+        :return: File paths of the written metadata files.
         """
         path, fs = Metafile.filesystem(
             path=root,
             filesystem=filesystem,
         )
-        paths = self.generate_file_paths(
+        paths = self._generate_file_paths(
             root=path,
             txn_operation=txn_operation,
             txn_id=txn_id,

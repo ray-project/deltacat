@@ -1,4 +1,3 @@
-import copy
 import os
 from typing import List, Tuple
 
@@ -273,8 +272,8 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
     ]
     txn_operations = [
         TransactionOperation.of(
-            TransactionOperationType.CREATE,
-            meta,
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=meta,
         )
         for meta in meta_to_create
     ]
@@ -298,31 +297,143 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
 
 
 class TestMetafileIO:
+    def test_replace_table(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_table: Table = commit_results[1][1]
+
+        # given a transaction containing a table replacement
+        replacement_table: Table = Table.based_on(original_table)
+
+        # expect the proposed replacement table to be assigned a new ID, but
+        # continue to have the same name as the original table
+        assert replacement_table.id != original_table.id
+        assert replacement_table.table_name == original_table.table_name
+
+        txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_table,
+                src_metafile=original_table,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect two new table metafiles to be written
+        # (i.e., delete old table, create replacement table)
+        assert len(write_paths) == 2
+
+        # expect the replacement table to be successfully written and read
+        actual_table = Table.read(write_paths[0])
+        assert replacement_table == actual_table
+
+        # expect old child metafiles for the replaced table to remain readable
+        child_metafiles_read_post_replace = [
+            Delta.read(commit_results[5][2]),
+            Partition.read(commit_results[4][2]),
+            Stream.read(commit_results[3][2]),
+            TableVersion.read(commit_results[2][2]),
+        ]
+        # expect old child metafiles read to share the same parent table name as
+        # the replacement table, but have a different parent table ID
+        for metafile in child_metafiles_read_post_replace:
+            assert (
+                metafile.table_name
+                == replacement_table.table_name
+                == original_table.table_name
+            )
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_table_id = ancestor_ids[1]
+            assert parent_table_id == original_table.id
+
+        # expect original child metafiles to share the original parent table ID
+        original_child_metafiles_to_create = [
+            Delta(commit_results[5][0]),
+            Partition(commit_results[4][0]),
+            Stream(commit_results[3][0]),
+            TableVersion(commit_results[2][0]),
+        ]
+        original_child_metafiles_created = [
+            Delta(commit_results[5][1]),
+            Partition(commit_results[4][1]),
+            Stream(commit_results[3][1]),
+            TableVersion(commit_results[2][1]),
+        ]
+        for i in range(len(original_child_metafiles_to_create)):
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_table_id = ancestor_ids[1]
+            assert parent_table_id == original_table.id
+
+        # expect a subsequent table replace of the original table to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_table,
+                src_metafile=original_table,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect table deletes of the original table to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=original_table,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.DELETE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect new child metafile creation under the old table to fail
+        for metafile in original_child_metafiles_created:
+            bad_txn_operations = [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=metafile,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.APPEND,
+                txn_operations=bad_txn_operations,
+            )
+            with pytest.raises(ValueError):
+                transaction.commit(temp_dir)
+
     def test_create_stream_bad_order_txn_op_chaining(self, temp_dir):
         commit_results = _commit_single_delta_table(temp_dir)
         for expected, actual, _ in commit_results:
             assert expected == actual
         # given a transaction containing:
 
-        # 1. a new table version
-        original_table_created = Table(commit_results[1][1])
+        # 1. a new table version in an existing table
         original_table_version_created = TableVersion(commit_results[2][1])
-        new_table_version = copy.deepcopy(original_table_version_created)
-        new_table_version.locator = TableVersionLocator.at(
-            namespace=original_table_version_created.namespace,
-            table_name=original_table_created.table_name,
-            table_version=original_table_version_created.table_version + "_2",
+        new_table_version: TableVersion = TableVersion.based_on(
+            other=original_table_version_created,
+            new_id=original_table_version_created.id + "_2",
         )
         # 2. a new stream in the new table version
         original_stream_created = Stream(commit_results[3][1])
-        new_stream = copy.deepcopy(original_stream_created)
-        new_stream.locator = StreamLocator.at(
-            namespace=original_stream_created.namespace,
-            table_name=original_stream_created.table_name,
-            table_version=new_table_version.table_version,
-            stream_id="test_stream_id",
-            stream_format=StreamFormat.DELTACAT,
+        new_stream: Stream = Stream.based_on(
+            other=original_stream_created,
+            new_id="test_stream_id",
         )
+        new_stream.table_version_locator.table_version = new_table_version.table_version
+
         # 3. ordered transaction operations that try to put the new stream
         # in the new table version before it is created
         txn_operations = [
@@ -359,19 +470,18 @@ class TestMetafileIO:
         original_table: Table = commit_results[1][1]
         # given a transaction containing:
         # 1. a table rename
-        renamed_table: Table = copy.deepcopy(original_table)
+        renamed_table: Table = Table.update_for(original_table)
         renamed_table.locator = TableLocator.at(
             namespace="test_namespace",
             table_name="test_table_renamed",
         )
         # 2. a new table version in a renamed table
         original_table_version_created = TableVersion(commit_results[2][1])
-        new_table_version_to_create = copy.deepcopy(original_table_version_created)
-        new_table_version_to_create.locator = TableVersionLocator.at(
-            namespace=original_table_version_created.namespace,
-            table_name=renamed_table.table_name,
-            table_version=original_table_version_created.table_version + "_2",
+        new_table_version_to_create: TableVersion = TableVersion.based_on(
+            other=original_table_version_created,
+            new_id=original_table_version_created.id + "_2",
         )
+        new_table_version_to_create.table_locator.table_name = renamed_table.table_name
         # 3. ordered transaction operations that try to put the new table
         # version in the renamed table before the table is renamed
         txn_operations = [
@@ -455,14 +565,11 @@ class TestMetafileIO:
         # given a transaction that tries to create a single stream
         # in a table version that doesn't exist
         original_stream_created = Stream(commit_results[3][1])
-        new_stream = copy.deepcopy(original_stream_created)
-        new_stream.locator = StreamLocator.at(
-            namespace=original_stream_created.namespace,
-            table_name=original_stream_created.table_name,
-            table_version="missing_table_version",
-            stream_id="test_stream_id",
-            stream_format=StreamFormat.DELTACAT,
+        new_stream: Stream = Stream.based_on(
+            other=original_stream_created,
+            new_id="test_stream_id",
         )
+        new_stream.table_version_locator.table_version = "missing_table_version"
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND,
             txn_operations=[
@@ -484,12 +591,11 @@ class TestMetafileIO:
         # given a transaction that tries to create a single table version
         # in a namespace that doesn't exist
         original_table_version_created = TableVersion(commit_results[2][1])
-        new_table_version = copy.deepcopy(original_table_version_created)
-        new_table_version.locator = TableVersionLocator.at(
-            namespace="missing_namespace",
-            table_name=original_table_version_created.table_name,
-            table_version="test_table_version",
+        new_table_version: TableVersion = TableVersion.based_on(
+            other=original_table_version_created,
+            new_id="test_table_version",
         )
+        new_table_version.namespace_locator.namespace = "missing_namespace"
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND,
             txn_operations=[
@@ -511,12 +617,11 @@ class TestMetafileIO:
         # given a transaction that tries to create a single table version
         # in a table that doesn't exist
         original_table_version_created = TableVersion(commit_results[2][1])
-        new_table_version = copy.deepcopy(original_table_version_created)
-        new_table_version.locator = TableVersionLocator.at(
-            namespace=original_table_version_created.namespace,
-            table_name="missing_table",
-            table_version="test_table_version",
+        new_table_version: TableVersion = TableVersion.based_on(
+            other=original_table_version_created,
+            new_id="test_table_version",
         )
+        new_table_version.table_locator.table_name = "missing_table"
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND,
             txn_operations=[
@@ -563,7 +668,7 @@ class TestMetafileIO:
         original_table: Table = commit_results[1][1]
         # given a transaction containing:
         # 1. a table rename
-        renamed_table: Table = copy.deepcopy(original_table)
+        renamed_table: Table = Table.update_for(original_table)
         renamed_table.locator = TableLocator.at(
             namespace="test_namespace",
             table_name="test_table_renamed",
@@ -573,69 +678,56 @@ class TestMetafileIO:
         original_stream_created = Stream(commit_results[3][1])
         original_table_version_created = TableVersion(commit_results[2][1])
         # 2. a new table version in the renamed table
-        new_table_version_to_create = copy.deepcopy(original_table_version_created)
-        new_table_version_to_create.locator = TableVersionLocator.at(
-            namespace=original_table_version_created.namespace,
-            table_name=renamed_table.table_name,
-            table_version=original_table_version_created.table_version + "_2",
+        new_table_version_to_create: TableVersion = TableVersion.based_on(
+            other=original_table_version_created,
+            new_id=original_table_version_created.table_version + "_2",
         )
+        new_table_version_to_create.table_locator.table_name = renamed_table.table_name
         # 3. a new stream in the new table version in the renamed table
-        new_stream_to_create = copy.deepcopy(original_stream_created)
-        new_stream_to_create.locator = StreamLocator.at(
-            namespace=original_stream_created.namespace,
-            table_name=renamed_table.table_name,
-            table_version=new_table_version_to_create.table_version,
-            stream_id=original_stream_created.stream_id + "_2",
-            stream_format=original_stream_created.stream_format,
+        new_stream_to_create: Stream = Stream.based_on(
+            other=original_stream_created,
+            new_id=original_stream_created.stream_id + "_2",
+        )
+        new_stream_to_create.locator.table_version_locator = (
+            new_table_version_to_create.locator
         )
         # 4. a new partition in the new stream in the new table version
         # in the renamed table
-        new_partition_to_create = copy.deepcopy(original_partition_created)
-        new_partition_to_create.locator = PartitionLocator.at(
-            namespace=original_partition_created.namespace,
-            table_name=renamed_table.table_name,
-            table_version=new_table_version_to_create.table_version,
-            stream_id=new_stream_to_create.stream_id,
-            stream_format=original_partition_created.stream_format,
-            partition_values=original_partition_created.partition_values,
-            partition_id=original_partition_created.partition_id + "_2",
+        new_partition_to_create: Partition = Partition.based_on(
+            other=original_partition_created,
+            new_id=original_partition_created.partition_id + "_2",
         )
+        new_partition_to_create.locator.stream_locator = new_stream_to_create.locator
         # 5. a new delta in the new partition in the new stream in the new
         # table version in the renamed table
-        new_delta_to_create = copy.deepcopy(original_delta_created)
-        new_delta_to_create.locator = DeltaLocator.at(
-            namespace=original_delta_created.namespace,
-            table_name=renamed_table.table_name,
-            table_version=new_table_version_to_create.table_version,
-            stream_id=new_stream_to_create.stream_id,
-            stream_format=original_delta_created.stream_format,
-            partition_values=original_delta_created.partition_values,
-            partition_id=new_partition_to_create.partition_id,
-            stream_position=original_delta_created.stream_position + 1,
+        new_delta_to_create = Delta.based_on(
+            other=original_delta_created,
+            new_id="2",
         )
+        new_delta_to_create.locator.partition_locator = new_partition_to_create.locator
         # 6. ordered transaction operations that ensure all prior
         # dependencies are satisfied
         txn_operations = [
             TransactionOperation.of(
-                TransactionOperationType.UPDATE,
-                renamed_table,
-                original_table,
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=renamed_table,
+                src_metafile=original_table,
             ),
             TransactionOperation.of(
-                TransactionOperationType.CREATE,
-                new_table_version_to_create,
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=new_table_version_to_create,
             ),
             TransactionOperation.of(
-                TransactionOperationType.CREATE,
-                new_stream_to_create,
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=new_stream_to_create,
             ),
             TransactionOperation.of(
-                TransactionOperationType.CREATE,
-                new_partition_to_create,
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=new_partition_to_create,
             ),
             TransactionOperation.of(
-                TransactionOperationType.CREATE,
-                new_delta_to_create,
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=new_delta_to_create,
             ),
         ]
         transaction = Transaction.of(
@@ -680,16 +772,16 @@ class TestMetafileIO:
         original_table: Table = commit_results[1][1]
 
         # given a transaction containing a table rename
-        renamed_table: Table = copy.deepcopy(original_table)
+        renamed_table: Table = Table.update_for(original_table)
         renamed_table.locator = TableLocator.at(
             namespace="test_namespace",
             table_name="test_table_renamed",
         )
         txn_operations = [
             TransactionOperation.of(
-                TransactionOperationType.UPDATE,
-                renamed_table,
-                original_table,
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=renamed_table,
+                src_metafile=original_table,
             )
         ]
         transaction = Transaction.of(
@@ -737,16 +829,15 @@ class TestMetafileIO:
             )
 
         # expect a subsequent table update from the old table name to fail
-        previous_table_copy = copy.deepcopy(original_table)
         bad_txn_operations = [
             TransactionOperation.of(
-                TransactionOperationType.UPDATE,
-                previous_table_copy,
-                original_table,
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=renamed_table,
+                src_metafile=original_table,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
+            txn_type=TransactionType.RESTATE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -755,8 +846,8 @@ class TestMetafileIO:
         # expect table deletes of the old table name fail
         bad_txn_operations = [
             TransactionOperation.of(
-                TransactionOperationType.DELETE,
-                previous_table_copy,
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=original_table,
             )
         ]
         transaction = Transaction.of(
@@ -770,8 +861,8 @@ class TestMetafileIO:
         for metafile in original_child_metafiles_created:
             bad_txn_operations = [
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    metafile,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=metafile,
                 )
             ]
             transaction = Transaction.of(
@@ -787,15 +878,15 @@ class TestMetafileIO:
             assert expected == actual
         original_namespace = commit_results[0][1]
         # given a transaction containing a namespace rename
-        renamed_namespace = copy.deepcopy(original_namespace)
+        renamed_namespace: Namespace = Namespace.update_for(original_namespace)
         renamed_namespace.locator = NamespaceLocator.of(
             namespace="test_namespace_renamed",
         )
         txn_operations = [
             TransactionOperation.of(
-                TransactionOperationType.UPDATE,
-                renamed_namespace,
-                original_namespace,
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=renamed_namespace,
+                src_metafile=original_namespace,
             )
         ]
         transaction = Transaction.of(
@@ -846,12 +937,11 @@ class TestMetafileIO:
             )
 
         # expect a subsequent update of the old namespace name to fail
-        previous_namespace_copy = copy.deepcopy(original_namespace)
         bad_txn_operations = [
             TransactionOperation.of(
-                TransactionOperationType.UPDATE,
-                previous_namespace_copy,
-                original_namespace,
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=renamed_namespace,
+                src_metafile=original_namespace,
             )
         ]
         transaction = Transaction.of(
@@ -864,8 +954,8 @@ class TestMetafileIO:
         # expect namespace deletes of the old namespace name fail
         bad_txn_operations = [
             TransactionOperation.of(
-                TransactionOperationType.DELETE,
-                previous_namespace_copy,
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=original_namespace,
             )
         ]
         transaction = Transaction.of(
@@ -879,8 +969,8 @@ class TestMetafileIO:
         for metafile in original_child_metafiles_created:
             bad_txn_operations = [
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    metafile,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=metafile,
                 )
             ]
             transaction = Transaction.of(
@@ -907,8 +997,8 @@ class TestMetafileIO:
             txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    namespace,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=namespace,
                 )
             ],
         ).commit(temp_dir)
@@ -931,8 +1021,8 @@ class TestMetafileIO:
             txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    table,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=table,
                 )
             ],
         ).commit(temp_dir)
@@ -1019,8 +1109,8 @@ class TestMetafileIO:
             txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    table_version,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=table_version,
                 )
             ],
         ).commit(temp_dir)
@@ -1068,8 +1158,8 @@ class TestMetafileIO:
             txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    stream,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=stream,
                 )
             ],
         ).commit(temp_dir)
@@ -1122,8 +1212,8 @@ class TestMetafileIO:
             txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    partition,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=partition,
                 )
             ],
         ).commit(temp_dir)
@@ -1184,8 +1274,8 @@ class TestMetafileIO:
             txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    delta,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=delta,
                 )
             ],
         ).commit(temp_dir)
@@ -1223,8 +1313,8 @@ class TestMetafileIO:
             txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
-                    TransactionOperationType.CREATE,
-                    table,
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=table,
                 )
             ],
         ).commit(temp_dir)

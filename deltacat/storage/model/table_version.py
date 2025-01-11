@@ -252,8 +252,8 @@ class TableVersion(Metafile):
         if serializable.table_locator:
             # remove the mutable table locator
             serializable.locator.table_locator = TableLocator.at(
-                self.id,
-                self.id,
+                namespace=self.id,
+                table_name=self.id,
             )
         return serializable
 
@@ -303,8 +303,13 @@ class TableVersionLocatorName(LocatorName):
     def __init__(self, locator: TableVersionLocator):
         self.locator = locator
 
+    @property
     def immutable_id(self) -> Optional[str]:
         return self.locator.table_version
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]):
+        self.locator.table_version = immutable_id
 
     def parts(self) -> List[str]:
         return [self.locator.table_version]
@@ -329,9 +334,11 @@ class TableVersionLocator(Locator, dict):
         table_locator = TableLocator.at(namespace, table_name) if table_name else None
         return TableVersionLocator.of(table_locator, table_version)
 
+    @property
     def name(self):
         return TableVersionLocatorName(self)
 
+    @property
     def parent(self) -> Optional[TableLocator]:
         return self.table_locator
 

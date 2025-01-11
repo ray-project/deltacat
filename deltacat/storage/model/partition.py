@@ -240,8 +240,8 @@ class Partition(Metafile):
         if serializable.table_locator:
             # replace the mutable table locator
             serializable.table_version_locator.table_locator = TableLocator.at(
-                self.id,
-                self.id,
+                namespace=self.id,
+                table_name=self.id,
             )
         return serializable
 
@@ -283,8 +283,13 @@ class PartitionLocatorName(LocatorName):
     def __init__(self, locator: PartitionLocator):
         self.locator = locator
 
+    @property
     def immutable_id(self) -> Optional[str]:
         return self.locator.partition_id
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]):
+        self.locator.partition_id = immutable_id
 
     def parts(self) -> List[str]:
         return [
@@ -343,9 +348,11 @@ class PartitionLocator(Locator, dict):
             partition_id,
         )
 
+    @property
     def name(self) -> PartitionLocatorName:
         return PartitionLocatorName(self)
 
+    @property
     def parent(self) -> Optional[StreamLocator]:
         return self.stream_locator
 

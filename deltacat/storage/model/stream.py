@@ -180,8 +180,8 @@ class Stream(Metafile):
             serializable = Stream(copy.deepcopy(self))
             # remove the mutable table locator
             serializable.table_version_locator.table_locator = TableLocator.at(
-                self.id,
-                self.id,
+                namespace=self.id,
+                table_name=self.id,
             )
         return serializable
 
@@ -220,8 +220,13 @@ class StreamLocatorName(LocatorName):
     def __init__(self, locator: StreamLocator):
         self.locator = locator
 
+    @property
     def immutable_id(self) -> Optional[str]:
         return self.locator.stream_id
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]):
+        self.locator.stream_id = immutable_id
 
     def parts(self) -> List[str]:
         return [
@@ -274,9 +279,11 @@ class StreamLocator(Locator, dict):
             stream_format,
         )
 
+    @property
     def name(self) -> StreamLocatorName:
         return StreamLocatorName(self)
 
+    @property
     def parent(self) -> Optional[TableVersionLocator]:
         return self.table_version_locator
 

@@ -19,12 +19,26 @@ class LocatorName:
     may be single or multi-part.
     """
 
+    @property
     def immutable_id(self) -> Optional[str]:
         """
         If this locator name is immutable (i.e., if the object it refers to
         can't be renamed) then returns an immutable ID suitable for use in
         URLS or filesystem paths. Returns None if this locator name is mutable
         (i.e., if the object it refers to can be renamed).
+        """
+        raise NotImplementedError()
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]) -> None:
+        """
+        If this locator name is immutable (i.e., if the object it refers to
+        can't be renamed), then sets an immutable ID for this
+        locator name suitable for use in URLS or filesystem paths. Note that
+        the ID is only considered immutable in durable catalog storage, and
+        remains mutable in transient memory (i.e., this setter remains
+        functional regardless of whether an ID is already assigned, but each
+        update causes it to refer to a new, distinct object in durable storage).
         """
         raise NotImplementedError()
 
@@ -53,12 +67,14 @@ class Locator:
     URLs.
     """
 
+    @property
     def name(self) -> LocatorName:
         """
         Returns the name of this locator.
         """
         raise NotImplementedError()
 
+    @property
     def parent(self) -> Optional[Locator]:
         """
         Returns the parent of this locator, if any.
@@ -72,10 +88,10 @@ class Locator:
         the same canonical string).
         """
         parts = []
-        parent_hexdigest = self.parent().hexdigest() if self.parent() else None
+        parent_hexdigest = self.parent.hexdigest() if self.parent else None
         if parent_hexdigest:
             parts.append(parent_hexdigest)
-        parts.extend(self.name().parts())
+        parts.extend(self.name.parts())
         return separator.join([str(part) for part in parts])
 
     def digest(self) -> bytes:

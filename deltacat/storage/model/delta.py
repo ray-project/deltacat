@@ -288,8 +288,8 @@ class Delta(Metafile):
             serializable = Delta(copy.deepcopy(self))
             # remove the mutable table locator
             serializable.table_version_locator.table_locator = TableLocator.at(
-                self.id,
-                self.id,
+                namespace=self.id,
+                table_name=self.id,
             )
         return serializable
 
@@ -330,8 +330,13 @@ class DeltaLocatorName(LocatorName):
     def __init__(self, locator: DeltaLocator):
         self.locator = locator
 
+    @property
     def immutable_id(self) -> Optional[str]:
         return str(self.locator.stream_position)
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]):
+        self.locator.stream_position = int(immutable_id)
 
     def parts(self) -> List[str]:
         return [str(self.locator.stream_position)]
@@ -381,9 +386,11 @@ class DeltaLocator(Locator, dict):
             stream_position,
         )
 
+    @property
     def name(self):
         return DeltaLocatorName(self)
 
+    @property
     def parent(self) -> Optional[PartitionLocator]:
         return self.partition_locator
 
