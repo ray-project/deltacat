@@ -91,7 +91,7 @@ def run(**kwargs):
     dataset_writer.flush()
 
     # Step 5: Read data from feather file.
-    for record in dataset.scan().to_arrow():
+    for record in dataset.scan().to_pydict():
         print(record)
 
 if __name__ == "__main__":
