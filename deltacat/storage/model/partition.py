@@ -75,6 +75,10 @@ class Partition(Metafile):
         self["partitionLocator"] = partition_locator
 
     @property
+    def locator_alias(self) -> Optional[PartitionLocatorAlias]:
+        return PartitionLocatorAlias(self)
+
+    @property
     def schema(self) -> Optional[Schema]:
         val: Dict[str, Any] = self.get("schema")
         if val is not None and not isinstance(val, Schema):
@@ -552,3 +556,46 @@ class PartitionSchemeList(List[PartitionScheme]):
         if val is not None and not isinstance(val, PartitionScheme):
             self[item] = val = PartitionScheme(val)
         return val
+
+
+class PartitionLocatorAliasName(LocatorName):
+    def __init__(self, locator: PartitionLocatorAlias):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return None
+
+    def parts(self) -> List[str]:
+        return [
+            str(self.locator.partition_values),
+            self.locator.partition_scheme_id,
+        ]
+
+
+class PartitionLocatorAlias(Locator):
+    def __init__(
+        self,
+        parent_partition: Partition,
+    ):
+        self.parent_partition = parent_partition
+
+    @property
+    def partition_values(self) -> Optional[PartitionValues]:
+        return self.parent_partition.partition_values
+
+    @property
+    def partition_scheme_id(self) -> Optional[str]:
+        return self.parent_partition.partition_scheme_id
+
+    @property
+    def name(self) -> PartitionLocatorAliasName:
+        return PartitionLocatorAliasName(PartitionLocatorAlias)
+
+    @property
+    def parent(self) -> Optional[Locator]:
+        return (
+            self.parent_partition.locator.parent
+            if self.parent_partition.locator
+            else None
+        )

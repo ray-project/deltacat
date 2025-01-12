@@ -524,7 +524,24 @@ class Metafile(dict):
 
     @property
     def locator(self) -> Optional[Locator]:
+        """
+        Returns the canonical locator for this metafile, which is typically used
+        to efficiently resolve internal system references to this object.
+        """
         raise NotImplementedError()
+
+    @property
+    def locator_alias(self) -> Optional[Locator]:
+        """
+        Returns an optional locator alias for this metafile. This is
+        typically used to resolve a unique, human-readable reference to this
+        object (e.g., by using partition values instead of partition ID,
+        stream format name instead of stream ID, etc.). Locator aliases are
+        typically used during push-down-predicate-based reads (e.g., by
+        partition value + partition scheme ID), and to display unique
+        human-readable metafile names.
+        """
+        return None
 
     @staticmethod
     def _parent_metafile_rev_dir_path(
@@ -632,13 +649,14 @@ class Metafile(dict):
 
     def _generate_locator_to_id_map_file(
         self,
+        locator: Locator,
         root: str,
         parent_path: str,
         txn_operation_type: TransactionOperationType,
         txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
     ) -> None:
-        id_dir_path = self.locator.path(parent_path)
+        id_dir_path = locator.path(parent_path)
         mci = MetafileCommitInfo.next(
             base_metafile_dir_path=id_dir_path,
             txn_operation_type=txn_operation_type,
@@ -670,17 +688,33 @@ class Metafile(dict):
             filesystem=filesystem,
         )
         parent_path = posixpath.join(*[root] + ancestor_path_elements)
+        mutable_src_locator = None
+        mutable_dest_locator = None
         if not self.named_immutable_id:
+            mutable_src_locator = (
+                txn_operation.src_metafile.locator
+                if txn_operation.src_metafile
+                else None
+            )
+            mutable_dest_locator = txn_operation.dest_metafile.locator
+        elif self.locator_alias:
+            mutable_src_locator = (
+                txn_operation.src_metafile.locator_alias
+                if txn_operation.src_metafile
+                else None
+            )
+            mutable_dest_locator = txn_operation.dest_metafile.locator_alias
+        if mutable_dest_locator:
             # the locator name is mutable, so we need to persist a mapping
             # from the locator back to its immutable metafile ID
             if (
                 txn_operation.type == TransactionOperationType.UPDATE
-                and txn_operation.src_metafile.locator
-                != txn_operation.dest_metafile.locator
+                and mutable_src_locator != mutable_dest_locator
             ):
                 # this update includes a rename
                 # mark the source metafile mapping as deleted
                 txn_operation.src_metafile._generate_locator_to_id_map_file(
+                    locator=mutable_src_locator,
                     root=root,
                     parent_path=parent_path,
                     txn_operation_type=TransactionOperationType.DELETE,
@@ -689,6 +723,7 @@ class Metafile(dict):
                 )
                 # mark the dest metafile mapping as created
                 self._generate_locator_to_id_map_file(
+                    locator=mutable_dest_locator,
                     root=root,
                     parent_path=parent_path,
                     txn_operation_type=TransactionOperationType.CREATE,
@@ -697,6 +732,7 @@ class Metafile(dict):
                 )
             else:
                 self._generate_locator_to_id_map_file(
+                    locator=mutable_dest_locator,
                     root=root,
                     parent_path=parent_path,
                     txn_operation_type=txn_operation.type,

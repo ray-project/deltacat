@@ -63,6 +63,10 @@ class Stream(Metafile):
         self["streamLocator"] = stream_locator
 
     @property
+    def locator_alias(self) -> Optional[StreamLocatorAlias]:
+        return StreamLocatorAlias(self)
+
+    @property
     def partition_scheme(self) -> Optional[partition.PartitionScheme]:
         """
         A table's partition keys are defined within the context of a
@@ -350,3 +354,35 @@ class StreamLocator(Locator, dict):
         if table_version_locator:
             return table_version_locator.table_version
         return None
+
+
+class StreamLocatorAliasName(LocatorName):
+    def __init__(self, locator: StreamLocatorAlias):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return None
+
+    def parts(self) -> List[str]:
+        return [self.locator.format]
+
+
+class StreamLocatorAlias(Locator):
+    def __init__(
+        self,
+        parent_stream: Stream,
+    ):
+        self.parent_stream = parent_stream
+
+    @property
+    def format(self) -> Optional[str]:
+        return self.parent_stream.stream_format
+
+    @property
+    def name(self) -> StreamLocatorAliasName:
+        return StreamLocatorAliasName(StreamLocatorAlias)
+
+    @property
+    def parent(self) -> Optional[Locator]:
+        return self.parent_stream.locator.parent if self.parent_stream.locator else None
