@@ -14,3 +14,8 @@ def temp_dir():
         yield tmpdir
     finally:
         shutil.rmtree(tmpdir)
+
+
+@pytest.fixture
+def keep_temp_dir():
+    return tempfile.mkdtemp()

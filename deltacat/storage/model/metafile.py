@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+import time
+from itertools import chain
 from typing import Optional, Tuple, List
 
 import msgpack
@@ -20,6 +22,7 @@ from deltacat.storage.model.types import (
     TransactionOperationType,
 )
 
+TXN_TIME_SEPARATOR = "-"
 TXN_ID_SEPARATOR = "_"
 TXN_DIR_NAME: str = "txn"
 REVISION_DIR_NAME: str = "rev"
@@ -84,6 +87,26 @@ class TransactionOperation(dict):
     @src_metafile.setter
     def src_metafile(self, src_metafile: Optional[Metafile]):
         self["src_metafile"] = src_metafile
+
+    @property
+    def metafile_write_paths(self) -> List[str]:
+        return self.get("metafile_write_paths") or []
+
+    @property
+    def locator_write_paths(self) -> List[str]:
+        return self.get("locator_write_paths") or []
+
+    def append_metafile_write_path(self, write_path: str):
+        metafile_write_paths = self.get("metafile_write_paths")
+        if not metafile_write_paths:
+            metafile_write_paths = self["metafile_write_paths"] = []
+        metafile_write_paths.append(write_path)
+
+    def append_locator_write_path(self, write_path: str):
+        locator_write_paths = self.get("locator_write_paths")
+        if not locator_write_paths:
+            locator_write_paths = self["locator_write_paths"] = []
+        locator_write_paths.append(write_path)
 
 
 class TransactionOperationList(List[TransactionOperation]):
@@ -150,7 +173,8 @@ class Transaction(dict):
         """
         identifier = self.get("id")
         if not identifier:
-            identifier = self["id"] = str(uuid.uuid4())
+            epoch_ms = time.time_ns() // 1_000_000
+            identifier = self["id"] = f"{epoch_ms}{TXN_TIME_SEPARATOR}{uuid.uuid4()}"
         return identifier
 
     @property
@@ -189,7 +213,7 @@ class Transaction(dict):
         #  pointer queries and rollback/rollforward
         #  (3) allow transaction changes to be durably staged and resumed
         #  across multiple sessions prior to commit
-        #  (4) Add locator-to-id mapping files to returned results
+        #  (4) Add operation.locator_write_paths to returned results?
 
         # create the transaction directory first to telegraph that at least 1
         # transaction at this root has been attempted
@@ -198,22 +222,35 @@ class Transaction(dict):
         fs.create_dir(txn_dir_path, recursive=True)
 
         # write each metafile associated with the transaction
-        all_write_paths = []
-        for operation in self.operations:
-            write_paths = operation.dest_metafile.write(
-                root=root,
-                txn_operation=operation,
-                txn_id=self.id,
-                filesystem=filesystem,
+        metafile_write_paths = []
+        try:
+            for operation in self.operations:
+                operation.dest_metafile.write(
+                    root=root,
+                    txn_operation=operation,
+                    txn_id=self.id,
+                    filesystem=filesystem,
+                )
+                metafile_write_paths.extend(operation.metafile_write_paths)
+        except Exception:
+            # delete all files written during the failed transaction
+            all_write_paths = chain.from_iterable(
+                [
+                    operation.metafile_write_paths + operation.locator_write_paths
+                    for operation in self.operations
+                ]
             )
-            all_write_paths.extend(write_paths)
+            for write_path in all_write_paths:
+                path, fs = Metafile.filesystem(write_path, filesystem)
+                fs.delete_file(path)
+            raise
 
         # record the completed transaction
         path, fs = Metafile.filesystem(root, filesystem)
         id_file_path = posixpath.join(txn_dir_path, self.id)
         with fs.open_output_stream(id_file_path):
             pass  # Just create an empty transaction ID file for now
-        return all_write_paths
+        return metafile_write_paths
 
 
 class MetafileCommitInfo(dict):
@@ -655,7 +692,7 @@ class Metafile(dict):
         txn_operation_type: TransactionOperationType,
         txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
-    ) -> None:
+    ) -> str:
         id_dir_path = locator.path(parent_path)
         mci = MetafileCommitInfo.next(
             base_metafile_dir_path=id_dir_path,
@@ -669,6 +706,7 @@ class Metafile(dict):
         filesystem.create_dir(posixpath.dirname(id_file_path), recursive=True)
         with filesystem.open_output_stream(id_file_path):
             pass  # Just create an empty ID file to map to the locator
+        return id_file_path
 
     def _generate_file_paths(
         self,
@@ -713,16 +751,19 @@ class Metafile(dict):
             ):
                 # this update includes a rename
                 # mark the source metafile mapping as deleted
-                txn_operation.src_metafile._generate_locator_to_id_map_file(
-                    locator=mutable_src_locator,
-                    root=root,
-                    parent_path=parent_path,
-                    txn_operation_type=TransactionOperationType.DELETE,
-                    txn_id=txn_id,
-                    filesystem=filesystem,
+                locator_write_path = (
+                    txn_operation.src_metafile._generate_locator_to_id_map_file(
+                        locator=mutable_src_locator,
+                        root=root,
+                        parent_path=parent_path,
+                        txn_operation_type=TransactionOperationType.DELETE,
+                        txn_id=txn_id,
+                        filesystem=filesystem,
+                    )
                 )
+                txn_operation.append_locator_write_path(locator_write_path)
                 # mark the dest metafile mapping as created
-                self._generate_locator_to_id_map_file(
+                locator_write_path = self._generate_locator_to_id_map_file(
                     locator=mutable_dest_locator,
                     root=root,
                     parent_path=parent_path,
@@ -730,8 +771,9 @@ class Metafile(dict):
                     txn_id=txn_id,
                     filesystem=filesystem,
                 )
+                txn_operation.append_locator_write_path(locator_write_path)
             else:
-                self._generate_locator_to_id_map_file(
+                locator_write_path = self._generate_locator_to_id_map_file(
                     locator=mutable_dest_locator,
                     root=root,
                     parent_path=parent_path,
@@ -739,6 +781,7 @@ class Metafile(dict):
                     txn_id=txn_id,
                     filesystem=filesystem,
                 )
+                txn_operation.append_locator_write_path(locator_write_path)
         metafile_dir_path = posixpath.join(
             parent_path,
             self.id,
@@ -860,14 +903,13 @@ class Metafile(dict):
         txn_operation: TransactionOperation,
         txn_id: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> List[str]:
+    ) -> None:
         """
         Serialize and write this object to a metadata file.
         :param root: Root directory of the metadata file.
         :param txn_operation: Transaction operation.
         :param txn_id: Transaction ID.
         :param filesystem: File system to use for writing the metadata file.
-        :return: File paths of the written metadata files.
         """
         path, fs = Metafile.filesystem(
             path=root,
@@ -884,7 +926,7 @@ class Metafile(dict):
             with fs.open_output_stream(path) as file:
                 packed = msgpack.dumps(self.to_serializable())
                 file.write(packed)
-        return paths
+            txn_operation.append_metafile_write_path(path)
 
     @classmethod
     def read(
