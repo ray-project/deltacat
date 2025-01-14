@@ -14,7 +14,7 @@ from deltacat.aws.constants import (
     DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY,
 )
 
-import pyarrow as pa
+import pyarrow.fs
 import ray
 import s3fs
 from boto3.resources.base import ServiceResource
@@ -134,7 +134,7 @@ class UuidBlockWritePathProvider(FilenameProvider):
         self,
         base_path: str,
         *,
-        filesystem: Optional[pa.filesystem.FileSystem] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
         dataset_uuid: Optional[str] = None,
         block: Optional[ObjectRef[Block]] = None,
         block_index: Optional[int] = None,
@@ -150,7 +150,7 @@ class UuidBlockWritePathProvider(FilenameProvider):
         self,
         base_path: str,
         *,
-        filesystem: Optional[pa.filesystem.FileSystem] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
         dataset_uuid: Optional[str] = None,
         block: Optional[ObjectRef[Block]] = None,
         block_index: Optional[int] = None,
