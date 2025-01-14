@@ -33,7 +33,6 @@ pyvenv.cfg
 # Generated Files
 **/.riv-meta-*
 **/*.parquet
-**/*.csv
 **/*.feather
 **/*.json
 
