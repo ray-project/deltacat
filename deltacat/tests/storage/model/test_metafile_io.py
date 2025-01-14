@@ -297,6 +297,461 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
 
 
 class TestMetafileIO:
+    def test_bad_update_mismatched_metafile_types(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_partition: Partition = commit_results[4][1]
+        original_delta: Delta = commit_results[5][1]
+
+        # given an attempt to replace a delta with a partition
+        replacement_partition: Partition = Partition.based_on(
+            original_partition,
+            new_id=original_partition.id + "_2",
+        )
+        # expect the transaction operation initialization to raise a value error
+        with pytest.raises(ValueError):
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_partition,
+                src_metafile=original_delta,
+            )
+
+    def test_replace_delta(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_delta: Delta = commit_results[5][1]
+
+        # given a transaction containing a delta replacement
+        replacement_delta: Delta = Delta.based_on(
+            original_delta,
+            new_id=str(int(original_delta.id) + 1),
+        )
+
+        # expect the proposed replacement delta to be assigned a new ID
+        assert replacement_delta.id != original_delta.id
+
+        txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_delta,
+                src_metafile=original_delta,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect two new table metafiles to be written
+        # (i.e., delete old delta, create replacement delta)
+        assert len(write_paths) == 2
+        delete_write_path = write_paths[0]
+        create_write_path = write_paths[1]
+
+        # expect the replacement delta to be successfully written and read
+        assert TransactionOperationType.CREATE.value in create_write_path
+        actual_delta = Delta.read(create_write_path)
+        assert replacement_delta == actual_delta
+
+        # expect the delete metafile to also contain the replacement delta
+        assert TransactionOperationType.DELETE.value in delete_write_path
+        actual_delta = Delta.read(delete_write_path)
+        assert replacement_delta == actual_delta
+
+        # expect a subsequent replace of the original delta to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_delta,
+                src_metafile=original_delta,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect deletes of the original delta to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=original_delta,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.DELETE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+    def test_replace_partition(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_partition: Partition = commit_results[4][1]
+
+        # given a transaction containing a partition replacement
+        replacement_partition: Partition = Partition.based_on(
+            original_partition,
+            new_id=original_partition.id + "_2",
+        )
+
+        # expect the proposed replacement partition to be assigned a new ID
+        assert replacement_partition.id != original_partition.id
+
+        txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_partition,
+                src_metafile=original_partition,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect two new table metafiles to be written
+        # (i.e., delete old partition, create replacement partition)
+        assert len(write_paths) == 2
+        delete_write_path = write_paths[0]
+        create_write_path = write_paths[1]
+
+        # expect the replacement partition to be successfully written and read
+        assert TransactionOperationType.CREATE.value in create_write_path
+        actual_partition = Partition.read(create_write_path)
+        assert replacement_partition == actual_partition
+
+        # expect the delete metafile to also contain the replacement partition
+        assert TransactionOperationType.DELETE.value in delete_write_path
+        actual_partition = Partition.read(delete_write_path)
+        assert replacement_partition == actual_partition
+
+        # expect old child metafiles for the replaced partition to remain readable
+        child_metafiles_read_post_replace = [
+            Delta.read(commit_results[5][2]),
+        ]
+        # expect old child metafiles read to share the same parent table name as
+        # the replacement partition, but have a different parent partition ID
+        for metafile in child_metafiles_read_post_replace:
+            assert (
+                metafile.table_name
+                == replacement_partition.table_name
+                == original_partition.table_name
+            )
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_partition_id = ancestor_ids[4]
+            assert parent_partition_id == original_partition.id
+
+        # expect original child metafiles to share the original parent partition ID
+        original_child_metafiles_to_create = [
+            Delta(commit_results[5][0]),
+        ]
+        original_child_metafiles_created = [
+            Delta(commit_results[5][1]),
+        ]
+        for i in range(len(original_child_metafiles_to_create)):
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_partition_id = ancestor_ids[4]
+            assert parent_partition_id == original_partition.id
+
+        # expect a subsequent replace of the original partition to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_partition,
+                src_metafile=original_partition,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect deletes of the original partition to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=original_partition,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.DELETE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect new child metafile creation under the old partition to fail
+        for metafile in original_child_metafiles_created:
+            bad_txn_operations = [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=metafile,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.APPEND,
+                txn_operations=bad_txn_operations,
+            )
+            with pytest.raises(ValueError):
+                transaction.commit(temp_dir)
+
+    def test_replace_stream(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_stream: Stream = commit_results[3][1]
+
+        # given a transaction containing a stream replacement
+        replacement_stream: Stream = Stream.based_on(
+            original_stream,
+            new_id=original_stream.id + "_2",
+        )
+
+        # expect the proposed replacement stream to be assigned a new ID
+        assert replacement_stream.id != original_stream.id
+
+        txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_stream,
+                src_metafile=original_stream,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect two new table metafiles to be written
+        # (i.e., delete old stream, create replacement stream)
+        assert len(write_paths) == 2
+        delete_write_path = write_paths[0]
+        create_write_path = write_paths[1]
+
+        # expect the replacement stream to be successfully written and read
+        assert TransactionOperationType.CREATE.value in create_write_path
+        actual_stream = Stream.read(create_write_path)
+        assert replacement_stream == actual_stream
+
+        # expect the delete metafile to also contain the replacement stream
+        assert TransactionOperationType.DELETE.value in delete_write_path
+        actual_stream = Stream.read(delete_write_path)
+        assert replacement_stream == actual_stream
+
+        # expect old child metafiles for the replaced stream to remain readable
+        child_metafiles_read_post_replace = [
+            Delta.read(commit_results[5][2]),
+            Partition.read(commit_results[4][2]),
+        ]
+        # expect old child metafiles read to share the same parent table name as
+        # the replacement stream, but have a different parent stream ID
+        for metafile in child_metafiles_read_post_replace:
+            assert (
+                metafile.table_name
+                == replacement_stream.table_name
+                == original_stream.table_name
+            )
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_stream_id = ancestor_ids[3]
+            assert parent_stream_id == original_stream.id
+
+        # expect original child metafiles to share the original parent stream ID
+        original_child_metafiles_to_create = [
+            Delta(commit_results[5][0]),
+            Partition(commit_results[4][0]),
+        ]
+        original_child_metafiles_created = [
+            Delta(commit_results[5][1]),
+            Partition(commit_results[4][1]),
+        ]
+        for i in range(len(original_child_metafiles_to_create)):
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_stream_id = ancestor_ids[3]
+            assert parent_stream_id == original_stream.id
+
+        # expect a subsequent replace of the original stream to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_stream,
+                src_metafile=original_stream,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect deletes of the original stream to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=original_stream,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.DELETE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect new child metafile creation under the old stream to fail
+        for metafile in original_child_metafiles_created:
+            bad_txn_operations = [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=metafile,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.APPEND,
+                txn_operations=bad_txn_operations,
+            )
+            with pytest.raises(ValueError):
+                transaction.commit(temp_dir)
+
+    def test_replace_table_version(self, temp_dir):
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected == actual
+        original_table_version: TableVersion = commit_results[2][1]
+
+        # given a transaction containing a table version replacement
+        replacement_table_version: TableVersion = TableVersion.based_on(
+            original_table_version,
+            new_id=original_table_version.id + "_2",
+        )
+
+        # expect the proposed replacement table version to be assigned a new ID
+        assert replacement_table_version.id != original_table_version.id
+
+        txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_table_version,
+                src_metafile=original_table_version,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=txn_operations,
+        )
+        # when the transaction is committed
+        write_paths = transaction.commit(temp_dir)
+
+        # expect two new table metafiles to be written
+        # (i.e., delete old table version, create replacement table version)
+        assert len(write_paths) == 2
+        delete_write_path = write_paths[0]
+        create_write_path = write_paths[1]
+
+        # expect the replacement table version to be successfully written and read
+        assert TransactionOperationType.CREATE.value in create_write_path
+        actual_table_version = TableVersion.read(create_write_path)
+        assert replacement_table_version == actual_table_version
+
+        # expect the delete metafile to also contain the replacement table version
+        assert TransactionOperationType.DELETE.value in delete_write_path
+        actual_table_version = TableVersion.read(delete_write_path)
+        assert replacement_table_version == actual_table_version
+
+        # expect old child metafiles for the replaced table version to remain readable
+        child_metafiles_read_post_replace = [
+            Delta.read(commit_results[5][2]),
+            Partition.read(commit_results[4][2]),
+            Stream.read(commit_results[3][2]),
+        ]
+        # expect old child metafiles read to share the same parent table name as
+        # the replacement table version, but have a different parent table
+        # version ID
+        for metafile in child_metafiles_read_post_replace:
+            assert (
+                metafile.table_name
+                == replacement_table_version.table_name
+                == original_table_version.table_name
+            )
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_table_version_id = ancestor_ids[2]
+            assert parent_table_version_id == original_table_version.id
+
+        # expect original child metafiles to share the original parent table version ID
+        original_child_metafiles_to_create = [
+            Delta(commit_results[5][0]),
+            Partition(commit_results[4][0]),
+            Stream(commit_results[3][0]),
+        ]
+        original_child_metafiles_created = [
+            Delta(commit_results[5][1]),
+            Partition(commit_results[4][1]),
+            Stream(commit_results[3][1]),
+        ]
+        for i in range(len(original_child_metafiles_to_create)):
+            ancestor_ids = metafile.ancestor_ids(catalog_root=temp_dir)
+            parent_table_version_id = ancestor_ids[2]
+            assert parent_table_version_id == original_table_version.id
+
+        # expect a subsequent replace of the original table version to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=replacement_table_version,
+                src_metafile=original_table_version,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.OVERWRITE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect deletes of the original table version to fail
+        bad_txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=original_table_version,
+            )
+        ]
+        transaction = Transaction.of(
+            txn_type=TransactionType.DELETE,
+            txn_operations=bad_txn_operations,
+        )
+        with pytest.raises(ValueError):
+            transaction.commit(temp_dir)
+
+        # expect new child metafile creation under the old table version to fail
+        for metafile in original_child_metafiles_created:
+            bad_txn_operations = [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=metafile,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.APPEND,
+                txn_operations=bad_txn_operations,
+            )
+            with pytest.raises(ValueError):
+                transaction.commit(temp_dir)
+
     def test_replace_table(self, temp_dir):
         commit_results = _commit_single_delta_table(temp_dir)
         for expected, actual, _ in commit_results:
@@ -328,9 +783,17 @@ class TestMetafileIO:
         # expect two new table metafiles to be written
         # (i.e., delete old table, create replacement table)
         assert len(write_paths) == 2
+        delete_write_path = write_paths[0]
+        create_write_path = write_paths[1]
 
         # expect the replacement table to be successfully written and read
-        actual_table = Table.read(write_paths[0])
+        assert TransactionOperationType.CREATE.value in create_write_path
+        actual_table = Table.read(create_write_path)
+        assert replacement_table == actual_table
+
+        # expect the delete metafile to also contain the replacement table
+        assert TransactionOperationType.DELETE.value in delete_write_path
+        actual_table = Table.read(delete_write_path)
         assert replacement_table == actual_table
 
         # expect old child metafiles for the replaced table to remain readable

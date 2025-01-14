@@ -1,7 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import copy
 import posixpath
 from typing import Any, Dict, List, Optional
 
@@ -238,7 +237,7 @@ class TableVersion(Metafile):
         )
 
     def to_serializable(self) -> TableVersion:
-        serializable = TableVersion(copy.deepcopy(self))
+        serializable: TableVersion = TableVersion.update_for(self)
         serializable.schema = (
             serializable.schema.serialize().to_pybytes()
             if serializable.schema

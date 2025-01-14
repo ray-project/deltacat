@@ -1,7 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import copy
 import posixpath
 from typing import Any, Dict, Optional, List
 
@@ -97,7 +96,7 @@ class Table(Metafile):
     def to_serializable(self) -> Table:
         serializable = self
         if serializable.namespace_locator:
-            serializable = Table(copy.deepcopy(self))
+            serializable: Table = Table.update_for(self)
             # remove the mutable namespace locator
             serializable.locator.namespace_locator = NamespaceLocator.of(self.id)
         return serializable
