@@ -108,9 +108,10 @@ def _optimized_group_record_batches_by_hash_bucket(
     record_batches = []
     result_len = 0
     for record_batch in table_batches:
-        current_bytes += record_batch.nbytes
-        record_batches.append(record_batch)
-        if current_bytes >= MAX_SIZE_OF_RECORD_BATCH_IN_GIB:
+        if (
+            record_batches
+            and current_bytes + record_batch.nbytes >= MAX_SIZE_OF_RECORD_BATCH_IN_GIB
+        ):
             logger.info(
                 f"Total number of record batches without exceeding {MAX_SIZE_OF_RECORD_BATCH_IN_GIB} "
                 f"is {len(record_batches)} and size {current_bytes}"
@@ -127,6 +128,9 @@ def _optimized_group_record_batches_by_hash_bucket(
             result_len += appended_len
             current_bytes = 0
             record_batches.clear()
+
+        current_bytes += record_batch.nbytes
+        record_batches.append(record_batch)
 
     if record_batches:
         appended_len, append_latency = timed_invocation(
