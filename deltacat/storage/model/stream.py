@@ -1,14 +1,24 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import posixpath
+
+import pyarrow
+
 import deltacat.storage.model.partition as partition
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
-from deltacat.storage.model.metafile import Metafile
-from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
+from deltacat.storage.model.locator import (
+    Locator,
+    LocatorName,
+)
 from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table import (
+    TableLocator,
+    Table,
+)
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import (
     CommitState,
@@ -50,6 +60,10 @@ class Stream(Metafile):
     @locator.setter
     def locator(self, stream_locator: Optional[StreamLocator]) -> None:
         self["streamLocator"] = stream_locator
+
+    @property
+    def locator_alias(self) -> Optional[StreamLocatorAlias]:
+        return StreamLocatorAlias(self)
 
     @property
     def partition_scheme(self) -> Optional[partition.PartitionScheme]:
@@ -136,6 +150,13 @@ class Stream(Metafile):
         return None
 
     @property
+    def stream_format(self) -> Optional[str]:
+        stream_locator = self.locator
+        if stream_locator:
+            return stream_locator.format
+        return None
+
+    @property
     def namespace(self) -> Optional[str]:
         stream_locator = self.locator
         if stream_locator:
@@ -156,6 +177,66 @@ class Stream(Metafile):
             return stream_locator.table_version
         return None
 
+    def to_serializable(self) -> Stream:
+        serializable = self
+        if serializable.table_locator:
+            serializable: Stream = Stream.update_for(self)
+            # remove the mutable table locator
+            serializable.table_version_locator.table_locator = TableLocator.at(
+                namespace=self.id,
+                table_name=self.id,
+            )
+        return serializable
+
+    def from_serializable(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Stream:
+        # restore the table locator from its mapped immutable metafile ID
+        if self.table_locator and self.table_locator.table_name == self.id:
+            parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
+                base_metafile_path=path,
+                parent_number=2,
+            )
+            txn_log_dir = posixpath.join(
+                posixpath.dirname(
+                    posixpath.dirname(
+                        posixpath.dirname(parent_rev_dir_path),
+                    )
+                ),
+                TXN_DIR_NAME,
+            )
+            table = Table.read(
+                MetafileCommitInfo.current(
+                    commit_dir_path=parent_rev_dir_path,
+                    filesystem=filesystem,
+                    txn_log_dir=txn_log_dir,
+                ).path,
+                filesystem,
+            )
+            self.table_version_locator.table_locator = table.locator
+        return self
+
+
+class StreamLocatorName(LocatorName):
+    def __init__(self, locator: StreamLocator):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return self.locator.stream_id
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]):
+        self.locator.stream_id = immutable_id
+
+    def parts(self) -> List[str]:
+        return [
+            self.locator.stream_id,
+            self.locator.format,
+        ]
+
 
 class StreamLocator(Locator, dict):
     @staticmethod
@@ -171,7 +252,11 @@ class StreamLocator(Locator, dict):
         stream_locator = StreamLocator()
         stream_locator.table_version_locator = table_version_locator
         stream_locator.stream_id = stream_id
-        stream_locator.format = stream_format
+        stream_locator.format = (
+            stream_format.value
+            if isinstance(stream_format, StreamFormat)
+            else stream_format
+        )
         return stream_locator
 
     @staticmethod
@@ -197,6 +282,11 @@ class StreamLocator(Locator, dict):
             stream_format,
         )
 
+    @property
+    def name(self) -> StreamLocatorName:
+        return StreamLocatorName(self)
+
+    @property
     def parent(self) -> Optional[TableVersionLocator]:
         return self.table_version_locator
 
@@ -264,17 +354,34 @@ class StreamLocator(Locator, dict):
             return table_version_locator.table_version
         return None
 
-    def canonical_string(self) -> str:
-        """
-        Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
-        """
-        tvl_hexdigest = (
-            self.table_version_locator.hexdigest()
-            if self.table_version_locator
-            else None
-        )
-        stream_id = self.stream_id
-        storage_type = self.format
-        return f"{tvl_hexdigest}|{stream_id}|{storage_type}"
+
+class StreamLocatorAliasName(LocatorName):
+    def __init__(self, locator: StreamLocatorAlias):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return None
+
+    def parts(self) -> List[str]:
+        return [self.locator.format]
+
+
+class StreamLocatorAlias(Locator):
+    def __init__(
+        self,
+        parent_stream: Stream,
+    ):
+        self.parent_stream = parent_stream
+
+    @property
+    def format(self) -> Optional[str]:
+        return self.parent_stream.stream_format
+
+    @property
+    def name(self) -> StreamLocatorAliasName:
+        return StreamLocatorAliasName(StreamLocatorAlias)
+
+    @property
+    def parent(self) -> Optional[Locator]:
+        return self.parent_stream.locator.parent if self.parent_stream.locator else None

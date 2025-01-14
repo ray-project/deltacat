@@ -1,20 +1,28 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import copy
+import posixpath
+
+import pyarrow
 import pyarrow as pa
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.metafile import Metafile
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
 from deltacat.storage.model.schema import (
     FieldLocator,
     Schema,
 )
-from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.locator import (
+    Locator,
+    LocatorName,
+)
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.stream import StreamLocator
-from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table import (
+    TableLocator,
+    Table,
+)
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.transform import Transform
 from deltacat.storage.model.types import (
@@ -41,7 +49,7 @@ class Partition(Metafile):
         previous_stream_position: Optional[int] = None,
         previous_partition_id: Optional[str] = None,
         stream_position: Optional[int] = None,
-        next_partition_id: Optional[str] = None,
+        partition_scheme_id: Optional[str] = None,
     ) -> Partition:
         partition = Partition()
         partition.locator = locator
@@ -51,7 +59,7 @@ class Partition(Metafile):
         partition.previous_stream_position = previous_stream_position
         partition.previous_partition_id = previous_partition_id
         partition.stream_position = stream_position
-        partition.next_partition_id = next_partition_id
+        partition.partition_scheme_id = partition_scheme_id
         return partition
 
     @property
@@ -64,6 +72,10 @@ class Partition(Metafile):
     @locator.setter
     def locator(self, partition_locator: Optional[PartitionLocator]) -> None:
         self["partitionLocator"] = partition_locator
+
+    @property
+    def locator_alias(self) -> Optional[PartitionLocatorAlias]:
+        return PartitionLocatorAlias(self)
 
     @property
     def schema(self) -> Optional[Schema]:
@@ -125,12 +137,12 @@ class Partition(Metafile):
         self["streamPosition"] = stream_position
 
     @property
-    def next_partition_id(self) -> Optional[str]:
-        return self.get("nextPartitionId")
+    def partition_scheme_id(self) -> Optional[str]:
+        return self.get("partitionSchemeId")
 
-    @next_partition_id.setter
-    def next_partition_id(self, next_partition_id: Optional[str]):
-        self["nextPartitionId"] = next_partition_id
+    @partition_scheme_id.setter
+    def partition_scheme_id(self, partition_scheme_id: Optional[str]) -> None:
+        self["partitionSchemeId"] = partition_scheme_id
 
     @property
     def partition_id(self) -> Optional[str]:
@@ -144,6 +156,13 @@ class Partition(Metafile):
         partition_locator = self.locator
         if partition_locator:
             return partition_locator.stream_id
+        return None
+
+    @property
+    def stream_format(self) -> Optional[str]:
+        partition_locator = self.locator
+        if partition_locator:
+            return partition_locator.stream_format
         return None
 
     @property
@@ -215,19 +234,71 @@ class Partition(Metafile):
         )
 
     def to_serializable(self) -> Partition:
-        serializable = Partition(copy.deepcopy(self))
+        serializable: Partition = Partition.update_for(self)
         serializable.schema = (
             serializable.schema.serialize().to_pybytes()
             if serializable.schema
             else None
         )
+        if serializable.table_locator:
+            # replace the mutable table locator
+            serializable.table_version_locator.table_locator = TableLocator.at(
+                namespace=self.id,
+                table_name=self.id,
+            )
         return serializable
 
-    def from_serializable(self) -> Partition:
+    def from_serializable(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Partition:
         self["schema"] = (
             Schema.deserialize(pa.py_buffer(self["schema"])) if self["schema"] else None
         )
+        # restore the table locator from its mapped immutable metafile ID
+        if self.table_locator and self.table_locator.table_name == self.id:
+            parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
+                base_metafile_path=path,
+                parent_number=3,
+            )
+            txn_log_dir = posixpath.join(
+                posixpath.dirname(
+                    posixpath.dirname(
+                        posixpath.dirname(parent_rev_dir_path),
+                    )
+                ),
+                TXN_DIR_NAME,
+            )
+            table = Table.read(
+                MetafileCommitInfo.current(
+                    commit_dir_path=parent_rev_dir_path,
+                    filesystem=filesystem,
+                    txn_log_dir=txn_log_dir,
+                ).path,
+                filesystem,
+            )
+            self.table_version_locator.table_locator = table.locator
         return self
+
+
+class PartitionLocatorName(LocatorName):
+    def __init__(self, locator: PartitionLocator):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return self.locator.partition_id
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]):
+        self.locator.partition_id = immutable_id
+
+    def parts(self) -> List[str]:
+        return [
+            str(self.locator.partition_values),
+            self.locator.partition_id,
+        ]
 
 
 class PartitionLocator(Locator, dict):
@@ -236,7 +307,6 @@ class PartitionLocator(Locator, dict):
         stream_locator: Optional[StreamLocator],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
-        partition_scheme_id: Optional[str] = None,
     ) -> PartitionLocator:
         """
         Creates a stream partition locator. Partition ID is
@@ -252,7 +322,6 @@ class PartitionLocator(Locator, dict):
         partition_locator.stream_locator = stream_locator
         partition_locator.partition_values = partition_values
         partition_locator.partition_id = partition_id
-        partition_locator.partition_scheme_id = partition_scheme_id
         return partition_locator
 
     @staticmethod
@@ -264,7 +333,6 @@ class PartitionLocator(Locator, dict):
         stream_format: Optional[StreamFormat],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
-        partition_scheme_id: Optional[str],
     ) -> PartitionLocator:
         stream_locator = (
             StreamLocator.at(
@@ -281,9 +349,13 @@ class PartitionLocator(Locator, dict):
             stream_locator,
             partition_values,
             partition_id,
-            partition_scheme_id,
         )
 
+    @property
+    def name(self) -> PartitionLocatorName:
+        return PartitionLocatorName(self)
+
+    @property
     def parent(self) -> Optional[StreamLocator]:
         return self.stream_locator
 
@@ -313,14 +385,6 @@ class PartitionLocator(Locator, dict):
     @partition_id.setter
     def partition_id(self, partition_id: Optional[str]) -> None:
         self["partitionId"] = partition_id
-
-    @property
-    def partition_scheme_id(self) -> Optional[str]:
-        return self.get("partitionSchemeId")
-
-    @partition_scheme_id.setter
-    def partition_scheme_id(self, partition_scheme_id: Optional[str]) -> None:
-        self["partitionSchemeId"] = partition_scheme_id
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -377,18 +441,6 @@ class PartitionLocator(Locator, dict):
         if stream_locator:
             return stream_locator.table_version
         return None
-
-    def canonical_string(self) -> str:
-        """
-        Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
-        """
-        sl_hexdigest = self.stream_locator.hexdigest() if self.stream_locator else None
-        partition_vals = str(self.partition_values)
-        partition_id = self.partition_id
-        scheme_id = self.partition_scheme_id
-        return f"{sl_hexdigest}|{partition_vals}|{partition_id}|{scheme_id}"
 
 
 class PartitionKey(dict):
@@ -503,3 +555,46 @@ class PartitionSchemeList(List[PartitionScheme]):
         if val is not None and not isinstance(val, PartitionScheme):
             self[item] = val = PartitionScheme(val)
         return val
+
+
+class PartitionLocatorAliasName(LocatorName):
+    def __init__(self, locator: PartitionLocatorAlias):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return None
+
+    def parts(self) -> List[str]:
+        return [
+            str(self.locator.partition_values),
+            self.locator.partition_scheme_id,
+        ]
+
+
+class PartitionLocatorAlias(Locator):
+    def __init__(
+        self,
+        parent_partition: Partition,
+    ):
+        self.parent_partition = parent_partition
+
+    @property
+    def partition_values(self) -> Optional[PartitionValues]:
+        return self.parent_partition.partition_values
+
+    @property
+    def partition_scheme_id(self) -> Optional[str]:
+        return self.parent_partition.partition_scheme_id
+
+    @property
+    def name(self) -> PartitionLocatorAliasName:
+        return PartitionLocatorAliasName(PartitionLocatorAlias)
+
+    @property
+    def parent(self) -> Optional[Locator]:
+        return (
+            self.parent_partition.locator.parent
+            if self.parent_partition.locator
+            else None
+        )

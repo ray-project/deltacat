@@ -1,11 +1,17 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import posixpath
+from typing import Any, Dict, Optional, List
 
-from deltacat.storage.model.locator import Locator
-from deltacat.storage.model.namespace import NamespaceLocator
-from deltacat.storage.model.metafile import Metafile
+import pyarrow
+
+from deltacat.storage.model.locator import Locator, LocatorName
+from deltacat.storage.model.namespace import (
+    NamespaceLocator,
+    Namespace,
+)
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
 
 TableProperties = Dict[str, Any]
 
@@ -87,6 +93,54 @@ class Table(Metafile):
             return table_locator.table_name
         return None
 
+    def to_serializable(self) -> Table:
+        serializable = self
+        if serializable.namespace_locator:
+            serializable: Table = Table.update_for(self)
+            # remove the mutable namespace locator
+            serializable.locator.namespace_locator = NamespaceLocator.of(self.id)
+        return serializable
+
+    def from_serializable(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Table:
+        # restore the namespace locator from its mapped immutable metafile ID
+        if self.namespace_locator and self.namespace_locator.namespace == self.id:
+            parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
+                base_metafile_path=path,
+                parent_number=1,
+            )
+            txn_log_dir = posixpath.join(
+                posixpath.dirname(
+                    posixpath.dirname(parent_rev_dir_path),
+                ),
+                TXN_DIR_NAME,
+            )
+            namespace = Namespace.read(
+                MetafileCommitInfo.current(
+                    commit_dir_path=parent_rev_dir_path,
+                    filesystem=filesystem,
+                    txn_log_dir=txn_log_dir,
+                ).path,
+                filesystem,
+            )
+            self.locator.namespace_locator = namespace.locator
+        return self
+
+
+class TableLocatorName(LocatorName):
+    def __init__(self, locator: TableLocator):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return None
+
+    def parts(self) -> List[str]:
+        return [self.locator.table_name]
+
 
 class TableLocator(Locator, dict):
     @staticmethod
@@ -103,6 +157,11 @@ class TableLocator(Locator, dict):
         namespace_locator = NamespaceLocator.of(namespace) if namespace else None
         return TableLocator.of(namespace_locator, table_name)
 
+    @property
+    def name(self) -> TableLocatorName:
+        return TableLocatorName(self)
+
+    @property
     def parent(self) -> Optional[NamespaceLocator]:
         return self.namespace_locator
 
@@ -131,15 +190,3 @@ class TableLocator(Locator, dict):
         if namespace_locator:
             return namespace_locator.namespace
         return None
-
-    def canonical_string(self) -> str:
-        """
-        Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
-        """
-        nl_hexdigest = (
-            self.namespace_locator.hexdigest() if self.namespace_locator else None
-        )
-        table_name = self.table_name
-        return f"{nl_hexdigest}|{table_name}"

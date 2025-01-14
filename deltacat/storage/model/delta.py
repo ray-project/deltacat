@@ -1,22 +1,31 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import posixpath
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.metafile import Metafile
+import pyarrow
+
+from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
 from deltacat.storage.model.manifest import (
     Manifest,
     ManifestMeta,
     ManifestAuthor,
 )
-from deltacat.storage.model.locator import Locator
+from deltacat.storage.model.locator import (
+    Locator,
+    LocatorName,
+)
 from deltacat.storage.model.namespace import NamespaceLocator
 from deltacat.storage.model.partition import (
     PartitionLocator,
     PartitionValues,
 )
 from deltacat.storage.model.stream import StreamLocator
-from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table import (
+    TableLocator,
+    Table,
+)
 from deltacat.storage.model.table_version import TableVersionLocator
 from deltacat.storage.model.types import (
     DeltaType,
@@ -245,6 +254,13 @@ class Delta(Metafile):
         return None
 
     @property
+    def stream_format(self) -> Optional[str]:
+        delta_locator = self.locator
+        if delta_locator:
+            return delta_locator.stream_format
+        return None
+
+    @property
     def partition_id(self) -> Optional[str]:
         delta_locator = self.locator
         if delta_locator:
@@ -264,6 +280,65 @@ class Delta(Metafile):
         if delta_locator:
             return delta_locator.stream_position
         return None
+
+    def to_serializable(self) -> Delta:
+        serializable = self
+        if serializable.table_locator:
+            serializable: Delta = Delta.update_for(self)
+            # remove the mutable table locator
+            serializable.table_version_locator.table_locator = TableLocator.at(
+                namespace=self.id,
+                table_name=self.id,
+            )
+        return serializable
+
+    def from_serializable(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Delta:
+        # TODO(pdames): Lazily restore table locator on 1st property get.
+        #  Cache Metafile ID <-> Table/Namespace-Name map at Catalog Init, then
+        #  swap only Metafile IDs with Names here.
+        if self.table_locator and self.table_locator.table_name == self.id:
+            parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
+                base_metafile_path=path,
+                parent_number=4,
+            )
+            txn_log_dir = posixpath.join(
+                posixpath.dirname(
+                    posixpath.dirname(
+                        posixpath.dirname(parent_rev_dir_path),
+                    )
+                ),
+                TXN_DIR_NAME,
+            )
+            table = Table.read(
+                MetafileCommitInfo.current(
+                    commit_dir_path=parent_rev_dir_path,
+                    filesystem=filesystem,
+                    txn_log_dir=txn_log_dir,
+                ).path,
+                filesystem,
+            )
+            self.table_version_locator.table_locator = table.locator
+        return self
+
+
+class DeltaLocatorName(LocatorName):
+    def __init__(self, locator: DeltaLocator):
+        self.locator = locator
+
+    @property
+    def immutable_id(self) -> Optional[str]:
+        return str(self.locator.stream_position)
+
+    @immutable_id.setter
+    def immutable_id(self, immutable_id: Optional[str]):
+        self.locator.stream_position = int(immutable_id)
+
+    def parts(self) -> List[str]:
+        return [str(self.locator.stream_position)]
 
 
 class DeltaLocator(Locator, dict):
@@ -290,7 +365,6 @@ class DeltaLocator(Locator, dict):
         stream_format: Optional[StreamFormat],
         partition_values: Optional[PartitionValues],
         partition_id: Optional[str],
-        partition_scheme_id: Optional[str],
         stream_position: Optional[int],
     ) -> DeltaLocator:
         partition_locator = (
@@ -302,9 +376,8 @@ class DeltaLocator(Locator, dict):
                 stream_format,
                 partition_values,
                 partition_id,
-                partition_scheme_id,
             )
-            if partition_values and partition_id and partition_scheme_id
+            if partition_values and partition_id
             else None
         )
         return DeltaLocator.of(
@@ -312,6 +385,11 @@ class DeltaLocator(Locator, dict):
             stream_position,
         )
 
+    @property
+    def name(self):
+        return DeltaLocatorName(self)
+
+    @property
     def parent(self) -> Optional[PartitionLocator]:
         return self.partition_locator
 
@@ -410,15 +488,3 @@ class DeltaLocator(Locator, dict):
         if partition_locator:
             return partition_locator.table_version
         return None
-
-    def canonical_string(self) -> str:
-        """
-        Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
-        """
-        pl_hexdigest = (
-            self.partition_locator.hexdigest() if self.partition_locator else None
-        )
-        stream_position = self.stream_position
-        return f"{pl_hexdigest}|{stream_position}"
