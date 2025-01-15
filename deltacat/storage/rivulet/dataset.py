@@ -212,10 +212,10 @@ class Dataset:
             Dataset: New dataset instance with the schema automatically inferred from the source parquet files
         """
         metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
-        dataset = pyarrow.dataset.dataset(file_uri)
+        pyarrow_dataset = pyarrow.dataset.dataset(file_uri)
 
         if schema_mode == "intersect":
-            schemas = [pyarrow.parquet.read_schema(f) for f in dataset.files]
+            schemas = [pyarrow.parquet.read_schema(f) for f in pyarrow_dataset.files]
             # Find common columns across all schemas
             common_columns = set(schemas[0].names)
             for schema in schemas[1:]:
@@ -227,12 +227,22 @@ class Dataset:
             )
             pyarrow_schema = intersect_schema
         else:
-            schemas = [pyarrow.parquet.read_schema(f) for f in dataset.files]
+            schemas = [pyarrow.parquet.read_schema(f) for f in pyarrow_dataset.files]
             pyarrow_schema = pa.unify_schemas(schemas)
 
         dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
+
         # TODO the file URI never gets stored/saved, do we need to do so?
-        return cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+        dataset = cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+
+        # TODO: avoid write! associate fields with their source data.
+        writer = dataset.writer()
+
+        for batch in pyarrow_dataset.scanner().to_batches():
+            writer.write(batch)
+        writer.flush()
+
+        return dataset
 
     @classmethod
     def from_json(

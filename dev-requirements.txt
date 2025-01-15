@@ -2,6 +2,7 @@
 black == 22.12.0
 faker == 33.1.0
 flake8 == 5.0.4
+ipywidgets == 8.1.5
 isort == 5.10.1
 memray == 1.6.0; platform_system != "Windows" and sys_platform != "darwin" and platform_machine != "arm64" and platform_machine != "aarch64"
 moto == 4.1.12
@@ -13,3 +14,5 @@ pytest-cov == 4.0.0
 pytest-mock == 3.14.0
 requests-mock == 1.11.0
 sphinx == 7.2.6
+torch == 2.1.2
+transformers == 4.48.0
