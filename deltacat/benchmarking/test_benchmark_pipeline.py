@@ -16,11 +16,11 @@ from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet.schema.schema import Schema, Field
-from .benchmark_engine import BenchmarkEngine
-from .benchmark_report import BenchmarkRun, BenchmarkReport
-from .benchmark_suite import BenchmarkSuite
-from .data.random_row_generator import RandomRowGenerator
-from .data.row_generator import RowGenerator
+from deltacat.benchmarking.benchmark_engine import BenchmarkEngine
+from deltacat.benchmarking.benchmark_report import BenchmarkRun, BenchmarkReport
+from deltacat.benchmarking.benchmark_suite import BenchmarkSuite
+from deltacat.benchmarking.data.random_row_generator import RandomRowGenerator
+from deltacat.benchmarking.data.row_generator import RowGenerator
 
 
 @pytest.fixture
