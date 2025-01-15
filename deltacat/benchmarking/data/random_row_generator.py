@@ -9,7 +9,7 @@ from faker_file.providers.png_file import GraphicPngFileProvider
 from faker_file.storages.filesystem import FileSystemStorage
 from PIL import Image
 
-from .row_generator import RowGenerator
+from deltacat.benchmarking.data.row_generator import RowGenerator
 
 
 class ImageStyle(Enum):

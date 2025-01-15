@@ -6,7 +6,7 @@ import pyarrow.parquet as papq
 import pytest
 from _pytest.terminal import TerminalReporter
 
-from .benchmark_report import BenchmarkReport
+from deltacat.benchmarking.benchmark_report import BenchmarkReport
 from deltacat.utils.pyarrow import s3_file_to_table
 from deltacat.types.media import (
     ContentEncoding,
