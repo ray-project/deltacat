@@ -3,9 +3,10 @@ import time
 from contextlib import contextmanager
 from typing import Generator, Tuple, Iterator
 
+from deltacat.benchmarking.benchmark_report import BenchmarkMetric, BenchmarkStep
 from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
-from .benchmark_report import BenchmarkStep, BenchmarkMetric
+
 
 
 @contextmanager

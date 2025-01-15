@@ -1,7 +1,7 @@
-At the moment, the dependencies for the benchmark tests are not included in the default dev environment.
+All the dependences needed to test are in dev-requirements.txt
 
 You can run these tests via:
 
 ```shell
-hatch run benchmark:run
+pytest -m benchmark deltacat/benchmarking
 ```
