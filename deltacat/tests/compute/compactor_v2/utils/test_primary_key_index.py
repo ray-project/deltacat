@@ -28,7 +28,9 @@ class TestGroupByPkHashBucket:
         grouped_array = group_by_pk_hash_bucket(table, 3, ["pk"])
 
         assert len(grouped_array) == 3
-        assert len(grouped_array[2].to_batches()) == 2  # two record batches preserved
+        # two record batches are preserved as combining them
+        # would exceed 2GB.
+        assert len(grouped_array[2].to_batches()) == 2
 
     def test_when_record_batches_less_than_int_max_size(self):
         record = pa.array(["12bytestring" * 90_000])
@@ -38,4 +40,6 @@ class TestGroupByPkHashBucket:
         grouped_array = group_by_pk_hash_bucket(table, 3, ["pk"])
 
         assert len(grouped_array) == 3
-        assert len(grouped_array[1].to_batches()) == 1  # truncated to one record batch
+        # Combined the arrays into one record batch as the size
+        # would not exceed 2GB.
+        assert len(grouped_array[1].to_batches()) == 1
