@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from .benchmark_report import BenchmarkRun
+from deltacat.benchmarking.benchmark_report import BenchmarkRun
 
 
 class BenchmarkSuite(Protocol):
