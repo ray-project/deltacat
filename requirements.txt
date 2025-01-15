@@ -7,8 +7,10 @@ intervaltree == 3.1.0
 msgpack ~= 1.0.7
 numpy == 1.22.4
 pandas == 1.3.5
-pyarrow == 12.0.1
-
+# upgrade to pyarrow 18.0.0 causes test
+# TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
+# due to input_inflation exceeding 1e-5
+pyarrow == 17.0.0
 
 # setup.py extras_require
 # any changes here should also be reflected in setup.py "extras_require"

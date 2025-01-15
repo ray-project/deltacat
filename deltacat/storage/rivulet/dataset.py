@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import os
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
@@ -7,6 +8,7 @@ from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 from deltacat.storage.rivulet import Schema, Field
+from deltacat.utils.export import export_dataset
 from .schema.schema import Datatype
 
 from deltacat.storage.rivulet.reader.data_scan import DataScan
@@ -19,6 +21,10 @@ from deltacat.storage.rivulet.writer.memtable_dataset_writer import (
 )
 
 import pyarrow as pa
+import pyarrow.dataset
+import pyarrow.json
+import pyarrow.csv
+import pyarrow.parquet
 
 # These are the hardcoded default schema names
 ALL = "all"
@@ -191,6 +197,8 @@ class Dataset:
         """
         Create a Dataset from parquet files.
 
+        TODO: Make pluggable(from_x) with other file formats.
+
         Args:
             name: Unique identifier for the dataset.
             metadata_uri: Base URI for the dataset, where dataset metadata is stored. If not specified, will be placed in ${file_uri}/riv-meta
@@ -204,10 +212,10 @@ class Dataset:
             Dataset: New dataset instance with the schema automatically inferred from the source parquet files
         """
         metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
-        dataset = pa.dataset.dataset(file_uri)
+        dataset = pyarrow.dataset.dataset(file_uri)
 
         if schema_mode == "intersect":
-            schemas = [pa.parquet.read_schema(f) for f in dataset.files]
+            schemas = [pyarrow.parquet.read_schema(f) for f in dataset.files]
             # Find common columns across all schemas
             common_columns = set(schemas[0].names)
             for schema in schemas[1:]:
@@ -219,12 +227,113 @@ class Dataset:
             )
             pyarrow_schema = intersect_schema
         else:
-            schemas = [pa.parquet.read_schema(f) for f in dataset.files]
+            schemas = [pyarrow.parquet.read_schema(f) for f in dataset.files]
             pyarrow_schema = pa.unify_schemas(schemas)
 
         dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
         # TODO the file URI never gets stored/saved, do we need to do so?
         return cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+
+    @classmethod
+    def from_json(
+            cls,
+            name: str,
+            file_uri: str,
+            merge_keys: str | Iterable[str],
+            metadata_uri: Optional[str] = None,
+            schema_mode: str = "union",
+    ) -> "Dataset":
+        """
+        Create a Dataset from a single JSON file.
+
+        TODO: Add support for reading directories with multiple JSON files.
+
+        Args:
+            name: Unique identifier for the dataset.
+            metadata_uri: Base URI for the dataset, where dataset metadata is stored. If not specified, will be placed in ${file_uri}/riv-meta
+            file_uri: Path to a single JSON file.
+            merge_keys: Fields to specify as merge keys for future 'zipper merge' operations on the dataset.
+            schema_mode: Currently ignored as this is for a single file.
+
+        Returns:
+            Dataset: New dataset instance with the schema automatically inferred
+                     from the JSON file.
+        """
+        metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
+
+        # Read the JSON file into a PyArrow Table
+        pyarrow_table = pyarrow.json.read_json(file_uri)
+        pyarrow_schema = pyarrow_table.schema
+
+        # Create the dataset schema
+        dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
+
+        # Create the Dataset instance
+        dataset = cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+
+        writer = dataset.writer()
+        writer.write(pyarrow_table.to_batches())
+        writer.flush()
+
+        return dataset
+
+    @classmethod
+    def from_csv(
+            cls,
+            name: str,
+            file_uri: str,
+            merge_keys: str | Iterable[str],
+            metadata_uri: Optional[str] = None,
+            schema_mode: str = "union",
+    ) -> "Dataset":
+        """
+        Create a Dataset from a single JSON file.
+
+        TODO: Add support for reading directories with multiple CSV files.
+
+        Args:
+            name: Unique identifier for the dataset.
+            metadata_uri: Base URI for the dataset, where dataset metadata is stored. If not specified, will be placed in ${file_uri}/riv-meta
+            file_uri: Path to a single CSV file.
+            merge_keys: Fields to specify as merge keys for future 'zipper merge' operations on the dataset.
+            schema_mode: Currently ignored as this is for a single file.
+
+        Returns:
+            Dataset: New dataset instance with the schema automatically inferred
+                     from the CSV file.
+        """
+        metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
+
+        # Read the CSV file into a PyArrow Table
+        table = pyarrow.csv.read_csv(file_uri)
+        pyarrow_schema = table.schema
+
+        # Create the dataset schema
+        dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
+
+        # Create the Dataset instance
+        dataset = cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+
+        writer = dataset.writer()
+        writer.write(table.to_batches())
+        writer.flush()
+
+        return dataset
+
+    def print(self, num_records: int = 10) -> None:
+        """Prints the first `num_records` records in the dataset."""
+        records = self.scan().to_pydict()
+        for record in itertools.islice(records, num_records):
+                print(record)
+
+    def export(self, file_uri: str, format: str = "parquet", query: QueryExpression=QueryExpression()) -> None:
+        """Export the dataset to a file.
+
+        Args:
+            file_uri: The URI to write the dataset to.
+            format: The format to write the dataset in. Options are [parquet, feather].
+        """
+        export_dataset(self, file_uri, format, query)
 
     def _add_fields_to_schema(
         self,
