@@ -58,6 +58,7 @@ RAISE_ON_DECIMAL_OVERFLOW = "raise_on_decimal_overflow"
 # Note the maximum from https://arrow.apache.org/docs/python/generated/pyarrow.Decimal256Type.html#pyarrow.Decimal256Type
 DECIMAL256_DEFAULT_SCALE = 38
 DECIMAL256_MAX_PRECISION = 76
+MAX_INT_BYTES = 2147483646
 
 
 def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Schema:
@@ -129,9 +130,11 @@ def _read_csv_rounding_decimal_columns_to_fit_scale(
     # conversion to decimal256 isn't implemented as of pyarrow==12.0.1
     new_schema = _new_schema_with_replaced_fields(
         schema,
-        lambda fld: pa.field(fld.name, pa.string(), metadata=fld.metadata)
-        if pa.types.is_decimal128(fld.type) or pa.types.is_decimal256(fld.type)
-        else None,
+        lambda fld: (
+            pa.field(fld.name, pa.string(), metadata=fld.metadata)
+            if pa.types.is_decimal128(fld.type) or pa.types.is_decimal256(fld.type)
+            else None
+        ),
     )
     new_kwargs = sanitize_kwargs_by_supported_kwargs(
         ["read_options", "parse_options", "convert_options", "memory_pool"],
@@ -912,7 +915,6 @@ def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
     TODO: deprecate this function when pyarrow performs proper ChunkedArray -> ChunkedArray casting
     """
     dtype = array.type
-    MAX_BYTES = 2147483646
     max_str_len = None
     if pa.types.is_integer(dtype):
         max_str_len = _int_max_string_len()
@@ -924,7 +926,7 @@ def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
         max_str_len = _max_decimal256_string_len()
 
     if max_str_len is not None:
-        max_elems_per_chunk = MAX_BYTES // (2 * max_str_len)  # safety factor of 2
+        max_elems_per_chunk = MAX_INT_BYTES // (2 * max_str_len)  # safety factor of 2
         all_chunks = []
         for chunk in array.chunks:
             if len(chunk) < max_elems_per_chunk:
