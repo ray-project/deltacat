@@ -601,6 +601,38 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
         assert_compaction_audit=None,
     ),
+    "15-incremental-empty-input-with-single-hash-bucket": IncrementalCompactionTestCaseParams(
+        primary_keys={"pk_col_1"},
+        sort_keys=[SortKey.of(key_name="sk_col_1")],
+        partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
+        partition_values=ZERO_VALUED_PARTITION_VALUES_PARAM,
+        input_deltas=pa.Table.from_arrays(
+            [
+                pa.array([]),
+                pa.array([]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        input_deltas_delta_type=DeltaType.UPSERT,
+        expected_terminal_compact_partition_result=pa.Table.from_arrays(
+            [
+                pa.array([]),
+                pa.array([]),
+            ],
+            names=["pk_col_1", "sk_col_1"],
+        ),
+        expected_terminal_exception=None,
+        expected_terminal_exception_message=None,
+        do_create_placement_group=False,
+        records_per_compacted_file=DEFAULT_MAX_RECORDS_PER_FILE,
+        hash_bucket_count=1,
+        read_kwargs_provider=None,
+        drop_duplicates=True,
+        is_inplace=False,
+        add_late_deltas=None,
+        skip_enabled_compact_partition_drivers=[CompactorVersion.V1],
+        assert_compaction_audit=assert_compaction_audit_no_hash_bucket,
+    ),
 }
 
 INCREMENTAL_TEST_CASES = with_compactor_version_func_test_param(INCREMENTAL_TEST_CASES)

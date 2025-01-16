@@ -25,7 +25,7 @@ def _create_chunked_index_array(array: pa.Array) -> pa.Array:
         result[index] = np.arange(cl, dtype="int32")
 
     chunk_lengths = ([0] + chunk_lengths)[:-1]
-    result = pa.chunked_array(result + np.cumsum(chunk_lengths))
+    result = pa.chunked_array(result + np.cumsum(chunk_lengths), type=pa.int32())
     return result
 
 
