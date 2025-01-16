@@ -7,6 +7,7 @@ import ray
 import itertools
 import time
 import pyarrow.compute as pc
+from deltacat.utils.pyarrow import MAX_INT_BYTES
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
@@ -147,10 +148,24 @@ def _merge_tables(
     if compacted_table:
         compacted_table = all_tables[0]
 
+        compacted_pk_hash_str = compacted_table[sc._PK_HASH_STRING_COLUMN_NAME]
+        incremental_pk_hash_str = incremental_table[sc._PK_HASH_STRING_COLUMN_NAME]
+
+        if (
+            compacted_table[sc._PK_HASH_STRING_COLUMN_NAME].nbytes >= MAX_INT_BYTES
+            or incremental_table[sc._PK_HASH_STRING_COLUMN_NAME].nbytes >= MAX_INT_BYTES
+        ):
+            # is_in required the first arg to not exceed 2GB in size
+            # The cast must here be zero-copy in most cases
+            compacted_pk_hash_str = pc.cast(compacted_pk_hash_str, pa.large_string())
+            incremental_pk_hash_str = pc.cast(
+                incremental_pk_hash_str, pa.large_string()
+            )
+
         records_to_keep = pc.invert(
             pc.is_in(
-                compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
-                incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
+                compacted_pk_hash_str,
+                incremental_pk_hash_str,
             )
         )
 
@@ -492,9 +507,11 @@ def _copy_manifests_from_hash_bucketing(
 def _timed_merge(input: MergeInput) -> MergeResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
-    with memray.Tracker(
-        f"merge_{worker_id}_{task_id}.bin"
-    ) if input.enable_profiler else nullcontext():
+    with (
+        memray.Tracker(f"merge_{worker_id}_{task_id}.bin")
+        if input.enable_profiler
+        else nullcontext()
+    ):
         total_input_records, total_deduped_records = 0, 0
         total_dropped_records = 0
         materialized_results: List[MaterializeResult] = []
