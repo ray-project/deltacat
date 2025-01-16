@@ -44,15 +44,23 @@ class TransactionOperation(dict):
         transaction_operation.type = operation_type
         transaction_operation.dest_metafile = dest_metafile
         transaction_operation.src_metafile = src_metafile
+        if not dest_metafile:
+            raise ValueError("Transaction operations must have a destination metafile.")
         if operation_type == TransactionOperationType.UPDATE:
             if not src_metafile:
                 raise ValueError(
                     "UPDATE transaction operations must have a source metafile."
                 )
+            elif type(dest_metafile) is not type(src_metafile):
+                raise ValueError(
+                    f"Source metafile type `{type(src_metafile)}` is not "
+                    f"equal to dest metafile type `{type(dest_metafile)}`."
+                )
         elif src_metafile:
             raise ValueError(
                 "Only UPDATE transaction operations may have a source metafile."
             )
+
         return transaction_operation
 
     @property

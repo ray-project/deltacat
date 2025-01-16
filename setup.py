@@ -45,7 +45,10 @@ setuptools.setup(
         "intervaltree == 3.1.0",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
-        "pyarrow == 12.0.1",
+        # upgrade to pyarrow 18.0.0 causes test
+        # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
+        # due to input_inflation exceeding 1e-5
+        "pyarrow == 17.0.0",
         "pydantic == 1.10.4",
         "pymemcache == 4.0.0",
         "ray >= 2.20.0",

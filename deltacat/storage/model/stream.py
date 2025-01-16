@@ -1,7 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import copy
 import posixpath
 
 import pyarrow
@@ -181,7 +180,7 @@ class Stream(Metafile):
     def to_serializable(self) -> Stream:
         serializable = self
         if serializable.table_locator:
-            serializable = Stream(copy.deepcopy(self))
+            serializable: Stream = Stream.update_for(self)
             # remove the mutable table locator
             serializable.table_version_locator.table_locator = TableLocator.at(
                 namespace=self.id,

@@ -1,7 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import copy
 import posixpath
 
 import pyarrow
@@ -235,7 +234,7 @@ class Partition(Metafile):
         )
 
     def to_serializable(self) -> Partition:
-        serializable = Partition(copy.deepcopy(self))
+        serializable: Partition = Partition.update_for(self)
         serializable.schema = (
             serializable.schema.serialize().to_pybytes()
             if serializable.schema

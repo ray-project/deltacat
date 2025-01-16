@@ -1,0 +1,15 @@
+"group_id","group_name","msg_id","sender_ph","sender_name","message","reply_to","delay_ss"
+"xxx","xxx",100,904,"Alice","Hey Bob, did you reach out to ABC Consulting?"," ",1
+"xxx","xxx",101,903,"Bob","Not yet, I'll do that right away."," ",1
+"xxx","xxx",102,905,"Charlie","Bob, can you also send the proposal to XYZ Corp?"," ",1
+"xxx","xxx",103,903,"Bob","Sure thing, I'll have it ready by EOD."," ",1
+"xxx","xxx",104,906,"Olivia","whats happening with pepsico"," ",1
+"xxx","xxx",105,903,"Bob","I’m still waiting on their feedback. I’ll follow up with them today."," ",1
+"xxx","xxx",106,906,"Olivia","ok, lets create some marketing collateral and start reach outs @Charlie"," ",1
+"xxx","xxx",107,905,"Charlie","Sounds good, Olivia. What specific materials do you have in mind?"," ",1
+"xxx","xxx",108,906,"Olivia","a deck and some social media posts to start with"," ",1
+"xxx","xxx",109,905,"Charlie","Great! I can draft the deck. How many slides are you thinking?"," ",1
+"xxx","xxx",110,906,"Olivia","you decide"," ",1
+"xxx","xxx",111,905,"Charlie","How about a 10-slide deck? That should cover the key points without overwhelming them."," ",1
+"xxx","xxx",112,906,"Olivia","ok"," ",1
+"xxx","xxx",113,903,"Bob","Once the deck is ready, I can help with the social media posts. Do you have any specific platforms in mind?"," ",1
