@@ -161,7 +161,7 @@ def _merge_tables(
             or incremental_table[sc._PK_HASH_STRING_COLUMN_NAME].nbytes >= MAX_INT_BYTES
         ):
             logger.info("Casting compacted and incremental pk hash to large_string...")
-            # is_in required the first arg to not exceed 2GB in size
+            # is_in requires the first arg to not exceed 2GB in size
             # The cast must here be zero-copy in most cases
             compacted_pk_hash_str = pc.cast(compacted_pk_hash_str, pa.large_string())
             incremental_pk_hash_str = pc.cast(
