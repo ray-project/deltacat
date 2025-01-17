@@ -65,8 +65,9 @@ a **Name Resolution Directory** to map the object's mutable name or alias back t
 
 - The name of the directory is a **SHA-1 Digest** of the **Canonical String** of the associated object `Locator`.
   (e.g., `sha1_hexdigest("MyNamespace")` or `sha1_hexdigest("MyNamespace|MyTable")`).
-- Inside this **Name Resolution Directory**, there is a single **Name Mapping File**
-  (zero bytes) that references the **Immutable ID Directory**.
+- Inside this **Name Resolution Directory**, there are **Name Mapping File**
+  revisions (zero bytes) used to resolve the current **Immutable ID Directory**
+  (if any) mapped to that name.
 
 **Name Mapping File**
 
