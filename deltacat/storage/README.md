@@ -1,5 +1,5 @@
 # DeltaCAT Storage Model Specification (WORK IN PROGRESS)
-This document describes the **Deltacat Metastore Model**, which manages a
+This document describes the **DeltaCAT Metastore Model**, which manages a
 hierarchical set of objects:
 
 - **Namespace**
