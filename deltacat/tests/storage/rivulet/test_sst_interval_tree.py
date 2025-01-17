@@ -169,6 +169,27 @@ def test_build_sst_with_bounds(
     expected = _build_ordered_block_groups(expected_block_groups[0:3])
     assert expected == block_groups_filtered
 
+    block_groups_filtered = t.get_sorted_block_groups(0, 0)
+    expected = _build_ordered_block_groups(expected_block_groups[0:1])
+    assert expected == block_groups_filtered
+
+def test_build_sst_with_non_zero_min_key_matching_global_min_key(
+        manifest_context1
+):
+    # Using a non-0 value since 0 evaluates to False
+    min_key = 1
+    max_key = 95
+
+    sst_row = SSTableRow(min_key, max_key, "row-with-non-zero-min-key", 0, 1)
+    t = BlockIntervalTree()
+    t.add_sst_table(SSTable([sst_row], min_key, max_key), manifest_context1)
+
+    block_groups_filtered = t.get_sorted_block_groups(min_key, min_key + 1)
+    expected = _build_ordered_block_groups([
+        BlockGroup(min_key, max_key, {manifest_context1.schema: frozenset([Block(sst_row, manifest_context1)])})
+    ])
+    assert expected == block_groups_filtered
+
 
 def test_build_sst_invalid_bounds(
     sst1, sst2, schema1, schema2, sst_row_list, expected_block_groups
