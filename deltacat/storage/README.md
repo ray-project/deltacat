@@ -96,4 +96,4 @@ ${CATALOG_ROOT}/<namespace_id>/             # Namespace id is a GUID
            └── <revision files>
     └── <table_digest>/
         └──<Name mapping file>
-```     
+```
