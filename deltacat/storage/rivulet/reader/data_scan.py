@@ -1,7 +1,9 @@
-from typing import Generator, Dict
+from typing import Generator, Dict, Optional, List
 
 import pyarrow as pa
+import torch
 
+from deltacat.storage.model.shard import Shard
 from deltacat.storage.rivulet.reader.dataset_reader import DatasetReader
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet import Schema
@@ -36,10 +38,16 @@ class DataScan:
         dataset_schema: Schema,
         query: QueryExpression,
         dataset_reader: DatasetReader,
+        shard: Optional[Shard] = None,
+        fields: Optional[List[str]] = None,
     ):
         self.dataset_schema = dataset_schema
         self.query = query
         self.dataset_reader = dataset_reader
+        self.shard = shard
+
+        # Only used by to_tensor. Can update other plugins to use it as well.
+        self.fields = fields
 
     def to_arrow(self) -> Generator[pa.RecordBatch, None, None]:
         """
@@ -47,10 +55,17 @@ class DataScan:
 
         TODO how to make the .to_x methods pluggable?
         """
-        return self.dataset_reader.scan(self.dataset_schema, pa.RecordBatch, self.query)
+        return self.dataset_reader.scan(self.dataset_schema, pa.RecordBatch, self.query, self.shard, self.fields)
 
     def to_pydict(self) -> Generator[Dict, None, None]:
         """
         Generates scan results as a Dict for each row
         """
-        return self.dataset_reader.scan(self.dataset_schema, Dict, self.query)
+        return self.dataset_reader.scan(self.dataset_schema, Dict, self.query, self.shard, self.fields)
+
+    def to_tensor(self) -> Generator[
+        torch.Tensor, None, None]:
+        """
+        Generates scan results as a Numerical Scalar Pytorch tensor.
+        """
+        return self.dataset_reader.scan(self.dataset_schema, torch.Tensor, self.query, self.shard, self.fields)

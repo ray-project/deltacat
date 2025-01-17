@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Generator, Dict, Type, NamedTuple, List
+from typing import Generator, Dict, Type, NamedTuple, List, Optional
 
 from pyarrow import RecordBatch
+from torch import Tensor, tensor, stack
 
 from deltacat.storage.rivulet.reader.data_reader import DataReader, MEMORY_FORMAT
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
@@ -30,7 +31,10 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
         self.file_store = metastore.file_store
 
     def deserialize_records(
-        self, record: RecordBatchRowIndex, output_type: Type[MEMORY_FORMAT]
+        self,
+        record: RecordBatchRowIndex,
+        output_type: Type[MEMORY_FORMAT],
+        fields: Optional[List[str]] = None
     ) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Deserialize records into the specified format.
@@ -56,11 +60,21 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
             if row_idx == 0:
                 yield batch
 
+        elif output_type == Tensor:
+            selected_fields = fields if fields is not None else batch.column_names
+            row_values = [
+                tensor(batch.column(column_idx)[row_idx].as_py())
+                for column_idx, column in enumerate(batch.column_names)
+                if column in selected_fields
+            ]
+            yield stack(row_values)
+
     def join_deserialize_records(
         self,
         records: List[RecordBatchRowIndex],
         output_type: Type[MEMORY_FORMAT],
         join_key: str,
+        fields: Optional[List[str]] = None
     ) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Deserialize records into the specified format.
@@ -72,11 +86,12 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
         :param output_type: Type to deserialize into
         :returns: A generator yielding records of the specified type.
         """
-
         if output_type == Dict:
             yield self.__join_records_as_dict(records)
         elif output_type == RecordBatch:
             yield self.__join_records_as_record_batch(records, join_key)
+        elif output_type == Tensor:
+            yield self.__join_records_as_tensor(records, fields)
 
     @staticmethod
     def __join_records_as_dict(records: List[RecordBatchRowIndex]) -> Dict[str, any]:
@@ -101,6 +116,26 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
 
                 out.update({column: col[row_idx].as_py()})
         return out
+
+    @staticmethod
+    def __join_records_as_tensor(records: List[RecordBatchRowIndex], fields: Optional[List[str]]) -> Tensor:
+        """
+        Deserialize records into a PyTorch Tensor.
+
+        :param records: input record data
+        :returns: A PyTorch Tensor representing the joined records.
+        """
+        tensors = []
+        for record in records:
+            batch, row_idx = record
+            selected_fields = fields if fields is not None else batch.column_names
+            row_values = [
+                tensor(batch.column(column_idx)[row_idx].as_py())
+                for column_idx, column in enumerate(batch.column_names)
+                if column in selected_fields
+            ]
+            tensors.append(stack(row_values))
+        return stack(tensors)
 
     @staticmethod
     def __join_records_as_record_batch(

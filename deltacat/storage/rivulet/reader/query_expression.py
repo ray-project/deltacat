@@ -72,3 +72,25 @@ class QueryExpression(typing.Generic[T]):
         if not self.key_range:
             return False
         return self.min_key > key
+
+    def intersect_with(self, query: QueryExpression):
+        """
+        Calculates the intersection between this shard (self) and a query.
+        (self) will be treated as the outer bounds of the resulting range.
+
+        param: query (QueryExpression[T]): The query expression to calculate intersect with.
+        returns: QueryExpression[T]: Another QueryExpression representing the overlapping range.
+                 Returns an empty QueryExpression if there is no overlap.
+        """
+        if not self.key_range:
+            return query
+
+            # Calculate overlapping range, ensuring self bounds are the outer limits
+        overlap_min = max(self.key_range.min_key,
+                          query.min_key) if query.min_key is not None else self.key_range.min_key
+        overlap_max = min(self.key_range.max_key,
+                          query.max_key) if query.max_key is not None else self.key_range.max_key
+
+        # Return overlap or empty query
+        return QueryExpression().with_range(overlap_min,
+                                            overlap_max) if overlap_min <= overlap_max else QueryExpression()

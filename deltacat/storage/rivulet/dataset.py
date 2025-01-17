@@ -4,6 +4,7 @@ import itertools
 import os
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
+from deltacat.storage.model.shard import Shard, ShardingStrategyType
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
@@ -505,8 +506,18 @@ class Dataset:
             self._location_provider, self.schemas[schema_name], file_format
         )
 
+    def shards(self, num_shards: int, strategy: ShardingStrategyType=ShardingStrategyType.RANGE) -> Iterable[Shard]:
+        """Create a set of shards for this dataset.
+
+        :param num_shards: The number of shards to create.
+        :param strategy: Sharding strategy used to create shards..
+        :return Iterable[Shard]: A set of shards for this dataset.
+        """
+        return strategy.to_class(num_shards).shards(self._metastore)
+
     def scan(
-        self, query: QueryExpression = QueryExpression(), schema_name: str = ALL
+        self, query: QueryExpression = QueryExpression(), schema_name: str = ALL,
+        shard: Optional[Shard] = None, fields: Optional[List[str]] = None
     ) -> DataScan:
         dataset_reader = DatasetReader(self._metastore)
-        return DataScan(self.schemas[schema_name], query, dataset_reader)
+        return DataScan(self.schemas[schema_name], query, dataset_reader, shard=shard, fields=fields)

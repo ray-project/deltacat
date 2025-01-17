@@ -9,7 +9,7 @@ from typing import (
     Any,
     List,
     Generic,
-    AbstractSet,
+    AbstractSet, Optional,
 )
 
 from deltacat.storage.rivulet.metastore.manifest import ManifestContext
@@ -78,12 +78,14 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
         query: QueryExpression[Any],
         metastore: DatasetMetastore,
         file_readers: Dict[str, FileReader],
+        fields: Optional[List[str]] = None
     ):
 
         self.result_schema = result_schema
         self.deserialize_to = deserialize_to
         self.ordered_block_groups = ordered_block_groups
         self.query = query
+        self.fields = fields
         self.metastore = metastore
         self.file_readers = file_readers
         """
@@ -140,7 +142,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
                 # TODO (multi format support) we need to handle joining across data readers in the future
                 # For now, assume all data readers MUST read to Arrow intermediate format
                 for result in ArrowDataReader(self.metastore).join_deserialize_records(
-                    records, self.deserialize_to, self.result_schema.get_merge_key()
+                    records, self.deserialize_to, self.result_schema.get_merge_key(), self.fields
                 ):
                     yield result
 
@@ -325,6 +327,7 @@ class BlockScanner:
         deserialize_to: Type[MEMORY_FORMAT],
         blocks: Set[SSTableRow],
         query: QueryExpression[Any](),
+        fields: Optional[List[str]] = None,
     ) -> Generator[MEMORY_FORMAT, None, None]:
         """
         Scan records given query and deserialize to desired memory output format
@@ -350,7 +353,7 @@ class BlockScanner:
 
                     # Otherwise, key predicate matched and yield deserialized row
                     for deserialized_row in data_reader.deserialize_records(
-                        generated_records, deserialize_to
+                        generated_records, deserialize_to, fields
                     ):
                         yield deserialized_row
 
@@ -360,6 +363,7 @@ class BlockScanner:
         deserialize_to: Type[MEMORY_FORMAT],
         ordered_block_groups: OrderedBlockGroups,
         query: QueryExpression[Any](),
+        fields: Optional[List[str]] = None
     ) -> Generator[MEMORY_FORMAT, None, None]:
         zipper_scan_executor = ZipperBlockScanExecutor(
             schema,
@@ -368,5 +372,6 @@ class BlockScanner:
             query,
             self.metastore,
             self.file_readers,
+            fields
         )
         return zipper_scan_executor.scan()

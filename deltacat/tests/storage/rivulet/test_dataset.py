@@ -171,6 +171,11 @@ def test_scan_with_query(tmp_path, sample_schema):
     scan = dataset.scan(query)
     assert scan is not None
 
+def test_scan_with_fields(tmp_path, sample_schema):
+    dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
+    fields_to_scan = ["id", "name"]
+    scan = dataset.scan(fields=fields_to_scan)
+    assert scan is not None
 
 def test_add_schema_to_new_schemas(tmp_path):
     """Test adding a schema to a new field group."""

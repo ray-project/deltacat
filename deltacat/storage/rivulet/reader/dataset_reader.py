@@ -1,6 +1,8 @@
 import logging
-from typing import Generator, Set, Type, TypeVar, Any
+from typing import Generator, Optional, Set, Type, TypeVar, Any, List
 
+from deltacat.storage.model.shard import Shard
+from deltacat.storage.rivulet.shard.range_shard import RangeShard
 from deltacat.storage.rivulet.metastore.sst import SSTableRow, SSTable
 from deltacat.storage.rivulet.metastore.sst_interval_tree import (
     BlockIntervalTree,
@@ -36,7 +38,8 @@ class DatasetReader:
         self.block_scanner = BlockScanner(self.metastore)
 
     def scan(
-        self, schema: Schema, deserialize_to: Type[T], query: QueryExpression[Any]()
+        self, schema: Schema, deserialize_to: Type[T], query: QueryExpression[Any](),
+        shard: Optional[Shard] = None, fields: [List[str]] = None
     ) -> Generator[T, None, None]:
         """
         Scan records given query and deserialize to desired memory output format
@@ -57,16 +60,22 @@ class DatasetReader:
         # Must zipper if L0 is involved or if manifests span multiple levels
         cannot_avoid_zipper |= 0 in levels or len(levels) > 0
 
+        if shard is not None:
+            # TODO: is there a better way to filter the scan and apply different shards?
+            #       for now keeping it shard specific ideally will need to restructure/rewrite dataset_reader.
+            if isinstance(shard, RangeShard):
+                query = query.intersect_with(shard.query)
+
         if cannot_avoid_zipper:
             logging.info(f"Done scanning manifests. Can avoid zipper-merge")
             for scan_result in self.__scan_with_zipper(
-                schema, deserialize_to, manifests, query
+                schema, deserialize_to, manifests, query, fields
             ):
                 yield scan_result
         else:
             logging.info(f"Done scanning manifests. Must perform zipper-merge")
             for scan_result in self.__scan_no_zipper(
-                schema, deserialize_to, manifests, query
+                schema, deserialize_to, manifests, query, fields
             ):
                 yield scan_result
 
@@ -76,6 +85,7 @@ class DatasetReader:
         deserialize_to: Type[T],
         manifests: Set[ManifestAccessor],
         query: QueryExpression[Any](),
+        fields: Optional[List[str]] = None
     ) -> Generator[T, None, None]:
 
         # Map manifests to all SST rows which match query
@@ -87,7 +97,7 @@ class DatasetReader:
         }
 
         for result_row in self.block_scanner.scan(
-            schema, deserialize_to, matching_sst_rows, query
+            schema, deserialize_to, matching_sst_rows, query, fields
         ):
             yield result_row
 
@@ -97,6 +107,7 @@ class DatasetReader:
         deserialize_to: Type[T],
         manifests: Set[ManifestAccessor],
         query: QueryExpression[Any](),
+        fields: Optional[List[str]] = None
     ) -> Generator[T, None, None]:
 
         # Build interval tree from manifests and plan scan
@@ -110,7 +121,7 @@ class DatasetReader:
             sst_interval_tree.get_sorted_block_groups(query.min_key, query.max_key)
         )
         for result_row in self.block_scanner.scan_with_zipper(
-            schema, deserialize_to, scan_block_groups, query
+            schema, deserialize_to, scan_block_groups, query, fields
         ):
             yield result_row
 
