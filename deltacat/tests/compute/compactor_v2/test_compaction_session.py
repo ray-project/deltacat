@@ -569,7 +569,7 @@ class TestCompactionSession:
             )
         )
 
-    def test_compact_partition_when_incremental_and_compacted_pk_hash_is_over_2gb(
+    def test_compact_partition_when_incremental_pk_hash_is_over_2gb(
         self, s3_resource, local_deltacat_storage_kwargs, disable_sha1
     ):
         """
@@ -585,9 +585,7 @@ class TestCompactionSession:
             self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
         )
         # we create chunked array to avoid ArrowCapacityError
-        chunked_pk_array = pa.chunked_array(
-            [["13bytesstring" * 95_000_000], ["12bytestring" * 95_000_000]]
-        )  # 2.3GB
+        chunked_pk_array = pa.chunked_array([["13bytesstring"], ["12bytestring"]])
         table = pa.table([chunked_pk_array], names=["pk"])
         source_delta = commit_delta_to_staged_partition(
             staged_source, pa_table=table, **local_deltacat_storage_kwargs
@@ -631,14 +629,11 @@ class TestCompactionSession:
         rebased_rcf = get_rcf(s3_resource, rebase_url)
 
         assert rebased_rcf.compacted_pyarrow_write_result.files == 1
-        assert rebased_rcf.compacted_pyarrow_write_result.pyarrow_bytes >= 2300000000
         assert rebased_rcf.compacted_pyarrow_write_result.records == 2
 
         # Run incremental with a small delta on source
         chunked_pk_array = pa.chunked_array(
-            [
-                ["11bytstring", "small_string"],
-            ]
+            [["13bytesstring" * 95_000_000], ["12bytestring" * 95_000_000]]
         )  # 2.3GB
         table = pa.table([chunked_pk_array], names=["pk"])
 
