@@ -1,6 +1,7 @@
 from typing import Dict, Any
 import ray
 import os
+import pyarrow as pa
 import pytest
 import boto3
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
@@ -74,6 +75,17 @@ def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     yield kwargs_for_local_deltacat_storage
     if os.path.exists(DATABASE_FILE_PATH_VALUE):
         os.remove(DATABASE_FILE_PATH_VALUE)
+
+
+@pytest.fixture(scope="function")
+def disable_sha1(monkeypatch):
+    import deltacat.compute.compactor_v2.utils.primary_key_index
+
+    monkeypatch.setattr(
+        deltacat.compute.compactor_v2.utils.primary_key_index,
+        "SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED",
+        True,
+    )
 
 
 class TestCompactionSession:
@@ -556,3 +568,130 @@ class TestCompactionSession:
                 }
             )
         )
+
+    def test_compact_partition_when_incremental_and_compacted_pk_hash_is_over_2gb(
+        self, s3_resource, local_deltacat_storage_kwargs, disable_sha1
+    ):
+        """
+        A test case which ensures the compaction succeeds even if the previously
+        compacted arrow table size is over 2GB. It is added to prevent ArrowCapacityError
+        when running is_in operation during merge.
+
+        Note that we set SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED to bypass sha1 hashing
+        which truncates the lengths of pk strings when deduping.
+        """
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+        # we create chunked array to avoid ArrowCapacityError
+        chunked_pk_array = pa.chunked_array(
+            [["13bytesstring" * 95_000_000], ["12bytestring" * 95_000_000]]
+        )  # 2.3GB
+        table = pa.table([chunked_pk_array], names=["pk"])
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, pa_table=table, **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # rebase first
+        rebase_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 1,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                    "resource_estimation_method": ResourceEstimationMethod.PREVIOUS_INFLATION,
+                }
+            )
+        )
+
+        rebased_rcf = get_rcf(s3_resource, rebase_url)
+
+        assert rebased_rcf.compacted_pyarrow_write_result.files == 1
+        assert rebased_rcf.compacted_pyarrow_write_result.pyarrow_bytes >= 2300000000
+        assert rebased_rcf.compacted_pyarrow_write_result.records == 2
+
+        # Run incremental with a small delta on source
+        chunked_pk_array = pa.chunked_array(
+            [
+                ["13bytesstring" * 95_000_000],
+                ["11bytstring" * 95_000_000, "small_string"],
+            ]
+        )  # 2.3GB
+        table = pa.table([chunked_pk_array], names=["pk"])
+
+        incremental_source_delta = commit_delta_to_partition(
+            source_delta.partition_locator,
+            pa_table=table,
+            **local_deltacat_storage_kwargs,
+        )
+        assert (
+            incremental_source_delta.partition_locator == source_delta.partition_locator
+        ), "source partition locator should not change"
+        dest_partition = ds.get_partition(
+            dest_partition.stream_locator,
+            dest_partition.partition_values,
+            **local_deltacat_storage_kwargs,
+        )
+
+        assert (
+            dest_partition.locator
+            == rebased_rcf.compacted_delta_locator.partition_locator
+        ), "The new destination partition should be same as compacted partition"
+
+        # Run incremental
+        incremental_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 1,
+                    "last_stream_position_to_compact": incremental_source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": incremental_source_delta.partition_locator,
+                    "resource_estimation_method": ResourceEstimationMethod.PREVIOUS_INFLATION,
+                }
+            )
+        )
+
+        incremental_rcf = get_rcf(s3_resource, incremental_url)
+
+        assert incremental_rcf.compacted_pyarrow_write_result.files == 1
+        assert (
+            incremental_rcf.compacted_pyarrow_write_result.pyarrow_bytes >= 2300000000
+        )
+        assert incremental_rcf.compacted_pyarrow_write_result.records == 4

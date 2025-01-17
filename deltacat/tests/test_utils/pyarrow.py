@@ -47,7 +47,8 @@ def stage_partition_from_file_paths(
 
 def commit_delta_to_staged_partition(
     staged_partition,
-    file_paths: List[str],
+    file_paths: List[str] = None,
+    pa_table: pa.Table = None,
     content_type: ContentType = ContentType.PARQUET,
     *args,
     **kwargs,
@@ -57,6 +58,7 @@ def commit_delta_to_staged_partition(
         *args,
         file_paths=file_paths,
         content_type=content_type,
+        pa_table=pa_table,
         **kwargs,
     )
     ds.commit_partition(staged_partition, **kwargs)
@@ -76,23 +78,28 @@ def download_delta(delta_like: Union[Delta, DeltaLocator], *args, **kwargs) -> D
 
 def commit_delta_to_partition(
     partition: Union[Partition, PartitionLocator],
-    file_paths: List[str],
+    file_paths: List[str] = None,
+    pa_table: pa.Table = None,
     content_type: ContentType = ContentType.PARQUET,
     *args,
     **kwargs,
 ) -> Delta:
-    tables = []
 
     if isinstance(partition, PartitionLocator):
         partition = ds.get_partition(
             partition.stream_locator, partition.partition_values, *args, **kwargs
         )
+    if pa_table is None:
+        assert file_paths is not None, "One of pa_table or file_paths must be passed."
+        tables = []
+        for file_path in file_paths:
+            table = pa.csv.read_csv(file_path)
+            tables.append(table)
 
-    for file_path in file_paths:
-        table = pa.csv.read_csv(file_path)
-        tables.append(table)
+        pa_table = pa.concat_tables(tables)
 
-    table = pa.concat_tables(tables)
-    staged_delta = ds.stage_delta(table, partition, content_type=content_type, **kwargs)
+    staged_delta = ds.stage_delta(
+        pa_table, partition, content_type=content_type, **kwargs
+    )
 
     return ds.commit_delta(staged_delta, **kwargs)
