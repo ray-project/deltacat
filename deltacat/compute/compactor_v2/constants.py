@@ -88,7 +88,7 @@ DEFAULT_NUM_ROUNDS = 1
 # required for bucketing where it's not mandatory
 # when dropping duplicates. Setting this to True
 # will disable sha1 hashing in cases where it isn't
-# mandatory. This flag is enabled by default.
+# mandatory. This flag is False by default.
 SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED = env_bool(
     "SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED", False
 )
