@@ -573,8 +573,8 @@ class TestCompactionSession:
         self, s3_resource, local_deltacat_storage_kwargs, disable_sha1
     ):
         """
-        A test case which ensures the compaction succeeds even if the previously
-        compacted arrow table size is over 2GB. It is added to prevent ArrowCapacityError
+        A test case which ensures the compaction succeeds even if the incremental
+        arrow table size is over 2GB. It is added to prevent ArrowCapacityError
         when running is_in operation during merge.
 
         Note that we set SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED to bypass sha1 hashing
