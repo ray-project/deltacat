@@ -161,8 +161,10 @@ def _merge_tables(
             or incremental_table[sc._PK_HASH_STRING_COLUMN_NAME].nbytes >= MAX_INT_BYTES
         ):
             logger.info("Casting compacted and incremental pk hash to large_string...")
-            # is_in requires the first arg to not exceed 2GB in size
-            # The cast here should be zero-copy in most cases
+            # is_in combines the chunks of the chunked array passed which can cause
+            # ArrowCapacityError if the total size of string array is over 2GB.
+            # Using a large_string would resolve this issue.
+            # The cast here should be zero-copy in most cases.
             compacted_pk_hash_str = pc.cast(compacted_pk_hash_str, pa.large_string())
             incremental_pk_hash_str = pc.cast(
                 incremental_pk_hash_str, pa.large_string()
