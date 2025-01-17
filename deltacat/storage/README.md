@@ -51,7 +51,7 @@ The parent object has a single directory for each child object whose name is equ
 
 **Revision Directory**
 
-The **`rev/`** directory contains versioned metadata files named:
+The **`rev/`** directory contains **Metadata Revision Files** which contain MessagePack-serialized representations of each object revision. The format of each **Metadata Revision File** is:
 `<revision_number_padded_20_digits>_<txn_operation_type>_<txn_id>.mpk`
 
 - `revision_number_padded_20_digits` is zero-padded, e.g., `00000000000000000001`.
@@ -70,15 +70,16 @@ a **Name Resolution Directory** to map the object's mutable name or alias back t
 
 **Name Mapping File**
 
-The mutable name directory just contains a file which maps to its **Immutable ID Directory**. The format of this file is: `<revision_number_padded_20_digits>_<txn_operation_type>_<txn_id>.<object_id>`
-Here, `object_id` is the name of the associated object's **Immutable ID** directory. Note that (except **Immutable ID**) this is the same format used by metadata revision files, and the same process is employed to `create`, `update`, and `delete` name mappings.
+The mutable name directory just contains a file which maps to its **Immutable ID Directory**. The format of this file is: 
+`<revision_number_padded_20_digits>_<txn_operation_type>_<txn_id>.<object_id>`
+Here, `object_id` is the name of the associated object's **Immutable ID** directory. Note that (except **Immutable ID**) this is the same format used by **Metadata Revision Files**, and the same process is employed to `create`, `update`, and `delete` name mappings.
 
 ### Transaction Log Directory
 The **Transaction Log Directory** (`${CATALOG_ROOT}/txn`) is a special directory in the **Catalog Root Directory** which holds all successfully committed transactions. It contains one **Transaction Log File** per successful transaction recording transaction details.
 ```
 ${CATALOG_ROOT}/txn/
-  |-{tx-1-id}
-  |-{tx-2-id}
+  |-${txn-1-start-time}_${txn-1-uuid}
+  |-${txn-2-start-time}_${txn-2-uuid}
 ```
 
 ## Example
