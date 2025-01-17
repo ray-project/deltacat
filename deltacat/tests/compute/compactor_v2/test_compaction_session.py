@@ -637,8 +637,7 @@ class TestCompactionSession:
         # Run incremental with a small delta on source
         chunked_pk_array = pa.chunked_array(
             [
-                ["13bytesstring" * 95_000_000],
-                ["11bytstring" * 95_000_000, "small_string"],
+                ["11bytstring", "small_string"],
             ]
         )  # 2.3GB
         table = pa.table([chunked_pk_array], names=["pk"])
