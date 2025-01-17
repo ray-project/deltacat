@@ -162,7 +162,7 @@ def _merge_tables(
         ):
             logger.info("Casting compacted and incremental pk hash to large_string...")
             # is_in requires the first arg to not exceed 2GB in size
-            # The cast must here be zero-copy in most cases
+            # The cast here should be zero-copy in most cases
             compacted_pk_hash_str = pc.cast(compacted_pk_hash_str, pa.large_string())
             incremental_pk_hash_str = pc.cast(
                 incremental_pk_hash_str, pa.large_string()
