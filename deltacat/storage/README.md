@@ -1,4 +1,4 @@
-# Deltacat Storage Model Specification (WORK IN PROGRESS)
+# DeltaCAT Storage Model Specification (WORK IN PROGRESS)
 This document describes the **Deltacat Metastore Model**, which manages a 
 hierarchical set of objects:
 
@@ -10,13 +10,13 @@ hierarchical set of objects:
 - **Delta**
 
 ## Naming, Mutability, and Canonical Strings
-All objects have an "id" field. For Table Versions, Streams, Deltas, and Partitions with "named immutable ids", the user provided id sets the "id" field. 
+All objects have an "id" field. For Table Versions, Streams, Deltas, and Partitions with "named immutable ids", the 'id' field must be manually assigned prior to commit.
 
-Other objects types (Namespace, Table, Table Version) have mutable names. For these, "id" is set to a new uuid v4. 
+Other objects types (Namespace, Table) have mutable names. For these, "id" is automatically set to a new uuid v4. 
 
-Every object has a unique canonical string, which uniquely identifies the object given the mutable name(s) of the object. This canonical string is mappable to the object's (immutable) id, as we will see later. 
+Every object has a globally unique Locator. The key element of each Locator is a canonical string, which uniquely identifies the object within a catalog given its name. This canonical string also lets us map mutable object names and aliases back to the object's (immutable) id, as we will see later. 
 
-The canonical string is composed of its parent's canonical string, plus its own canonical string elements (found in the LocatorName `parts`).
+The canonical string is composed of its parent's canonical string, plus its own canonical string elements (found in the `parts` field of the object's `name`, which is a multi-part LocatorName).
 
 | **Object Type**    | **Primary Key**                          | **Mutability**  |
 |---------------------|------------------------------------------|-----------------|
@@ -27,13 +27,10 @@ The canonical string is composed of its parent's canonical string, plus its own 
 | **Partition**       | `partition_id` + `partition_values`     | Immutable       |
 | **Delta**           | `stream_position`                       | Immutable    
 
-# Directory/file structure
+# Directory/File Structure
 ## Object Directories (Immutable id)
 Every metastore object (Namespace, Table, TableVersion, etc.) has a root 
-directory. 
-
-named by its **immutable ID** (e.g., a UUID or a numeric ID). 
-Inside that directory:
+directory whose name is its **immutable ID** (i.e., a UUID or named immutable ID). 
 
 For instance, a namespace root looks like:
 ```
@@ -45,35 +42,35 @@ ${catalog_root}/${namespace_id}/
     └──${id-table-2}/
         ...
 ```
-**Child object directories**
+**Child Object Directories**
 
-The parent object has a single directory for each child object directory. Those directories in turn use the structure described above.
+The parent object has a single directory for each child object whose name is equal to the child object's immutable ID, and each child directory's contents have the same structure shown above.
 
 **Revision Directory**
 The **`rev/`** directory contains versioned metadata files named:
 `<revision_number_padded_20_digits>_<txn_operation_type>_<txn_id>.mpk`
 
 - `revision_number_padded_20_digits` is zero-padded, e.g., `00000000000000000001`.
-- `txn_operation_type` is typically `create`, `update`, or `delete`.
-- `txn_id` is a unique identifier for the transaction that performed this operation.
+- `txn_operation_type` is the type of operation a transaction applied to the object, which is either `create`, `update`, or `delete`.
+- `txn_id` is the unique id of the transaction that created this revision file.
 
 ### Mutable Name Directories
 Certain objects (like **Namespaces** and **Tables**) may have **mutable** names. 
-To support renames while keeping an **immutable** ID, the code can create
-a “digest-based” directory:
+To support object renames and alias name creation while keeping an **immutable** ID, we create
+a "Name Resolution Directory" to map the object's mutable name or alias back to its immutable ID, with the following properties:
 
-- The **digest** is a SHA-1 hash of the object’s **canonical locator** string 
-  (e.g., `"MyNamespace"` or `"MyNamespace|MyTable"`).
-- This directory name is simply that SHA-1 digest (hex-encoded).
-- Inside this **mutable name directory**, there is a single **Name Mapping File** 
-  (zero bytes) that references the **immutable ID** directory.
+- The name of the directory is a SHA-1 **digest** of the **canonical string** of the associated object Locator. 
+  (e.g., `sha1_hexdigest("MyNamespace")` or `sha1_hexdigest("MyNamespace|MyTable")`).
+- Inside this **Name Resolution Directory**, there is a single **Name Mapping File** 
+  (zero bytes) that references the **Immutable ID** directory.
 
 **Name Mapping File**
 
 The mutable name directory just contains a file which maps to its immutable directory. The format of this file is: <revision_number_padded_20_digits>_<txn_operation_type>_<txn_id>.<object_id>
+Here, `object_id` is the name of the associated object's **Immutable ID** directory. Note that (except immutable ID) this is the same format used by metadata revision files, and the same process is employed to `create`, `update`, and `delete` name mappings.
 
 ### Transaction Directory
-The transaction directory (/txn) is a special directory in the catalog root which holds all successfully committed transactions. It contains one empty file per successful transaction.
+The transaction directory (${catalog_root}/txn) is a special directory in the catalog root which holds all successfully committed transactions. It contains one **Transaction Log File** per successful transaction recording transaction details.
 ```
 ${CATALOG_ROOT}/txn/
   |-{tx-1-id}
@@ -86,8 +83,8 @@ TODO
 Putting all of the above together, here is an example catalog directory with one namespace and one table
 ```
 ${CATALOG_ROOT}/txn/                        # Global TXN logs
-   └──20444dca-7e3d-4dd2-af70-23b8bc890966  # Empty tx file (GUID) 
-${CATALOG_ROOT}/<namespace_digest>/         # Mutable name directory for namespace. SHA-1 of "MyNamespace"
+   └──1737070822189-20444dca-7e3d-4dd2-af70-23b8bc890966  # txn log file (<txn-start-time>-<txn-uuid>)
+${CATALOG_ROOT}/<namespace_digest>/         # Mutable Name Resolution Directory for Namespace (SHA-1 Hex Digest of "MyNamespace")
     └──<Name mapping file>
 ${CATALOG_ROOT}/<namespace_id>/             # Namespace id is a GUID 
    └── rev/
