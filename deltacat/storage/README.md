@@ -28,7 +28,7 @@ The canonical string is composed of its parent's canonical string, plus its own 
 | **Delta**           | `stream_position`                       | Immutable    
 
 # Directory/File Structure
-## Object Directories (Immutable id)
+### Object Directories (Immutable id)
 Every metastore object (Namespace, Table, TableVersion, etc.) has a root 
 directory whose name is its **immutable ID** (i.e., a UUID or named immutable ID). 
 
@@ -42,11 +42,15 @@ ${catalog_root}/${namespace_id}/
     └──${id-table-2}/
         ...
 ```
+
+Within this immutable Id directory, there is a child directory for each child object, and a revision directory which holds metadata describing the object across all historical revisions. 
+
 **Child Object Directories**
 
 The parent object has a single directory for each child object whose name is equal to the child object's immutable ID, and each child directory's contents have the same structure shown above.
 
 **Revision Directory**
+
 The **`rev/`** directory contains versioned metadata files named:
 `<revision_number_padded_20_digits>_<txn_operation_type>_<txn_id>.mpk`
 
@@ -54,10 +58,10 @@ The **`rev/`** directory contains versioned metadata files named:
 - `txn_operation_type` is the type of operation a transaction applied to the object, which is either `create`, `update`, or `delete`.
 - `txn_id` is the unique id of the transaction that created this revision file.
 
-### Mutable Name Directories
+### Name Resolution Directories
 Certain objects (like **Namespaces** and **Tables**) may have **mutable** names. 
-To support object renames and alias name creation while keeping an **immutable** ID, we create
-a "Name Resolution Directory" to map the object's mutable name or alias back to its immutable ID, with the following properties:
+To support object renames and alias name creation while keeping an Immutable Id, we create
+a **Name Resolution Directory** to map the object's mutable name or alias back to its immutable ID. It has the following properties:
 
 - The name of the directory is a SHA-1 **digest** of the **canonical string** of the associated object Locator. 
   (e.g., `sha1_hexdigest("MyNamespace")` or `sha1_hexdigest("MyNamespace|MyTable")`).
@@ -76,8 +80,6 @@ ${CATALOG_ROOT}/txn/
   |-{tx-1-id}
   |-{tx-2-id}
 ```
-## Aliases
-TODO
 
 ## Example 
 Putting all of the above together, here is an example catalog directory with one namespace and one table
