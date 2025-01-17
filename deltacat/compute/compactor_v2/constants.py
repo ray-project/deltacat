@@ -1,3 +1,5 @@
+from deltacat.utils.common import env_bool, env_integer
+
 TOTAL_BYTES_IN_SHA1_HASH = 20
 
 PK_DELIMITER = "L6kl7u5f"
@@ -31,7 +33,9 @@ TOTAL_MEMORY_BUFFER_PERCENTAGE = 30
 # The total size of records that will be hash bucketed at once
 # Since, sorting is nlogn, we ensure that is not performed
 # on a very large dataset for best performance.
-MAX_SIZE_OF_RECORD_BATCH_IN_GIB = 2 * 1024 * 1024 * 1024
+MAX_SIZE_OF_RECORD_BATCH_IN_GIB = env_integer(
+    "MAX_SIZE_OF_RECORD_BATCH_IN_GIB", 2 * 1024 * 1024 * 1024
+)
 
 # Whether to drop duplicates during merge.
 DROP_DUPLICATES = True
@@ -78,3 +82,13 @@ COMPACT_PARTITION_METRIC_PREFIX = "compact_partition"
 # Number of rounds to run hash/merge for a single
 # partition. (For large table support)
 DEFAULT_NUM_ROUNDS = 1
+
+# Whether to perform sha1 hashing when required to
+# optimize memory. For example, hashing is always
+# required for bucketing where it's not mandatory
+# when dropping duplicates. Setting this to True
+# will disable sha1 hashing in cases where it isn't
+# mandatory. This flag is False by default.
+SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED = env_bool(
+    "SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED", False
+)

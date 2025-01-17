@@ -10,6 +10,7 @@ from deltacat.compute.compactor_v2.constants import (
     TOTAL_BYTES_IN_SHA1_HASH,
     PK_DELIMITER,
     MAX_SIZE_OF_RECORD_BATCH_IN_GIB,
+    SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED,
 )
 import time
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelope
@@ -47,6 +48,13 @@ def _is_sha1_desired(hash_columns: List[pa.Array]) -> bool:
     logger.info(
         f"Found total length of hash column={total_len} and total_size={total_size}"
     )
+
+    if SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED:
+        logger.info(
+            f"SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED is True. "
+            f"Returning False for is_sha1_desired"
+        )
+        return False
 
     return total_size > TOTAL_BYTES_IN_SHA1_HASH * total_len
 
