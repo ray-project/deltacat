@@ -2,18 +2,23 @@
 from __future__ import annotations
 
 import copy
+import re
+import datetime
 import time
+
 from itertools import chain
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Union
 
 import msgpack
 import pyarrow.fs
 import posixpath
 import uuid
 
+from pyarrow.fs import FileInfo
+from pyarrow.fs import FileType
+
 # TODO(pdames): Create internal DeltaCAT ports of these Ray Data functions.
 from ray.data.datasource.path_util import _resolve_paths_and_filesystem
-from ray.data.datasource.file_meta_provider import _get_file_infos
 
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
@@ -22,11 +27,151 @@ from deltacat.storage.model.types import (
     TransactionOperationType,
 )
 
-TXN_TIME_SEPARATOR = "-"
-TXN_ID_SEPARATOR = "_"
+TXN_PART_SEPARATOR = "_"
 TXN_DIR_NAME: str = "txn"
 REVISION_DIR_NAME: str = "rev"
 METAFILE_EXT = ".mpk"
+
+
+def _filesystem(
+    path: str,
+    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+) -> Tuple[str, pyarrow.fs.FileSystem]:
+    """
+    Normalizes the input path and resolves a corresponding file system.
+    :param path: A file or directory path.
+    :param filesystem: File system to use for path IO.
+    :return: Normalized path and resolved file system for that path.
+    """
+    # TODO(pdames): resolve and cache filesystem at catalog root level
+    #   ensure returned paths are normalized as posix paths
+    paths, filesystem = _resolve_paths_and_filesystem(
+        paths=path,
+        filesystem=filesystem,
+    )
+    assert len(paths) == 1, len(paths)
+    return paths[0], filesystem
+
+
+def _handle_read_os_error(
+    error: OSError,
+    paths: Union[str, List[str]],
+) -> str:
+    # NOTE: this is not comprehensive yet, and should be extended as more errors arise.
+    # NOTE: The latter patterns are raised in Arrow 10+, while the former is raised in
+    # Arrow < 10.
+    aws_error_pattern = (
+        r"^(?:(.*)AWS Error \[code \d+\]: No response body\.(.*))|"
+        r"(?:(.*)AWS Error UNKNOWN \(HTTP status 400\) during HeadObject operation: "
+        r"No response body\.(.*))|"
+        r"(?:(.*)AWS Error ACCESS_DENIED during HeadObject operation: No response "
+        r"body\.(.*))$"
+    )
+    if re.match(aws_error_pattern, str(error)):
+        # Specially handle AWS error when reading files, to give a clearer error
+        # message to avoid confusing users. The real issue is most likely that the AWS
+        # S3 file credentials have not been properly configured yet.
+        if isinstance(paths, str):
+            # Quote to highlight single file path in error message for better
+            # readability. List of file paths will be shown up as ['foo', 'boo'],
+            # so only quote single file path here.
+            paths = f'"{paths}"'
+        raise OSError(
+            (
+                f"Failing to read AWS S3 file(s): {paths}. "
+                "Please check that file exists and has properly configured access. "
+                "You can also run AWS CLI command to get more detailed error message "
+                "(e.g., aws s3 ls <file-name>). "
+                "See https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3/index.html "  # noqa
+                "and https://docs.ray.io/en/latest/data/creating-datasets.html#reading-from-remote-storage "  # noqa
+                "for more information."
+            )
+        )
+    else:
+        raise error
+
+
+def _expand_directory(
+    path: str,
+    filesystem: pyarrow.fs.FileSystem,
+    exclude_prefixes: Optional[List[str]] = None,
+    ignore_missing_path: bool = False,
+) -> List[Tuple[str, int]]:
+    """
+    Expand the provided directory path to a list of file paths.
+
+    Args:
+        path: The directory path to expand.
+        filesystem: The filesystem implementation that should be used for
+            reading these files.
+        exclude_prefixes: The file relative path prefixes that should be
+            excluded from the returned file set. Default excluded prefixes are
+            "." and "_".
+
+    Returns:
+        An iterator of (file_path, file_size) tuples.
+    """
+    if exclude_prefixes is None:
+        exclude_prefixes = [".", "_"]
+
+    from pyarrow.fs import FileSelector
+
+    selector = FileSelector(path, recursive=True, allow_not_found=ignore_missing_path)
+    files = filesystem.get_file_info(selector)
+    base_path = selector.base_dir
+    out = []
+    for file_ in files:
+        if not file_.is_file:
+            continue
+        file_path = file_.path
+        if not file_path.startswith(base_path):
+            continue
+        relative = file_path[len(base_path) :]
+        if any(relative.startswith(prefix) for prefix in exclude_prefixes):
+            continue
+        out.append((file_path, file_.size))
+    # We sort the paths to guarantee a stable order.
+    return sorted(out)
+
+
+def _get_file_infos(
+    path: str,
+    filesystem: pyarrow.fs.FileSystem,
+    ignore_missing_path: bool = False,
+) -> List[Tuple[str, int]]:
+    """Get the file info for all files at or under the provided path."""
+    file_infos = []
+    try:
+        file_info = filesystem.get_file_info(path)
+    except OSError as e:
+        _handle_read_os_error(e, path)
+    if file_info.type == FileType.Directory:
+        for (file_path, file_size) in _expand_directory(path, filesystem):
+            file_infos.append((file_path, file_size))
+    elif file_info.type == FileType.File:
+        file_infos.append((path, file_info.size))
+    elif file_info.type == FileType.NotFound and ignore_missing_path:
+        pass
+    else:
+        raise FileNotFoundError(path)
+
+    return file_infos
+
+
+def _get_file_info(
+    path: str,
+    filesystem: pyarrow.fs.FileSystem,
+    ignore_missing_path: bool = False,
+) -> Union[FileInfo, List[FileInfo]]:
+    """Get the file info or list of file infos for the provided path."""
+    try:
+        file_info = filesystem.get_file_info(path)
+    except OSError as e:
+        _handle_read_os_error(e, path)
+    if file_info.type == FileType.NotFound and not ignore_missing_path:
+        raise FileNotFoundError(path)
+
+    return file_info
 
 
 class TransactionOperation(dict):
@@ -40,10 +185,10 @@ class TransactionOperation(dict):
         dest_metafile: Metafile,
         src_metafile: Optional[Metafile] = None,
     ) -> TransactionOperation:
-        transaction_operation = TransactionOperation()
-        transaction_operation.type = operation_type
-        transaction_operation.dest_metafile = dest_metafile
-        transaction_operation.src_metafile = src_metafile
+        txn_op = TransactionOperation()
+        txn_op.type = operation_type
+        txn_op.dest_metafile = dest_metafile
+        txn_op.src_metafile = src_metafile
         if not dest_metafile:
             raise ValueError("Transaction operations must have a destination metafile.")
         if operation_type == TransactionOperationType.UPDATE:
@@ -60,8 +205,7 @@ class TransactionOperation(dict):
             raise ValueError(
                 "Only UPDATE transaction operations may have a source metafile."
             )
-
-        return transaction_operation
+        return txn_op
 
     @property
     def type(self) -> TransactionOperationType:
@@ -136,7 +280,7 @@ class TransactionOperationList(List[TransactionOperation]):
 
 class Transaction(dict):
     """
-    Base class for DeltaCAT transactions against a list of metafiles.
+    Base class for DeltaCAT transactions.
     """
 
     @staticmethod
@@ -174,16 +318,67 @@ class Transaction(dict):
         transaction.operations = txn_operations
         return transaction
 
+    @staticmethod
+    def end_time(
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Optional[int]:
+        """
+        Returns the end time of the transaction in milliseconds since the
+        epoch based on the transaction log file's modified timestamp, or None
+        if the transaction log file does not exist.
+        :param path: Transaction log file path to read.
+        :param filesystem: File system to use for reading the Transaction file.
+        :return: Deserialized object from the Transaction file.
+        """
+        # TODO(pdames): Validate that input file path is a valid txn log.
+        if not filesystem:
+            path, fs = _filesystem(path, filesystem)
+        file_info = _get_file_info(
+            path=path,
+            filesystem=filesystem,
+            ignore_missing_path=True,
+        )
+        end_time_epoch_ms = None
+        if file_info.mtime_ns:
+            end_time_epoch_ms = file_info.mtime_ns // 1_000_000
+        elif file_info.mtime:
+            if isinstance(datetime.datetime, file_info.mtime):
+                end_time_epoch_ms = int(file_info.mtime.timestamp() * 1000)
+            else:
+                # file_info.mtime must be a second-precision float
+                end_time_epoch_ms = int(file_info.mtime * 1000)
+        return end_time_epoch_ms
+
+    @classmethod
+    def read(
+        cls,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Transaction:
+        """
+        Read a Transaction file and return the deserialized object.
+        :param path: Transaction file path to read.
+        :param filesystem: File system to use for reading the Transaction file.
+        :return: Deserialized object from the Transaction file.
+        """
+        if not filesystem:
+            path, fs = _filesystem(path, filesystem)
+        with fs.open_input_stream(path) as file:
+            binary = file.readall()
+        obj = cls(**msgpack.loads(binary))
+        return obj
+
     @property
-    def id(self) -> str:
+    def id(self) -> Optional[str]:
         """
-        Returns this transaction's unique ID.
+        Returns this transaction's unique ID assigned at commit start time, or
+        None if the unique ID has not yet been assigned.
         """
-        identifier = self.get("id")
-        if not identifier:
-            epoch_ms = time.time_ns() // 1_000_000
-            identifier = self["id"] = f"{epoch_ms}{TXN_TIME_SEPARATOR}{uuid.uuid4()}"
-        return identifier
+        _id = self.get("id")
+        if not _id and self.start_time:
+            _id = self["id"] = f"{self.start_time}{TXN_PART_SEPARATOR}{uuid.uuid4()}"
+        return _id
 
     @property
     def type(self) -> TransactionType:
@@ -207,83 +402,229 @@ class Transaction(dict):
     def operations(self, operations: TransactionOperationList):
         self["operations"] = operations
 
+    @property
+    def start_time(self) -> Optional[int]:
+        """
+        Returns the start time of the transaction in milliseconds since the
+        epoch.
+        """
+        return self.get("start_time")
+
+    def _mark_start_time(self) -> None:
+        """
+        Sets the start time of the transaction as current milliseconds since
+        the epoch. Raises a value error if the transaction start time has
+        already been set by a previous commit.
+        """
+        if self.get("start_time"):
+            raise RuntimeError("Cannot restart a previously committed transaction.")
+        # TODO(pdames): Fix this (hack to assign unique serial txn start times)
+        time.sleep(0.001)
+        self["start_time"] = time.time_ns() // 1_000_000
+
+    def to_serializable(self) -> Transaction:
+        """
+        Prepare the object for serialization by converting any non-serializable
+        types to serializable types. May also run any required pre-write
+        validations on the serialized or deserialized object.
+        :return: a serializable version of the object
+        """
+        serializable = copy.deepcopy(self)
+        # remove all src/dest metafile contents except IDs and locators to
+        # reduce file size (they can be reconstructed from their corresponding
+        # files as required).
+        for operation in serializable.operations:
+            operation.dest_metafile = {
+                "id": operation.dest_metafile.id,
+                "locator": operation.dest_metafile.locator,
+                "locator_alias": operation.dest_metafile.locator_alias,
+            }
+            if operation.src_metafile:
+                operation.src_metafile = {
+                    "id": operation.src_metafile.id,
+                    "locator": operation.src_metafile.locator,
+                    "locator_alias": operation.src_metafile.locator_alias,
+                }
+        # TODO(pdames): Ensure that all file paths recorded are relative to the
+        #  catalog root.
+        return serializable
+
+    @staticmethod
+    def _validate_txn_log_file(
+        txn_log_file_path: str,
+        filesystem: pyarrow.fs.FileSystem,
+    ) -> None:
+        # ensure that the transaction end time was recorded after the start time
+        txn_log_file_name = posixpath.basename(txn_log_file_path)
+        txn_log_file_parts = txn_log_file_name.split(TXN_PART_SEPARATOR)
+        try:
+            start_time = int(txn_log_file_parts[0])
+        except ValueError:
+            raise ValueError(
+                f"Transaction log file `{txn_log_file_path}` does not "
+                f"contain a valid start time."
+            )
+        if start_time < 0:
+            raise ValueError(
+                f"Transaction log file `{txn_log_file_path}` does not "
+                f"contain a valid start time ({start_time} is pre-epoch)."
+            )
+        if start_time > time.time_ns() // 1_000_000:
+            raise ValueError(
+                f"Transaction log file `{txn_log_file_path}` does not "
+                f"contain a valid start time ({start_time} is in the future)."
+            )
+        # ensure that the txn uuid is valid
+        txn_uuid_str = txn_log_file_parts[1]
+        try:
+            uuid.UUID(txn_uuid_str)
+        except ValueError:
+            raise OSError(
+                f"Transaction log file `{txn_log_file_path}` does not "
+                f"contain a valid UUID string."
+            )
+        end_time = Transaction.end_time(
+            path=txn_log_file_path,
+            filesystem=filesystem,
+        )
+        if end_time - start_time < 0:
+            try:
+                filesystem.delete_file(txn_log_file_path)
+            except Exception as e:
+                raise OSError(
+                    f"Failed to cleanup bad transaction log file at `{txn_log_file_path}`"
+                ) from e
+            finally:
+                raise OSError(
+                    f"Transaction end time {end_time} is earlier than start "
+                    f"time {start_time}! This may indicate a problem "
+                    f"with either the system clock on the host serving the "
+                    f"transaction, or a loss of precision in the filesystem "
+                    f"recording the completed transaction file timestamp (at "
+                    f"least millisecond precision is required). To preserve "
+                    f"catalog integrity, the corresponding completed "
+                    f"transaction log at `{txn_log_file_path}` has been removed."
+                )
+
     def commit(
         self,
-        root: str,
-        filesystem: pyarrow.fs.FileSystem = None,
-    ) -> List[str]:
-        # TODO(pdames): (1) enforce table-version-level transaction isolation
-        #  APPEND transactions run concurrently
-        #  DELETE/UPDATE/OVERWRITE transactions run serially
-        #  APPEND transactions may auto-resolve all conflicts via retry
-        #  DELETE/UPDATE/OVERWRITE txns fail all conflicts with each-other
-        #  (2) support catalog global and table-version-local transaction
-        #  pointer queries and rollback/rollforward
-        #  (3) allow transaction changes to be durably staged and resumed
+        catalog_root_dir: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Tuple[List[str], str]:
+        # TODO(pdames): allow transactions to be durably staged and resumed
         #  across multiple sessions prior to commit
-        #  (4) Add operation.locator_write_paths to returned results?
+
+        # create a new internal copy of this transaction to guard against
+        # external modification and dirty state across retries
+        txn = copy.deepcopy(self)
+
+        # record the transaction start time
+        txn._mark_start_time()
 
         # create the transaction directory first to telegraph that at least 1
         # transaction at this root has been attempted
-        path, fs = Metafile.filesystem(root, filesystem)
-        txn_dir_path = posixpath.join(path, TXN_DIR_NAME)
-        fs.create_dir(txn_dir_path, recursive=True)
+        catalog_root_normalized, fs = _filesystem(catalog_root_dir, filesystem)
+        txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+        fs.create_dir(txn_log_dir, recursive=True)
 
         # write each metafile associated with the transaction
         metafile_write_paths = []
+        locator_write_paths = []
         try:
-            for operation in self.operations:
+            for operation in txn.operations:
                 operation.dest_metafile.write(
-                    root=root,
-                    txn_operation=operation,
-                    txn_id=self.id,
+                    catalog_root_dir=catalog_root_normalized,
+                    txn_log_dir=txn_log_dir,
+                    current_txn_op=operation,
+                    current_txn_start_time=txn.start_time,
+                    current_txn_id=txn.id,
                     filesystem=filesystem,
                 )
                 metafile_write_paths.extend(operation.metafile_write_paths)
+                locator_write_paths.extend(operation.locator_write_paths)
+            # check for conflicts with concurrent transactions
+            for path in metafile_write_paths + locator_write_paths:
+                MetafileRevisionInfo.check_for_concurrent_txn_conflict(
+                    txn_log_dir=txn_log_dir,
+                    current_txn_revision_file_path=path,
+                    filesystem=fs,
+                )
         except Exception:
             # delete all files written during the failed transaction
-            all_write_paths = chain.from_iterable(
+            known_write_paths = chain.from_iterable(
                 [
                     operation.metafile_write_paths + operation.locator_write_paths
-                    for operation in self.operations
+                    for operation in txn.operations
                 ]
             )
-            for write_path in all_write_paths:
-                path, fs = Metafile.filesystem(write_path, filesystem)
-                fs.delete_file(path)
+            # TODO(pdames): Add separate janitor job to cleanup files that we
+            #  either failed to add to the known write paths, or fail to delete.
+            for write_path in known_write_paths:
+                fs.delete_file(write_path)
             raise
 
         # record the completed transaction
-        path, fs = Metafile.filesystem(root, filesystem)
-        id_file_path = posixpath.join(txn_dir_path, self.id)
-        with fs.open_output_stream(id_file_path):
-            pass  # Just create an empty transaction ID file for now
-        return metafile_write_paths
+        txn_log_file_path = posixpath.join(txn_log_dir, txn.id)
+        with fs.open_output_stream(txn_log_file_path) as file:
+            packed = msgpack.dumps(txn.to_serializable())
+            file.write(packed)
+        Transaction._validate_txn_log_file(
+            txn_log_file_path=txn_log_file_path,
+            filesystem=fs,
+        )
+        return metafile_write_paths, txn_log_file_path
 
 
-class MetafileCommitInfo(dict):
+class MetafileRevisionInfo(dict):
     """
-    Base class for DeltaCAT metafile commit info.
+    Base class for DeltaCAT metafile revision info.
     """
 
     @staticmethod
-    def current(
-        commit_dir_path: str,
+    def undefined() -> MetafileRevisionInfo:
+        mri = MetafileRevisionInfo()
+        mri.revision = 0
+        mri.txn_id = None
+        mri.txn_op_type = None
+        mri.dir_path = None
+        return mri
+
+    @staticmethod
+    def parse(revision_file_path: str) -> MetafileRevisionInfo:
+        dir_path = posixpath.dirname(revision_file_path)
+        metafile_name = posixpath.basename(revision_file_path)
+        metafile_and_ext = posixpath.splitext(metafile_name)
+        metafile_ext = metafile_and_ext[1] if len(metafile_and_ext) > 1 else None
+        metafile_rev_and_txn_info = metafile_and_ext[0]
+        txn_info_parts = metafile_rev_and_txn_info.split(TXN_PART_SEPARATOR)
+
+        mri = MetafileRevisionInfo()
+        mri.dir_path = dir_path
+        mri.extension = metafile_ext
+        mri.revision = int(txn_info_parts[0])
+        mri.txn_op_type = txn_info_parts[1]
+        mri.txn_id = f"{txn_info_parts[2]}{TXN_PART_SEPARATOR}{txn_info_parts[3]}"
+        return mri
+
+    @staticmethod
+    def latest_revision(
+        revision_dir_path: str,
         filesystem: pyarrow.fs.FileSystem,
+        current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
         txn_log_dir: Optional[str] = None,
-        ignore_missing_commit: bool = False,
-    ) -> MetafileCommitInfo:
+        ignore_missing_revision: bool = False,
+    ) -> MetafileRevisionInfo:
         # TODO(pdames): Stop parent traversal at catalog root.
         # resolve the directory path of the transaction log
-        current_dir = commit_dir_path
+        current_dir = revision_dir_path
         while not txn_log_dir:
             txn_log_dir = posixpath.join(
                 current_dir,
                 TXN_DIR_NAME,
             )
             try:
-                _get_file_infos(
+                _get_file_info(
                     path=txn_log_dir,
                     filesystem=filesystem,
                 )
@@ -293,115 +634,211 @@ class MetafileCommitInfo(dict):
                     break
                 current_dir = posixpath.dirname(current_dir)
         if not txn_log_dir:
-            err_msg = f"No transaction log found for: {commit_dir_path}."
+            err_msg = f"No transaction log found for: {revision_dir_path}."
             raise ValueError(err_msg)
         # find the latest committed revision of the target metafile
-        file_paths_and_sizes = _get_file_infos(
-            path=commit_dir_path,
+        sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
+            revision_dir_path=revision_dir_path,
             filesystem=filesystem,
-            ignore_missing_path=True,
+            ignore_missing_revision=ignore_missing_revision,
         )
-        if not file_paths_and_sizes and not ignore_missing_commit:
-            err_msg = (
-                f"Expected to find at least 1 Metafile at "
-                f"{commit_dir_path} but found none."
-            )
-            raise ValueError(err_msg)
-        file_paths = list(zip(*file_paths_and_sizes))[0] if file_paths_and_sizes else []
-        sorted_metafile_paths = sorted(file_paths)
-        revision = None
-        txn_id = None
-        txn_op_type = None
-        latest_committed_metafile_path = None
+        mri = None
         while sorted_metafile_paths:
             latest_metafile_path = sorted_metafile_paths.pop()
-            latest_metafile_name = posixpath.basename(latest_metafile_path)
-            metafile_and_ext = posixpath.splitext(latest_metafile_name)
-            metafile_rev_and_txn_id = metafile_and_ext[0]
-            rev_and_txn_id_split = metafile_rev_and_txn_id.split(TXN_ID_SEPARATOR)
-            revision = rev_and_txn_id_split[0]
-            txn_op_type = rev_and_txn_id_split[1]
-            txn_id = rev_and_txn_id_split[2]
-            # consider the current in-progress transaction to be committed
-            if current_txn_id and txn_id == current_txn_id:
-                latest_committed_metafile_path = latest_metafile_path
+            mri = MetafileRevisionInfo.parse(latest_metafile_path)
+            if not current_txn_id or mri.txn_id == current_txn_id:
+                # consider the current transaction (if any) to be committed
                 break
             else:
-                file_paths_and_sizes = _get_file_infos(
-                    path=posixpath.join(txn_log_dir, txn_id),
+                # the current transaction can only build on top of the snapshot
+                # of commits from transactions that completed before it started
+                txn_end_time = Transaction.end_time(
+                    path=posixpath.join(txn_log_dir, mri.txn_id),
                     filesystem=filesystem,
-                    ignore_missing_path=True,
                 )
-                if file_paths_and_sizes:
-                    latest_committed_metafile_path = latest_metafile_path
+                if txn_end_time is not None and txn_end_time < current_txn_start_time:
                     break
-        if not latest_committed_metafile_path and not ignore_missing_commit:
-            err_msg = (
-                f"No committed transaction with ID {txn_id} found at " f"{txn_log_dir}."
-            )
+            mri = None
+        if not mri and not ignore_missing_revision:
+            err_msg = f"No committed transaction found at {txn_log_dir}."
             raise ValueError(err_msg)
-        mci = MetafileCommitInfo()
-        mci.revision = int(revision) if revision else 0
-        mci.txn_id = txn_id
-        mci.txn_operation_type = txn_op_type
-        mci.path = latest_committed_metafile_path
-        return mci
+        return mri if mri else MetafileRevisionInfo.undefined()
 
     @staticmethod
-    def next(
-        base_metafile_dir_path: str,
-        txn_operation_type: TransactionOperationType,
-        txn_id: str,
+    def new_revision(
+        revision_dir_path: str,
+        current_txn_op_type: TransactionOperationType,
+        current_txn_start_time: int,
+        current_txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
-        extension: str = METAFILE_EXT,
+        extension: Optional[str] = METAFILE_EXT,
         txn_log_dir: Optional[str] = None,
-    ) -> MetafileCommitInfo:
-        is_create_txn = txn_operation_type == TransactionOperationType.CREATE
-        mci = MetafileCommitInfo.current(
-            commit_dir_path=base_metafile_dir_path,
+    ) -> MetafileRevisionInfo:
+        """
+        Creates and returns a new MetafileRevisionInfo object for the next
+        revision of the metafile.
+
+        This method determines the next revision information based on the
+        latest existing revision in the specified directory path and the
+        current transaction details.
+
+        Args:
+            revision_dir_path (str): Metafile revision directory path to
+            generate the next metafile revision info for.
+            current_txn_op_type (TransactionOperationType): The current
+            transaction's operation type.
+            current_txn_start_time (int): The current transaction's start time.
+            current_txn_id (str): The current transaction's ID.
+            filesystem (pyarrow.fs.FileSystem): The filesystem interface to
+            use for file operations
+            extension (str, optional): The file extension for metafiles.
+            Defaults to METAFILE_EXT.
+            txn_log_dir (Optional[str], optional): Directory path for
+            transaction logs. Will be automatically discovered by traversing
+            revision directory parent paths if not specified.
+
+        Returns:
+            MetafileRevisionInfo: A new revision info object containing
+            metadata for the next revision
+
+        Notes:
+            - For CREATE operations, the method will ignore missing previous
+              revisions.
+            - The method validates the transaction operation type before
+              creating the new revision.
+            - Uses the pyarrow filesystem interface for file operations.
+        """
+        is_create_txn = current_txn_op_type == TransactionOperationType.CREATE
+        mri = MetafileRevisionInfo.latest_revision(
+            revision_dir_path=revision_dir_path,
             filesystem=filesystem,
-            current_txn_id=txn_id,
+            current_txn_start_time=current_txn_start_time,
+            current_txn_id=current_txn_id,
             txn_log_dir=txn_log_dir,
-            ignore_missing_commit=is_create_txn,
+            ignore_missing_revision=is_create_txn,
         )
         # validate the transaction operation type
-        if mci.revision:
+        if mri.revision:
             # update/delete fails if the last metafile was deleted
-            if mci.txn_operation_type == TransactionOperationType.DELETE:
-                if txn_operation_type != TransactionOperationType.CREATE:
+            if mri.txn_op_type == TransactionOperationType.DELETE:
+                if current_txn_op_type != TransactionOperationType.CREATE:
                     raise ValueError(
-                        f"Metafile {txn_operation_type.value} failed for "
-                        f"transaction ID {txn_id} failed. Metafile state at "
-                        f"{mci.path} is deleted."
+                        f"Metafile {current_txn_op_type.value} failed "
+                        f"for transaction ID {current_txn_id} failed. "
+                        f"Metafile state at {mri.path} is deleted."
                     )
             # create fails unless the last metafile was deleted
             elif is_create_txn:
                 raise ValueError(
-                    f"Metafile creation for transaction ID {txn_id} failed. "
-                    f"Metafile commit at {mci.path} already exists."
+                    f"Metafile creation for transaction ID {current_txn_id} "
+                    f"failed. Metafile commit at {mri.path} already exists."
                 )
         elif not is_create_txn:
-            # update/deletes fails if the last metafile doesn't exist
+            # update/delete fails if the last metafile doesn't exist
             raise ValueError(
-                f"Metafile {txn_operation_type.value} failed for "
-                f"transaction ID {txn_id} failed. Metafile at {mci.path} "
-                f"doesn't exist."
+                f"Metafile {current_txn_op_type.value} failed for "
+                f"transaction ID {current_txn_id} failed. Metafile at "
+                f"{mri.path} does not exist."
             )
+        mri.revision = mri.revision + 1
+        mri.txn_id = current_txn_id
+        mri.txn_op_type = current_txn_op_type
+        mri.dir_path = revision_dir_path
+        mri.extension = extension
+        return mri
 
-        mci.next_txn_id = txn_id
-        mci.next_txn_operation_type = txn_operation_type
-        metafile_name = TXN_ID_SEPARATOR.join(
-            [
-                f"{mci.next_revision:020}",
-                txn_operation_type.value,
-                f"{txn_id}{extension}",
-            ]
+    @staticmethod
+    def check_for_concurrent_txn_conflict(
+        txn_log_dir: str,
+        current_txn_revision_file_path: str,
+        filesystem: pyarrow.fs.FileSystem,
+    ) -> None:
+        """
+        Checks for a concurrent modification conflict between a file commited
+        by the current transaction and another parallel transaction. Raises
+        an exception if a concurrent modification conflict is found.
+
+        :param txn_log_dir: Path to the catalog transaction log.
+        :param current_txn_revision_file_path: Path to a metafile revision
+        written by the current transaction to check for conflicts against.
+        :param filesystem: Filesystem that can read the metafile revision.
+        :raises RuntimeError: if a conflict is found with another transaction.
+        """
+        revision_dir_path = posixpath.dirname(current_txn_revision_file_path)
+        cur_txn_mri = MetafileRevisionInfo.parse(current_txn_revision_file_path)
+
+        sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
+            revision_dir_path=revision_dir_path,
+            filesystem=filesystem,
         )
-        mci.next_path = posixpath.join(
-            base_metafile_dir_path,
-            metafile_name,
+        conflict_mris = []
+        while sorted_metafile_paths:
+            next_metafile_path = sorted_metafile_paths.pop()
+            mri = MetafileRevisionInfo.parse(next_metafile_path)
+            if mri.revision < cur_txn_mri.revision:
+                # no conflict was found
+                break
+            elif (
+                mri.revision == cur_txn_mri.revision
+                and mri.txn_id != cur_txn_mri.txn_id
+            ):
+                # we've found a conflict between txn_id and current_txn_id
+                # defer to the transaction with the higher lexicographic order
+                # (i.e., the transaction that started most recently)
+                # TODO(pdames): Ensure the conflicting transaction is alive
+                #  (e.g., give each transaction a heartbeat timeout that gives
+                #  it 1-2 seconds per operation, and record known failed
+                #  transaction IDs)
+                if mri.txn_id > cur_txn_mri.txn_id:
+                    raise RuntimeError(
+                        f"Aborting transaction {cur_txn_mri.txn_id} due to "
+                        f"concurrent conflict at "
+                        f"{current_txn_revision_file_path} with transaction "
+                        f"{mri.txn_id} at {next_metafile_path}."
+                    )
+                conflict_mris.append(mri)
+        if conflict_mris:
+            # current txn wins the ordering challenge among all conflicts,
+            # but we still need to ensure that no conflicting transactions
+            # completed before seeing the conflict with this transaction
+            for mri in conflict_mris:
+                txn_end_time = Transaction.end_time(
+                    path=posixpath.join(txn_log_dir, mri.txn_id),
+                    filesystem=filesystem,
+                )
+                # TODO(pdames): Resolve risk of passing this check if it
+                #  runs before the conflicting transaction marks itself as
+                #  complete in the txn log. Some fixes include enforcing
+                #  serializable isolation of the txn log, eventually
+                #  consistent detection & repair, writing a mutex file
+                #  that tells future transactions to only consider this txn
+                #  complete if the conflicting txn is not complete, etc.
+                if txn_end_time:
+                    raise RuntimeError(
+                        f"Aborting transaction {cur_txn_mri.txn_id} due to "
+                        f"concurrent conflict at {revision_dir_path} with "
+                        f"previously completed transaction {mri.txn_id} at "
+                        f"{next_metafile_path}."
+                    )
+
+    @staticmethod
+    def _sorted_file_paths(
+        revision_dir_path: str,
+        filesystem: pyarrow.fs.FileSystem,
+        ignore_missing_revision: bool = False,
+    ) -> List[str]:
+        file_paths_and_sizes = _get_file_infos(
+            path=revision_dir_path,
+            filesystem=filesystem,
+            ignore_missing_path=True,
         )
-        return mci
+        if not file_paths_and_sizes and not ignore_missing_revision:
+            err_msg = (
+                f"Expected to find at least 1 Metafile at "
+                f"{revision_dir_path} but found none."
+            )
+            raise ValueError(err_msg)
+        return list(list(zip(*file_paths_and_sizes))[0]) if file_paths_and_sizes else []
 
     @property
     def revision(self) -> int:
@@ -412,10 +849,6 @@ class MetafileCommitInfo(dict):
         self["revision"] = revision
 
     @property
-    def next_revision(self) -> Optional[int]:
-        return self.revision + 1
-
-    @property
     def txn_id(self) -> Optional[str]:
         return self["txn_id"]
 
@@ -424,48 +857,55 @@ class MetafileCommitInfo(dict):
         self["txn_id"] = txn_id
 
     @property
-    def txn_operation_type(self) -> Optional[TransactionOperationType]:
-        op_type = self.get("txn_operation_type")
+    def txn_op_type(self) -> Optional[TransactionOperationType]:
+        op_type = self.get("txn_op_type")
         return None if op_type is None else TransactionOperationType(op_type)
 
-    @txn_operation_type.setter
-    def txn_operation_type(self, txn_operation_type: TransactionOperationType):
-        self["txn_operation_type"] = txn_operation_type
+    @txn_op_type.setter
+    def txn_op_type(self, txn_op_type: TransactionOperationType):
+        self["txn_op_type"] = txn_op_type
+
+    @property
+    def dir_path(self) -> Optional[str]:
+        return self["dir_path"]
+
+    @dir_path.setter
+    def dir_path(self, dir_path: str):
+        self["dir_path"] = dir_path
+
+    @property
+    def extension(self) -> str:
+        return self.get("extension") or METAFILE_EXT
+
+    @extension.setter
+    def extension(self, extension: str):
+        self["extension"] = extension
+
+    @property
+    def file_name(self) -> Optional[str]:
+        return (
+            TXN_PART_SEPARATOR.join(
+                [
+                    f"{self.revision:020}",
+                    self.txn_op_type,
+                    f"{self.txn_id}{self.extension}",
+                ]
+            )
+            if self.txn_op_type and self.txn_id
+            else None
+        )
 
     @property
     def path(self) -> Optional[str]:
-        return self["path"]
-
-    @path.setter
-    def path(self, path: str):
-        self["path"] = path
-
-    @property
-    def next_txn_id(self) -> Optional[str]:
-        return self["next_txn_id"]
-
-    @next_txn_id.setter
-    def next_txn_id(self, next_txn_id: str):
-        self["next_txn_id"] = next_txn_id
-
-    @property
-    def next_txn_operation_type(self) -> Optional[TransactionOperationType]:
-        op_type = self.get("next_txn_operation_type")
-        return None if op_type is None else TransactionOperationType(op_type)
-
-    @next_txn_operation_type.setter
-    def next_txn_operation_type(
-        self, next_txn_operation_type: TransactionOperationType
-    ):
-        self["next_txn_operation_type"] = next_txn_operation_type
-
-    @property
-    def next_path(self) -> Optional[str]:
-        return self["next_path"]
-
-    @next_path.setter
-    def next_path(self, next_path: str):
-        self["next_path"] = next_path
+        file_name = self.file_name
+        return (
+            posixpath.join(
+                self.dir_path,
+                file_name,
+            )
+            if self.dir_path and file_name
+            else None
+        )
 
 
 class Metafile(dict):
@@ -514,7 +954,7 @@ class Metafile(dict):
                 metafile_copy.pop("id", None)
                 if new_id:
                     raise ValueError(
-                        f"New Locator cannot be specified for metafiles that "
+                        f"New ID cannot be specified for metafiles that "
                         f"don't have a named immutable ID."
                     )
             else:
@@ -527,6 +967,74 @@ class Metafile(dict):
             # remove all ancestors of the original source metafile
             metafile_copy.pop("ancestor_ids", None)
         return metafile_copy
+
+    @classmethod
+    def read(
+        cls,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> Metafile:
+        """
+        Read a metadata file and return the deserialized object.
+        :param path: Metadata file path to read.
+        :param filesystem: File system to use for reading the metadata file.
+        :return: Deserialized object from the metadata file.
+        """
+        path, fs = _filesystem(path, filesystem)
+        with fs.open_input_stream(path) as file:
+            binary = file.readall()
+        obj = cls(**msgpack.loads(binary)).from_serializable(path, fs)
+        return obj
+
+    def write(
+        self,
+        catalog_root_dir: str,
+        txn_log_dir: str,
+        current_txn_op: TransactionOperation,
+        current_txn_start_time: int,
+        current_txn_id: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> None:
+        """
+        Serialize and write this object to a metadata file.
+        :param catalog_root_dir: Catalog root directory to write the metafile to.
+        :param txn_log_dir: Catalog root transaction log directory.
+        :param current_txn_op: Transaction operation for this write.
+        :param current_txn_start_time: Transaction start time for this write.
+        :param current_txn_id: Transaction ID for this write.
+        :param filesystem: File system to use for writing the metadata file. If
+        not given, a default filesystem will be automatically selected based on
+        the catalog root path.
+        """
+        path, fs = _filesystem(
+            path=catalog_root_dir,
+            filesystem=filesystem,
+        )
+        self._write_metafile_revisions(
+            catalog_root=path,
+            txn_log_dir=txn_log_dir,
+            current_txn_op=current_txn_op,
+            current_txn_start_time=current_txn_start_time,
+            current_txn_id=current_txn_id,
+            filesystem=fs,
+        )
+
+    def equivalent_to(self, other: Metafile) -> bool:
+        """
+        True if this Metafile is equivalent to the other Metafile minus its
+        unique ID and ancestor IDs.
+
+        :param other: Metafile to compare to.
+        :return: True if the other metafile is equivalent, false if not.
+        """
+        identifiers = {"id", "ancestor_ids"}
+        for k, v in self.items():
+            if k not in identifiers and (k not in other or other[k] != v):
+                return False
+        for k in other.keys():
+            if k not in identifiers and k not in self:
+                return False
+        return True
 
     @property
     def named_immutable_id(self) -> Optional[str]:
@@ -547,16 +1055,20 @@ class Metafile(dict):
         the ID is only considered immutable in durable catalog storage, and
         remains mutable in transient memory (i.e., this setter remains
         functional regardless of whether an ID is already assigned, but each
-        update causes it to refer to a new, distinct object in durable storage).
+        update will cause it to refer to a different, distinct object in
+        durable storage).
+        :raises NotImplementedError: If this metafile type does not have a
+        named immutable ID (i.e., its immutable ID is auto-generated).
         """
         self.locator.name.immutable_id = immutable_id
 
     @property
     def id(self) -> str:
         """
-        Returns an immutable ID for the given metafile that can be used for
-        equality checks (i.e. 2 metafiles are equal if they have the same ID)
-        and deterministic references (e.g. for generating a table file path that
+        Returns an existing immutable ID for this metafile or generates a new
+        one. This ID can be used for equality checks (i.e. 2 metafiles refer
+        to the same catalog object if they have the same ID) and deterministic
+        references (e.g. for generating a root namespace or table path that
         remains the same regardless of renames).
         """
 
@@ -580,281 +1092,13 @@ class Metafile(dict):
         """
         Returns an optional locator alias for this metafile. This is
         typically used to resolve a unique, human-readable reference to this
-        object (e.g., by using partition values instead of partition ID,
-        stream format name instead of stream ID, etc.). Locator aliases are
-        typically used during push-down-predicate-based reads (e.g., by
-        partition value + partition scheme ID), and to display unique
+        object (e.g., by using partition values instead of partition ID or
+        stream format name instead of stream ID). Locator aliases are
+        typically used during partition predicate pushdown (e.g., by
+        partition value + partition scheme ID) or to display unique
         human-readable metafile names.
         """
         return None
-
-    @staticmethod
-    def _parent_metafile_rev_dir_path(
-        base_metafile_path: str,
-        parent_number,
-    ):
-        # TODO(pdames): Stop parent traversal at catalog root.
-        current_dir = posixpath.dirname(  # base metafile root dir
-            posixpath.dirname(  # base metafile revision dir
-                base_metafile_path,
-            )
-        )
-        while parent_number and current_dir != posixpath.sep:
-            current_dir = posixpath.dirname(current_dir)
-            parent_number -= 1
-        return posixpath.join(
-            current_dir,
-            REVISION_DIR_NAME,
-        )
-
-    @staticmethod
-    def _locator_to_id(
-        locator: Locator,
-        catalog_root: str,
-        metafile_root: str,
-        filesystem: pyarrow.fs.FileSystem,
-        txn_id: Optional[str] = None,
-    ) -> str:
-        """
-        Resolves the metafile ID for the given locator.
-        """
-        metafile_id = locator.name.immutable_id
-        if not metafile_id:
-            # the locator name is mutable, so we need to resolve the mapping
-            # from the locator back to its immutable metafile ID
-            locator_path = locator.path(metafile_root)
-            mci = MetafileCommitInfo.current(
-                commit_dir_path=locator_path,
-                filesystem=filesystem,
-                current_txn_id=txn_id,
-                txn_log_dir=posixpath.join(catalog_root, TXN_DIR_NAME),
-            )
-            if mci.txn_operation_type == TransactionOperationType.DELETE:
-                err_msg = (
-                    f"Locator {locator} to metafile ID resolution failed "
-                    f"because its metafile ID mapping was deleted. You may "
-                    f"have an old reference to a renamed or deleted object."
-                )
-                raise ValueError(err_msg)
-            metafile_id = posixpath.splitext(mci.path)[1][1:]
-        return metafile_id
-
-    def ancestor_ids(
-        self,
-        catalog_root: str,
-        txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> List[str]:
-        """
-        Returns the IDs for this metafile's ancestor metafiles. IDs are
-        listed in order from root to immediate parent.
-        """
-        if not filesystem:
-            catalog_root, filesystem = Metafile.filesystem(
-                path=catalog_root,
-                filesystem=filesystem,
-            )
-        ancestor_ids = self.get("ancestor_ids") or []
-        if not ancestor_ids:
-            parent_locators = []
-            # TODO(pdames): Correctly resolve missing parents and K of N
-            #  specified ancestors by using placeholder IDs for missing
-            #  ancestors
-            parent_locator = self.locator.parent
-            while parent_locator:
-                parent_locators.append(parent_locator)
-                parent_locator = parent_locator.parent
-            metafile_root = catalog_root
-            while parent_locators:
-                parent_locator = parent_locators.pop()
-                ancestor_id = Metafile._locator_to_id(
-                    locator=parent_locator,
-                    catalog_root=catalog_root,
-                    metafile_root=metafile_root,
-                    filesystem=filesystem,
-                    txn_id=txn_id,
-                )
-                metafile_root = posixpath.join(
-                    metafile_root,
-                    ancestor_id,
-                )
-                try:
-                    _get_file_infos(
-                        path=metafile_root,
-                        filesystem=filesystem,
-                    )
-                except FileNotFoundError:
-                    raise ValueError(
-                        f"Ancestor {parent_locator} does not exist at: "
-                        f"{metafile_root}"
-                    )
-                ancestor_ids.append(ancestor_id)
-            self["ancestor_ids"] = ancestor_ids
-        return ancestor_ids
-
-    def _generate_locator_to_id_map_file(
-        self,
-        locator: Locator,
-        root: str,
-        parent_path: str,
-        txn_operation_type: TransactionOperationType,
-        txn_id: str,
-        filesystem: pyarrow.fs.FileSystem,
-    ) -> str:
-        id_dir_path = locator.path(parent_path)
-        mci = MetafileCommitInfo.next(
-            base_metafile_dir_path=id_dir_path,
-            txn_operation_type=txn_operation_type,
-            txn_id=txn_id,
-            filesystem=filesystem,
-            extension=f".{self.id}",
-            txn_log_dir=posixpath.join(root, TXN_DIR_NAME),
-        )
-        id_file_path = mci.next_path
-        filesystem.create_dir(posixpath.dirname(id_file_path), recursive=True)
-        with filesystem.open_output_stream(id_file_path):
-            pass  # Just create an empty ID file to map to the locator
-        return id_file_path
-
-    def _generate_file_paths(
-        self,
-        root: str,
-        txn_operation: TransactionOperation,
-        txn_id: str,
-        filesystem: pyarrow.fs.FileSystem,
-    ) -> List[str]:
-        """
-        Generates the fully qualified paths required to write this metafile as
-        part of the given transaction. All paths returned will be based in the
-        given root directory.
-        """
-        ancestor_path_elements = self.ancestor_ids(
-            catalog_root=root,
-            txn_id=txn_id,
-            filesystem=filesystem,
-        )
-        parent_path = posixpath.join(*[root] + ancestor_path_elements)
-        mutable_src_locator = None
-        mutable_dest_locator = None
-        if not self.named_immutable_id:
-            mutable_src_locator = (
-                txn_operation.src_metafile.locator
-                if txn_operation.src_metafile
-                else None
-            )
-            mutable_dest_locator = txn_operation.dest_metafile.locator
-        elif self.locator_alias:
-            mutable_src_locator = (
-                txn_operation.src_metafile.locator_alias
-                if txn_operation.src_metafile
-                else None
-            )
-            mutable_dest_locator = txn_operation.dest_metafile.locator_alias
-        if mutable_dest_locator:
-            # the locator name is mutable, so we need to persist a mapping
-            # from the locator back to its immutable metafile ID
-            if (
-                txn_operation.type == TransactionOperationType.UPDATE
-                and mutable_src_locator != mutable_dest_locator
-            ):
-                # this update includes a rename
-                # mark the source metafile mapping as deleted
-                locator_write_path = (
-                    txn_operation.src_metafile._generate_locator_to_id_map_file(
-                        locator=mutable_src_locator,
-                        root=root,
-                        parent_path=parent_path,
-                        txn_operation_type=TransactionOperationType.DELETE,
-                        txn_id=txn_id,
-                        filesystem=filesystem,
-                    )
-                )
-                txn_operation.append_locator_write_path(locator_write_path)
-                # mark the dest metafile mapping as created
-                locator_write_path = self._generate_locator_to_id_map_file(
-                    locator=mutable_dest_locator,
-                    root=root,
-                    parent_path=parent_path,
-                    txn_operation_type=TransactionOperationType.CREATE,
-                    txn_id=txn_id,
-                    filesystem=filesystem,
-                )
-                txn_operation.append_locator_write_path(locator_write_path)
-            else:
-                locator_write_path = self._generate_locator_to_id_map_file(
-                    locator=mutable_dest_locator,
-                    root=root,
-                    parent_path=parent_path,
-                    txn_operation_type=txn_operation.type,
-                    txn_id=txn_id,
-                    filesystem=filesystem,
-                )
-                txn_operation.append_locator_write_path(locator_write_path)
-        metafile_dir_path = posixpath.join(
-            parent_path,
-            self.id,
-            REVISION_DIR_NAME,
-        )
-        paths = []
-        if (
-            txn_operation.type == TransactionOperationType.UPDATE
-            and txn_operation.src_metafile.id != txn_operation.dest_metafile.id
-        ):
-            # TODO(pdames): block operations including both a rename & replace?
-            # this update includes a replace
-            # mark the source metafile as deleted
-            src_metafile_dir_path = posixpath.join(
-                parent_path,
-                txn_operation.src_metafile.id,
-                REVISION_DIR_NAME,
-            )
-            mci = MetafileCommitInfo.next(
-                base_metafile_dir_path=src_metafile_dir_path,
-                txn_operation_type=TransactionOperationType.DELETE,
-                txn_id=txn_id,
-                filesystem=filesystem,
-                txn_log_dir=posixpath.join(root, TXN_DIR_NAME),
-            )
-            paths.append(mci.next_path)
-            # mark the dest metafile as created
-            mci = MetafileCommitInfo.next(
-                base_metafile_dir_path=metafile_dir_path,
-                txn_operation_type=TransactionOperationType.CREATE,
-                txn_id=txn_id,
-                filesystem=filesystem,
-                txn_log_dir=posixpath.join(root, TXN_DIR_NAME),
-            )
-            paths.append(mci.next_path)
-        else:
-            mci = MetafileCommitInfo.next(
-                base_metafile_dir_path=metafile_dir_path,
-                txn_operation_type=txn_operation.type,
-                txn_id=txn_id,
-                filesystem=filesystem,
-                txn_log_dir=posixpath.join(root, TXN_DIR_NAME),
-            )
-            paths.append(mci.next_path)
-        return paths
-
-    @staticmethod
-    def filesystem(
-        path: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> Tuple[str, pyarrow.fs.FileSystem]:
-        """
-        Normalizes the input path and resolves a corresponding file system.
-        :param path: A file or directory path.
-        :param filesystem: File system to use for path IO.
-        :return: Normalized path and resolved file system for that path.
-        """
-        # TODO(pdames): resolve and cache filesystem at catalog root level
-        #   ensure returned paths are normalized as posix paths
-        paths, filesystem = _resolve_paths_and_filesystem(
-            paths=path,
-            filesystem=filesystem,
-        )
-        assert len(paths) == 1, len(paths)
-        return paths[0], filesystem
 
     @property
     def children(self) -> ListResult[Metafile]:
@@ -905,51 +1149,288 @@ class Metafile(dict):
         """
         return self
 
-    def write(
+    def ancestor_ids(
         self,
-        root: str,
-        txn_operation: TransactionOperation,
-        txn_id: str,
+        catalog_root: str,
+        current_txn_start_time: Optional[int] = None,
+        current_txn_id: Optional[str] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> List[str]:
+        """
+        Returns the IDs for this metafile's ancestor metafiles. IDs are
+        listed in order from root to immediate parent.
+        """
+        if not filesystem:
+            catalog_root, filesystem = _filesystem(
+                path=catalog_root,
+                filesystem=filesystem,
+            )
+        ancestor_ids = self.get("ancestor_ids") or []
+        if not ancestor_ids:
+            parent_locators = []
+            # TODO(pdames): Correctly resolve missing parents and K of N
+            #  specified ancestors by using placeholder IDs for missing
+            #  ancestors
+            parent_locator = self.locator.parent
+            while parent_locator:
+                parent_locators.append(parent_locator)
+                parent_locator = parent_locator.parent
+            metafile_root = catalog_root
+            while parent_locators:
+                parent_locator = parent_locators.pop()
+                ancestor_id = Metafile._locator_to_id(
+                    locator=parent_locator,
+                    catalog_root=catalog_root,
+                    metafile_root=metafile_root,
+                    filesystem=filesystem,
+                    txn_start_time=current_txn_start_time,
+                    txn_id=current_txn_id,
+                )
+                metafile_root = posixpath.join(
+                    metafile_root,
+                    ancestor_id,
+                )
+                try:
+                    _get_file_info(
+                        path=metafile_root,
+                        filesystem=filesystem,
+                    )
+                except FileNotFoundError:
+                    raise ValueError(
+                        f"Ancestor {parent_locator} does not exist at: "
+                        f"{metafile_root}"
+                    )
+                ancestor_ids.append(ancestor_id)
+            self["ancestor_ids"] = ancestor_ids
+        return ancestor_ids
+
+    @staticmethod
+    def _parent_metafile_rev_dir_path(
+        base_metafile_path: str,
+        parent_number,
+    ):
+        # TODO(pdames): Stop parent traversal at catalog root.
+        current_dir = posixpath.dirname(  # base metafile root dir
+            posixpath.dirname(  # base metafile revision dir
+                base_metafile_path,
+            )
+        )
+        while parent_number and current_dir != posixpath.sep:
+            current_dir = posixpath.dirname(current_dir)
+            parent_number -= 1
+        return posixpath.join(
+            current_dir,
+            REVISION_DIR_NAME,
+        )
+
+    @staticmethod
+    def _locator_to_id(
+        locator: Locator,
+        catalog_root: str,
+        metafile_root: str,
+        filesystem: pyarrow.fs.FileSystem,
+        txn_start_time: Optional[int] = None,
+        txn_id: Optional[str] = None,
+    ) -> str:
+        """
+        Resolves the metafile ID for the given locator.
+        """
+        metafile_id = locator.name.immutable_id
+        if not metafile_id:
+            # the locator name is mutable, so we need to resolve the mapping
+            # from the locator back to its immutable metafile ID
+            locator_path = locator.path(metafile_root)
+            mri = MetafileRevisionInfo.latest_revision(
+                revision_dir_path=locator_path,
+                filesystem=filesystem,
+                current_txn_start_time=txn_start_time,
+                current_txn_id=txn_id,
+                txn_log_dir=posixpath.join(catalog_root, TXN_DIR_NAME),
+            )
+            if mri.txn_op_type == TransactionOperationType.DELETE:
+                err_msg = (
+                    f"Locator {locator} to metafile ID resolution failed "
+                    f"because its metafile ID mapping was deleted. You may "
+                    f"have an old reference to a renamed or deleted object."
+                )
+                raise ValueError(err_msg)
+            metafile_id = posixpath.splitext(mri.path)[1][1:]
+        return metafile_id
+
+    def _write_locator_to_id_map_file(
+        self,
+        locator: Locator,
+        txn_log_dir: str,
+        parent_obj_path: str,
+        current_txn_op: TransactionOperation,
+        current_txn_op_type: TransactionOperationType,
+        current_txn_start_time: int,
+        current_txn_id: str,
+        filesystem: pyarrow.fs.FileSystem,
+    ) -> None:
+        name_resolution_dir_path = locator.path(parent_obj_path)
+        mri = MetafileRevisionInfo.new_revision(
+            revision_dir_path=name_resolution_dir_path,
+            current_txn_op_type=current_txn_op_type,
+            current_txn_start_time=current_txn_start_time,
+            current_txn_id=current_txn_id,
+            filesystem=filesystem,
+            extension=f".{self.id}",
+            txn_log_dir=txn_log_dir,
+        )
+        revision_file_path = mri.path
+        filesystem.create_dir(posixpath.dirname(revision_file_path), recursive=True)
+        with filesystem.open_output_stream(revision_file_path):
+            pass  # Just create an empty ID file to map to the locator
+        current_txn_op.append_locator_write_path(revision_file_path)
+
+    def _write_metafile_revision(
+        self,
+        txn_log_dir: str,
+        revision_dir_path: str,
+        current_txn_op: TransactionOperation,
+        current_txn_op_type: TransactionOperationType,
+        current_txn_start_time: int,
+        current_txn_id: str,
+        filesystem: pyarrow.fs.FileSystem,
+    ) -> None:
+        mri = MetafileRevisionInfo.new_revision(
+            revision_dir_path=revision_dir_path,
+            current_txn_op_type=current_txn_op_type,
+            current_txn_start_time=current_txn_start_time,
+            current_txn_id=current_txn_id,
+            filesystem=filesystem,
+            txn_log_dir=txn_log_dir,
+        )
+        revision_file_path = mri.path
+        revision_dir_path = posixpath.dirname(revision_file_path)
+        filesystem.create_dir(revision_dir_path, recursive=True)
+        with filesystem.open_output_stream(revision_file_path) as file:
+            packed = msgpack.dumps(self.to_serializable())
+            file.write(packed)
+        current_txn_op.append_metafile_write_path(revision_file_path)
+
+    def _write_metafile_revisions(
+        self,
+        catalog_root: str,
+        txn_log_dir: str,
+        current_txn_op: TransactionOperation,
+        current_txn_start_time: int,
+        current_txn_id: str,
+        filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         """
-        Serialize and write this object to a metadata file.
-        :param root: Root directory of the metadata file.
-        :param txn_operation: Transaction operation.
-        :param txn_id: Transaction ID.
-        :param filesystem: File system to use for writing the metadata file.
+        Generates the fully qualified paths required to write this metafile as
+        part of the given transaction. All paths returned will be based in the
+        given root directory.
         """
-        path, fs = Metafile.filesystem(
-            path=root,
+        ancestor_path_elements = self.ancestor_ids(
+            catalog_root=catalog_root,
+            current_txn_start_time=current_txn_start_time,
+            current_txn_id=current_txn_id,
             filesystem=filesystem,
         )
-        paths = self._generate_file_paths(
-            root=path,
-            txn_operation=txn_operation,
-            txn_id=txn_id,
-            filesystem=fs,
+        parent_obj_path = posixpath.join(*[catalog_root] + ancestor_path_elements)
+        mutable_src_locator = None
+        mutable_dest_locator = None
+        if not self.named_immutable_id:
+            mutable_src_locator = (
+                current_txn_op.src_metafile.locator
+                if current_txn_op.src_metafile
+                else None
+            )
+            mutable_dest_locator = current_txn_op.dest_metafile.locator
+        elif self.locator_alias:
+            mutable_src_locator = (
+                current_txn_op.src_metafile.locator_alias
+                if current_txn_op.src_metafile
+                else None
+            )
+            mutable_dest_locator = current_txn_op.dest_metafile.locator_alias
+        if mutable_dest_locator:
+            # the locator name is mutable, so we need to persist a mapping
+            # from the locator back to its immutable metafile ID
+            if (
+                current_txn_op.type == TransactionOperationType.UPDATE
+                and mutable_src_locator != mutable_dest_locator
+            ):
+                # this update includes a rename
+                # mark the source metafile mapping as deleted
+                current_txn_op.src_metafile._write_locator_to_id_map_file(
+                    locator=mutable_src_locator,
+                    txn_log_dir=txn_log_dir,
+                    parent_obj_path=parent_obj_path,
+                    current_txn_op=current_txn_op,
+                    current_txn_op_type=TransactionOperationType.DELETE,
+                    current_txn_start_time=current_txn_start_time,
+                    current_txn_id=current_txn_id,
+                    filesystem=filesystem,
+                )
+                # mark the dest metafile mapping as created
+                self._write_locator_to_id_map_file(
+                    locator=mutable_dest_locator,
+                    txn_log_dir=txn_log_dir,
+                    parent_obj_path=parent_obj_path,
+                    current_txn_op=current_txn_op,
+                    current_txn_op_type=TransactionOperationType.CREATE,
+                    current_txn_start_time=current_txn_start_time,
+                    current_txn_id=current_txn_id,
+                    filesystem=filesystem,
+                )
+            else:
+                self._write_locator_to_id_map_file(
+                    locator=mutable_dest_locator,
+                    txn_log_dir=txn_log_dir,
+                    parent_obj_path=parent_obj_path,
+                    current_txn_op=current_txn_op,
+                    current_txn_op_type=current_txn_op.type,
+                    current_txn_start_time=current_txn_start_time,
+                    current_txn_id=current_txn_id,
+                    filesystem=filesystem,
+                )
+        metafile_revision_dir_path = posixpath.join(
+            parent_obj_path,
+            self.id,
+            REVISION_DIR_NAME,
         )
-        for path in paths:
-            fs.create_dir(posixpath.dirname(path), recursive=True)
-            with fs.open_output_stream(path) as file:
-                packed = msgpack.dumps(self.to_serializable())
-                file.write(packed)
-            txn_operation.append_metafile_write_path(path)
-
-    @classmethod
-    def read(
-        cls,
-        path: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> Metafile:
-        """
-        Read a metadata file and return the deserialized object.
-        :param path: Metadata file path to read.
-        :param filesystem: File system to use for reading the metadata file.
-        :return: Deserialized object from the metadata file.
-        """
-        path, fs = Metafile.filesystem(path, filesystem)
-        with fs.open_input_stream(path) as file:
-            binary = file.readall()
-        obj = cls(**msgpack.loads(binary)).from_serializable(path, fs)
-        return obj
+        if (
+            current_txn_op.type == TransactionOperationType.UPDATE
+            and current_txn_op.src_metafile.id != current_txn_op.dest_metafile.id
+        ):
+            # TODO(pdames): block operations including both a rename & replace?
+            # this update includes a replace
+            # mark the source metafile as deleted
+            src_metafile_revision_dir_path = posixpath.join(
+                parent_obj_path,
+                current_txn_op.src_metafile.id,
+                REVISION_DIR_NAME,
+            )
+            self._write_metafile_revision(
+                txn_log_dir=txn_log_dir,
+                revision_dir_path=src_metafile_revision_dir_path,
+                current_txn_op=current_txn_op,
+                current_txn_op_type=TransactionOperationType.DELETE,
+                current_txn_start_time=current_txn_start_time,
+                current_txn_id=current_txn_id,
+                filesystem=filesystem,
+            )
+            # mark the dest metafile as created
+            self._write_metafile_revision(
+                txn_log_dir=txn_log_dir,
+                revision_dir_path=metafile_revision_dir_path,
+                current_txn_op=current_txn_op,
+                current_txn_op_type=TransactionOperationType.CREATE,
+                current_txn_start_time=current_txn_start_time,
+                current_txn_id=current_txn_id,
+                filesystem=filesystem,
+            )
+        else:
+            self._write_metafile_revision(
+                txn_log_dir=txn_log_dir,
+                revision_dir_path=metafile_revision_dir_path,
+                current_txn_op=current_txn_op,
+                current_txn_op_type=current_txn_op.type,
+                current_txn_start_time=current_txn_start_time,
+                current_txn_id=current_txn_id,
+                filesystem=filesystem,
+            )

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import pyarrow
 
-from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
+from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo, TXN_DIR_NAME
 from deltacat.storage.model.manifest import (
     Manifest,
     ManifestMeta,
@@ -314,8 +314,8 @@ class Delta(Metafile):
                 TXN_DIR_NAME,
             )
             table = Table.read(
-                MetafileCommitInfo.current(
-                    commit_dir_path=parent_rev_dir_path,
+                MetafileRevisionInfo.latest_revision(
+                    revision_dir_path=parent_rev_dir_path,
                     filesystem=filesystem,
                     txn_log_dir=txn_log_dir,
                 ).path,
