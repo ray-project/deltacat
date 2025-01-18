@@ -8,7 +8,7 @@ import pyarrow as pa
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
+from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo, TXN_DIR_NAME
 from deltacat.storage.model.schema import (
     FieldLocator,
     Schema,
@@ -75,7 +75,7 @@ class Partition(Metafile):
 
     @property
     def locator_alias(self) -> Optional[PartitionLocatorAlias]:
-        return PartitionLocatorAlias(self)
+        return PartitionLocatorAlias.of(self)
 
     @property
     def schema(self) -> Optional[Schema]:
@@ -271,8 +271,8 @@ class Partition(Metafile):
                 TXN_DIR_NAME,
             )
             table = Table.read(
-                MetafileCommitInfo.current(
-                    commit_dir_path=parent_rev_dir_path,
+                MetafileRevisionInfo.latest_revision(
+                    revision_dir_path=parent_rev_dir_path,
                     filesystem=filesystem,
                     txn_log_dir=txn_log_dir,
                 ).path,
@@ -572,29 +572,33 @@ class PartitionLocatorAliasName(LocatorName):
         ]
 
 
-class PartitionLocatorAlias(Locator):
-    def __init__(
-        self,
-        parent_partition: Partition,
-    ):
-        self.parent_partition = parent_partition
+class PartitionLocatorAlias(Locator, dict):
+    @staticmethod
+    def of(parent_partition: Partition):
+        return PartitionLocatorAlias(
+            {
+                "partition_values": parent_partition.partition_values,
+                "partition_scheme_id": parent_partition.partition_scheme_id,
+                "parent": (
+                    parent_partition.locator.parent
+                    if parent_partition.locator
+                    else None
+                ),
+            }
+        )
 
     @property
     def partition_values(self) -> Optional[PartitionValues]:
-        return self.parent_partition.partition_values
+        return self.get("partition_values")
 
     @property
     def partition_scheme_id(self) -> Optional[str]:
-        return self.parent_partition.partition_scheme_id
+        return self.get("partition_scheme_id")
 
     @property
     def name(self) -> PartitionLocatorAliasName:
-        return PartitionLocatorAliasName(PartitionLocatorAlias)
+        return PartitionLocatorAliasName(self)
 
     @property
     def parent(self) -> Optional[Locator]:
-        return (
-            self.parent_partition.locator.parent
-            if self.parent_partition.locator
-            else None
-        )
+        return self.get("parent")
