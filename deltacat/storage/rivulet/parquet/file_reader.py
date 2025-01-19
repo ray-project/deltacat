@@ -12,6 +12,7 @@ from deltacat.storage.rivulet.reader.data_reader import (
     FILE_FORMAT,
 )
 from deltacat.storage.rivulet.reader.pyarrow_data_reader import RecordBatchRowIndex
+from deltacat.storage.rivulet.schema.schema import Schema
 import pyarrow.parquet as pq
 import pyarrow as pa
 
@@ -28,6 +29,7 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
         sst_row: SSTableRow,
         file_store: FileStore,
         key: str,
+        schema: Schema,
         iter_batch_size=1000,
     ):
         self.sst_row = sst_row
@@ -39,6 +41,8 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
 
         # Iterator from pyarrow iter_batches API call. Pyarrow manages state of traversal within parquet row groups
         self._record_batch_iter = None
+
+        self.schema = schema
 
         """
         These variables keep state about where the iterator is current at. They are initialized in __enter__()
@@ -95,7 +99,7 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
             # Initialize _curr_batch
             row_groups = list(range(self.sst_row.offset_start, self.sst_row.offset_end))
             self._record_batch_iter = self.parquet_file.iter_batches(
-                self.iter_batch_size, row_groups
+                self.iter_batch_size, row_groups, columns=self.schema.keys()
             )
             self.__advance_record_batch()
 

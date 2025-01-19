@@ -294,6 +294,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
                     sst_row,
                     self.metastore.file_store,
                     self.result_schema.get_merge_key(),
+                    self.result_schema,
                     self.file_readers,
                 )
                 file_reader.__enter__()
@@ -338,6 +339,7 @@ class BlockScanner:
                 block,
                 self.metastore.file_store,
                 schema.get_merge_key(),
+                schema,
                 self.file_readers,
             )
             with file_reader:

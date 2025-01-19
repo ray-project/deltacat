@@ -15,6 +15,7 @@ from typing import (
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
+from deltacat.storage.rivulet.schema.schema import Schema
 
 FILE_FORMAT = TypeVar("FILE_FORMAT")
 MEMORY_FORMAT = TypeVar("MEMORY_FORMAT")
@@ -48,7 +49,7 @@ class FileReader(
 
     @abstractmethod
     def __init__(
-        self, sst_row: SSTableRow, file_store: FileStore, primary_key: str
+        self, sst_row: SSTableRow, file_store: FileStore, primary_key: str, schema: Schema
     ) -> None:
         """
         Required constructor (see: FileReaderRegistrar)
