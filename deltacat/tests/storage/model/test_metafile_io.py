@@ -2,6 +2,7 @@ import os
 from typing import List, Tuple
 
 import time
+import multiprocessing
 
 import pyarrow as pa
 import pytest
@@ -303,7 +304,70 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
     return list(zip(meta_to_create, metafiles_created, write_paths_copy))
 
 
+def _commit_concurrent_transaction(
+    catalog_root: str,
+    transaction: Transaction,
+) -> None:
+    try:
+        return transaction.commit(catalog_root)
+    except (RuntimeError, ValueError) as e:
+        return e
+
+
 class TestMetafileIO:
+    def test_txn_conflict_concurrent_multiprocess_table_create(self, temp_dir):
+        base_table_name = "test_table"
+        table_locator = TableLocator.at(
+            namespace=None,
+            table_name=base_table_name,
+        )
+        # given a transaction to create a table
+        table = Table.of(
+            locator=table_locator,
+            description="test table description",
+        )
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.CREATE,
+                    dest_metafile=table,
+                )
+            ],
+        )
+        # when K rounds of N concurrent transaction commits try to create the
+        # same table
+        rounds = 25
+        concurrent_commit_count = multiprocessing.cpu_count()
+        results = []
+        with multiprocessing.Pool(processes=concurrent_commit_count) as pool:
+            for round in range(rounds):
+                table.locator.table_name = f"{base_table_name}_{round}"
+                futures = [
+                    pool.apply_async(
+                        _commit_concurrent_transaction, (temp_dir, transaction)
+                    )
+                    for _ in range(concurrent_commit_count)
+                ]
+                results.extend([future.get() for future in futures])
+
+        # expect all but one concurrent transaction to succeed each round
+        exception_count = 0
+        success_results = []
+        for result in results:
+            if isinstance(result, RuntimeError) or isinstance(result, ValueError):
+                exception_count += 1
+            else:
+                success_results.append(result)
+        assert exception_count == concurrent_commit_count * rounds - rounds
+        assert len(success_results) == rounds
+
+        # for the successful transaction committed,
+        # expect the table created to match the table given
+        write_paths, txn_log_path = success_results.pop()
+        deserialized_table = Table.read(write_paths.pop())
+        assert table.equivalent_to(deserialized_table)
+
     def test_txn_dual_commit_fails(self, temp_dir):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
         namespace = Namespace.of(locator=namespace_locator)
