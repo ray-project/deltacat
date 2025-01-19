@@ -71,9 +71,9 @@ a **Name Resolution Directory** to map the object's mutable name or alias back t
 
 **Name Mapping File**
 
-The format of the **Name Mapping File** file is: 
+The format of the **Name Mapping File** file is:
 `<revision_number_padded_20_digits>_<txn_operation_type>_<txn_id>.<object_id>`
-Where `object_id` is the name of the associated object's **Immutable ID** directory. 
+Where `object_id` is the name of the associated object's **Immutable ID** directory.
 Note that (except **Immutable ID**) this is the same format used by **Metadata Revision Files**, and the same process is employed to `create`, `update`, and `delete` name mappings.
 
 ### Transaction Log Directory
