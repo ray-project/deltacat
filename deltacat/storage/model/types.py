@@ -35,6 +35,9 @@ class DeltaType(str, Enum):
 
 
 class TransactionType(str, Enum):
+    # the transaction read existing data
+    # does not conflict with any other transaction types
+    READ = "read"
     # the transaction only appends new data
     # conflicts with other transaction types can be auto-resolved
     APPEND = "append"
@@ -60,6 +63,34 @@ class TransactionOperationType(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+
+    READ_SIBLINGS = "read_siblings"
+    READ_CHILDREN = "read_children"
+    READ_LATEST = "read_latest"
+    READ_EXISTS = "read_exists"
+
+    @staticmethod
+    def write_operations():
+        return {
+            TransactionOperationType.CREATE,
+            TransactionOperationType.UPDATE,
+            TransactionOperationType.DELETE,
+        }
+
+    @staticmethod
+    def read_operations():
+        return {
+            TransactionOperationType.READ_SIBLINGS,
+            TransactionOperationType.READ_CHILDREN,
+            TransactionOperationType.READ_LATEST,
+            TransactionOperationType.READ_EXISTS,
+        }
+
+    def is_write_operation(self) -> bool:
+        return self in TransactionOperationType.write_operations()
+
+    def is_read_operation(self) -> bool:
+        return self in TransactionOperationType.read_operatins()
 
 
 class LifecycleState(str, Enum):

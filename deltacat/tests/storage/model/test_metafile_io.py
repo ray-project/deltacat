@@ -341,8 +341,8 @@ class TestMetafileIO:
         concurrent_commit_count = multiprocessing.cpu_count()
         results = []
         with multiprocessing.Pool(processes=concurrent_commit_count) as pool:
-            for round in range(rounds):
-                table.locator.table_name = f"{base_table_name}_{round}"
+            for round_number in range(rounds):
+                table.locator.table_name = f"{base_table_name}_{round_number}"
                 futures = [
                     pool.apply_async(
                         _commit_concurrent_transaction, (temp_dir, transaction)
@@ -354,19 +354,21 @@ class TestMetafileIO:
         # expect all but one concurrent transaction to succeed each round
         exception_count = 0
         success_results = []
-        for result in results:
+        for i in range(rounds * concurrent_commit_count):
+            result = results[i]
             if isinstance(result, RuntimeError) or isinstance(result, ValueError):
                 exception_count += 1
             else:
                 success_results.append(result)
+                # for the successful transaction committed,
+                # expect the table created to match the table given
+                round_number = i // concurrent_commit_count
+                table.locator.table_name = f"{base_table_name}_{round_number}"
+                write_paths, txn_log_path = result
+                deserialized_table = Table.read(write_paths.pop())
+                assert table.equivalent_to(deserialized_table)
         assert exception_count == concurrent_commit_count * rounds - rounds
         assert len(success_results) == rounds
-
-        # for the successful transaction committed,
-        # expect the table created to match the table given
-        write_paths, txn_log_path = success_results.pop()
-        deserialized_table = Table.read(write_paths.pop())
-        assert table.equivalent_to(deserialized_table)
 
     def test_txn_dual_commit_fails(self, temp_dir):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")

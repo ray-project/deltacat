@@ -88,6 +88,7 @@ from deltacat.storage.model.sort_key import (
     SortScheme,
     SortSchemeList,
 )
+from deltacat.storage.main import impl as metastore
 
 __all__ = [
     "BucketingStrategy",
@@ -119,6 +120,7 @@ __all__ = [
     "ManifestEntryList",
     "ManifestMeta",
     "Metafile",
+    "metastore",
     "MonthTransform",
     "Namespace",
     "NamespaceLocator",
