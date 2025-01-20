@@ -3,6 +3,8 @@ from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet.reader.data_reader import FileReader
 from typing import Type, Dict
 
+from deltacat.storage.rivulet.schema.schema import Schema
+
 
 class FileReaderRegistrar:
     """
@@ -58,6 +60,7 @@ class FileReaderRegistrar:
         sst_row: SSTableRow,
         file_store: FileStore,
         primary_key: str,
+        schema: Schema,
         reader_cache: Dict[str, FileReader] = None,
     ) -> FileReader:
         """
@@ -73,7 +76,7 @@ class FileReaderRegistrar:
             return reader_cache[extension]
 
         reader_class = FileReaderRegistrar.get_reader_class(sst_row.uri)
-        reader_instance = reader_class(sst_row, file_store, primary_key)
+        reader_instance = reader_class(sst_row, file_store, primary_key, schema)
 
         if reader_cache:
             reader_cache[extension] = reader_instance

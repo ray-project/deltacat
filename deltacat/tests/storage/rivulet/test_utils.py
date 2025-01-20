@@ -1,13 +1,14 @@
 import inspect
 import os
 
-from pyarrow import RecordBatch
+from pyarrow import RecordBatch, Table
 
 from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet.writer.dataset_writer import DatasetWriter
 
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
+from deltacat.storage.rivulet.reader.data_scan import DataScan
 from deltacat.storage.rivulet import Schema
 from typing import Dict, List, Generator, Set
 
@@ -94,3 +95,21 @@ def create_dataset_for_method(temp_dir: str):
     return Dataset(
         dataset_name=f"dataset-${caller_frame.function}", metadata_uri=dataset_dir
     )
+
+def verify_pyarrow_scan(scan_result: Generator[RecordBatch, None, None], expected_schema: Schema, expected_data: dict):
+    record_batches = list(scan_result)
+    assert record_batches, "Scan should return at least one record batch."
+
+    combined_table = Table.from_batches(record_batches)
+
+    expected_fields = {field.name for field in expected_schema.values()}
+    scanned_fields = set(combined_table.schema.names)
+    assert scanned_fields == expected_fields, (
+        f"Scanned fields {scanned_fields} do not match expected fields {expected_fields}."
+    )
+
+    for field in expected_fields:
+        assert field in combined_table.column_names, f"Field '{field}' is missing in the scan result."
+        assert combined_table[field].to_pylist() == expected_data[field], (
+            f"Field '{field}' data does not match expected values."
+        )
