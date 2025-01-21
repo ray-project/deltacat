@@ -1,10 +1,9 @@
 import pytest
-from deltacat.tests.storage.rivulet.test_utils import (
-    verify_pyarrow_scan
-)
+from deltacat.tests.storage.rivulet.test_utils import verify_pyarrow_scan
 import pyarrow as pa
 from deltacat.storage.rivulet import Schema, Field, Datatype
 from deltacat.storage.rivulet.dataset import Dataset
+
 
 @pytest.fixture
 def combined_schema():
@@ -18,6 +17,7 @@ def combined_schema():
         ]
     )
 
+
 @pytest.fixture
 def initial_schema():
     return Schema(
@@ -27,6 +27,7 @@ def initial_schema():
             Field("age", Datatype.int32()),
         ]
     )
+
 
 @pytest.fixture
 def extended_schema():
@@ -38,6 +39,7 @@ def extended_schema():
         ]
     )
 
+
 @pytest.fixture
 def sample_data():
     return {
@@ -45,6 +47,7 @@ def sample_data():
         "name": ["Alice", "Bob", "Charlie"],
         "age": [25, 30, 35],
     }
+
 
 @pytest.fixture
 def extended_data():
@@ -54,11 +57,13 @@ def extended_data():
         "gender": ["male", "female", "male"],
     }
 
+
 @pytest.fixture
 def combined_data(sample_data, extended_data):
     data = sample_data.copy()
     data.update(extended_data)
     return data
+
 
 @pytest.fixture
 def parquet_data(tmp_path, sample_data):
@@ -66,6 +71,7 @@ def parquet_data(tmp_path, sample_data):
     table = pa.Table.from_pydict(sample_data)
     pa.parquet.write_table(table, parquet_path)
     return parquet_path
+
 
 @pytest.fixture
 def sample_dataset(parquet_data, tmp_path):
@@ -78,7 +84,13 @@ def sample_dataset(parquet_data, tmp_path):
 
 
 def test_end_to_end_scan_with_multiple_schemas(
-        sample_dataset, initial_schema, extended_schema, combined_schema, sample_data, extended_data, combined_data
+    sample_dataset,
+    initial_schema,
+    extended_schema,
+    combined_schema,
+    sample_data,
+    extended_data,
+    combined_data,
 ):
     # Verify initial scan.
     verify_pyarrow_scan(sample_dataset.scan().to_arrow(), initial_schema, sample_data)
@@ -95,7 +107,13 @@ def test_end_to_end_scan_with_multiple_schemas(
     writer.flush()
 
     # Verify scan with the extended schema retrieves only extended datfa
-    verify_pyarrow_scan(sample_dataset.scan(schema_name="schema2").to_arrow(), extended_schema, extended_data)
+    verify_pyarrow_scan(
+        sample_dataset.scan(schema_name="schema2").to_arrow(),
+        extended_schema,
+        extended_data,
+    )
 
     # Verify a combined scan retrieves data matching the combined schema
-    verify_pyarrow_scan(sample_dataset.scan().to_arrow(), combined_schema, combined_data)
+    verify_pyarrow_scan(
+        sample_dataset.scan().to_arrow(), combined_schema, combined_data
+    )
