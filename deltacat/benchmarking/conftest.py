@@ -14,17 +14,21 @@ from deltacat.types.media import (
 )
 
 
-@pytest.fixture(autouse=True, scope='function')
+@pytest.fixture(autouse=True, scope="function")
 def report(request):
     report = BenchmarkReport(request.node.name)
+
     def final_callback():
-        terminal_reporter: TerminalReporter = request.config.pluginmanager.get_plugin("terminalreporter")
-        capture_manager = request.config.pluginmanager.get_plugin('capturemanager')
+        terminal_reporter: TerminalReporter = request.config.pluginmanager.get_plugin(
+            "terminalreporter"
+        )
+        capture_manager = request.config.pluginmanager.get_plugin("capturemanager")
         with capture_manager.global_and_fixture_disabled():
             terminal_reporter.ensure_newline()
-            terminal_reporter.section(request.node.name, sep='-', blue=True, bold=True)
+            terminal_reporter.section(request.node.name, sep="-", blue=True, bold=True)
             terminal_reporter.write(str(report))
             terminal_reporter.ensure_newline()
+
     request.addfinalizer(final_callback)
     return report
 

@@ -65,12 +65,22 @@ class BenchmarkReport:
             return
         suite = self.runs[0].suite
 
-        headers = [f"{suite} Operation", "Metric", "Unit", *[r.description for r in self.runs]]
+        headers = [
+            f"{suite} Operation",
+            "Metric",
+            "Unit",
+            *[r.description for r in self.runs],
+        ]
         rows = []
         for step_tranche in zip(*[r.steps for r in self.runs]):
             # TODO zip by metric name instead of assuming all metrics are being measured
             step_name = step_tranche[0].description
             for metric_tuple in zip(*[x.list_metrics() for x in step_tranche]):
-                row = [step_name, metric_tuple[0].name, metric_tuple[0].unit, *[p.value for p in metric_tuple]]
+                row = [
+                    step_name,
+                    metric_tuple[0].name,
+                    metric_tuple[0].unit,
+                    *[p.value for p in metric_tuple],
+                ]
                 rows.append(row)
         return tabulate(rows, headers=headers, tablefmt="fancy_outline")

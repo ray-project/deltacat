@@ -1,5 +1,6 @@
 from typing import Protocol, Iterator, Dict, Any
 
+
 class RowGenerator(Protocol):
     def generate(self) -> Dict[str, Any]:
         ...
