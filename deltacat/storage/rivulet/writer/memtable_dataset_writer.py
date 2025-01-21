@@ -220,6 +220,10 @@ class MemtableDatasetWriter(DatasetWriter):
 
         manifest_file = self.location_provider.new_manifest_file_uri()
         self.__write_manifest_file(manifest_file)
+
+        self._sst_files.clear()
+        self._data_files.clear()
+
         return manifest_file.location
 
     def __enter__(self) -> Any:
