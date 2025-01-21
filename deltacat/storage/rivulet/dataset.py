@@ -233,7 +233,9 @@ class Dataset:
         dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
 
         # TODO the file URI never gets stored/saved, do we need to do so?
-        dataset = cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+        dataset = cls(
+            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+        )
 
         # TODO: avoid write! associate fields with their source data.
         writer = dataset.writer()
@@ -246,12 +248,12 @@ class Dataset:
 
     @classmethod
     def from_json(
-            cls,
-            name: str,
-            file_uri: str,
-            merge_keys: str | Iterable[str],
-            metadata_uri: Optional[str] = None,
-            schema_mode: str = "union",
+        cls,
+        name: str,
+        file_uri: str,
+        merge_keys: str | Iterable[str],
+        metadata_uri: Optional[str] = None,
+        schema_mode: str = "union",
     ) -> "Dataset":
         """
         Create a Dataset from a single JSON file.
@@ -279,7 +281,9 @@ class Dataset:
         dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
 
         # Create the Dataset instance
-        dataset = cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+        dataset = cls(
+            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+        )
 
         writer = dataset.writer()
         writer.write(pyarrow_table.to_batches())
@@ -289,12 +293,12 @@ class Dataset:
 
     @classmethod
     def from_csv(
-            cls,
-            name: str,
-            file_uri: str,
-            merge_keys: str | Iterable[str],
-            metadata_uri: Optional[str] = None,
-            schema_mode: str = "union",
+        cls,
+        name: str,
+        file_uri: str,
+        merge_keys: str | Iterable[str],
+        metadata_uri: Optional[str] = None,
+        schema_mode: str = "union",
     ) -> "Dataset":
         """
         Create a Dataset from a single JSON file.
@@ -322,7 +326,9 @@ class Dataset:
         dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
 
         # Create the Dataset instance
-        dataset = cls(dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema)
+        dataset = cls(
+            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+        )
 
         writer = dataset.writer()
         writer.write(table.to_batches())
@@ -334,9 +340,14 @@ class Dataset:
         """Prints the first `num_records` records in the dataset."""
         records = self.scan().to_pydict()
         for record in itertools.islice(records, num_records):
-                print(record)
+            print(record)
 
-    def export(self, file_uri: str, format: str = "parquet", query: QueryExpression=QueryExpression()) -> None:
+    def export(
+        self,
+        file_uri: str,
+        format: str = "parquet",
+        query: QueryExpression = QueryExpression(),
+    ) -> None:
         """Export the dataset to a file.
 
         Args:

@@ -207,8 +207,14 @@ class BlockIntervalTree:
                 f"min_key {min_key} cannot be greater than max_key {max_key}"
             )
 
-        min_key_idx = max(0, bisect_left(key_boundaries, min_key) - 1) if min_key is not None else None
-        max_key_idx = bisect_right(key_boundaries, max_key) + 1 if max_key is not None else None
+        min_key_idx = (
+            max(0, bisect_left(key_boundaries, min_key) - 1)
+            if min_key is not None
+            else None
+        )
+        max_key_idx = (
+            bisect_right(key_boundaries, max_key) + 1 if max_key is not None else None
+        )
         boundary_table = key_boundaries[min_key_idx:max_key_idx]
 
         for lower_bound, upper_bound in pairwise(boundary_table):

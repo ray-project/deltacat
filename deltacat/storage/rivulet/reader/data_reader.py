@@ -49,7 +49,11 @@ class FileReader(
 
     @abstractmethod
     def __init__(
-        self, sst_row: SSTableRow, file_store: FileStore, primary_key: str, schema: Schema
+        self,
+        sst_row: SSTableRow,
+        file_store: FileStore,
+        primary_key: str,
+        schema: Schema,
     ) -> None:
         """
         Required constructor (see: FileReaderRegistrar)

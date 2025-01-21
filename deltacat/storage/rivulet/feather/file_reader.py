@@ -24,7 +24,13 @@ class FeatherFileReader(FileReader[RecordBatchRowIndex]):
     TODO can consider abstracting code between this and ParquetFileReader
     """
 
-    def __init__(self, sst_row: SSTableRow, file_store: FileStore, primary_key: str, schema: Schema):
+    def __init__(
+        self,
+        sst_row: SSTableRow,
+        file_store: FileStore,
+        primary_key: str,
+        schema: Schema,
+    ):
         self.sst_row = sst_row
         self.input = file_store.new_input_file(self.sst_row.uri)
 
@@ -120,7 +126,11 @@ class FeatherFileReader(FileReader[RecordBatchRowIndex]):
             self._pk_col = self._curr_batch[self.key]
             # Filter the batch to only include fields in the schema
             # Pyarrow select will throw a ValueError if the field is not in the schema
-            fields = [field for field in self.schema.keys() if field in self._curr_batch.schema.names]
+            fields = [
+                field
+                for field in self.schema.keys()
+                if field in self._curr_batch.schema.names
+            ]
             self._curr_batch = self._curr_batch.select(fields)
         except ValueError:
             raise StopIteration(f"Ended iteration at batch {self._curr_batch_index}")
