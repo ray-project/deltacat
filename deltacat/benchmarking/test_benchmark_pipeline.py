@@ -1,7 +1,4 @@
 import math
-import shutil
-import tempfile
-from contextlib import contextmanager
 from random import shuffle
 import pytest
 from deltacat.storage.rivulet.dataset import Dataset
@@ -13,7 +10,7 @@ from deltacat.benchmarking.benchmark_report import BenchmarkRun, BenchmarkReport
 from deltacat.benchmarking.benchmark_suite import BenchmarkSuite
 from deltacat.benchmarking.data.random_row_generator import RandomRowGenerator
 from deltacat.benchmarking.data.row_generator import RowGenerator
-
+from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
 pytestmark = pytest.mark.benchmark
 
 
@@ -27,17 +24,6 @@ def schema():
         ],
         "id",
     )
-
-
-@contextmanager
-def make_tmpdir():
-    tmpdir = tempfile.mkdtemp()
-    try:
-        yield tmpdir
-    finally:
-        shutil.rmtree(tmpdir)
-        pass
-
 
 class LoadAndScanSuite(BenchmarkSuite):
     """Load some number of rows and scan"""
@@ -95,7 +81,7 @@ class LoadAndScanSuite(BenchmarkSuite):
 
 
 def test_suite1(schema: Schema, report: BenchmarkReport):
-    with make_tmpdir() as temp_dir:
+    with temp_dir_autocleanup() as temp_dir:
         generator = RandomRowGenerator(123, temp_dir)
         report.add(
             LoadAndScanSuite(
@@ -106,7 +92,7 @@ def test_suite1(schema: Schema, report: BenchmarkReport):
             ).run()
         )
 
-    with make_tmpdir() as temp_dir:
+    with temp_dir_autocleanup() as temp_dir:
         generator = RandomRowGenerator(123, temp_dir)
         report.add(
             LoadAndScanSuite(
