@@ -234,7 +234,6 @@ class TestMultiLayerCompactionEndToEnd:
         output_file = self.file_store.new_output_file(uri)
         self.manifest_io.write(
             output_file,
-            manifest.data_files,
             manifest.sst_files,
             manifest.context.schema,
             level,

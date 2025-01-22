@@ -14,7 +14,6 @@ from deltacat.storage.rivulet import Schema
 def test_write_manifest_round_trip(temp_dir):
     file_store = FileStore()
     manifest_io = JsonManifestIO()
-    data_files = {"file1.parquet", "file2.parquet"}
     sst_files = {"sst1.sst", "sst2.sst"}
     schema = Schema(
         {("id", Datatype.int32()), ("name", Datatype.string())},
@@ -24,11 +23,10 @@ def test_write_manifest_round_trip(temp_dir):
 
     uri = os.path.join(temp_dir, "manifest.json")
     file = file_store.new_output_file(uri)
-    manifest_io.write(file, data_files, sst_files, schema, level)
+    manifest_io.write(file, sst_files, schema, level)
     manifest = manifest_io.read(file.to_input_file())
     assert manifest.context.schema == schema
     assert manifest.context.level == level
-    assert manifest.data_files == data_files
     assert manifest.sst_files == sst_files
 
 
@@ -40,19 +38,16 @@ def test_manifest_hash():
     manifest_context2 = ManifestContext(schema=schema2, stream_position="pos2", level=2)
 
     manifest1 = Manifest(
-        data_files={"file1", "file2"},
         sst_files={"sst1", "sst2"},
         context=manifest_context1,
     )
 
     manifest2 = Manifest(
-        data_files={"file1", "file2"},
         sst_files={"sst1", "sst2"},
         context=manifest_context1,
     )
 
     manifest3 = Manifest(
-        data_files={"file3", "file4"},
         sst_files={"sst3", "sst4"},
         context=manifest_context2,
     )

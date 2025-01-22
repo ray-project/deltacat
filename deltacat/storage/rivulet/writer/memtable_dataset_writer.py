@@ -154,7 +154,6 @@ class MemtableDatasetWriter(DatasetWriter):
         self.sst_writer = sst_writer
         self.manifest_io = manifest_io
 
-        self._data_files: Set[str] = set()
         self._sst_files: Set[str] = set()
         self.__curr_memtable = None
         self.__open_memtables = []
@@ -222,7 +221,6 @@ class MemtableDatasetWriter(DatasetWriter):
         self.__write_manifest_file(manifest_file)
 
         self._sst_files.clear()
-        self._data_files.clear()
 
         return manifest_file.location
 
@@ -282,9 +280,7 @@ class MemtableDatasetWriter(DatasetWriter):
         with self.__rlock:
             self.sst_writer.write(sst_file, sst_metadata_list)
             self._sst_files.add(sst_file.location)
-            self._data_files.update(
-                [sst_metadata.uri for sst_metadata in sst_metadata_list]
-            )
+
             if memtable in self.__open_memtables:
                 self.__open_memtables.remove(memtable)
 
@@ -292,4 +288,4 @@ class MemtableDatasetWriter(DatasetWriter):
         """
         Write the manifest file to the filesystem at the given URI.
         """
-        self.manifest_io.write(file, self._data_files, self._sst_files, self.schema, 0)
+        self.manifest_io.write(file, self._sst_files, self.schema, 0)

@@ -2373,7 +2373,7 @@ class TestMetafileIO:
             stream_format=None,
             partition_values=None,
             partition_id=None,
-            stream_position=1,
+            stream_position=None,
         )
         manifest_entry_params = EntryParams.of(
             equality_field_locators=["some_string", "some_int32"],

@@ -42,10 +42,8 @@ def test_write_after_flush(writer, file_store):
 
     manifest_io = JsonManifestIO()
     manifest_1 = manifest_io.read(file_store.new_input_file(manifest_uri_1))
-    data_files_1 = manifest_1.data_files
     sst_files_1 = manifest_1.sst_files
 
-    assert len(data_files_1) > 0, "First flush: no data files found."
     assert len(sst_files_1) > 0, "First flush: no SST files found."
     assert manifest_1.context.schema == writer.schema, "Schema mismatch in first flush."
 
@@ -53,15 +51,11 @@ def test_write_after_flush(writer, file_store):
     manifest_uri_2 = writer.flush()
 
     manifest_2 = manifest_io.read(file_store.new_input_file(manifest_uri_2))
-    data_files_2 = manifest_2.data_files
     sst_files_2 = manifest_2.sst_files
 
-    assert len(data_files_2) > 0, "Second flush: no data files found."
     assert len(sst_files_2) > 0, "Second flush: no SST files found."
 
     # ensures data_files and sst_files from first write are not included in second write.
-    assert data_files_1.isdisjoint(data_files_2), \
-        "Expected no overlap of data files between first and second flush."
     assert sst_files_1.isdisjoint(sst_files_2), \
         "Expected no overlap of SST files between first and second flush."
     assert manifest_2.context.schema == writer.schema, "Schema mismatch in second flush."
