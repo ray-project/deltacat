@@ -1,4 +1,4 @@
-All the dependences needed to test are in dev-requirements.txt
+All the dependencies needed to test are in dev-requirements.txt
 
 You can run these tests via:
 

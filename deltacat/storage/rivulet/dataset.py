@@ -28,7 +28,6 @@ import pyarrow.parquet
 
 # These are the hardcoded default schema names
 ALL = "all"
-ALL = "all"
 DEFAULT = "default"
 
 
