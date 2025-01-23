@@ -11,6 +11,7 @@ from deltacat.benchmarking.benchmark_suite import BenchmarkSuite
 from deltacat.benchmarking.data.random_row_generator import RandomRowGenerator
 from deltacat.benchmarking.data.row_generator import RowGenerator
 from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
+
 pytestmark = pytest.mark.benchmark
 
 
@@ -24,6 +25,7 @@ def schema():
         ],
         "id",
     )
+
 
 class LoadAndScanSuite(BenchmarkSuite):
     """Load some number of rows and scan"""
