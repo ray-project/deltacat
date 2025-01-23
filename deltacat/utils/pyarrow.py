@@ -47,6 +47,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 RAISE_ON_EMPTY_CSV_KWARG = "raise_on_empty_csv"
 READER_TYPE_KWARG = "reader_type"
+OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG = "override_content_encoding_for_parquet"
 
 """
 By default, round decimal values using half_to_even round mode when
@@ -542,6 +543,15 @@ def s3_file_to_table(
 
     if pa_read_func_kwargs_provider is not None:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    if OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG in kwargs:
+        new_content_encoding = kwargs.pop(OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG)
+        if content_type == ContentType.PARQUET.value:
+            logger.debug(
+                f"Overriding {s3_url} content encoding from {content_encoding} "
+                f"to {new_content_encoding}"
+            )
+            content_encoding = new_content_encoding
 
     if (
         content_type == ContentType.PARQUET.value
