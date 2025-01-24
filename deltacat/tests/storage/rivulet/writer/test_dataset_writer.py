@@ -24,7 +24,8 @@ class TestWriter:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.file_store = FileStore()
+        path, filesystem = FileStore.filesystem(cls.temp_dir)
+        cls.file_store = FileStore(path, filesystem)
 
     @classmethod
     def teardown_class(cls):
