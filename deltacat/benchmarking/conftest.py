@@ -4,12 +4,33 @@ import pyarrow as pa
 import pyarrow.fs as pafs
 import pyarrow.parquet as papq
 import pytest
+from _pytest.terminal import TerminalReporter
 
+from deltacat.benchmarking.benchmark_report import BenchmarkReport
 from deltacat.utils.pyarrow import s3_file_to_table
 from deltacat.types.media import (
     ContentEncoding,
     ContentType,
 )
+
+
+@pytest.fixture(autouse=True, scope="function")
+def report(request):
+    report = BenchmarkReport(request.node.name)
+
+    def final_callback():
+        terminal_reporter: TerminalReporter = request.config.pluginmanager.get_plugin(
+            "terminalreporter"
+        )
+        capture_manager = request.config.pluginmanager.get_plugin("capturemanager")
+        with capture_manager.global_and_fixture_disabled():
+            terminal_reporter.ensure_newline()
+            terminal_reporter.section(request.node.name, sep="-", blue=True, bold=True)
+            terminal_reporter.write(str(report))
+            terminal_reporter.ensure_newline()
+
+    request.addfinalizer(final_callback)
+    return report
 
 
 def pyarrow_read(path: str, columns: list[str] | None = None) -> pa.Table:

@@ -1,19 +1,15 @@
-import shutil
 import tempfile
 
 import pytest
 
-from contextlib import contextmanager
+
+from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
 
 
-@contextmanager
 @pytest.fixture
 def temp_dir():
-    tmpdir = tempfile.mkdtemp()
-    try:
-        yield tmpdir
-    finally:
-        shutil.rmtree(tmpdir)
+    with temp_dir_autocleanup() as tmp_dir:
+        yield tmp_dir
 
 
 @pytest.fixture
