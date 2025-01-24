@@ -12,7 +12,8 @@ from deltacat.storage.rivulet import Schema
 
 
 def test_write_manifest_round_trip(temp_dir):
-    file_store = FileStore()
+    path, filesystem = FileStore.filesystem(temp_dir)
+    file_store = FileStore(path, filesystem=filesystem)
     manifest_io = JsonManifestIO()
     data_files = {"file1.parquet", "file2.parquet"}
     sst_files = {"sst1.sst", "sst2.sst"}
@@ -23,7 +24,7 @@ def test_write_manifest_round_trip(temp_dir):
     level = 2
 
     uri = os.path.join(temp_dir, "manifest.json")
-    file = file_store.new_output_file(uri)
+    file = file_store.create_output_file(uri)
     manifest_io.write(file, data_files, sst_files, schema, level)
     manifest = manifest_io.read(file.to_input_file())
     assert manifest.context.schema == schema

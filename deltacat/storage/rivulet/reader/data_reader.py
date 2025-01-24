@@ -13,7 +13,7 @@ from typing import (
     Optional,
 )
 
-from deltacat.storage.rivulet.fs.file_store import FileStore
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet.schema.schema import Schema
 
@@ -51,7 +51,7 @@ class FileReader(
     def __init__(
         self,
         sst_row: SSTableRow,
-        file_store: FileStore,
+        file_provider: FileProvider,
         primary_key: str,
         schema: Schema,
     ) -> None:

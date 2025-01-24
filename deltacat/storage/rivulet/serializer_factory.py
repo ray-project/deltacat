@@ -3,7 +3,7 @@ from __future__ import annotations
 from deltacat.storage.rivulet.parquet.serializer import ParquetDataSerializer
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.serializer import DataSerializer
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 
 from deltacat.storage.rivulet.feather.serializer import FeatherDataSerializer
 
@@ -21,13 +21,13 @@ class DataSerializerFactory:
     def get_serializer(
         self,
         schema: Schema,
-        location_provider: FileLocationProvider,
+        file_provider: FileProvider,
         user_provided_format: str | None = None,
     ) -> DataSerializer:
         if user_provided_format == "parquet":
-            return ParquetDataSerializer(location_provider, schema)
+            return ParquetDataSerializer(file_provider, schema)
         elif user_provided_format == "feather":
-            return FeatherDataSerializer(location_provider, schema)
+            return FeatherDataSerializer(file_provider, schema)
         elif user_provided_format is not None:
             raise ValueError("Unsupported format. Must be 'parquet' or 'feather'.")
 
@@ -37,6 +37,6 @@ class DataSerializerFactory:
             for field in schema.values()
         )
         if has_binary_or_image:
-            return FeatherDataSerializer(location_provider, schema)
+            return FeatherDataSerializer(file_provider, schema)
         else:
-            return ParquetDataSerializer(location_provider, schema)
+            return ParquetDataSerializer(file_provider, schema)

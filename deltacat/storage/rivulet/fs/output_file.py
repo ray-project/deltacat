@@ -1,7 +1,11 @@
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+import posixpath
 from typing import Protocol
 
-from deltacat.storage.rivulet.fs.input_file import InputFile
+from pyarrow.fs import FileSystem, FileType
+
+from deltacat.storage.rivulet.fs.input_file import FSInputFile, InputFile
 
 
 class OutputStream(Protocol):  # pragma: no cover
@@ -54,3 +58,29 @@ class OutputFile(ABC):
         Raises:
             PermissionError: If this has insufficient permissions to access the file at location.
         """
+
+
+class FSOutputFile(OutputFile):
+    def __init__(self, location: str, fs: FileSystem):
+        self._location = location
+        self.fs = fs
+
+    def exists(self) -> bool:
+        file_info = self.fs.get_file_info(self._location)
+        return file_info.type != FileType.NotFound
+
+    def to_input_file(self) -> "FSInputFile":
+        return FSInputFile(self._location, self.fs)
+
+    @contextmanager
+    def create(self):
+        """Create and open the file for writing."""
+        try:
+            parent_dir = posixpath.dirname(self._location)
+            if parent_dir:  # Check if there's a parent directory to create
+                self.fs.create_dir(parent_dir, recursive=True)
+
+            with self.fs.open_output_stream(self._location) as output_stream:
+                yield output_stream
+        except Exception as e:
+            raise IOError(f"Failed to create or write to file '{self._location}': {e}")

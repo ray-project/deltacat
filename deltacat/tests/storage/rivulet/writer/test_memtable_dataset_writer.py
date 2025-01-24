@@ -1,6 +1,6 @@
 import pytest
 
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.manifest import JsonManifestIO
 from deltacat.storage.rivulet import Schema
@@ -22,20 +22,26 @@ def test_schema():
 
 
 @pytest.fixture
-def location_provider(tmp_path):
-    return FileLocationProvider(str(tmp_path))
+def resolve_path_and_filesystem(tmp_path):
+    return FileStore.filesystem(tmp_path)
 
 
 @pytest.fixture
-def file_store():
-    return FileStore()
+def file_provider(resolve_path_and_filesystem):
+    path, filesystem = resolve_path_and_filesystem
+    file_store = FileStore(path, filesystem)
+    return FileProvider(path, file_store)
 
 
 @pytest.fixture
-def writer(location_provider, test_schema):
-    return MemtableDatasetWriter(
-        location_provider=location_provider, schema=test_schema
-    )
+def file_store(resolve_path_and_filesystem):
+    path, filesystem = resolve_path_and_filesystem
+    return FileStore(path, filesystem=filesystem)
+
+
+@pytest.fixture
+def writer(file_provider, test_schema):
+    return MemtableDatasetWriter(file_provider=file_provider, schema=test_schema)
 
 
 def test_write_after_flush(writer, file_store):
@@ -43,7 +49,7 @@ def test_write_after_flush(writer, file_store):
     manifest_uri_1 = writer.flush()
 
     manifest_io = JsonManifestIO()
-    manifest_1 = manifest_io.read(file_store.new_input_file(manifest_uri_1))
+    manifest_1 = manifest_io.read(file_store.create_input_file(manifest_uri_1))
     data_files_1 = manifest_1.data_files
     sst_files_1 = manifest_1.sst_files
 
@@ -54,7 +60,7 @@ def test_write_after_flush(writer, file_store):
     writer.write_dict({"id": 200, "name": "gamma"})
     manifest_uri_2 = writer.flush()
 
-    manifest_2 = manifest_io.read(file_store.new_input_file(manifest_uri_2))
+    manifest_2 = manifest_io.read(file_store.create_input_file(manifest_uri_2))
     data_files_2 = manifest_2.data_files
     sst_files_2 = manifest_2.sst_files
 
