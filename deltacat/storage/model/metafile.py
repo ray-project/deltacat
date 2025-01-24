@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import copy
-import re
 import datetime
 import time
 
@@ -14,14 +13,7 @@ import pyarrow.fs
 import posixpath
 import uuid
 
-from pyarrow.fs import (
-    FileInfo,
-    FileSelector,
-    FileType,
-)
-
 # TODO(pdames): Create internal DeltaCAT port
-from ray.data.datasource.path_util import _resolve_paths_and_filesystem
 
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
@@ -29,133 +21,16 @@ from deltacat.storage.model.types import (
     TransactionType,
     TransactionOperationType,
 )
+from deltacat.utils.filesystem import (
+    resolve_path_and_filesystem,
+    list_directory,
+    get_file_info,
+)
 
 TXN_PART_SEPARATOR = "_"
 TXN_DIR_NAME: str = "txn"
 REVISION_DIR_NAME: str = "rev"
 METAFILE_EXT = ".mpk"
-
-
-def _filesystem(
-    path: str,
-    filesystem: Optional[pyarrow.fs.FileSystem] = None,
-) -> Tuple[str, pyarrow.fs.FileSystem]:
-    """
-    Normalizes the input path and resolves a corresponding file system.
-    :param path: A file or directory path.
-    :param filesystem: File system to use for path IO.
-    :return: Normalized path and resolved file system for that path.
-    """
-    # TODO(pdames): resolve and cache filesystem at catalog root level
-    #   ensure returned paths are normalized as posix paths
-    paths, filesystem = _resolve_paths_and_filesystem(
-        paths=path,
-        filesystem=filesystem,
-    )
-    assert len(paths) == 1, len(paths)
-    return paths[0], filesystem
-
-
-def _handle_read_os_error(
-    error: OSError,
-    paths: Union[str, List[str]],
-) -> str:
-    # NOTE: this is not comprehensive yet, and should be extended as more errors arise.
-    # NOTE: The latter patterns are raised in Arrow 10+, while the former is raised in
-    # Arrow < 10.
-    aws_error_pattern = (
-        r"^(?:(.*)AWS Error \[code \d+\]: No response body\.(.*))|"
-        r"(?:(.*)AWS Error UNKNOWN \(HTTP status 400\) during HeadObject operation: "
-        r"No response body\.(.*))|"
-        r"(?:(.*)AWS Error ACCESS_DENIED during HeadObject operation: No response "
-        r"body\.(.*))$"
-    )
-    if re.match(aws_error_pattern, str(error)):
-        # Specially handle AWS error when reading files, to give a clearer error
-        # message to avoid confusing users. The real issue is most likely that the AWS
-        # S3 file credentials have not been properly configured yet.
-        if isinstance(paths, str):
-            # Quote to highlight single file path in error message for better
-            # readability. List of file paths will be shown up as ['foo', 'boo'],
-            # so only quote single file path here.
-            paths = f'"{paths}"'
-        raise OSError(
-            (
-                f"Failing to read AWS S3 file(s): {paths}. "
-                "Please check that file exists and has properly configured access. "
-                "You can also run AWS CLI command to get more detailed error message "
-                "(e.g., aws s3 ls <file-name>). "
-                "See https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3/index.html "  # noqa
-                "and https://docs.ray.io/en/latest/data/creating-datasets.html#reading-from-remote-storage "  # noqa
-                "for more information."
-            )
-        )
-    else:
-        raise error
-
-
-def _list_directory(
-    path: str,
-    filesystem: pyarrow.fs.FileSystem,
-    exclude_prefixes: Optional[List[str]] = None,
-    ignore_missing_path: bool = False,
-    recursive: bool = False,
-) -> List[Tuple[str, int]]:
-    """
-    Expand the provided directory path to a list of file paths.
-
-    Args:
-        path: The directory path to expand.
-        filesystem: The filesystem implementation that should be used for
-            reading these files.
-        exclude_prefixes: The file relative path prefixes that should be
-            excluded from the returned file set. Default excluded prefixes are
-            "." and "_".
-        recursive: Whether to expand subdirectories or not.
-
-    Returns:
-        An iterator of (file_path, file_size) tuples.
-    """
-    if exclude_prefixes is None:
-        exclude_prefixes = [".", "_"]
-
-    selector = FileSelector(
-        base_dir=path,
-        recursive=recursive,
-        allow_not_found=ignore_missing_path,
-    )
-    try:
-        files = filesystem.get_file_info(selector)
-    except OSError as e:
-        _handle_read_os_error(e, path)
-    base_path = selector.base_dir
-    out = []
-    for file_ in files:
-        file_path = file_.path
-        if not file_path.startswith(base_path):
-            continue
-        relative = file_path[len(base_path) :]
-        if any(relative.startswith(prefix) for prefix in exclude_prefixes):
-            continue
-        out.append((file_path, file_.size))
-    # We sort the paths to guarantee a stable order.
-    return sorted(out)
-
-
-def _get_file_info(
-    path: str,
-    filesystem: pyarrow.fs.FileSystem,
-    ignore_missing_path: bool = False,
-) -> Union[FileInfo, List[FileInfo]]:
-    """Get the file info or list of file infos for the provided path."""
-    try:
-        file_info = filesystem.get_file_info(path)
-    except OSError as e:
-        _handle_read_os_error(e, path)
-    if file_info.type == FileType.NotFound and not ignore_missing_path:
-        raise FileNotFoundError(path)
-
-    return file_info
 
 
 class TransactionOperation(dict):
@@ -338,8 +213,8 @@ class Transaction(dict):
         """
         # TODO(pdames): Validate that input file path is a valid txn log.
         if not filesystem:
-            path, fs = _filesystem(path, filesystem)
-        file_info = _get_file_info(
+            path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        file_info = get_file_info(
             path=path,
             filesystem=filesystem,
             ignore_missing_path=True,
@@ -368,8 +243,8 @@ class Transaction(dict):
         :return: Deserialized object from the Transaction file.
         """
         if not filesystem:
-            path, fs = _filesystem(path, filesystem)
-        with fs.open_input_stream(path) as file:
+            path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_input_stream(path) as file:
             binary = file.readall()
         obj = cls(**msgpack.loads(binary))
         return obj
@@ -464,11 +339,11 @@ class Transaction(dict):
         txn_log_file_parts = txn_log_file_name.split(TXN_PART_SEPARATOR)
         try:
             start_time = int(txn_log_file_parts[0])
-        except ValueError:
+        except ValueError as e:
             raise ValueError(
                 f"Transaction log file `{txn_log_file_path}` does not "
                 f"contain a valid start time."
-            )
+            ) from e
         if start_time < 0:
             raise ValueError(
                 f"Transaction log file `{txn_log_file_path}` does not "
@@ -483,33 +358,26 @@ class Transaction(dict):
         txn_uuid_str = txn_log_file_parts[1]
         try:
             uuid.UUID(txn_uuid_str)
-        except ValueError:
+        except ValueError as e:
             raise OSError(
                 f"Transaction log file `{txn_log_file_path}` does not "
                 f"contain a valid UUID string."
-            )
+            ) from e
         end_time = Transaction.end_time(
             path=txn_log_file_path,
             filesystem=filesystem,
         )
-        if end_time - start_time < 0:
-            try:
-                filesystem.delete_file(txn_log_file_path)
-            except Exception as e:
-                raise OSError(
-                    f"Failed to cleanup bad transaction log file at `{txn_log_file_path}`"
-                ) from e
-            finally:
-                raise OSError(
-                    f"Transaction end time {end_time} is earlier than start "
-                    f"time {start_time}! This may indicate a problem "
-                    f"with either the system clock on the host serving the "
-                    f"transaction, or a loss of precision in the filesystem "
-                    f"recording the completed transaction file timestamp (at "
-                    f"least millisecond precision is required). To preserve "
-                    f"catalog integrity, the corresponding completed "
-                    f"transaction log at `{txn_log_file_path}` has been removed."
-                )
+        if end_time < start_time:
+            raise OSError(
+                f"Transaction end time {end_time} is earlier than start "
+                f"time {start_time}! This may indicate a problem "
+                f"with either the system clock on the host serving the "
+                f"transaction, or a loss of precision in the filesystem "
+                f"recording the completed transaction file timestamp (at "
+                f"least millisecond precision is required). To preserve "
+                f"catalog integrity, the corresponding completed "
+                f"transaction log at `{txn_log_file_path}` has been removed."
+            )
 
     def commit(
         self,
@@ -528,7 +396,9 @@ class Transaction(dict):
 
         # create the transaction directory first to telegraph that at least 1
         # transaction at this root has been attempted
-        catalog_root_normalized, filesystem = _filesystem(catalog_root_dir, filesystem)
+        catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+            catalog_root_dir, filesystem
+        )
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
         filesystem.create_dir(txn_log_dir, recursive=True)
 
@@ -599,10 +469,25 @@ class Transaction(dict):
         with filesystem.open_output_stream(txn_log_file_path) as file:
             packed = msgpack.dumps(self.to_serializable())
             file.write(packed)
-        Transaction._validate_txn_log_file(
-            txn_log_file_path=txn_log_file_path,
-            filesystem=filesystem,
-        )
+        try:
+            Transaction._validate_txn_log_file(
+                txn_log_file_path=txn_log_file_path,
+                filesystem=filesystem,
+            )
+        except Exception as e1:
+            try:
+                filesystem.delete_file(txn_log_file_path)
+            except Exception as e2:
+                raise OSError(
+                    f"Failed to cleanup bad transaction log file at "
+                    f"`{txn_log_file_path}`"
+                ) from e2
+            finally:
+                raise RuntimeError(
+                    f"Transaction validation failed. To preserve "
+                    f"catalog integrity, the corresponding completed "
+                    f"transaction log at `{txn_log_file_path}` has been removed."
+                ) from e1
         return metafile_write_paths, txn_log_file_path
 
 
@@ -860,7 +745,7 @@ class MetafileRevisionInfo(dict):
         filesystem: pyarrow.fs.FileSystem,
         ignore_missing_revision: bool = False,
     ) -> List[str]:
-        file_paths_and_sizes = _list_directory(
+        file_paths_and_sizes = list_directory(
             path=revision_dir_path,
             filesystem=filesystem,
             ignore_missing_path=True,
@@ -1071,7 +956,8 @@ class Metafile(dict):
         :param filesystem: File system to use for reading the metadata file.
         :return: Deserialized object from the metadata file.
         """
-        path, filesystem = _filesystem(path, filesystem)
+        if not filesystem:
+            path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path) as file:
             binary = file.readall()
         obj = cls(**msgpack.loads(binary)).from_serializable(path, filesystem)
@@ -1098,17 +984,18 @@ class Metafile(dict):
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
         """
-        path, fs = _filesystem(
-            path=catalog_root_dir,
-            filesystem=filesystem,
-        )
+        if not filesystem:
+            catalog_root_dir, filesystem = resolve_path_and_filesystem(
+                path=catalog_root_dir,
+                filesystem=filesystem,
+            )
         self._write_metafile_revisions(
-            catalog_root=path,
+            catalog_root=catalog_root_dir,
             txn_log_dir=txn_log_dir,
             current_txn_op=current_txn_op,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
-            filesystem=fs,
+            filesystem=filesystem,
         )
 
     def write(
@@ -1123,7 +1010,8 @@ class Metafile(dict):
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
         """
-        path, filesystem = _filesystem(path, filesystem)
+        if not filesystem:
+            path, filesystem = resolve_path_and_filesystem(path, filesystem)
         revision_dir_path = posixpath.dirname(path)
         filesystem.create_dir(revision_dir_path, recursive=True)
         with filesystem.open_output_stream(path) as file:
@@ -1224,7 +1112,7 @@ class Metafile(dict):
         Retrieve all children of this object.
         :return: ListResult containing all children of this object.
         """
-        catalog_root, filesystem = _filesystem(
+        catalog_root, filesystem = resolve_path_and_filesystem(
             catalog_root,
             filesystem,
         )
@@ -1261,7 +1149,7 @@ class Metafile(dict):
         Retrieve all siblings of this object.
         :return: ListResult containing all siblings of this object.
         """
-        catalog_root, filesystem = _filesystem(
+        catalog_root, filesystem = resolve_path_and_filesystem(
             catalog_root,
             filesystem,
         )
@@ -1295,7 +1183,7 @@ class Metafile(dict):
         Retrieve all revisions of this object.
         :return: ListResult containing all revisions of this object.
         """
-        catalog_root, filesystem = _filesystem(
+        catalog_root, filesystem = resolve_path_and_filesystem(
             catalog_root,
             filesystem,
         )
@@ -1382,7 +1270,7 @@ class Metafile(dict):
         """
         ancestor_ids = self.get("ancestor_ids") or []
         if not ancestor_ids:
-            catalog_root, filesystem = _filesystem(
+            catalog_root, filesystem = resolve_path_and_filesystem(
                 path=catalog_root,
                 filesystem=filesystem,
             )
@@ -1410,7 +1298,7 @@ class Metafile(dict):
                     ancestor_id,
                 )
                 try:
-                    _get_file_info(
+                    get_file_info(
                         path=metafile_root,
                         filesystem=filesystem,
                     )
@@ -1661,7 +1549,7 @@ class Metafile(dict):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         limit: Optional[int] = None,
     ) -> ListResult[Metafile]:
-        file_paths_and_sizes = _list_directory(
+        file_paths_and_sizes = list_directory(
             path=metafile_root_dir_path,
             filesystem=filesystem,
             ignore_missing_path=True,
@@ -1708,7 +1596,7 @@ class Metafile(dict):
         Retrieve all ancestor IDs of this object.
         :return: List of ancestor IDs of this object.
         """
-        catalog_root, filesystem = _filesystem(
+        catalog_root, filesystem = resolve_path_and_filesystem(
             catalog_root,
             filesystem,
         )

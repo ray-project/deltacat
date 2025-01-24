@@ -55,9 +55,9 @@ from deltacat.storage import (
 from deltacat.storage.model.metafile import (
     TXN_DIR_NAME,
     Metafile,
-    _filesystem,
     MetafileRevisionInfo,
 )
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 
 def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, str]]:
@@ -339,7 +339,6 @@ class TestMetafileIO:
         # same table
         rounds = 25
         concurrent_commit_count = multiprocessing.cpu_count()
-        results = []
         with multiprocessing.Pool(processes=concurrent_commit_count) as pool:
             for round_number in range(rounds):
                 table.locator.table_name = f"{base_table_name}_{round_number}"
@@ -349,26 +348,20 @@ class TestMetafileIO:
                     )
                     for _ in range(concurrent_commit_count)
                 ]
-                results.extend([future.get() for future in futures])
-
-        # expect all but one concurrent transaction to succeed each round
-        exception_count = 0
-        success_results = []
-        for i in range(rounds * concurrent_commit_count):
-            result = results[i]
-            if isinstance(result, RuntimeError) or isinstance(result, ValueError):
-                exception_count += 1
-            else:
-                success_results.append(result)
-                # for the successful transaction committed,
-                # expect the table created to match the table given
-                round_number = i // concurrent_commit_count
-                table.locator.table_name = f"{base_table_name}_{round_number}"
-                write_paths, txn_log_path = result
-                deserialized_table = Table.read(write_paths.pop())
-                assert table.equivalent_to(deserialized_table)
-        assert exception_count == concurrent_commit_count * rounds - rounds
-        assert len(success_results) == rounds
+                # expect all but one concurrent transaction to succeed each round
+                results = [future.get() for future in futures]
+                conflict_exception_count = 0
+                for result in results:
+                    # TODO(pdames): Add new concurrent conflict exception types.
+                    if isinstance(result, RuntimeError) or isinstance(
+                        result, ValueError
+                    ):
+                        conflict_exception_count += 1
+                    else:
+                        write_paths, txn_log_path = result
+                        deserialized_table = Table.read(write_paths.pop())
+                        assert table.equivalent_to(deserialized_table)
+                assert conflict_exception_count == concurrent_commit_count - 1
 
     def test_txn_dual_commit_fails(self, temp_dir):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
@@ -418,7 +411,7 @@ class TestMetafileIO:
             txn_operations=txn_operations,
         )
         # expect the bad timestamp to be detected and its commit to fail
-        with pytest.raises(OSError):
+        with pytest.raises(RuntimeError):
             transaction.commit(temp_dir)
 
     def test_txn_conflict_concurrent_complete(self, temp_dir, mocker):
@@ -437,7 +430,7 @@ class TestMetafileIO:
         mri.txn_op_type = TransactionOperationType.UPDATE
         mri.revision = mri.revision + 1
         conflict_delta_write_path = mri.path
-        _, filesystem = _filesystem(orig_delta_write_path)
+        _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
         with filesystem.open_output_stream(conflict_delta_write_path):
             pass  # Just create an empty conflicting metafile revision
         txn_log_file_path = os.path.join(temp_dir, TXN_DIR_NAME, mri.txn_id)
@@ -489,7 +482,7 @@ class TestMetafileIO:
         mri.txn_op_type = TransactionOperationType.DELETE
         mri.revision = mri.revision + 1
         conflict_delta_write_path = mri.path
-        _, filesystem = _filesystem(orig_delta_write_path)
+        _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
         with filesystem.open_output_stream(conflict_delta_write_path):
             pass  # Just create an empty conflicting metafile revision
 
@@ -540,7 +533,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed
         write_paths, txn_log_path = transaction.commit(temp_dir)
-        # expect 3 new metafiles to be written
+        # expect all new deltas to be successfully written
         assert len(write_paths) == delta_append_count
         for i in range(len(write_paths)):
             actual_delta = Delta.read(write_paths[i])
