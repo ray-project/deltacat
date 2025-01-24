@@ -9,9 +9,13 @@ import pathlib
 
 import pyarrow
 from pyarrow.fs import (
+    _resolve_filesystem_and_path,
     FileSelector,
     FileInfo,
     FileType,
+    FileSystem,
+    FSSpecHandler,
+    PyFileSystem,
 )
 
 _LOCAL_SCHEME = "local"
@@ -35,14 +39,6 @@ def resolve_paths_and_filesystem(
             filesystems inferred from the provided paths to ensure
             compatibility.
     """
-    import pyarrow as pa
-    from pyarrow.fs import (
-        FileSystem,
-        FSSpecHandler,
-        PyFileSystem,
-        _resolve_filesystem_and_path,
-    )
-
     if isinstance(paths, str):
         paths = [paths]
     if isinstance(paths, pathlib.Path):
