@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Optional
 
 import pyarrow
 
-from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo, TXN_DIR_NAME
+from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
+from deltacat.constants import TXN_DIR_NAME
 from deltacat.storage.model.manifest import (
     Manifest,
     ManifestMeta,

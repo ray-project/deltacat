@@ -9,7 +9,8 @@ import pyarrow as pa
 
 import deltacat.storage.model.partition as partition
 
-from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo, TXN_DIR_NAME
+from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
+from deltacat.constants import TXN_DIR_NAME
 from deltacat.storage.model.schema import Schema, SchemaList
 from deltacat.storage.model.locator import (
     Locator,

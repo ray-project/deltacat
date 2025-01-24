@@ -8,7 +8,8 @@ import pyarrow as pa
 
 from typing import Any, Dict, List, Optional
 
-from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo, TXN_DIR_NAME
+from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
+from deltacat.constants import TXN_DIR_NAME
 from deltacat.storage.model.schema import (
     FieldLocator,
     Schema,

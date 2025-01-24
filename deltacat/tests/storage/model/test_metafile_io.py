@@ -46,17 +46,17 @@ from deltacat.storage import (
     TableVersionLocator,
     TableVersion,
     Transaction,
-    TransactionType,
     TransactionOperation,
+    TransactionType,
     TransactionOperationType,
     TruncateTransform,
     TruncateTransformParameters,
 )
 from deltacat.storage.model.metafile import (
-    TXN_DIR_NAME,
     Metafile,
     MetafileRevisionInfo,
 )
+from deltacat.constants import TXN_DIR_NAME
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 
@@ -394,7 +394,7 @@ class TestMetafileIO:
         # given a transaction with an ending timestamp set in the past
         past_timestamp = time.time_ns() // 1_000_000 - 1000
         mocker.patch(
-            "deltacat.storage.model.metafile.Transaction.end_time",
+            "deltacat.storage.model.transaction.Transaction.end_time",
             return_value=past_timestamp,
         )
         original_delta: Delta = commit_results[5][1]
@@ -443,7 +443,7 @@ class TestMetafileIO:
         past_timestamp = time.time_ns() // 1_000_000 - 1000
         future_timestamp = 9999999999999
         end_time_mock = mocker.patch(
-            "deltacat.storage.model.metafile.Transaction.end_time",
+            "deltacat.storage.model.transaction.Transaction.end_time",
         )
         end_time_mock.side_effect = (
             lambda path, filesystem: future_timestamp

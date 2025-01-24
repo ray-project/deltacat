@@ -16,8 +16,10 @@ from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.metafile import (
     Metafile,
-    Transaction,
+)
+from deltacat.storage.model.transaction import (
     TransactionOperation,
+    Transaction,
 )
 from deltacat.storage.model.namespace import (
     Namespace,
@@ -149,9 +151,7 @@ __all__ = [
     "TableVersion",
     "TableVersionLocator",
     "TableVersionProperties",
-    "Transaction",
     "TransactionType",
-    "TransactionOperation",
     "TransactionOperationType",
     "Transform",
     "TransformName",
