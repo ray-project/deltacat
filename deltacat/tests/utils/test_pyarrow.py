@@ -8,6 +8,7 @@ from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowSchemaOverride,
     RAISE_ON_EMPTY_CSV_KWARG,
     RAISE_ON_DECIMAL_OVERFLOW,
+    OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG,
 )
 import decimal
 from deltacat.types.media import ContentEncoding, ContentType
@@ -800,6 +801,57 @@ class TestS3FileToTable(TestCase):
 
         result = s3_file_to_table(
             PARQUET_GZIP_COMPRESSED_FILE_PATH,
+            ContentType.PARQUET.value,
+            ContentEncoding.GZIP.value,
+            ["n_legs", "animal"],
+            ["n_legs"],
+            pa_read_func_kwargs_provider=pa_kwargs_provider,
+        )
+
+        self.assertEqual(len(result), 6)
+        self.assertEqual(len(result.column_names), 1)
+        schema = result.schema
+        schema_index = schema.get_field_index("n_legs")
+        self.assertEqual(schema.field(schema_index).type, "int64")
+
+    def test_s3_file_to_table_when_utsv_gzip_and_content_type_overridden(self):
+        schema = pa.schema(
+            [("is_active", pa.string()), ("ship_datetime_utc", pa.timestamp("us"))]
+        )
+
+        # OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG has no effect on uTSV files
+        pa_kwargs_provider = lambda content_type, kwargs: {
+            "reader_type": "pyarrow",
+            OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG: ContentEncoding.IDENTITY.value,
+            **kwargs,
+        }
+
+        result = s3_file_to_table(
+            GZIP_COMPRESSED_FILE_UTSV_PATH,
+            ContentType.UNESCAPED_TSV.value,
+            ContentEncoding.GZIP.value,
+            ["is_active", "ship_datetime_utc"],
+            None,
+            pa_read_func_kwargs_provider=pa_kwargs_provider,
+        )
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(len(result.column_names), 2)
+        result_schema = result.schema
+        for index, field in enumerate(result_schema):
+            self.assertEqual(field.name, schema.field(index).name)
+
+        self.assertEqual(result.schema.field(0).type, "string")
+
+    def test_s3_file_to_table_when_parquet_gzip_and_encoding_overridden(self):
+        pa_kwargs_provider = lambda content_type, kwargs: {
+            "reader_type": "pyarrow",
+            OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG: ContentEncoding.IDENTITY.value,
+            **kwargs,
+        }
+
+        result = s3_file_to_table(
+            PARQUET_FILE_PATH,
             ContentType.PARQUET.value,
             ContentEncoding.GZIP.value,
             ["n_legs", "animal"],
