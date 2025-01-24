@@ -40,8 +40,8 @@ def test_write_after_flush(writer, file_store):
     writer.write_dict({"id": 100, "name": "alpha"})
     manifest_uri_1 = writer.flush()
 
-    manifest_io = DeltacatManifestIO()
-    manifest_1 = manifest_io.read(file_store.new_input_file(manifest_uri_1))
+    manifest_io = DeltacatManifestIO(writer.location_provider.uri)
+    manifest_1 = manifest_io.read(file_store.new_input_file(manifest_uri_1).location)
     sst_files_1 = manifest_1.sst_files
 
     assert len(sst_files_1) > 0, "First flush: no SST files found."
@@ -50,12 +50,12 @@ def test_write_after_flush(writer, file_store):
     writer.write_dict({"id": 200, "name": "gamma"})
     manifest_uri_2 = writer.flush()
 
-    manifest_2 = manifest_io.read(file_store.new_input_file(manifest_uri_2))
+    manifest_2 = manifest_io.read(file_store.new_input_file(manifest_uri_2).location)
     sst_files_2 = manifest_2.sst_files
 
     assert len(sst_files_2) > 0, "Second flush: no SST files found."
 
     # ensures data_files and sst_files from first write are not included in second write.
-    assert sst_files_1.isdisjoint(sst_files_2), \
+    assert set(sst_files_1).isdisjoint(set(sst_files_2)), \
         "Expected no overlap of SST files between first and second flush."
     assert manifest_2.context.schema == writer.schema, "Schema mismatch in second flush."

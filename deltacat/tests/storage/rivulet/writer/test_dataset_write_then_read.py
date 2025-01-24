@@ -2,6 +2,7 @@ import math
 import shutil
 import tempfile
 from typing import Dict, List, Iterator
+import msgpack
 
 import pytest
 from pyarrow import RecordBatch
@@ -9,7 +10,6 @@ from pyarrow import RecordBatch
 from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.delta import (
-    JsonManifestIO,
     ManifestIO,
     TreeLevel, DeltacatManifestIO,
 )
@@ -111,7 +111,7 @@ class TestMultiLayerCompactionEndToEnd:
         cls.temp_dir = tempfile.mkdtemp()
         cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
         cls.file_store = FileStore()
-        cls.manifest_io = DeltacatManifestIO()
+        cls.manifest_io = DeltacatManifestIO(cls.temp_dir)
 
     @classmethod
     def teardown_class(cls):
@@ -149,13 +149,13 @@ class TestMultiLayerCompactionEndToEnd:
         )
 
     def _transform_dataset(
-        self,
-        dataset,
-        min_index=0,
-        max_index=FIXTURE_ROW_COUNT,
-        transform_id=lambda x: x,
-        transform_name=lambda x: x,
-        transform_age=lambda x: x,
+            self,
+            dataset,
+            min_index=0,
+            max_index=FIXTURE_ROW_COUNT,
+            transform_id=lambda x: x,
+            transform_name=lambda x: x,
+            transform_age=lambda x: x,
     ):
         data = dataset.data
         return MvpTable(
@@ -178,7 +178,7 @@ class TestMultiLayerCompactionEndToEnd:
 
     @pytest.fixture
     def ds1_written_uri(
-        self, ds1_schema, ds1_dataset, l2_ignored, l0_overwrite, l1_overwrite
+            self, ds1_schema, ds1_dataset, l2_ignored, l0_overwrite, l1_overwrite
     ):
         print(f"Writing test data to directory {self.temp_dir}")
         self.dataset.add_schema(ds1_schema, "ds1_schema")
@@ -230,14 +230,13 @@ class TestMultiLayerCompactionEndToEnd:
         TODO: replace this with a compaction operation
         """
         input_file = self.file_store.new_input_file(uri)
-        manifest = self.manifest_io.read(input_file)
-        output_file = self.file_store.new_output_file(uri)
-        self.manifest_io.write(
-            output_file,
-            manifest.sst_files,
-            manifest.context.schema,
-            level,
-        )
+        manifest = self.manifest_io.read(input_file.location)
+        with open(uri, "rb") as f:
+            data = msgpack.unpack(f)
+            data["level"] = level
+
+        with open(uri, "wb") as f:
+            msgpack.pack(data, f)
 
 
 class TestZipperMergeEndToEnd:
@@ -269,14 +268,14 @@ class TestZipperMergeEndToEnd:
         return ds2_schema
 
     def test_end_to_end_scan(
-        self,
-        schema1,
-        schema2,
-        ds1_schema,
-        ds1_dataset,
-        ds2_dataset,
-        ds2_schema,
-        combined_schema,
+            self,
+            schema1,
+            schema2,
+            ds1_schema,
+            ds1_dataset,
+            ds2_dataset,
+            ds2_schema,
+            combined_schema,
     ):
         read_records: List[Dict] = list(
             self.dataset.scan(QueryExpression()).to_pydict()

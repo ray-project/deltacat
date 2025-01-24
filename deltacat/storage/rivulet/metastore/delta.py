@@ -81,7 +81,6 @@ class ManifestIO(Protocol):
 
     def write(
             self,
-            file: OutputFile,
             sst_files: List[str],
             schema: Schema,
             level: TreeLevel,
@@ -102,7 +101,6 @@ class DeltacatManifestIO(ManifestIO):
 
     def write(
             self,
-            file: OutputFile,
             sst_files: List[str],
             schema: Schema,
             level: TreeLevel,

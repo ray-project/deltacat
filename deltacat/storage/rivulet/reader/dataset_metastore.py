@@ -64,7 +64,7 @@ class DatasetMetastore:
     ):
         self.delta_root_uri = delta_root_uri
         self.file_store: FileStore = file_store
-        self.manifest_io = manifest_io or DeltacatManifestIO()
+        self.manifest_io = manifest_io or DeltacatManifestIO(delta_root_uri)
         self.sst_reader = sst_reader or JsonSstReader()
 
     def _get_delta(self,
@@ -73,7 +73,7 @@ class DatasetMetastore:
         """
         Given a DeltaCat delta directory, find latest delta file
 
-        NOTE: this will be replaced by deltacat store API.
+        NOTE: this will be replaced by deltacat storage API.
         Current implementation does not respect open/closed transactions, it just
             looks for the latest revision
         """
@@ -89,20 +89,22 @@ class DatasetMetastore:
         """
         Generate all manifests within the Metastore
 
+        NOTE: this will be replaced by deltacat storage API.
+
         :return: a generator of accessors into the Manifests
         """
-
+        # Rivulet data and SST files written to /data and /metadata
+        # Deltacat transactions written to /txn
+        excluded_dir_names = ["data", "metadata", "txn"]
         root_path, filesystem = construct_filesystem(self.delta_root_uri)
         root_children = filesystem.get_file_info(fs.FileSelector(root_path))
         delta_directories = [child for child in root_children if
-                             not child.is_file and not child.path.endswith("txn")]
+                             not child.is_file and not child.base_name in excluded_dir_names]
 
         for delta_directory in delta_directories:
             rivulet_delta = self._get_delta(delta_directory.path, filesystem)
             yield ManifestAccessor(rivulet_delta, self.file_store, self.sst_reader)
 
-
             # for uri in self.location_provider.generate_manifest_uris():
             #    manifest = self.manifest_io.read(uri)
             #    yield ManifestAccessor(manifest, self.file_store, self.sst_reader)
-

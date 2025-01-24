@@ -172,6 +172,9 @@ class Dataset:
 
         # Initialize metadata handling
         self._file_store = FileStore()
+        self._location_provider = FileLocationProvider(
+            self._metadata_path, self._file_store
+        )
         self._metastore = DatasetMetastore(self._metadata_path, self._file_store)
 
         # Initialize accessors

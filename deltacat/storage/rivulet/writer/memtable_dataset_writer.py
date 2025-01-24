@@ -132,18 +132,18 @@ class MemtableDatasetWriter(DatasetWriter):
     """
 
     def __init__(
-        self,
-        location_provider: FileLocationProvider,
-        schema: Schema,
-        file_format: str | None = None,
-        sst_writer: SSTWriter = None,
-        manifest_io: ManifestIO = None,
+            self,
+            location_provider: FileLocationProvider,
+            schema: Schema,
+            file_format: str | None = None,
+            sst_writer: SSTWriter = None,
+            manifest_io: ManifestIO = None,
     ):
 
         if not sst_writer:
             sst_writer = JsonSstWriter()
         if not manifest_io:
-            manifest_io = DeltacatManifestIO()
+            manifest_io = DeltacatManifestIO(location_provider.uri)
 
         self.schema = schema
 
@@ -217,12 +217,10 @@ class MemtableDatasetWriter(DatasetWriter):
         for thread in [t for t in self.__open_threads if t.is_alive()]:
             thread.join()
 
-        manifest_file = self.location_provider.new_manifest_file_uri()
-        self.__write_manifest_file(manifest_file)
-
+        manifest_location = self.__write_manifest_file()
         self._sst_files.clear()
 
-        return manifest_file.location
+        return manifest_location
 
     def __enter__(self) -> Any:
         """
@@ -284,8 +282,8 @@ class MemtableDatasetWriter(DatasetWriter):
             if memtable in self.__open_memtables:
                 self.__open_memtables.remove(memtable)
 
-    def __write_manifest_file(self, file):
+    def __write_manifest_file(self) -> str:
         """
         Write the manifest file to the filesystem at the given URI.
         """
-        self.manifest_io.write(file, self._sst_files, self.schema, 0)
+        return self.manifest_io.write(list(self._sst_files), self.schema, 0)

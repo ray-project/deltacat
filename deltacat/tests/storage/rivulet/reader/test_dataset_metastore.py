@@ -44,7 +44,6 @@ def test_dataset_metastore_e2e(temp_dir, sample_schema):
                 f.write('test data')
 
         manifest_path = manifest_io.write(
-            None,
             sst_files,
             sample_schema,
             manifest_data["level"]
