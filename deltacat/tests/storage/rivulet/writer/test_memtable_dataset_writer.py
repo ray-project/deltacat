@@ -2,7 +2,7 @@ import pytest
 
 from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.metastore.manifest import JsonManifestIO
+from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.writer.memtable_dataset_writer import MemtableDatasetWriter
@@ -40,7 +40,7 @@ def test_write_after_flush(writer, file_store):
     writer.write_dict({"id": 100, "name": "alpha"})
     manifest_uri_1 = writer.flush()
 
-    manifest_io = JsonManifestIO()
+    manifest_io = DeltacatManifestIO()
     manifest_1 = manifest_io.read(file_store.new_input_file(manifest_uri_1))
     sst_files_1 = manifest_1.sst_files
 

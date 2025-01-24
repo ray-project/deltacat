@@ -8,10 +8,10 @@ from pyarrow import RecordBatch
 
 from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.metastore.manifest import (
+from deltacat.storage.rivulet.metastore.delta import (
     JsonManifestIO,
     ManifestIO,
-    TreeLevel,
+    TreeLevel, DeltacatManifestIO,
 )
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
@@ -111,7 +111,7 @@ class TestMultiLayerCompactionEndToEnd:
         cls.temp_dir = tempfile.mkdtemp()
         cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
         cls.file_store = FileStore()
-        cls.manifest_io = JsonManifestIO()
+        cls.manifest_io = DeltacatManifestIO()
 
     @classmethod
     def teardown_class(cls):

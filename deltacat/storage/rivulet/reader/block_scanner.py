@@ -12,7 +12,7 @@ from typing import (
     AbstractSet,
 )
 
-from deltacat.storage.rivulet.metastore.manifest import ManifestContext
+from deltacat.storage.rivulet.metastore.delta import DeltaContext
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet.metastore.sst_interval_tree import (
     OrderedBlockGroups,
@@ -34,7 +34,7 @@ MEMORY_FORMAT = TypeVar("MEMORY_FORMAT")
 
 class FileReaderWithContext(NamedTuple):
     reader: FileReader[FILE_FORMAT]
-    context: ManifestContext
+    context: DeltaContext
 
 
 class ZipperMergeHeapRecord(NamedTuple):

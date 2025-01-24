@@ -5,7 +5,7 @@ from threading import Thread
 from typing import Any, List, Set, Protocol, TypeVar, Dict, Iterable
 
 from pyarrow import RecordBatch, Table
-from deltacat.storage.rivulet.metastore.manifest import ManifestIO, JsonManifestIO
+from deltacat.storage.rivulet.metastore.delta import ManifestIO, DeltacatManifestIO
 
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstWriter
@@ -143,7 +143,7 @@ class MemtableDatasetWriter(DatasetWriter):
         if not sst_writer:
             sst_writer = JsonSstWriter()
         if not manifest_io:
-            manifest_io = JsonManifestIO()
+            manifest_io = DeltacatManifestIO()
 
         self.schema = schema
 

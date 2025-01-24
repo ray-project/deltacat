@@ -1,24 +1,23 @@
-from dataclasses import dataclass
-from typing import Protocol, Set, NamedTuple
-import json
+from __future__ import annotations
+
+from typing import Protocol, Set, NamedTuple, List
 import time
 
 from deltacat.storage import ManifestMeta, EntryType, DeltaLocator, Delta, DeltaType, Transaction, TransactionType, \
-    TransactionOperation, TransactionOperationType
-from deltacat.storage.model.manifest import Manifest as DCManifest, ManifestEntryList, ManifestEntry
+    TransactionOperation, TransactionOperationType, Manifest
+from deltacat.storage.model.manifest import Manifest, ManifestEntryList, ManifestEntry
 from deltacat.storage.model.metafile import TransactionOperationList
 
-from deltacat.storage.rivulet.fs.input_file import InputFile
 from deltacat.storage.rivulet.fs.output_file import OutputFile
 from deltacat.storage.rivulet import Schema
 
-StreamPosition = str
+StreamPosition = int
 """The stream position for creating a consistent ordering of manifests."""
 TreeLevel = int
 """The level of the manifest in the LSM-tree."""
 
 
-class ManifestContext(NamedTuple):
+class DeltaContext(NamedTuple):
     """Minimal amount of manifest context that may need to be circulated independently or alongside individual files"""
 
     # Schema needed to understand which field group was added when writing manifest
@@ -28,28 +27,51 @@ class ManifestContext(NamedTuple):
     level: TreeLevel
 
 
-@dataclass(frozen=True)
-class Manifest:
+class RivuletDelta(dict):
     """
-    Minimal manifest of rivulet data
+    Temporary class during merging of deltacat/rivulet metadata formats
 
-    Future improvements
-    1. We may use deltacat for manifest spec
-    2. Manifest may have a lot more metadata, such as:
-        Key ranges across SSTs
-        other data statistics like record counts
-        references to schema id or partition spec id
-        stream position or write timestamp
-        support for other snapshot types (besides append)
+    This class currently serves two purposes:
+    1. Avoid big bang refactor in which consumers of RivuletDelta have to update their code to consume deltacat Delta/Manifest
+    2. Provide more time to figure out how to represent SST files / schema / etc within deltacat constructs
+
     """
-    sst_files: Set[str]
-    context: ManifestContext
+    context: DeltaContext
 
-    def __hash__(self):
-        # Generate hash using the name and a frozenset of the items
-        return hash(
-            (frozenset(self.sst_files), self.context)
+    @staticmethod
+    def of(delta: Delta) -> RivuletDelta:
+        riv_delta = RivuletDelta()
+        riv_delta["dcDelta"] = delta
+        schema = Schema.from_dict(delta.get("schema"))
+        riv_delta["DeltaContext"] = DeltaContext(
+            schema,
+            delta.stream_position,
+            delta.get("level")
         )
+
+        return riv_delta
+
+    @property
+    def dcDelta(self) -> Delta:
+        return self.get("dcDelta")
+
+    @property
+    def sst_files(self) -> List[str]:
+        if "sst_files" not in self.keys():
+            self["sst_files"] = [m.uri for m in self.dcDelta.manifest.entries]
+        return self["sst_files"]
+
+    @sst_files.setter
+    def sst_files(self, files: List[str]):
+        self["sst_files"] = files
+
+    @property
+    def context(self) -> DeltaContext:
+        return self["DeltaContext"]
+
+    @context.setter
+    def context(self, mc: DeltaContext):
+        self["DeltaContext"] = mc
 
 
 class ManifestIO(Protocol):
@@ -60,13 +82,13 @@ class ManifestIO(Protocol):
     def write(
             self,
             file: OutputFile,
-            sst_files: Set[str],
+            sst_files: List[str],
             schema: Schema,
             level: TreeLevel,
-    ):
+    ) -> str:
         ...
 
-    def read(self, file: InputFile) -> Manifest:
+    def read(self, file: str) -> RivuletDelta:
         ...
 
 
@@ -81,10 +103,10 @@ class DeltacatManifestIO(ManifestIO):
     def write(
             self,
             file: OutputFile,
-            sst_files: Set[str],
+            sst_files: List[str],
             schema: Schema,
             level: TreeLevel,
-    ):
+    ) -> str:
         # TODO write interface shoudl populate better metadata
 
         # Build the Deltacat Manifest entries:
@@ -102,13 +124,7 @@ class DeltacatManifestIO(ManifestIO):
                     entry_type=EntryType.DATA,
                 )
             ))
-
-        dc_manifest = DCManifest.of(entries=entry_list)
-
-        # TODO (discussion) - is it acceptable to just write keys to a manifest?
-        # Or do we need to formalize this
-        dc_manifest["level"] = level
-        dc_manifest["schema"] = schema.to_dict()
+        dc_manifest = Manifest.of(entries=entry_list)
 
         # Create delta and transaction which writes manifest to root
         # Note that deltacat storage currently lets you write deltas not to any parent stream
@@ -132,65 +148,22 @@ class DeltacatManifestIO(ManifestIO):
             meta=None,
             properties={},
             manifest=dc_manifest)
+        # TODO later formalize multiple schema support in deltacat
+        delta["schema"] = schema.to_dict()
+        # TODO (discussion) - is it acceptable to just write keys to a manifest?
+        # Or should we add level to official spec for LSM tree backed formats
+        delta["level"] = level
 
-        Transaction.of(
+        paths = Transaction.of(
             txn_type=TransactionType.APPEND,
             txn_operations=TransactionOperationList.of([TransactionOperation.of(
                 operation_type=TransactionOperationType.CREATE,
                 dest_metafile=delta,
             )])
         ).commit(self.root)
+        assert len(paths) == 1, "expected delta commit transaction to write exactly 1 metafile"
+        return paths[0]
 
-    def read(self, file: InputFile):
-        with file.open() as f:
-            data = json.loads(f.read())
-        sst_files = data["sst_files"]
-        schema = Schema.from_dict(data["schema"])
-        stream_position = file.location  # TODO: use the actual stream position
-        level = data.get(
-            "level", 0
-        )  # TODO remove default after fixing assets in ZipperReadExample.zip
-        return Manifest(
-            set(sst_files),
-            ManifestContext(schema, stream_position, level),
-        )
-
-
-class JsonManifestIO(ManifestIO):
-    """
-    IO for reading and writing manifest in json format
-
-    TODO improve this by allowing it to buffer intermediate state before writing
-    """
-
-    def write(
-            self,
-            file: OutputFile,
-            sst_files: Set[str],
-            schema: Schema,
-            level: TreeLevel,
-    ):
-        with file.create() as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sst_files": list(sst_files),
-                        "level": level,
-                        "schema": schema.to_dict(),
-                    }
-                ).encode()
-            )
-
-    def read(self, file: InputFile):
-        with file.open() as f:
-            data = json.loads(f.read())
-        sst_files = data["sst_files"]
-        schema = Schema.from_dict(data["schema"])
-        stream_position = file.location  # TODO: use the actual stream position
-        level = data.get(
-            "level", 0
-        )  # TODO remove default after fixing assets in ZipperReadExample.zip
-        return Manifest(
-            set(sst_files),
-            ManifestContext(schema, stream_position, level),
-        )
+    def read(self, file: str):
+        delta = Delta.read(file)
+        return RivuletDelta.of(delta)

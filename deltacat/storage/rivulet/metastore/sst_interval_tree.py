@@ -8,7 +8,7 @@ from typing import Any, Dict, Set, List, FrozenSet, Iterable, TypeVar, NamedTupl
 
 from intervaltree import Interval, IntervalTree
 
-from deltacat.storage.rivulet.metastore.manifest import ManifestContext
+from deltacat.storage.rivulet.metastore.delta import DeltaContext
 from deltacat.storage.rivulet.metastore.sst import SSTable, SSTableRow
 from deltacat.storage.rivulet import Schema
 
@@ -24,7 +24,7 @@ def pairwise(iterable):
 
 class Block(NamedTuple):
     row: SSTableRow
-    context: ManifestContext
+    context: DeltaContext
     """Context from the manifest around the placement of this row in the LSM-Tree"""
 
 
@@ -124,14 +124,14 @@ class BlockIntervalTree:
         self.tree: IntervalTree = IntervalTree()
         self.max_key_map: Dict[Any, List[Interval]] = {}
 
-    def add_sst_table(self, sst: SSTable, context: ManifestContext):
+    def add_sst_table(self, sst: SSTable, context: DeltaContext):
         """
         Add intervals to SSTree which use primary key min and max as intervals
         The data for each interval is a tuple of (schema, SSTableRow)
         """
         self.add_sst_rows(sst.rows, context)
 
-    def add_sst_rows(self, sst_rows: Iterable[SSTableRow], context: ManifestContext):
+    def add_sst_rows(self, sst_rows: Iterable[SSTableRow], context: DeltaContext):
         """
         Add individual SSTable rows to tree
         """
@@ -144,7 +144,7 @@ class BlockIntervalTree:
                 self.max_key_map[row.key_max].append(interval)
 
     def get_sorted_block_groups(
-        self, min_key: Any | None = None, max_key: Any | None = None
+            self, min_key: Any | None = None, max_key: Any | None = None
     ) -> OrderedBlockGroups:
         """
         Returns an ordered list of block group by primary key range
