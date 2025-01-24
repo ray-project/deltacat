@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from deltacat.utils.common import env_string, env_bool
 
 # Environment variables
@@ -62,3 +64,9 @@ MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE
 
 # The number of bytes allocated to null values in string physical type in parquet
 NULL_SIZE_BYTES = 4
+
+# Metastore Constants
+REVISION_DIR_NAME: str = "rev"
+METAFILE_EXT = ".mpk"
+TXN_DIR_NAME: str = "txn"
+TXN_PART_SEPARATOR = "_"

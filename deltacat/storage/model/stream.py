@@ -9,7 +9,8 @@ import deltacat.storage.model.partition as partition
 
 from typing import Any, Dict, Optional, List
 
-from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo, TXN_DIR_NAME
+from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
+from deltacat.constants import TXN_DIR_NAME
 from deltacat.storage.model.locator import (
     Locator,
     LocatorName,

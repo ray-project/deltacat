@@ -51,9 +51,11 @@ from deltacat.storage.model.table_version import (
     TableVersionProperties,
 )
 from deltacat.storage.model.metafile import (
-    Transaction,
-    TransactionOperation,
     Metafile,
+)
+from deltacat.storage.model.transaction import (
+    TransactionOperation,
+    Transaction,
 )
 from deltacat.storage.model.manifest import Manifest
 from deltacat.types.media import (
