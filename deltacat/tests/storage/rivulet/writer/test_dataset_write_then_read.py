@@ -2,16 +2,17 @@ import math
 import shutil
 import tempfile
 from typing import Dict, List, Iterator
+import msgpack
 
 import pytest
 from pyarrow import RecordBatch
 
 from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.metastore.manifest import (
-    JsonManifestIO,
+from deltacat.storage.rivulet.metastore.delta import (
     ManifestIO,
     TreeLevel,
+    DeltacatManifestIO,
 )
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
@@ -111,7 +112,7 @@ class TestMultiLayerCompactionEndToEnd:
         cls.temp_dir = tempfile.mkdtemp()
         cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
         cls.file_store = FileStore()
-        cls.manifest_io = JsonManifestIO()
+        cls.manifest_io = DeltacatManifestIO(cls.temp_dir)
 
     @classmethod
     def teardown_class(cls):
@@ -229,16 +230,12 @@ class TestMultiLayerCompactionEndToEnd:
 
         TODO: replace this with a compaction operation
         """
-        input_file = self.file_store.new_input_file(uri)
-        manifest = self.manifest_io.read(input_file)
-        output_file = self.file_store.new_output_file(uri)
-        self.manifest_io.write(
-            output_file,
-            manifest.data_files,
-            manifest.sst_files,
-            manifest.context.schema,
-            level,
-        )
+        with open(uri, "rb") as f:
+            data = msgpack.unpack(f)
+            data["level"] = level
+
+        with open(uri, "wb") as f:
+            msgpack.pack(data, f)
 
 
 class TestZipperMergeEndToEnd:

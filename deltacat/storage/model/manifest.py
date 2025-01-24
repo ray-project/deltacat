@@ -135,7 +135,7 @@ class Manifest(dict):
                         f"'{entry_content_type}'"
                     )
                     raise ValueError(msg)
-                entry_content_encoding = meta["content_encoding"]
+                entry_content_encoding = meta.get("content_encoding", None)
                 if entry_content_encoding != content_encoding:
                     msg = (
                         f"Expected all manifest entries to have content "
