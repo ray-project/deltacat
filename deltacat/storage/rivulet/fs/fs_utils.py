@@ -49,7 +49,7 @@ def _handle_read_os_error(
             raise error
 
 
-def filesystem(
+def construct_filesystem(
     path: str,
     filesystem: Optional[FileSystem] = None,
 ) -> Tuple[str, FileSystem]:

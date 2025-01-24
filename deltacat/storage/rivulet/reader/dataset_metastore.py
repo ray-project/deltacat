@@ -1,6 +1,14 @@
+import string
+from importlib.metadata import files
 from typing import Generator
+import os
 
+import pyarrow.fs as fs
+
+from deltacat.storage import Delta
 from deltacat.storage.rivulet.fs.file_store import FileStore
+from deltacat.storage.rivulet.fs.file_system import FileSystem
+from deltacat.storage.rivulet.fs.fs_utils import construct_filesystem
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstReader
 from deltacat.storage.rivulet.metastore.delta import (
     ManifestIO,
@@ -59,15 +67,42 @@ class DatasetMetastore:
         self.manifest_io = manifest_io or DeltacatManifestIO()
         self.sst_reader = sst_reader or JsonSstReader()
 
+    def _get_delta(self,
+                   delta_dir: str,
+                   filesystem: FileSystem) -> RivuletDelta:
+        """
+        Given a DeltaCat delta directory, find latest delta file
+
+        NOTE: this will be replaced by deltacat store API.
+        Current implementation does not respect open/closed transactions, it just
+            looks for the latest revision
+        """
+        rev_directory = os.path.join(delta_dir, "rev")
+        revisions = filesystem.get_file_info(fs.FileSelector(rev_directory))
+        # Take lexicographical max
+        latest_revision = None
+        for revision in revisions:
+            latest_revision = revision if not latest_revision else max(latest_revision, revision.path)
+        return RivuletDelta.of(Delta.read(latest_revision.path))
+
     def generate_manifests(self) -> Generator[ManifestAccessor, None, None]:
         """
         Generate all manifests within the Metastore
 
         :return: a generator of accessors into the Manifests
         """
-        root_path, filesystem = filesystem(self.delta_root_uri)
-        # TODO finish
 
-        # for uri in self.location_provider.generate_manifest_uris():
-        #    manifest = self.manifest_io.read(uri)
-        #    yield ManifestAccessor(manifest, self.file_store, self.sst_reader)
+        root_path, filesystem = construct_filesystem(self.delta_root_uri)
+        root_children = filesystem.get_file_info(fs.FileSelector(root_path))
+        delta_directories = [child for child in root_children if
+                             not child.is_file and not child.path.endswith("txn")]
+
+        for delta_directory in delta_directories:
+            rivulet_delta = self._get_delta(delta_directory.path, filesystem)
+            yield ManifestAccessor(rivulet_delta, self.file_store, self.sst_reader)
+
+
+            # for uri in self.location_provider.generate_manifest_uris():
+            #    manifest = self.manifest_io.read(uri)
+            #    yield ManifestAccessor(manifest, self.file_store, self.sst_reader)
+
