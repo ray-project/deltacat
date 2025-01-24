@@ -35,7 +35,7 @@ class DeltaType(str, Enum):
 
 
 class TransactionType(str, Enum):
-    # the transaction read existing data
+    # the transaction reads existing data
     # does not conflict with any other transaction types
     READ = "read"
     # the transaction only appends new data
