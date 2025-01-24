@@ -1,13 +1,11 @@
 import pytest
 import os
-from typing import Set
 
-from deltacat.storage.rivulet.metastore.json_sst import JsonSstReader
 from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.metastore.delta import DeltaContext, RivuletDelta, DeltacatManifestIO
+from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
 from deltacat.storage.rivulet import Schema
-from deltacat.storage.rivulet.reader.dataset_metastore import ManifestAccessor, DatasetMetastore
+from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 
 
 @pytest.fixture
@@ -25,14 +23,8 @@ def test_dataset_metastore_e2e(temp_dir, sample_schema):
 
     # Create multiple manifests
     manifests_data = [
-        {
-            "sst_files": ["sst1.sst", "sst2.sst"],
-            "level": 1
-        },
-        {
-            "sst_files": ["sst3.sst", "sst4.sst"],
-            "level": 2
-        }
+        {"sst_files": ["sst1.sst", "sst2.sst"], "level": 1},
+        {"sst_files": ["sst3.sst", "sst4.sst"], "level": 2},
     ]
 
     # Create SST files and manifests
@@ -40,22 +32,16 @@ def test_dataset_metastore_e2e(temp_dir, sample_schema):
     for manifest_data in manifests_data:
         sst_files = manifest_data["sst_files"]
         for sst in sst_files:
-            with open(os.path.join(temp_dir, sst), 'w') as f:
-                f.write('test data')
+            with open(os.path.join(temp_dir, sst), "w") as f:
+                f.write("test data")
 
         manifest_path = manifest_io.write(
-            sst_files,
-            sample_schema,
-            manifest_data["level"]
+            sst_files, sample_schema, manifest_data["level"]
         )
         manifest_paths.append(manifest_path)
 
     # Initialize DatasetMetastore
-    metastore = DatasetMetastore(
-        temp_dir,
-        file_store,
-        manifest_io=manifest_io
-    )
+    metastore = DatasetMetastore(temp_dir, file_store, manifest_io=manifest_io)
 
     # Test manifest generation
     manifest_accessors = list(metastore.generate_manifests())
@@ -66,4 +52,3 @@ def test_dataset_metastore_e2e(temp_dir, sample_schema):
         assert accessor.context.schema == sample_schema
         assert accessor.context.level == manifest_data["level"]
         assert accessor.manifest.sst_files == manifest_data["sst_files"]
-

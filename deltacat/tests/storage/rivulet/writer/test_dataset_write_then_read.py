@@ -11,7 +11,8 @@ from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.delta import (
     ManifestIO,
-    TreeLevel, DeltacatManifestIO,
+    TreeLevel,
+    DeltacatManifestIO,
 )
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
@@ -149,13 +150,13 @@ class TestMultiLayerCompactionEndToEnd:
         )
 
     def _transform_dataset(
-            self,
-            dataset,
-            min_index=0,
-            max_index=FIXTURE_ROW_COUNT,
-            transform_id=lambda x: x,
-            transform_name=lambda x: x,
-            transform_age=lambda x: x,
+        self,
+        dataset,
+        min_index=0,
+        max_index=FIXTURE_ROW_COUNT,
+        transform_id=lambda x: x,
+        transform_name=lambda x: x,
+        transform_age=lambda x: x,
     ):
         data = dataset.data
         return MvpTable(
@@ -178,7 +179,7 @@ class TestMultiLayerCompactionEndToEnd:
 
     @pytest.fixture
     def ds1_written_uri(
-            self, ds1_schema, ds1_dataset, l2_ignored, l0_overwrite, l1_overwrite
+        self, ds1_schema, ds1_dataset, l2_ignored, l0_overwrite, l1_overwrite
     ):
         print(f"Writing test data to directory {self.temp_dir}")
         self.dataset.add_schema(ds1_schema, "ds1_schema")
@@ -229,8 +230,6 @@ class TestMultiLayerCompactionEndToEnd:
 
         TODO: replace this with a compaction operation
         """
-        input_file = self.file_store.new_input_file(uri)
-        manifest = self.manifest_io.read(input_file.location)
         with open(uri, "rb") as f:
             data = msgpack.unpack(f)
             data["level"] = level
@@ -268,14 +267,14 @@ class TestZipperMergeEndToEnd:
         return ds2_schema
 
     def test_end_to_end_scan(
-            self,
-            schema1,
-            schema2,
-            ds1_schema,
-            ds1_dataset,
-            ds2_dataset,
-            ds2_schema,
-            combined_schema,
+        self,
+        schema1,
+        schema2,
+        ds1_schema,
+        ds1_dataset,
+        ds2_dataset,
+        ds2_schema,
+        combined_schema,
     ):
         read_records: List[Dict] = list(
             self.dataset.scan(QueryExpression()).to_pydict()

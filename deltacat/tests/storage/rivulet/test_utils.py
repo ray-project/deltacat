@@ -26,7 +26,7 @@ def mvp_table_to_record_batches(table: MvpTable, schema: Schema) -> RecordBatch:
 
 
 def compare_mvp_table_to_scan_results(
-        table: MvpTable, scan_results: List[dict], pk: str
+    table: MvpTable, scan_results: List[dict], pk: str
 ):
     table_row_list = table.to_rows_list()
     assert len(scan_results) == len(table_row_list)
@@ -77,7 +77,7 @@ def assert_data_file_extension_set(dataset: Dataset, file_extension_set: Set[str
 
     assert data_file_count > 0, "No data files found in dataset"
     assert (
-            found_extensions == file_extension_set
+        found_extensions == file_extension_set
     ), f"Missing extensions: {file_extension_set - found_extensions}"
     print(
         f"Asserted that among {data_file_count} data files, all extensions {file_extension_set} were found"
@@ -98,9 +98,9 @@ def create_dataset_for_method(temp_dir: str):
 
 
 def verify_pyarrow_scan(
-        scan_result: Generator[RecordBatch, None, None],
-        expected_schema: Schema,
-        expected_data: dict,
+    scan_result: Generator[RecordBatch, None, None],
+    expected_schema: Schema,
+    expected_data: dict,
 ):
     record_batches = list(scan_result)
     assert record_batches, "Scan should return at least one record batch."
@@ -110,13 +110,13 @@ def verify_pyarrow_scan(
     expected_fields = {field.name for field in expected_schema.values()}
     scanned_fields = set(combined_table.schema.names)
     assert (
-            scanned_fields == expected_fields
+        scanned_fields == expected_fields
     ), f"Scanned fields {scanned_fields} do not match expected fields {expected_fields}."
 
     for field in expected_fields:
         assert (
-                field in combined_table.column_names
+            field in combined_table.column_names
         ), f"Field '{field}' is missing in the scan result."
         assert (
-                combined_table[field].to_pylist() == expected_data[field]
+            combined_table[field].to_pylist() == expected_data[field]
         ), f"Field '{field}' data does not match expected values."

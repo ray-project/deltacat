@@ -1,14 +1,22 @@
 from __future__ import annotations
 
-from typing import Protocol, Set, NamedTuple, List
+from typing import Protocol, NamedTuple, List
 import time
 
-from deltacat.storage import ManifestMeta, EntryType, DeltaLocator, Delta, DeltaType, Transaction, TransactionType, \
-    TransactionOperation, TransactionOperationType, Manifest
+from deltacat.storage import (
+    ManifestMeta,
+    EntryType,
+    DeltaLocator,
+    Delta,
+    DeltaType,
+    Transaction,
+    TransactionType,
+    TransactionOperation,
+    TransactionOperationType,
+)
 from deltacat.storage.model.manifest import Manifest, ManifestEntryList, ManifestEntry
 from deltacat.storage.model.metafile import TransactionOperationList
 
-from deltacat.storage.rivulet.fs.output_file import OutputFile
 from deltacat.storage.rivulet import Schema
 
 StreamPosition = int
@@ -36,6 +44,7 @@ class RivuletDelta(dict):
     2. Provide more time to figure out how to represent SST files / schema / etc within deltacat constructs
 
     """
+
     context: DeltaContext
 
     @staticmethod
@@ -44,9 +53,7 @@ class RivuletDelta(dict):
         riv_delta["dcDelta"] = delta
         schema = Schema.from_dict(delta.get("schema"))
         riv_delta["DeltaContext"] = DeltaContext(
-            schema,
-            delta.stream_position,
-            delta.get("level")
+            schema, delta.stream_position, delta.get("level")
         )
 
         return riv_delta
@@ -80,10 +87,10 @@ class ManifestIO(Protocol):
     """
 
     def write(
-            self,
-            sst_files: List[str],
-            schema: Schema,
-            level: TreeLevel,
+        self,
+        sst_files: List[str],
+        schema: Schema,
+        level: TreeLevel,
     ) -> str:
         ...
 
@@ -100,28 +107,29 @@ class DeltacatManifestIO(ManifestIO):
         self.root = root
 
     def write(
-            self,
-            sst_files: List[str],
-            schema: Schema,
-            level: TreeLevel,
+        self,
+        sst_files: List[str],
+        schema: Schema,
+        level: TreeLevel,
     ) -> str:
-        # TODO write interface shoudl populate better metadata
 
         # Build the Deltacat Manifest entries:
         entry_list = ManifestEntryList()
         # data_files as "DATA" entry type
         for sst_uri in sst_files:
-            entry_list.append(ManifestEntry.of(
-                url=sst_uri,
-                # TODO have rivulet writer populate these values
-                meta=ManifestMeta.of(
-                    record_count=None,  # or known
-                    content_length=None,
-                    content_type=None,
-                    content_encoding=None,
-                    entry_type=EntryType.DATA,
+            entry_list.append(
+                ManifestEntry.of(
+                    url=sst_uri,
+                    # TODO have rivulet writer populate these values
+                    meta=ManifestMeta.of(
+                        record_count=None,  # or known
+                        content_length=None,
+                        content_type=None,
+                        content_encoding=None,
+                        entry_type=EntryType.DATA,
+                    ),
                 )
-            ))
+            )
         dc_manifest = Manifest.of(entries=entry_list)
 
         # Create delta and transaction which writes manifest to root
@@ -138,14 +146,16 @@ class DeltacatManifestIO(ManifestIO):
             partition_id=None,
             # Using microsecond precision timestamp as stream position
             # TODO discuss how to assign stream position
-            stream_position=time.time_ns())
+            stream_position=time.time_ns(),
+        )
 
         delta = Delta.of(
             locator=delta_locator,
             delta_type=DeltaType.APPEND,
             meta=None,
             properties={},
-            manifest=dc_manifest)
+            manifest=dc_manifest,
+        )
         # TODO later formalize multiple schema support in deltacat
         delta["schema"] = schema.to_dict()
         # TODO (discussion) - is it acceptable to just write keys to a manifest?
@@ -154,12 +164,18 @@ class DeltacatManifestIO(ManifestIO):
 
         paths = Transaction.of(
             txn_type=TransactionType.APPEND,
-            txn_operations=TransactionOperationList.of([TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=delta,
-            )])
+            txn_operations=TransactionOperationList.of(
+                [
+                    TransactionOperation.of(
+                        operation_type=TransactionOperationType.CREATE,
+                        dest_metafile=delta,
+                    )
+                ]
+            ),
         ).commit(self.root)
-        assert len(paths) == 1, "expected delta commit transaction to write exactly 1 metafile"
+        assert (
+            len(paths) == 1
+        ), "expected delta commit transaction to write exactly 1 metafile"
         return paths[0]
 
     def read(self, file: str):

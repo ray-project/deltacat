@@ -144,7 +144,7 @@ class BlockIntervalTree:
                 self.max_key_map[row.key_max].append(interval)
 
     def get_sorted_block_groups(
-            self, min_key: Any | None = None, max_key: Any | None = None
+        self, min_key: Any | None = None, max_key: Any | None = None
     ) -> OrderedBlockGroups:
         """
         Returns an ordered list of block group by primary key range

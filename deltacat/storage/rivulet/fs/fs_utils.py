@@ -3,7 +3,6 @@ from typing import Optional, Tuple, List, Union
 
 from pyarrow.fs import FileSystem
 
-from deltacat.utils import pyarrow
 from ray.data.datasource.path_util import _resolve_paths_and_filesystem
 from pyarrow.fs import FileInfo
 from pyarrow.fs import FileType
@@ -11,10 +10,11 @@ from pyarrow.fs import FileType
 # TODO this is copy pasted from https://github.com/ray-project/deltacat/pull/455/files
 # Merge with utils pushed from that PR
 
+
 def _handle_read_os_error(
     error: OSError,
     paths: Union[str, List[str]],
-    ) -> str:
+) -> str:
     # NOTE: this is not comprehensive yet, and should be extended as more errors arise.
     # NOTE: The latter patterns are raised in Arrow 10+, while the former is raised in
     # Arrow < 10.
@@ -108,6 +108,7 @@ def _expand_directory(
         out.append((file_path, file_.size))
     # We sort the paths to guarantee a stable order.
     return sorted(out)
+
 
 def _get_file_infos(
     path: str,

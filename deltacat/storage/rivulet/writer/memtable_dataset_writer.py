@@ -132,12 +132,12 @@ class MemtableDatasetWriter(DatasetWriter):
     """
 
     def __init__(
-            self,
-            location_provider: FileLocationProvider,
-            schema: Schema,
-            file_format: str | None = None,
-            sst_writer: SSTWriter = None,
-            manifest_io: ManifestIO = None,
+        self,
+        location_provider: FileLocationProvider,
+        schema: Schema,
+        file_format: str | None = None,
+        sst_writer: SSTWriter = None,
+        manifest_io: ManifestIO = None,
     ):
 
         if not sst_writer:
