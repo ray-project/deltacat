@@ -17,9 +17,7 @@ from deltacat.storage.model.types import (
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
-
-# TODO(pdames): Create internal DeltaCAT port
-from ray.data.datasource.path_util import _resolve_paths_and_filesystem
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 
 class PropertyCatalog:
@@ -28,8 +26,9 @@ class PropertyCatalog:
         root: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ):
-        resolved_root, resolved_filesystem = _resolve_paths_and_filesystem(
-            paths=root, filesystem=filesystem
+        resolved_root, resolved_filesystem = resolve_path_and_filesystem(
+            path=root,
+            filesystem=filesystem,
         )
         self._root = resolved_root
         self._filesystem = resolved_filesystem
