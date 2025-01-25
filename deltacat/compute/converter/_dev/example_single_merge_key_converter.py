@@ -7,7 +7,9 @@ from typing import Optional
 from deltacat.compute.converter.converter_session import (
     converter_session,
 )
-from deltacat.compute.converter.model.converter_session_params import ConverterSessionParams
+from deltacat.compute.converter.model.converter_session_params import (
+    ConverterSessionParams,
+)
 
 
 def get_s3_path(
@@ -473,8 +475,6 @@ def initialize_ray():
         ray.init(local_mode=True, ignore_reinit_error=True)
 
 
-
-
 # ---------------------------------------------------------------------------
 # README: Temporary example to create a new Iceberg table using your AWS account.
 # Use Pyiceberg + GLUE catalog to construct data files and equality delete files
@@ -547,7 +547,7 @@ converter_session_params = ConverterSessionParams.of(
         "catalog": glue_catalog,
         "iceberg_table_name": iceberg_table_name,
         "iceberg_warehouse_bucket_name": get_s3_path(get_bucket_name()),
-        "merge_keys": ["primarykey"]
+        "merge_keys": ["primarykey"],
     }
 )
 

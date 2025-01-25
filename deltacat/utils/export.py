@@ -6,21 +6,25 @@ from typing import Callable, Dict
 
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 
-def export_parquet(dataset, file_uri: str, query: QueryExpression=QueryExpression()):
+
+def export_parquet(dataset, file_uri: str, query: QueryExpression = QueryExpression()):
     records = dataset.scan(query).to_arrow()
     table = pa.Table.from_batches(records)
     pyarrow.parquet.write_table(table, file_uri)
 
-def export_feather(dataset, file_uri: str, query: QueryExpression=QueryExpression()):
+
+def export_feather(dataset, file_uri: str, query: QueryExpression = QueryExpression()):
     records = dataset.scan(query).to_arrow()
     table = pa.Table.from_batches(records)
     pyarrow.feather.write_feather(table, file_uri)
 
-def export_json(dataset, file_uri: str, query: QueryExpression=QueryExpression()):
+
+def export_json(dataset, file_uri: str, query: QueryExpression = QueryExpression()):
     with open(file_uri, "w") as f:
         for batch in dataset.scan(query).to_pydict():
             json.dump(batch, f, indent=2)
             f.write("\n")
+
 
 def export_dataset(dataset, file_uri: str, format: str = "parquet", query=None):
     """
@@ -42,7 +46,9 @@ def export_dataset(dataset, file_uri: str, format: str = "parquet", query=None):
     }
 
     if format not in export_handlers:
-        raise ValueError(f"Unsupported format: {format}. Supported formats are {list(export_handlers.keys())}")
+        raise ValueError(
+            f"Unsupported format: {format}. Supported formats are {list(export_handlers.keys())}"
+        )
 
     export_handlers[format](dataset, file_uri, query or QueryExpression())
 

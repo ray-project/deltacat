@@ -33,6 +33,7 @@ def get_s3_prefix():
 
 def get_credential():
     import boto3
+
     boto3_session = boto3.Session()
     credentials = boto3_session.get_credentials()
     return credentials
@@ -45,7 +46,7 @@ def get_glue_catalog():
     # Credentials are refreshable, so accessing your access key / secret key
     # separately can lead to a race condition. Use this to get an actual matched
     # set.
-    credential= credential.get_frozen_credentials()
+    credential = credential.get_frozen_credentials()
     access_key_id = credential.access_key
     secret_access_key = credential.secret_key
     session_token = credential.token
