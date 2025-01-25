@@ -1,6 +1,7 @@
 import logging
-from typing import Generator, Set, Type, TypeVar, Any
+from typing import Generator, Optional, Set, Type, TypeVar, Any
 
+from deltacat.storage.model.shard import Shard
 from deltacat.storage.rivulet.metastore.sst import SSTableRow, SSTable
 from deltacat.storage.rivulet.metastore.sst_interval_tree import (
     BlockIntervalTree,
@@ -36,7 +37,11 @@ class DatasetReader:
         self.block_scanner = BlockScanner(self.metastore)
 
     def scan(
-        self, schema: Schema, deserialize_to: Type[T], query: QueryExpression[Any]()
+        self,
+        schema: Schema,
+        deserialize_to: Type[T],
+        query: QueryExpression[Any](),
+        shard: Optional[Shard] = None,
     ) -> Generator[T, None, None]:
         """
         Scan records given query and deserialize to desired memory output format
@@ -60,13 +65,13 @@ class DatasetReader:
         if cannot_avoid_zipper:
             logging.info(f"Done scanning manifests. Can avoid zipper-merge")
             for scan_result in self.__scan_with_zipper(
-                schema, deserialize_to, manifests, query
+                schema, deserialize_to, manifests, query, shard=shard
             ):
                 yield scan_result
         else:
             logging.info(f"Done scanning manifests. Must perform zipper-merge")
             for scan_result in self.__scan_no_zipper(
-                schema, deserialize_to, manifests, query
+                schema, deserialize_to, manifests, query, shard=shard
             ):
                 yield scan_result
 
@@ -76,8 +81,11 @@ class DatasetReader:
         deserialize_to: Type[T],
         manifests: Set[ManifestAccessor],
         query: QueryExpression[Any](),
+        shard: Optional[Shard] = None,
     ) -> Generator[T, None, None]:
-
+        # Build final query using user query and shard boundaries (ensures only blocks in shard and query range are read).
+        # TODO: improve query expression implementation to have a builder of some sort.
+        query = QueryExpression().with_shard(query, shard)
         # Map manifests to all SST rows which match query
         matching_sst_rows: Set[SSTableRow] = {
             row
@@ -97,8 +105,11 @@ class DatasetReader:
         deserialize_to: Type[T],
         manifests: Set[ManifestAccessor],
         query: QueryExpression[Any](),
+        shard: Optional[Shard] = None,
     ) -> Generator[T, None, None]:
-
+        # Build final query using user query and shard boundaries (ensures only blocks in shard and query range are read).
+        # TODO: improve query expression implementation to have a builder of some sort.
+        query = QueryExpression().with_shard(query, shard)
         # Build interval tree from manifests and plan scan
         sst_interval_tree = BlockIntervalTree()
         for manifest in manifests:
