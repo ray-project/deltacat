@@ -4,10 +4,10 @@ import boto3
 import ray
 
 from typing import Optional
-from deltacat.compute.converter.equality_delete_to_position_delete_session import (
-    convert_equality_deletes_to_position_deletes,
+from deltacat.compute.converter.converter_session import (
+    converter_session,
 )
-from deltacat.compute.converter.model.convert_session_params import ConvertSessionParams
+from deltacat.compute.converter.model.converter_session_params import ConverterSessionParams
 
 
 def get_s3_path(
@@ -142,30 +142,6 @@ def get_s3_file_system():
     )
 
 
-def write_pos_delete_table(tmp_path: str, data_file_path) -> str:
-    import pyarrow.parquet as pq
-
-    uuid_path = uuid.uuid4()
-    deletes_file_path = f"{tmp_path}/deletes_{uuid_path}.parquet"
-    # Note: The following path should reference correct data file path to make sure positional delete are correctly applied
-    # Hardcoded file path for quick POC purpose
-    path = data_file_path
-    # path = "s3://metadata-py4j-zyiqin1/data_a4f15d4a-20f6-4253-9926-d01c2cfbf884.parquet"
-    table = pa.table(
-        {
-            "partitionkey": ["1", "1"],
-            "file_path": [
-                path,
-                "s3://metadata-py4j-zyiqin1/data_edde020f-f7d4-457d-9f9a-9331b7267860.parquet",
-            ],
-            "pos": [1, 1],
-        }
-    )
-    file_system = get_s3_file_system()
-    pq.write_table(table, deletes_file_path, filesystem=file_system)
-    return build_delete_data_file(f"s3://{deletes_file_path}")
-
-
 def write_data_table(
     tmp_path: str, batch_number, number_of_records, partition_value
 ) -> str:
@@ -186,12 +162,6 @@ def write_data_table(
 def build_delete_data_file(file_path):
     print(f"build_delete_file_path:{file_path}")
     return file_path
-
-
-def commit_pos_delete_to_table(table, data_file_paths):
-    delete_s3_url = "metadata-py4j-zyiqin1"
-    data_files = [write_pos_delete_table(delete_s3_url, data_file_paths)]
-    add_delete_files(file_paths=data_files)
 
 
 def commit_data_to_table(table, batch_number, number_of_records, partition_value):
@@ -503,11 +473,21 @@ def initialize_ray():
         ray.init(local_mode=True, ignore_reinit_error=True)
 
 
+
+
+# ---------------------------------------------------------------------------
+# README: Temporary example to create a new Iceberg table using your AWS account.
+# Use Pyiceberg + GLUE catalog to construct data files and equality delete files
+# ADA assume the admin access role `IibsAdminAccess-DO-NOT-DELETE` to give access first.
+# Calls DeltaCAT compute/converter_session.py to convert generated equality deletes to position deletes
+# Position deletes can be read correctly through Pyiceberg pyarrow table scan.
+# ---------------------------------------------------------------------------
+
 initialize_ray()
-# Test with creating a new iceberg table
-TABLE_VERSION = "38"
+# Test with creating a new iceberg table, bump your version here:
+TABLE_VERSION = "39"
 iceberg_table_name = f"testio.example_{TABLE_VERSION}_partitioned"
-# create_table_with_data_files_and_equality_deletes(TABLE_VERSION)
+create_table_with_data_files_and_equality_deletes(TABLE_VERSION)
 table = load_table(TABLE_VERSION)
 
 # Using batch_number to simulate the snapshot sequence
@@ -555,16 +535,20 @@ batch_number_6 = 6
 commit_data_to_table(
     table, batch_number=batch_number_6, partition_value="1", number_of_records=3
 )
-# Total records remaining should be 3 - 1 + 3 - 1 + 3 = 7 when reading with Spark
+
+# Result:
+# Two pos delete record should be committed as the final result.
 
 
+# Calls compute/converter here.
 glue_catalog = get_glue_catalog()
-convert_session_params = ConvertSessionParams.of(
+converter_session_params = ConverterSessionParams.of(
     {
         "catalog": glue_catalog,
         "iceberg_table_name": iceberg_table_name,
         "iceberg_warehouse_bucket_name": get_s3_path(get_bucket_name()),
+        "merge_keys": ["primarykey"]
     }
 )
 
-convert_equality_deletes_to_position_deletes(params=convert_session_params)
+converter_session(params=converter_session_params)

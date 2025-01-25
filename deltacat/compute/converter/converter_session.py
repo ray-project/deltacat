@@ -11,7 +11,7 @@ from deltacat.compute.converter.utils.convert_task_options import (
 import logging
 from deltacat import logs
 from collections import defaultdict
-from deltacat.compute.converter.model.convert_session_params import ConvertSessionParams
+from deltacat.compute.converter.model.converter_session_params import ConverterSessionParams
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
@@ -30,8 +30,8 @@ from deltacat.compute.converter.pyiceberg.catalog import load_table
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def convert_equality_deletes_to_position_deletes(
-    params: ConvertSessionParams, **kwargs
+def converter_session(
+    params: ConverterSessionParams, **kwargs
 ):
     """
     Convert equality delete to position delete.
@@ -46,7 +46,8 @@ def convert_equality_deletes_to_position_deletes(
         iceberg_table
     )
 
-    # files_for_each_bucket: {partition_value: [(equality_delete_files_list, data_files_list, pos_delete_files_list)]
+    # files_for_each_bucket contains the following files list:
+    # {partition_value: [(equality_delete_files_list, data_files_list, pos_delete_files_list)]
     files_for_each_bucket = defaultdict(tuple)
     for k, v in data_file_dict.items():
         logger.info(f"data_file: k, v:{k, v}")
@@ -73,8 +74,14 @@ def convert_equality_deletes_to_position_deletes(
     merge_keys = params.merge_keys
     # Using table identifier fields as merge keys if merge keys not provided
     if not merge_keys:
-        # identifier_fields = iceberg_table.schema().identifier_field_names()
-        identifier_fields = ["primarykey"]
+        identifier_fields_set = iceberg_table.schema().identifier_field_names()
+        identifier_fields = list(identifier_fields_set)
+    else:
+        identifier_fields = merge_keys
+    if len(identifier_fields) > 1:
+        raise NotImplementedError(
+            f"Multiple identifier fields lookup not supported yet."
+        )
     convert_options_provider = functools.partial(
         task_resource_options_provider,
         resource_amount_provider=convert_resource_options_provider,
