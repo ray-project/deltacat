@@ -13,8 +13,6 @@ jobs:
         steps:
             - name: checkout
               uses: actions/checkout@v3
-              with:
-                ref: '2.0'
             - name: Set up Python 3.9
               uses: actions/setup-python@v4
               with:
@@ -35,7 +33,6 @@ jobs:
             - name: "checkout repository"
               uses: actions/checkout@v4
               with:
-                  ref: '2.0'
                   fetch-depth: 0
             - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.9)
               uses: actions/setup-python@v4
