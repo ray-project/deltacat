@@ -66,9 +66,7 @@ class RangeShard(Shard, Generic[T]):
         return shards
 
     @staticmethod
-    def _interpolate_numeric(
-        start: int, end: int, step: int, total_steps: int
-    ) -> int:
+    def _interpolate_numeric(start: int, end: int, step: int, total_steps: int) -> int:
         """
         Integer interpolation using integer (floor) division.
 
@@ -94,21 +92,17 @@ class RangeShard(Shard, Generic[T]):
         returns: str: The interpolated string.
         """
         max_len = max(len(start), len(end))
-        
+
         # Pad strings to the same length with spaces (smallest lexicographical character).
         start = start.ljust(max_len, " ")
         end = end.ljust(max_len, " ")
-        
+
         # Interpolate character by character based on ordinal values.
         interpolated_chars = [
-            chr(
-                round(
-                    ord(s) + (ord(e) - ord(s)) * step / total_steps
-                )
-            )
+            chr(round(ord(s) + (ord(e) - ord(s)) * step / total_steps))
             for s, e in zip(start, end)
         ]
-        
+
         return "".join(interpolated_chars).rstrip()
 
 
