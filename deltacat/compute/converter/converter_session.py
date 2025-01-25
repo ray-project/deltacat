@@ -11,7 +11,9 @@ from deltacat.compute.converter.utils.convert_task_options import (
 import logging
 from deltacat import logs
 from collections import defaultdict
-from deltacat.compute.converter.model.converter_session_params import ConverterSessionParams
+from deltacat.compute.converter.model.converter_session_params import (
+    ConverterSessionParams,
+)
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
@@ -30,9 +32,7 @@ from deltacat.compute.converter.pyiceberg.catalog import load_table
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def converter_session(
-    params: ConverterSessionParams, **kwargs
-):
+def converter_session(params: ConverterSessionParams, **kwargs):
     """
     Convert equality delete to position delete.
     Compute and memory heavy work from downloading equality delete table and compute position deletes
