@@ -19,7 +19,6 @@ def keep_temp_dir():
     return tempfile.mkdtemp()
 
 
-@contextmanager
 @pytest.fixture
 def temp_catalog(temp_dir):
     return PropertyCatalog(temp_dir)
