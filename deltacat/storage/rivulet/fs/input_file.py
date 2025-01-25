@@ -1,6 +1,9 @@
+from contextlib import contextmanager
 import io
 from abc import ABC, abstractmethod
 from typing import Protocol
+
+from pyarrow.fs import FileSystem, FileType
 
 
 class InputStream(Protocol):
@@ -56,3 +59,18 @@ class InputFile(ABC):
             FileNotFoundError: If the file does not exist at self.location.
             PermissionError: If this has insufficient permissions to access the file at location.
         """
+
+
+class FSInputFile(InputFile):
+    def __init__(self, location: str, fs: FileSystem):
+        self._location = location
+        self.fs = fs
+
+    def exists(self) -> bool:
+        file_info = self.fs.get_file_info(self._location)
+        return file_info.type != FileType.NotFound
+
+    @contextmanager
+    def open(self, seekable: bool = False):
+        with self.fs.open_input_file(self._location) as input_stream:
+            yield input_stream

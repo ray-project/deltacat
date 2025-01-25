@@ -104,7 +104,7 @@ def test_dataset_from_parquet(tmp_path, sample_parquet_data):
     dataset = Dataset.from_parquet(
         name="test_dataset",
         file_uri=str(sample_parquet_data),
-        metadata_uri=tmp_path,
+        metadata_uri=str(tmp_path),
         merge_keys="id",
     )
     assert len(dataset.fields) == 3

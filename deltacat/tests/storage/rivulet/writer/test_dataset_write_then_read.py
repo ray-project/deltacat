@@ -109,8 +109,9 @@ class TestMultiLayerCompactionEndToEnd:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
-        cls.file_store = FileStore()
+        path, filesystem = FileStore.filesystem(cls.temp_dir)
+        cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=path)
+        cls.file_store = FileStore(path, filesystem=filesystem)
         cls.manifest_io = JsonManifestIO()
 
     @classmethod
@@ -229,9 +230,9 @@ class TestMultiLayerCompactionEndToEnd:
 
         TODO: replace this with a compaction operation
         """
-        input_file = self.file_store.new_input_file(uri)
+        input_file = self.file_store.create_input_file(uri)
         manifest = self.manifest_io.read(input_file)
-        output_file = self.file_store.new_output_file(uri)
+        output_file = self.file_store.create_output_file(uri)
         self.manifest_io.write(
             output_file,
             manifest.data_files,
@@ -248,8 +249,9 @@ class TestZipperMergeEndToEnd:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
+        path, filesystem = FileStore.filesystem(cls.temp_dir)
         cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
-        cls.file_store = FileStore()
+        cls.file_store = FileStore(path, filesystem=filesystem)
 
     @classmethod
     def teardown_class(cls):
@@ -316,7 +318,8 @@ class TestDataFormatSupport:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.file_store = FileStore()
+        path, filesystem = FileStore.filesystem(cls.temp_dir)
+        cls.file_store = FileStore(path, filesystem=filesystem)
 
     @classmethod
     def teardown_class(cls):

@@ -4,7 +4,7 @@ from typing import Optional
 
 from pyarrow import RecordBatch
 
-from deltacat.storage.rivulet.fs.file_store import FileStore
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet.reader.data_reader import (
     RowAndKey,
@@ -27,13 +27,13 @@ class ParquetFileReader(FileReader[RecordBatchRowIndex]):
     def __init__(
         self,
         sst_row: SSTableRow,
-        file_store: FileStore,
+        file_provider: FileProvider,
         key: str,
         schema: Schema,
         iter_batch_size=1000,
     ):
         self.sst_row = sst_row
-        self.input = file_store.new_input_file(self.sst_row.uri)
+        self.input = file_provider.provide_input_file(sst_row.uri)
 
         self.key = key
         self.parquet_file: pa.parquet.ParquetFile | None = None

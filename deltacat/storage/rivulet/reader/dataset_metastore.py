@@ -1,7 +1,6 @@
 from typing import Generator
 
-from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstReader
 from deltacat.storage.rivulet.metastore.manifest import (
     ManifestIO,
@@ -16,10 +15,10 @@ class ManifestAccessor:
     """Accessor for retrieving a manifest's SSTable entities."""
 
     def __init__(
-        self, manifest: Manifest, file_store: FileStore, sst_reader: SSTReader
+        self, manifest: Manifest, file_provider: FileProvider, sst_reader: SSTReader
     ):
         self.manifest: Manifest = manifest
-        self._file_store: file_store = file_store
+        self.file_provider: FileProvider = file_provider
         self._sst_reader = sst_reader
 
     @property
@@ -33,7 +32,7 @@ class ManifestAccessor:
         :return a generator of SSTables for this manifest
         """
         for sst_uri in self.manifest.sst_files:
-            sst_file = self._file_store.new_input_file(sst_uri)
+            sst_file = self.file_provider.provide_input_file(sst_uri)
             yield self._sst_reader.read(sst_file)
 
 
@@ -42,13 +41,11 @@ class DatasetMetastore:
 
     def __init__(
         self,
-        location_provider: FileLocationProvider,
-        file_store: FileStore,
+        file_provider: FileProvider,
         manifest_io: ManifestIO = None,
         sst_reader: SSTReader = None,
     ):
-        self.location_provider = location_provider
-        self.file_store: FileStore = file_store
+        self.file_provider = file_provider
         self.manifest_io = manifest_io or JsonManifestIO()
         self.sst_reader = sst_reader or JsonSstReader()
 
@@ -58,6 +55,6 @@ class DatasetMetastore:
 
         :return: a generator of accessors into the Manifests
         """
-        for uri in self.location_provider.generate_manifest_uris():
+        for uri in self.file_provider.generate_manifest_uris():
             manifest = self.manifest_io.read(uri)
-            yield ManifestAccessor(manifest, self.file_store, self.sst_reader)
+            yield ManifestAccessor(manifest, self.file_provider, self.sst_reader)

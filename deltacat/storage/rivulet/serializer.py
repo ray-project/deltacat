@@ -18,7 +18,7 @@ class DataSerializer(Protocol):
             For now, we will not expose this configuration and always write each batch to
             a new file
         2. Related to 1, how should we expose URI(s) to write to? Probably DataWriter can
-            use FileLocationProvider and needs to know relevant ids like task ID.
+            use FileProvider and needs to know relevant ids like task ID.
     """
 
     def flush_batch(self, sorted_records: MEMTABLE_DATA) -> List[SSTableRow]:

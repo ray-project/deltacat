@@ -139,7 +139,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
                 records = [z.data for z in self._dedupe_records(zipper_merged)]
                 # TODO (multi format support) we need to handle joining across data readers in the future
                 # For now, assume all data readers MUST read to Arrow intermediate format
-                for result in ArrowDataReader(self.metastore).join_deserialize_records(
+                for result in ArrowDataReader().join_deserialize_records(
                     records, self.deserialize_to, self.result_schema.get_merge_key()
                 ):
                     yield result
@@ -292,7 +292,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
             if sst_row not in self._open_file_readers:
                 file_reader = FileReaderRegistrar.construct_reader_instance(
                     sst_row,
-                    self.metastore.file_store,
+                    self.metastore.file_provider,
                     self.result_schema.get_merge_key(),
                     self.result_schema,
                     self.file_readers,
@@ -333,11 +333,11 @@ class BlockScanner:
         TODO handle "partial schema" use case, in which the query schema is a subset of full schema
         TODO parallelize scan with async io
         """
-        data_reader = ArrowDataReader(self.metastore)
+        data_reader = ArrowDataReader()
         for block in blocks:
             file_reader = FileReaderRegistrar.construct_reader_instance(
                 block,
-                self.metastore.file_store,
+                self.metastore.file_provider,
                 schema.get_merge_key(),
                 schema,
                 self.file_readers,
