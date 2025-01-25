@@ -54,6 +54,22 @@ def sample_string_dataset(tmp_path):
     )
     return ds
 
+def test_shards(sample_numeric_dataset, sample_string_dataset):
+    shards = sample_numeric_dataset.shards(num_shards=2)
+
+    num_shards = len(list(shards))
+    assert num_shards == 2
+
+    shard = shards[0]
+    records = list(sample_numeric_dataset.scan(shard=shard).to_pydict())
+    num_records = len(records)
+    assert num_records == 2
+
+    assert records[0]["id"] == 1
+    assert records[0]["name"] == "Alice"
+
+    assert records[1]["id"] == 2
+    assert records[1]["name"] == "Bob"
 
 def test_range_shard_repr():
     shard = RangeShard(min_key=5, max_key=15)
