@@ -8,6 +8,7 @@ import urllib
 import pathlib
 
 import pyarrow
+import pyarrow as pa
 from pyarrow.fs import (
     _resolve_filesystem_and_path,
     FileSelector,
