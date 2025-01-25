@@ -1,31 +1,61 @@
+from deltacat.catalog.main.impl import PropertyCatalog
+
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from deltacat.storage import (
+from deltacat.storage.model.manifest import (
     EntryParams,
+    ManifestAuthor,
+)
+from deltacat.storage.model.delta import (
     Delta,
     DeltaLocator,
     DeltaProperties,
     DeltaType,
+)
+from deltacat.storage.model.types import (
     DistributedDataset,
     LifecycleState,
-    ListResult,
     LocalDataset,
     LocalTable,
-    ManifestAuthor,
+    TransactionType,
+    TransactionOperationType,
+)
+from deltacat.storage.model.list_result import ListResult
+from deltacat.storage.model.namespace import (
     Namespace,
+    NamespaceLocator,
     NamespaceProperties,
+)
+from deltacat.storage.model.partition import (
     Partition,
     PartitionLocator,
     PartitionScheme,
     PartitionValues,
+)
+from deltacat.storage.model.schema import (
     Schema,
+)
+from deltacat.storage.model.sort_key import (
     SortScheme,
+)
+from deltacat.storage.model.stream import (
     Stream,
     StreamLocator,
+)
+from deltacat.storage.model.table import (
     Table,
     TableProperties,
+)
+from deltacat.storage.model.table_version import (
     TableVersion,
     TableVersionProperties,
+)
+from deltacat.storage.model.metafile import (
+    Metafile,
+)
+from deltacat.storage.model.transaction import (
+    TransactionOperation,
+    Transaction,
 )
 from deltacat.storage.model.manifest import Manifest
 from deltacat.types.media import (
@@ -37,12 +67,69 @@ from deltacat.types.media import (
 from deltacat.utils.common import ReadKwargsProvider
 
 
+def _get_catalog(**kwargs) -> PropertyCatalog:
+    catalog: PropertyCatalog = kwargs.get("catalog")
+    if not isinstance(catalog, PropertyCatalog):
+        err_msg = (
+            f"unsupported `catalog` param type: `{type(PropertyCatalog)}`. "
+            f"expected `catalog` param type: {PropertyCatalog}"
+        )
+        raise TypeError(err_msg)
+    return catalog
+
+
+def _list_metafiles(
+    metafile: Metafile,
+    txn_op_type: TransactionOperationType,
+    *args,
+    **kwargs,
+) -> ListResult[Metafile]:
+    catalog = _get_catalog(**kwargs)
+    limit = kwargs.get("limit") or None
+    transaction = Transaction.of(
+        txn_type=TransactionType.READ,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=txn_op_type,
+                dest_metafile=metafile,
+                read_limit=limit,
+            )
+        ],
+    )
+    list_results_per_op = transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
+    return list_results_per_op[0]
+
+
+def _read_latest_metafile(
+    metafile: Metafile,
+    txn_op_type: TransactionOperationType,
+    *args,
+    **kwargs,
+) -> Optional[Metafile]:
+    list_results = _list_metafiles(
+        *args,
+        metafile=metafile,
+        txn_op_type=txn_op_type,
+        **kwargs,
+    )
+    results = list_results.all_items()
+    return results[0] if results else None
+
+
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     """
     Lists a page of table namespaces. Namespaces are returned as list result
     items.
     """
-    raise NotImplementedError("list_namespaces not implemented")
+    return _list_metafiles(
+        *args,
+        metafile=Namespace.of(NamespaceLocator.of("placeholder")),
+        txn_op_type=TransactionOperationType.READ_SIBLINGS,
+        **kwargs,
+    )
 
 
 def list_tables(namespace: str, *args, **kwargs) -> ListResult[Table]:
@@ -250,7 +337,26 @@ def create_namespace(
     Creates a table namespace with the given name and properties. Returns
     the created namespace.
     """
-    raise NotImplementedError("create_namespace not implemented")
+    catalog = _get_catalog(**kwargs)
+    namespace = Namespace.of(
+        locator=NamespaceLocator.of(namespace=namespace),
+        properties=properties,
+    )
+    # given a transaction that creates a single namespace
+    transaction = Transaction.of(
+        txn_type=TransactionType.APPEND,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=namespace,
+            )
+        ],
+    )
+    transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
+    return namespace
 
 
 def update_namespace(
@@ -503,14 +609,27 @@ def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     Gets table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist.
     """
-    raise NotImplementedError("get_namespace not implemented")
+    return _read_latest_metafile(
+        *args,
+        metafile=Namespace.of(NamespaceLocator.of(namespace)),
+        txn_op_type=TransactionOperationType.READ_LATEST,
+        **kwargs,
+    )
 
 
 def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     """
     Returns True if the given table namespace exists, False if not.
     """
-    raise NotImplementedError("namespace_exists not implemented")
+    return (
+        _read_latest_metafile(
+            *args,
+            metafile=Namespace.of(NamespaceLocator.of(namespace)),
+            txn_op_type=TransactionOperationType.READ_EXISTS,
+            **kwargs,
+        )
+        is not None
+    )
 
 
 def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Table]:
