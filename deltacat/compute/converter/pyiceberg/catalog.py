@@ -33,21 +33,22 @@ def get_s3_prefix():
 
 def get_credential():
     import boto3
-
     boto3_session = boto3.Session()
     credentials = boto3_session.get_credentials()
     return credentials
 
 
 def get_glue_catalog():
-    #     # from pyiceberg.catalog.glue import GLUE_CATALOG_ENDPOINT, GlueCatalog
     from pyiceberg.catalog import load_catalog
 
     credential = get_credential()
+    # Credentials are refreshable, so accessing your access key / secret key
+    # separately can lead to a race condition. Use this to get an actual matched
+    # set.
+    credential= credential.get_frozen_credentials()
     access_key_id = credential.access_key
     secret_access_key = credential.secret_key
     session_token = credential.token
-    # logger.info(f"session_token: {session_token}")
     s3_path = get_s3_prefix()
     glue_catalog = load_catalog(
         "glue",

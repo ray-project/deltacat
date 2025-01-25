@@ -25,7 +25,7 @@ def convert(convert_input: ConvertInput):
     )
     max_parallel_data_file_download = convert_input.max_parallel_data_file_download
 
-    if position_delete_for_multiple_data_files:
+    if not position_delete_for_multiple_data_files:
         raise NotImplementedError(
             f"Distributed file level position delete compute is not supported yet"
         )
@@ -55,10 +55,11 @@ def convert(convert_input: ConvertInput):
 def filter_rows_to_be_deleted(
     equality_delete_table, data_file_table, identifier_columns
 ):
+    identifier_column = identifier_columns[0]
     if equality_delete_table and data_file_table:
         equality_deletes = pc.is_in(
-            data_file_table["primarykey"],
-            equality_delete_table["primarykey"],
+            data_file_table[identifier_column],
+            equality_delete_table[identifier_column],
         )
         positional_delete_table = data_file_table.filter(equality_deletes)
         logger.info(f"positional_delete_table:{positional_delete_table.to_pydict()}")

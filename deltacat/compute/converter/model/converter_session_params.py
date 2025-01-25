@@ -3,13 +3,13 @@ from typing import Optional, Dict
 from deltacat.compute.converter.constants import DEFAULT_CONVERTER_TASK_MAX_PARALLELISM
 
 
-class ConvertSessionParams(dict):
+class ConverterSessionParams(dict):
     """
     This class represents the parameters passed to convert_ (deltacat/compute/compactor/compaction_session.py)
     """
 
     @staticmethod
-    def of(params: Optional[Dict]) -> ConvertSessionParams:
+    def of(params: Optional[Dict]) -> ConverterSessionParams:
         params = {} if params is None else params
         assert params.get("catalog") is not None, "catalog is a required arg"
         assert (
@@ -18,11 +18,13 @@ class ConvertSessionParams(dict):
         assert (
             params.get("iceberg_warehouse_bucket_name") is not None
         ), "iceberg_warehouse_bucket_name is a required arg"
-        result = ConvertSessionParams(params)
+        result = ConverterSessionParams(params)
 
         result.compact_small_files = params.get("compact_small_files", False)
+
+        # For Iceberg v3 spec, option to produce delete vector that can establish 1:1 mapping with data files.
         result.position_delete_for_multiple_data_files = params.get(
-            "position_delete_for_multiple_data_files", False
+            "position_delete_for_multiple_data_files", True
         )
         result.task_max_parallelism = params.get(
             "task_max_parallelism", DEFAULT_CONVERTER_TASK_MAX_PARALLELISM
