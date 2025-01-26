@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import datetime
 import time
 import uuid
 import posixpath
@@ -30,18 +29,29 @@ from deltacat.storage.model.metafile import (
 )
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
-    get_file_info,
     list_directory,
 )
 
 
 class TransactionTimeProvider:
-    def time(self) -> int:
-        raise NotImplementedError("time not implemented")
+    def start_time(self) -> int:
+        raise NotImplementedError("start_time not implemented")
+
+    def end_time(self) -> int:
+        raise NotImplementedError("end_time not implemented")
 
 
 class TransactionSystemTimeProvider(TransactionTimeProvider):
-    def time(self) -> int:
+    def start_time(self) -> int:
+        """
+        Gets the current system time in milliseconds since the epoch.
+        :return: Current epoch time in milliseconds.
+        """
+        # hack to ensure serial transactions in a single process have unique IDs
+        time.sleep(0.0005)
+        return time.time_ns() // 1_000_000
+
+    def end_time(self) -> int:
         """
         Gets the current system time in milliseconds since the epoch.
         :return: Current epoch time in milliseconds.
@@ -217,7 +227,7 @@ class Transaction(dict):
         return transaction
 
     @staticmethod
-    def end_time(
+    def read_end_time(
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Optional[int]:
@@ -225,28 +235,31 @@ class Transaction(dict):
         Returns the end time of the transaction in milliseconds since the
         epoch based on the transaction log file's modified timestamp, or None
         if the transaction log file does not exist.
-        :param path: Transaction log file path to read.
+        :param path: Transaction log path to read.
         :param filesystem: File system to use for reading the Transaction file.
         :return: Deserialized object from the Transaction file.
         """
         # TODO(pdames): Validate that input file path is a valid txn log.
         if not filesystem:
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        file_info = get_file_info(
+        file_info_and_sizes = list_directory(
             path=path,
             filesystem=filesystem,
             ignore_missing_path=True,
         )
-        end_time_epoch_ms = None
-        if file_info.mtime_ns:
-            end_time_epoch_ms = file_info.mtime_ns // 1_000_000
-        elif file_info.mtime:
-            if isinstance(datetime.datetime, file_info.mtime):
-                end_time_epoch_ms = int(file_info.mtime.timestamp() * 1000)
-            else:
-                # file_info.mtime must be a second-precision float
-                end_time_epoch_ms = int(file_info.mtime * 1000)
-        return end_time_epoch_ms
+        end_time = None
+        if file_info_and_sizes:
+            if len(file_info_and_sizes) > 1:
+                raise ValueError(
+                    f"Expected to find only one transaction log at {path}, "
+                    f"but found {len(file_info_and_sizes)}"
+                )
+            end_time = Transaction._parse_end_time(file_info_and_sizes[0][0])
+        return end_time
+
+    @staticmethod
+    def _parse_end_time(txn_log_file_name_or_path: str) -> int:
+        return int(posixpath.basename(txn_log_file_name_or_path))
 
     @classmethod
     def read(
@@ -303,20 +316,41 @@ class Transaction(dict):
     @property
     def start_time(self) -> Optional[int]:
         """
-        Returns the start time of the transaction in milliseconds since the
-        epoch.
+        Returns the start time of the transaction.
         """
         return self.get("start_time")
 
-    def _mark_start_time(self, time_provider: TransactionTimeProvider) -> None:
+    @property
+    def end_time(self) -> Optional[int]:
+        """
+        Returns the end time of the transaction.
+        """
+        return self.get("end_time")
+
+    def _mark_start_time(self, time_provider: TransactionTimeProvider) -> int:
         """
         Sets the start time of the transaction as current milliseconds since
-        the epoch. Raises a value error if the transaction start time has
+        the epoch. Raises a runtime error if the transaction start time has
         already been set by a previous commit.
         """
         if self.get("start_time"):
-            raise RuntimeError("Cannot restart a previously committed transaction.")
-        self["start_time"] = time_provider.time()
+            raise RuntimeError("Cannot restart a previously started transaction.")
+        start_time = self["start_time"] = time_provider.start_time()
+        return start_time
+
+    def _mark_end_time(self, time_provider: TransactionTimeProvider) -> int:
+        """
+        Sets the end time of the transaction as current milliseconds since
+        the epoch. Raises a runtime error if the transaction end time has
+        already been set by a previous commit, or if the transaction start
+        time has not been set.
+        """
+        if not self.get("start_time"):
+            raise RuntimeError("Cannot end a transaction before it's started.")
+        if self.get("end_time"):
+            raise RuntimeError("Cannot end a previously ended transaction.")
+        end_time = self["end_time"] = time_provider.end_time()
+        return end_time
 
     def to_serializable(self) -> Transaction:
         """
@@ -346,43 +380,45 @@ class Transaction(dict):
         return serializable
 
     @staticmethod
-    def _validate_txn_log_file(
-        txn_log_file_path: str,
-        filesystem: pyarrow.fs.FileSystem,
-    ) -> None:
-        # ensure that the transaction end time was recorded after the start time
-        txn_log_file_name = posixpath.basename(txn_log_file_path)
-        txn_log_file_parts = txn_log_file_name.split(TXN_PART_SEPARATOR)
+    def _validate_txn_log_file(success_txn_log_file: str) -> None:
+        txn_log_dir_name = posixpath.basename(posixpath.dirname(success_txn_log_file))
+        txn_log_parts = txn_log_dir_name.split(TXN_PART_SEPARATOR)
+        # ensure that the transaction start time is valid
         try:
-            start_time = int(txn_log_file_parts[0])
+            start_time = int(txn_log_parts[0])
         except ValueError as e:
             raise ValueError(
-                f"Transaction log file `{txn_log_file_path}` does not "
+                f"Transaction log file `{success_txn_log_file}` does not "
                 f"contain a valid start time."
             ) from e
         if start_time < 0:
             raise ValueError(
-                f"Transaction log file `{txn_log_file_path}` does not "
+                f"Transaction log file `{success_txn_log_file}` does not "
                 f"contain a valid start time ({start_time} is pre-epoch)."
             )
         if start_time > time.time_ns() // 1_000_000:
             raise ValueError(
-                f"Transaction log file `{txn_log_file_path}` does not "
+                f"Transaction log file `{success_txn_log_file}` does not "
                 f"contain a valid start time ({start_time} is in the future)."
             )
         # ensure that the txn uuid is valid
-        txn_uuid_str = txn_log_file_parts[1]
+        txn_uuid_str = txn_log_parts[1]
         try:
             uuid.UUID(txn_uuid_str)
         except ValueError as e:
             raise OSError(
-                f"Transaction log file `{txn_log_file_path}` does not "
+                f"Transaction log file `{success_txn_log_file}` does not "
                 f"contain a valid UUID string."
             ) from e
-        end_time = Transaction.end_time(
-            path=txn_log_file_path,
-            filesystem=filesystem,
-        )
+        # ensure that the transaction end time is valid
+        try:
+            end_time = Transaction._parse_end_time(success_txn_log_file)
+        except ValueError as e:
+            raise ValueError(
+                f"Transaction log file `{success_txn_log_file}` does not "
+                f"contain a valid end time."
+            ) from e
+        # ensure that the transaction end time was recorded after the start time
         if end_time < start_time:
             raise OSError(
                 f"Transaction end time {end_time} is earlier than start "
@@ -392,7 +428,7 @@ class Transaction(dict):
                 f"recording the completed transaction file timestamp (at "
                 f"least millisecond precision is required). To preserve "
                 f"catalog integrity, the corresponding completed "
-                f"transaction log at `{txn_log_file_path}` has been removed."
+                f"transaction log at `{success_txn_log_file}` has been removed."
             )
 
     def commit(
@@ -448,6 +484,7 @@ class Transaction(dict):
                 failed_txn_log_dir=failed_txn_log_dir,
                 success_txn_log_dir=success_txn_log_dir,
                 filesystem=filesystem,
+                time_provider=time_provider,
             )
 
     def _commit_write(
@@ -457,6 +494,7 @@ class Transaction(dict):
         failed_txn_log_dir: str,
         success_txn_log_dir: str,
         filesystem: pyarrow.fs.FileSystem,
+        time_provider: TransactionTimeProvider,
     ) -> Tuple[List[str], str]:
         # write the in-progress transaction log file
         running_txn_log_file_path = posixpath.join(
@@ -517,18 +555,30 @@ class Transaction(dict):
             raise
 
         # record the completed transaction
-        success_txn_log_file_path = posixpath.join(success_txn_log_dir, self.id)
+        success_txn_log_file_dir = posixpath.join(
+            success_txn_log_dir,
+            self.id,
+        )
+        filesystem.create_dir(
+            success_txn_log_file_dir,
+            recursive=False,
+        )
+        end_time = self._mark_end_time(time_provider)
+        success_txn_log_file_path = posixpath.join(
+            success_txn_log_file_dir,
+            str(end_time),
+        )
         with filesystem.open_output_stream(success_txn_log_file_path) as file:
             packed = msgpack.dumps(self.to_serializable())
             file.write(packed)
         try:
             Transaction._validate_txn_log_file(
-                txn_log_file_path=success_txn_log_file_path,
-                filesystem=filesystem,
+                success_txn_log_file=success_txn_log_file_path
             )
         except Exception as e1:
             try:
                 # move the txn log from success dir to failed dir
+                # keep parent success txn log dir to telegraph validation fail
                 failed_txn_log_file_path = posixpath.join(
                     failed_txn_log_dir,
                     self.id,

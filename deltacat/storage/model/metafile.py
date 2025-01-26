@@ -87,9 +87,11 @@ class MetafileRevisionInfo(dict):
             elif current_txn_start_time is not None:
                 # the current transaction can only build on top of the snapshot
                 # of commits from transactions that completed before it started
-                txn_end_time = deltacat.storage.model.transaction.Transaction.end_time(
-                    path=posixpath.join(txn_log_dir, mri.txn_id),
-                    filesystem=filesystem,
+                txn_end_time = (
+                    deltacat.storage.model.transaction.Transaction.read_end_time(
+                        path=posixpath.join(txn_log_dir, mri.txn_id),
+                        filesystem=filesystem,
+                    )
                 )
                 if txn_end_time is not None and txn_end_time < current_txn_start_time:
                     revisions.append(mri)
@@ -262,9 +264,11 @@ class MetafileRevisionInfo(dict):
             # but we still need to ensure that no conflicting transactions
             # completed before seeing the conflict with this transaction
             for mri in conflict_mris:
-                txn_end_time = deltacat.storage.model.transaction.Transaction.end_time(
-                    path=posixpath.join(success_txn_log_dir, mri.txn_id),
-                    filesystem=filesystem,
+                txn_end_time = (
+                    deltacat.storage.model.transaction.Transaction.read_end_time(
+                        path=posixpath.join(success_txn_log_dir, mri.txn_id),
+                        filesystem=filesystem,
+                    )
                 )
                 # TODO(pdames): Resolve risk of passing this check if it
                 #  runs before the conflicting transaction marks itself as

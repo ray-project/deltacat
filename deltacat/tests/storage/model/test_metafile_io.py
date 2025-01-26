@@ -394,7 +394,7 @@ class TestMetafileIO:
         # given a transaction with an ending timestamp set in the past
         past_timestamp = time.time_ns() // 1_000_000 - 1000
         mocker.patch(
-            "deltacat.storage.model.transaction.Transaction.end_time",
+            "deltacat.storage.model.transaction.Transaction._parse_end_time",
             return_value=past_timestamp,
         )
         original_delta: Delta = commit_results[5][1]
@@ -433,11 +433,16 @@ class TestMetafileIO:
         _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
         with filesystem.open_output_stream(conflict_delta_write_path):
             pass  # Just create an empty conflicting metafile revision
-        txn_log_file_path = os.path.join(
+        txn_log_file_dir = os.path.join(
             temp_dir,
             TXN_DIR_NAME,
             SUCCESS_TXN_DIR_NAME,
             mri.txn_id,
+        )
+        filesystem.create_dir(txn_log_file_dir, recursive=True)
+        txn_log_file_path = os.path.join(
+            txn_log_file_dir,
+            str(time.time_ns() // 1_000_000),
         )
         with filesystem.open_output_stream(txn_log_file_path):
             pass  # Just create an empty log to mark the txn as complete
@@ -448,12 +453,10 @@ class TestMetafileIO:
         past_timestamp = time.time_ns() // 1_000_000 - 1000
         future_timestamp = 9999999999999
         end_time_mock = mocker.patch(
-            "deltacat.storage.model.transaction.Transaction.end_time",
+            "deltacat.storage.model.transaction.Transaction._parse_end_time",
         )
         end_time_mock.side_effect = (
-            lambda path, filesystem: future_timestamp
-            if mri.txn_id in path
-            else past_timestamp
+            lambda path: future_timestamp if mri.txn_id in path else past_timestamp
         )
         original_delta = Delta.read(orig_delta_write_path)
         new_delta = Delta.update_for(original_delta)
