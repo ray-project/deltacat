@@ -56,7 +56,7 @@ from deltacat.storage.model.metafile import (
     Metafile,
     MetafileRevisionInfo,
 )
-from deltacat.constants import TXN_DIR_NAME
+from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 
@@ -433,7 +433,12 @@ class TestMetafileIO:
         _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
         with filesystem.open_output_stream(conflict_delta_write_path):
             pass  # Just create an empty conflicting metafile revision
-        txn_log_file_path = os.path.join(temp_dir, TXN_DIR_NAME, mri.txn_id)
+        txn_log_file_path = os.path.join(
+            temp_dir,
+            TXN_DIR_NAME,
+            SUCCESS_TXN_DIR_NAME,
+            mri.txn_id,
+        )
         with filesystem.open_output_stream(txn_log_file_path):
             pass  # Just create an empty log to mark the txn as complete
 

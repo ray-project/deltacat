@@ -12,7 +12,13 @@ from typing import Optional, List, Union, Tuple
 import msgpack
 import pyarrow.fs
 
-from deltacat.constants import TXN_DIR_NAME, TXN_PART_SEPARATOR
+from deltacat.constants import (
+    TXN_DIR_NAME,
+    TXN_PART_SEPARATOR,
+    RUNNING_TXN_DIR_NAME,
+    FAILED_TXN_DIR_NAME,
+    SUCCESS_TXN_DIR_NAME,
+)
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.types import (
     TransactionOperationType,
@@ -25,7 +31,24 @@ from deltacat.storage.model.metafile import (
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     get_file_info,
+    list_directory,
 )
+
+
+class TransactionTimeProvider:
+    def time(self) -> int:
+        raise NotImplementedError("time not implemented")
+
+
+class TransactionSystemTimeProvider(TransactionTimeProvider):
+    def time(self) -> int:
+        """
+        Gets the current system time in milliseconds since the epoch.
+        :return: Current epoch time in milliseconds.
+        """
+        # hack to ensure serial transactions in a single process have unique IDs
+        time.sleep(0.0005)
+        return time.time_ns() // 1_000_000
 
 
 class TransactionOperation(dict):
@@ -285,7 +308,7 @@ class Transaction(dict):
         """
         return self.get("start_time")
 
-    def _mark_start_time(self) -> None:
+    def _mark_start_time(self, time_provider: TransactionTimeProvider) -> None:
         """
         Sets the start time of the transaction as current milliseconds since
         the epoch. Raises a value error if the transaction start time has
@@ -293,9 +316,7 @@ class Transaction(dict):
         """
         if self.get("start_time"):
             raise RuntimeError("Cannot restart a previously committed transaction.")
-        # TODO(pdames): Fix this (hack to assign unique serial txn start times)
-        time.sleep(0.001)
-        self["start_time"] = time.time_ns() // 1_000_000
+        self["start_time"] = time_provider.time()
 
     def to_serializable(self) -> Transaction:
         """
@@ -378,6 +399,7 @@ class Transaction(dict):
         self,
         catalog_root_dir: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        time_provider: Optional[TransactionTimeProvider] = None,
     ) -> Union[List[ListResult[Metafile]], Tuple[List[str], str]]:
         # TODO(pdames): allow transactions to be durably staged and resumed
         #  across multiple sessions prior to commit
@@ -386,23 +408,32 @@ class Transaction(dict):
         # external modification and dirty state across retries
         txn = copy.deepcopy(self)
 
-        # record the transaction start time
-        txn._mark_start_time()
-
         # create the transaction directory first to telegraph that at least 1
         # transaction at this root has been attempted
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(
-            catalog_root_dir, filesystem
+            catalog_root_dir,
+            filesystem,
         )
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
-        filesystem.create_dir(txn_log_dir, recursive=True)
+        running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
+        filesystem.create_dir(running_txn_log_dir, recursive=True)
+        failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+        filesystem.create_dir(failed_txn_log_dir, recursive=False)
+        success_txn_log_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
+        filesystem.create_dir(success_txn_log_dir, recursive=False)
+
+        if not time_provider:
+            time_provider = TransactionSystemTimeProvider()
+
+        # record the transaction start time
+        txn._mark_start_time(time_provider)
 
         if txn.type == TransactionType.READ:
             list_results = []
             for operation in self.operations:
                 list_result = operation.dest_metafile.read_txn(
                     catalog_root_dir=catalog_root_normalized,
-                    txn_log_dir=txn_log_dir,
+                    txn_log_dir=success_txn_log_dir,
                     current_txn_op=operation,
                     current_txn_start_time=txn.start_time,
                     current_txn_id=txn.id,
@@ -413,16 +444,29 @@ class Transaction(dict):
         else:
             return txn._commit_write(
                 catalog_root_normalized=catalog_root_normalized,
-                txn_log_dir=txn_log_dir,
+                running_txn_log_dir=running_txn_log_dir,
+                failed_txn_log_dir=failed_txn_log_dir,
+                success_txn_log_dir=success_txn_log_dir,
                 filesystem=filesystem,
             )
 
     def _commit_write(
         self,
         catalog_root_normalized: str,
-        txn_log_dir: str,
+        running_txn_log_dir: str,
+        failed_txn_log_dir: str,
+        success_txn_log_dir: str,
         filesystem: pyarrow.fs.FileSystem,
     ) -> Tuple[List[str], str]:
+        # write the in-progress transaction log file
+        running_txn_log_file_path = posixpath.join(
+            running_txn_log_dir,
+            self.id,
+        )
+        with filesystem.open_output_stream(running_txn_log_file_path) as file:
+            packed = msgpack.dumps(self.to_serializable())
+            file.write(packed)
+
         # write each metafile associated with the transaction
         metafile_write_paths = []
         locator_write_paths = []
@@ -430,7 +474,7 @@ class Transaction(dict):
             for operation in self.operations:
                 operation.dest_metafile.write_txn(
                     catalog_root_dir=catalog_root_normalized,
-                    txn_log_dir=txn_log_dir,
+                    txn_log_dir=success_txn_log_dir,
                     current_txn_op=operation,
                     current_txn_start_time=self.start_time,
                     current_txn_id=self.id,
@@ -441,11 +485,20 @@ class Transaction(dict):
                 # check for conflicts with concurrent transactions
                 for path in metafile_write_paths + locator_write_paths:
                     MetafileRevisionInfo.check_for_concurrent_txn_conflict(
-                        txn_log_dir=txn_log_dir,
+                        success_txn_log_dir=success_txn_log_dir,
                         current_txn_revision_file_path=path,
                         filesystem=filesystem,
                     )
         except Exception:
+            # write a failed transaction log file entry
+            failed_txn_log_file_path = posixpath.join(
+                failed_txn_log_dir,
+                self.id,
+            )
+            with filesystem.open_output_stream(failed_txn_log_file_path) as file:
+                packed = msgpack.dumps(self.to_serializable())
+                file.write(packed)
+
             # delete all files written during the failed transaction
             known_write_paths = chain.from_iterable(
                 [
@@ -457,30 +510,46 @@ class Transaction(dict):
             #  either failed to add to the known write paths, or fail to delete.
             for write_path in known_write_paths:
                 filesystem.delete_file(write_path)
+
+            # delete the in-progress transaction log file entry
+            filesystem.delete_file(running_txn_log_file_path)
+
             raise
 
         # record the completed transaction
-        txn_log_file_path = posixpath.join(txn_log_dir, self.id)
-        with filesystem.open_output_stream(txn_log_file_path) as file:
+        success_txn_log_file_path = posixpath.join(success_txn_log_dir, self.id)
+        with filesystem.open_output_stream(success_txn_log_file_path) as file:
             packed = msgpack.dumps(self.to_serializable())
             file.write(packed)
         try:
             Transaction._validate_txn_log_file(
-                txn_log_file_path=txn_log_file_path,
+                txn_log_file_path=success_txn_log_file_path,
                 filesystem=filesystem,
             )
         except Exception as e1:
             try:
-                filesystem.delete_file(txn_log_file_path)
+                # move the txn log from success dir to failed dir
+                failed_txn_log_file_path = posixpath.join(
+                    failed_txn_log_dir,
+                    self.id,
+                )
+                filesystem.move(
+                    src=success_txn_log_file_path,
+                    dest=failed_txn_log_file_path,
+                )
             except Exception as e2:
                 raise OSError(
                     f"Failed to cleanup bad transaction log file at "
-                    f"`{txn_log_file_path}`"
+                    f"`{success_txn_log_file_path}`"
                 ) from e2
             finally:
                 raise RuntimeError(
                     f"Transaction validation failed. To preserve "
                     f"catalog integrity, the corresponding completed "
-                    f"transaction log at `{txn_log_file_path}` has been removed."
+                    f"transaction log at `{success_txn_log_file_path}` has "
+                    f"been removed."
                 ) from e1
-        return metafile_write_paths, txn_log_file_path
+        finally:
+            # delete the in-progress transaction log file entry
+            filesystem.delete_file(running_txn_log_file_path)
+        return metafile_write_paths, success_txn_log_file_path

@@ -38,6 +38,7 @@ An ordered list of partition values. Partition values are typically derived
 by applying one or more transforms to a table's fields.
 """
 PartitionValues = List[Any]
+UNPARTITIONED_SCHEME_ID = "deadbeef-7277-49a4-a195-fdc8ed235d42"
 
 
 class Partition(Metafile):
@@ -60,7 +61,9 @@ class Partition(Metafile):
         partition.previous_stream_position = previous_stream_position
         partition.previous_partition_id = previous_partition_id
         partition.stream_position = stream_position
-        partition.partition_scheme_id = partition_scheme_id
+        partition.partition_scheme_id = (
+            partition_scheme_id if locator.partition_values else UNPARTITIONED_SCHEME_ID
+        )
         return partition
 
     @property

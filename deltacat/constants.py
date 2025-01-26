@@ -69,4 +69,7 @@ NULL_SIZE_BYTES = 4
 REVISION_DIR_NAME: str = "rev"
 METAFILE_EXT = ".mpk"
 TXN_DIR_NAME: str = "txn"
+RUNNING_TXN_DIR_NAME: str = "running"
+FAILED_TXN_DIR_NAME: str = "failed"
+SUCCESS_TXN_DIR_NAME: str = "success"
 TXN_PART_SEPARATOR = "_"

@@ -16,6 +16,7 @@ from deltacat.constants import (
     METAFILE_EXT,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
+    SUCCESS_TXN_DIR_NAME,
 )
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
@@ -208,7 +209,7 @@ class MetafileRevisionInfo(dict):
 
     @staticmethod
     def check_for_concurrent_txn_conflict(
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_revision_file_path: str,
         filesystem: pyarrow.fs.FileSystem,
     ) -> None:
@@ -217,7 +218,7 @@ class MetafileRevisionInfo(dict):
         by the current transaction and another parallel transaction. Raises
         an exception if a concurrent modification conflict is found.
 
-        :param txn_log_dir: Path to the catalog transaction log.
+        :param success_txn_log_dir: Path to the log of successful transactions.
         :param current_txn_revision_file_path: Path to a metafile revision
         written by the current transaction to check for conflicts against.
         :param filesystem: Filesystem that can read the metafile revision.
@@ -262,7 +263,7 @@ class MetafileRevisionInfo(dict):
             # completed before seeing the conflict with this transaction
             for mri in conflict_mris:
                 txn_end_time = deltacat.storage.model.transaction.Transaction.end_time(
-                    path=posixpath.join(txn_log_dir, mri.txn_id),
+                    path=posixpath.join(success_txn_log_dir, mri.txn_id),
                     filesystem=filesystem,
                 )
                 # TODO(pdames): Resolve risk of passing this check if it
@@ -888,10 +889,15 @@ class Metafile(dict):
             # the locator name is mutable, so we need to resolve the mapping
             # from the locator back to its immutable metafile ID
             locator_path = locator.path(metafile_root)
+            success_txn_log_dir = posixpath.join(
+                catalog_root,
+                TXN_DIR_NAME,
+                SUCCESS_TXN_DIR_NAME,
+            )
             mri = MetafileRevisionInfo.latest_revision(
                 revision_dir_path=locator_path,
                 filesystem=filesystem,
-                txn_log_dir=posixpath.join(catalog_root, TXN_DIR_NAME),
+                txn_log_dir=success_txn_log_dir,
                 current_txn_start_time=txn_start_time,
                 current_txn_id=txn_id,
             )
