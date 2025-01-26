@@ -123,7 +123,7 @@ class Table(Metafile):
                 MetafileRevisionInfo.latest_revision(
                     revision_dir_path=parent_rev_dir_path,
                     filesystem=filesystem,
-                    txn_log_dir=txn_log_dir,
+                    success_txn_log_dir=txn_log_dir,
                 ).path,
                 filesystem,
             )

@@ -63,12 +63,12 @@ class MetafileRevisionInfo(dict):
     def list_revisions(
         revision_dir_path: str,
         filesystem: pyarrow.fs.FileSystem,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[MetafileRevisionInfo]:
-        if not txn_log_dir:
+        if not success_txn_log_dir:
             err_msg = f"No transaction log found for: {revision_dir_path}."
             raise ValueError(err_msg)
         # find the latest committed revision of the target metafile
@@ -89,7 +89,7 @@ class MetafileRevisionInfo(dict):
                 # of commits from transactions that completed before it started
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
-                        path=posixpath.join(txn_log_dir, mri.txn_id),
+                        path=posixpath.join(success_txn_log_dir, mri.txn_id),
                         filesystem=filesystem,
                     )
                 )
@@ -108,7 +108,7 @@ class MetafileRevisionInfo(dict):
     def latest_revision(
         revision_dir_path: str,
         filesystem: pyarrow.fs.FileSystem,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
         ignore_missing_revision: bool = False,
@@ -116,7 +116,7 @@ class MetafileRevisionInfo(dict):
         revisions = MetafileRevisionInfo.list_revisions(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             limit=1,
@@ -134,7 +134,7 @@ class MetafileRevisionInfo(dict):
         current_txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
         extension: Optional[str] = METAFILE_EXT,
-        txn_log_dir: Optional[str] = None,
+        success_txn_log_dir: Optional[str] = None,
     ) -> MetafileRevisionInfo:
         """
         Creates and returns a new MetafileRevisionInfo object for the next
@@ -155,9 +155,9 @@ class MetafileRevisionInfo(dict):
             use for file operations
             extension (str, optional): The file extension for metafiles.
             Defaults to METAFILE_EXT.
-            txn_log_dir (Optional[str], optional): Directory path for
-            transaction logs. Will be automatically discovered by traversing
-            revision directory parent paths if not specified.
+            success_txn_log_dir (Optional[str], optional): Directory path for
+            successful transaction logs. Will be automatically discovered by
+            traversing revision directory parent paths if not specified.
 
         Returns:
             MetafileRevisionInfo: A new revision info object containing
@@ -174,7 +174,7 @@ class MetafileRevisionInfo(dict):
         mri = MetafileRevisionInfo.latest_revision(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             ignore_missing_revision=is_create_txn,
@@ -435,7 +435,7 @@ class Metafile(dict):
     @staticmethod
     def read_txn(
         catalog_root_dir: str,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
@@ -444,7 +444,8 @@ class Metafile(dict):
         """
         Read one or more metadata files within the context of a transaction.
         :param catalog_root_dir: Catalog root dir to read the metafile from.
-        :param txn_log_dir: Catalog root transaction log directory.
+        :param success_txn_log_dir: Catalog root successful transaction log
+        directory.
         :param current_txn_op: Transaction operation for this read.
         :param current_txn_start_time: Transaction start time for this read.
         :param current_txn_id: Transaction ID for this read.
@@ -455,7 +456,7 @@ class Metafile(dict):
         """
         kwargs = {
             "catalog_root": catalog_root_dir,
-            "txn_log_dir": txn_log_dir,
+            "success_txn_log_dir": success_txn_log_dir,
             "current_txn_start_time": current_txn_start_time,
             "current_txn_id": current_txn_id,
             "filesystem": filesystem,
@@ -512,7 +513,7 @@ class Metafile(dict):
     def write_txn(
         self,
         catalog_root_dir: str,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
@@ -522,7 +523,8 @@ class Metafile(dict):
         Serialize and write this object to a metadata file within the context
         of a transaction.
         :param catalog_root_dir: Catalog root dir to write the metafile to.
-        :param txn_log_dir: Catalog root transaction log directory.
+        :param success_txn_log_dir: Catalog root successful transaction log
+        directory.
         :param current_txn_op: Transaction operation for this write.
         :param current_txn_start_time: Transaction start time for this write.
         :param current_txn_id: Transaction ID for this write.
@@ -537,7 +539,7 @@ class Metafile(dict):
             )
         self._write_metafile_revisions(
             catalog_root=catalog_root_dir,
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
             current_txn_op=current_txn_op,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
@@ -648,7 +650,7 @@ class Metafile(dict):
     def children(
         self,
         catalog_root: str,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
@@ -674,7 +676,7 @@ class Metafile(dict):
             self.id,
         )
         return self._list_metafiles(
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
             metafile_root_dir_path=metafile_root_dir_path,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
@@ -685,7 +687,7 @@ class Metafile(dict):
     def siblings(
         self,
         catalog_root: str,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
@@ -707,7 +709,7 @@ class Metafile(dict):
         )
         parent_obj_path = posixpath.join(*[catalog_root] + ancestor_ids)
         return self._list_metafiles(
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
             metafile_root_dir_path=parent_obj_path,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
@@ -718,7 +720,7 @@ class Metafile(dict):
     def revisions(
         self,
         catalog_root: str,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
@@ -757,7 +759,7 @@ class Metafile(dict):
         revisions = MetafileRevisionInfo.list_revisions(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             limit=limit,
@@ -901,7 +903,7 @@ class Metafile(dict):
             mri = MetafileRevisionInfo.latest_revision(
                 revision_dir_path=locator_path,
                 filesystem=filesystem,
-                txn_log_dir=success_txn_log_dir,
+                success_txn_log_dir=success_txn_log_dir,
                 current_txn_start_time=txn_start_time,
                 current_txn_id=txn_id,
             )
@@ -918,7 +920,7 @@ class Metafile(dict):
     def _write_locator_to_id_map_file(
         self,
         locator: Locator,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         parent_obj_path: str,
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_op_type: TransactionOperationType,
@@ -934,7 +936,7 @@ class Metafile(dict):
             current_txn_id=current_txn_id,
             filesystem=filesystem,
             extension=f".{self.id}",
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
         )
         revision_file_path = mri.path
         filesystem.create_dir(posixpath.dirname(revision_file_path), recursive=True)
@@ -944,7 +946,7 @@ class Metafile(dict):
 
     def _write_metafile_revision(
         self,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         revision_dir_path: str,
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_op_type: TransactionOperationType,
@@ -958,7 +960,7 @@ class Metafile(dict):
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             filesystem=filesystem,
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
         )
         self.write(
             path=mri.path,
@@ -969,7 +971,7 @@ class Metafile(dict):
     def _write_metafile_revisions(
         self,
         catalog_root: str,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
@@ -1014,7 +1016,7 @@ class Metafile(dict):
                 # mark the source metafile mapping as deleted
                 current_txn_op.src_metafile._write_locator_to_id_map_file(
                     locator=mutable_src_locator,
-                    txn_log_dir=txn_log_dir,
+                    success_txn_log_dir=success_txn_log_dir,
                     parent_obj_path=parent_obj_path,
                     current_txn_op=current_txn_op,
                     current_txn_op_type=TransactionOperationType.DELETE,
@@ -1025,7 +1027,7 @@ class Metafile(dict):
                 # mark the dest metafile mapping as created
                 self._write_locator_to_id_map_file(
                     locator=mutable_dest_locator,
-                    txn_log_dir=txn_log_dir,
+                    success_txn_log_dir=success_txn_log_dir,
                     parent_obj_path=parent_obj_path,
                     current_txn_op=current_txn_op,
                     current_txn_op_type=TransactionOperationType.CREATE,
@@ -1036,7 +1038,7 @@ class Metafile(dict):
             else:
                 self._write_locator_to_id_map_file(
                     locator=mutable_dest_locator,
-                    txn_log_dir=txn_log_dir,
+                    success_txn_log_dir=success_txn_log_dir,
                     parent_obj_path=parent_obj_path,
                     current_txn_op=current_txn_op,
                     current_txn_op_type=current_txn_op.type,
@@ -1062,7 +1064,7 @@ class Metafile(dict):
                 REVISION_DIR_NAME,
             )
             self._write_metafile_revision(
-                txn_log_dir=txn_log_dir,
+                success_txn_log_dir=success_txn_log_dir,
                 revision_dir_path=src_metafile_revision_dir_path,
                 current_txn_op=current_txn_op,
                 current_txn_op_type=TransactionOperationType.DELETE,
@@ -1072,7 +1074,7 @@ class Metafile(dict):
             )
             # mark the dest metafile as created
             self._write_metafile_revision(
-                txn_log_dir=txn_log_dir,
+                success_txn_log_dir=success_txn_log_dir,
                 revision_dir_path=metafile_revision_dir_path,
                 current_txn_op=current_txn_op,
                 current_txn_op_type=TransactionOperationType.CREATE,
@@ -1082,7 +1084,7 @@ class Metafile(dict):
             )
         else:
             self._write_metafile_revision(
-                txn_log_dir=txn_log_dir,
+                success_txn_log_dir=success_txn_log_dir,
                 revision_dir_path=metafile_revision_dir_path,
                 current_txn_op=current_txn_op,
                 current_txn_op_type=current_txn_op.type,
@@ -1093,7 +1095,7 @@ class Metafile(dict):
 
     def _list_metafiles(
         self,
-        txn_log_dir: str,
+        success_txn_log_dir: str,
         metafile_root_dir_path: str,
         current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
@@ -1109,14 +1111,14 @@ class Metafile(dict):
         revision_dir_paths = [
             posixpath.join(file_path_and_size[0], REVISION_DIR_NAME)
             for file_path_and_size in file_paths_and_sizes
-            if file_path_and_size[0] != txn_log_dir
+            if file_path_and_size[0] != success_txn_log_dir
         ]
         items = []
         for path in revision_dir_paths:
             mri = MetafileRevisionInfo.latest_revision(
                 revision_dir_path=path,
                 filesystem=filesystem,
-                txn_log_dir=txn_log_dir,
+                success_txn_log_dir=success_txn_log_dir,
                 current_txn_start_time=current_txn_start_time,
                 current_txn_id=current_txn_id,
                 ignore_missing_revision=True,
@@ -1151,11 +1153,11 @@ class Metafile(dict):
             catalog_root,
             filesystem,
         )
-        txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME)
+        success_txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME)
         mri = MetafileRevisionInfo.latest_revision(
             revision_dir_path=catalog_root,
             filesystem=filesystem,
-            txn_log_dir=txn_log_dir,
+            success_txn_log_dir=success_txn_log_dir,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             ignore_missing_revision=True,

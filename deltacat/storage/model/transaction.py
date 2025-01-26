@@ -34,6 +34,19 @@ from deltacat.utils.filesystem import (
 
 
 class TransactionTimeProvider:
+    """
+    Provider interface for transaction start and end times. An ideal
+    transaction time provider is externally consistent (e.g.,
+    https://cloud.google.com/spanner/docs/true-time-external-consistency),
+    such that:
+      1. A transaction start time is never less than a previously completed
+      transaction's end time.
+      2. A transaction end time is never less than an in-progress
+      transaction's start time.
+      3. Every transaction has a unique start and end time.
+      4. Start/end time assignment is non-blocking.
+    """
+
     def start_time(self) -> int:
         raise NotImplementedError("start_time not implemented")
 
@@ -42,6 +55,19 @@ class TransactionTimeProvider:
 
 
 class TransactionSystemTimeProvider(TransactionTimeProvider):
+    """
+    A simple transaction time provider that returns the current system clock
+    epoch time in milliseconds (i.e., provides no external consistency
+    guarantees due to clock skew within and between nodes).
+
+    This is typically suitable for use with a local catalog, but is not
+    recommended when writing to cloud catalogs, as transactions using this
+    provider may display anomalies due to misalignment of distributed system
+    clocks (e.g., a previously completed transaction is not visible to
+    a subsequent transaction, or an in-progress transaction only sees partial
+    results from a completed transaction).
+    """
+
     def start_time(self) -> int:
         """
         Gets the current system time in milliseconds since the epoch.
@@ -469,7 +495,7 @@ class Transaction(dict):
             for operation in self.operations:
                 list_result = operation.dest_metafile.read_txn(
                     catalog_root_dir=catalog_root_normalized,
-                    txn_log_dir=success_txn_log_dir,
+                    success_txn_log_dir=success_txn_log_dir,
                     current_txn_op=operation,
                     current_txn_start_time=txn.start_time,
                     current_txn_id=txn.id,
@@ -512,7 +538,7 @@ class Transaction(dict):
             for operation in self.operations:
                 operation.dest_metafile.write_txn(
                     catalog_root_dir=catalog_root_normalized,
-                    txn_log_dir=success_txn_log_dir,
+                    success_txn_log_dir=success_txn_log_dir,
                     current_txn_op=operation,
                     current_txn_start_time=self.start_time,
                     current_txn_id=self.id,
