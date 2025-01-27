@@ -216,16 +216,19 @@ class Dataset:
         """
         # TODO: integrate this with filesystem from deltacat catalog
         file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
-        metadata_uri, metadata_fs = FileStore.filesystem(
-            metadata_uri or posixpath.join(file_uri, "riv-meta")
-        )
-        pyarrow_dataset = pyarrow.dataset.dataset(file_uri, filesystem=filesystem)
-
-        # TODO: when integrating deltacat consider if we can support multiple filesystems
-        if file_fs != metadata_fs:
-            raise ValueError(
-                "File URI and metadata URI must be on the same filesystem."
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
             )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
+        pyarrow_dataset = pyarrow.dataset.dataset(file_uri, filesystem=file_fs)
 
         if schema_mode == "intersect":
             schemas = []
@@ -257,7 +260,7 @@ class Dataset:
             dataset_name=name,
             metadata_uri=metadata_uri,
             schema=dataset_schema,
-            filesystem=filesystem,
+            filesystem=file_fs,
         )
 
         # TODO: avoid write! associate fields with their source data.
@@ -297,15 +300,18 @@ class Dataset:
         """
         # TODO: integrate this with filesystem from deltacat catalog
         file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
-        metadata_uri, metadata_fs = FileStore.filesystem(
-            metadata_uri or posixpath.join(file_uri, "riv-meta")
-        )
-
-        # TODO: when integrating deltacat consider if we can support multiple filesystems
-        if file_fs != metadata_fs:
-            raise ValueError(
-                "File URI and metadata URI must be on the same filesystem."
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
             )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
 
         # Read the JSON file into a PyArrow Table
         pyarrow_table = pyarrow.json.read_json(file_uri, filesystem=file_fs)
@@ -316,7 +322,10 @@ class Dataset:
 
         # Create the Dataset instance
         dataset = cls(
-            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+            dataset_name=name,
+            metadata_uri=metadata_uri,
+            schema=dataset_schema,
+            filesystem=file_fs,
         )
 
         writer = dataset.writer()
@@ -353,15 +362,18 @@ class Dataset:
         """
         # TODO: integrate this with filesystem from deltacat catalog
         file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
-        metadata_uri, metadata_fs = FileStore.filesystem(
-            metadata_uri or posixpath.join(file_uri, "riv-meta")
-        )
-
-        # TODO: when integrating deltacat consider if we can support multiple filesystems
-        if file_fs != metadata_fs:
-            raise ValueError(
-                "File URI and metadata URI must be on the same filesystem."
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
             )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
 
         # Read the CSV file into a PyArrow Table
         table = pyarrow.csv.read_csv(file_uri, filesystem=file_fs)
@@ -372,7 +384,10 @@ class Dataset:
 
         # Create the Dataset instance
         dataset = cls(
-            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+            dataset_name=name,
+            metadata_uri=metadata_uri,
+            schema=dataset_schema,
+            filesystem=file_fs,
         )
 
         writer = dataset.writer()
