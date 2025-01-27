@@ -78,7 +78,7 @@ def sample_dataset(parquet_data, tmp_path):
     return Dataset.from_parquet(
         name="test_dataset",
         file_uri=str(parquet_data),
-        metadata_uri=tmp_path,
+        metadata_uri=str(tmp_path),
         merge_keys="id",
     )
 

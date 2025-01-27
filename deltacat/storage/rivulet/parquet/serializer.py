@@ -7,7 +7,7 @@ from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.arrow.serializer import ArrowSerializer
 
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 
 
 class ParquetDataSerializer(ArrowSerializer):
@@ -15,11 +15,11 @@ class ParquetDataSerializer(ArrowSerializer):
     Parquet data writer. Responsible for flushing rows to parquet and returning SSTable rows for any file(s) written
     """
 
-    def __init__(self, location_provider: FileLocationProvider, schema: Schema):
-        super().__init__(location_provider, schema)
+    def __init__(self, file_provider: FileProvider, schema: Schema):
+        super().__init__(file_provider, schema)
 
     def serialize(self, table: pa.Table) -> List[SSTableRow]:
-        file = self.location_provider.new_data_file_uri("parquet")
+        file = self.file_provider.provide_data_file("parquet")
         with file.create() as outfile:
             metadata_collector: list[Any] = []
             pa.parquet.write_table(

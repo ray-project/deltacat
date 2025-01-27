@@ -5,7 +5,7 @@ from typing import Optional
 import pyarrow.ipc
 from pyarrow import RecordBatch, RecordBatchFileReader
 
-from deltacat.storage.rivulet.fs.file_store import FileStore
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet.reader.data_reader import (
     RowAndKey,
@@ -27,12 +27,12 @@ class FeatherFileReader(FileReader[RecordBatchRowIndex]):
     def __init__(
         self,
         sst_row: SSTableRow,
-        file_store: FileStore,
+        file_provider: FileProvider,
         primary_key: str,
         schema: Schema,
     ):
         self.sst_row = sst_row
-        self.input = file_store.new_input_file(self.sst_row.uri)
+        self.input = file_provider.provide_input_file(sst_row.uri)
 
         self.key = primary_key
         self.feather_file = sst_row.uri

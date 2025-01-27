@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import itertools
-import os
+import posixpath
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 from deltacat.storage.rivulet import Schema, Field
 from deltacat.utils.export import export_dataset
@@ -20,6 +20,7 @@ from deltacat.storage.rivulet.writer.memtable_dataset_writer import (
     MemtableDatasetWriter,
 )
 
+import pyarrow.fs
 import pyarrow as pa
 import pyarrow.dataset
 import pyarrow.json
@@ -134,6 +135,7 @@ class Dataset:
         metadata_uri: Optional[str] = None,
         schema: Optional[Schema] = None,
         schema_name: Optional[str] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ):
         """
         Create an empty Dataset w/ optional schema. This method is typically only used for small datasets that are manually created.
@@ -152,30 +154,30 @@ class Dataset:
                 Maps a schemas by name (e.g., "default", "analytics"). This is how fields in the dataset are grouped and accessed.
             _file_store (FileStore):
                 The FileStore used by the Dataset class for reading and writing metadata files.
-            _location_provider (FileLocationProvider):
+            _file_provider (FileProvider):
                 Used to resolve file URIs within the `_file_store`.
             _metastore (DatasetMetastore):
-                Uses the _file_store and _location_provider to manage metadata (schema, stats, file locations, manifests, etc.) for this Dataset.
+                Uses the _file_store and _file_provider to manage metadata (schema, stats, file locations, manifests, etc.) for this Dataset.
         """
         if not dataset_name or not isinstance(dataset_name, str):
             raise ValueError("Name must be a non-empty string")
 
         self.dataset_name = dataset_name
-        self._metadata_folder = f".riv-meta-{dataset_name}"
-        if metadata_uri:
-            self._metadata_path = os.path.join(metadata_uri, self._metadata_folder)
-        else:
-            self._metadata_path = self._metadata_folder
 
-        # Map of schema_name -> {field_name -> Field}, with initial empty 'all' schema
         self._schemas: Dict[str, Schema] = {ALL: Schema()}
 
-        # Initialize metadata handling
-        self._file_store = FileStore()
-        self._location_provider = FileLocationProvider(
-            self._metadata_path, self._file_store
+        # TODO: integrate with deltacat catalog to infer filesystem
+        self._metadata_folder = f".riv-meta-{dataset_name}"
+        # determine root filesystem
+        path, filesystem = FileStore.filesystem(
+            metadata_uri or self._metadata_folder, filesystem
         )
-        self._metastore = DatasetMetastore(self._location_provider, self._file_store)
+
+        self._metadata_path = posixpath.join(path, self._metadata_folder)
+
+        self._file_store = FileStore(self._metadata_path, filesystem)
+        self._file_provider = FileProvider(self._metadata_path, self._file_store)
+        self._metastore = DatasetMetastore(self._file_provider)
 
         # Initialize accessors
         self.fields = FieldsAccessor(self)
@@ -193,6 +195,7 @@ class Dataset:
         merge_keys: str | Iterable[str],
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Dataset:
         """
         Create a Dataset from parquet files.
@@ -211,30 +214,53 @@ class Dataset:
         Returns:
             Dataset: New dataset instance with the schema automatically inferred from the source parquet files
         """
-        metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
-        pyarrow_dataset = pyarrow.dataset.dataset(file_uri)
+        # TODO: integrate this with filesystem from deltacat catalog
+        file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
+            )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
+        pyarrow_dataset = pyarrow.dataset.dataset(file_uri, filesystem=file_fs)
 
         if schema_mode == "intersect":
-            schemas = [pyarrow.parquet.read_schema(f) for f in pyarrow_dataset.files]
-            # Find common columns across all schemas
+            schemas = []
+            for file in pyarrow_dataset.files:
+                with file_fs.open_input_file(file) as f:
+                    schema = pyarrow.parquet.read_schema(f)
+                    schemas.append(schema)
+
             common_columns = set(schemas[0].names)
             for schema in schemas[1:]:
                 common_columns.intersection_update(schema.names)
 
-            # Create a new schema with only common columns
             intersect_schema = pa.schema(
                 [(name, schemas[0].field(name).type) for name in common_columns]
             )
             pyarrow_schema = intersect_schema
         else:
-            schemas = [pyarrow.parquet.read_schema(f) for f in pyarrow_dataset.files]
+            schemas = []
+            for file in pyarrow_dataset.files:
+                with file_fs.open_input_file(file) as f:
+                    schema = pyarrow.parquet.read_schema(f)
+                    schemas.append(schema)
             pyarrow_schema = pa.unify_schemas(schemas)
 
         dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
 
         # TODO the file URI never gets stored/saved, do we need to do so?
         dataset = cls(
-            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+            dataset_name=name,
+            metadata_uri=metadata_uri,
+            schema=dataset_schema,
+            filesystem=file_fs,
         )
 
         # TODO: avoid write! associate fields with their source data.
@@ -254,6 +280,7 @@ class Dataset:
         merge_keys: str | Iterable[str],
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> "Dataset":
         """
         Create a Dataset from a single JSON file.
@@ -271,10 +298,23 @@ class Dataset:
             Dataset: New dataset instance with the schema automatically inferred
                      from the JSON file.
         """
-        metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
+        # TODO: integrate this with filesystem from deltacat catalog
+        file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
+            )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
 
         # Read the JSON file into a PyArrow Table
-        pyarrow_table = pyarrow.json.read_json(file_uri)
+        pyarrow_table = pyarrow.json.read_json(file_uri, filesystem=file_fs)
         pyarrow_schema = pyarrow_table.schema
 
         # Create the dataset schema
@@ -282,7 +322,10 @@ class Dataset:
 
         # Create the Dataset instance
         dataset = cls(
-            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+            dataset_name=name,
+            metadata_uri=metadata_uri,
+            schema=dataset_schema,
+            filesystem=file_fs,
         )
 
         writer = dataset.writer()
@@ -299,6 +342,7 @@ class Dataset:
         merge_keys: str | Iterable[str],
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> "Dataset":
         """
         Create a Dataset from a single JSON file.
@@ -316,10 +360,23 @@ class Dataset:
             Dataset: New dataset instance with the schema automatically inferred
                      from the CSV file.
         """
-        metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
+        # TODO: integrate this with filesystem from deltacat catalog
+        file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
+            )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
 
         # Read the CSV file into a PyArrow Table
-        table = pyarrow.csv.read_csv(file_uri)
+        table = pyarrow.csv.read_csv(file_uri, filesystem=file_fs)
         pyarrow_schema = table.schema
 
         # Create the dataset schema
@@ -327,7 +384,10 @@ class Dataset:
 
         # Create the Dataset instance
         dataset = cls(
-            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+            dataset_name=name,
+            metadata_uri=metadata_uri,
+            schema=dataset_schema,
+            filesystem=file_fs,
         )
 
         writer = dataset.writer()
@@ -513,7 +573,7 @@ class Dataset:
         schema_name = schema_name or ALL
 
         return MemtableDatasetWriter(
-            self._location_provider, self.schemas[schema_name], file_format
+            self._file_provider, self.schemas[schema_name], file_format
         )
 
     def scan(
