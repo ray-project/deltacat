@@ -1,0 +1,4 @@
+DEFAULT_CONVERTER_TASK_MAX_PARALLELISM = 4096
+
+# Safe limit ONLY considering CPU limit, typically 32 for a 8x-large worker
+DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD = 30
