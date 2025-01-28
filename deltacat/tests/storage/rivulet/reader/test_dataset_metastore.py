@@ -18,7 +18,7 @@ def sample_schema():
 
 def test_dataset_metastore_e2e(temp_dir, sample_schema):
     # Setup
-    file_store = FileStore()
+    file_store = FileStore(temp_dir)
     manifest_io = DeltacatManifestIO(temp_dir)
 
     # Create multiple manifests

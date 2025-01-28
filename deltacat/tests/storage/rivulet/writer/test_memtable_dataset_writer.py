@@ -48,8 +48,8 @@ def test_write_after_flush(writer, file_store):
     writer.write_dict({"id": 100, "name": "alpha"})
     manifest_uri_1 = writer.flush()
 
-    manifest_io = DeltacatManifestIO(writer.location_provider.uri)
-    manifest_1 = manifest_io.read(file_store.new_input_file(manifest_uri_1).location)
+    manifest_io = DeltacatManifestIO(writer.file_provider.uri)
+    manifest_1 = manifest_io.read(manifest_uri_1)
     sst_files_1 = manifest_1.sst_files
 
     assert len(sst_files_1) > 0, "First flush: no SST files found."

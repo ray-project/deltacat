@@ -143,7 +143,7 @@ class MemtableDatasetWriter(DatasetWriter):
         if not sst_writer:
             sst_writer = JsonSstWriter()
         if not manifest_io:
-            manifest_io = DeltacatManifestIO(location_provider.uri)
+            manifest_io = DeltacatManifestIO(file_provider.uri)
 
         self.schema = schema
 

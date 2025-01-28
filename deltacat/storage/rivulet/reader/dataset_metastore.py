@@ -1,7 +1,8 @@
 from typing import Generator
 import os
 
-from deltacat.storage.rivulet.fs.file_provider import FileProvider
+from pyarrow.fs import FileSystem
+
 import pyarrow.fs as fs
 
 from deltacat.storage import Delta
@@ -21,9 +22,9 @@ class ManifestAccessor:
     """Accessor for retrieving a manifest's SSTable entities."""
 
     def __init__(
-        self, manifest: Manifest, file_provider: FileProvider, sst_reader: SSTReader
+        self, delta: RivuletDelta, file_provider: FileProvider, sst_reader: SSTReader
     ):
-        self.manifest: RivuletDelta = manifest
+        self.manifest: RivuletDelta = delta
         self.file_provider: FileProvider = file_provider
         self._sst_reader = sst_reader
 
@@ -55,7 +56,7 @@ class DatasetMetastore:
         self,
         # URI at which we expect to find deltas
         delta_root_uri: str,
-        # TODO should replace with pyarrow FS interface
+            # TODO should replace with pyarrow FS interface
         file_provider: FileProvider,
         *,
         manifest_io: ManifestIO = None,
@@ -104,4 +105,4 @@ class DatasetMetastore:
 
         for delta_directory in delta_directories:
             rivulet_delta = self._get_delta(delta_directory.path, filesystem)
-            yield ManifestAccessor(rivulet_delta, self.file_store, self.sst_reader)
+            yield ManifestAccessor(rivulet_delta, self.file_provider, self.sst_reader)
