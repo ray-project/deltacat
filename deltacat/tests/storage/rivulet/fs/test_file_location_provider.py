@@ -5,11 +5,13 @@ from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from pyarrow.fs import LocalFileSystem
 
+from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
+
 
 @pytest.fixture
 def temp_dir():
-    with tempfile.TemporaryDirectory() as temp:
-        yield temp
+    with temp_dir_autocleanup() as tmp_dir:
+        yield tmp_dir
 
 
 @pytest.fixture

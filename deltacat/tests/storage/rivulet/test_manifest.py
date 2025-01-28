@@ -1,16 +1,22 @@
 import os
-from typing import Set
+import pytest
 
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO, DeltaContext, RivuletDelta
 from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.metastore.delta import (
     DeltacatManifestIO,
 )
 from deltacat.storage.rivulet import Schema
+from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
 
 
-def test_write_manifest_round_trip(temp_dir):
+@pytest.fixture
+def temp_dir_manifest():
+    with temp_dir_autocleanup() as tmp_dir:
+        yield tmp_dir
+
+def test_write_manifest_round_trip(temp_dir_manifest):
+    temp_dir = temp_dir_manifest
     path, filesystem = FileStore.filesystem(temp_dir)
     file_store = FileStore(path, filesystem=filesystem)
     manifest_io = DeltacatManifestIO(temp_dir)
