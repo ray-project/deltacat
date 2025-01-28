@@ -54,6 +54,7 @@ def sample_string_dataset(tmp_path):
     )
     return ds
 
+
 def test_shards(sample_numeric_dataset, sample_string_dataset):
     shards = sample_numeric_dataset.shards(num_shards=2)
 
@@ -70,6 +71,7 @@ def test_shards(sample_numeric_dataset, sample_string_dataset):
 
     assert records[1]["id"] == 2
     assert records[1]["name"] == "Bob"
+
 
 def test_range_shard_repr():
     shard = RangeShard(min_key=5, max_key=15)

@@ -5,7 +5,7 @@ import pyarrow as pa
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.serializer import DataSerializer, MEMTABLE_DATA
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 
 
 class ArrowSerializer(DataSerializer, ABC):
@@ -14,9 +14,9 @@ class ArrowSerializer(DataSerializer, ABC):
     and then using the provided serialization function
     """
 
-    def __init__(self, location_provider: FileLocationProvider, schema: Schema):
+    def __init__(self, file_provider: FileProvider, schema: Schema):
         self.schema = schema
-        self.location_provider = location_provider
+        self.file_provider = file_provider
         self.arrow_schema = self.schema.to_pyarrow()
 
     @abstractmethod

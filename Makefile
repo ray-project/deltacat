@@ -50,3 +50,6 @@ test-integration-rebuild:
 
 benchmark-aws: install
 	venv/bin/pytest deltacat/benchmarking/benchmark_parquet_reads.py --benchmark-only --benchmark-group-by=group,param:name
+
+benchmark:
+	pytest -m benchmark deltacat/benchmarking

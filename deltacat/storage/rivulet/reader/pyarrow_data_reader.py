@@ -5,7 +5,6 @@ from typing import Generator, Dict, Type, NamedTuple, List
 from pyarrow import RecordBatch
 
 from deltacat.storage.rivulet.reader.data_reader import DataReader, MEMORY_FORMAT
-from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
 import pyarrow as pa
 
 
@@ -24,10 +23,6 @@ class ArrowDataReader(DataReader[RecordBatchRowIndex]):
     """
     Parquet reader to iteratively load records from parquet files
     """
-
-    def __init__(self, metastore: DatasetMetastore):
-
-        self.file_store = metastore.file_store
 
     def deserialize_records(
         self, record: RecordBatchRowIndex, output_type: Type[MEMORY_FORMAT]
