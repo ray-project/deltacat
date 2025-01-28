@@ -6,7 +6,7 @@ from pyarrow import feather
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.arrow.serializer import ArrowSerializer
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 
 
 class FeatherDataSerializer(ArrowSerializer):
@@ -18,11 +18,11 @@ class FeatherDataSerializer(ArrowSerializer):
         when .write is called on output stream
     """
 
-    def __init__(self, location_provider: FileLocationProvider, schema: Schema):
-        super().__init__(location_provider, schema)
+    def __init__(self, file_provider: FileProvider, schema: Schema):
+        super().__init__(file_provider, schema)
 
     def serialize(self, table: pa.Table) -> List[SSTableRow]:
-        file = self.location_provider.new_data_file_uri("feather")
+        file = self.file_provider.provide_data_file("feather")
 
         with file.create() as outfile:
             # Note that write_feather says that dest is a string, but it is really any object implementing write()

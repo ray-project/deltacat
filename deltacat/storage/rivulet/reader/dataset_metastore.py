@@ -1,11 +1,11 @@
 from typing import Generator
 import os
 
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 import pyarrow.fs as fs
 
 from deltacat.storage import Delta
-from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.fs.file_system import FileSystem
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.fs.fs_utils import construct_filesystem
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstReader
 from deltacat.storage.rivulet.metastore.delta import (
@@ -21,10 +21,10 @@ class ManifestAccessor:
     """Accessor for retrieving a manifest's SSTable entities."""
 
     def __init__(
-        self, manifest: RivuletDelta, file_store: FileStore, sst_reader: SSTReader
+        self, manifest: Manifest, file_provider: FileProvider, sst_reader: SSTReader
     ):
         self.manifest: RivuletDelta = manifest
-        self._file_store: file_store = file_store
+        self.file_provider: FileProvider = file_provider
         self._sst_reader = sst_reader
 
     @property
@@ -38,7 +38,7 @@ class ManifestAccessor:
         :return a generator of SSTables for this manifest
         """
         for sst_uri in self.manifest.sst_files:
-            sst_file = self._file_store.new_input_file(sst_uri)
+            sst_file = self.file_provider.provide_input_file(sst_uri)
             yield self._sst_reader.read(sst_file)
 
 
@@ -56,13 +56,13 @@ class DatasetMetastore:
         # URI at which we expect to find deltas
         delta_root_uri: str,
         # TODO should replace with pyarrow FS interface
-        file_store: FileStore,
+        file_provider: FileProvider,
         *,
         manifest_io: ManifestIO = None,
         sst_reader: SSTReader = None,
     ):
         self.delta_root_uri = delta_root_uri
-        self.file_store: FileStore = file_store
+        self.file_provider = file_provider
         self.manifest_io = manifest_io or DeltacatManifestIO(delta_root_uri)
         self.sst_reader = sst_reader or JsonSstReader()
 

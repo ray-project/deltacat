@@ -1,4 +1,4 @@
-from deltacat.storage.rivulet.fs.file_store import FileStore
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.metastore.sst import SSTableRow
 from deltacat.storage.rivulet.reader.data_reader import FileReader
 from typing import Type, Dict
@@ -58,7 +58,7 @@ class FileReaderRegistrar:
     def construct_reader_instance(
         cls,
         sst_row: SSTableRow,
-        file_store: FileStore,
+        file_provider: FileProvider,
         primary_key: str,
         schema: Schema,
         reader_cache: Dict[str, FileReader] = None,
@@ -76,7 +76,7 @@ class FileReaderRegistrar:
             return reader_cache[extension]
 
         reader_class = FileReaderRegistrar.get_reader_class(sst_row.uri)
-        reader_instance = reader_class(sst_row, file_store, primary_key, schema)
+        reader_instance = reader_class(sst_row, file_provider, primary_key, schema)
 
         if reader_cache:
             reader_cache[extension] = reader_instance

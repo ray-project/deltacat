@@ -13,7 +13,7 @@ from deltacat.storage.rivulet.serializer import MEMTABLE_DATA, DataSerializer
 from deltacat.storage.rivulet.serializer_factory import DataSerializerFactory
 from deltacat.storage.rivulet.writer.dataset_writer import DatasetWriter, DATA
 from deltacat.storage.rivulet.metastore.sst import SSTWriter
-from deltacat.storage.rivulet.fs.file_location_provider import FileLocationProvider
+from deltacat.storage.rivulet.fs.file_provider import FileProvider
 
 INPUT_ROW = TypeVar("INPUT_ROW")
 
@@ -133,7 +133,7 @@ class MemtableDatasetWriter(DatasetWriter):
 
     def __init__(
         self,
-        location_provider: FileLocationProvider,
+        file_provider: FileProvider,
         schema: Schema,
         file_format: str | None = None,
         sst_writer: SSTWriter = None,
@@ -147,9 +147,9 @@ class MemtableDatasetWriter(DatasetWriter):
 
         self.schema = schema
 
-        self.location_provider = location_provider
+        self.file_provider = file_provider
         self.data_serializer: DataSerializer = DataSerializerFactory.get_serializer(
-            self.schema, self.location_provider, file_format
+            self.schema, self.file_provider, file_format
         )
         self.sst_writer = sst_writer
         self.manifest_io = manifest_io
@@ -260,6 +260,8 @@ class MemtableDatasetWriter(DatasetWriter):
         Flushes data and metadata for a given memtable
         Called asynchronously in background thread
         """
+        if not memtable:
+            return
 
         sst_metadata_list = self.data_serializer.flush_batch(
             memtable.get_sorted_records(self.schema)
@@ -273,7 +275,7 @@ class MemtableDatasetWriter(DatasetWriter):
 
         # Write SST. Each memtable is going to have a dedicated L0 SST file because that is the unit at which
         # we have contiguously sorted data
-        sst_file = self.location_provider.new_l0_sst_file_uri()
+        sst_file = self.file_provider.provide_l0_sst_file()
 
         with self.__rlock:
             self.sst_writer.write(sst_file, sst_metadata_list)

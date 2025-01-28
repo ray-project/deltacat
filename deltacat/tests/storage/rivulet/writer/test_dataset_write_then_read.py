@@ -14,6 +14,8 @@ from deltacat.storage.rivulet.metastore.delta import (
     TreeLevel,
     DeltacatManifestIO,
 )
+
+from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet import Schema
@@ -110,8 +112,9 @@ class TestMultiLayerCompactionEndToEnd:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
-        cls.file_store = FileStore()
+        path, filesystem = FileStore.filesystem(cls.temp_dir)
+        cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=path)
+        cls.file_store = FileStore(path, filesystem=filesystem)
         cls.manifest_io = DeltacatManifestIO(cls.temp_dir)
 
     @classmethod
@@ -245,8 +248,9 @@ class TestZipperMergeEndToEnd:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
+        path, filesystem = FileStore.filesystem(cls.temp_dir)
         cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=cls.temp_dir)
-        cls.file_store = FileStore()
+        cls.file_store = FileStore(path, filesystem=filesystem)
 
     @classmethod
     def teardown_class(cls):
@@ -313,7 +317,8 @@ class TestDataFormatSupport:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.file_store = FileStore()
+        path, filesystem = FileStore.filesystem(cls.temp_dir)
+        cls.file_store = FileStore(path, filesystem=filesystem)
 
     @classmethod
     def teardown_class(cls):
