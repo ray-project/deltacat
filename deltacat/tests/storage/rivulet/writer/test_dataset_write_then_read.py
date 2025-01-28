@@ -15,7 +15,6 @@ from deltacat.storage.rivulet.metastore.delta import (
     DeltacatManifestIO,
 )
 
-from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
 from deltacat.storage.rivulet.mvp.Table import MvpTable, MvpRow
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet import Schema

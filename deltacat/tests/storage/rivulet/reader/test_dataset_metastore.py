@@ -17,10 +17,12 @@ def sample_schema():
         "id",
     )
 
+
 @pytest.fixture
 def temp_dir_metastore_e2e():
     with temp_dir_autocleanup() as tmp_dir:
         yield tmp_dir
+
 
 def test_dataset_metastore_e2e(temp_dir_metastore_e2e, sample_schema):
     # Setup
@@ -57,6 +59,9 @@ def test_dataset_metastore_e2e(temp_dir_metastore_e2e, sample_schema):
     # Verify each manifest accessor
     for accessor in manifest_accessors:
         assert accessor.context.schema == sample_schema
-        manifests_data_index = 0 if accessor.context.level==1 else 1
+        manifests_data_index = 0 if accessor.context.level == 1 else 1
         assert accessor.context.level == manifests_data[manifests_data_index]["level"]
-        assert accessor.manifest.sst_files == manifests_data[manifests_data_index]["sst_files"]
+        assert (
+            accessor.manifest.sst_files
+            == manifests_data[manifests_data_index]["sst_files"]
+        )

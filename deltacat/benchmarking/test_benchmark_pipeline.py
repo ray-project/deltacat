@@ -26,6 +26,7 @@ def schema():
         "id",
     )
 
+
 @pytest.mark.benchmark
 class LoadAndScanSuite(BenchmarkSuite):
     """Load some number of rows and scan"""
@@ -80,6 +81,7 @@ class LoadAndScanSuite(BenchmarkSuite):
         ends.append(size - 1)
         quartiles = list(zip(starts, ends))
         return [(sorted_keys[start], sorted_keys[end]) for (start, end) in quartiles]
+
 
 @pytest.mark.benchmark
 def test_suite1(schema: Schema, report: BenchmarkReport):

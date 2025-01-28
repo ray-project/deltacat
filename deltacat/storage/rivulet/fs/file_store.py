@@ -39,7 +39,7 @@ class FileStore:
 
     @staticmethod
     def filesystem(
-            path: str, filesystem: Optional[FileSystem] = None
+        path: str, filesystem: Optional[FileSystem] = None
     ) -> Tuple[str, FileSystem]:
         """
         Resolves and normalizes the given path and filesystem.
@@ -56,7 +56,7 @@ class FileStore:
         return paths[0], filesystem
 
     def file_exists(
-            self, data_uri: str, filesystem: Optional[FileSystem] = None
+        self, data_uri: str, filesystem: Optional[FileSystem] = None
     ) -> bool:
         """
         Checks if a file exists at the specified URI.
@@ -69,7 +69,7 @@ class FileStore:
         return filesystem.get_file_info(path).type != FileType.NotFound
 
     def create_output_file(
-            self, data_uri: str, filesystem: Optional[FileSystem] = None
+        self, data_uri: str, filesystem: Optional[FileSystem] = None
     ) -> FSOutputFile:
         """
         Creates a new output file for writing at the specified URI.
@@ -88,7 +88,7 @@ class FileStore:
             raise IOError(f"Failed to create file '{data_uri}': {e}")
 
     def create_input_file(
-            self, data_uri: str, filesystem: Optional[FileSystem] = None
+        self, data_uri: str, filesystem: Optional[FileSystem] = None
     ) -> FSInputFile:
         """
         Create a new input file for reading at the specified URI.
@@ -107,7 +107,7 @@ class FileStore:
             raise IOError(f"Failed to read file '{data_uri}': {e}")
 
     def list_files(
-            self, data_uri: str, filesystem: Optional[FileSystem] = None
+        self, data_uri: str, filesystem: Optional[FileSystem] = None
     ) -> Iterator[FSInputFile]:
         """
         Lists all files in the specified directory URI.

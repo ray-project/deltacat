@@ -15,6 +15,7 @@ def temp_dir_manifest():
     with temp_dir_autocleanup() as tmp_dir:
         yield tmp_dir
 
+
 def test_write_manifest_round_trip(temp_dir_manifest):
     temp_dir = temp_dir_manifest
     path, filesystem = FileStore.filesystem(temp_dir)
@@ -29,7 +30,7 @@ def test_write_manifest_round_trip(temp_dir_manifest):
     level = 2
 
     uri = os.path.join(temp_dir, "manifest.json")
-    file = file_store.create_output_file(uri)
+    file_store.create_output_file(uri)
     written = manifest_io.write(sst_files, schema, level)
     manifest = manifest_io.read(written)
     assert manifest.context.schema == schema

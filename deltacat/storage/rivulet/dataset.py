@@ -257,6 +257,7 @@ class Dataset:
         merge_keys: str | Iterable[str],
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> "Dataset":
         """
         Create a Dataset from a single JSON file.

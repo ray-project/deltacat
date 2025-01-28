@@ -56,7 +56,7 @@ class DatasetMetastore:
         self,
         # URI at which we expect to find deltas
         delta_root_uri: str,
-            # TODO should replace with pyarrow FS interface
+        # TODO should replace with pyarrow FS interface
         file_provider: FileProvider,
         *,
         manifest_io: ManifestIO = None,

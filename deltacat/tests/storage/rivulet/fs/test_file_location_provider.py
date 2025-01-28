@@ -1,6 +1,5 @@
 import pytest
 import os
-import tempfile
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from pyarrow.fs import LocalFileSystem
