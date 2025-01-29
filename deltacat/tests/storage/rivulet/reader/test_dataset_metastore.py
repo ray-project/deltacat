@@ -17,16 +17,9 @@ def sample_schema():
         "id",
     )
 
-
-@pytest.fixture
-def temp_dir_metastore_e2e():
-    with temp_dir_autocleanup() as tmp_dir:
-        yield tmp_dir
-
-
-def test_dataset_metastore_e2e(temp_dir_metastore_e2e, sample_schema):
+def test_dataset_metastore_e2e(temp_dir, sample_schema):
     # Setup
-    temp_dir = temp_dir_metastore_e2e
+    temp_dir = temp_dir
     file_store = FileProvider(temp_dir, FileStore(temp_dir))
     manifest_io = DeltacatManifestIO(temp_dir)
 

@@ -15,7 +15,7 @@ from deltacat.storage import (
     TransactionOperationType,
 )
 from deltacat.storage.model.manifest import Manifest, ManifestEntryList, ManifestEntry
-from deltacat.storage.model.metafile import TransactionOperationList
+from deltacat.storage.model.transaction import TransactionOperationList
 
 from deltacat.storage.rivulet import Schema
 
