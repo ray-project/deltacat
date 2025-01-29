@@ -56,7 +56,7 @@ from deltacat.storage.model.metafile import (
     Metafile,
     MetafileRevisionInfo,
 )
-from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME
+from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, NANOS_PER_SEC
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 
@@ -392,7 +392,7 @@ class TestMetafileIO:
         for expected, actual, _ in commit_results:
             assert expected.equivalent_to(actual)
         # given a transaction with an ending timestamp set in the past
-        past_timestamp = time.time_ns() // 1_000_000 - 1000
+        past_timestamp = time.time_ns() - NANOS_PER_SEC
         mocker.patch(
             "deltacat.storage.model.transaction.Transaction._parse_end_time",
             return_value=past_timestamp,
@@ -442,7 +442,7 @@ class TestMetafileIO:
         filesystem.create_dir(txn_log_file_dir, recursive=True)
         txn_log_file_path = os.path.join(
             txn_log_file_dir,
-            str(time.time_ns() // 1_000_000),
+            str(time.time_ns()),
         )
         with filesystem.open_output_stream(txn_log_file_path):
             pass  # Just create an empty log to mark the txn as complete
@@ -450,7 +450,7 @@ class TestMetafileIO:
         # and a concurrent transaction that started before that transaction
         # completed, writes the same delta metafile revision, then sees the
         # conflict
-        past_timestamp = time.time_ns() // 1_000_000 - 1000
+        past_timestamp = time.time_ns() - NANOS_PER_SEC
         future_timestamp = 9999999999999
         end_time_mock = mocker.patch(
             "deltacat.storage.model.transaction.Transaction._parse_end_time",
@@ -1909,8 +1909,6 @@ class TestMetafileIO:
         write_paths, txn_log_path = transaction.commit(temp_dir)
         assert len(write_paths) == 2
 
-    # TODO(pdames): Test isolation of creating a duplicate namespace/table/etc.
-    #  between multiple concurrent transactions.
     def test_create_duplicate_namespace(self, temp_dir):
         namespace_locator = NamespaceLocator.of(namespace="test_namespace")
         namespace = Namespace.of(locator=namespace_locator)

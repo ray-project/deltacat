@@ -47,6 +47,11 @@ BYTES_PER_PEBIBYTE = 2**50
 SIGNED_INT64_MIN_VALUE = -(2**63)
 SIGNED_INT64_MAX_VALUE = 2**63 - 1
 
+# Time Units
+NANOS_PER_SEC = 1_000_000_000
+MICROS_PER_SEC = 1_000_000
+MILLIS_PER_SEC = 1000
+
 # Inflation multiplier from snappy-compressed parquet to pyarrow.
 # This should be kept larger than actual average inflation multipliers.
 # Note that this is a very rough guess since actual observed pyarrow
