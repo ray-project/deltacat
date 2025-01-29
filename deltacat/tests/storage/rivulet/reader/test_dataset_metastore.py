@@ -7,7 +7,6 @@ from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
-from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
 
 
 @pytest.fixture
@@ -16,6 +15,7 @@ def sample_schema():
         {("id", Datatype.int32()), ("name", Datatype.string())},
         "id",
     )
+
 
 def test_dataset_metastore_e2e(temp_dir, sample_schema):
     # Setup

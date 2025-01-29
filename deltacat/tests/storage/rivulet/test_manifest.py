@@ -7,6 +7,7 @@ from deltacat.storage.rivulet.metastore.delta import (
 )
 from deltacat.storage.rivulet import Schema
 
+
 def test_write_manifest_round_trip(temp_dir):
     temp_dir = temp_dir
     path, filesystem = FileStore.filesystem(temp_dir)

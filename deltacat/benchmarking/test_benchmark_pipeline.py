@@ -27,7 +27,6 @@ def schema():
     )
 
 
-@pytest.mark.benchmark
 class LoadAndScanSuite(BenchmarkSuite):
     """Load some number of rows and scan"""
 
@@ -83,7 +82,6 @@ class LoadAndScanSuite(BenchmarkSuite):
         return [(sorted_keys[start], sorted_keys[end]) for (start, end) in quartiles]
 
 
-@pytest.mark.benchmark
 def test_suite1(schema: Schema, report: BenchmarkReport):
     with temp_dir_autocleanup() as temp_dir:
         generator = RandomRowGenerator(123, temp_dir)

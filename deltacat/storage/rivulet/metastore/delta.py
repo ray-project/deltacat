@@ -162,7 +162,7 @@ class DeltacatManifestIO(ManifestIO):
         # Or should we add level to official spec for LSM tree backed formats
         delta["level"] = level
 
-        paths = Transaction.of(
+        tx_results = Transaction.of(
             txn_type=TransactionType.APPEND,
             txn_operations=TransactionOperationList.of(
                 [
@@ -173,6 +173,7 @@ class DeltacatManifestIO(ManifestIO):
                 ]
             ),
         ).commit(self.root)
+        paths = tx_results[0]
         assert (
             len(paths) == 1
         ), "expected delta commit transaction to write exactly 1 metafile"
