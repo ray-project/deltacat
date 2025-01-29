@@ -1,9 +1,11 @@
 import time
 from typing import List, Generator
 
+from deltacat.storage.model.delta import DeltaLocator
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.input_file import InputFile
 from deltacat.storage.rivulet.fs.output_file import OutputFile
+from deltacat.utils.deltacat_helper import _find_partition_path
 
 
 class FileProvider:
@@ -23,7 +25,7 @@ class FileProvider:
 
     uri: str
 
-    def __init__(self, uri: str, file_store: FileStore):
+    def __init__(self, uri: str, locator: DeltaLocator, file_store: FileStore):
         """
         Initializes the file provider.
 
@@ -31,6 +33,7 @@ class FileProvider:
         param: file_store: FileStore instance for creating and reading files.
         """
         self.uri = uri
+        self._locator = locator
         self._file_store = file_store
 
     def provide_data_file(self, extension: str) -> OutputFile:
@@ -40,7 +43,8 @@ class FileProvider:
         param: extension: File extension (e.g., "parquet").
         returns: OutputFile instance pointing to the created data file.
         """
-        uri = f"{self.uri}/data/{int(time.time_ns())}.{extension}"
+        partition_path = _find_partition_path(self.uri, self._locator)
+        uri = f"{partition_path}/data/{int(time.time_ns())}.{extension}"
         return self._file_store.create_output_file(uri)
 
     def provide_l0_sst_file(self) -> OutputFile:
@@ -49,7 +53,8 @@ class FileProvider:
 
         returns: OutputFile instance pointing to the created SST file.
         """
-        uri = f"{self.uri}/metadata/ssts/0/{int(time.time_ns())}.json"
+        partition_path = _find_partition_path(self.uri, self._locator)
+        uri = f"{partition_path}/metadata/ssts/0/{int(time.time_ns())}.json"
         return self._file_store.create_output_file(uri)
 
     def provide_input_file(self, uri: str) -> InputFile:
@@ -76,26 +81,8 @@ class FileProvider:
 
         returns: List of directories containing SSTs.
         """
-        return [f"{self.uri}/metadata/ssts/0/"]
-
-    def get_manifest_scan_directories(self) -> List[str]:
-        """
-        Retrieves manifest scan directories.
-
-        returns: List of directories containing manifests.
-        """
-        return [f"{self.uri}/metadata/manifests/"]
-
-    def generate_manifest_uris(self) -> Generator[InputFile, None, None]:
-        """
-        Generates all manifest URIs.
-
-        returns: Generator of InputFile instances for manifests.
-        """
-        manifest_directory = self.get_manifest_scan_directories()
-        for directory in manifest_directory:
-            for file in self._file_store.list_files(directory):
-                yield file
+        partition_path = _find_partition_path(self.uri, self._locator)
+        return [f"{partition_path}/metadata/ssts/0/"]
 
     def generate_sst_uris(self) -> Generator[InputFile, None, None]:
         """

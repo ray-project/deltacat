@@ -1,5 +1,6 @@
 import pytest
 
+from deltacat import Dataset
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
@@ -39,16 +40,18 @@ def file_store(resolve_path_and_filesystem):
     return FileStore(path, filesystem=filesystem)
 
 
-@pytest.fixture
-def writer(file_provider, test_schema):
-    return MemtableDatasetWriter(file_provider=file_provider, schema=test_schema)
-
-
-def test_write_after_flush(writer, file_store):
+def test_write_after_flush(tmp_path, test_schema):
+    dataset = Dataset(metadata_uri=tmp_path, dataset_name="dataset")
+    file_store = dataset._file_store
+    writer = MemtableDatasetWriter(
+        file_provider=dataset._file_provider,
+        schema=test_schema,
+        locator=dataset._locator,
+    )
     writer.write_dict({"id": 100, "name": "alpha"})
     manifest_uri_1 = writer.flush()
 
-    manifest_io = DeltacatManifestIO(writer.file_provider.uri)
+    manifest_io = DeltacatManifestIO(writer.file_provider.uri, dataset._locator)
     manifest_1 = manifest_io.read(manifest_uri_1)
     sst_files_1 = manifest_1.sst_files
 

@@ -51,6 +51,15 @@ def test_invalid_dataset_initialization():
         Dataset(dataset_name="")
 
 
+def test_dataset_creation_metadata_structure(tmp_path):
+    dataset = Dataset(dataset_name="test_dataset", metadata_uri=str(tmp_path))
+
+    assert dataset._metadata_folder.startswith(".riv-meta")
+    assert dataset._namespace == "default"
+    assert dataset.dataset_name == "test_dataset"
+    assert dataset._metadata_path == str(tmp_path / ".riv-meta-test_dataset")
+
+
 def test_fields_accessor_add_field(tmp_path, sample_schema):
     dataset = Dataset(dataset_name="test_dataset", schema=sample_schema)
     dataset.fields.add("new_field", Datatype.float())

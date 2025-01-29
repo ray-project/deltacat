@@ -113,8 +113,8 @@ class TestMultiLayerCompactionEndToEnd:
         cls.temp_dir = tempfile.mkdtemp()
         path, filesystem = FileStore.filesystem(cls.temp_dir)
         cls.dataset: Dataset = Dataset(dataset_name="test", metadata_uri=path)
-        cls.file_store = FileStore(path, filesystem=filesystem)
-        cls.manifest_io = DeltacatManifestIO(cls.temp_dir)
+        cls.file_store = cls.dataset._file_store
+        cls.manifest_io = DeltacatManifestIO(cls.temp_dir, cls.dataset._locator)
 
     @classmethod
     def teardown_class(cls):

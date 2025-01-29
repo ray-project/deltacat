@@ -17,6 +17,7 @@ from deltacat.storage import (
 from deltacat.storage.model.manifest import Manifest, ManifestEntryList, ManifestEntry
 from deltacat.storage.model.transaction import TransactionOperationList
 
+from deltacat.storage.model.types import StreamFormat
 from deltacat.storage.rivulet import Schema
 
 StreamPosition = int
@@ -100,11 +101,12 @@ class ManifestIO(Protocol):
 
 class DeltacatManifestIO(ManifestIO):
     """
-    Writes manifest data, but by writing to a Deltacat metastore using Deltacat delta/manifest classes
+    Writes manifest data, but by writing to a Deltacat metastore using Deltacat delta/manifest classes.
     """
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, locator: DeltaLocator):
         self.root = root
+        self.locator = locator
 
     def write(
         self,
@@ -112,7 +114,6 @@ class DeltacatManifestIO(ManifestIO):
         schema: Schema,
         level: TreeLevel,
     ) -> str:
-        # Build the Deltacat Manifest entries:
         entry_list = ManifestEntryList()
         """
         Currently, we use the "data files" manifest entry field for SST files
@@ -140,15 +141,14 @@ class DeltacatManifestIO(ManifestIO):
 
         # Create delta and transaction which writes manifest to root
         # TODO replace this with higher level storage interface for deltacat
-
         delta_locator = DeltaLocator.at(
-            namespace=None,
-            table_name=None,
-            table_version=None,
-            stream_id=None,
-            stream_format=None,
-            partition_values=None,
-            partition_id=None,
+            namespace=self.locator.namespace,
+            table_name=self.locator.table_name,
+            table_version=self.locator.table_version,
+            partition_id=self.locator.partition_id,
+            partition_values=self.locator.partition_values,
+            stream_id=self.locator.stream_id,
+            stream_format=StreamFormat.DELTACAT,
             # Using microsecond precision timestamp as stream position
             # TODO consider having storage interface auto assign stream position
             stream_position=time.time_ns(),
