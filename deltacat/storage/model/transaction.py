@@ -81,7 +81,9 @@ class TransactionSystemTimeProvider(TransactionTimeProvider):
 
     def start_time(self) -> int:
         """
-        Gets the current system time in nanoseconds since the epoch.
+        Gets the current system time in nanoseconds since the epoch. Ensures
+        that the start time returned is greater than the last known end time
+        recorded at the time this method is invoked.
         :return: Current epoch time in nanoseconds.
         """
         # ensure serial transactions in a single process have start times after
@@ -112,7 +114,9 @@ class TransactionSystemTimeProvider(TransactionTimeProvider):
 
     def end_time(self) -> int:
         """
-        Gets the current system time in nanoseconds since the epoch.
+        Gets the current system time in nanoseconds since the epoch. Ensures
+        that the end time returned is no less than the last known start time
+        recorded at the time this method is invoked.
         :return: Current epoch time in nanoseconds.
         """
         # ensure serial transactions in a single process have end times no less
