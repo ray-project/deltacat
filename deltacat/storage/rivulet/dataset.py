@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import itertools
-import os
 import posixpath
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
@@ -197,6 +196,7 @@ class Dataset:
         merge_keys: str | Iterable[str],
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Dataset:
         """
         Create a Dataset from parquet files.
@@ -215,30 +215,53 @@ class Dataset:
         Returns:
             Dataset: New dataset instance with the schema automatically inferred from the source parquet files
         """
-        metadata_uri = metadata_uri or os.path.join(file_uri, "riv-meta")
-        pyarrow_dataset = pyarrow.dataset.dataset(file_uri)
+        # TODO: integrate this with filesystem from deltacat catalog
+        file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
+            )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
+        pyarrow_dataset = pyarrow.dataset.dataset(file_uri, filesystem=file_fs)
 
         if schema_mode == "intersect":
-            schemas = [pyarrow.parquet.read_schema(f) for f in pyarrow_dataset.files]
-            # Find common columns across all schemas
+            schemas = []
+            for file in pyarrow_dataset.files:
+                with file_fs.open_input_file(file) as f:
+                    schema = pyarrow.parquet.read_schema(f)
+                    schemas.append(schema)
+
             common_columns = set(schemas[0].names)
             for schema in schemas[1:]:
                 common_columns.intersection_update(schema.names)
 
-            # Create a new schema with only common columns
             intersect_schema = pa.schema(
                 [(name, schemas[0].field(name).type) for name in common_columns]
             )
             pyarrow_schema = intersect_schema
         else:
-            schemas = [pyarrow.parquet.read_schema(f) for f in pyarrow_dataset.files]
+            schemas = []
+            for file in pyarrow_dataset.files:
+                with file_fs.open_input_file(file) as f:
+                    schema = pyarrow.parquet.read_schema(f)
+                    schemas.append(schema)
             pyarrow_schema = pa.unify_schemas(schemas)
 
         dataset_schema = Schema.from_pyarrow(pyarrow_schema, merge_keys)
 
         # TODO the file URI never gets stored/saved, do we need to do so?
         dataset = cls(
-            dataset_name=name, metadata_uri=metadata_uri, schema=dataset_schema
+            dataset_name=name,
+            metadata_uri=metadata_uri,
+            schema=dataset_schema,
+            filesystem=file_fs,
         )
 
         # TODO: avoid write! associate fields with their source data.

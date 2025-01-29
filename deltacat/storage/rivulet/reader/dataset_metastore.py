@@ -2,12 +2,11 @@ from typing import Generator
 import os
 
 from pyarrow.fs import FileSystem
-
 import pyarrow.fs as fs
 
 from deltacat.storage import Delta
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
-from deltacat.storage.rivulet.fs.fs_utils import construct_filesystem
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstReader
 from deltacat.storage.rivulet.metastore.delta import (
     ManifestIO,
@@ -97,7 +96,7 @@ class DatasetMetastore:
         # Rivulet data and SST files written to /data and /metadata
         # Deltacat transactions written to /txn
         excluded_dir_names = ["data", "metadata", "txn"]
-        root_path, filesystem = construct_filesystem(self.delta_root_uri)
+        root_path, filesystem = resolve_path_and_filesystem(self.delta_root_uri)
         root_children = filesystem.get_file_info(fs.FileSelector(root_path))
         delta_directories = [
             child
