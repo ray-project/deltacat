@@ -9,7 +9,8 @@ import deltacat.storage.model.partition as partition
 
 from typing import Any, Dict, Optional, List
 
-from deltacat.storage.model.metafile import Metafile, MetafileCommitInfo, TXN_DIR_NAME
+from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
+from deltacat.constants import TXN_DIR_NAME
 from deltacat.storage.model.locator import (
     Locator,
     LocatorName,
@@ -63,7 +64,7 @@ class Stream(Metafile):
 
     @property
     def locator_alias(self) -> Optional[StreamLocatorAlias]:
-        return StreamLocatorAlias(self)
+        return StreamLocatorAlias.of(self)
 
     @property
     def partition_scheme(self) -> Optional[partition.PartitionScheme]:
@@ -208,10 +209,10 @@ class Stream(Metafile):
                 TXN_DIR_NAME,
             )
             table = Table.read(
-                MetafileCommitInfo.current(
-                    commit_dir_path=parent_rev_dir_path,
+                MetafileRevisionInfo.latest_revision(
+                    revision_dir_path=parent_rev_dir_path,
                     filesystem=filesystem,
-                    txn_log_dir=txn_log_dir,
+                    success_txn_log_dir=txn_log_dir,
                 ).path,
                 filesystem,
             )
@@ -367,21 +368,28 @@ class StreamLocatorAliasName(LocatorName):
         return [self.locator.format]
 
 
-class StreamLocatorAlias(Locator):
-    def __init__(
-        self,
+class StreamLocatorAlias(Locator, dict):
+    @staticmethod
+    def of(
         parent_stream: Stream,
-    ):
-        self.parent_stream = parent_stream
+    ) -> StreamLocatorAlias:
+        return StreamLocatorAlias(
+            {
+                "format": parent_stream.stream_format,
+                "parent": (
+                    parent_stream.locator.parent if parent_stream.locator else None
+                ),
+            }
+        )
 
     @property
     def format(self) -> Optional[str]:
-        return self.parent_stream.stream_format
+        return self.get("format")
 
     @property
     def name(self) -> StreamLocatorAliasName:
-        return StreamLocatorAliasName(StreamLocatorAlias)
+        return StreamLocatorAliasName(self)
 
     @property
     def parent(self) -> Optional[Locator]:
-        return self.parent_stream.locator.parent if self.parent_stream.locator else None
+        return self.get("parent")

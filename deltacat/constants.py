@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from deltacat.utils.common import env_string, env_bool
 
 # Environment variables
@@ -45,6 +47,11 @@ BYTES_PER_PEBIBYTE = 2**50
 SIGNED_INT64_MIN_VALUE = -(2**63)
 SIGNED_INT64_MAX_VALUE = 2**63 - 1
 
+# Time Units
+NANOS_PER_SEC = 1_000_000_000
+MICROS_PER_SEC = 1_000_000
+MILLIS_PER_SEC = 1000
+
 # Inflation multiplier from snappy-compressed parquet to pyarrow.
 # This should be kept larger than actual average inflation multipliers.
 # Note that this is a very rough guess since actual observed pyarrow
@@ -62,3 +69,12 @@ MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE
 
 # The number of bytes allocated to null values in string physical type in parquet
 NULL_SIZE_BYTES = 4
+
+# Metastore Constants
+REVISION_DIR_NAME: str = "rev"
+METAFILE_EXT = ".mpk"
+TXN_DIR_NAME: str = "txn"
+RUNNING_TXN_DIR_NAME: str = "running"
+FAILED_TXN_DIR_NAME: str = "failed"
+SUCCESS_TXN_DIR_NAME: str = "success"
+TXN_PART_SEPARATOR = "_"

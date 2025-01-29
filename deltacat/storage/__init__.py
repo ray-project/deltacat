@@ -16,8 +16,10 @@ from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.metafile import (
     Metafile,
-    Transaction,
+)
+from deltacat.storage.model.transaction import (
     TransactionOperation,
+    Transaction,
 )
 from deltacat.storage.model.namespace import (
     Namespace,
@@ -88,6 +90,7 @@ from deltacat.storage.model.sort_key import (
     SortScheme,
     SortSchemeList,
 )
+from deltacat.storage.main import impl as metastore
 
 __all__ = [
     "BucketingStrategy",
@@ -119,6 +122,7 @@ __all__ = [
     "ManifestEntryList",
     "ManifestMeta",
     "Metafile",
+    "metastore",
     "MonthTransform",
     "Namespace",
     "NamespaceLocator",
@@ -148,9 +152,9 @@ __all__ = [
     "TableVersionLocator",
     "TableVersionProperties",
     "Transaction",
-    "TransactionType",
     "TransactionOperation",
     "TransactionOperationType",
+    "TransactionType",
     "Transform",
     "TransformName",
     "TransformParameters",
