@@ -1,7 +1,8 @@
-from typing import Generator, Dict
+from typing import Generator, Dict, Optional
 
 import pyarrow as pa
 
+from deltacat.storage.model.shard import Shard
 from deltacat.storage.rivulet.reader.dataset_reader import DatasetReader
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet import Schema
@@ -36,10 +37,12 @@ class DataScan:
         dataset_schema: Schema,
         query: QueryExpression,
         dataset_reader: DatasetReader,
+        shard: Optional[Shard],
     ):
         self.dataset_schema = dataset_schema
         self.query = query
         self.dataset_reader = dataset_reader
+        self.shard = shard
 
     def to_arrow(self) -> Generator[pa.RecordBatch, None, None]:
         """
@@ -47,10 +50,14 @@ class DataScan:
 
         TODO how to make the .to_x methods pluggable?
         """
-        return self.dataset_reader.scan(self.dataset_schema, pa.RecordBatch, self.query)
+        return self.dataset_reader.scan(
+            self.dataset_schema, pa.RecordBatch, self.query, shard=self.shard
+        )
 
     def to_pydict(self) -> Generator[Dict, None, None]:
         """
         Generates scan results as a Dict for each row
         """
-        return self.dataset_reader.scan(self.dataset_schema, Dict, self.query)
+        return self.dataset_reader.scan(
+            self.dataset_schema, Dict, self.query, shard=self.shard
+        )

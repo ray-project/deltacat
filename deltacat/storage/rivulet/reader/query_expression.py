@@ -3,6 +3,8 @@ from __future__ import annotations
 import typing
 from typing import Optional
 
+from deltacat.storage.model.shard import Shard
+
 T = typing.TypeVar("T")  # Type of primary key in query expression. Must be comparable
 
 
@@ -27,7 +29,7 @@ class QueryExpression(typing.Generic[T]):
     def __init__(self):
         self.key_range: Optional[(T, T)] = None
 
-    def with_key(self, val: T) -> "QueryExpression":
+    def with_key(self, val: T) -> QueryExpression:
         """
         Syntactic sugar for setting key range to a single value
         """
@@ -38,11 +40,34 @@ class QueryExpression(typing.Generic[T]):
         self.key_range = (val, val)
         return self
 
-    def with_range(self, bound1: T, bound2: T) -> "QueryExpression":
+    def with_range(self, bound1: T, bound2: T) -> QueryExpression:
         if self.key_range:
             raise ValueError(f"Key range already set to {self.key_range}")
         self.key_range = tuple(sorted([bound1, bound2]))
         return self
+
+    @staticmethod
+    def with_shard(query: Optional[QueryExpression], shard: Shard):
+        """
+        Generate a query expression that accounts for the shard boundaries.
+        Shard boundaries are inclusive and mark the outer bounds of the query.
+        """
+        if shard is None:
+            return query
+
+        if query.key_range is None:
+            return QueryExpression().with_range(shard.min_key, shard.max_key)
+
+        min_key = shard.min_key
+        max_key = shard.max_key
+
+        if min_key > query.min_key:
+            min_key = query.min_key
+
+        if max_key < query.max_key:
+            max_key = query.max_key
+
+        return QueryExpression().with_range(min_key, max_key)
 
     @property
     def min_key(self) -> T | None:

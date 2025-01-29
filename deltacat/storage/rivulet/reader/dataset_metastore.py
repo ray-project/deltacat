@@ -62,6 +62,8 @@ class DatasetMetastore:
         manifest_io: ManifestIO = None,
         sst_reader: SSTReader = None,
     ):
+        self._min_key = None
+        self._max_key = None
         self.delta_root_uri = delta_root_uri
         self.file_provider = file_provider
         self.manifest_io = manifest_io or DeltacatManifestIO(delta_root_uri)
@@ -106,3 +108,25 @@ class DatasetMetastore:
         for delta_directory in delta_directories:
             rivulet_delta = self._get_delta(delta_directory.path, filesystem)
             yield ManifestAccessor(rivulet_delta, self.file_provider, self.sst_reader)
+
+    def get_min_max_keys(self):
+        """
+        Compute and cache the minimum and maximum keys in the dataset.
+
+        returns: a tuple of the minimum and maximum keys in the dataset
+        """
+        if self._min_key is not None and self._max_key is not None:
+            return (self._min_key, self._max_key)
+
+        min_key = None
+        max_key = None
+        for manifest_accessor in self.generate_manifests():
+            for sstable in manifest_accessor.generate_sstables():
+                if min_key is None or sstable.min_key < min_key:
+                    min_key = sstable.min_key
+                if max_key is None or sstable.max_key > max_key:
+                    max_key = sstable.max_key
+
+        self._min_key = min_key
+        self._max_key = max_key
+        return (min_key, max_key)
