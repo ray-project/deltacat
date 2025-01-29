@@ -46,16 +46,13 @@ class DatasetMetastore:
     """
     Metastore implementation for manifests stored on a filesystem
 
-    Right now - this stores all SSTs as Deltas directly under
-
-    TODO this metastore needs to be merged with deltacat storage interface (does not exist yet)
+    TODO this will be replaced with Deltacat Storage interface - https://github.com/ray-project/deltacat/issues/477
     """
 
     def __init__(
         self,
         # URI at which we expect to find deltas
         delta_root_uri: str,
-        # TODO should replace with pyarrow FS interface
         file_provider: FileProvider,
         *,
         manifest_io: ManifestIO = None,

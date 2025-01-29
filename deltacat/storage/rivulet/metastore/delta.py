@@ -112,15 +112,21 @@ class DeltacatManifestIO(ManifestIO):
         schema: Schema,
         level: TreeLevel,
     ) -> str:
-
         # Build the Deltacat Manifest entries:
         entry_list = ManifestEntryList()
-        # data_files as "DATA" entry type
+        """
+        Currently, we use the "data files" manifest entry field for SST files
+        This is a bit of a hack - we should consider how to better model SST files
+        (e.g.: add Manifest entry of type "SST") and decide whether we also need to record data files separately
+         even though they're referenced by SST
+        Ticket: https://github.com/ray-project/deltacat/issues/469
+        """
         for sst_uri in sst_files:
             entry_list.append(
                 ManifestEntry.of(
                     url=sst_uri,
                     # TODO have rivulet writer populate these values
+                    # see: https://github.com/ray-project/deltacat/issues/476
                     meta=ManifestMeta.of(
                         record_count=None,  # or known
                         content_length=None,
@@ -133,7 +139,6 @@ class DeltacatManifestIO(ManifestIO):
         dc_manifest = Manifest.of(entries=entry_list)
 
         # Create delta and transaction which writes manifest to root
-        # Note that deltacat storage currently lets you write deltas not to any parent stream
         # TODO replace this with higher level storage interface for deltacat
 
         delta_locator = DeltaLocator.at(
@@ -145,7 +150,7 @@ class DeltacatManifestIO(ManifestIO):
             partition_values=None,
             partition_id=None,
             # Using microsecond precision timestamp as stream position
-            # TODO discuss how to assign stream position
+            # TODO consider having storage interface auto assign stream position
             stream_position=time.time_ns(),
         )
 
@@ -156,10 +161,10 @@ class DeltacatManifestIO(ManifestIO):
             properties={},
             manifest=dc_manifest,
         )
-        # TODO later formalize multiple schema support in deltacat
+        # TODO later support multiple schemas (https://github.com/ray-project/deltacat/issues/468)
         delta["schema"] = schema.to_dict()
-        # TODO (discussion) - is it acceptable to just write keys to a manifest?
-        # Or should we add level to official spec for LSM tree backed formats
+        # TODO consider if level should be added as first class key to delta or
+        # kept as specific to storage interface
         delta["level"] = level
 
         tx_results = Transaction.of(
