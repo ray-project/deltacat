@@ -64,3 +64,6 @@ benchmark-aws: install
 
 benchmark: install
 	pytest -m benchmark deltacat/benchmarking
+
+publish: test test-integration rebuild
+	twine upload dist/*
