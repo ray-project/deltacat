@@ -314,6 +314,7 @@ class Delta(Metafile):
                 ),
                 TXN_DIR_NAME,
             )
+
             table = Table.read(
                 MetafileRevisionInfo.latest_revision(
                     revision_dir_path=parent_rev_dir_path,

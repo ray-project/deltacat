@@ -271,8 +271,10 @@ class TableVersion(Metafile):
             else None
         )
         # force list-to-tuple conversion of sort keys via property invocation
-        self.sort_scheme.keys
-        [sort_scheme.keys for sort_scheme in self.sort_schemes]
+        if self.sort_scheme:
+            self.sort_scheme.keys
+            [sort_scheme.keys for sort_scheme in self.sort_schemes]
+
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
             parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(

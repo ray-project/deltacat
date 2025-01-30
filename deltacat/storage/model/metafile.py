@@ -40,6 +40,7 @@ class MetafileRevisionInfo(dict):
         mri.txn_id = None
         mri.txn_op_type = None
         mri.dir_path = None
+        mri["undefined"]=True
         return mri
 
     @staticmethod
@@ -112,7 +113,10 @@ class MetafileRevisionInfo(dict):
         current_txn_start_time: Optional[int] = None,
         current_txn_id: Optional[str] = None,
         ignore_missing_revision: bool = False,
-    ) -> MetafileRevisionInfo:
+    ) -> Optional[MetafileRevisionInfo]:
+        """
+        Fetch latest revision of a metafile, or return None if no revisions exist
+        """
         revisions = MetafileRevisionInfo.list_revisions(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
@@ -371,6 +375,9 @@ class MetafileRevisionInfo(dict):
             else None
         )
 
+    def is_undefined(self) -> bool:
+        return self.get("undefined", False)
+
 
 class Metafile(dict):
     """
@@ -478,6 +485,7 @@ class Metafile(dict):
         # return the latest metafile revision for READ_LATEST and READ_EXISTS
         list_result = current_txn_op.dest_metafile.revisions(**kwargs)
         revisions = list_result.all_items()
+
         metafiles = []
         if revisions:
             op_type = revisions[0][0]
@@ -490,6 +498,9 @@ class Metafile(dict):
                 pagination_key=None,
                 next_page_provider=None,
             )
+        else:
+            # Could not find any revisions in list operations - return no results
+            return ListResult.empty()
 
     @classmethod
     def read(
@@ -743,6 +754,7 @@ class Metafile(dict):
         )
         metafile_root = posixpath.join(*[catalog_root] + ancestor_ids)
         # TODO(pdames): Refactor id lazy assignment into explicit getter/setter
+
         immutable_id = self.get("id") or Metafile._locator_to_id(
             locator=self.locator,
             catalog_root=catalog_root,
@@ -751,6 +763,11 @@ class Metafile(dict):
             txn_start_time=current_txn_start_time,
             txn_id=current_txn_id,
         )
+        # If immutable id still not assigned, it does not exist.
+        # Return empty list result indicating that there are no revisions
+        if not immutable_id:
+            return ListResult.empty()
+
         revision_dir_path = posixpath.join(
             metafile_root,
             immutable_id,
@@ -841,6 +858,11 @@ class Metafile(dict):
                     txn_start_time=current_txn_start_time,
                     txn_id=current_txn_id,
                 )
+                if not ancestor_id:
+                    raise ValueError(
+                        f"Could not find Ancestor {parent_locator} at location"
+                        f"{metafile_root}"
+                    )
                 metafile_root = posixpath.join(
                     metafile_root,
                     ancestor_id,
@@ -886,9 +908,11 @@ class Metafile(dict):
         filesystem: pyarrow.fs.FileSystem,
         txn_start_time: Optional[int] = None,
         txn_id: Optional[str] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """
         Resolves the metafile ID for the given locator.
+
+        Returns None if no id found
         """
         metafile_id = locator.name.immutable_id
         if not metafile_id:
@@ -900,13 +924,19 @@ class Metafile(dict):
                 TXN_DIR_NAME,
                 SUCCESS_TXN_DIR_NAME,
             )
+
             mri = MetafileRevisionInfo.latest_revision(
                 revision_dir_path=locator_path,
-                filesystem=filesystem,
-                success_txn_log_dir=success_txn_log_dir,
-                current_txn_start_time=txn_start_time,
-                current_txn_id=txn_id,
-            )
+             filesystem=filesystem,
+             success_txn_log_dir=success_txn_log_dir,
+             current_txn_start_time=txn_start_time,
+             current_txn_id=txn_id,
+             ignore_missing_revision=True
+             )
+            # Because we set ignore_missing_revision, we will get mri.undefined if metafile does not exist
+            if mri.is_undefined():
+                return None
+
             if mri.txn_op_type == TransactionOperationType.DELETE:
                 err_msg = (
                     f"Locator {locator} to metafile ID resolution failed "
@@ -914,6 +944,7 @@ class Metafile(dict):
                     f"have an old reference to a renamed or deleted object."
                 )
                 raise ValueError(err_msg)
+
             metafile_id = posixpath.splitext(mri.path)[1][1:]
         return metafile_id
 
