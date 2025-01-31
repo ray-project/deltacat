@@ -43,6 +43,7 @@ class TableVersion(Metafile):
         schemas: Optional[SchemaList] = None,
         partition_schemes: Optional[partition.PartitionSchemeList] = None,
         sort_schemes: Optional[SortSchemeList] = None,
+        previous_table_version: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> TableVersion:
         table_version = TableVersion()
@@ -58,6 +59,7 @@ class TableVersion(Metafile):
         table_version.schemas = schemas
         table_version.partition_schemes = partition_schemes
         table_version.sort_schemes = sort_schemes
+        table_version.previous_table_version = previous_table_version
         table_version.native_object = native_object
         return table_version
 
@@ -166,6 +168,14 @@ class TableVersion(Metafile):
     @description.setter
     def description(self, description: Optional[str]) -> None:
         self["description"] = description
+
+    @property
+    def previous_table_version(self) -> Optional[str]:
+        return self.get("previous_table_version")
+
+    @previous_table_version.setter
+    def previous_table_version(self, previous_table_version: Optional[str]) -> None:
+        self["previous_table_version"] = previous_table_version
 
     @property
     def properties(self) -> Optional[TableVersionProperties]:

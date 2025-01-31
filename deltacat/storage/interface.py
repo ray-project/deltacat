@@ -21,7 +21,9 @@ from deltacat.storage import (
     Schema,
     SortScheme,
     Stream,
+    StreamFormat,
     StreamLocator,
+    StreamLocatorAlias,
     Table,
     TableProperties,
     TableVersion,
@@ -234,7 +236,7 @@ def get_delta_manifest(
 ) -> Manifest:
     """
     Get the manifest associated with the given delta or delta locator. This
-    always retrieves the authoritative remote copy of the delta manifest, and
+    always retrieves the authoritative durable copy of the delta manifest, and
     never the local manifest defined for any input delta.
     """
     raise NotImplementedError("get_delta_manifest not implemented")
@@ -255,7 +257,7 @@ def create_namespace(
 
 def update_namespace(
     namespace: str,
-    properties: NamespaceProperties = None,
+    properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
     *args,
     **kwargs,
@@ -320,6 +322,8 @@ def update_table_version(
     schema: Optional[Schema] = None,
     description: Optional[str] = None,
     properties: Optional[TableVersionProperties] = None,
+    partition_scheme: Optional[PartitionScheme] = None,
+    sort_keys: Optional[SortScheme] = None,
     *args,
     **kwargs,
 ) -> None:
@@ -353,8 +357,9 @@ def stage_stream(
 def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
     """
     Registers a delta stream with a target table version, replacing any
-    previous stream registered for the same table version. Returns the
-    committed stream.
+    previous stream registered for the same table version. If the stream
+    format is not set prior to commit, then it is defaulted to the DeltaCAT
+    stream format. Returns the committed stream.
     """
     raise NotImplementedError("commit_stream not implemented")
 
@@ -363,12 +368,14 @@ def delete_stream(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
     *args,
     **kwargs,
 ) -> None:
     """
     Deletes the delta stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
+    Resolves to the deltacat stream format if no stream format is given.
     Raises an error if the table version does not exist.
     """
     raise NotImplementedError("delete_stream not implemented")
@@ -378,13 +385,15 @@ def get_stream(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
     *args,
     **kwargs,
 ) -> Optional[Stream]:
     """
-    Gets the most recently committed stream for the given table version and
-    partition key values. Resolves to the latest active table version if no
-    table version is given. Returns None if the table version does not exist.
+    Gets the most recently committed stream for the given table version.
+    Resolves to the latest active table version if no table version is given.
+    Resolves to the deltacat stream format if no stream format is given.
+    Returns None if the table version or stream format does not exist.
     """
     raise NotImplementedError("get_stream not implemented")
 
