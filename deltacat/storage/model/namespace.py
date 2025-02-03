@@ -10,6 +10,9 @@ NamespaceProperties = Dict[str, Any]
 
 
 class Namespace(Metafile):
+    def to_serializable(self) -> Metafile:
+        return self
+
     @staticmethod
     def of(
         locator: Optional[NamespaceLocator],

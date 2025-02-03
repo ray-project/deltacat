@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from abc import ABC, abstractmethod
 
 from typing import Optional, Tuple, List
 
@@ -18,6 +19,7 @@ from deltacat.constants import (
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
 )
+from deltacat.storage.model import metafile_utils
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.types import TransactionOperationType
@@ -116,6 +118,9 @@ class MetafileRevisionInfo(dict):
     ) -> Optional[MetafileRevisionInfo]:
         """
         Fetch latest revision of a metafile, or return None if no revisions exist
+        :param revision_dir_path: root path of directory for metafile
+        :param ignore_missing_revision: if True, will return MetafileRevisionInfo.undefined() on no revisions
+        :raises ValueError if no revisions are found AND ignore_missing_revision=False
         """
         revisions = MetafileRevisionInfo.list_revisions(
             revision_dir_path=revision_dir_path,
@@ -379,7 +384,7 @@ class MetafileRevisionInfo(dict):
         return self.get("undefined", False)
 
 
-class Metafile(dict):
+class Metafile(ABC, dict):
     """
     Base class for DeltaCAT metadata files, with read and write methods
     for dict-based DeltaCAT models. Uses msgpack (https://msgpack.org/) for
@@ -518,7 +523,14 @@ class Metafile(dict):
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path) as file:
             binary = file.readall()
-        obj = cls(**msgpack.loads(binary)).from_serializable(path, filesystem)
+            data = msgpack.loads(binary)
+        """
+        Sometimes, read is called by one metafile class but is reading the file from another type of class
+        for example, self._list_metafiles will find child metafiles and deserialize them via read
+        we therefore have to find the appropriate class to call from_serializable on
+        """
+        clazz = metafile_utils.get_class(data)
+        obj = clazz(**msgpack.loads(binary)).from_serializable(path, filesystem)
         return obj
 
     def write_txn(
@@ -686,6 +698,7 @@ class Metafile(dict):
             parent_obj_path,
             self.id,
         )
+        # List metafiles with respect to this metafile's URI as root
         return self._list_metafiles(
             success_txn_log_dir=success_txn_log_dir,
             metafile_root_dir_path=metafile_root_dir_path,
@@ -800,14 +813,19 @@ class Metafile(dict):
             next_page_provider=None,
         )
 
+    @abstractmethod
     def to_serializable(self) -> Metafile:
         """
-        Prepare the object for serialization by converting any non-serializable
-        types to serializable types. May also run any required pre-write
-        validations on the serialized or deserialized object.
+        Deep copies Metafile and returns a serializable form. Does NOT modify self
+
+        This will prepare the object for serialization by converting any non-serializable
+        types to serializable types. It will also remove mutable fields
+
+        May also run any required pre-write validations on the serialized or deserialized object.
+
         :return: a serializable version of the object
         """
-        return self
+        ...
 
     def from_serializable(
         self,
@@ -1133,6 +1151,11 @@ class Metafile(dict):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         limit: Optional[int] = None,
     ) -> ListResult[Metafile]:
+        """
+        List all metafiles under root directory. The root directory can either be a catalog root (like in the case of
+        listing a namespace) or the root of any nested metafile
+
+        """
         file_paths_and_sizes = list_directory(
             path=metafile_root_dir_path,
             filesystem=filesystem,
@@ -1154,7 +1177,9 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 ignore_missing_revision=True,
             )
-            if mri.revision:
+
+            if not mri.is_undefined():
+                # TODO need to find correct class before calling self.read()
                 item = self.read(
                     path=mri.path,
                     filesystem=filesystem,
@@ -1162,6 +1187,7 @@ class Metafile(dict):
                 items.append(item)
             if limit and limit <= len(items):
                 break
+
         # TODO(pdames): Add pagination.
         return ListResult.of(
             items=items,
