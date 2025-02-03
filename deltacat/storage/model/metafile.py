@@ -5,6 +5,7 @@ import copy
 
 from typing import Optional, Tuple, List
 
+import json
 import msgpack
 import pyarrow.fs
 import posixpath
@@ -21,11 +22,14 @@ from deltacat.constants import (
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.types import TransactionOperationType
+from deltacat.utils.common import env_string
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
     get_file_info,
 )
+
+DELTACAT_METAFILE_FORMAT = env_string("DELTACAT_METAFILE_FORMAT", "msgpack")
 
 
 class MetafileRevisionInfo(dict):
@@ -496,18 +500,24 @@ class Metafile(dict):
         cls,
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        format: str = DELTACAT_METAFILE_FORMAT,
     ) -> Metafile:
         """
         Read a metadata file and return the deserialized object.
         :param path: Metadata file path to read.
         :param filesystem: File system to use for reading the metadata file.
+        :param format: Format to use for deserializing the metadata file.
         :return: Deserialized object from the metadata file.
         """
         if not filesystem:
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path) as file:
             binary = file.readall()
-        obj = cls(**msgpack.loads(binary)).from_serializable(path, filesystem)
+        loader = {
+            "json": lambda b: json.loads(b.decode("utf-8")),
+            "msgpack": msgpack.loads,
+        }[format]
+        obj = cls(**loader(binary)).from_serializable(path, filesystem)
         return obj
 
     def write_txn(
@@ -550,6 +560,7 @@ class Metafile(dict):
         self,
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        format: str = DELTACAT_METAFILE_FORMAT,
     ) -> None:
         """
         Serialize and write this object to a metadata file.
@@ -557,14 +568,19 @@ class Metafile(dict):
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
+        param: format: Format to use for serializing the metadata file.
         """
         if not filesystem:
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         revision_dir_path = posixpath.dirname(path)
         filesystem.create_dir(revision_dir_path, recursive=True)
         with filesystem.open_output_stream(path) as file:
-            packed = msgpack.dumps(self.to_serializable())
-            file.write(packed)
+            file.write(
+                {
+                    "json": lambda data: json.dumps(data, indent=4).encode("utf-8"),
+                    "msgpack": msgpack.dumps,
+                }[format](self.to_serializable())
+            )
 
     def equivalent_to(self, other: Metafile) -> bool:
         """
