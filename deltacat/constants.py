@@ -38,7 +38,14 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
     False,
 )
 
-DELTACAT_METAFILE_FORMAT = env_string("DELTACAT_METAFILE_FORMAT", "msgpack")
+# CLI Args
+METAFILE_FORMAT_KEY = "metafile-format"
+METAFILE_FORMAT = env_string(METAFILE_FORMAT_KEY, "msgpack")
+print(f"METAFILE_FORMAT: {METAFILE_FORMAT}")
+METAFILE_EXT = {
+    "json": ".json",
+    "msgpack": ".mpk",
+}[METAFILE_FORMAT]
 
 
 # Byte Units
@@ -76,7 +83,6 @@ NULL_SIZE_BYTES = 4
 
 # Metastore Constants
 REVISION_DIR_NAME: str = "rev"
-METAFILE_EXT = ".json" if DELTACAT_METAFILE_FORMAT == "json" else ".mpk"
 TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"
