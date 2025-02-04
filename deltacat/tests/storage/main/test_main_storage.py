@@ -7,7 +7,7 @@ from deltacat import Schema, Field
 from deltacat.storage import (
     metastore,
     Namespace,
-    NamespaceLocator,
+    NamespaceLocator, TableVersion,
 )
 from deltacat.storage.main import impl as storage_impl
 from deltacat.storage.model.namespace import Namespace
