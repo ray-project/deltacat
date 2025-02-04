@@ -1,11 +1,12 @@
+import posixpath
 import time
 from typing import List, Generator
 
-from deltacat.storage.model.delta import DeltaLocator
+from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.input_file import InputFile
 from deltacat.storage.rivulet.fs.output_file import OutputFile
-from deltacat.utils.deltacat_helper import _find_partition_path
+from deltacat.utils.metafile_locator import _find_partition_path
 
 
 class FileProvider:
@@ -25,7 +26,7 @@ class FileProvider:
 
     uri: str
 
-    def __init__(self, uri: str, locator: DeltaLocator, file_store: FileStore):
+    def __init__(self, uri: str, locator: PartitionLocator, file_store: FileStore):
         """
         Initializes the file provider.
 
@@ -40,21 +41,29 @@ class FileProvider:
         """
         Creates a new data file.
 
+        TODO: Ensure storage interface can provide data files.
+
         param: extension: File extension (e.g., "parquet").
         returns: OutputFile instance pointing to the created data file.
         """
         partition_path = _find_partition_path(self.uri, self._locator)
-        uri = f"{partition_path}/data/{int(time.time_ns())}.{extension}"
+        uri = posixpath.join(
+            partition_path, "data", f"{int(time.time_ns())}.{extension}"
+        )
         return self._file_store.create_output_file(uri)
 
     def provide_l0_sst_file(self) -> OutputFile:
         """
         Creates a new L0 SST file.
 
+        TODO: Ensure storage interface can provide sst files.
+
         returns: OutputFile instance pointing to the created SST file.
         """
         partition_path = _find_partition_path(self.uri, self._locator)
-        uri = f"{partition_path}/metadata/ssts/0/{int(time.time_ns())}.json"
+        uri = posixpath.join(
+            partition_path, "metadata", "ssts", "0", f"{int(time.time_ns())}.json"
+        )
         return self._file_store.create_output_file(uri)
 
     def provide_input_file(self, uri: str) -> InputFile:

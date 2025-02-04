@@ -15,6 +15,7 @@ from deltacat.storage import (
     TransactionOperationType,
 )
 from deltacat.storage.model.manifest import Manifest, ManifestEntryList, ManifestEntry
+from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.model.transaction import TransactionOperationList
 
 from deltacat.storage.model.types import StreamFormat
@@ -104,7 +105,7 @@ class DeltacatManifestIO(ManifestIO):
     Writes manifest data, but by writing to a Deltacat metastore using Deltacat delta/manifest classes.
     """
 
-    def __init__(self, root: str, locator: DeltaLocator):
+    def __init__(self, root: str, locator: PartitionLocator):
         self.root = root
         self.locator = locator
 

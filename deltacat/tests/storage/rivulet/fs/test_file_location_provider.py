@@ -3,7 +3,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from deltacat import Datatype, Dataset
 from deltacat.storage.rivulet import Schema, Field
-from deltacat.utils.deltacat_helper import _find_partition_path
+from deltacat.utils.metafile_locator import _find_partition_path
 
 
 @pytest.fixture

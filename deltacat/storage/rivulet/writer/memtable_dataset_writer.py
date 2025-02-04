@@ -5,7 +5,7 @@ from threading import Thread
 from typing import Any, List, Set, Protocol, TypeVar, Dict, Iterable
 
 from pyarrow import RecordBatch, Table
-from deltacat.storage.model.delta import DeltaLocator
+from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.rivulet.metastore.delta import ManifestIO, DeltacatManifestIO
 
 from deltacat.storage.rivulet import Schema
@@ -136,7 +136,7 @@ class MemtableDatasetWriter(DatasetWriter):
         self,
         file_provider: FileProvider,
         schema: Schema,
-        locator: DeltaLocator,
+        locator: PartitionLocator,
         file_format: str | None = None,
         sst_writer: SSTWriter = None,
         manifest_io: ManifestIO = None,

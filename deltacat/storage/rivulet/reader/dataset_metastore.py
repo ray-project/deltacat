@@ -5,7 +5,7 @@ import pyarrow
 import pyarrow.fs
 
 from deltacat.storage import Delta
-from deltacat.storage.model.delta import DeltaLocator
+from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstReader
@@ -16,7 +16,7 @@ from deltacat.storage.rivulet.metastore.delta import (
     DeltacatManifestIO,
 )
 from deltacat.storage.rivulet.metastore.sst import SSTReader, SSTable
-from deltacat.utils.deltacat_helper import _find_table_path
+from deltacat.utils.metafile_locator import _find_table_path
 
 
 class ManifestAccessor:
@@ -54,7 +54,7 @@ class DatasetMetastore:
         # URI at which we expect to find deltas
         delta_root_uri: str,
         file_provider: FileProvider,
-        locator: DeltaLocator,
+        locator: PartitionLocator,
         *,
         manifest_io: ManifestIO = None,
         sst_reader: SSTReader = None,

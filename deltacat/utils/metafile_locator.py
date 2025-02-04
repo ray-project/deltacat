@@ -1,7 +1,7 @@
 import posixpath
 import pyarrow.fs
 
-from deltacat.storage.model.delta import DeltaLocator
+from deltacat.storage.model.partition import PartitionLocator
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 """
@@ -57,7 +57,7 @@ def _find_table_path(root_path: str, filesystem: pyarrow.fs.FileSystem):
         raise ValueError(f"Failed to locate Namespace or Table: {e}") from e
 
 
-def _find_partition_path(root_path: str, locator: DeltaLocator) -> str:
+def _find_partition_path(root_path: str, locator: PartitionLocator) -> str:
     """
     Finds the path to the partition directory for the specified locator.
 

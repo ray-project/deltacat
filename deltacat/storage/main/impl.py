@@ -17,6 +17,7 @@ from deltacat.storage.model.types import (
     LifecycleState,
     LocalDataset,
     LocalTable,
+    StreamFormat,
     TransactionType,
     TransactionOperationType,
 )
@@ -65,6 +66,20 @@ from deltacat.types.media import (
     TableType,
 )
 from deltacat.utils.common import ReadKwargsProvider
+
+
+# These are the default hardcoded values for Rivulet-DeltaCAT storage catalog.
+# TODO: Integrate these values into the storage interface dynamically.
+#       Currently, these are defined as static defaults, but they should
+#       be determined at runtime based on the storage catalog configuration.
+#       This will ensure that they remain consistent across different storage
+#       implementations and can be easily modified or overridden when needed.
+DEFAULT_NAMESPACE = "namespace"
+DEFAULT_TABLE_VERSION = "table_version"
+DEFAULT_STREAM_ID = "stream"
+DEFAULT_STREAM_FORMAT = StreamFormat.DELTACAT
+DEFAULT_PARTITION_ID = "partition"
+DEFAULT_PARTITION_VALUES = ["default"]
 
 
 def _get_catalog(**kwargs) -> PropertyCatalog:

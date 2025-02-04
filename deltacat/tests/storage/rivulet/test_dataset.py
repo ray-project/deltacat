@@ -1,3 +1,5 @@
+import posixpath
+from deltacat.utils.metafile_locator import _find_partition_path
 import pytest
 
 import pyarrow as pa
@@ -55,9 +57,17 @@ def test_dataset_creation_metadata_structure(tmp_path):
     dataset = Dataset(dataset_name="test_dataset", metadata_uri=str(tmp_path))
 
     assert dataset._metadata_folder.startswith(".riv-meta")
-    assert dataset._namespace == "default"
+    assert dataset._namespace == "namespace"
     assert dataset.dataset_name == "test_dataset"
     assert dataset._metadata_path == str(tmp_path / ".riv-meta-test_dataset")
+
+    locator = dataset._locator
+    root_uri = dataset._metadata_path
+
+    partition_path = _find_partition_path(root_uri, locator)
+
+    # Ensures that directory structure for namespace -> table -> table_version -> stream_id -> partition_id exists
+    assert posixpath.exists(partition_path)
 
 
 def test_fields_accessor_add_field(tmp_path, sample_schema):
