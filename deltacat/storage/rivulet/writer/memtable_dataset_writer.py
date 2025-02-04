@@ -5,7 +5,7 @@ from threading import Thread
 from typing import Any, List, Set, Protocol, TypeVar, Dict, Iterable
 
 from pyarrow import RecordBatch, Table
-from deltacat.storage.rivulet.metastore.manifest import ManifestIO, JsonManifestIO
+from deltacat.storage.rivulet.metastore.delta import ManifestIO, DeltacatManifestIO
 
 from deltacat.storage.rivulet import Schema
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstWriter
@@ -143,7 +143,7 @@ class MemtableDatasetWriter(DatasetWriter):
         if not sst_writer:
             sst_writer = JsonSstWriter()
         if not manifest_io:
-            manifest_io = JsonManifestIO()
+            manifest_io = DeltacatManifestIO(file_provider.uri)
 
         self.schema = schema
 
@@ -154,7 +154,6 @@ class MemtableDatasetWriter(DatasetWriter):
         self.sst_writer = sst_writer
         self.manifest_io = manifest_io
 
-        self._data_files: Set[str] = set()
         self._sst_files: Set[str] = set()
         self.__curr_memtable = None
         self.__open_memtables = []
@@ -218,13 +217,10 @@ class MemtableDatasetWriter(DatasetWriter):
         for thread in [t for t in self.__open_threads if t.is_alive()]:
             thread.join()
 
-        manifest_file = self.file_provider.provide_manifest_file()
-        self.__write_manifest_file(manifest_file)
-
+        manifest_location = self.__write_manifest_file()
         self._sst_files.clear()
-        self._data_files.clear()
 
-        return manifest_file.location
+        return manifest_location
 
     def __enter__(self) -> Any:
         """
@@ -284,14 +280,12 @@ class MemtableDatasetWriter(DatasetWriter):
         with self.__rlock:
             self.sst_writer.write(sst_file, sst_metadata_list)
             self._sst_files.add(sst_file.location)
-            self._data_files.update(
-                [sst_metadata.uri for sst_metadata in sst_metadata_list]
-            )
+
             if memtable in self.__open_memtables:
                 self.__open_memtables.remove(memtable)
 
-    def __write_manifest_file(self, file):
+    def __write_manifest_file(self) -> str:
         """
         Write the manifest file to the filesystem at the given URI.
         """
-        self.manifest_io.write(file, self._data_files, self._sst_files, self.schema, 0)
+        return self.manifest_io.write(list(self._sst_files), self.schema, 0)

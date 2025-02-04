@@ -23,7 +23,7 @@ class FileStore:
     method: `list_files`: Lists all files within a specified directory URI.
     """
 
-    def __init__(self, path: str, filesystem: FileSystem):
+    def __init__(self, path: str, filesystem: Optional[FileSystem] = None):
         """
         Serves as the source of truth for all file operations, ensuring that
         all paths and operations are relative to the specified filesystem,
@@ -34,8 +34,8 @@ class FileStore:
         param: path (str): The base URI or path for the filesystem.
         param: filesystem (FileSystem): A PyArrow filesystem instance.
         """
-        _, filesystem = FileStore.filesystem(path, filesystem)
-        self.filesystem = filesystem
+        _, fs = FileStore.filesystem(path, filesystem)
+        self.filesystem = filesystem or fs
 
     @staticmethod
     def filesystem(

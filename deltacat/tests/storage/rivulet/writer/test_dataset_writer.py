@@ -10,8 +10,8 @@ from ..test_utils import (
     write_mvp_table,
     mvp_table_to_record_batches,
     validate_with_full_scan,
-    assert_data_file_extension,
     create_dataset_for_method,
+    assert_data_file_extension,
 )
 
 MemtableDatasetWriter.MAX_ROW_SIZE = 100

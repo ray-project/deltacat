@@ -178,7 +178,7 @@ class Dataset:
 
         self._file_store = FileStore(self._metadata_path, filesystem)
         self._file_provider = FileProvider(self._metadata_path, self._file_store)
-        self._metastore = DatasetMetastore(self._file_provider)
+        self._metastore = DatasetMetastore(self._metadata_path, self._file_provider)
 
         # Initialize accessors
         self.fields = FieldsAccessor(self)

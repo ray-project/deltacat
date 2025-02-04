@@ -35,6 +35,9 @@ lint: install
 test: install
 	venv/bin/pytest -m "not integration"
 
+unit-test: install
+	venv/bin/pytest -m "not integration and not benchmark"
+
 test-integration: install
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml rm -f
@@ -51,5 +54,5 @@ test-integration-rebuild:
 benchmark-aws: install
 	venv/bin/pytest deltacat/benchmarking/benchmark_parquet_reads.py --benchmark-only --benchmark-group-by=group,param:name
 
-benchmark:
+benchmark: install
 	pytest -m benchmark deltacat/benchmarking
