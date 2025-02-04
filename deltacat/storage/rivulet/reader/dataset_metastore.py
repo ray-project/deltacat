@@ -1,10 +1,11 @@
-from typing import Generator
-import os
+import posixpath
+from typing import Generator, Optional
 
-from pyarrow.fs import FileSystem
-import pyarrow.fs as fs
+import pyarrow
+import pyarrow.fs
 
 from deltacat.storage import Delta
+from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.storage.rivulet.metastore.json_sst import JsonSstReader
@@ -15,6 +16,7 @@ from deltacat.storage.rivulet.metastore.delta import (
     DeltacatManifestIO,
 )
 from deltacat.storage.rivulet.metastore.sst import SSTReader, SSTable
+from deltacat.utils.metafile_locator import _find_table_path
 
 
 class ManifestAccessor:
@@ -54,6 +56,7 @@ class DatasetMetastore:
         # URI at which we expect to find deltas
         delta_root_uri: str,
         file_provider: FileProvider,
+        locator: PartitionLocator,
         *,
         manifest_io: ManifestIO = None,
         sst_reader: SSTReader = None,
@@ -62,48 +65,91 @@ class DatasetMetastore:
         self._max_key = None
         self.delta_root_uri = delta_root_uri
         self.file_provider = file_provider
-        self.manifest_io = manifest_io or DeltacatManifestIO(delta_root_uri)
+        self.manifest_io = manifest_io or DeltacatManifestIO(delta_root_uri, locator)
         self.sst_reader = sst_reader or JsonSstReader()
+        self.locator = locator
 
-    def _get_delta(self, delta_dir: str, filesystem: FileSystem) -> RivuletDelta:
+    def _get_delta(
+        self, delta_dir: str, filesystem: pyarrow.fs.FileSystem
+    ) -> Optional[RivuletDelta]:
         """
-        Given a DeltaCat delta directory, find latest delta file
+        Find the latest revision in a delta directory.
 
-        This will be replaced by deltacat storage API.
-        Current implementation does not respect open/closed transactions, it just
-            looks for the latest revision
+        param: delta_dir: The directory containing the revisions.
+        param: filesystem: The filesystem to search for the revisions.
+        returns: The latest revision as a RivuletDelta.
         """
-        rev_directory = os.path.join(delta_dir, "rev")
-        revisions = filesystem.get_file_info(fs.FileSelector(rev_directory))
-        # Take lexicographical max
-        latest_revision = None
-        for revision in revisions:
-            latest_revision = (
-                revision if not latest_revision else max(latest_revision, revision.path)
-            )
-        return RivuletDelta.of(Delta.read(latest_revision.path))
+        rev_directory = posixpath.join(delta_dir, "rev")
+        revisions = filesystem.get_file_info(
+            pyarrow.fs.FileSelector(rev_directory, allow_not_found=True)
+        )
+
+        if not revisions:
+            print(f"Warning: No revision files found in {rev_directory}")
+            return None
+
+        # Take lexicographical max to find the latest revision
+        latest_revision = max(revisions, key=lambda f: f.path)
+
+        return (
+            RivuletDelta.of(Delta.read(latest_revision.path))
+            if latest_revision
+            else None
+        )
 
     def generate_manifests(self) -> Generator[ManifestAccessor, None, None]:
         """
         Generate all manifests within the Metastore
         NOTE: this will be replaced by deltacat storage API.
 
-        :return: a generator of accessors into the Manifests
+        TODO: Generate partition path using Deltacat Storage interface.
+
+        param: delta_root_uri: The URI at which we expect to find deltas.
+        returns: a generator of ManifestAccessors for all manifests in the dataset.
         """
-        # Rivulet data and SST files written to /data and /metadata
-        # Deltacat transactions written to /txn
-        excluded_dir_names = ["data", "metadata", "txn"]
+
         root_path, filesystem = resolve_path_and_filesystem(self.delta_root_uri)
-        root_children = filesystem.get_file_info(fs.FileSelector(root_path))
-        delta_directories = [
-            child
-            for child in root_children
-            if not child.is_file and child.base_name not in excluded_dir_names
+
+        partition_path = posixpath.join(
+            _find_table_path(root_path, filesystem),
+            self.locator.table_version,
+            self.locator.stream_id,
+            self.locator.partition_id,
+        )
+
+        partition_info = filesystem.get_file_info(partition_path)
+
+        if partition_info.type != pyarrow.fs.FileType.Directory:
+            print(f"Partition directory {partition_path} not found. Skipping.")
+            return
+
+        # Locate "rev" directory inside the partition
+        rev_directory = posixpath.join(partition_path, "rev")
+        rev_info = filesystem.get_file_info(rev_directory)
+
+        if rev_info.type != pyarrow.fs.FileType.Directory:
+            print(f"Revision directory {rev_directory} not found. Skipping.")
+            return
+
+        # Fetch all delta directories inside the partition
+        delta_dirs = filesystem.get_file_info(
+            pyarrow.fs.FileSelector(
+                partition_path, allow_not_found=True, recursive=False
+            )
+        )
+
+        delta_dirs = [
+            delta
+            for delta in delta_dirs
+            if delta.type == pyarrow.fs.FileType.Directory and delta.base_name.isdigit()
         ]
 
-        for delta_directory in delta_directories:
-            rivulet_delta = self._get_delta(delta_directory.path, filesystem)
-            yield ManifestAccessor(rivulet_delta, self.file_provider, self.sst_reader)
+        for delta_dir in delta_dirs:
+            rivulet_delta = self._get_delta(delta_dir.path, filesystem)
+            if rivulet_delta:
+                yield ManifestAccessor(
+                    rivulet_delta, self.file_provider, self.sst_reader
+                )
 
     def get_min_max_keys(self):
         """

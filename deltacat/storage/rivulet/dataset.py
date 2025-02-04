@@ -4,7 +4,19 @@ import itertools
 import posixpath
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
+from deltacat.storage.main.impl import (
+    DEFAULT_NAMESPACE,
+    DEFAULT_PARTITION_ID,
+    DEFAULT_PARTITION_VALUES,
+    DEFAULT_STREAM_FORMAT,
+    DEFAULT_STREAM_ID,
+    DEFAULT_TABLE_VERSION,
+)
+from deltacat.storage.model.partition import Partition, PartitionLocator
 from deltacat.storage.model.shard import Shard, ShardingStrategy
+from deltacat.storage.model.stream import Stream, StreamLocator
+from deltacat.storage.model.transaction import TransactionOperationList
+from deltacat.storage.model.types import CommitState
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
@@ -19,6 +31,19 @@ from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet.writer.dataset_writer import DatasetWriter
 from deltacat.storage.rivulet.writer.memtable_dataset_writer import (
     MemtableDatasetWriter,
+)
+
+from deltacat.storage import (
+    Namespace,
+    NamespaceLocator,
+    Table,
+    TableLocator,
+    TableVersion,
+    TableVersionLocator,
+    Transaction,
+    TransactionType,
+    TransactionOperation,
+    TransactionOperationType,
 )
 
 import pyarrow.fs
@@ -137,6 +162,7 @@ class Dataset:
         schema: Optional[Schema] = None,
         schema_name: Optional[str] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        namespace: Optional[str] = DEFAULT_NAMESPACE,
     ):
         """
         Create an empty Dataset w/ optional schema. This method is typically only used for small datasets that are manually created.
@@ -164,29 +190,135 @@ class Dataset:
             raise ValueError("Name must be a non-empty string")
 
         self.dataset_name = dataset_name
-
         self._schemas: Dict[str, Schema] = {ALL: Schema()}
 
-        # TODO: integrate with deltacat catalog to infer filesystem
         self._metadata_folder = f".riv-meta-{dataset_name}"
-        # determine root filesystem
         path, filesystem = FileStore.filesystem(
             metadata_uri or self._metadata_folder, filesystem
         )
-
         self._metadata_path = posixpath.join(path, self._metadata_folder)
 
-        self._file_store = FileStore(self._metadata_path, filesystem)
-        self._file_provider = FileProvider(self._metadata_path, self._file_store)
-        self._metastore = DatasetMetastore(self._metadata_path, self._file_provider)
+        self._table_name = dataset_name
+        self._table_version = DEFAULT_TABLE_VERSION
+        self._namespace = namespace
+        self._partition_id = DEFAULT_PARTITION_ID
 
-        # Initialize accessors
+        self._create_metadata_directories()
+
+        # TODO: remove locator state here. The deltacat catalog and
+        #       storage interface should remove the need to pass around locator state
+        self._locator = PartitionLocator.at(
+            namespace=self._namespace,
+            table_name=self.dataset_name,
+            table_version=self._table_version,
+            stream_id=DEFAULT_STREAM_ID,
+            stream_format=DEFAULT_STREAM_FORMAT,
+            partition_values=DEFAULT_PARTITION_VALUES,
+            partition_id=self._partition_id,
+        )
+
+        self._file_store = FileStore(self._metadata_path, filesystem)
+        self._file_provider = FileProvider(
+            self._metadata_path, self._locator, self._file_store
+        )
+
+        self._metastore = DatasetMetastore(
+            self._metadata_path, self._file_provider, self._locator
+        )
+
         self.fields = FieldsAccessor(self)
         self.schemas = SchemasAccessor(self)
 
-        # Add any fields optionally provided to the provided schema_name
         if schema:
             self.add_schema(schema, schema_name=schema_name)
+
+    def _create_metadata_directories(self) -> List[str]:
+        """
+        Creates rivulet metadata files using deltacat transactions.
+        This is a temporary solution until deltacat storage is integrated.
+
+        {CATALOG_ROOT}/
+        ├── {NAMESPACE_ID}/
+        │   ├── {TABLE_ID}/
+        │   │   ├── {TABLE_VERSION}/
+        │   │   │   ├── {STREAM}/
+        │   │   │   │   ├── {PARTITION}/
+        │   │   │   │   │   ├── {DELTA}/
+        │   │   │   │   │   │   ├── rev/
+        │   │   │   │   │   │   │   ├── 00000000000000000001_create_<txn_id>.mpk  # Delta Metafile
+        │   │   │   │   │   └── ...
+
+        Currently, we assume **fixed** values for:
+            - Table Version  → "table_version"
+            - Stream         → "stream"
+            - Partition      → "partition"
+
+        TODO this will be replaced with Deltacat Storage interface - https://github.com/ray-project/deltacat/issues/477
+        TODO: Consider how to support **dynamic values** for these entities.
+        """
+        metafiles = [
+            Namespace.of(locator=NamespaceLocator.of(namespace=self._namespace)),
+            Table.of(
+                locator=TableLocator.at(self._namespace, self.dataset_name),
+                description=f"Table for {self.dataset_name}",
+            ),
+            TableVersion.of(
+                locator=TableVersionLocator.at(
+                    self._namespace, self.dataset_name, self._table_version
+                ),
+                schema=None,
+            ),
+            Stream.of(
+                locator=StreamLocator.at(
+                    namespace=self._namespace,
+                    table_name=self.dataset_name,
+                    table_version=self._table_version,
+                    stream_id=DEFAULT_STREAM_ID,
+                    stream_format=DEFAULT_STREAM_FORMAT,
+                ),
+                partition_scheme=None,
+                state=CommitState.STAGED,
+                previous_stream_id=None,
+                watermark=None,
+            ),
+            Partition.of(
+                locator=PartitionLocator.at(
+                    namespace=self._namespace,
+                    table_name=self.dataset_name,
+                    table_version=self._table_version,
+                    stream_id=DEFAULT_STREAM_ID,
+                    stream_format=DEFAULT_STREAM_FORMAT,
+                    partition_values=DEFAULT_PARTITION_VALUES,
+                    partition_id=self._partition_id,
+                ),
+                schema=None,
+                content_types=None,
+            ),
+        ]
+
+        txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE, dest_metafile=meta
+            )
+            for meta in metafiles
+        ]
+
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=TransactionOperationList.of(txn_operations),
+        )
+
+        try:
+            paths = transaction.commit(self._metadata_path)[0]
+            return paths
+        except Exception as e:
+            # TODO: Have deltacat storage interface handle transaction errors.
+            error_message = str(e).lower()
+            if "already exists" in error_message:
+                print(f"Skipping creation: {e}")
+                return []
+            else:
+                raise
 
     @classmethod
     def from_parquet(
@@ -197,6 +329,7 @@ class Dataset:
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        namespace: str = DEFAULT_NAMESPACE,
     ) -> Dataset:
         """
         Create a Dataset from parquet files.
@@ -262,6 +395,7 @@ class Dataset:
             metadata_uri=metadata_uri,
             schema=dataset_schema,
             filesystem=file_fs,
+            namespace=namespace,
         )
 
         # TODO: avoid write! associate fields with their source data.
@@ -282,6 +416,7 @@ class Dataset:
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        namespace: str = DEFAULT_NAMESPACE,
     ) -> "Dataset":
         """
         Create a Dataset from a single JSON file.
@@ -327,6 +462,7 @@ class Dataset:
             metadata_uri=metadata_uri,
             schema=dataset_schema,
             filesystem=file_fs,
+            namespace=namespace,
         )
 
         writer = dataset.writer()
@@ -344,6 +480,7 @@ class Dataset:
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        namespace: str = DEFAULT_NAMESPACE,
     ) -> "Dataset":
         """
         Create a Dataset from a single JSON file.
@@ -389,6 +526,7 @@ class Dataset:
             metadata_uri=metadata_uri,
             schema=dataset_schema,
             filesystem=file_fs,
+            namespace=namespace,
         )
 
         writer = dataset.writer()
@@ -574,7 +712,7 @@ class Dataset:
         schema_name = schema_name or ALL
 
         return MemtableDatasetWriter(
-            self._file_provider, self.schemas[schema_name], file_format
+            self._file_provider, self.schemas[schema_name], self._locator, file_format
         )
 
     def shards(

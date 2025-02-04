@@ -5,6 +5,7 @@ from threading import Thread
 from typing import Any, List, Set, Protocol, TypeVar, Dict, Iterable
 
 from pyarrow import RecordBatch, Table
+from deltacat.storage.model.partition import PartitionLocator
 from deltacat.storage.rivulet.metastore.delta import ManifestIO, DeltacatManifestIO
 
 from deltacat.storage.rivulet import Schema
@@ -135,6 +136,7 @@ class MemtableDatasetWriter(DatasetWriter):
         self,
         file_provider: FileProvider,
         schema: Schema,
+        locator: PartitionLocator,
         file_format: str | None = None,
         sst_writer: SSTWriter = None,
         manifest_io: ManifestIO = None,
@@ -143,7 +145,7 @@ class MemtableDatasetWriter(DatasetWriter):
         if not sst_writer:
             sst_writer = JsonSstWriter()
         if not manifest_io:
-            manifest_io = DeltacatManifestIO(file_provider.uri)
+            manifest_io = DeltacatManifestIO(file_provider.uri, locator)
 
         self.schema = schema
 
@@ -159,6 +161,7 @@ class MemtableDatasetWriter(DatasetWriter):
         self.__open_memtables = []
         self.__rlock = threading.RLock()
         self.__open_threads: List[Thread] = []
+        self._locator = locator
 
     def write_dict(self, record: Dict[str, Any]) -> None:
 
