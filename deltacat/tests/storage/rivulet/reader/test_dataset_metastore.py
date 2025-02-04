@@ -59,7 +59,7 @@ def test_dataset_metastore_e2e(sample_schema, tmp_path):
 
     # Verify each manifest accessor
     for accessor in manifest_accessors:
-        # assert accessor.context.schema == sample_schema
+        assert accessor.context.schema == sample_schema
         manifests_data_index = 0 if accessor.context.level == 1 else 1
         assert accessor.context.level == manifests_data[manifests_data_index]["level"]
         assert (

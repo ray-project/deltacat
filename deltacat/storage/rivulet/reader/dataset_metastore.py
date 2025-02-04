@@ -47,6 +47,8 @@ class ManifestAccessor:
 class DatasetMetastore:
     """
     Metastore implementation for manifests stored on a filesystem
+
+    TODO this will be replaced with Deltacat Storage interface - https://github.com/ray-project/deltacat/issues/477
     """
 
     def __init__(
@@ -97,7 +99,8 @@ class DatasetMetastore:
 
     def generate_manifests(self) -> Generator[ManifestAccessor, None, None]:
         """
-        Generate the ManifestAccessors for all manifests in the dataset.
+        Generate all manifests within the Metastore
+        NOTE: this will be replaced by deltacat storage API.
 
         TODO: Generate partition path using Deltacat Storage interface.
 
