@@ -39,7 +39,8 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
 )
 
 # CLI Args
-METAFILE_FORMAT_KEY = "metafile-format"
+SUPPORTED_METAFILE_FORMATS = ["json", "msgpack"]
+METAFILE_FORMAT_KEY = "METAFILE_FORMAT"
 METAFILE_FORMAT = env_string(METAFILE_FORMAT_KEY, "msgpack")
 METAFILE_EXT = {
     "json": ".json",

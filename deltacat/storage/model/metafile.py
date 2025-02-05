@@ -17,6 +17,7 @@ from deltacat.constants import (
     METAFILE_FORMAT,
     REVISION_DIR_NAME,
     METAFILE_EXT,
+    SUPPORTED_METAFILE_FORMATS,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
@@ -508,9 +509,9 @@ class Metafile(dict):
         :param format: Format to use for deserializing the metadata file.
         :return: Deserialized object from the metadata file.
         """
-        if format not in {"json", "msgpack"}:
+        if format not in SUPPORTED_METAFILE_FORMATS:
             raise ValueError(
-                f"Unsupported format '{format}'. Must be 'json' or 'msgpack'."
+                f"Unsupported format '{format}'. Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
             )
 
         if not filesystem:
@@ -582,9 +583,9 @@ class Metafile(dict):
         the catalog root path.
         param: format: Format to use for serializing the metadata file.
         """
-        if format not in {"json", "msgpack"}:
+        if format not in SUPPORTED_METAFILE_FORMATS:
             raise ValueError(
-                f"Unsupported format '{format}'. Must be 'json' or 'msgpack'."
+                f"Unsupported format '{format}'. Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
             )
 
         if not filesystem:
