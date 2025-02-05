@@ -18,7 +18,7 @@ from deltacat.storage.model.types import (
     LocalDataset,
     LocalTable,
     TransactionType,
-    TransactionOperationType,
+    TransactionOperationType, StreamFormat,
 )
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import (
@@ -117,6 +117,7 @@ def list_partitions(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    stream_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> ListResult[Partition]:
@@ -130,6 +131,8 @@ def list_partitions(
         tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
     if not tv:
         raise ValueError(f"Table version '{namespace}.{table_name}.{table_version}' not found.")
+    
+    
     return _list_metafiles(tv, TransactionOperationType.READ_CHILDREN, *args, **kwargs)
 
 def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partition]:
@@ -166,10 +169,10 @@ def list_deltas(
         tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
     if not tv:
         raise ValueError("No table version found.")
-    strm = get_stream(namespace, table_name, tv.table_version, *args, **kwargs)
-    if not strm:
+    stream = get_stream(namespace, table_name, tv.table_version, *args, **kwargs)
+    if not stream:
         raise ValueError("No stream found.")
-    part = get_partition(strm.locator, partition_values, *args, **kwargs)
+    part = get_partition(stream.locator, partition_values, *args, **kwargs)
     if not part:
         raise ValueError("Partition not found; cannot list deltas.")
     return _list_metafiles(part, TransactionOperationType.READ_CHILDREN, *args, **kwargs)
@@ -219,10 +222,10 @@ def get_delta(
         tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
     if not tv:
         return None
-    strm = get_stream(namespace, table_name, tv.table_version, *args, **kwargs)
-    if not strm:
+    stream = get_stream(namespace, table_name, tv.table_version, *args, **kwargs)
+    if not stream:
         return None
-    part = get_partition(strm.locator, partition_values, *args, **kwargs)
+    part = get_partition(stream.locator, partition_values, *args, **kwargs)
     if not part:
         return None
 
@@ -623,8 +626,8 @@ def delete_stream(
     *args,
     **kwargs,
 ) -> None:
-    strm = get_stream(namespace, table_name, table_version, *args, **kwargs)
-    if not strm:
+    stream = get_stream(namespace, table_name, table_version, *args, **kwargs)
+    if not stream:
         raise ValueError("No stream is currently committed for that table version.")
 
     catalog = _get_catalog(**kwargs)
@@ -633,7 +636,7 @@ def delete_stream(
         txn_operations=[
             TransactionOperation.of(
                 operation_type=TransactionOperationType.DELETE,
-                dest_metafile=strm,
+                dest_metafile=stream,
             )
         ],
     )
@@ -643,6 +646,8 @@ def get_stream(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    stream_id: Optional[str] = None,
+    stream_format: Optional[StreamFormat] = StreamFormat.DELTACAT,
     *args,
     **kwargs,
 ) -> Optional[Stream]:
@@ -657,8 +662,8 @@ def get_stream(
         namespace,
         table_name,
         tv.table_version,
-        stream_id=None,
-        stream_format=None,
+        stream_id=stream_id,
+        stream_format=stream_format,
     )
     placeholder = Stream.of(s_loc, partition_scheme=None)
     found = _read_latest_metafile(

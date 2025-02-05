@@ -42,7 +42,7 @@ class MetafileRevisionInfo(dict):
         mri.txn_id = None
         mri.txn_op_type = None
         mri.dir_path = None
-        mri["undefined"]=True
+        mri["undefined"] = True
         return mri
 
     @staticmethod
@@ -64,12 +64,12 @@ class MetafileRevisionInfo(dict):
 
     @staticmethod
     def list_revisions(
-        revision_dir_path: str,
-        filesystem: pyarrow.fs.FileSystem,
-        success_txn_log_dir: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        limit: Optional[int] = None,
+            revision_dir_path: str,
+            filesystem: pyarrow.fs.FileSystem,
+            success_txn_log_dir: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            limit: Optional[int] = None,
     ) -> List[MetafileRevisionInfo]:
         if not success_txn_log_dir:
             err_msg = f"No transaction log found for: {revision_dir_path}."
@@ -109,12 +109,12 @@ class MetafileRevisionInfo(dict):
 
     @staticmethod
     def latest_revision(
-        revision_dir_path: str,
-        filesystem: pyarrow.fs.FileSystem,
-        success_txn_log_dir: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        ignore_missing_revision: bool = False,
+            revision_dir_path: str,
+            filesystem: pyarrow.fs.FileSystem,
+            success_txn_log_dir: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            ignore_missing_revision: bool = False,
     ) -> Optional[MetafileRevisionInfo]:
         """
         Fetch latest revision of a metafile, or return None if no revisions exist
@@ -137,13 +137,13 @@ class MetafileRevisionInfo(dict):
 
     @staticmethod
     def new_revision(
-        revision_dir_path: str,
-        current_txn_op_type: deltacat.storage.model.transaction.TransactionOperationType,
-        current_txn_start_time: int,
-        current_txn_id: str,
-        filesystem: pyarrow.fs.FileSystem,
-        extension: Optional[str] = METAFILE_EXT,
-        success_txn_log_dir: Optional[str] = None,
+            revision_dir_path: str,
+            current_txn_op_type: deltacat.storage.model.transaction.TransactionOperationType,
+            current_txn_start_time: int,
+            current_txn_id: str,
+            filesystem: pyarrow.fs.FileSystem,
+            extension: Optional[str] = METAFILE_EXT,
+            success_txn_log_dir: Optional[str] = None,
     ) -> MetafileRevisionInfo:
         """
         Creates and returns a new MetafileRevisionInfo object for the next
@@ -220,9 +220,9 @@ class MetafileRevisionInfo(dict):
 
     @staticmethod
     def check_for_concurrent_txn_conflict(
-        success_txn_log_dir: str,
-        current_txn_revision_file_path: str,
-        filesystem: pyarrow.fs.FileSystem,
+            success_txn_log_dir: str,
+            current_txn_revision_file_path: str,
+            filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         """
         Checks for a concurrent modification conflict between a file commited
@@ -250,8 +250,8 @@ class MetafileRevisionInfo(dict):
                 # no conflict was found
                 break
             elif (
-                mri.revision == cur_txn_mri.revision
-                and mri.txn_id != cur_txn_mri.txn_id
+                    mri.revision == cur_txn_mri.revision
+                    and mri.txn_id != cur_txn_mri.txn_id
             ):
                 # we've found a conflict between txn_id and current_txn_id
                 # defer to the transaction with the higher lexicographic order
@@ -296,9 +296,9 @@ class MetafileRevisionInfo(dict):
 
     @staticmethod
     def _sorted_file_paths(
-        revision_dir_path: str,
-        filesystem: pyarrow.fs.FileSystem,
-        ignore_missing_revision: bool = False,
+            revision_dir_path: str,
+            filesystem: pyarrow.fs.FileSystem,
+            ignore_missing_revision: bool = False,
     ) -> List[str]:
         file_paths_and_sizes = list_directory(
             path=revision_dir_path,
@@ -407,8 +407,8 @@ class Metafile(ABC, dict):
 
     @staticmethod
     def based_on(
-        other: Optional[Metafile],
-        new_id: Optional[Locator] = None,
+            other: Optional[Metafile],
+            new_id: Optional[Locator] = None,
     ) -> Optional[Metafile]:
         """
         Returns a new metafile equivalent to the input metafile, but with a new
@@ -446,12 +446,12 @@ class Metafile(ABC, dict):
 
     @staticmethod
     def read_txn(
-        catalog_root_dir: str,
-        success_txn_log_dir: str,
-        current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
-        current_txn_start_time: int,
-        current_txn_id: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            catalog_root_dir: str,
+            success_txn_log_dir: str,
+            current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
+            current_txn_start_time: int,
+            current_txn_id: str,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> ListResult[Metafile]:
         """
         Read one or more metadata files within the context of a transaction.
@@ -509,9 +509,9 @@ class Metafile(ABC, dict):
 
     @classmethod
     def read(
-        cls,
-        path: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            cls,
+            path: str,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Metafile:
         """
         Read a metadata file and return the deserialized object.
@@ -534,13 +534,13 @@ class Metafile(ABC, dict):
         return obj
 
     def write_txn(
-        self,
-        catalog_root_dir: str,
-        success_txn_log_dir: str,
-        current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
-        current_txn_start_time: int,
-        current_txn_id: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            self,
+            catalog_root_dir: str,
+            success_txn_log_dir: str,
+            current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
+            current_txn_start_time: int,
+            current_txn_id: str,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> None:
         """
         Serialize and write this object to a metadata file within the context
@@ -570,9 +570,9 @@ class Metafile(ABC, dict):
         )
 
     def write(
-        self,
-        path: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            self,
+            path: str,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> None:
         """
         Serialize and write this object to a metadata file.
@@ -660,7 +660,6 @@ class Metafile(ABC, dict):
     def id_exists(self) -> bool:
         return self.get("id") is not None
 
-
     @property
     def locator(self) -> Optional[Locator]:
         """
@@ -683,13 +682,13 @@ class Metafile(ABC, dict):
         return None
 
     def children(
-        self,
-        catalog_root: str,
-        success_txn_log_dir: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        limit: Optional[int] = None,
+            self,
+            catalog_root: str,
+            success_txn_log_dir: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            limit: Optional[int] = None,
     ) -> ListResult[Metafile]:
         """
         Retrieve all children of this object.
@@ -721,13 +720,13 @@ class Metafile(ABC, dict):
         )
 
     def siblings(
-        self,
-        catalog_root: str,
-        success_txn_log_dir: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        limit: Optional[int] = None,
+            self,
+            catalog_root: str,
+            success_txn_log_dir: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            limit: Optional[int] = None,
     ) -> ListResult[Metafile]:
         """
         Retrieve all siblings of this object.
@@ -754,14 +753,14 @@ class Metafile(ABC, dict):
         )
 
     def revisions(
-        self,
-        catalog_root: str,
-        success_txn_log_dir: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        limit: Optional[int] = None,
-        materialize_revisions: bool = True,
+            self,
+            catalog_root: str,
+            success_txn_log_dir: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            limit: Optional[int] = None,
+            materialize_revisions: bool = True,
     ) -> ListResult[Tuple[TransactionOperationType, Optional[Metafile]]]:
         """
         Retrieve all revisions of this object.
@@ -781,16 +780,20 @@ class Metafile(ABC, dict):
 
         if self.id_exists:
             immutable_id = self.id
-        else :
-            immutable_id = Metafile._locator_to_id(
-                locator=self.locator,
-                catalog_root=catalog_root,
-                metafile_root=metafile_root,
-                filesystem=filesystem,
-                txn_start_time=current_txn_start_time,
-                txn_id=current_txn_id)
-            # If _locator_to_id fails, the metafile does not exist. Return empty list indicating no revisions
+        else:
+            try:
+                immutable_id = Metafile._locator_to_id(
+                    locator=self.locator,
+                    catalog_root=catalog_root,
+                    metafile_root=metafile_root,
+                    filesystem=filesystem,
+                    txn_start_time=current_txn_start_time,
+                    txn_id=current_txn_id)
+            except ValueError:
+                # This indicates the metafile has been deleted. In this case, return no results
+                return ListResult.empty()
             if not immutable_id:
+                # This indicates the metafile does not exist. In this case, return no results
                 return ListResult.empty()
 
         revision_dir_path = posixpath.join(
@@ -840,9 +843,9 @@ class Metafile(ABC, dict):
         ...
 
     def from_serializable(
-        self,
-        path: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            self,
+            path: str,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Metafile:
         """
         Restore any non-serializable types from a serializable version of this
@@ -853,11 +856,11 @@ class Metafile(ABC, dict):
         return self
 
     def ancestor_ids(
-        self,
-        catalog_root: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            self,
+            catalog_root: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> List[str]:
         """
         Returns the IDs for this metafile's ancestor metafiles. IDs are
@@ -913,8 +916,8 @@ class Metafile(ABC, dict):
 
     @staticmethod
     def _parent_metafile_rev_dir_path(
-        base_metafile_path: str,
-        parent_number,
+            base_metafile_path: str,
+            parent_number,
     ):
         # TODO(pdames): Stop parent traversal at catalog root.
         current_dir = posixpath.dirname(  # base metafile root dir
@@ -932,17 +935,18 @@ class Metafile(ABC, dict):
 
     @staticmethod
     def _locator_to_id(
-        locator: Locator,
-        catalog_root: str,
-        metafile_root: str,
-        filesystem: pyarrow.fs.FileSystem,
-        txn_start_time: Optional[int] = None,
-        txn_id: Optional[str] = None,
+            locator: Locator,
+            catalog_root: str,
+            metafile_root: str,
+            filesystem: pyarrow.fs.FileSystem,
+            txn_start_time: Optional[int] = None,
+            txn_id: Optional[str] = None,
     ) -> Optional[str]:
         """
         Resolves the metafile ID for the given locator.
 
-        Returns None if no id found, or if
+        Returns None if no id found, else immutable id read from mapping file
+        :raises ValueError if the id is found but has been deleted
         """
         metafile_id = locator.name.immutable_id
         if not metafile_id:
@@ -957,12 +961,12 @@ class Metafile(ABC, dict):
 
             mri = MetafileRevisionInfo.latest_revision(
                 revision_dir_path=locator_path,
-             filesystem=filesystem,
-             success_txn_log_dir=success_txn_log_dir,
-             current_txn_start_time=txn_start_time,
-             current_txn_id=txn_id,
-             ignore_missing_revision=True
-             )
+                filesystem=filesystem,
+                success_txn_log_dir=success_txn_log_dir,
+                current_txn_start_time=txn_start_time,
+                current_txn_id=txn_id,
+                ignore_missing_revision=True
+            )
             # Because we set ignore_missing_revision, we will get mri.undefined if metafile does not exist
             if mri.is_undefined():
                 return None
@@ -979,15 +983,15 @@ class Metafile(ABC, dict):
         return metafile_id
 
     def _write_locator_to_id_map_file(
-        self,
-        locator: Locator,
-        success_txn_log_dir: str,
-        parent_obj_path: str,
-        current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
-        current_txn_op_type: TransactionOperationType,
-        current_txn_start_time: int,
-        current_txn_id: str,
-        filesystem: pyarrow.fs.FileSystem,
+            self,
+            locator: Locator,
+            success_txn_log_dir: str,
+            parent_obj_path: str,
+            current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
+            current_txn_op_type: TransactionOperationType,
+            current_txn_start_time: int,
+            current_txn_id: str,
+            filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         name_resolution_dir_path = locator.path(parent_obj_path)
         mri = MetafileRevisionInfo.new_revision(
@@ -1006,14 +1010,14 @@ class Metafile(ABC, dict):
         current_txn_op.append_locator_write_path(revision_file_path)
 
     def _write_metafile_revision(
-        self,
-        success_txn_log_dir: str,
-        revision_dir_path: str,
-        current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
-        current_txn_op_type: TransactionOperationType,
-        current_txn_start_time: int,
-        current_txn_id: str,
-        filesystem: pyarrow.fs.FileSystem,
+            self,
+            success_txn_log_dir: str,
+            revision_dir_path: str,
+            current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
+            current_txn_op_type: TransactionOperationType,
+            current_txn_start_time: int,
+            current_txn_id: str,
+            filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         mri = MetafileRevisionInfo.new_revision(
             revision_dir_path=revision_dir_path,
@@ -1030,13 +1034,13 @@ class Metafile(ABC, dict):
         current_txn_op.append_metafile_write_path(mri.path)
 
     def _write_metafile_revisions(
-        self,
-        catalog_root: str,
-        success_txn_log_dir: str,
-        current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
-        current_txn_start_time: int,
-        current_txn_id: str,
-        filesystem: pyarrow.fs.FileSystem,
+            self,
+            catalog_root: str,
+            success_txn_log_dir: str,
+            current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
+            current_txn_start_time: int,
+            current_txn_id: str,
+            filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         """
         Generates the fully qualified paths required to write this metafile as
@@ -1070,8 +1074,8 @@ class Metafile(ABC, dict):
             # the locator name is mutable, so we need to persist a mapping
             # from the locator back to its immutable metafile ID
             if (
-                current_txn_op.type == TransactionOperationType.UPDATE
-                and mutable_src_locator != mutable_dest_locator
+                    current_txn_op.type == TransactionOperationType.UPDATE
+                    and mutable_src_locator != mutable_dest_locator
             ):
                 # this update includes a rename
                 # mark the source metafile mapping as deleted
@@ -1113,8 +1117,8 @@ class Metafile(ABC, dict):
             REVISION_DIR_NAME,
         )
         if (
-            current_txn_op.type == TransactionOperationType.UPDATE
-            and current_txn_op.src_metafile.id != current_txn_op.dest_metafile.id
+                current_txn_op.type == TransactionOperationType.UPDATE
+                and current_txn_op.src_metafile.id != current_txn_op.dest_metafile.id
         ):
             # TODO(pdames): block operations including both a rename & replace?
             # this update includes a replace
@@ -1155,13 +1159,13 @@ class Metafile(ABC, dict):
             )
 
     def _list_metafiles(
-        self,
-        success_txn_log_dir: str,
-        metafile_root_dir_path: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        limit: Optional[int] = None,
+            self,
+            success_txn_log_dir: str,
+            metafile_root_dir_path: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            limit: Optional[int] = None,
     ) -> ListResult[Metafile]:
         """
         List all metafiles under root directory. The root directory can either be a catalog root (like in the case of
@@ -1208,11 +1212,11 @@ class Metafile(ABC, dict):
         )
 
     def _ancestor_ids(
-        self,
-        catalog_root: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+            self,
+            catalog_root: str,
+            current_txn_start_time: Optional[int] = None,
+            current_txn_id: Optional[str] = None,
+            filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> List[str]:
         """
         Retrieve all ancestor IDs of this object.
