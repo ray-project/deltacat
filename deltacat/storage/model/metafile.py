@@ -640,6 +640,13 @@ class Metafile(ABC, dict):
         to the same catalog object if they have the same ID) and deterministic
         references (e.g. for generating a root namespace or table path that
         remains the same regardless of renames).
+
+        WARNING - do not accidentally generate a new ID if you are checking for the existence of an ID field.
+        For that, use id_exists()
+
+        TODO refactor to avoid lazy assigment. Because the Metafile class is used for "placeholder" metafiles
+         (containing only locators), there is a risk of accidentally calling .id() to check for ID and having it
+         assigned, instead of using Locator to fetch the real id
         """
 
         # check if the locator name can be reused as an immutable ID
@@ -648,6 +655,11 @@ class Metafile(ABC, dict):
         if not _id:
             _id = self["id"] = str(uuid.uuid4())
         return _id
+
+    @property
+    def id_exists(self) -> bool:
+        return self.get("id") is not None
+
 
     @property
     def locator(self) -> Optional[Locator]:
@@ -766,20 +778,20 @@ class Metafile(ABC, dict):
             filesystem=filesystem,
         )
         metafile_root = posixpath.join(*[catalog_root] + ancestor_ids)
-        # TODO(pdames): Refactor id lazy assignment into explicit getter/setter
 
-        immutable_id = self.get("id") or Metafile._locator_to_id(
-            locator=self.locator,
-            catalog_root=catalog_root,
-            metafile_root=metafile_root,
-            filesystem=filesystem,
-            txn_start_time=current_txn_start_time,
-            txn_id=current_txn_id,
-        )
-        # If immutable id still not assigned, it does not exist.
-        # Return empty list result indicating that there are no revisions
-        if not immutable_id:
-            return ListResult.empty()
+        if self.id_exists:
+            immutable_id = self.id
+        else :
+            immutable_id = Metafile._locator_to_id(
+                locator=self.locator,
+                catalog_root=catalog_root,
+                metafile_root=metafile_root,
+                filesystem=filesystem,
+                txn_start_time=current_txn_start_time,
+                txn_id=current_txn_id)
+            # If _locator_to_id fails, the metafile does not exist. Return empty list indicating no revisions
+            if not immutable_id:
+                return ListResult.empty()
 
         revision_dir_path = posixpath.join(
             metafile_root,
@@ -930,7 +942,7 @@ class Metafile(ABC, dict):
         """
         Resolves the metafile ID for the given locator.
 
-        Returns None if no id found
+        Returns None if no id found, or if
         """
         metafile_id = locator.name.immutable_id
         if not metafile_id:

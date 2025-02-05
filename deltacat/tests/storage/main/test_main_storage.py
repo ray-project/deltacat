@@ -17,7 +17,7 @@ import pyarrow as pa
 
 @pytest.fixture
 def schema():
-    schema = Schema.of(
+    return Schema.of(
         [
             Field.of(
                 field=pa.field("some_string", pa.string(), nullable=False),
@@ -250,8 +250,8 @@ class TestStream:
         # We can delete the stream
         metastore.delete_stream("test_stream_ns", "mystreamtable", "v1", catalog=self.catalog)
         # Now get_stream should return None
-        strm = metastore.get_stream("test_stream_ns", "mystreamtable", "v1", catalog=self.catalog)
-        assert strm is None
+        stream = metastore.get_stream("test_stream_ns", "mystreamtable", "v1", catalog=self.catalog)
+        assert stream is None
 
 class TestPartition:
     @classmethod

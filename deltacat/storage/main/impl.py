@@ -1068,7 +1068,7 @@ def _list_metafiles(
 ) -> ListResult[Metafile]:
     """
     Helper that runs a READ transaction operation to list siblings or children
-    of a given metafile. E.g. use READ_SIBLINGS or READ_CHILDREN, etc.
+    of a given metafile. E.g. use READ_SIBLINGS, READ_CHILDREN, READ_LATEST
     """
     catalog = _get_catalog(**kwargs)
     limit = kwargs.get("limit") or None
