@@ -9,7 +9,6 @@ from deltacat.storage import (
     Namespace,
     NamespaceLocator, TableVersion,
 )
-from deltacat.storage.main import impl as storage_impl
 from deltacat.storage.model.namespace import Namespace
 from deltacat.storage.model.table import Table
 from deltacat.catalog.main.impl import PropertyCatalog
@@ -230,15 +229,28 @@ class TestStream:
     def teardown_class(cls):
         shutil.rmtree(cls.tmpdir)
 
+    def test_list_streams(self):
+        list_result = metastore.list_streams(
+            "test_stream_ns",
+            "mystreamtable",
+            "v1",
+            catalog=self.catalog)
+
+        streams = list_result.all_items()
+        # This will list but the staged stream and the committed stream
+        assert len(streams)==2
+        # TODO - add more assertions
+
     def test_get_stream(self):
         # The stream is created and committed in setup
-        strm = metastore.get_stream(
+        stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
             catalog=self.catalog,
         )
-        assert strm is not None
+        # TODO this is broken, stream is table version
+        assert stream is not None
 
     def test_list_stream_partitions_empty(self):
         # no partitions yet
@@ -252,182 +264,3 @@ class TestStream:
         # Now get_stream should return None
         stream = metastore.get_stream("test_stream_ns", "mystreamtable", "v1", catalog=self.catalog)
         assert stream is None
-
-class TestPartition:
-    @classmethod
-    def setup_class(cls):
-        cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = PropertyCatalog(cls.tmpdir)
-        # Create table version & stream
-        metastore.create_namespace("test_partition_ns", catalog=cls.catalog)
-        metastore.create_table_version(
-            namespace="test_partition_ns",
-            table_name="pt_table",
-            table_version="v1",
-            catalog=cls.catalog,
-        )
-        cls.stream = metastore.get_stream("test_partition_ns", "pt_table", "v1", catalog=cls.catalog)
-        # Stage & commit partition
-        cls.part_staged = metastore.stage_partition(cls.stream, ["USA"], catalog=cls.catalog)
-        cls.part_committed = metastore.commit_partition(cls.part_staged, catalog=cls.catalog)
-
-    @classmethod
-    def teardown_class(cls):
-        shutil.rmtree(cls.tmpdir)
-
-    def test_get_partition(self):
-        part = metastore.get_partition(self.stream.locator, ["USA"], catalog=self.catalog)
-        assert part is not None
-        # you could do part.equivalent_to(...) if your code supports that
-
-    def test_list_partitions(self):
-        list_result = metastore.list_partitions("test_partition_ns", "pt_table", "v1", catalog=self.catalog)
-        all_parts = list_result.all_items()
-        assert len(all_parts) == 1
-        # Check we have that same partition
-        p = all_parts[0]
-        assert p.partition_values == ["USA"]
-
-    def test_delete_partition(self):
-        # confirm we can delete it
-        metastore.delete_partition("test_partition_ns", "pt_table", "v1", ["USA"], catalog=self.catalog)
-        # now listing partitions should yield none
-        list_result = metastore.list_partitions("test_partition_ns", "pt_table", "v1", catalog=self.catalog)
-        assert len(list_result.all_items()) == 0
-
-class TestDelta:
-    @classmethod
-    def setup_class(cls):
-        cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = PropertyCatalog(cls.tmpdir)
-
-        # Create table version & stream & partition
-        metastore.create_namespace("test_delta_ns", catalog=cls.catalog)
-        metastore.create_table_version(
-            namespace="test_delta_ns",
-            table_name="delta_table",
-            table_version="v1",
-            catalog=cls.catalog,
-        )
-        cls.stream = metastore.get_stream("test_delta_ns", "delta_table", "v1", catalog=cls.catalog)
-        cls.partition = metastore.stage_partition(cls.stream, ["CANADA"], catalog=cls.catalog)
-        cls.partition = metastore.commit_partition(cls.partition, catalog=cls.catalog)
-
-        # Stage & commit a delta
-        cls.delta_staged = metastore.stage_delta(
-            data=[],
-            partition=cls.partition,
-            catalog=cls.catalog,
-        )
-        cls.delta_committed = metastore.commit_delta(cls.delta_staged, catalog=cls.catalog)
-
-    @classmethod
-    def teardown_class(cls):
-        shutil.rmtree(cls.tmpdir)
-
-    def test_list_deltas(self):
-        lr = metastore.list_deltas("test_delta_ns", "delta_table", ["CANADA"], "v1", catalog=self.catalog)
-        all_deltas = lr.all_items()
-        assert len(all_deltas) == 1
-        # e.g. check the stream_position is 999 if your code does that
-        assert all_deltas[0].stream_position is not None
-
-    def test_get_delta(self):
-        # your code might set stream_position=999 or something else
-        # we'll fetch the "latest delta" first
-        d_latest = metastore.get_latest_delta(
-            "test_delta_ns", "delta_table", ["CANADA"], "v1", catalog=self.catalog
-        )
-        assert d_latest is not None
-        # now explicitly get by that position
-        d_exact = metastore.get_delta(
-            "test_delta_ns", "delta_table",
-            d_latest.stream_position,
-            ["CANADA"], "v1",
-            catalog=self.catalog
-        )
-        assert d_exact is not None
-
-    def test_download_delta(self):
-        # Just ensures it doesn't crash with the stubs
-        downloaded = metastore.download_delta(
-            self.delta_committed,
-            catalog=self.catalog
-        )
-        # by default might be empty list or None
-        assert downloaded is not None
-
-    #
-    # def test_create_namespace_and_tables(self, temp_catalog):
-    #     # 1) Create a namespace
-    #     ns_name = "test_ns"
-    #     ns = storage_impl.create_namespace(
-    #         namespace=ns_name,
-    #         properties={"owner": "deltacat"},
-    #         catalog=temp_catalog,
-    #     )
-    #     assert isinstance(ns, Namespace)
-    #     assert ns.namespace == ns_name
-    #
-    #     # 2) Confirm the namespace exists
-    #     assert storage_impl.namespace_exists(ns_name, catalog=temp_catalog) is True
-    #
-    #     # 3) Create two tables in that namespace
-    #     tbl_name_1 = "mytable1"
-    #     tbl_name_2 = "mytable2"
-    #     storage_impl.create_table_version(
-    #         namespace=ns_name,
-    #         table_name=tbl_name_1,
-    #         table_version="v1",
-    #         catalog=temp_catalog,
-    #     )
-    #     storage_impl.create_table_version(
-    #         namespace=ns_name,
-    #         table_name=tbl_name_2,
-    #         table_version="v1",
-    #         catalog=temp_catalog,
-    #     )
-    #
-    #     # 4) list tables
-    #     tables_result = storage_impl.list_tables(ns_name, catalog=temp_catalog)
-    #     all_tables = tables_result.all_items()
-    #     assert len(all_tables) == 2, f"Expected 2 tables, got {len(all_tables)}"
-    #     table_names = sorted([t.table_name for t in all_tables])
-    #     assert table_names == [tbl_name_1, tbl_name_2]
-    #
-    # def test_create_partition_and_delta(self, temp_catalog):
-    #     ns_name = "delta_ns"
-    #     storage_impl.create_namespace(ns_name, catalog=temp_catalog)
-    #     storage_impl.create_table_version(
-    #         namespace=ns_name,
-    #         table_name="dt_table",
-    #         table_version="v1",
-    #         catalog=temp_catalog,
-    #     )
-    #     # get the stream
-    #     stream = storage_impl.get_stream(ns_name, "dt_table", "v1", catalog=temp_catalog)
-    #     assert stream is not None
-    #
-    #     # stage & commit a partition
-    #     part = storage_impl.stage_partition(stream, partition_values=["USA"], catalog=temp_catalog)
-    #     committed_part = storage_impl.commit_partition(part, catalog=temp_catalog)
-    #     assert committed_part.partition_values == ["USA"]
-    #
-    #     # stage a delta
-    #     delta = storage_impl.stage_delta(
-    #         data=[],
-    #         partition=committed_part,
-    #         catalog=temp_catalog,
-    #     )
-    #     # commit
-    #     committed_delta = storage_impl.commit_delta(delta, catalog=temp_catalog)
-    #     assert committed_delta.stream_position == 999  # from the reference code
-    #
-    #     # list deltas
-    #     listed = storage_impl.list_partition_deltas(part, catalog=temp_catalog)
-    #     all_deltas = listed.all_items()
-    #     assert len(all_deltas) == 1
-    #     # get latest delta
-    #     latest = storage_impl.get_latest_delta(ns_name, "dt_table", ["USA"], "v1", catalog=temp_catalog)
-    #     assert latest is not None
-    #     assert latest.stream_position == 999
