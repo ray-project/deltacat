@@ -77,6 +77,20 @@ from deltacat.utils.common import ReadKwargsProvider
 
 METAFILE = TypeVar("METAFILE", bound=Metafile)
 
+# These are the default hardcoded values for Rivulet-DeltaCAT storage catalog.
+# TODO: Integrate these values into the storage interface dynamically.
+#       Currently, these are defined as static defaults, but they should
+#       be determined at runtime based on the storage catalog configuration.
+#       This will ensure that they remain consistent across different storage
+#       implementations and can be easily modified or overridden when needed.
+DEFAULT_NAMESPACE = "namespace"
+DEFAULT_TABLE_VERSION = "table_version"
+DEFAULT_STREAM_ID = "stream"
+DEFAULT_STREAM_FORMAT = StreamFormat.DELTACAT
+DEFAULT_PARTITION_ID = "partition"
+DEFAULT_PARTITION_VALUES = ["default"]
+
+
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     """
     Lists a page of table namespaces. Namespaces are returned as list result

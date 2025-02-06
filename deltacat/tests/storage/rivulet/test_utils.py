@@ -47,8 +47,9 @@ def validate_with_full_scan(dataset: Dataset, expected: MvpTable, schema: Schema
 
 def generate_data_files(dataset: Dataset) -> Generator[str, None, None]:
     for ma in dataset._metastore.generate_manifests():
-        for data_file in ma.manifest.data_files:
-            yield data_file
+        for sstable in ma.generate_sstables():
+            for row in sstable.rows:
+                yield row.uri
 
 
 def assert_data_file_extension(dataset: Dataset, file_extension: str):

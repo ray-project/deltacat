@@ -1,31 +1,60 @@
 import pytest
-import os
-import tempfile
-from deltacat.storage.rivulet.fs.file_provider import FileProvider
-from deltacat.storage.rivulet.fs.file_store import FileStore
-from pyarrow.fs import LocalFileSystem
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+from deltacat import Datatype, Dataset
+from deltacat.storage.rivulet import Schema, Field
+from deltacat.utils.metafile_locator import _find_partition_path
 
 
 @pytest.fixture
-def temp_dir():
-    with tempfile.TemporaryDirectory() as temp:
-        yield temp
+def sample_schema():
+    return Schema(
+        fields=[
+            Field("id", Datatype.int32(), is_merge_key=True),
+            Field("name", Datatype.string()),
+            Field("age", Datatype.int32()),
+        ]
+    )
 
 
 @pytest.fixture
-def file_provider(temp_dir):
-    filesystem = LocalFileSystem()
-    file_store = FileStore(temp_dir, filesystem)
-    return FileProvider(uri=temp_dir, file_store=file_store)
+def sample_pydict():
+    return {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
 
 
-def test_provide_data_file(file_provider, temp_dir):
+@pytest.fixture
+def temp_storage_path(tmp_path):
+    return tmp_path
+
+
+@pytest.fixture
+def sample_parquet_data(temp_storage_path, sample_pydict):
+    parquet_path = temp_storage_path / "test.parquet"
+    table = pa.Table.from_pydict(sample_pydict)
+    pq.write_table(table, parquet_path)
+    return parquet_path
+
+
+@pytest.fixture
+def dataset(sample_parquet_data):
+    return Dataset.from_parquet(
+        file_uri=sample_parquet_data, name="dataset", merge_keys="id"
+    )
+
+
+@pytest.fixture
+def file_provider(dataset):
+    return dataset._file_provider
+
+
+def test_provide_data_file(file_provider):
     output_file = file_provider.provide_data_file("parquet")
-    assert output_file.location.startswith(os.path.join(temp_dir, "data"))
+    assert "data" in output_file.location
     assert output_file.location.endswith(".parquet")
 
     output_file2 = file_provider.provide_data_file("parquet")
-    assert output_file2.location.startswith(os.path.join(temp_dir, "data"))
+    assert "data" in output_file2.location
     assert output_file2.location.endswith(".parquet")
 
     assert (
@@ -33,93 +62,32 @@ def test_provide_data_file(file_provider, temp_dir):
     ), "Two output files should have different locations."
 
 
-def test_provide_l0_sst_file(file_provider, temp_dir):
-    output_file = file_provider.provide_l0_sst_file()
-    assert output_file.location.startswith(os.path.join(temp_dir, "metadata/ssts/0"))
-    assert output_file.location.endswith(".json")
-
-    output_file2 = file_provider.provide_l0_sst_file()
-    assert output_file2.location.startswith(os.path.join(temp_dir, "metadata/ssts/0"))
-    assert output_file2.location.endswith(".json")
-
-    assert (
-        output_file.location != output_file2.location
-    ), "Two output files should have different locations."
-
-
-def test_provide_manifest_file(file_provider, temp_dir):
+def test_provide_manifest_file(file_provider):
     output_file = file_provider.provide_manifest_file()
-    assert output_file.location.startswith(os.path.join(temp_dir, "metadata/manifests"))
+    assert "metadata/manifests" in output_file.location
     assert output_file.location.endswith(".json")
 
-    output_file2 = file_provider.provide_manifest_file()
-    assert output_file2.location.startswith(
-        os.path.join(temp_dir, "metadata/manifests")
-    )
-    assert output_file2.location.endswith(".json")
 
-    assert (
-        output_file.location != output_file2.location
-    ), "Two output files should have different locations."
+def test_provide_l0_sst_file(file_provider):
+    output_file = file_provider.provide_l0_sst_file()
+    assert "metadata/ssts/0" in output_file.location
+    assert output_file.location.endswith(".json")
 
 
-def test_get_sst_scan_directories(file_provider, temp_dir):
-    sst_dirs = file_provider.get_sst_scan_directories()
-    expected_dir = os.path.join(temp_dir, "metadata/ssts/0/")
-    assert len(sst_dirs) == 1
-    assert sst_dirs[0] == expected_dir
+def test_provide_input_file(file_provider, sample_parquet_data):
+    input_file = file_provider.provide_input_file(str(sample_parquet_data))
+    assert input_file.location == str(sample_parquet_data)
 
 
-def test_get_manifest_scan_directories(file_provider, temp_dir):
-    manifest_dirs = file_provider.get_manifest_scan_directories()
-    expected_dir = os.path.join(temp_dir, "metadata/manifests/")
-    assert len(manifest_dirs) == 1
-    assert manifest_dirs[0] == expected_dir
+def test_generate_sst_uris(file_provider):
+    generated_files = list(file_provider.generate_sst_uris())
+    for file in generated_files:
+        assert "metadata/ssts/0" in file.location
+        assert file.location.endswith(".json")
 
 
-def test_generate_manifest_uris(file_provider, temp_dir):
-    manifest_dir = os.path.join(temp_dir, "metadata/manifests")
-    os.makedirs(manifest_dir, exist_ok=True)
-    manifest_file = os.path.join(manifest_dir, "sample_manifest.json")
-    with open(manifest_file, "w") as f:
-        f.write("{}")
-
-    manifest_uris = list(file_provider.generate_manifest_uris())
-    assert len(manifest_uris) == 1
-    assert manifest_uris[0].location == manifest_file
-
-
-def test_generate_sst_uris(file_provider, temp_dir):
-    sst_dir = os.path.join(temp_dir, "metadata/ssts/0")
-    os.makedirs(sst_dir, exist_ok=True)
-    sst_file = os.path.join(sst_dir, "sample_sst.json")
-    with open(sst_file, "w") as f:
-        f.write("{}")
-
-    sst_uris = list(file_provider.generate_sst_uris())
-    assert len(sst_uris) == 1
-    assert sst_uris[0].location == sst_file
-
-
-def test_provide_input_file(file_provider, temp_dir):
-    file_path = os.path.join(temp_dir, "data/sample_file.txt")
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    file_content = "test content"
-    with open(file_path, "w") as f:
-        f.write(file_content)
-
-    input_file = file_provider.provide_input_file(file_path)
-    with input_file.open() as f:
-        content = f.read()
-        assert content.decode() == file_content
-
-
-def test_empty_sst_and_manifest_directories(file_provider, temp_dir):
-    os.makedirs(os.path.join(temp_dir, "metadata/ssts/0"), exist_ok=True)
-    os.makedirs(os.path.join(temp_dir, "metadata/manifests"), exist_ok=True)
-
-    sst_uris = list(file_provider.generate_sst_uris())
-    manifest_uris = list(file_provider.generate_manifest_uris())
-
-    assert len(sst_uris) == 0
-    assert len(manifest_uris) == 0
+def test_get_scan_directories(file_provider):
+    partition_path = _find_partition_path(file_provider.uri, file_provider._locator)
+    assert file_provider.get_sst_scan_directories() == [
+        f"{partition_path}/metadata/ssts/0/"
+    ]

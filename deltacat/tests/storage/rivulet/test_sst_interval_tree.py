@@ -2,7 +2,7 @@ from typing import List, FrozenSet, Dict
 
 import pytest
 
-from deltacat.storage.rivulet.metastore.manifest import ManifestContext
+from deltacat.storage.rivulet.metastore.delta import DeltaContext
 from deltacat.storage.rivulet.metastore.sst import SSTable, SSTableRow
 from deltacat.storage.rivulet.metastore.sst_interval_tree import (
     BlockIntervalTree,
@@ -60,17 +60,17 @@ def sst2(sst_row_list) -> SSTable:
 
 
 @pytest.fixture
-def manifest_context1(schema1) -> ManifestContext:
-    return ManifestContext(schema1, "manifest-001", 0)
+def manifest_context1(schema1) -> DeltaContext:
+    return DeltaContext(schema1, "manifest-001", 0)
 
 
 @pytest.fixture
-def manifest_context2(schema2) -> ManifestContext:
-    return ManifestContext(schema2, "manifest-002", 1)
+def manifest_context2(schema2) -> DeltaContext:
+    return DeltaContext(schema2, "manifest-002", 1)
 
 
 def with_field_group(
-    context: ManifestContext, rows: List[SSTableRow], indexes: List[int]
+    context: DeltaContext, rows: List[SSTableRow], indexes: List[int]
 ) -> Dict[Schema, FrozenSet[Block]]:
     """Construct a BlockGroup dict for a singular field group"""
     schema = context.schema

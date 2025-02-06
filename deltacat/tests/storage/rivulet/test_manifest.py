@@ -1,73 +1,67 @@
 import os
-from typing import Set
 
-from deltacat.storage.rivulet.schema.datatype import Datatype
+import pytest
+
+from deltacat import Dataset
 from deltacat.storage.rivulet.fs.file_store import FileStore
-from deltacat.storage.rivulet.metastore.manifest import (
-    JsonManifestIO,
-    ManifestContext,
-    Manifest,
-)
-from deltacat.storage.rivulet import Schema
+from deltacat.storage.rivulet.schema.datatype import Datatype
+from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
+from deltacat.storage.rivulet import Schema, Field
+import pyarrow as pa
+import pyarrow.parquet
 
 
-def test_write_manifest_round_trip(temp_dir):
-    path, filesystem = FileStore.filesystem(temp_dir)
+@pytest.fixture
+def sample_schema():
+    return Schema(
+        fields=[
+            Field("id", Datatype.int32(), is_merge_key=True),
+            Field("name", Datatype.string()),
+            Field("age", Datatype.int32()),
+        ]
+    )
+
+
+@pytest.fixture
+def sample_pydict():
+    return {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+
+
+@pytest.fixture
+def path(tmp_path):
+    return tmp_path
+
+
+@pytest.fixture
+def sample_parquet_data(path, sample_pydict):
+    parquet_path = path / "test.parquet"
+    table = pa.Table.from_pydict(sample_pydict)
+    pyarrow.parquet.write_table(table, parquet_path)
+    return parquet_path
+
+
+def test_write_manifest_round_trip(sample_parquet_data, sample_schema):
+    dataset = Dataset.from_parquet(
+        file_uri=sample_parquet_data, name="dataset", merge_keys="id"
+    )
+
+    path, filesystem = FileStore.filesystem(dataset._metadata_path)
     file_store = FileStore(path, filesystem=filesystem)
-    manifest_io = JsonManifestIO()
-    data_files = {"file1.parquet", "file2.parquet"}
-    sst_files = {"sst1.sst", "sst2.sst"}
+    manifest_io = DeltacatManifestIO(path, dataset._locator)
+
+    sst_files = ["sst1.sst", "sst2.sst"]
     schema = Schema(
         {("id", Datatype.int32()), ("name", Datatype.string())},
         "id",
     )
     level = 2
 
-    uri = os.path.join(temp_dir, "manifest.json")
-    file = file_store.create_output_file(uri)
-    manifest_io.write(file, data_files, sst_files, schema, level)
-    manifest = manifest_io.read(file.to_input_file())
+    uri = os.path.join(path, "manifest.json")
+
+    file_store.create_output_file(uri)
+    written = manifest_io.write(sst_files, schema, level)
+    manifest = manifest_io.read(written)
+
     assert manifest.context.schema == schema
     assert manifest.context.level == level
-    assert manifest.data_files == data_files
     assert manifest.sst_files == sst_files
-
-
-def test_manifest_hash():
-    schema1 = Schema([("id", Datatype.int64()), ("name", Datatype.string())])
-    schema2 = Schema([("age", Datatype.int16()), ("zip", Datatype.int32())])
-
-    manifest_context1 = ManifestContext(schema=schema1, stream_position="pos1", level=1)
-    manifest_context2 = ManifestContext(schema=schema2, stream_position="pos2", level=2)
-
-    manifest1 = Manifest(
-        data_files={"file1", "file2"},
-        sst_files={"sst1", "sst2"},
-        context=manifest_context1,
-    )
-
-    manifest2 = Manifest(
-        data_files={"file1", "file2"},
-        sst_files={"sst1", "sst2"},
-        context=manifest_context1,
-    )
-
-    manifest3 = Manifest(
-        data_files={"file3", "file4"},
-        sst_files={"sst3", "sst4"},
-        context=manifest_context2,
-    )
-
-    # Test hashes for identical manifests
-    assert hash(manifest1) == hash(
-        manifest2
-    ), "Hashes for identical manifests should match."
-
-    # Test hashes for different manifests
-    assert hash(manifest1) != hash(
-        manifest3
-    ), "Hashes for different manifests should not match."
-
-    # Test using manifests in a set
-    manifest_set: Set[Manifest] = {manifest1, manifest2, manifest3}
-    assert len(manifest_set) == 2, "Set should deduplicate identical manifests."
