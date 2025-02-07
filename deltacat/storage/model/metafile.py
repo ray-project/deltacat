@@ -653,8 +653,15 @@ class Metafile(ABC, dict):
         # or if we need to use a generated UUID as an immutable ID
         _id = self.locator.name.immutable_id or self.get("id")
         if not _id:
-            _id = self["id"] = str(uuid.uuid4())
+            _id = self["id"] = self.generate_new_id()
         return _id
+
+    @classmethod
+    def generate_new_id(cls):
+        """
+        Generate a new metafile id
+        """
+        return str(uuid.uuid4())
 
     @property
     def id_exists(self) -> bool:

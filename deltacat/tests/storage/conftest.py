@@ -4,7 +4,6 @@ import pytest
 from deltacat.catalog.main.impl import PropertyCatalog
 from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
 
-
 @pytest.fixture
 def temp_dir():
     """

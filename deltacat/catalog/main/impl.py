@@ -25,13 +25,27 @@ class PropertyCatalog:
         self,
         root: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        human_readable_paths: bool = False
     ):
+        """
+        Construct a property catalog, which is a sort of global configuration state of a catalog
+
+        :param root: filesystem URI root of the catalog
+        :param filesystem: Optional pyarrow Filesystem implementation. If not specific, will be defaulted
+            based on root uri format
+
+        INTENDED FOR DEVELOPMENT ONLY
+        :param human_readable_paths: if True, will create Namespace resolution directories using human readable
+            string for metafile canonical ID.
+
+        """
         resolved_root, resolved_filesystem = resolve_path_and_filesystem(
             path=root,
             filesystem=filesystem,
         )
         self._root = resolved_root
         self._filesystem = resolved_filesystem
+        self._human_readable_paths = human_readable_paths
 
     @property
     def root(self) -> str:
@@ -41,6 +55,9 @@ class PropertyCatalog:
     def filesystem(self) -> Optional[pyarrow.fs.FileSystem]:
         return self._filesystem
 
+    @property
+    def human_readable_paths(self) -> bool:
+        return self._human_readable_paths
 
 # table functions
 def write_to_table(

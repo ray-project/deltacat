@@ -38,6 +38,7 @@ class TableVersion(Metafile):
         properties: Optional[TableVersionProperties] = None,
         content_types: Optional[List[ContentType]] = None,
         sort_scheme: Optional[SortScheme] = None,
+        previous_table_version: Optional[str] = None,
         watermark: Optional[int] = None,
         lifecycle_state: Optional[LifecycleState] = None,
         schemas: Optional[SchemaList] = None,
@@ -53,6 +54,7 @@ class TableVersion(Metafile):
         table_version.properties = properties
         table_version.content_types = content_types
         table_version.sort_scheme = sort_scheme
+        table_version.previous_table_version = previous_table_version
         table_version.watermark = watermark
         table_version.lifecycle_state = lifecycle_state
         table_version.schemas = schemas
@@ -174,6 +176,15 @@ class TableVersion(Metafile):
     @properties.setter
     def properties(self, properties: Optional[TableVersionProperties]) -> None:
         self["properties"] = properties
+
+    @property
+    def previous_table_version(self) -> Optional[str]:
+        return self.get("previous_table_version")
+
+    @previous_table_version.setter
+    def previous_table_version(self, previous_table_version: Optional[str]) -> None:
+        self["previous_table_version"] = previous_table_version
+
 
     @property
     def content_types(self) -> Optional[List[ContentType]]:
@@ -299,6 +310,19 @@ class TableVersion(Metafile):
             )
             self.locator.table_locator = table.locator
         return self
+
+    @classmethod
+    def new_version(cls, previous_version: Optional[str]=None) -> str:
+        """
+        Assign a new version string.
+        Will attempt to use convention of 1-indexed incrementing integers ("1", "2", etc)
+        Otherwise will use metafile default id
+        """
+        try:
+            # if the last table version was an int then increment it by 1
+            return str(int(previous_version) + 1)
+        except ValueError:
+            return Metafile.generate_new_id()
 
 
 class TableVersionLocatorName(LocatorName):

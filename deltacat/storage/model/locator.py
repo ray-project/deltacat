@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import re
 from typing import Optional, List
 
 from deltacat.utils.common import sha1_digest, sha1_hexdigest
@@ -108,7 +109,9 @@ class Locator:
         for use in equality (i.e. two locators are equal if they have the same
         hexdigest) and inclusion in URLs.
         """
-        return sha1_hexdigest(self.canonical_string().encode("utf-8"))
+        # TODO uncomment for PR
+        # return sha1_hexdigest(self.canonical_string().encode("utf-8"))
+        return self._normalize_for_filesystem(self.canonical_string())
 
     def path(self, root: str, separator: str = DEFAULT_PATH_SEPARATOR) -> str:
         """
@@ -116,4 +119,15 @@ class Locator:
         the default path separator of "/" may optionally be overridden with
         any string.
         """
-        return f"{root}{separator}{self.hexdigest()}"
+        # TODO uncomment for PR
+        # return f"{root}{separator}{self.hexdigest()}"
+        return f"{root}{separator}{self.canonical_string()}"
+
+    def _normalize_for_filesystem(self, s: str) -> str:
+        """
+        Normalize a string to be filesystem URI friendly.
+        For example, makes it lowercase and replaces disallowed characters with underscores.
+        """
+        s = s.strip().lower()
+        # Keep alphanumerics, underscore, and dash (you can tweak this regex as needed)
+        return re.sub(r'[^a-z0-9_\-]', '_', s)

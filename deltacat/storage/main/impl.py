@@ -6,6 +6,7 @@ NOTE: THIS CURRENTLY DIVERGES FROM storage/interface.py!
 After this implementation is done, we will make storage/interface_v2.py. We then have to migrate
   storage/iceberg/impl from storage/interface_v1.py to storage/interface_v2.py
 """
+import uuid
 
 from deltacat.catalog.main.impl import PropertyCatalog
 
@@ -27,7 +28,7 @@ from deltacat.storage.model.types import (
     LocalDataset,
     LocalTable,
     TransactionType,
-    TransactionOperationType, StreamFormat,
+    TransactionOperationType, StreamFormat, CommitState,
 )
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import (
@@ -53,11 +54,11 @@ from deltacat.storage.model.stream import (
 )
 from deltacat.storage.model.table import (
     Table,
-    TableProperties,
+    TableProperties, TableLocator,
 )
 from deltacat.storage.model.table_version import (
     TableVersion,
-    TableVersionProperties,
+    TableVersionProperties, TableVersionLocator,
 )
 from deltacat.storage.model.metafile import (
     Metafile,
@@ -97,7 +98,7 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     items.
     """
     placeholder_ns = Namespace.of(NamespaceLocator.of("placeholder"))
-    return _list_metafiles(
+    return _list(
         placeholder_ns,
         TransactionOperationType.READ_SIBLINGS,
         *args,
@@ -112,7 +113,7 @@ def list_tables(namespace: str, *args, **kwargs) -> ListResult[Table]:
     ns = get_namespace(namespace, *args, **kwargs)
     if not ns:
         raise ValueError(f"Namespace '{namespace}' does not exist.")
-    return _list_metafiles(
+    return _list(
         ns,
         TransactionOperationType.READ_CHILDREN,
         *args,
@@ -129,7 +130,7 @@ def list_table_versions(
     tbl = get_table(namespace, table_name, *args, **kwargs)
     if not tbl:
         raise ValueError(f"Table '{namespace}.{table_name}' does not exist.")
-    return _list_metafiles(
+    return _list(
         tbl,
         TransactionOperationType.READ_CHILDREN,
         *args,
@@ -146,7 +147,7 @@ def list_streams(
     tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
     if not tv:
         raise ValueError(f"Table Version'{namespace}.{table_name}.{table_version}' does not exist.")
-    return _list_metafiles(
+    return _list(
         tv,
         TransactionOperationType.READ_CHILDREN,
         *args,
@@ -173,13 +174,13 @@ def list_partitions(
         raise ValueError(f"Table version '{namespace}.{table_name}.{table_version}' not found.")
     
     
-    return _list_metafiles(tv, TransactionOperationType.READ_CHILDREN, *args, **kwargs)
+    return _list(tv, TransactionOperationType.READ_CHILDREN, *args, **kwargs)
 
 def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partition]:
     """
     Lists all partitions committed to the given stream.
     """
-    return _list_metafiles(
+    return _list(
         stream,
         TransactionOperationType.READ_CHILDREN,
         *args,
@@ -215,7 +216,7 @@ def list_deltas(
     part = get_partition(stream.locator, partition_values, *args, **kwargs)
     if not part:
         raise ValueError("Partition not found; cannot list deltas.")
-    return _list_metafiles(part, TransactionOperationType.READ_CHILDREN, *args, **kwargs)
+    return _list(part, TransactionOperationType.READ_CHILDREN, *args, **kwargs)
 
 def list_partition_deltas(
     partition_like: Union[Partition, PartitionLocator],
@@ -235,7 +236,7 @@ def list_partition_deltas(
     else:
         part_obj = Partition.of(locator=partition_like, schema=None, content_types=None)
 
-    return _list_metafiles(
+    return _list(
         part_obj,
         TransactionOperationType.READ_CHILDREN,
         *args,
@@ -376,7 +377,7 @@ def get_delta_manifest(
         d_loc = delta_like.locator
     else:
         d_loc = delta_like
-    from deltacat.storage.model.delta import Delta
+
     placeholder = Delta.of(locator=d_loc, delta_type=None, meta=None, properties=None, manifest=None)
     fresh = _read_latest_metafile(
         placeholder,
@@ -459,74 +460,115 @@ def create_table_version(
     supported_content_types: Optional[List[ContentType]] = None,
     *args,
     **kwargs,
-) -> Stream:
+) -> TableVersion:
     """
-    A convenience method that ensures the table is created if needed, then
-    creates a new TableVersion, then creates & returns a default Stream.
-    """
-    ns = get_namespace(namespace, *args, **kwargs)
-    if not ns:
-        raise ValueError(f"Namespace '{namespace}' does not exist.")
+    Create a table version with an unreleased lifecycle state and an empty delta
+    stream. Table versions may be schemaless and unpartitioned to improve write
+    performance, or have their writes governed by a schema and partition scheme
+    to improve data consistency and read performance.
 
-    tbl = get_table(namespace, table_name, *args, **kwargs)
-    if not tbl:
-        # create the table
-        from deltacat.storage.model.table import Table, TableLocator
+    Returns the stream for the created table version.
+    Raises an error if the given namespace does not exist.
+    """
+    if not namespace_exists(
+        *args,
+        namespace=namespace,
+        **kwargs,
+    ):
+        raise ValueError(f"Namespace {namespace} does not exist")
+
+    # check if a parent table and/or previous table version already exist
+    prev_table_version = None
+    prev_table = get_table(
+        *args,
+        namespace=namespace,
+        table_name=table_name,
+        **kwargs,
+    )
+
+    if not prev_table:
+        # no parent table exists, so we'll create it in this transaction
+        txn_type = TransactionType.APPEND
+        table_txn_op_type = TransactionOperationType.CREATE
+        prev_table = None
         new_table = Table.of(
-            TableLocator.at(namespace, table_name),
-            description=table_description,
-            properties=table_properties,
-        )
-        catalog = _get_catalog(**kwargs)
-        c_tx = Transaction.of(
-            txn_type=TransactionType.APPEND,
-            txn_operations=[
-                TransactionOperation.of(
-                    operation_type=TransactionOperationType.CREATE,
-                    dest_metafile=new_table,
-                )
-            ],
-        )
-        c_tx.commit(catalog_root_dir=catalog.root, filesystem=catalog.filesystem)
-        tbl = new_table
+            locator=TableLocator.of(NamespaceLocator.of(namespace), table_name),)
 
-    from deltacat.storage.model.table_version import TableVersion, TableVersionLocator
-    tv_loc = TableVersionLocator.at(namespace, table_name, table_version)
-    tv_obj = TableVersion.of(
-        locator=tv_loc,
+    else:
+        # the parent table exists, so we'll update it in this transaction
+        txn_type = TransactionType.ALTER
+        table_txn_op_type = TransactionOperationType.UPDATE
+        new_table: Table = Metafile.update_for(prev_table)
+        prev_table_version = prev_table.latest_table_version
+        table_version = TableVersion.new_version(previous_version=prev_table_version)
+
+    new_table.description = table_description or table_version_description
+    new_table.properties = table_properties
+    new_table.latest_table_version = table_version
+    catalog = _get_catalog(**kwargs)
+
+    # Create version number. Chooses user provided, OR construct new one considering previous version
+    table_version = table_version or TableVersion.new_version(previous_version=prev_table_version)
+    locator = TableVersionLocator.at(
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+    )
+
+    table_version_metafile = TableVersion.of(
+        locator=locator,
         schema=schema,
         partition_scheme=partition_scheme,
-        sort_scheme=sort_keys,
         description=table_version_description,
         properties=table_version_properties,
         content_types=supported_content_types,
+        sort_scheme=sort_keys,
+        watermark=None,
         lifecycle_state=LifecycleState.UNRELEASED,
+        schemas=[schema] if schema else None,
+        partition_schemes=[partition_scheme] if partition_scheme else None,
+        sort_schemes=[sort_keys] if sort_keys else None,
+        previous_table_version=prev_table_version,
     )
-    # commit the TableVersion
-    existing_tv = _read_latest_metafile(
-        tv_obj,
-        TransactionOperationType.READ_LATEST,
-        *args,
-        **kwargs
+
+    # Create the table version's default deltacat stream in this transaction
+    stream_locator = StreamLocator.of(
+        table_version_locator=locator,
+        stream_id=Metafile.generate_new_id(),
+        stream_format=StreamFormat.DELTACAT,
     )
-    if existing_tv:
-        raise ValueError(f"TableVersion '{table_version}' already exists on '{table_name}'.")
-    catalog = _get_catalog(**kwargs)
-    tx = Transaction.of(
-        txn_type=TransactionType.APPEND,
+    stream = Stream.of(
+        locator=stream_locator,
+        partition_scheme=partition_scheme,
+        state=CommitState.COMMITTED,
+        previous_stream_id=None,
+        watermark=None,
+    )
+
+    transaction = Transaction.of(
+        txn_type=txn_type,
         txn_operations=[
             TransactionOperation.of(
+                operation_type=table_txn_op_type,
+                dest_metafile=new_table,
+                src_metafile=prev_table,
+            ),
+            TransactionOperation.of(
                 operation_type=TransactionOperationType.CREATE,
-                dest_metafile=tv_obj,
-            )
+                dest_metafile=table_version_metafile,
+            ),
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=stream,
+            ),
         ],
     )
-    tx.commit(catalog_root_dir=catalog.root, filesystem=catalog.filesystem)
+    transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
 
-    # now create & commit a Stream
-    s = stage_stream(namespace, table_name, tv_obj.table_version, *args, **kwargs)
-    commit_stream(s, *args, **kwargs)
-    return s
+    return stream
 
 def update_table(
     namespace: str,
@@ -605,37 +647,125 @@ def stage_stream(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
     *args,
     **kwargs,
 ) -> Stream:
     """
-    Stages a new delta stream for the given table version by constructing
-    an in-memory object. Not yet committed.
-
-    TODO reconcile with logic in Patrick's branch
+    Stages a new delta stream for the given table version. Resolves to the
+    latest active table version if no table version is given. Resolves to the
+    DeltaCAT stream format if no stream format is given. If this stream
+    will replace another stream with the same format and scheme, then it will
+    have its previous stream ID set to the ID of the stream being replaced.
+    Returns the staged stream. Raises an error if the table version does not
+    exist.
     """
-    if table_version is None:
-        tv = get_latest_active_table_version(namespace, table_name, *args, **kwargs)
+    # TODO(pdames): Support retrieving previously staged streams by ID.
+    if not table_version:
+        table_version_meta = get_latest_table_version(
+            namespace=namespace,
+            table_name=table_name,
+        )
     else:
-        tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
-    if not tv:
-        raise ValueError("No table version found to stage a stream on.")
+        table_version_meta = get_table_version(
+            *args,
+            namespace=namespace,
+            table_name=table_name,
+            table_version=table_version,
+            **kwargs,
+        )
+        table_version = table_version_meta.id
 
-    from deltacat.storage.model.stream import Stream, StreamLocator
-    s_loc = StreamLocator.at(
-        namespace,
-        table_name,
-        tv.table_version,
-        stream_id=None,
-        stream_format=None,
+    locator = StreamLocator.at(
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+        # use a temporary UUID for now - we will replace it with previous stream id if necessary
+        stream_id=Metafile.generate_new_id(),
+        stream_format=stream_format,
     )
-    st = Stream.of(
-        s_loc,
-        partition_scheme=tv.partition_scheme,
+
+    stream = Stream.of(
+        locator=locator,
+        partition_scheme=table_version_meta.partition_scheme,
+        state=CommitState.STAGED,
+        previous_stream_id=None,
+        watermark=None,
     )
-    return st
+    prev_stream = get_stream(
+        *args,
+        namespace=stream.namespace,
+        table_name=stream.table_name,
+        table_version=stream.table_version,
+        stream_format=stream.stream_format,
+        **kwargs,
+    )
+    if prev_stream:
+        if prev_stream.stream_id == stream.stream_id:
+            raise ValueError(
+                f"Stream to stage has the same ID as existing stream: {prev_stream}."
+            )
+        stream.previous_stream_id = prev_stream.stream_id
+
+    transaction = Transaction.of(
+        txn_type=TransactionType.APPEND,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=stream,
+            )
+        ],
+    )
+    catalog = _get_catalog(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
+    return stream
+
 
 def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
+    """
+    Registers a delta stream with a target table version, replacing any
+    previous stream registered for the same table version. Returns the
+    committed stream.
+
+    This function effectively is used to create a stream, and is re-used by implementation of create_stream
+    """
+    stream: Stream = Metafile.update_for(stream)
+
+    prev_stream = get_stream(
+        *args,
+        namespace=stream.namespace,
+        table_name=stream.table_name,
+        table_version=stream.table_version,
+        stream_format=stream.stream_format,
+        **kwargs,
+    )
+
+    if prev_stream:
+        if prev_stream.stream_id != stream.previous_stream_id:
+            raise ValueError(
+                f"Previous stream ID mismatch Expected "
+                f"{stream.previous_stream_id} but found "
+                f"{prev_stream.stream_id}."
+            )
+        if prev_stream.stream_id == stream.stream_id:
+            raise ValueError(
+                f"Stream to commit has the same ID as existing stream: {prev_stream}."
+            )
+        txn_type = TransactionType.OVERWRITE
+    else:
+        txn_type = TransactionType.APPEND
+
+
+    if not stream.locator.stream_id:
+        stream.locator.stream_id = str(uuid.uuid4())
+    if not stream.stream_format:
+        stream.stream_format = StreamFormat.DELTACAT
+    stream.state = CommitState.COMMITTED
+
+
     existing = _read_latest_metafile(
         stream,
         TransactionOperationType.READ_LATEST,
@@ -661,6 +791,63 @@ def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
     tx.commit(catalog_root_dir=catalog.root, filesystem=catalog.filesystem)
     return stream
 
+def _commit_stream(
+    stream: Stream,
+    *args,
+    **kwargs,
+) -> Stream:
+    """
+    Registers a delta stream with a target table version, replacing any
+    previous stream registered for the same table version. Returns the
+    committed stream.
+    """
+    stream: Stream = Metafile.update_for(stream)
+    if not stream.locator.stream_id:
+        stream.locator.stream_id = str(uuid.uuid4())
+    if not stream.stream_format:
+        stream.stream_format = StreamFormat.DELTACAT
+    stream.state = CommitState.COMMITTED
+    prev_stream = get_stream(
+        *args,
+        namespace=stream.namespace,
+        table_name=stream.table_name,
+        table_version=stream.table_version,
+        stream_format=stream.stream_format,
+        **kwargs,
+    )
+    if prev_stream:
+        if prev_stream.stream_id != stream.previous_stream_id:
+            raise ValueError(
+                f"Previous stream ID mismatch Expected "
+                f"{stream.previous_stream_id} but found "
+                f"{prev_stream.stream_id}. If you'd like "
+                f"to replace "
+            )
+        if prev_stream.stream_id == stream.stream_id:
+            raise ValueError(
+                f"Stream to commit has the same ID as existing stream: {prev_stream}."
+            )
+        txn_type = TransactionType.OVERWRITE
+    else:
+        txn_type = TransactionType.APPEND
+
+    transaction = Transaction.of(
+        txn_type=txn_type,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=stream,
+                src_metafile=prev_stream,
+            )
+        ],
+    )
+    catalog = _get_catalog(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
+    return stream
+
 def delete_stream(
     namespace: str,
     table_name: str,
@@ -684,35 +871,69 @@ def delete_stream(
     )
     tx.commit(catalog_root_dir=catalog.root, filesystem=catalog.filesystem)
 
+# def get_stream(
+#     namespace: str,
+#     table_name: str,
+#     table_version: Optional[str] = None,
+#     stream_id: Optional[str] = None,
+#     stream_format: Optional[StreamFormat] = StreamFormat.DELTACAT,
+#     *args,
+#     **kwargs,
+# ) -> Optional[Stream]:
+#     """
+#     Get a stream
+#
+#     TODO support default aliases based on stream format
+#     """
+#     if table_version is None:
+#         tv = get_latest_active_table_version(namespace, table_name, *args, **kwargs)
+#     else:
+#         tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
+#     if not tv:
+#         return None
+#     from deltacat.storage.model.stream import Stream, StreamLocator
+#     s_loc = StreamLocator.at(
+#         namespace,
+#         table_name,
+#         tv.table_version,
+#         stream_id=None,
+#         stream_format=None,
+#     )
+#     placeholder = Stream.of(s_loc, partition_scheme=None)
+#     return _read_latest_metafile(
+#         placeholder,
+#         TransactionOperationType.READ_LATEST,
+#         *args,
+#         **kwargs
+#     )
+
 def get_stream(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
-    stream_id: Optional[str] = None,
-    stream_format: Optional[StreamFormat] = StreamFormat.DELTACAT,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
+    stream_alias: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Stream]:
     """
-    Get a stream
-
-    TODO support default aliases based on stream format
+    Gets the most recently committed stream for the given table version.
+    Resolves to the latest active table version if no table version is given.
+    Resolves to the DeltaCAT stream format if no stream format is given.
+    Returns None if the table version or stream format does not exist.
     """
-    if table_version is None:
+    if not table_version:
         tv = get_latest_active_table_version(namespace, table_name, *args, **kwargs)
-    else:
-        tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
-    if not tv:
-        return None
-    from deltacat.storage.model.stream import Stream, StreamLocator
-    s_loc = StreamLocator.at(
-        namespace,
-        table_name,
-        tv.table_version,
+        table_version = tv.id
+
+    locator = StreamLocator.at(
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
         stream_id=None,
-        stream_format=None,
+        stream_format=stream_format,
     )
-    placeholder = Stream.of(s_loc, partition_scheme=None)
+    placeholder = Stream.of(locator, partition_scheme=None)
     return _read_latest_metafile(
         placeholder,
         TransactionOperationType.READ_LATEST,
@@ -926,7 +1147,7 @@ def _get_catalog(**kwargs) -> PropertyCatalog:
         raise TypeError(f"Expected `catalog` param to be PropertyCatalog, got {type(catalog)}")
     return catalog
 
-def _list_metafiles(
+def _list(
     metafile: Metafile,
     txn_op_type: TransactionOperationType,
     *args,
@@ -964,7 +1185,20 @@ def _read_latest_metafile(
     Helper that runs a READ transaction op to retrieve the "latest" or "exists"
     revision of a single metafile.
     """
-    lr = _list_metafiles(metafile, txn_op_type, *args, **kwargs)
+    lr = _list(metafile, txn_op_type, *args, **kwargs)
     items = lr.all_items()
     return items[0] if items else None
 
+def _exists(
+    metafile: Metafile,
+    *args,
+    **kwargs,
+) -> bool:
+    list_results = _list(
+        *args,
+        metafile=metafile,
+        txn_op_type=TransactionOperationType.READ_EXISTS,
+        **kwargs,
+    )
+    results = list_results.all_items()
+    return True if results else False
