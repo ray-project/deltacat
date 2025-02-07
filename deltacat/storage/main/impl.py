@@ -185,6 +185,12 @@ def _resolve_partition_locator_alias(
             table_version=table_version,
             **kwargs,
         )
+        if not stream:
+            raise ValueError(
+                f"Failed to resolve latest partition scheme for "
+                f"`{namespace}.{table_name}` at table version "
+                f"`{table_version or 'latest'}` (no stream found)."
+            )
         partition_locator = PartitionLocator.of(
             stream_locator=stream.locator,
             partition_values=partition_values,
@@ -213,6 +219,7 @@ def _resolve_partition_locator_alias(
 def _resolve_latest_active_table_version_id(
     namespace: str,
     table_name: str,
+    fail_if_no_active_table_version: True,
     *args,
     **kwargs,
 ) -> Optional[str]:
@@ -222,12 +229,17 @@ def _resolve_latest_active_table_version_id(
         table_name=table_name,
         **kwargs,
     )
+    if not table:
+        raise ValueError(f"Table does not exist: {namespace}.{table_name}")
+    if fail_if_no_active_table_version and not table.latest_active_table_version:
+        raise ValueError(f"Table has no active table version: {namespace}.{table_name}")
     return table.latest_active_table_version
 
 
 def _resolve_latest_table_version_id(
     namespace: str,
     table_name: str,
+    fail_if_no_active_table_version: True,
     *args,
     **kwargs,
 ) -> Optional[str]:
@@ -237,6 +249,10 @@ def _resolve_latest_table_version_id(
         table_name=table_name,
         **kwargs,
     )
+    if not table:
+        raise ValueError(f"Table does not exist: {namespace}.{table_name}")
+    if fail_if_no_active_table_version and not table.latest_table_version:
+        raise ValueError(f"Table has no table version: {namespace}.{table_name}")
     return table.latest_table_version
 
 
@@ -730,6 +746,7 @@ def create_table_version(
         **kwargs,
     ):
         raise ValueError(f"Namespace {namespace} does not exist")
+    # check if a parent table and/or previous table version already exist
     prev_table_version = None
     prev_table = get_table(
         *args,
@@ -743,7 +760,7 @@ def create_table_version(
         table_name=table_name,
         **kwargs,
     ):
-        # create a new table as part of this transaction
+        # no parent table exists, so we'll create it in this transaction
         txn_type = TransactionType.APPEND
         table_txn_op_type = TransactionOperationType.CREATE
         prev_table = None
@@ -752,7 +769,7 @@ def create_table_version(
         )
         table_version = table_version or "1"
     else:
-        # update the existing table as part of this transaction
+        # the parent table exists, so we'll update it in this transaction
         txn_type = TransactionType.ALTER
         table_txn_op_type = TransactionOperationType.UPDATE
         new_table: Table = Metafile.update_for(prev_table)
@@ -788,10 +805,9 @@ def create_table_version(
         sort_schemes=[sort_keys] if sort_keys else None,
         previous_table_version=prev_table_version,
     )
-    stream_locator = StreamLocator.at(
-        namespace=namespace,
-        table_name=table_name,
-        table_version=table_version,
+    # create the table version's default deltacat stream in this transaction
+    stream_locator = StreamLocator.of(
+        table_version_locator=locator,
         stream_id=str(uuid.uuid4()),
         stream_format=StreamFormat.DELTACAT,
     )
@@ -871,62 +887,6 @@ def update_table(
     )
 
 
-def stage_stream(
-    namespace: str,
-    table_name: str,
-    table_version: Optional[str] = None,
-    *args,
-    **kwargs,
-) -> Stream:
-    """
-    Stages a new delta stream for the given table version. Resolves to the
-    latest active table version if no table version is given. Returns the
-    staged stream. Raises an error if the table version does not exist.
-    """
-    # TODO(pdames): Support retrieving previously staged streams by ID.
-    if not table_version:
-        table_version = _resolve_latest_active_table_version_id(
-            namespace=namespace,
-            table_name=table_name,
-        )
-        table_version_meta = get_table_version(
-            *args,
-            namespace=namespace,
-            table_name=table_name,
-            table_version=table_version,
-            **kwargs,
-        )
-    locator = StreamLocator.at(
-        namespace=namespace,
-        table_name=table_name,
-        table_version=table_version,
-        stream_id=str(uuid.uuid4()),
-        stream_format=None,  # stream format isn't set until stream commit
-    )
-    stream = Stream.of(
-        locator=locator,
-        partition_scheme=table_version_meta.partition_scheme,
-        state=CommitState.STAGED,
-        previous_stream_id=None,
-        watermark=None,
-    )
-    transaction = Transaction.of(
-        txn_type=TransactionType.APPEND,
-        txn_operations=[
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=stream,
-            )
-        ],
-    )
-    catalog = _get_catalog(**kwargs)
-    transaction.commit(
-        catalog_root_dir=catalog.root,
-        filesystem=catalog.filesystem,
-    )
-    return stream
-
-
 def update_table_version(
     namespace: str,
     table_name: str,
@@ -974,11 +934,23 @@ def update_table_version(
     new_table_version.partition_scheme = (
         partition_scheme or old_table_version.partition_scheme
     )
+    if partition_scheme and partition_scheme.id in [
+        ps.id for ps in old_table_version.partition_schemes
+    ]:
+        raise ValueError(
+            f"Partition scheme ID `{partition_scheme.id}` already exists in "
+            f"table version `{table_version}`."
+        )
     new_table_version.partition_schemes = (
         old_table_version.partition_schemes + [partition_scheme]
         if partition_scheme
         else old_table_version.partition_schemes
     )
+    if sort_keys and sort_keys.id in [sk.id for sk in old_table_version.sort_schemes]:
+        raise ValueError(
+            f"Sort scheme ID `{sort_keys.id}` already exists in "
+            f"table version `{table_version}`."
+        )
     new_table_version.sort_scheme = sort_keys or old_table_version.sort_scheme
     new_table_version.sort_schemes = (
         old_table_version.sort_schemes + [sort_keys]
@@ -1048,13 +1020,18 @@ def stage_stream(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
     *args,
     **kwargs,
 ) -> Stream:
     """
     Stages a new delta stream for the given table version. Resolves to the
-    latest active table version if no table version is given. Returns the
-    staged stream. Raises an error if the table version does not exist.
+    latest active table version if no table version is given. Resolves to the
+    DeltaCAT stream format if no stream format is given. If this stream
+    will replace another stream with the same format and scheme, then it will
+    have its previous stream ID set to the ID of the stream being replaced.
+    Returns the staged stream. Raises an error if the table version does not
+    exist.
     """
     # TODO(pdames): Support retrieving previously staged streams by ID.
     if not table_version:
@@ -1074,7 +1051,7 @@ def stage_stream(
         table_name=table_name,
         table_version=table_version,
         stream_id=str(uuid.uuid4()),
-        stream_format=None,  # stream format isn't set until stream commit
+        stream_format=stream_format,
     )
     stream = Stream.of(
         locator=locator,
@@ -1083,6 +1060,20 @@ def stage_stream(
         previous_stream_id=None,
         watermark=None,
     )
+    prev_stream = get_stream(
+        *args,
+        namespace=stream.namespace,
+        table_name=stream.table_name,
+        table_version=stream.table_version,
+        stream_format=stream.stream_format,
+        **kwargs,
+    )
+    if prev_stream:
+        if prev_stream.stream_id == stream.stream_id:
+            raise ValueError(
+                f"Stream to stage has the same ID as existing stream: {prev_stream}."
+            )
+        stream.previous_stream_id = prev_stream.stream_id
     transaction = Transaction.of(
         txn_type=TransactionType.APPEND,
         txn_operations=[
@@ -1107,9 +1098,8 @@ def commit_stream(
 ) -> Stream:
     """
     Registers a delta stream with a target table version, replacing any
-    previous stream registered for the same table version. If the stream
-    format is not set prior to commit, then it is defaulted to the DeltaCAT
-    stream format. Returns the committed stream.
+    previous stream registered for the same table version. Returns the
+    committed stream.
     """
     stream: Stream = Metafile.update_for(stream)
     if not stream.locator.stream_id:
@@ -1126,11 +1116,16 @@ def commit_stream(
         **kwargs,
     )
     if prev_stream:
+        if prev_stream.stream_id != stream.previous_stream_id:
+            raise ValueError(
+                f"Previous stream ID mismatch Expected "
+                f"{stream.previous_stream_id} but found "
+                f"{prev_stream.stream_id}."
+            )
         if prev_stream.stream_id == stream.stream_id:
             raise ValueError(
-                f"Cannot replace stream with duplicate ID: {stream.stream_id}."
+                f"Stream to commit has the same ID as existing stream: {prev_stream}."
             )
-        stream.previous_stream_id = prev_stream.stream_id
         txn_type = TransactionType.OVERWRITE
     else:
         txn_type = TransactionType.APPEND
@@ -1214,7 +1209,7 @@ def get_stream(
     """
     Gets the most recently committed stream for the given table version.
     Resolves to the latest active table version if no table version is given.
-    Resolves to the deltacat stream format if no stream format is given.
+    Resolves to the DeltaCAT stream format if no stream format is given.
     Returns None if the table version or stream format does not exist.
     """
     if not table_version:
@@ -1222,6 +1217,7 @@ def get_stream(
             *args,
             namespace=namespace,
             table_name=table_name,
+            fail_if_no_active_table_version=False,
             **kwargs,
         )
     locator = StreamLocator.at(
@@ -1241,6 +1237,7 @@ def get_stream(
 def stage_partition(
     stream: Stream,
     partition_values: Optional[PartitionValues] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Partition:
@@ -1254,7 +1251,79 @@ def stage_partition(
     The partition_values must represent the results of transforms in a partition
     spec specified in the stream.
     """
-    raise NotImplementedError("stage_partition not implemented")
+    # TODO(pdames): Cache last retrieved metafile revisions in memory to resolve
+    #   potentially high cost of staging many partitions.
+    table_version = get_table_version(
+        *args,
+        namespace=stream.namespace,
+        table_name=stream.table_name,
+        table_version=stream.table_version,
+        **kwargs,
+    )
+    if not table_version:
+        raise ValueError(
+            f"Table version not found: {stream.namespace}.{stream.table_name}."
+            f"{stream.table_version}."
+        )
+    if not table_version.partition_schemes or partition_scheme_id not in [
+        ps.id for ps in table_version.partition_schemes
+    ]:
+        raise ValueError(
+            f"Invalid partition scheme ID `{partition_scheme_id}` (not found "
+            f"in parent table version `{stream.namespace}.{stream.table_name}"
+            f".{table_version.table_version}` partition scheme IDs)."
+        )
+    if stream.partition_scheme.id not in table_version.partition_schemes:
+        # this should never happen, but just in case
+        raise ValueError(
+            f"Invalid stream partition scheme ID `{stream.partition_scheme.id}`"
+            f"in parent table version `{stream.namespace}.{stream.table_name}"
+            f".{table_version.table_version}` partition scheme IDs)."
+        )
+    locator = PartitionLocator.of(
+        stream_locator=stream.locator,
+        partition_values=partition_values,
+        partition_id=str(uuid.uuid4()),
+    )
+    partition = Partition.of(
+        locator=locator,
+        schema=table_version.schema,
+        content_types=table_version.content_types,
+        state=CommitState.STAGED,
+        previous_stream_position=None,
+        partition_values=partition_values,
+        previous_partition_id=None,
+        stream_position=None,
+        partition_scheme_id=partition_scheme_id,
+    )
+    prev_partition = get_partition(
+        *args,
+        stream_locator=stream.locator,
+        partition_values=partition_values,
+        partition_scheme_id=partition_scheme_id,
+        **kwargs,
+    )
+    if prev_partition:
+        if prev_partition.partition_id == partition.partition_id:
+            raise ValueError(
+                f"Partition to stage has the same ID as existing partition: {prev_partition}."
+            )
+        partition.previous_partition_id = prev_partition.partition_id
+    transaction = Transaction.of(
+        txn_type=TransactionType.APPEND,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=partition,
+            )
+        ],
+    )
+    catalog = _get_catalog(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
+    return partition
 
 
 def commit_partition(
@@ -1265,9 +1334,14 @@ def commit_partition(
 ) -> Partition:
     """
     Commits the given partition to its associated table version stream,
-    replacing any previous partition (i.e., "partition being replaced") registered for the same stream and
+    replacing any previous partition registered for the same stream and
     partition values.
-    If the previous_partition is passed as an argument, the specified previous_partition will be the partition being replaced, otherwise it will be retrieved.
+
+    If previous partition is given then it will be replaced with its deltas
+    prepended to the new partition being committed. Otherwise the latest
+    committed partition with the same keys and partition scheme ID will be
+    retrieved.
+
     Returns the registered partition. If the partition's
     previous delta stream position is specified, then the commit will
     be rejected if it does not match the actual previous stream position of
@@ -1275,24 +1349,123 @@ def commit_partition(
     specified, then the commit will be rejected if it does not match the actual
     ID of the partition being replaced.
     """
-    raise NotImplementedError("commit_partition not implemented")
+    if previous_partition:
+        raise NotImplementedError(
+            f"delta prepending from previous partition {previous_partition} "
+            f"is not yet implemented"
+        )
+    partition: Partition = Metafile.update_for(partition)
+    if not partition.locator.partition_id:
+        partition.locator.partition_id = str(uuid.uuid4())
+    partition.state = CommitState.COMMITTED
+    prev_partition = get_partition(
+        *args,
+        stream_locator=partition.stream_locator,
+        partition_value=partition.partition_values,
+        partition_scheme_id=partition.partition_scheme_id,
+        **kwargs,
+    )
+    if prev_partition:
+        if prev_partition.partition_id != partition.previous_partition_id:
+            raise ValueError(
+                f"Previous partition ID mismatch Expected "
+                f"{partition.previous_partition_id} but found "
+                f"{prev_partition.partition_id}."
+            )
+        # TODO(pdames): Add previous partition stream position validation.
+        if prev_partition.partition_id == partition.partition_id:
+            raise ValueError(
+                f"Partition to commit has the same ID as existing partition: {prev_partition}."
+            )
+        txn_type = TransactionType.OVERWRITE
+    else:
+        txn_type = TransactionType.APPEND
+
+    transaction = Transaction.of(
+        txn_type=txn_type,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=partition,
+                src_metafile=prev_partition,
+            )
+        ],
+    )
+    catalog = _get_catalog(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
+    return partition
 
 
 def delete_partition(
-    namespace: str,
-    table_name: str,
-    table_version: Optional[str] = None,
+    stream_locator: StreamLocator,
     partition_values: Optional[PartitionValues] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> None:
     """
-    Deletes the given partition from the specified table version. Resolves to
-    the latest active table version if no table version is given. Partition
+    Deletes the given partition from the specified stream. Partition
     values should not be specified for unpartitioned tables. Raises an error
-    if the table version or partition does not exist.
+    if the partition does not exist.
     """
-    raise NotImplementedError("delete_partition not implemented")
+    partition_to_delete = get_partition(
+        *args,
+        stream_locator=stream_locator,
+        partition_values=partition_values,
+        partition_scheme_id=partition_scheme_id,
+        **kwargs,
+    )
+    if not partition_to_delete:
+        raise ValueError(
+            f"Partition with values {partition_values} and scheme "
+            f"{partition_scheme_id} not found in stream: {stream_locator}"
+        )
+    else:
+        partition_to_delete.state = CommitState.DEPRECATED
+    transaction = Transaction.of(
+        txn_type=TransactionType.DELETE,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                src_metafile=partition_to_delete,
+            )
+        ],
+    )
+    catalog = _get_catalog(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog.root,
+        filesystem=catalog.filesystem,
+    )
+
+
+def get_staged_partition(
+    stream_locator: StreamLocator,
+    partition_id: str,
+    *args,
+    **kwargs,
+) -> Optional[Partition]:
+    """
+    Gets the staged partition for the given stream locator and partition ID.
+    Returns None if the partition does not exist. Raises an error if the
+    given stream locator does not exist.
+    """
+    locator = PartitionLocator.of(
+        stream_locator=stream_locator,
+        partition_values=None,
+        partition_id=partition_id,
+    )
+    return _latest(
+        *args,
+        metafile=Partition.of(
+            locator=locator,
+            schema=None,
+            content_types=None,
+        ),
+        **kwargs,
+    )
 
 
 def get_partition(
@@ -1308,6 +1481,7 @@ def get_partition(
     the given table version and/or partition key values. Partition values
     should not be specified for unpartitioned tables. Partition scheme ID
     resolves to the table version's current partition scheme by default.
+    Raises an error if the given stream locator does not exist.
     """
     locator = PartitionLocator.of(
         stream_locator=stream_locator,
@@ -1324,6 +1498,8 @@ def get_partition(
             table_version=stream_locator.table_version,
             **kwargs,
         )
+        if not stream:
+            raise ValueError(f"Stream {stream_locator} not found.")
         partition_scheme_id = stream.partition_scheme.id
     return _latest(
         *args,
@@ -1463,6 +1639,7 @@ def get_latest_table_version(
         *args,
         namespace=namespace,
         table_name=table_name,
+        fail_if_no_active_table_version=False,
         **kwargs,
     )
 
@@ -1490,16 +1667,20 @@ def get_latest_active_table_version(
         *args,
         namespace=namespace,
         table_name=table_name,
+        fail_if_no_active_table_version=False,
         **kwargs,
     )
-    if table_version_id:
-        return get_table_version(
+    return (
+        get_table_version(
             *args,
             namespace=namespace,
             table_name=table_name,
             table_version=table_version_id,
             **kwargs,
         )
+        if table_version_id
+        else None
+    )
 
 
 def get_table_version_column_names(

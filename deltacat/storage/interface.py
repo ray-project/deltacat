@@ -343,23 +343,31 @@ def stage_stream(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
     *args,
     **kwargs,
 ) -> Stream:
     """
     Stages a new delta stream for the given table version. Resolves to the
-    latest active table version if no table version is given. Returns the
-    staged stream. Raises an error if the table version does not exist.
+    latest active table version if no table version is given. Resolves to the
+    DeltaCAT stream format if no stream format is given. If this stream
+    will replace another stream with the same format and scheme, then it will
+    have its previous stream ID set to the ID of the stream being replaced.
+    Returns the staged stream. Raises an error if the table version does not
+    exist.
     """
     raise NotImplementedError("stage_stream not implemented")
 
 
-def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
+def commit_stream(
+    stream: Stream,
+    *args,
+    **kwargs,
+) -> Stream:
     """
     Registers a delta stream with a target table version, replacing any
-    previous stream registered for the same table version. If the stream
-    format is not set prior to commit, then it is defaulted to the DeltaCAT
-    stream format. Returns the committed stream.
+    previous stream registered for the same table version. Returns the
+    committed stream.
     """
     raise NotImplementedError("commit_stream not implemented")
 
@@ -436,20 +444,32 @@ def commit_partition(
 
 
 def delete_partition(
-    namespace: str,
-    table_name: str,
-    table_version: Optional[str] = None,
+    stream_locator: StreamLocator,
     partition_values: Optional[PartitionValues] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> None:
     """
-    Deletes the given partition from the specified table version. Resolves to
-    the latest active table version if no table version is given. Partition
+    Deletes the given partition from the specified stream. Partition
     values should not be specified for unpartitioned tables. Raises an error
-    if the table version or partition does not exist.
+    if the partition does not exist.
     """
     raise NotImplementedError("delete_partition not implemented")
+
+
+def get_staged_partition(
+    stream_locator: StreamLocator,
+    partition_id: str,
+    *args,
+    **kwargs,
+) -> Optional[Partition]:
+    """
+    Gets the staged partition for the given stream locator and partition ID.
+    Returns None if the partition does not exist. Raises an error if the
+    given stream locator does not exist.
+    """
+    raise NotImplementedError("get_staged_partition not implemented")
 
 
 def get_partition(
@@ -462,7 +482,9 @@ def get_partition(
     Gets the most recently committed partition for the given stream locator and
     partition key values. Returns None if no partition has been committed for
     the given table version and/or partition key values. Partition values
-    should not be specified for unpartitioned tables.
+    should not be specified for unpartitioned tables. Partition scheme ID
+    resolves to the table version's current partition scheme by default.
+    Raises an error if the given stream locator does not exist.
     """
     raise NotImplementedError("get_partition not implemented")
 
