@@ -367,9 +367,8 @@ def commit_stream(
 ) -> Stream:
     """
     Registers a delta stream with a target table version, replacing any
-    previous stream registered for the same table version. If the stream
-    format is not set prior to commit, then it is defaulted to the DeltaCAT
-    stream format. Returns the committed stream.
+    previous stream registered for the same table version. Returns the
+    committed stream.
     """
     raise NotImplementedError("commit_stream not implemented")
 
