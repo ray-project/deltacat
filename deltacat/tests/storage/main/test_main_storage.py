@@ -237,9 +237,9 @@ class TestStream:
             catalog=self.catalog)
 
         streams = list_result.all_items()
-        # This will list but the staged stream and the committed stream
-        assert len(streams)==2
-        # TODO - add more assertions
+
+        assert len(streams)==1
+
 
     def test_get_stream(self):
         # The stream is created and committed in setup

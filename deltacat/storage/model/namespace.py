@@ -17,10 +17,19 @@ class Namespace(Metafile):
     def of(
         locator: Optional[NamespaceLocator],
         properties: Optional[NamespaceProperties] = None,
+        assign_id=True
     ) -> Namespace:
+        """
+        Create a new namespace given locator
+
+        :param assign_id: if True, will assign new metafile ID. Use this when writing a new namespace
+          do NOT use this when creating "placeholder" objects for reading
+        """
         namespace = Namespace()
         namespace.locator = locator
         namespace.properties = properties
+        if assign_id:
+            namespace.assign_id()
         return namespace
 
     @property

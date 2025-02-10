@@ -27,6 +27,9 @@ class StreamFormat(str, Enum):
     DELTA_LAKE = "delta_lake"
     SQLITE3 = "SQLITE3"  # used by tests
 
+    @classmethod
+    def default(cls):
+        return cls.DELTACAT
 
 class DeltaType(str, Enum):
     APPEND = "append"

@@ -41,6 +41,7 @@ class Stream(Metafile):
         previous_stream_id: Optional[str] = None,
         watermark: Optional[int] = None,
         native_object: Optional[Any] = None,
+        assign_id: bool = True
     ) -> Stream:
         stream = Stream()
         stream.locator = locator
@@ -49,6 +50,8 @@ class Stream(Metafile):
         stream.previous_stream_id = previous_stream_id
         stream.watermark = watermark
         stream.native_object = native_object
+        if assign_id:
+            stream.assign_id()
         return stream
 
     @property
@@ -64,7 +67,13 @@ class Stream(Metafile):
 
     @property
     def locator_alias(self) -> Optional[StreamLocatorAlias]:
-        return StreamLocatorAlias.of(self)
+        """
+        TODO (mccember) implement aliasing
+
+        Currently there is no metastore file format for an alias. We can consider implementing a Metafile
+        of type Alias so that Aliases themselves are revisioned and honor transaction isolation
+        """
+        return None
 
     @property
     def partition_scheme(self) -> Optional[partition.PartitionScheme]:
@@ -151,11 +160,12 @@ class Stream(Metafile):
         return None
 
     @property
-    def stream_format(self) -> Optional[str]:
+    def stream_format(self) -> str:
         stream_locator = self.locator
         if stream_locator:
             return stream_locator.format
-        return None
+        else:
+            return StreamFormat.default()
 
     @property
     def namespace(self) -> Optional[str]:
@@ -233,8 +243,18 @@ class StreamLocatorName(LocatorName):
         self.locator.stream_id = immutable_id
 
     def parts(self) -> List[str]:
+        """
+        The canonical name of a stream if just made up of its format
+
+        This enforces that only one stream of a given format can exist at one time, or else that stream
+            gets updated when creating a new stream of that type
+
+        TODO (mccember) update this to be stream_id + stream_format after we remove the constraint of one
+        stream per format per table version.
+
+        This will also require implementing stream aliasing
+        """
         return [
-            self.locator.stream_id,
             self.locator.format,
         ]
 
@@ -244,7 +264,7 @@ class StreamLocator(Locator, dict):
     def of(
         table_version_locator: Optional[TableVersionLocator],
         stream_id: Optional[str],
-        stream_format: Optional[StreamFormat],
+        stream_format: Optional[StreamFormat]
     ) -> StreamLocator:
         """
         Creates a table version Stream Locator. All input parameters are
@@ -253,11 +273,13 @@ class StreamLocator(Locator, dict):
         stream_locator = StreamLocator()
         stream_locator.table_version_locator = table_version_locator
         stream_locator.stream_id = stream_id
-        stream_locator.format = (
-            stream_format.value
-            if isinstance(stream_format, StreamFormat)
-            else stream_format
-        )
+
+        # Default stream format to DELTACAT if not explicitly provided
+        if not stream_format:
+            stream_locator.format = StreamFormat.default().value
+        else:
+            stream_locator.format = stream_format.value
+
         return stream_locator
 
     @staticmethod
@@ -268,6 +290,7 @@ class StreamLocator(Locator, dict):
         stream_id: Optional[str],
         stream_format: Optional[StreamFormat],
     ) -> StreamLocator:
+
         table_version_locator = (
             TableVersionLocator.at(
                 namespace,

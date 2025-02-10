@@ -433,6 +433,7 @@ class Metafile(ABC, dict):
                         f"New ID cannot be specified for metafiles that "
                         f"don't have a named immutable ID."
                     )
+                metafile_copy.assign_id()
             else:
                 if not new_id:
                     raise ValueError(
@@ -653,8 +654,14 @@ class Metafile(ABC, dict):
         # or if we need to use a generated UUID as an immutable ID
         _id = self.locator.name.immutable_id or self.get("id")
         if not _id:
-            _id = self["id"] = self.generate_new_id()
+            x=5
         return _id
+
+    def assign_id(self):
+        """
+        Generate a new ID and assign to metafile. ID spec controlled by classmethod `generate_new_id`
+        """
+        self["id"] = self.generate_new_id()
 
     @classmethod
     def generate_new_id(cls):
@@ -1070,6 +1077,8 @@ class Metafile(ABC, dict):
                 else None
             )
             mutable_dest_locator = current_txn_op.dest_metafile.locator
+
+        # TODO (mccember) implement aliases. For now, raise an NotImplementedException
         elif self.locator_alias:
             mutable_src_locator = (
                 current_txn_op.src_metafile.locator_alias

@@ -97,7 +97,7 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     Lists a page of table namespaces. Namespaces are returned as list result
     items.
     """
-    placeholder_ns = Namespace.of(NamespaceLocator.of("placeholder"))
+    placeholder_ns = Namespace.of(NamespaceLocator.of("placeholder"), assign_id=False)
     return _list(
         placeholder_ns,
         TransactionOperationType.READ_SIBLINGS,
@@ -172,8 +172,8 @@ def list_partitions(
         tv = get_table_version(namespace, table_name, table_version, *args, **kwargs)
     if not tv:
         raise ValueError(f"Table version '{namespace}.{table_name}.{table_version}' not found.")
-    
-    
+
+
     return _list(tv, TransactionOperationType.READ_CHILDREN, *args, **kwargs)
 
 def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partition]:
@@ -400,6 +400,9 @@ def create_namespace(
     """
     catalog = _get_catalog(**kwargs)
     ns_obj = Namespace.of(NamespaceLocator.of(namespace), properties=properties)
+    # Assign id to new namespace object
+    ns_obj.assign_id()
+
     txn = Transaction.of(
         txn_type=TransactionType.APPEND,
         txn_operations=[
@@ -492,7 +495,7 @@ def create_table_version(
         table_txn_op_type = TransactionOperationType.CREATE
         prev_table = None
         new_table = Table.of(
-            locator=TableLocator.of(NamespaceLocator.of(namespace), table_name),)
+            locator=TableLocator.of(NamespaceLocator.of(namespace), table_name))
 
     else:
         # the parent table exists, so we'll update it in this transaction
@@ -563,7 +566,7 @@ def create_table_version(
             ),
         ],
     )
-    transaction.commit(
+    results = transaction.commit(
         catalog_root_dir=catalog.root,
         filesystem=catalog.filesystem,
     )
@@ -697,7 +700,7 @@ def stage_stream(
         namespace=stream.namespace,
         table_name=stream.table_name,
         table_version=stream.table_version,
-        stream_format=stream.stream_format,
+        stream_format=StreamFormat(stream.stream_format),
         **kwargs,
     )
     if prev_stream:
@@ -731,6 +734,8 @@ def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
     committed stream.
 
     This function effectively is used to create a stream, and is re-used by implementation of create_stream
+
+    TODO should commit_stream take either a stream object or a stream id?
     """
     stream: Stream = Metafile.update_for(stream)
 
@@ -739,43 +744,42 @@ def commit_stream(stream: Stream, *args, **kwargs) -> Stream:
         namespace=stream.namespace,
         table_name=stream.table_name,
         table_version=stream.table_version,
-        stream_format=stream.stream_format,
+        stream_format=StreamFormat(stream.stream_format),
         **kwargs,
     )
 
+    # Perform validations and set fields on deep copy of stream
+    # Validate referential integrity of previous_stream_id
     if prev_stream:
         if prev_stream.stream_id != stream.previous_stream_id:
             raise ValueError(
-                f"Previous stream ID mismatch Expected "
-                f"{stream.previous_stream_id} but found "
+                f"Trying to commit stream with invalid previous_stream_id. Previous stream id is "
+                f"{stream.previous_stream_id} but trying to commit stream ID with previous_stream_id "
                 f"{prev_stream.stream_id}."
             )
         if prev_stream.stream_id == stream.stream_id:
             raise ValueError(
                 f"Stream to commit has the same ID as existing stream: {prev_stream}."
             )
-        txn_type = TransactionType.OVERWRITE
-    else:
-        txn_type = TransactionType.APPEND
-
 
     if not stream.locator.stream_id:
-        stream.locator.stream_id = str(uuid.uuid4())
-    if not stream.stream_format:
-        stream.stream_format = StreamFormat.DELTACAT
+        raise ValueError(f"Trying to commit stream without ID! Stream is {stream}")
+
+    # Update state to committed
     stream.state = CommitState.COMMITTED
 
-
+    """
+    Determine if stream exists or not already to inform transaction operation type
+    TODO (mccember) is there a race condition here where another stream is created before this transaction commits
+      and we try to CREATE against an existing id? I believe stream creation would fail and need to be retried currently 
+    """
     existing = _read_latest_metafile(
         stream,
         TransactionOperationType.READ_LATEST,
         *args,
         **kwargs
     )
-    if existing:
-        op_type = TransactionOperationType.UPDATE
-    else:
-        op_type = TransactionOperationType.CREATE
+    op_type = TransactionOperationType.UPDATE if existing else TransactionOperationType.CREATE
 
     catalog = _get_catalog(**kwargs)
     tx = Transaction.of(
@@ -912,7 +916,6 @@ def get_stream(
     table_name: str,
     table_version: Optional[str] = None,
     stream_format: StreamFormat = StreamFormat.DELTACAT,
-    stream_alias: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Stream]:
@@ -933,7 +936,7 @@ def get_stream(
         stream_id=None,
         stream_format=stream_format,
     )
-    placeholder = Stream.of(locator, partition_scheme=None)
+    placeholder = Stream.of(locator, partition_scheme=None, assign_id=False)
     return _read_latest_metafile(
         placeholder,
         TransactionOperationType.READ_LATEST,
@@ -995,7 +998,7 @@ def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     Gets table namespace metadata for the specified table namespace. Returns
     None if not found.
     """
-    placeholder_ns = Namespace.of(NamespaceLocator.of(namespace))
+    placeholder_ns = Namespace.of(NamespaceLocator.of(namespace), assign_id=False)
     return _read_latest_metafile(
         placeholder_ns,
         TransactionOperationType.READ_LATEST,
@@ -1007,7 +1010,7 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     """
     Returns True if the namespace exists, else False.
     """
-    placeholder_ns = Namespace.of(NamespaceLocator.of(namespace))
+    placeholder_ns = Namespace.of(NamespaceLocator.of(namespace), assign_id=False)
     check = _read_latest_metafile(
         placeholder_ns,
         TransactionOperationType.READ_EXISTS,
@@ -1027,6 +1030,7 @@ def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Tabl
     from deltacat.storage.model.table import Table, TableLocator
     placeholder_tbl = Table.of(
         locator=TableLocator.at(namespace, table_name),
+        assign_id=False
     )
     return _read_latest_metafile(
         placeholder_tbl,

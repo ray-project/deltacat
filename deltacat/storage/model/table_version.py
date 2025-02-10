@@ -45,6 +45,7 @@ class TableVersion(Metafile):
         partition_schemes: Optional[partition.PartitionSchemeList] = None,
         sort_schemes: Optional[SortSchemeList] = None,
         native_object: Optional[Any] = None,
+        assign_id: bool = True
     ) -> TableVersion:
         table_version = TableVersion()
         table_version.locator = locator
@@ -61,6 +62,8 @@ class TableVersion(Metafile):
         table_version.partition_schemes = partition_schemes
         table_version.sort_schemes = sort_schemes
         table_version.native_object = native_object
+        if assign_id:
+            table_version.assign_id()
         return table_version
 
     @property
@@ -315,13 +318,20 @@ class TableVersion(Metafile):
     def new_version(cls, previous_version: Optional[str]=None) -> str:
         """
         Assign a new version string.
-        Will attempt to use convention of 1-indexed incrementing integers ("1", "2", etc)
+        Will attempt to use convention of 1-indexed incrementing integers ("v1", "v2", etc)
         Otherwise will use metafile default id
         """
-        try:
-            # if the last table version was an int then increment it by 1
-            return str(int(previous_version) + 1)
-        except ValueError:
+        import re
+
+        if previous_version is None:
+            return Metafile.generate_new_id()
+
+        version_match = re.match(r"^(v?)(\d+)$", previous_version)
+        if version_match:
+            prefix, version_number = version_match.groups()
+            new_version_number = int(version_number) + 1
+            return f"{prefix}{new_version_number}"
+        else:
             return Metafile.generate_new_id()
 
 

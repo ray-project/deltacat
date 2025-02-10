@@ -443,7 +443,13 @@ class Transaction(dict):
         # remove all src/dest metafile contents except IDs and locators to
         # reduce file size (they can be reconstructed from their corresponding
         # files as required).
+
         for operation in serializable.operations:
+            if operation.dest_metafile and operation.dest_metafile.id==None:
+                operation.dest_metafile.assign_id()
+            if operation.src_metafile and operation.src_metafile.id==None:
+                operation.src_metafile.assign_id()
+
             operation.dest_metafile = {
                 "id": operation.dest_metafile.id,
                 "locator": operation.dest_metafile.locator,

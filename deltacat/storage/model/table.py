@@ -32,6 +32,7 @@ class Table(Metafile):
         latest_active_table_version: Optional[str] = None,
         latest_table_version: Optional[str] = None,
         native_object: Optional[Any] = None,
+        assign_id: bool = True
     ) -> Table:
         table = Table()
         table.locator = locator
@@ -40,6 +41,8 @@ class Table(Metafile):
         table.latest_active_table_version = latest_active_table_version
         table.latest_table_version = latest_table_version
         table.native_object = native_object
+        if assign_id:
+            table.assign_id()
         return table
 
     @property
