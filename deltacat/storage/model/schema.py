@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 
 import msgpack
-from typing import Optional, Any, Dict, Union, List, Callable
+from typing import Optional, Any, Dict, OrderedDict, Union, List, Callable
 
 import pyarrow as pa
 from pyarrow import ArrowInvalid
@@ -463,6 +463,12 @@ class Schema(dict):
     def serialize(self) -> pa.Buffer:
         return self.arrow.serialize()
 
+    def equivalent_to(self, other):
+        try:
+            return self.serialize().to_pybytes() == other.serialize().to_pybytes()
+        except Exception:
+            return False
+
     def field_id(self, name: Union[FieldName, NestedFieldName]) -> FieldId:
         return Schema._field_name_to_field_id(self.arrow, name)
 
@@ -620,7 +626,8 @@ class Schema(dict):
         max_field_id = (
             visitor_dict["maxFieldId"] + len(field_ids_to_fields)
         ) % MAX_FIELD_ID_EXCLUSIVE
-        field_id = Field.of(field).id or max_field_id
+        _field = Field.of(field)
+        field_id = _field.id if _field is not None else max_field_id
         if (dupe := field_ids_to_fields.get(field_id)) is not None:
             raise ValueError(
                 f"Duplicate field id {field_id} for field: {field} "
@@ -634,18 +641,140 @@ class Schema(dict):
         field_ids_to_fields[field_id] = field
 
 
-class SchemaList(List[Schema]):
-    @staticmethod
-    def of(items: List[Schema]) -> SchemaList:
-        typed_items = SchemaList()
-        for item in items:
-            if item is not None and not isinstance(item, Schema):
-                item = Schema(item)
-            typed_items.append(item)
-        return typed_items
+class SchemaMap(OrderedDict):
+    """
+    An OrderedDict wrapper for managing schemas in a DeltaCAT TableVersion.
 
-    def __getitem__(self, item):
-        val = super().__getitem__(item)
-        if val is not None and not isinstance(val, Schema):
-            self[item] = val = Schema(val)
-        return val
+    method: of(item)
+    method: insert(name, schema)
+    method: update_schema(name, schema)
+    method: delete_schema(name)
+    method: get_schemas()
+    method: equivalent_to(other)
+    """
+
+    @staticmethod
+    def of(item: Union[Dict[str, Any], List[Any]]) -> "SchemaMap":
+        """
+        Create a SchemaMap from a dictionary or a list of schema data.
+
+        param: item (Union[Dict[str, Any], List[Any]]): A dict mapping names to schema data or a list of schema data.
+        returns: SchemaMap instance containing the provided schemas.
+        raises: ValueError if item is neither a dict nor a list.
+        """
+        mapping = SchemaMap()
+        if isinstance(item, dict):
+            for name, schema_data in item.items():
+                schema_obj = (
+                    schema_data
+                    if isinstance(schema_data, Schema)
+                    else Schema(schema_data)
+                )
+                mapping.insert(name, schema_obj)
+        elif isinstance(item, list):
+            for schema_data in item:
+                schema_obj = (
+                    schema_data
+                    if isinstance(schema_data, Schema)
+                    else Schema(schema_data)
+                )
+                mapping.insert(None, schema_obj)
+        else:
+            raise ValueError(f"Cannot create SchemaMap from {item}")
+        return mapping
+
+    def _generate_default_name(self, schema: Schema) -> str:
+        """
+        Generate a default unique name for the given schema.
+        This is used when creating schemas using a List[Schema] keys are set to incremental integer values.
+
+        Key is in the format: schema_{n} where n is the next available integer.
+
+        param: schema (Schema): The schema for which to generate a name.
+        returns: A unique default name (str) for the schema.
+        raises: None.
+        """
+        candidate = getattr(schema, "name", None)
+        if not candidate:
+            candidate = f"schema_{len(self) + 1}"
+        base_candidate = candidate
+        counter = 1
+        while candidate in self:
+            candidate = f"{base_candidate}_{counter}"
+            counter += 1
+        return candidate
+
+    def insert(
+        self, name: Optional[str], schema: Union[Schema, Dict[str, Any]]
+    ) -> None:
+        """
+        Insert a new schema into the map.
+
+        param: name (Optional[str]): The desired name for the schema; if None or empty, a default name is generated.
+        param: schema (Union[Schema, Dict[str, Any]]): The schema or a dict convertible to a Schema.
+        returns: None.
+        raises: ValueError if a schema with the given (or generated) name already exists.
+        """
+        schema_obj = schema if isinstance(schema, Schema) else Schema(schema)
+        if not name:
+            name = self._generate_default_name(schema_obj)
+        if name in self:
+            raise ValueError(f"Schema with name '{name}' already exists.")
+        self[name] = schema_obj
+
+    def update_schema(self, name: str, schema: Union[Schema, Dict[str, Any]]) -> None:
+        """
+        Update an existing schema in the stored schemas.
+
+        param: name (str): The name of the schema to update.
+        param: schema (Union[Schema, Dict[str, Any]]): The new schema or a dict convertible to a Schema.
+        returns: None.
+        raises: KeyError if no schema with the specified name exists.
+        """
+        if name not in self:
+            raise KeyError(f"Schema with name '{name}' does not exist.")
+        schema_obj = schema if isinstance(schema, Schema) else Schema(schema)
+        self[name] = schema_obj
+
+    def delete_schema(self, name: str) -> None:
+        """
+        Delete a schema from the stored schemas.
+
+        param: name (str): The name of the schema to delete.
+        returns: None.
+        raises: KeyError if the schema with the specified name is not found.
+        """
+        if name not in self:
+            raise KeyError(f"Schema with name '{name}' does not exist.")
+        del self[name]
+
+    def get_schemas(self) -> List[Schema]:
+        """
+        Retrieve all stored schemas as a list.
+
+        param: None.
+        returns: List[Schema] containing all schemas in insertion order.
+        raises: None.
+        """
+        return list(self.values())
+
+    def equivalent_to(self, other: Any) -> bool:
+        """
+        Equivalence check for SchemaMap objects.
+
+        param: other (Any): Another mapping (dict or SchemaMap) to compare against.
+        returns: bool indicating whether both mappings have the same keys in the same order and equivalent Schema objects.
+        raises: None.
+        """
+        if not isinstance(other, (dict, SchemaMap)):
+            return False
+        if len(self) != len(other):
+            return False
+        for (key_self, schema_self), (key_other, schema_other) in zip(
+            self.items(), other.items()
+        ):
+            if key_self != key_other:
+                return False
+            if not schema_self.equivalent_to(schema_other):
+                return False
+        return True

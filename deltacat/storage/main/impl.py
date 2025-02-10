@@ -255,6 +255,7 @@ def _resolve_latest_table_version_id(
     return table.latest_table_version
 
 
+
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     """
     Lists a page of table namespaces. Namespaces are returned as list result
@@ -402,6 +403,7 @@ def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partit
     )
 
 
+
 def list_deltas(
     namespace: str,
     table_name: str,
@@ -519,6 +521,7 @@ def list_partition_deltas(
     return filtered_deltas
 
 
+
 def get_delta(
     namespace: str,
     table_name: str,
@@ -568,6 +571,7 @@ def get_delta(
         metafile=delta,
         **kwargs,
     )
+
 
 
 def get_latest_delta(
@@ -621,6 +625,7 @@ def get_latest_delta(
     )
 
 
+
 def download_delta(
     delta_like: Union[Delta, DeltaLocator],
     table_type: TableType = TableType.PYARROW,
@@ -643,6 +648,7 @@ def download_delta(
     raise NotImplementedError("download_delta not implemented")
 
 
+
 def download_delta_manifest_entry(
     delta_like: Union[Delta, DeltaLocator],
     entry_index: int,
@@ -661,6 +667,7 @@ def download_delta_manifest_entry(
     NOTE: The entry will be downloaded in the current node's memory.
     """
     raise NotImplementedError("download_delta_manifest_entry not implemented")
+
 
 
 def get_delta_manifest(
@@ -707,6 +714,7 @@ def create_namespace(
     return namespace
 
 
+
 def update_namespace(
     namespace: str,
     properties: Optional[NamespaceProperties] = None,
@@ -743,6 +751,7 @@ def update_namespace(
         filesystem=catalog.filesystem,
     )
     return namespace
+
 
 
 def create_table_version(
@@ -862,6 +871,7 @@ def create_table_version(
     return stream
 
 
+
 def update_table(
     namespace: str,
     table_name: str,
@@ -904,6 +914,7 @@ def update_table(
         catalog_root_dir=catalog.root,
         filesystem=catalog.filesystem,
     )
+
 
 
 def update_table_version(
@@ -1033,6 +1044,7 @@ def update_table_version(
         catalog_root_dir=catalog.root,
         filesystem=catalog.filesystem,
     )
+
 
 
 def stage_stream(
@@ -1281,6 +1293,7 @@ def get_staged_stream(
     )
 
 
+
 def get_stream(
     namespace: str,
     table_name: str,
@@ -1519,6 +1532,7 @@ def commit_partition(
     return partition
 
 
+
 def delete_partition(
     stream_locator: StreamLocator,
     partition_values: Optional[PartitionValues] = None,
@@ -1588,6 +1602,7 @@ def get_staged_partition(
     )
 
 
+
 def get_partition(
     stream_locator: StreamLocator,
     partition_values: Optional[PartitionValues] = None,
@@ -1634,6 +1649,7 @@ def get_partition(
     )
 
 
+
 def stage_delta(
     data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
     partition: Partition,
@@ -1662,6 +1678,7 @@ def stage_delta(
     raise NotImplementedError("stage_delta not implemented")
 
 
+
 def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     """
     Registers a new delta with its associated target table version and
@@ -1672,6 +1689,7 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     position in the target partition.
     """
     raise NotImplementedError("commit_delta not implemented")
+
 
 
 def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
@@ -1697,6 +1715,7 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     )
 
 
+
 def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Table]:
     """
     Gets table metadata for the specified table. Returns None if the given
@@ -1720,6 +1739,7 @@ def table_exists(namespace: str, table_name: str, *args, **kwargs) -> bool:
         metafile=Table.of(locator=locator),
         **kwargs,
     )
+
 
 
 def get_table_version(
@@ -1749,6 +1769,7 @@ def get_table_version(
     )
 
 
+
 def get_latest_table_version(
     namespace: str, table_name: str, *args, **kwargs
 ) -> Optional[TableVersion]:
@@ -1775,6 +1796,7 @@ def get_latest_table_version(
         if table_version_id
         else None
     )
+
 
 
 def get_latest_active_table_version(
@@ -1825,6 +1847,7 @@ def get_table_version_column_names(
         table_version=table_version,
     )
     return schema.arrow.names if schema else None
+
 
 
 def get_table_version_schema(
@@ -1880,11 +1903,13 @@ def table_version_exists(
     )
 
 
+
 def can_categorize(e: BaseException, *args, **kwargs) -> bool:
     """
     Return whether input error is from storage implementation layer.
     """
     raise NotImplementedError
+
 
 
 def raise_categorized_error(e: BaseException, *args, **kwargs):

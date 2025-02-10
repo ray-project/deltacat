@@ -13,6 +13,7 @@ from deltacat.storage import (
     TableVersionLocator,
     StreamFormat,
 )
+from deltacat.storage.model.table import Table
 from deltacat.catalog.main.impl import PropertyCatalog
 import pyarrow as pa
 
@@ -96,6 +97,7 @@ class TestNamespace:
             "foobar",
             catalog=self.catalog,
         )
+
 
 
 class TestTable:
