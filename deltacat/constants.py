@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from deltacat.utils.common import env_string, env_bool
 
 # Environment variables
@@ -37,6 +38,15 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
     False,
 )
 
+# CLI Args
+METAFILE_FORMAT_KEY = "metafile-format"
+METAFILE_FORMAT = env_string(METAFILE_FORMAT_KEY, "msgpack")
+METAFILE_EXT = {
+    "json": ".json",
+    "msgpack": ".mpk",
+}[METAFILE_FORMAT]
+
+
 # Byte Units
 BYTES_PER_KIBIBYTE = 2**10
 BYTES_PER_MEBIBYTE = 2**20
@@ -72,7 +82,6 @@ NULL_SIZE_BYTES = 4
 
 # Metastore Constants
 REVISION_DIR_NAME: str = "rev"
-METAFILE_EXT = ".mpk"
 TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"

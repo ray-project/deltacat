@@ -1,25 +1,46 @@
+import argparse
 import hashlib
 import os
 import time
+import sys
 from typing import Any, Dict
 
 
-def env_bool(key: str, default: bool) -> int:
+def get_cli_arg(key: str) -> Any:
+    parser = argparse.ArgumentParser()
+
+    # allow hyphens in keys, normalize as underscores
+    normalized_key = key.replace("-", "_")
+
+    parser.add_argument(f"--{key}", metavar=normalized_key, type=str)
+    args, _ = parser.parse_known_args(sys.argv[1:])  # Allow unknown args
+    return getattr(args, normalized_key, None)
+
+
+def env_bool(key: str, default: bool) -> bool:
+    cli_value = get_cli_arg(key)
+    if cli_value is not None:
+        return bool(cli_value)
+
     if key in os.environ:
         return bool(os.environ[key])
+
     return default
 
 
 def env_integer(key: str, default: int) -> int:
+    cli_value = get_cli_arg(key)
+    if cli_value is not None:
+        return int(cli_value)
+
     if key in os.environ:
         return int(os.environ[key])
+
     return default
 
 
 def env_string(key: str, default: str) -> str:
-    if key in os.environ:
-        return os.environ[key]
-    return default
+    return get_cli_arg(key) or os.getenv(key, default)
 
 
 def current_time_ms() -> int:
