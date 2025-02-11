@@ -643,18 +643,18 @@ class Schema(dict):
 
 class SchemaMap(OrderedDict):
     """
-    An OrderedDict wrapper for managing schemas in a DeltaCAT TableVersion.
+    An OrderedDict wrapper for managing DeltaCAT Schema objects.
 
     method: of(item)
-    method: insert(name, schema)
-    method: update_schema(name, schema)
-    method: delete_schema(name)
+    method: __setitem__(key, value)
+    method: update(iterable_or_mapping, **kwargs)
+    method: __delitem__(key)
     method: get_schemas()
     method: equivalent_to(other)
     """
 
     @staticmethod
-    def of(item: Union[Dict[str, Any], List[Any]]) -> "SchemaMap":
+    def of(item: Union[Dict[str, Any], List[Any]]) -> SchemaMap:
         """
         Create a SchemaMap from a dictionary or a list of schema data.
 
@@ -665,20 +665,10 @@ class SchemaMap(OrderedDict):
         mapping = SchemaMap()
         if isinstance(item, dict):
             for name, schema_data in item.items():
-                schema_obj = (
-                    schema_data
-                    if isinstance(schema_data, Schema)
-                    else Schema(schema_data)
-                )
-                mapping.insert(name, schema_obj)
+                mapping[name] = schema_data
         elif isinstance(item, list):
             for schema_data in item:
-                schema_obj = (
-                    schema_data
-                    if isinstance(schema_data, Schema)
-                    else Schema(schema_data)
-                )
-                mapping.insert(None, schema_obj)
+                mapping[None] = schema_data
         else:
             raise ValueError(f"Cannot create SchemaMap from {item}")
         return mapping
@@ -686,9 +676,8 @@ class SchemaMap(OrderedDict):
     def _generate_default_name(self, schema: Schema) -> str:
         """
         Generate a default unique name for the given schema.
-        This is used when creating schemas using a List[Schema] keys are set to incremental integer values.
-
-        Key is in the format: schema_{n} where n is the next available integer.
+        Uses the schema's own name attribute if available; otherwise, creates one based on the current number of entries.
+        Ensures uniqueness by appending an incremental suffix if needed.
 
         param: schema (Schema): The schema for which to generate a name.
         returns: A unique default name (str) for the schema.
@@ -696,7 +685,7 @@ class SchemaMap(OrderedDict):
         """
         candidate = getattr(schema, "name", None)
         if not candidate:
-            candidate = f"schema_{len(self) + 1}"
+            candidate = f"{len(self) + 1}"
         base_candidate = candidate
         counter = 1
         while candidate in self:
@@ -704,49 +693,42 @@ class SchemaMap(OrderedDict):
             counter += 1
         return candidate
 
-    def insert(
-        self, name: Optional[str], schema: Union[Schema, Dict[str, Any]]
+    def __setitem__(
+        self, key: Optional[str], value: Union[Schema, Dict[str, Any]]
     ) -> None:
         """
-        Insert a new schema into the map.
+        Override __setitem__ to convert the value to a Schema, generate a default name if needed,
+        and check for duplicates.
 
-        param: name (Optional[str]): The desired name for the schema; if None or empty, a default name is generated.
-        param: schema (Union[Schema, Dict[str, Any]]): The schema or a dict convertible to a Schema.
+        param: key (Optional[str]): The desired key for the schema; if None or empty, a default name is generated.
+        param: value (Union[Schema, Dict[str, Any]]): The schema or dict convertible to a Schema.
         returns: None.
-        raises: ValueError if a schema with the given (or generated) name already exists.
+        raises: ValueError if a schema with the given (or generated) key already exists.
         """
-        schema_obj = schema if isinstance(schema, Schema) else Schema(schema)
-        if not name:
-            name = self._generate_default_name(schema_obj)
-        if name in self:
-            raise ValueError(f"Schema with name '{name}' already exists.")
-        self[name] = schema_obj
+        schema_obj = value if isinstance(value, Schema) else Schema(value)
 
-    def update_schema(self, name: str, schema: Union[Schema, Dict[str, Any]]) -> None:
+        if not key:
+            key = self._generate_default_name(schema_obj)
+
+        if key in self:
+            raise ValueError(
+                f"Schema with name '{key}' already exists in the SchemaMap."
+            )
+
+        super().__setitem__(key, schema_obj)
+
+    def __delitem__(self, key: str) -> None:
         """
-        Update an existing schema in the stored schemas.
+        Override __delitem__ to delete a schema.
 
-        param: name (str): The name of the schema to update.
-        param: schema (Union[Schema, Dict[str, Any]]): The new schema or a dict convertible to a Schema.
+        param: key (str): The key of the schema to delete.
         returns: None.
-        raises: KeyError if no schema with the specified name exists.
+        raises: KeyError if the key is not present.
         """
-        if name not in self:
-            raise KeyError(f"Schema with name '{name}' does not exist.")
-        schema_obj = schema if isinstance(schema, Schema) else Schema(schema)
-        self[name] = schema_obj
+        if key not in self:
+            raise KeyError(f"Schema with name '{key}' does not exist.")
 
-    def delete_schema(self, name: str) -> None:
-        """
-        Delete a schema from the stored schemas.
-
-        param: name (str): The name of the schema to delete.
-        returns: None.
-        raises: KeyError if the schema with the specified name is not found.
-        """
-        if name not in self:
-            raise KeyError(f"Schema with name '{name}' does not exist.")
-        del self[name]
+        super().__delitem__(key)
 
     def get_schemas(self) -> List[Schema]:
         """
@@ -758,9 +740,9 @@ class SchemaMap(OrderedDict):
         """
         return list(self.values())
 
-    def equivalent_to(self, other: Any) -> bool:
+    def equivalent_to(self, other: SchemaMap) -> bool:
         """
-        Equivalence check for SchemaMap objects.
+        Compare this SchemaMap with another mapping for equivalence.
 
         param: other (Any): Another mapping (dict or SchemaMap) to compare against.
         returns: bool indicating whether both mappings have the same keys in the same order and equivalent Schema objects.
