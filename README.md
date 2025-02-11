@@ -1,7 +1,9 @@
-![deltacat-header-logo](media/deltacat-logo-alpha.png)
+<p align="center">
+  <img src="media/deltacat-logo-alpha-750.png" alt="DeltaCAT Logo" style="width:55%; height:auto; text-align: center;">
+</p>
 
-DeltaCAT is a portable Multimodal Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It lets you define and manage
-fast, scalable, ACID-compliant Multimodal data lakes, and has been used to [successfully manage exabyte-scale enterprise
+DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It lets you define and manage
+fast, scalable, ACID-compliant multimodal data lakes, and has been used to [successfully manage exabyte-scale enterprise
 data lakes](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
 
 It uses the Ray distributed compute framework together with [Apache Arrow](https://github.com/apache/arrow) and
@@ -9,10 +11,10 @@ It uses the Ray distributed compute framework together with [Apache Arrow](https
 merge-on-read and copy-on-write operations.
 
 DeltaCAT provides four high-level components:
-1. **Catalog**: High-level APIs to create, discover, organize, and manage datasets.
-2. **Compute**: Distributed data management jobs to read, write, and optimize datasets.
+1. **Catalog**: High-level APIs to create, discover, organize, share, and manage datasets.
+2. **Compute**: Distributed data management procedures to read, write, and optimize datasets.
 3. **Storage**: In-memory and on-disk multimodal dataset formats.
-4. **Sync**: Synchronize DeltaCAT datasets with other data warehouses and table formats.
+4. **Sync**: Synchronize DeltaCAT datasets to data warehouses and other table formats.
 
 
 ## Getting Started
