@@ -286,7 +286,6 @@ class TestStream:
             table_version="v1",
             catalog=self.catalog,
         )
-        # TODO this is broken, stream is table version
         assert stream is not None
 
     def test_list_stream_partitions_empty(self):
