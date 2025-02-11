@@ -180,7 +180,7 @@ class MetafileRevisionInfo(dict):
             ignore_missing_revision=is_create_txn,
         )
         # validate the transaction operation type
-        if mri.revision:
+        if mri.exists():
             # update/delete fails if the last metafile was deleted
             if mri.txn_op_type == TransactionOperationType.DELETE:
                 if current_txn_op_type != TransactionOperationType.CREATE:
@@ -371,6 +371,9 @@ class MetafileRevisionInfo(dict):
             else None
         )
 
+    def exists(self) -> bool:
+        return bool(self.revision)
+
 
 class Metafile(dict):
     """
@@ -490,6 +493,9 @@ class Metafile(dict):
                 pagination_key=None,
                 next_page_provider=None,
             )
+        else:
+            # Could not find any revisions in list operations - return no results
+            return ListResult.empty()
 
     @classmethod
     def read(
@@ -675,6 +681,7 @@ class Metafile(dict):
             parent_obj_path,
             self.id,
         )
+        # List metafiles with respect to this metafile's URI as root
         return self._list_metafiles(
             success_txn_log_dir=success_txn_log_dir,
             metafile_root_dir_path=metafile_root_dir_path,
@@ -742,15 +749,34 @@ class Metafile(dict):
             filesystem=filesystem,
         )
         metafile_root = posixpath.join(*[catalog_root] + ancestor_ids)
-        # TODO(pdames): Refactor id lazy assignment into explicit getter/setter
-        immutable_id = self.get("id") or Metafile._locator_to_id(
-            locator=self.locator,
-            catalog_root=catalog_root,
-            metafile_root=metafile_root,
-            filesystem=filesystem,
-            txn_start_time=current_txn_start_time,
-            txn_id=current_txn_id,
-        )
+        try:
+            locator = (
+                self.locator
+                if self.locator.name.exists()
+                else self.locator_alias
+                if self.locator_alias and self.locator_alias.name.exists()
+                else None
+            )
+            immutable_id = (
+                # TODO(pdames): Refactor id lazy assignment into explicit getter/setter
+                self.get("id")
+                or Metafile._locator_to_id(
+                    locator=locator,
+                    catalog_root=catalog_root,
+                    metafile_root=metafile_root,
+                    filesystem=filesystem,
+                    txn_start_time=current_txn_start_time,
+                    txn_id=current_txn_id,
+                )
+                if locator
+                else None
+            )
+        except ValueError:
+            # the metafile has been deleted - return an empty list result
+            return ListResult.empty()
+        if not immutable_id:
+            # the metafile does not exist - return an empty list result
+            return ListResult.empty()
         revision_dir_path = posixpath.join(
             metafile_root,
             immutable_id,
@@ -766,7 +792,7 @@ class Metafile(dict):
         )
         items = []
         for mri in revisions:
-            if mri.revision:
+            if mri.exists():
                 metafile = (
                     {}
                     if not materialize_revisions
@@ -841,6 +867,9 @@ class Metafile(dict):
                     txn_start_time=current_txn_start_time,
                     txn_id=current_txn_id,
                 )
+                if not ancestor_id:
+                    err_msg = f"Ancestor does not exist: {parent_locator}."
+                    raise ValueError(err_msg)
                 metafile_root = posixpath.join(
                     metafile_root,
                     ancestor_id,
@@ -886,9 +915,12 @@ class Metafile(dict):
         filesystem: pyarrow.fs.FileSystem,
         txn_start_time: Optional[int] = None,
         txn_id: Optional[str] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """
-        Resolves the metafile ID for the given locator.
+        Resolves the immutable metafile ID for the given locator.
+
+        :return: Immutable ID read from mapping file. None if no mapping exists.
+        :raises: ValueError if the id is found but has been deleted
         """
         metafile_id = locator.name.immutable_id
         if not metafile_id:
@@ -906,7 +938,10 @@ class Metafile(dict):
                 success_txn_log_dir=success_txn_log_dir,
                 current_txn_start_time=txn_start_time,
                 current_txn_id=txn_id,
+                ignore_missing_revision=True,
             )
+            if not mri.exists():
+                return None
             if mri.txn_op_type == TransactionOperationType.DELETE:
                 err_msg = (
                     f"Locator {locator} to metafile ID resolution failed "
@@ -929,6 +964,8 @@ class Metafile(dict):
         filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         name_resolution_dir_path = locator.path(parent_obj_path)
+        # TODO(pdames): Don't write updated revisions with the same mapping as
+        #  the latest revision.
         mri = MetafileRevisionInfo.new_revision(
             revision_dir_path=name_resolution_dir_path,
             current_txn_op_type=current_txn_op_type,
@@ -991,6 +1028,7 @@ class Metafile(dict):
         parent_obj_path = posixpath.join(*[catalog_root] + ancestor_path_elements)
         mutable_src_locator = None
         mutable_dest_locator = None
+        # metafiles without named immutable IDs have mutable name mappings
         if not self.named_immutable_id:
             mutable_src_locator = (
                 current_txn_op.src_metafile.locator
@@ -998,6 +1036,7 @@ class Metafile(dict):
                 else None
             )
             mutable_dest_locator = current_txn_op.dest_metafile.locator
+        # metafiles with named immutable IDs may have aliases
         elif self.locator_alias:
             mutable_src_locator = (
                 current_txn_op.src_metafile.locator_alias
@@ -1010,6 +1049,7 @@ class Metafile(dict):
             # from the locator back to its immutable metafile ID
             if (
                 current_txn_op.type == TransactionOperationType.UPDATE
+                and mutable_src_locator is not None
                 and mutable_src_locator != mutable_dest_locator
             ):
                 # this update includes a rename
@@ -1072,16 +1112,23 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 filesystem=filesystem,
             )
-            # mark the dest metafile as created
-            self._write_metafile_revision(
-                success_txn_log_dir=success_txn_log_dir,
-                revision_dir_path=metafile_revision_dir_path,
-                current_txn_op=current_txn_op,
-                current_txn_op_type=TransactionOperationType.CREATE,
-                current_txn_start_time=current_txn_start_time,
-                current_txn_id=current_txn_id,
-                filesystem=filesystem,
-            )
+            try:
+                # mark the dest metafile as created
+                self._write_metafile_revision(
+                    success_txn_log_dir=success_txn_log_dir,
+                    revision_dir_path=metafile_revision_dir_path,
+                    current_txn_op=current_txn_op,
+                    current_txn_op_type=TransactionOperationType.CREATE,
+                    current_txn_start_time=current_txn_start_time,
+                    current_txn_id=current_txn_id,
+                    filesystem=filesystem,
+                )
+            except ValueError as e:
+                # TODO(pdames): raise/catch a DuplicateMetafileCreate exception.
+                if "already exists" not in str(e):
+                    raise e
+                # src metafile is being replaced by an existing dest metafile
+
         else:
             self._write_metafile_revision(
                 success_txn_log_dir=success_txn_log_dir,
@@ -1123,7 +1170,7 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 ignore_missing_revision=True,
             )
-            if mri.revision:
+            if mri.exists():
                 item = self.read(
                     path=mri.path,
                     filesystem=filesystem,
@@ -1162,7 +1209,7 @@ class Metafile(dict):
             current_txn_id=current_txn_id,
             ignore_missing_revision=True,
         )
-        if mri.revision:
+        if mri.exists():
             return mri.revision.ancestor_ids
         else:
             raise ValueError(f"Metafile {self.id} does not exist.")

@@ -23,10 +23,10 @@ from deltacat.storage import (
     Stream,
     StreamFormat,
     StreamLocator,
-    StreamLocatorAlias,
     Table,
     TableProperties,
     TableVersion,
+    TableVersionLocator,
     TableVersionProperties,
 )
 from deltacat.storage.model.manifest import Manifest
@@ -389,6 +389,20 @@ def delete_stream(
     raise NotImplementedError("delete_stream not implemented")
 
 
+def get_staged_stream(
+    table_version_locator: TableVersionLocator,
+    stream_id: str,
+    *args,
+    **kwargs,
+) -> Optional[Partition]:
+    """
+    Gets the staged stream for the given table version locator and stream ID.
+    Returns None if the stream does not exist. Raises an error if the given
+    table version locator does not exist.
+    """
+    raise NotImplementedError("get_staged_stream not implemented")
+
+
 def get_stream(
     namespace: str,
     table_name: str,
@@ -429,10 +443,15 @@ def commit_partition(
     **kwargs,
 ) -> Partition:
     """
-    Commits the given partition to its associated table version stream,
-    replacing any previous partition (i.e., "partition being replaced") registered for the same stream and
+    Commits the staged partition to its associated table version stream,
+    replacing any previous partition registered for the same stream and
     partition values.
-    If the previous_partition is passed as an argument, the specified previous_partition will be the partition being replaced, otherwise it will be retrieved.
+
+    If previous partition is given then it will be replaced with its deltas
+    prepended to the new partition being committed. Otherwise the latest
+    committed partition with the same keys and partition scheme ID will be
+    retrieved.
+
     Returns the registered partition. If the partition's
     previous delta stream position is specified, then the commit will
     be rejected if it does not match the actual previous stream position of

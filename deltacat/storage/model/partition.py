@@ -258,7 +258,9 @@ class Partition(Metafile):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Partition:
         self["schema"] = (
-            Schema.deserialize(pa.py_buffer(self["schema"])) if self["schema"] else None
+            Schema.deserialize(pa.py_buffer(self["schema"]))
+            if self.get("schema")
+            else None
         )
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:

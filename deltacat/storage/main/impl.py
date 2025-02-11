@@ -311,6 +311,36 @@ def list_table_versions(
     )
 
 
+def list_streams(
+    namespace: str,
+    table_name: str,
+    table_version: str,
+    *args,
+    **kwargs,
+) -> ListResult[TableVersion]:
+    """
+    Lists a page of table versions for the given table.
+    Raises an error if the table does not exist.
+    """
+    tv = get_table_version(
+        namespace,
+        table_name,
+        table_version,
+        *args,
+        **kwargs,
+    )
+    if not tv:
+        raise ValueError(
+            f"Table Version `{namespace}.{table_name}.{table_version}` not found."
+        )
+    return _list(
+        tv,
+        TransactionOperationType.READ_CHILDREN,
+        *args,
+        **kwargs,
+    )
+
+
 def list_partitions(
     namespace: str,
     table_name: str,
@@ -754,18 +784,13 @@ def create_table_version(
         table_name=table_name,
         **kwargs,
     )
-    if not prev_table(
-        *args,
-        namespace=namespace,
-        table_name=table_name,
-        **kwargs,
-    ):
+    if not prev_table:
         # no parent table exists, so we'll create it in this transaction
         txn_type = TransactionType.APPEND
         table_txn_op_type = TransactionOperationType.CREATE
         prev_table = None
         new_table = Table.of(
-            locator=TableLocator.of(namespace=namespace, table_name=table_name),
+            locator=TableLocator.at(namespace=namespace, table_name=table_name),
         )
         table_version = table_version or "1"
     else:
@@ -1039,19 +1064,19 @@ def stage_stream(
             namespace=namespace,
             table_name=table_name,
         )
-        table_version_meta = get_table_version(
-            *args,
-            namespace=namespace,
-            table_name=table_name,
-            table_version=table_version,
-            **kwargs,
-        )
+    table_version_meta = get_table_version(
+        *args,
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+        **kwargs,
+    )
     locator = StreamLocator.at(
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
         stream_id=str(uuid.uuid4()),
-        stream_format=stream_format,
+        stream_format=stream_format or StreamFormat.DELTACAT,
     )
     stream = Stream.of(
         locator=locator,
@@ -1097,17 +1122,48 @@ def commit_stream(
     **kwargs,
 ) -> Stream:
     """
-    Registers a delta stream with a target table version, replacing any
+    Registers a staged delta stream with a target table version, replacing any
     previous stream registered for the same table version. Returns the
     committed stream.
     """
-    stream: Stream = Metafile.update_for(stream)
-    if not stream.locator.stream_id:
-        stream.locator.stream_id = str(uuid.uuid4())
-    if not stream.stream_format:
-        stream.stream_format = StreamFormat.DELTACAT
+    if not stream.stream_id:
+        raise ValueError("Stream ID to commit must be set to a staged stream ID.")
+    if not stream.table_version_locator:
+        raise ValueError(
+            "Stream to commit must have its table version locator "
+            "set to the parent of its staged stream ID."
+        )
+    prev_staged_stream = get_staged_stream(
+        *args,
+        table_version_locator=stream.table_version_locator,
+        stream_id=stream.stream_id,
+        **kwargs,
+    )
+    if not prev_staged_stream:
+        raise ValueError(
+            f"Stream at table version {stream.table_version_locator} with ID "
+            f"{stream.stream_id} not found."
+        )
+    if prev_staged_stream.state != CommitState.STAGED:
+        raise ValueError(
+            f"Expected to find a `{CommitState.STAGED}` stream at table version "
+            f"{stream.table_version_locator} with ID {stream.stream_id},"
+            f"but found a `{prev_staged_stream.state}` partition."
+        )
+    if not prev_staged_stream:
+        raise ValueError(
+            f"Stream at table_version {stream.table_version_locator} with ID "
+            f"{stream.stream_id} not found."
+        )
+    if prev_staged_stream.state != CommitState.STAGED:
+        raise ValueError(
+            f"Expected to find a `{CommitState.STAGED}` stream at table version "
+            f"{stream.table_version_locator} with ID {stream.stream_id},"
+            f"but found a `{prev_staged_stream.state}` stream."
+        )
+    stream: Stream = Metafile.update_for(prev_staged_stream)
     stream.state = CommitState.COMMITTED
-    prev_stream = get_stream(
+    prev_committed_stream = get_stream(
         *args,
         namespace=stream.namespace,
         table_name=stream.table_name,
@@ -1115,30 +1171,40 @@ def commit_stream(
         stream_format=stream.stream_format,
         **kwargs,
     )
-    if prev_stream:
-        if prev_stream.stream_id != stream.previous_stream_id:
+    # the first transaction operation updates the staged stream commit state
+    txn_type = TransactionType.ALTER
+    txn_ops = [
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.UPDATE,
+            dest_metafile=stream,
+            src_metafile=prev_staged_stream,
+        )
+    ]
+    if prev_committed_stream:
+        if prev_committed_stream.stream_id != stream.previous_stream_id:
             raise ValueError(
                 f"Previous stream ID mismatch Expected "
                 f"{stream.previous_stream_id} but found "
-                f"{prev_stream.stream_id}."
+                f"{prev_committed_stream.stream_id}."
             )
-        if prev_stream.stream_id == stream.stream_id:
+        if prev_committed_stream.stream_id == stream.stream_id:
             raise ValueError(
-                f"Stream to commit has the same ID as existing stream: {prev_stream}."
+                f"Stream to commit has the same ID as existing stream: {prev_committed_stream}."
             )
+        # there's a previously committed stream, so update the transaction
+        # type to overwrite the previously committed stream, and add another
+        # transaction operation to replace it with the staged stream
         txn_type = TransactionType.OVERWRITE
-    else:
-        txn_type = TransactionType.APPEND
-
-    transaction = Transaction.of(
-        txn_type=txn_type,
-        txn_operations=[
+        txn_ops.append(
             TransactionOperation.of(
                 operation_type=TransactionOperationType.UPDATE,
                 dest_metafile=stream,
-                src_metafile=prev_stream,
+                src_metafile=prev_committed_stream,
             )
-        ],
+        )
+    transaction = Transaction.of(
+        txn_type=txn_type,
+        txn_operations=txn_ops,
     )
     catalog = _get_catalog(**kwargs)
     transaction.commit(
@@ -1187,7 +1253,7 @@ def delete_stream(
         txn_operations=[
             TransactionOperation.of(
                 operation_type=TransactionOperationType.DELETE,
-                src_metafile=stream_to_delete,
+                dest_metafile=stream_to_delete,
             )
         ],
     )
@@ -1195,6 +1261,29 @@ def delete_stream(
     transaction.commit(
         catalog_root_dir=catalog.root,
         filesystem=catalog.filesystem,
+    )
+
+
+def get_staged_stream(
+    table_version_locator: TableVersionLocator,
+    stream_id: str,
+    *args,
+    **kwargs,
+) -> Optional[Partition]:
+    """
+    Gets the staged stream for the given table version locator and stream ID.
+    Returns None if the stream does not exist. Raises an error if the given
+    table version locator does not exist.
+    """
+    locator = StreamLocator.of(
+        table_version_locator=table_version_locator,
+        stream_id=stream_id,
+        stream_format=None,
+    )
+    return _latest(
+        *args,
+        metafile=Stream.of(locator=locator, partition_scheme=None),
+        **kwargs,
     )
 
 
@@ -1229,7 +1318,11 @@ def get_stream(
     )
     return _latest(
         *args,
-        metafile=Stream.of(locator=locator, partition_scheme=None),
+        metafile=Stream.of(
+            locator=locator,
+            partition_scheme=None,
+            state=CommitState.COMMITTED,
+        ),
         **kwargs,
     )
 
@@ -1333,7 +1426,7 @@ def commit_partition(
     **kwargs,
 ) -> Partition:
     """
-    Commits the given partition to its associated table version stream,
+    Commits the staged partition to its associated table version stream,
     replacing any previous partition registered for the same stream and
     partition values.
 
@@ -1354,42 +1447,75 @@ def commit_partition(
             f"delta prepending from previous partition {previous_partition} "
             f"is not yet implemented"
         )
-    partition: Partition = Metafile.update_for(partition)
-    if not partition.locator.partition_id:
-        partition.locator.partition_id = str(uuid.uuid4())
+    if not partition.partition_id:
+        raise ValueError("Partition ID to commit must be set to a staged partition ID.")
+    if not partition.stream_locator:
+        raise ValueError(
+            "Partition to commit must have its stream locator "
+            "set to the parent of its staged partition ID."
+        )
+    prev_staged_partition = get_staged_partition(
+        *args,
+        stream_locator=partition.stream_locator,
+        partition_id=partition.partition_id,
+        **kwargs,
+    )
+    if not prev_staged_partition:
+        raise ValueError(
+            f"Partition at stream {partition.stream_locator} with ID "
+            f"{partition.partition_id} not found."
+        )
+    if prev_staged_partition.state != CommitState.STAGED:
+        raise ValueError(
+            f"Expected to find a `{CommitState.STAGED}` partition at stream "
+            f"{partition.stream_locator} with ID {partition.partition_id},"
+            f"but found a `{prev_staged_partition.state}` partition."
+        )
+    partition: Partition = Metafile.update_for(prev_staged_partition)
     partition.state = CommitState.COMMITTED
-    prev_partition = get_partition(
+    prev_committed_partition = get_partition(
         *args,
         stream_locator=partition.stream_locator,
         partition_value=partition.partition_values,
         partition_scheme_id=partition.partition_scheme_id,
         **kwargs,
     )
-    if prev_partition:
-        if prev_partition.partition_id != partition.previous_partition_id:
+    # the first transaction operation updates the staged partition commit state
+    txn_type = TransactionType.ALTER
+    txn_ops = [
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.UPDATE,
+            dest_metafile=partition,
+            src_metafile=prev_staged_partition,
+        )
+    ]
+    if prev_committed_partition:
+        if prev_committed_partition.partition_id != partition.previous_partition_id:
             raise ValueError(
                 f"Previous partition ID mismatch Expected "
                 f"{partition.previous_partition_id} but found "
-                f"{prev_partition.partition_id}."
+                f"{prev_committed_partition.partition_id}."
             )
         # TODO(pdames): Add previous partition stream position validation.
-        if prev_partition.partition_id == partition.partition_id:
+        if prev_committed_partition.partition_id == partition.partition_id:
             raise ValueError(
-                f"Partition to commit has the same ID as existing partition: {prev_partition}."
+                f"Partition to commit has the same ID as existing partition: "
+                f"{prev_committed_partition}."
             )
+        # there's a previously committed partition, so update the transaction
+        # type to overwrite the previously committed partition, and add another
+        # transaction operation to replace it with the staged partition
         txn_type = TransactionType.OVERWRITE
-    else:
-        txn_type = TransactionType.APPEND
-
-    transaction = Transaction.of(
-        txn_type=txn_type,
-        txn_operations=[
+        txn_ops.append(
             TransactionOperation.of(
                 operation_type=TransactionOperationType.UPDATE,
                 dest_metafile=partition,
-                src_metafile=prev_partition,
+                src_metafile=prev_committed_partition,
             )
-        ],
+        )
+    transaction = Transaction.of(
+        txn_type=txn_type,
+        txn_operations=txn_ops,
     )
     catalog = _get_catalog(**kwargs)
     transaction.commit(
@@ -1507,6 +1633,7 @@ def get_partition(
             locator=locator,
             schema=None,
             content_types=None,
+            state=CommitState.COMMITTED,
             partition_scheme_id=partition_scheme_id,
         ),
         **kwargs,
