@@ -15,15 +15,14 @@ from deltacat.storage.model.delta import (
     DeltaType,
 )
 from deltacat.storage.model.types import (
+    CommitState,
     DistributedDataset,
     LifecycleState,
     LocalDataset,
     LocalTable,
-    StreamFormat,
     TransactionType,
     TransactionOperationType,
     StreamFormat,
-    CommitState,
 )
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import (
