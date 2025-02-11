@@ -18,6 +18,7 @@ from deltacat.constants import (
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
 )
+from deltacat.storage.model import metafile_utils
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.types import TransactionOperationType
@@ -40,6 +41,7 @@ class MetafileRevisionInfo(dict):
         mri.txn_id = None
         mri.txn_op_type = None
         mri.dir_path = None
+        mri["undefined"] = True
         return mri
 
     @staticmethod
@@ -113,6 +115,12 @@ class MetafileRevisionInfo(dict):
         current_txn_id: Optional[str] = None,
         ignore_missing_revision: bool = False,
     ) -> MetafileRevisionInfo:
+        """
+        Fetch latest revision of a metafile, or return None if no revisions exist
+        :param revision_dir_path: root path of directory for metafile
+        :param ignore_missing_revision: if True, will return MetafileRevisionInfo.undefined() on no revisions
+        :raises ValueError if no revisions are found AND ignore_missing_revision=False
+        """
         revisions = MetafileRevisionInfo.list_revisions(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
@@ -171,13 +179,17 @@ class MetafileRevisionInfo(dict):
             - Uses the pyarrow filesystem interface for file operations.
         """
         is_create_txn = current_txn_op_type == TransactionOperationType.CREATE
+        is_stage_txn = current_txn_op_type == TransactionOperationType.STAGE
+        is_update_txn = current_txn_op_type == TransactionOperationType.UPDATE
+        is_delete_txn = current_txn_op_type == TransactionOperationType.DELETE
+
         mri = MetafileRevisionInfo.latest_revision(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
             success_txn_log_dir=success_txn_log_dir,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
-            ignore_missing_revision=is_create_txn,
+            ignore_missing_revision=is_create_txn or is_stage_txn,
         )
         # validate the transaction operation type
         if mri.revision:
@@ -195,7 +207,7 @@ class MetafileRevisionInfo(dict):
                     f"Metafile creation for transaction ID {current_txn_id} "
                     f"failed. Metafile commit at {mri.path} already exists."
                 )
-        elif not is_create_txn:
+        elif is_update_txn or is_delete_txn:
             # update/delete fails if the last metafile doesn't exist
             raise ValueError(
                 f"Metafile {current_txn_op_type.value} failed for "
@@ -371,6 +383,9 @@ class MetafileRevisionInfo(dict):
             else None
         )
 
+    def is_undefined(self) -> bool:
+        return self.get("undefined", False)
+
 
 class Metafile(dict):
     """
@@ -421,6 +436,7 @@ class Metafile(dict):
                         f"New ID cannot be specified for metafiles that "
                         f"don't have a named immutable ID."
                     )
+                metafile_copy.assign_id()
             else:
                 if not new_id:
                     raise ValueError(
@@ -490,6 +506,9 @@ class Metafile(dict):
                 pagination_key=None,
                 next_page_provider=None,
             )
+        else:
+            # Could not find any revisions in list operations - return no results
+            return ListResult.empty()
 
     @classmethod
     def read(
@@ -507,7 +526,14 @@ class Metafile(dict):
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path) as file:
             binary = file.readall()
-        obj = cls(**msgpack.loads(binary)).from_serializable(path, filesystem)
+            data = msgpack.loads(binary)
+        """
+        Sometimes, read is called by one metafile class but is reading the file from another type of class
+        for example, self._list_metafiles will find child metafiles and deserialize them via read
+        we therefore have to find the appropriate class to call from_serializable on
+        """
+        clazz = metafile_utils.get_class(data)
+        obj = clazz(**msgpack.loads(binary)).from_serializable(path, filesystem)
         return obj
 
     def write_txn(
@@ -618,13 +644,20 @@ class Metafile(dict):
         references (e.g. for generating a root namespace or table path that
         remains the same regardless of renames).
         """
+        return self.locator.name.immutable_id or self.get("id")
 
-        # check if the locator name can be reused as an immutable ID
-        # or if we need to use a generated UUID as an immutable ID
-        _id = self.locator.name.immutable_id or self.get("id")
-        if not _id:
-            _id = self["id"] = str(uuid.uuid4())
-        return _id
+    def assign_id(self, id=None):
+        """
+        Generate a new ID and assign to metafile. ID spec controlled by classmethod `generate_new_id`
+        """
+        self["id"] = self.generate_new_id() if not id else id
+
+    @classmethod
+    def generate_new_id(cls):
+        """
+        Generate a new metafile id
+        """
+        return str(uuid.uuid4())
 
     @property
     def locator(self) -> Optional[Locator]:
@@ -675,6 +708,7 @@ class Metafile(dict):
             parent_obj_path,
             self.id,
         )
+        # List metafiles with respect to this metafile's URI as root
         return self._list_metafiles(
             success_txn_log_dir=success_txn_log_dir,
             metafile_root_dir_path=metafile_root_dir_path,
@@ -742,15 +776,26 @@ class Metafile(dict):
             filesystem=filesystem,
         )
         metafile_root = posixpath.join(*[catalog_root] + ancestor_ids)
-        # TODO(pdames): Refactor id lazy assignment into explicit getter/setter
-        immutable_id = self.get("id") or Metafile._locator_to_id(
-            locator=self.locator,
-            catalog_root=catalog_root,
-            metafile_root=metafile_root,
-            filesystem=filesystem,
-            txn_start_time=current_txn_start_time,
-            txn_id=current_txn_id,
-        )
+
+        if self.id is not None:
+            immutable_id = self.id
+        else:
+            try:
+                immutable_id = Metafile._locator_to_id(
+                    locator=self.locator,
+                    catalog_root=catalog_root,
+                    metafile_root=metafile_root,
+                    filesystem=filesystem,
+                    txn_start_time=current_txn_start_time,
+                    txn_id=current_txn_id,
+                )
+            except ValueError:
+                # This indicates the metafile has been deleted. In this case, return no results
+                return ListResult.empty()
+            if not immutable_id:
+                # This indicates the metafile does not exist. In this case, return no results
+                return ListResult.empty()
+
         revision_dir_path = posixpath.join(
             metafile_root,
             immutable_id,
@@ -785,12 +830,18 @@ class Metafile(dict):
 
     def to_serializable(self) -> Metafile:
         """
-        Prepare the object for serialization by converting any non-serializable
-        types to serializable types. May also run any required pre-write
-        validations on the serialized or deserialized object.
+        Deep copies Metafile and returns a serializable form. Does NOT modify self
+
+        This will prepare the object for serialization by converting any non-serializable
+        types to serializable types. It will also remove mutable fields
+
+        May also run any required pre-write validations on the serialized or deserialized object.
+
         :return: a serializable version of the object
         """
-        return self
+        raise NotImplementedError(
+            "Expect this method to be implemented in child class of Metafile"
+        )
 
     def from_serializable(
         self,
@@ -841,6 +892,11 @@ class Metafile(dict):
                     txn_start_time=current_txn_start_time,
                     txn_id=current_txn_id,
                 )
+                if not ancestor_id:
+                    raise ValueError(
+                        f"Could not find Ancestor {parent_locator} at location"
+                        f"{metafile_root}"
+                    )
                 metafile_root = posixpath.join(
                     metafile_root,
                     ancestor_id,
@@ -886,9 +942,12 @@ class Metafile(dict):
         filesystem: pyarrow.fs.FileSystem,
         txn_start_time: Optional[int] = None,
         txn_id: Optional[str] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """
         Resolves the metafile ID for the given locator.
+
+        Returns None if no id found, else immutable id read from mapping file
+        :raises ValueError if the id is found but has been deleted
         """
         metafile_id = locator.name.immutable_id
         if not metafile_id:
@@ -900,13 +959,19 @@ class Metafile(dict):
                 TXN_DIR_NAME,
                 SUCCESS_TXN_DIR_NAME,
             )
+
             mri = MetafileRevisionInfo.latest_revision(
                 revision_dir_path=locator_path,
                 filesystem=filesystem,
                 success_txn_log_dir=success_txn_log_dir,
                 current_txn_start_time=txn_start_time,
                 current_txn_id=txn_id,
+                ignore_missing_revision=True,
             )
+            # Because we set ignore_missing_revision, we will get mri.undefined if metafile does not exist
+            if mri.is_undefined():
+                return None
+
             if mri.txn_op_type == TransactionOperationType.DELETE:
                 err_msg = (
                     f"Locator {locator} to metafile ID resolution failed "
@@ -914,6 +979,7 @@ class Metafile(dict):
                     f"have an old reference to a renamed or deleted object."
                 )
                 raise ValueError(err_msg)
+
             metafile_id = posixpath.splitext(mri.path)[1][1:]
         return metafile_id
 
@@ -991,6 +1057,7 @@ class Metafile(dict):
         parent_obj_path = posixpath.join(*[catalog_root] + ancestor_path_elements)
         mutable_src_locator = None
         mutable_dest_locator = None
+
         if not self.named_immutable_id:
             mutable_src_locator = (
                 current_txn_op.src_metafile.locator
@@ -998,7 +1065,9 @@ class Metafile(dict):
                 else None
             )
             mutable_dest_locator = current_txn_op.dest_metafile.locator
-        elif self.locator_alias:
+
+        # If a locator alias exists, "override" the src and dest locators
+        if self.locator_alias:
             mutable_src_locator = (
                 current_txn_op.src_metafile.locator_alias
                 if current_txn_op.src_metafile
@@ -1102,6 +1171,11 @@ class Metafile(dict):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         limit: Optional[int] = None,
     ) -> ListResult[Metafile]:
+        """
+        List all metafiles under root directory. The root directory can either be a catalog root (like in the case of
+        listing a namespace) or the root of any nested metafile
+
+        """
         file_paths_and_sizes = list_directory(
             path=metafile_root_dir_path,
             filesystem=filesystem,
@@ -1123,7 +1197,9 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 ignore_missing_revision=True,
             )
-            if mri.revision:
+
+            if not mri.is_undefined():
+                # TODO need to find correct class before calling self.read()
                 item = self.read(
                     path=mri.path,
                     filesystem=filesystem,
@@ -1131,6 +1207,7 @@ class Metafile(dict):
                 items.append(item)
             if limit and limit <= len(items):
                 break
+
         # TODO(pdames): Add pagination.
         return ListResult.of(
             items=items,

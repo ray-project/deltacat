@@ -27,6 +27,10 @@ class StreamFormat(str, Enum):
     DELTA_LAKE = "delta_lake"
     SQLITE3 = "SQLITE3"  # used by tests
 
+    @classmethod
+    def default(cls):
+        return cls.DELTACAT
+
 
 class DeltaType(str, Enum):
     APPEND = "append"
@@ -63,6 +67,7 @@ class TransactionOperationType(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+    STAGE = "stage"
 
     READ_SIBLINGS = "read_siblings"
     READ_CHILDREN = "read_children"
@@ -73,6 +78,7 @@ class TransactionOperationType(str, Enum):
     def write_operations():
         return {
             TransactionOperationType.CREATE,
+            TransactionOperationType.STAGE,
             TransactionOperationType.UPDATE,
             TransactionOperationType.DELETE,
         }

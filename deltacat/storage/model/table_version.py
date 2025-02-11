@@ -38,12 +38,14 @@ class TableVersion(Metafile):
         properties: Optional[TableVersionProperties] = None,
         content_types: Optional[List[ContentType]] = None,
         sort_scheme: Optional[SortScheme] = None,
+        previous_table_version: Optional[str] = None,
         watermark: Optional[int] = None,
         lifecycle_state: Optional[LifecycleState] = None,
         schemas: Optional[SchemaList] = None,
         partition_schemes: Optional[partition.PartitionSchemeList] = None,
         sort_schemes: Optional[SortSchemeList] = None,
         native_object: Optional[Any] = None,
+        assign_id: bool = True,
     ) -> TableVersion:
         table_version = TableVersion()
         table_version.locator = locator
@@ -53,12 +55,15 @@ class TableVersion(Metafile):
         table_version.properties = properties
         table_version.content_types = content_types
         table_version.sort_scheme = sort_scheme
+        table_version.previous_table_version = previous_table_version
         table_version.watermark = watermark
         table_version.lifecycle_state = lifecycle_state
         table_version.schemas = schemas
         table_version.partition_schemes = partition_schemes
         table_version.sort_schemes = sort_schemes
         table_version.native_object = native_object
+        if assign_id:
+            table_version.assign_id()
         return table_version
 
     @property
@@ -176,6 +181,14 @@ class TableVersion(Metafile):
         self["properties"] = properties
 
     @property
+    def previous_table_version(self) -> Optional[str]:
+        return self.get("previous_table_version")
+
+    @previous_table_version.setter
+    def previous_table_version(self, previous_table_version: Optional[str]) -> None:
+        self["previous_table_version"] = previous_table_version
+
+    @property
     def content_types(self) -> Optional[List[ContentType]]:
         content_types = self.get("contentTypes")
         return (
@@ -271,8 +284,10 @@ class TableVersion(Metafile):
             else None
         )
         # force list-to-tuple conversion of sort keys via property invocation
-        self.sort_scheme.keys
-        [sort_scheme.keys for sort_scheme in self.sort_schemes]
+        if self.sort_scheme:
+            self.sort_scheme.keys
+            [sort_scheme.keys for sort_scheme in self.sort_schemes]
+
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
             parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
@@ -297,6 +312,26 @@ class TableVersion(Metafile):
             )
             self.locator.table_locator = table.locator
         return self
+
+    @classmethod
+    def new_version(cls, previous_version: Optional[str] = None) -> str:
+        """
+        Assign a new version string.
+        Will attempt to use convention of 1-indexed incrementing integers ("v1", "v2", etc)
+        Otherwise will use metafile default id
+        """
+        import re
+
+        if previous_version is None:
+            return Metafile.generate_new_id()
+
+        version_match = re.match(r"^(v?)(\d+)$", previous_version)
+        if version_match:
+            prefix, version_number = version_match.groups()
+            new_version_number = int(version_number) + 1
+            return f"{prefix}{new_version_number}"
+        else:
+            return Metafile.generate_new_id()
 
 
 class TableVersionLocatorName(LocatorName):

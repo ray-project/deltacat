@@ -41,6 +41,7 @@ class Stream(Metafile):
         previous_stream_id: Optional[str] = None,
         watermark: Optional[int] = None,
         native_object: Optional[Any] = None,
+        assign_id: bool = True,
     ) -> Stream:
         stream = Stream()
         stream.locator = locator
@@ -49,6 +50,12 @@ class Stream(Metafile):
         stream.previous_stream_id = previous_stream_id
         stream.watermark = watermark
         stream.native_object = native_object
+        # If locator provides ID, assign it to stream
+        # Otherwise, assign new id
+        if locator and locator.stream_id is not None:
+            stream.assign_id(id=locator.stream_id)
+        elif assign_id:
+            stream.assign_id()
         return stream
 
     @property
@@ -64,7 +71,10 @@ class Stream(Metafile):
 
     @property
     def locator_alias(self) -> Optional[StreamLocatorAlias]:
-        return StreamLocatorAlias.of(self)
+        """
+        Streams do not have locator aliases
+        """
+        return None
 
     @property
     def partition_scheme(self) -> Optional[partition.PartitionScheme]:
@@ -143,19 +153,18 @@ class Stream(Metafile):
             return stream_locator.table_version_locator
         return None
 
+    # TODO (mccember) this can be removed and calls can be replaced with .id (in Metafile.py)
     @property
     def stream_id(self) -> Optional[str]:
-        stream_locator = self.locator
-        if stream_locator:
-            return stream_locator.stream_id
-        return None
+        return self.id
 
     @property
-    def stream_format(self) -> Optional[str]:
+    def stream_format(self) -> str:
         stream_locator = self.locator
         if stream_locator:
             return stream_locator.format
-        return None
+        else:
+            return StreamFormat.default()
 
     @property
     def namespace(self) -> Optional[str]:
@@ -233,8 +242,18 @@ class StreamLocatorName(LocatorName):
         self.locator.stream_id = immutable_id
 
     def parts(self) -> List[str]:
+        """
+        The canonical name of a stream if just made up of its format
+
+        This enforces that only one stream of a given format can exist at one time, or else that stream
+            gets updated when creating a new stream of that type
+
+        TODO (mccember) update this to be stream_id + stream_format after we remove the constraint of one
+        stream per format per table version.
+
+        This will also require implementing stream aliasing
+        """
         return [
-            self.locator.stream_id,
             self.locator.format,
         ]
 
@@ -243,8 +262,8 @@ class StreamLocator(Locator, dict):
     @staticmethod
     def of(
         table_version_locator: Optional[TableVersionLocator],
-        stream_id: Optional[str],
-        stream_format: Optional[StreamFormat],
+        stream_id: Optional[str] = None,
+        stream_format: Optional[StreamFormat] = StreamFormat.DELTACAT,
     ) -> StreamLocator:
         """
         Creates a table version Stream Locator. All input parameters are
@@ -253,11 +272,13 @@ class StreamLocator(Locator, dict):
         stream_locator = StreamLocator()
         stream_locator.table_version_locator = table_version_locator
         stream_locator.stream_id = stream_id
-        stream_locator.format = (
-            stream_format.value
-            if isinstance(stream_format, StreamFormat)
-            else stream_format
-        )
+
+        # Default stream format to DELTACAT if not explicitly provided
+        if not stream_format:
+            stream_locator.format = StreamFormat.default().value
+        else:
+            stream_locator.format = stream_format.value
+
         return stream_locator
 
     @staticmethod
@@ -268,6 +289,7 @@ class StreamLocator(Locator, dict):
         stream_id: Optional[str],
         stream_format: Optional[StreamFormat],
     ) -> StreamLocator:
+
         table_version_locator = (
             TableVersionLocator.at(
                 namespace,
@@ -368,18 +390,26 @@ class StreamLocatorAliasName(LocatorName):
         return [self.locator.format]
 
 
+# TODO (mccember) remove this class
+# unless we have a reason to use stream locator aliases
+# to support multiple streams of a given format on a table version
 class StreamLocatorAlias(Locator, dict):
     @staticmethod
     def of(
         parent_stream: Stream,
     ) -> StreamLocatorAlias:
-        return StreamLocatorAlias(
-            {
-                "format": parent_stream.stream_format,
-                "parent": (
-                    parent_stream.locator.parent if parent_stream.locator else None
-                ),
-            }
+
+        return (
+            StreamLocatorAlias(
+                {
+                    "format": parent_stream.stream_format,
+                    "parent": (
+                        parent_stream.locator.parent if parent_stream.locator else None
+                    ),
+                }
+            )
+            if parent_stream.state == CommitState.COMMITTED
+            else None  # only committed streams can be resolved by alias
         )
 
     @property
