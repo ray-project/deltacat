@@ -23,7 +23,6 @@ from deltacat.storage.model.types import (
     TransactionType,
     TransactionOperationType,
     StreamFormat,
-    CommitState,
 )
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import (
