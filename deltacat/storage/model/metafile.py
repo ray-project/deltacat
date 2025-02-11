@@ -646,11 +646,11 @@ class Metafile(dict):
         """
         return self.locator.name.immutable_id or self.get("id")
 
-    def assign_id(self):
+    def assign_id(self, id=None):
         """
         Generate a new ID and assign to metafile. ID spec controlled by classmethod `generate_new_id`
         """
-        self["id"] = self.generate_new_id()
+        self["id"] = self.generate_new_id() if not id else id
 
     @classmethod
     def generate_new_id(cls):
