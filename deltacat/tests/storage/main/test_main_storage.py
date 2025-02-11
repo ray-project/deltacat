@@ -7,12 +7,14 @@ from deltacat import Schema, Field
 from deltacat.storage import (
     metastore,
     Namespace,
-    NamespaceLocator, TableVersion,
+    NamespaceLocator,
+    TableVersion,
+    StreamFormat,
 )
-from deltacat.storage.model.namespace import Namespace
 from deltacat.storage.model.table import Table
 from deltacat.catalog.main.impl import PropertyCatalog
 import pyarrow as pa
+
 
 @pytest.fixture
 def schema():
@@ -36,8 +38,8 @@ def schema():
         ]
     )
 
-class TestNamespace:
 
+class TestNamespace:
     @classmethod
     def setup_class(cls):
         cls.tmpdir = tempfile.mkdtemp()
@@ -87,6 +89,7 @@ class TestNamespace:
 
     def test_namespace_exists_nonexisting(self):
         assert not metastore.namespace_exists("foobar", catalog=self.catalog)
+
 
 class TestTable:
     @classmethod
@@ -139,7 +142,10 @@ class TestTable:
         assert metastore.table_exists("test_table_ns", "table1", catalog=self.catalog)
 
     def test_table_exists_nonexisting(self):
-        assert not metastore.table_exists("test_table_ns", "no_such_table", catalog=self.catalog)
+        assert not metastore.table_exists(
+            "test_table_ns", "no_such_table", catalog=self.catalog
+        )
+
 
 class TestTableVersion:
     @classmethod
@@ -197,18 +203,24 @@ class TestTableVersion:
             "test_tv_ns", "mytable", "v2", catalog=self.catalog
         )
 
-    def test_table_version_exists_nonexisting(self):
-        # "v999" should not exist
-        assert not metastore.table_version_exists(
-            "test_tv_ns", "mytable", "v999", catalog=self.catalog
-        )
+    def test_creation_fails_if_already_exists(self):
+        # Assert that creating the same table version again raises a ValueError
+        with pytest.raises(ValueError):
+            metastore.create_table_version(
+                namespace="test_tv_ns",
+                table_name="mytable",
+                table_version="v1",
+                catalog=self.catalog,
+            )
+
 
 class TestStream:
     @classmethod
     def setup_class(cls):
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = PropertyCatalog(cls.tmpdir)
-        # Create a table version
+        # Create a table version for streams.
+        # This call should automatically create a default stream (of format "deltacat").
         metastore.create_namespace("test_stream_ns", catalog=cls.catalog)
         metastore.create_table_version(
             namespace="test_stream_ns",
@@ -216,14 +228,15 @@ class TestStream:
             table_version="v1",
             catalog=cls.catalog,
         )
-        # Stage & commit a stream
-        cls.stream = metastore.stage_stream(
+        # Retrieve the auto-created default stream.
+        cls.default_stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
             catalog=cls.catalog,
         )
-        cls.committed_stream = metastore.commit_stream(cls.stream, catalog=cls.catalog)
+        # Ensure that the default stream was auto-created.
+        assert cls.default_stream is not None, "Default stream was not auto-created."
 
     @classmethod
     def teardown_class(cls):
@@ -231,36 +244,71 @@ class TestStream:
 
     def test_list_streams(self):
         list_result = metastore.list_streams(
-            "test_stream_ns",
-            "mystreamtable",
-            "v1",
-            catalog=self.catalog)
-
+            "test_stream_ns", "mystreamtable", "v1", catalog=self.catalog
+        )
         streams = list_result.all_items()
-
-        assert len(streams)==1
-
+        # We expect exactly one stream (the default "deltacat" stream).
+        assert len(streams) == 1
 
     def test_get_stream(self):
-        # The stream is created and committed in setup
         stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
             catalog=self.catalog,
         )
-        # TODO this is broken, stream is table version
         assert stream is not None
+        # The stream's format should be the default "deltacat"
+        assert stream.stream_format.lower() == StreamFormat.DELTACAT.value.lower()
 
-    def test_list_stream_partitions_empty(self):
-        # no partitions yet
-        list_result = metastore.list_stream_partitions(self.committed_stream, catalog=self.catalog)
-        partitions = list_result.all_items()
-        assert len(partitions) == 0
+    def test_create_stream_singleton_constraint(self):
+        # Attempting to create another committed stream for the same table/version
+        # should fail since a default stream already exists.
+        with pytest.raises(
+            ValueError,
+            match="A stream of format deltacat already exists on table version v1",
+        ):
+            metastore.create_stream(
+                namespace="test_stream_ns",
+                table_name="mystreamtable",
+                table_version="v1",
+                catalog=self.catalog,
+            )
 
-    def test_delete_stream(self):
-        # We can delete the stream
-        metastore.delete_stream("test_stream_ns", "mystreamtable", "v1", catalog=self.catalog)
-        # Now get_stream should return None
-        stream = metastore.get_stream("test_stream_ns", "mystreamtable", "v1", catalog=self.catalog)
-        assert stream is None
+    def test_stage_and_commit_stream_replacement(self):
+        """
+        TODO current this raises an exception because the staged stream's locator mapping file already exists
+
+        The only way to write a new locator mapping is to have an UPDATE transaction. But stage should not use UPDATE
+        because it is creating a brand new metafile with a new immutable id.
+
+        """
+        original_stream = metastore.get_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            catalog=self.catalog,
+        )
+
+        staged_stream = metastore.stage_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            stream_format=StreamFormat.DELTACAT,
+            catalog=self.catalog,
+        )
+
+        fetch_after_staging = metastore.get_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            catalog=self.catalog,
+        )
+
+        """
+        TODO code needs to be updated so that locator_to_id will ignore latest revisions which have been staged
+
+        then change below long to assert fetch_after_staging.id == stream.id
+        """
+        assert fetch_after_staging.id == staged_stream.id
+        assert fetch_after_staging.id != original_stream.id

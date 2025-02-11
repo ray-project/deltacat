@@ -17,7 +17,7 @@ class Namespace(Metafile):
     def of(
         locator: Optional[NamespaceLocator],
         properties: Optional[NamespaceProperties] = None,
-        assign_id=True
+        assign_id=True,
     ) -> Namespace:
         """
         Create a new namespace given locator

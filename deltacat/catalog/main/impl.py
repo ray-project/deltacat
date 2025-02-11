@@ -25,7 +25,7 @@ class PropertyCatalog:
         self,
         root: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        human_readable_paths: bool = False
+        human_readable_paths: bool = False,
     ):
         """
         Construct a property catalog, which is a sort of global configuration state of a catalog
@@ -58,6 +58,7 @@ class PropertyCatalog:
     @property
     def human_readable_paths(self) -> bool:
         return self._human_readable_paths
+
 
 # table functions
 def write_to_table(

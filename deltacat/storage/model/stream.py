@@ -41,7 +41,7 @@ class Stream(Metafile):
         previous_stream_id: Optional[str] = None,
         watermark: Optional[int] = None,
         native_object: Optional[Any] = None,
-        assign_id: bool = True
+        assign_id: bool = True,
     ) -> Stream:
         stream = Stream()
         stream.locator = locator
@@ -50,7 +50,10 @@ class Stream(Metafile):
         stream.previous_stream_id = previous_stream_id
         stream.watermark = watermark
         stream.native_object = native_object
-        if assign_id:
+        # If locator provides ID, assign it to stream
+        if locator and locator.stream_id is not None:
+            stream.assign_id(id=locator.stream_id)
+        elif assign_id:
             stream.assign_id()
         return stream
 
@@ -68,10 +71,10 @@ class Stream(Metafile):
     @property
     def locator_alias(self) -> Optional[StreamLocatorAlias]:
         """
-        TODO (mccember) implement aliasing
+        Return a locator alias of the current stream
 
-        Currently there is no metastore file format for an alias. We can consider implementing a Metafile
-        of type Alias so that Aliases themselves are revisioned and honor transaction isolation
+        This will alias the name mapping file of the stream to be its parent table version + stream format,
+          ONLY IF the stream is not being staged
         """
         return None
 
@@ -152,12 +155,10 @@ class Stream(Metafile):
             return stream_locator.table_version_locator
         return None
 
+    # TODO (mccember) this can be removed and calls can be replaced with .id (in Metafile.py)
     @property
     def stream_id(self) -> Optional[str]:
-        stream_locator = self.locator
-        if stream_locator:
-            return stream_locator.stream_id
-        return None
+        return self.id
 
     @property
     def stream_format(self) -> str:
@@ -263,8 +264,8 @@ class StreamLocator(Locator, dict):
     @staticmethod
     def of(
         table_version_locator: Optional[TableVersionLocator],
-        stream_id: Optional[str],
-        stream_format: Optional[StreamFormat]
+        stream_id: Optional[str] = None,
+        stream_format: Optional[StreamFormat] = StreamFormat.DELTACAT,
     ) -> StreamLocator:
         """
         Creates a table version Stream Locator. All input parameters are

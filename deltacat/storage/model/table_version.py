@@ -45,7 +45,7 @@ class TableVersion(Metafile):
         partition_schemes: Optional[partition.PartitionSchemeList] = None,
         sort_schemes: Optional[SortSchemeList] = None,
         native_object: Optional[Any] = None,
-        assign_id: bool = True
+        assign_id: bool = True,
     ) -> TableVersion:
         table_version = TableVersion()
         table_version.locator = locator
@@ -188,7 +188,6 @@ class TableVersion(Metafile):
     def previous_table_version(self, previous_table_version: Optional[str]) -> None:
         self["previous_table_version"] = previous_table_version
 
-
     @property
     def content_types(self) -> Optional[List[ContentType]]:
         content_types = self.get("contentTypes")
@@ -315,7 +314,7 @@ class TableVersion(Metafile):
         return self
 
     @classmethod
-    def new_version(cls, previous_version: Optional[str]=None) -> str:
+    def new_version(cls, previous_version: Optional[str] = None) -> str:
         """
         Assign a new version string.
         Will attempt to use convention of 1-indexed incrementing integers ("v1", "v2", etc)

@@ -2724,7 +2724,6 @@ class TestMetafileIO:
         table.properties = expected_properties
         assert table.equivalent_to(deserialized_table)
 
-
     def test_metafile_read_bad_path(self, temp_dir):
         with pytest.raises(FileNotFoundError):
-            delta = Delta.read("foobar")
+            Delta.read("foobar")

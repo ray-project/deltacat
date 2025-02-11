@@ -1,7 +1,12 @@
-
-
 def get_class(serialized_dict: dict):
-    from deltacat.storage import Table, Namespace, TableVersion, Stream, Delta, Partition
+    from deltacat.storage import (
+        Table,
+        Namespace,
+        TableVersion,
+        Stream,
+        Delta,
+        Partition,
+    )
 
     """
     Given a serialized dictionary of data, get the type of metafile class to instantiate
@@ -10,7 +15,7 @@ def get_class(serialized_dict: dict):
     in class X, and is brittle to renames. On the other hand, this implementation does not require any marker fields to be persisted, and a regression
     will be quickly detected by test_metafile.io or other unit tests
     """
-    if(serialized_dict.__contains__("tableLocator")):
+    if serialized_dict.__contains__("tableLocator"):
         return Table
     elif serialized_dict.__contains__("namespaceLocator"):
         return Namespace
@@ -23,4 +28,6 @@ def get_class(serialized_dict: dict):
     elif serialized_dict.__contains__("deltaLocator"):
         return Delta
     else:
-        raise ValueError(f'Could not find metafile class from serialized form: ${serialized_dict}')
+        raise ValueError(
+            f"Could not find metafile class from serialized form: ${serialized_dict}"
+        )

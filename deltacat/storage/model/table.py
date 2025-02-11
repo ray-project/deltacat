@@ -32,7 +32,7 @@ class Table(Metafile):
         latest_active_table_version: Optional[str] = None,
         latest_table_version: Optional[str] = None,
         native_object: Optional[Any] = None,
-        assign_id: bool = True
+        assign_id: bool = True,
     ) -> Table:
         table = Table()
         table.locator = locator

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Optional, List
 
-from deltacat.utils.common import sha1_digest, sha1_hexdigest
+from deltacat.utils.common import sha1_digest
 
 DEFAULT_NAME_SEPARATOR = "|"
 DEFAULT_PATH_SEPARATOR = "/"
@@ -130,4 +130,4 @@ class Locator:
         """
         s = s.strip().lower()
         # Keep alphanumerics, underscore, and dash (you can tweak this regex as needed)
-        return re.sub(r'[^a-z0-9_\-]', '_', s)
+        return re.sub(r"[^a-z0-9_\-]", "_", s)
