@@ -705,7 +705,7 @@ class SchemaMap(OrderedDict):
         returns: None.
         raises: ValueError if a schema with the given (or generated) key already exists.
         """
-        schema_obj = value if isinstance(value, Schema) else Schema(value)
+        schema_obj = value if isinstance(value, Schema) else Schema.of(value)
 
         if not key:
             key = self._generate_default_name(schema_obj)
