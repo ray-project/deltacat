@@ -494,7 +494,6 @@ class Metafile(dict):
         # return the latest metafile revision for READ_LATEST and READ_EXISTS
         list_result = current_txn_op.dest_metafile.revisions(**kwargs)
         revisions = list_result.all_items()
-
         metafiles = []
         if revisions:
             op_type = revisions[0][0]
@@ -661,10 +660,6 @@ class Metafile(dict):
         return str(uuid.uuid4())
 
     @property
-    def id_exists(self) -> bool:
-        return self.get("id") is not None
-
-    @property
     def locator(self) -> Optional[Locator]:
         """
         Returns the canonical locator for this metafile, which is typically used
@@ -782,7 +777,7 @@ class Metafile(dict):
         )
         metafile_root = posixpath.join(*[catalog_root] + ancestor_ids)
 
-        if self.id_exists:
+        if self.id is not None:
             immutable_id = self.id
         else:
             try:
@@ -1063,7 +1058,6 @@ class Metafile(dict):
         mutable_src_locator = None
         mutable_dest_locator = None
 
-        # If the metafile does not have a named immutable id,
         if not self.named_immutable_id:
             mutable_src_locator = (
                 current_txn_op.src_metafile.locator
@@ -1071,6 +1065,8 @@ class Metafile(dict):
                 else None
             )
             mutable_dest_locator = current_txn_op.dest_metafile.locator
+
+        # If a locator alias exists, "override" the src and dest locators
         if self.locator_alias:
             mutable_src_locator = (
                 current_txn_op.src_metafile.locator_alias

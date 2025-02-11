@@ -19,7 +19,7 @@ class TableDefinition(dict):
                 "table": table,
                 "tableVersion": table_version,
                 "stream": stream,
-                "": native_object,
+                "nativeObject": native_object,
             }
         )
 

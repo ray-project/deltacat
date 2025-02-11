@@ -51,6 +51,7 @@ class Stream(Metafile):
         stream.watermark = watermark
         stream.native_object = native_object
         # If locator provides ID, assign it to stream
+        # Otherwise, assign new id
         if locator and locator.stream_id is not None:
             stream.assign_id(id=locator.stream_id)
         elif assign_id:
@@ -71,10 +72,7 @@ class Stream(Metafile):
     @property
     def locator_alias(self) -> Optional[StreamLocatorAlias]:
         """
-        Return a locator alias of the current stream
-
-        This will alias the name mapping file of the stream to be its parent table version + stream format,
-          ONLY IF the stream is not being staged
+        Streams do not have locator aliases
         """
         return None
 
@@ -392,6 +390,9 @@ class StreamLocatorAliasName(LocatorName):
         return [self.locator.format]
 
 
+# TODO (mccember) remove this class
+# unless we have a reason to use stream locator aliases
+# to support multiple streams of a given format on a table version
 class StreamLocatorAlias(Locator, dict):
     @staticmethod
     def of(
