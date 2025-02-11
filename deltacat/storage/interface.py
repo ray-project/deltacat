@@ -23,7 +23,6 @@ from deltacat.storage import (
     Stream,
     StreamFormat,
     StreamLocator,
-    StreamLocatorAlias,
     Table,
     TableProperties,
     TableVersion,

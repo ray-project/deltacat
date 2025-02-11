@@ -291,7 +291,7 @@ class TableVersion(Metafile):
                     for key, val in self["schemas"].items()
                 }
             )
-            if self["schemas"]
+            if self.get("schemas")
             else None
         )
         if self.sort_scheme:
