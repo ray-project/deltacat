@@ -799,12 +799,7 @@ def create_table_version(
         new_table: Table = Metafile.update_for(prev_table)
         prev_table_version = prev_table.latest_table_version
         if not table_version:
-            try:
-                # if the last table version was an int then increment it by 1
-                table_version = str(int(prev_table_version) + 1)
-            except ValueError:
-                # if it isn't, set it to a UUID
-                table_version = str(uuid.uuid4())
+            table_version = TableVersion.next_version(prev_table_version)
     new_table.description = table_description or table_version_description
     new_table.properties = table_properties
     new_table.latest_table_version = table_version

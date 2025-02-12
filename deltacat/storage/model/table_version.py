@@ -1,7 +1,9 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import re
 import posixpath
+import uuid
 from typing import Any, Dict, List, Optional
 
 import pyarrow
@@ -310,6 +312,23 @@ class TableVersion(Metafile):
             )
             self.locator.table_locator = table.locator
         return self
+
+    @staticmethod
+    def next_version(previous_version: Optional[str] = None) -> str:
+        """
+        Assigns the next table version string given the previous table version.
+        Attempts to use the convention of 1-based incrementing integers of
+        the form "v1", "v2", etc. or of the form "1", "2", etc.
+        If the previous table version is not of this form, then assigns a UUID
+        to the next table version.
+        """
+        if previous_version is not None:
+            version_match = re.match(r"^(v?)(\d+)$", previous_version)
+            if version_match:
+                prefix, version_number = version_match.groups()
+                new_version_number = int(version_number) + 1
+                return f"{prefix}{new_version_number}"
+        return str(uuid.uuid4())
 
 
 class TableVersionLocatorName(LocatorName):

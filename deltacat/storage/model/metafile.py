@@ -113,6 +113,15 @@ class MetafileRevisionInfo(dict):
         current_txn_id: Optional[str] = None,
         ignore_missing_revision: bool = False,
     ) -> MetafileRevisionInfo:
+        """
+        Fetch latest revision of a metafile, or return None if no
+        revisions exist.
+        :param revision_dir_path: root path of directory for metafile
+        :param ignore_missing_revision: if True, will return
+        MetafileRevisionInfo.undefined() on no revisions
+        :raises ValueError if no revisions are found AND
+        ignore_missing_revision=False
+        """
         revisions = MetafileRevisionInfo.list_revisions(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
@@ -497,6 +506,35 @@ class Metafile(dict):
             # Could not find any revisions in list operations - return no results
             return ListResult.empty()
 
+    @staticmethod
+    def get_class(serialized_dict: dict):
+        """
+        Given a serialized dictionary of Metafile data, gets the metafile child
+        class type to instantiate.
+        """
+        # TODO: more robust implementation. Right now this relies on the
+        #  assumption that XLocator key will only be present in class X, and
+        #  is brittle to renames. On the other hand, this implementation does
+        #  not require any marker fields to be persisted, and a regression
+        #  will be quickly detected by test_metafile.io or other unit tests
+        if serialized_dict.__contains__("tableLocator"):
+            return deltacat.storage.model.table.Table
+        elif serialized_dict.__contains__("namespaceLocator"):
+            return deltacat.storage.model.namespace.Namespace
+        elif serialized_dict.__contains__("tableVersionLocator"):
+            return deltacat.storage.model.table_version.TableVersion
+        elif serialized_dict.__contains__("partitionLocator"):
+            return deltacat.storage.model.partition.Partition
+        elif serialized_dict.__contains__("streamLocator"):
+            return deltacat.storage.model.stream.Stream
+        elif serialized_dict.__contains__("deltaLocator"):
+            return deltacat.storage.model.delta.Delta
+        else:
+            raise ValueError(
+                f"Could not find metafile class from serialized form: "
+                f"${serialized_dict}"
+            )
+
     @classmethod
     def read(
         cls,
@@ -513,7 +551,10 @@ class Metafile(dict):
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path) as file:
             binary = file.readall()
-        obj = cls(**msgpack.loads(binary)).from_serializable(path, filesystem)
+            data = msgpack.loads(binary)
+        # Cast this Metafile into the appropriate child class type
+        clazz = Metafile.get_class(data)
+        obj = clazz(**data).from_serializable(path, filesystem)
         return obj
 
     def write_txn(
@@ -772,10 +813,10 @@ class Metafile(dict):
                 else None
             )
         except ValueError:
-            # the metafile has been deleted - return an empty list result
+            # the metafile has been deleted
             return ListResult.empty()
         if not immutable_id:
-            # the metafile does not exist - return an empty list result
+            # the metafile does not exist
             return ListResult.empty()
         revision_dir_path = posixpath.join(
             metafile_root,

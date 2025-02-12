@@ -10,6 +10,8 @@ from deltacat.storage import (
     NamespaceLocator,
     Table,
     TableVersion,
+    TableVersionLocator,
+    StreamFormat,
 )
 from deltacat.catalog.main.impl import PropertyCatalog
 import pyarrow as pa
@@ -107,13 +109,13 @@ class TestTable:
             catalog=cls.catalog,
         )
         # Create two tables
-        cls.table1 = metastore.create_table_version(
+        cls.stream1 = metastore.create_table_version(
             namespace="test_table_ns",
             table_name="table1",
             table_version="v1",
             catalog=cls.catalog,
         )
-        cls.table2 = metastore.create_table_version(
+        cls.stream2 = metastore.create_table_version(
             namespace="test_table_ns",
             table_name="table2",
             table_version="v1",
@@ -145,8 +147,7 @@ class TestTable:
             catalog=self.catalog,
         )
         assert tbl is not None
-        # In your architecture, you might check equivalence:
-        # e.g. tbl.equivalent_to(...) if you have that method:
+        # TODO(pdames): replace with tbl.equivalent_to(expected)
         assert tbl.table_name == "table1"
 
     def test_table_exists_existing(self):
@@ -236,31 +237,43 @@ class TestTableVersion:
             catalog=self.catalog,
         )
 
+    def test_creation_fails_if_already_exists(self):
+        # Assert that creating the same table version again raises a ValueError
+        with pytest.raises(ValueError):
+            metastore.create_table_version(
+                namespace="test_tv_ns",
+                table_name="mytable",
+                table_version="v1",
+                catalog=self.catalog,
+            )
+
 
 class TestStream:
     @classmethod
     def setup_class(cls):
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = PropertyCatalog(cls.tmpdir)
-        # Create a table version
-        metastore.create_namespace("test_stream_ns", catalog=cls.catalog)
+        metastore.create_namespace(
+            "test_stream_ns",
+            catalog=cls.catalog,
+        )
+        # Create a table version.
+        # This call should automatically create a default DeltaCAT stream.
         metastore.create_table_version(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
             catalog=cls.catalog,
         )
-        # Stage & commit a stream
-        cls.stream = metastore.stage_stream(
+        # Retrieve the auto-created default stream.
+        cls.default_stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
             catalog=cls.catalog,
         )
-        cls.committed_stream = metastore.commit_stream(
-            cls.stream,
-            catalog=cls.catalog,
-        )
+        # Ensure that the default stream was auto-created.
+        assert cls.default_stream is not None, "Default stream not found."
 
     @classmethod
     def teardown_class(cls):
@@ -268,18 +281,13 @@ class TestStream:
 
     def test_list_streams(self):
         list_result = metastore.list_streams(
-            "test_stream_ns",
-            "mystreamtable",
-            "v1",
-            catalog=self.catalog,
+            "test_stream_ns", "mystreamtable", "v1", catalog=self.catalog
         )
         streams = list_result.all_items()
-        # This will list the staged stream and the committed stream
-        assert len(streams) == 2
-        # TODO - add more assertions
+        # We expect exactly one stream (the default "deltacat" stream).
+        assert len(streams) == 1
 
     def test_get_stream(self):
-        # The stream is created and committed in setup
         stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
@@ -287,11 +295,13 @@ class TestStream:
             catalog=self.catalog,
         )
         assert stream is not None
+        # The stream's format should be the default "deltacat"
+        assert stream.stream_format.lower() == StreamFormat.DELTACAT.value.lower()
 
     def test_list_stream_partitions_empty(self):
         # no partitions yet
         list_result = metastore.list_stream_partitions(
-            self.committed_stream,
+            self.default_stream,
             catalog=self.catalog,
         )
         partitions = list_result.all_items()
@@ -313,3 +323,42 @@ class TestStream:
             catalog=self.catalog,
         )
         assert stream is None
+
+    def test_stage_and_commit_stream_replacement(self):
+        # Stage & commit a stream
+        stream = metastore.stage_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            catalog=self.catalog,
+        )
+        fetched_stream = metastore.get_staged_stream(
+            table_version_locator=TableVersionLocator.at(
+                namespace="test_stream_ns",
+                table_name="mystreamtable",
+                table_version="v1",
+            ),
+            stream_id=stream.stream_id,
+            catalog=self.catalog,
+        )
+        assert fetched_stream.equivalent_to(stream)
+        committed_stream = metastore.commit_stream(
+            stream=stream,
+            catalog=self.catalog,
+        )
+        fetched_stream = metastore.get_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            catalog=self.catalog,
+        )
+        assert fetched_stream.equivalent_to(committed_stream)
+        list_result = metastore.list_streams(
+            "test_stream_ns",
+            "mystreamtable",
+            "v1",
+            catalog=self.catalog,
+        )
+        streams = list_result.all_items()
+        # This will list the staged stream and the committed stream
+        assert len(streams) == 2
