@@ -1,7 +1,9 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import re
 import posixpath
+import uuid
 from typing import Any, Dict, List, Optional
 
 import pyarrow
@@ -43,6 +45,7 @@ class TableVersion(Metafile):
         schemas: Optional[SchemaList] = None,
         partition_schemes: Optional[partition.PartitionSchemeList] = None,
         sort_schemes: Optional[SortSchemeList] = None,
+        previous_table_version: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> TableVersion:
         table_version = TableVersion()
@@ -58,6 +61,7 @@ class TableVersion(Metafile):
         table_version.schemas = schemas
         table_version.partition_schemes = partition_schemes
         table_version.sort_schemes = sort_schemes
+        table_version.previous_table_version = previous_table_version
         table_version.native_object = native_object
         return table_version
 
@@ -168,6 +172,14 @@ class TableVersion(Metafile):
         self["description"] = description
 
     @property
+    def previous_table_version(self) -> Optional[str]:
+        return self.get("previous_table_version")
+
+    @previous_table_version.setter
+    def previous_table_version(self, previous_table_version: Optional[str]) -> None:
+        self["previous_table_version"] = previous_table_version
+
+    @property
     def properties(self) -> Optional[TableVersionProperties]:
         return self.get("properties")
 
@@ -263,16 +275,19 @@ class TableVersion(Metafile):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> TableVersion:
         self["schema"] = (
-            Schema.deserialize(pa.py_buffer(self["schema"])) if self["schema"] else None
+            Schema.deserialize(pa.py_buffer(self["schema"]))
+            if self.get("schema")
+            else None
         )
         self.schemas = (
             [Schema.deserialize(pa.py_buffer(_)) for _ in self["schemas"]]
-            if self["schemas"]
+            if self.get("schemas")
             else None
         )
-        # force list-to-tuple conversion of sort keys via property invocation
-        self.sort_scheme.keys
-        [sort_scheme.keys for sort_scheme in self.sort_schemes]
+        if self.sort_scheme:
+            # force list-to-tuple conversion of sort keys via property invocation
+            self.sort_scheme.keys
+            [sort_scheme.keys for sort_scheme in self.sort_schemes]
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
             parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
@@ -297,6 +312,23 @@ class TableVersion(Metafile):
             )
             self.locator.table_locator = table.locator
         return self
+
+    @staticmethod
+    def next_version(previous_version: Optional[str] = None) -> str:
+        """
+        Assigns the next table version string given the previous table version.
+        Attempts to use the convention of 1-based incrementing integers of
+        the form "v1", "v2", etc. or of the form "1", "2", etc.
+        If the previous table version is not of this form, then assigns a UUID
+        to the next table version.
+        """
+        if previous_version is not None:
+            version_match = re.match(r"^(v?)(\d+)$", previous_version)
+            if version_match:
+                prefix, version_number = version_match.groups()
+                new_version_number = int(version_number) + 1
+                return f"{prefix}{new_version_number}"
+        return str(uuid.uuid4())
 
 
 class TableVersionLocatorName(LocatorName):

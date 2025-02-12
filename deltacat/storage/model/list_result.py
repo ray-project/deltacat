@@ -21,6 +21,14 @@ class ListResult(dict, Generic[T]):
         list_result["nextPageProvider"] = next_page_provider
         return list_result
 
+    @staticmethod
+    def empty() -> ListResult:
+        list_result = ListResult()
+        list_result["items"] = []
+        list_result["paginationKey"] = None
+        list_result["nextPageProvider"] = None
+        return list_result
+
     def read_page(self) -> Optional[List[T]]:
         return self.get("items")
 

@@ -258,7 +258,9 @@ class Partition(Metafile):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Partition:
         self["schema"] = (
-            Schema.deserialize(pa.py_buffer(self["schema"])) if self["schema"] else None
+            Schema.deserialize(pa.py_buffer(self["schema"]))
+            if self.get("schema")
+            else None
         )
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
@@ -579,16 +581,20 @@ class PartitionLocatorAliasName(LocatorName):
 class PartitionLocatorAlias(Locator, dict):
     @staticmethod
     def of(parent_partition: Partition):
-        return PartitionLocatorAlias(
-            {
-                "partition_values": parent_partition.partition_values,
-                "partition_scheme_id": parent_partition.partition_scheme_id,
-                "parent": (
-                    parent_partition.locator.parent
-                    if parent_partition.locator
-                    else None
-                ),
-            }
+        return (
+            PartitionLocatorAlias(
+                {
+                    "partition_values": parent_partition.partition_values,
+                    "partition_scheme_id": parent_partition.partition_scheme_id,
+                    "parent": (
+                        parent_partition.locator.parent
+                        if parent_partition.locator
+                        else None
+                    ),
+                }
+            )
+            if parent_partition.state == CommitState.COMMITTED
+            else None  # only committed partitions can be resolved by alias
         )
 
     @property

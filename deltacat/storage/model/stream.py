@@ -373,13 +373,17 @@ class StreamLocatorAlias(Locator, dict):
     def of(
         parent_stream: Stream,
     ) -> StreamLocatorAlias:
-        return StreamLocatorAlias(
-            {
-                "format": parent_stream.stream_format,
-                "parent": (
-                    parent_stream.locator.parent if parent_stream.locator else None
-                ),
-            }
+        return (
+            StreamLocatorAlias(
+                {
+                    "format": parent_stream.stream_format,
+                    "parent": (
+                        parent_stream.locator.parent if parent_stream.locator else None
+                    ),
+                }
+            )
+            if parent_stream.state == CommitState.COMMITTED
+            else None  # only committed streams can be resolved by alias
         )
 
     @property

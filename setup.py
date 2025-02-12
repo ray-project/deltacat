@@ -28,7 +28,7 @@ setuptools.setup(
     name="deltacat",
     version=find_version("deltacat", "__init__.py"),
     author="Ray Team",
-    description="A scalable, fast, ACID-compliant Data Catalog powered by Ray.",
+    description="A portable, scalable, fast, and Pythonic Data Lakehouse for AI.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/ray-project/deltacat",

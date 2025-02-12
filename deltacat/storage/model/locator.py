@@ -55,6 +55,12 @@ class LocatorName:
         """
         return separator.join(self.parts())
 
+    def exists(self) -> bool:
+        """
+        Returns True if this locator name is defined, False otherwise.
+        """
+        return self.immutable_id or all(self.parts())
+
 
 class Locator:
     """
