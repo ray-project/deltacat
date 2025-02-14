@@ -2,16 +2,24 @@ import shutil
 import tempfile
 
 import pytest
+import copy
 
 from deltacat import Schema, Field
 from deltacat.storage import (
     metastore,
+    CommitState,
+    Metafile,
     Namespace,
     NamespaceLocator,
     Table,
-    TableVersion,
     TableVersionLocator,
+    Stream,
     StreamFormat,
+)
+from deltacat.tests.test_utils.storage import (
+    create_test_namespace,
+    create_test_table,
+    create_test_table_version,
 )
 from deltacat.catalog.main.impl import PropertyCatalog
 import pyarrow as pa
@@ -42,7 +50,7 @@ def schema():
 
 class TestNamespace:
     @classmethod
-    def setup_class(cls):
+    def setup_method(cls):
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = PropertyCatalog(cls.tmpdir)
         cls.namespace1 = metastore.create_namespace(
@@ -55,7 +63,7 @@ class TestNamespace:
         )
 
     @classmethod
-    def teardown_class(cls):
+    def teardown_method(cls):
         shutil.rmtree(cls.tmpdir)
 
     def test_list_namespaces(self):
@@ -91,7 +99,7 @@ class TestNamespace:
             catalog=self.catalog,
         )
 
-    def test_namespace_exists_nonexisting(self):
+    def test_namespace_not_exists(self):
         assert not metastore.namespace_exists(
             "foobar",
             catalog=self.catalog,
@@ -100,7 +108,7 @@ class TestNamespace:
 
 class TestTable:
     @classmethod
-    def setup_class(cls):
+    def setup_method(cls):
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = PropertyCatalog(cls.tmpdir)
         # Create a namespace to hold our tables
@@ -123,7 +131,7 @@ class TestTable:
         )
 
     @classmethod
-    def teardown_class(cls):
+    def teardown_method(cls):
         shutil.rmtree(cls.tmpdir)
 
     def test_list_tables(self):
@@ -158,7 +166,7 @@ class TestTable:
             catalog=self.catalog,
         )
 
-    def test_table_exists_nonexisting(self):
+    def test_table_not_exists(self):
         assert not metastore.table_exists(
             "test_table_ns",
             "no_such_table",
@@ -168,89 +176,128 @@ class TestTable:
 
 class TestTableVersion:
     @classmethod
-    def setup_class(cls):
+    def setup_method(cls):
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = PropertyCatalog(cls.tmpdir)
+
+        cls.namespace = create_test_namespace()
+        cls.table = create_test_table()
+        cls.table_version = create_test_table_version()
+        cls.table_version_2 = create_test_table_version()
+        cls.table_version_2.previous_table_version = cls.table_version.table_version
+        cls.table_version_2.locator.table_version = "v2"
+
         # Create a namespace and single table
         cls.namespace_obj = metastore.create_namespace(
-            namespace="test_tv_ns",
+            namespace=cls.namespace.namespace,
             catalog=cls.catalog,
         )
+
         # Create a "base" table to attach versions to
-        metastore.create_table_version(
-            namespace="test_tv_ns",
-            table_name="mytable",
-            table_version="v1",
+        cls.stream1 = metastore.create_table_version(
+            namespace=cls.table.namespace,
+            table_name=cls.table.table_name,
+            table_version=cls.table_version.table_version,
+            schema=cls.table_version.schema,
+            partition_scheme=cls.table_version.partition_scheme,
+            sort_keys=cls.table_version.sort_scheme,
+            table_version_description=cls.table_version.description,
+            table_version_properties=cls.table_version.properties,
+            table_description=cls.table.description,
+            table_properties=cls.table.properties,
+            supported_content_types=cls.table_version.content_types,
             catalog=cls.catalog,
         )
         # Now create an additional version
         cls.stream2 = metastore.create_table_version(
-            namespace="test_tv_ns",
-            table_name="mytable",
-            table_version="v2",
+            namespace=cls.table.namespace,
+            table_name=cls.table.table_name,
+            table_version=cls.table_version_2.table_version,
+            schema=cls.table_version_2.schema,
+            partition_scheme=cls.table_version_2.partition_scheme,
+            sort_keys=cls.table_version_2.sort_scheme,
+            table_version_description=cls.table_version_2.description,
+            table_version_properties=cls.table_version_2.properties,
+            table_description=cls.table.description,
+            table_properties=cls.table.properties,
+            supported_content_types=cls.table_version_2.content_types,
             catalog=cls.catalog,
         )
 
     @classmethod
-    def teardown_class(cls):
+    def teardown_method(cls):
         shutil.rmtree(cls.tmpdir)
 
     def test_list_table_versions(self):
         list_result = metastore.list_table_versions(
-            "test_tv_ns",
-            "mytable",
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
             catalog=self.catalog,
         )
         tvs = list_result.all_items()
-        # we expect v1 and v2
-        version_ids = []
         for tv in tvs:
-            if isinstance(tv, TableVersion):
-                version_ids.append(tv.table_version)
-        assert set(version_ids) == {"v1", "v2"}
+            if tv.id == self.table_version.id:
+                assert tv.equivalent_to(self.table_version)
+            elif tv.id == self.table_version_2.id:
+                assert tv.equivalent_to(self.table_version_2)
 
     def test_get_table_version(self):
         tv = metastore.get_table_version(
-            "test_tv_ns",
-            "mytable",
-            "v1",
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
             catalog=self.catalog,
         )
-        assert tv is not None
-        assert tv.table_version == "v1"
+        assert tv.equivalent_to(self.table_version)
 
     def test_table_version_exists(self):
         # v2 should exist
         assert metastore.table_version_exists(
-            "test_tv_ns",
-            "mytable",
-            "v2",
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
             catalog=self.catalog,
         )
 
-    def test_table_version_exists_nonexisting(self):
+    def test_table_version_not_exists(self):
         # "v999" should not exist
         assert not metastore.table_version_exists(
-            "test_tv_ns",
-            "mytable",
-            "v999",
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version="v999",
             catalog=self.catalog,
         )
+
+    def test_table_version_exists_bad_parent_locator(self):
+        kwargs = {
+            "namespace": self.table.namespace,
+            "table_name": self.table.table_name,
+        }
+        for key in kwargs.keys():
+            kwargs_copy = copy.copy(kwargs)
+            kwargs_copy[key] = "i_dont_exist"
+            print(kwargs_copy)
+            with pytest.raises(ValueError):
+                metastore.table_version_exists(
+                    table_version="v1",
+                    catalog=self.catalog,
+                    **kwargs_copy,
+                )
 
     def test_creation_fails_if_already_exists(self):
         # Assert that creating the same table version again raises a ValueError
         with pytest.raises(ValueError):
             metastore.create_table_version(
-                namespace="test_tv_ns",
-                table_name="mytable",
-                table_version="v1",
+                namespace=self.table.namespace,
+                table_name=self.table.table_name,
+                table_version=self.table_version.table_version,
                 catalog=self.catalog,
             )
 
 
 class TestStream:
     @classmethod
-    def setup_class(cls):
+    def setup_method(cls):
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = PropertyCatalog(cls.tmpdir)
         metastore.create_namespace(
@@ -276,16 +323,71 @@ class TestStream:
         assert cls.default_stream is not None, "Default stream not found."
 
     @classmethod
-    def teardown_class(cls):
+    def teardown_method(cls):
         shutil.rmtree(cls.tmpdir)
 
     def test_list_streams(self):
         list_result = metastore.list_streams(
-            "test_stream_ns", "mystreamtable", "v1", catalog=self.catalog
+            "test_stream_ns",
+            "mystreamtable",
+            "v1",
+            catalog=self.catalog,
         )
         streams = list_result.all_items()
         # We expect exactly one stream (the default "deltacat" stream).
         assert len(streams) == 1
+        assert streams[0].equivalent_to(self.default_stream)
+
+    def test_stream_exists(self):
+        exists = metastore.stream_exists(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            catalog=self.catalog,
+        )
+        assert exists
+
+    def test_stream_not_exists(self):
+        exists = metastore.stream_exists(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            stream_format=StreamFormat.ICEBERG,
+            catalog=self.catalog,
+        )
+        assert not exists
+
+    def test_stream_exists_bad_parent_locator(self):
+        kwargs = {
+            "namespace": "test_stream_ns",
+            "table_name": "mystreamtable",
+            "table_version": "v1",
+        }
+        for key in kwargs.keys():
+            kwargs_copy = copy.copy(kwargs)
+            kwargs_copy[key] = "i_dont_exist"
+            print(kwargs_copy)
+            with pytest.raises(ValueError):
+                metastore.stream_exists(
+                    catalog=self.catalog,
+                    **kwargs_copy,
+                )
+
+    def test_list_streams_bad_parent_locator(self):
+        kwargs = {
+            "namespace": "test_stream_ns",
+            "table_name": "mystreamtable",
+            "table_version": "v1",
+        }
+        for key in kwargs.keys():
+            kwargs_copy = copy.copy(kwargs)
+            kwargs_copy[key] = "i_dont_exist"
+            print(kwargs_copy)
+            with pytest.raises(ValueError):
+                metastore.list_streams(
+                    catalog=self.catalog,
+                    **kwargs_copy,
+                )
 
     def test_get_stream(self):
         stream = metastore.get_stream(
@@ -294,9 +396,33 @@ class TestStream:
             table_version="v1",
             catalog=self.catalog,
         )
-        assert stream is not None
-        # The stream's format should be the default "deltacat"
-        assert stream.stream_format.lower() == StreamFormat.DELTACAT.value.lower()
+        assert stream.equivalent_to(self.default_stream)
+
+    def test_get_stream_bad_parent_locator(self):
+        kwargs = {
+            "namespace": "test_stream_ns",
+            "table_name": "mystreamtable",
+            "table_version": "v1",
+        }
+        for key in kwargs.keys():
+            kwargs_copy = copy.copy(kwargs)
+            kwargs_copy[key] = "i_dont_exist"
+            print(kwargs_copy)
+            with pytest.raises(ValueError):
+                metastore.get_stream(
+                    catalog=self.catalog,
+                    **kwargs_copy,
+                )
+
+    def test_get_missing_stream(self):
+        stream = metastore.get_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            stream_format=StreamFormat.ICEBERG,
+            catalog=self.catalog,
+        )
+        assert stream is None
 
     def test_list_stream_partitions_empty(self):
         # no partitions yet
@@ -308,50 +434,108 @@ class TestStream:
         assert len(partitions) == 0
 
     def test_delete_stream(self):
-        # We can delete the stream
+        # Given a directive to delete the default stream
         metastore.delete_stream(
-            "test_stream_ns",
-            "mystreamtable",
-            "v1",
-            catalog=self.catalog,
-        )
-        # Now get_stream should return None
-        stream = metastore.get_stream(
-            "test_stream_ns",
-            "mystreamtable",
-            "v1",
-            catalog=self.catalog,
-        )
-        assert stream is None
-
-    def test_stage_and_commit_stream_replacement(self):
-        # Stage & commit a stream
-        stream = metastore.stage_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
             catalog=self.catalog,
         )
-        fetched_stream = metastore.get_staged_stream(
+        # When we try to get the last committed stream
+        stream = metastore.get_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            catalog=self.catalog,
+        )
+        # Expect nothing to be returned
+        assert stream is None
+
+        # Even when we try to get the last committed stream by ID
+        stream = metastore.get_stream_by_id(
             table_version_locator=TableVersionLocator.at(
                 namespace="test_stream_ns",
                 table_name="mystreamtable",
                 table_version="v1",
             ),
-            stream_id=stream.stream_id,
+            stream_id=self.default_stream.id,
             catalog=self.catalog,
         )
-        assert fetched_stream.equivalent_to(stream)
-        committed_stream = metastore.commit_stream(
-            stream=stream,
+        # Expect nothing to be returned
+        assert stream is None
+        # TODO(pdames): Add new getter method for deleted but not GC'd streams?
+
+    def test_delete_missing_stream(self):
+        with pytest.raises(ValueError):
+            metastore.delete_stream(
+                namespace="test_stream_ns",
+                table_name="mystreamtable",
+                table_version="v1",
+                stream_format=StreamFormat.ICEBERG,
+                catalog=self.catalog,
+            )
+
+    def test_delete_stream_bad_parent_locator(self):
+        kwargs = {
+            "namespace": "test_stream_ns",
+            "table_name": "mystreamtable",
+            "table_version": "v1",
+        }
+        for key in kwargs.keys():
+            kwargs_copy = copy.copy(kwargs)
+            kwargs_copy[key] = "i_dont_exist"
+            print(kwargs_copy)
+            with pytest.raises(ValueError):
+                metastore.delete_stream(
+                    catalog=self.catalog,
+                    **kwargs_copy,
+                )
+
+    def test_stage_and_commit_stream_replacement(self):
+        # Given a staged stream that overwrites the default stream
+        staged_stream = metastore.stage_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
             catalog=self.catalog,
         )
+        # When that staged stream is retrieved by ID
+        fetched_stream = metastore.get_stream_by_id(
+            table_version_locator=TableVersionLocator.at(
+                namespace="test_stream_ns",
+                table_name="mystreamtable",
+                table_version="v1",
+            ),
+            stream_id=staged_stream.stream_id,
+            catalog=self.catalog,
+        )
+        # Ensure that it is equivalent to the stream we staged
+        assert fetched_stream.id == staged_stream.id == fetched_stream.stream_id
+        assert fetched_stream.equivalent_to(staged_stream)
+        # Also ensure that the last committed deltacat stream returned is
+        # NOT the staged stream, but the committed default stream.
         fetched_stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
             catalog=self.catalog,
         )
+        assert fetched_stream.id == self.default_stream.id == fetched_stream.stream_id
+        assert fetched_stream.equivalent_to(self.default_stream)
+        # Given a committed stream that replaces the default stream
+        committed_stream = metastore.commit_stream(
+            stream=staged_stream,
+            catalog=self.catalog,
+        )
+        # When the last committed stream is retrieved
+        fetched_stream = metastore.get_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v1",
+            catalog=self.catalog,
+        )
+        # Ensure that it is equivalent to the stream we committed
+        assert fetched_stream.id == committed_stream.id == fetched_stream.stream_id
         assert fetched_stream.equivalent_to(committed_stream)
         list_result = metastore.list_streams(
             "test_stream_ns",
@@ -360,5 +544,14 @@ class TestStream:
             catalog=self.catalog,
         )
         streams = list_result.all_items()
-        # This will list the staged stream and the committed stream
+        # This will list the default stream and the newly committed stream
+        for stream in streams:
+            if stream.id == committed_stream.id:
+                assert stream.equivalent_to(committed_stream)
+            else:
+                deprecated_default_stream: Stream = Metafile.update_for(
+                    self.default_stream
+                )
+                deprecated_default_stream.state = CommitState.DEPRECATED
+                assert stream.equivalent_to(deprecated_default_stream)
         assert len(streams) == 2
