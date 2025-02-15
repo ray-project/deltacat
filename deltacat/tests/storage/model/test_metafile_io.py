@@ -57,6 +57,7 @@ from deltacat.storage.model.metafile import (
     MetafileRevisionInfo,
 )
 from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, NANOS_PER_SEC
+from deltacat.storage.model.schema import SchemaMap
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 
@@ -134,6 +135,7 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
         name="test_sort_scheme",
         scheme_id="test_sort_scheme_id",
     )
+
     table_version = TableVersion.of(
         locator=table_version_locator,
         schema=schema,
@@ -144,7 +146,11 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
         sort_scheme=sort_scheme,
         watermark=1,
         lifecycle_state=LifecycleState.CREATED,
-        schemas=[schema, schema, schema],
+        schemas={
+            "default": schema,
+            "v1": schema,
+            "v2": schema,
+        },
         partition_schemes=[partition_scheme, partition_scheme],
         sort_schemes=[sort_scheme, sort_scheme],
     )
@@ -2495,7 +2501,7 @@ class TestMetafileIO:
             sort_scheme=sort_scheme,
             watermark=1,
             lifecycle_state=LifecycleState.CREATED,
-            schemas=[schema, schema, schema],
+            schemas=SchemaMap.of([schema, schema, schema]),
             partition_schemes=[partition_scheme, partition_scheme],
             sort_schemes=[sort_scheme, sort_scheme],
         )

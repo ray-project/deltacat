@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 
 import msgpack
-from typing import Optional, Any, Dict, Union, List, Callable
+from typing import Optional, Any, Dict, OrderedDict, Union, List, Callable
 
 import pyarrow as pa
 from pyarrow import ArrowInvalid
@@ -463,6 +463,12 @@ class Schema(dict):
     def serialize(self) -> pa.Buffer:
         return self.arrow.serialize()
 
+    def equivalent_to(self, other):
+        try:
+            return self.serialize().to_pybytes() == other.serialize().to_pybytes()
+        except Exception:
+            return False
+
     def field_id(self, name: Union[FieldName, NestedFieldName]) -> FieldId:
         return Schema._field_name_to_field_id(self.arrow, name)
 
@@ -620,7 +626,8 @@ class Schema(dict):
         max_field_id = (
             visitor_dict["maxFieldId"] + len(field_ids_to_fields)
         ) % MAX_FIELD_ID_EXCLUSIVE
-        field_id = Field.of(field).id or max_field_id
+        _field = Field.of(field)
+        field_id = _field.id if _field is not None else max_field_id
         if (dupe := field_ids_to_fields.get(field_id)) is not None:
             raise ValueError(
                 f"Duplicate field id {field_id} for field: {field} "
@@ -634,18 +641,154 @@ class Schema(dict):
         field_ids_to_fields[field_id] = field
 
 
-class SchemaList(List[Schema]):
-    @staticmethod
-    def of(items: List[Schema]) -> SchemaList:
-        typed_items = SchemaList()
-        for item in items:
-            if item is not None and not isinstance(item, Schema):
-                item = Schema(item)
-            typed_items.append(item)
-        return typed_items
+class SchemaMap(OrderedDict):
+    """
+    An OrderedDict wrapper for managing DeltaCAT Schema objects.
 
-    def __getitem__(self, item):
-        val = super().__getitem__(item)
-        if val is not None and not isinstance(val, Schema):
-            self[item] = val = Schema(val)
-        return val
+    method: of(item)
+    method: __setitem__(key, value)
+    method: update(iterable_or_mapping, **kwargs)
+    method: __delitem__(key)
+    method: get_schemas()
+    method: equivalent_to(other)
+    """
+
+    @staticmethod
+    def of(item: Union[Dict[str, Schema], List[Schema]]) -> SchemaMap:
+        """
+        Create a SchemaMap from a dictionary or a list of schema data.
+
+        Supported Item Types:
+        - If a dict, each key becomes the name of a schema, and each value
+          should be either:
+           (1) A pre-constructed Schema object, or
+           (2) A dictionary/JSON-like structure that can be converted
+               to a Schema (e.g., {"fields": [...] }).
+        - If a list, each element is treated like the dict values above, but
+          is given an auto-generated name (e.g., "1", "2", etc.).
+
+        param: item (Union[Dict[str, Any], List[Any]]): A dict mapping names to schema data or a list of schema data.
+        returns: SchemaMap instance containing the provided schemas.
+        raises: ValueError if item is neither a dict nor a list.
+        """
+        mapping = SchemaMap()
+        if isinstance(item, dict):
+            for name, schema_data in item.items():
+                mapping[name] = schema_data
+        elif isinstance(item, list):
+            for schema_data in item:
+                mapping[None] = schema_data
+        else:
+            raise ValueError(f"Cannot create SchemaMap from {item}")
+        return mapping
+
+    def _generate_default_name(self, schema: Schema) -> str:
+        """
+        Generate a default unique name for the given schema.
+        Uses the schema's own name attribute if available; otherwise, creates one based on the current number of entries.
+
+        param: schema (Schema): The schema for which to generate a name.
+        returns: A unique default name (str) for the schema.
+        raises: None.
+        """
+        candidate = getattr(schema, "name", None)
+        if not candidate:
+            candidate = f"{len(self) + 1}"
+        base_candidate = candidate
+        counter = 1
+        while candidate in self:
+            candidate = f"{base_candidate}_{counter}"
+            counter += 1
+        return candidate
+
+    def __setitem__(
+        self, key: Optional[str], value: Union[Schema, Dict[str, Any]]
+    ) -> None:
+        """
+        Override __setitem__ to convert the value to a Schema, generate a default name if needed.
+        Will overwrite any existing schema with the same key, if called directly.
+
+        param: key (Optional[str]): The desired key for the schema; if None or empty, a default name is generated.
+        param: value (Union[Schema, Dict[str, Any]]): The schema or dict convertible to a Schema.
+        returns: None.
+        raises: ValueError if a schema with the given (or generated) key already exists.
+        """
+        schema = value if isinstance(value, Schema) else Schema.of(value)
+
+        if not key:
+            key = self._generate_default_name(schema)
+            print(f"No schema name provided. Using generated ID: {key}")
+
+        super().__setitem__(key, schema)
+
+    def insert(self, key: Optional[str], value: Union[Schema, Dict[str, Any]]) -> None:
+        """
+        Insert a new schema into the SchemaMap.
+        Raises an error if the key already exists.
+
+        :param key: The desired key; generates one if None.
+        :param value: The schema object or dict convertible to a Schema.
+        :raises ValueError: If the key already exists.
+        """
+        if key in self:
+            raise ValueError(f"Schema with name '{key}' already exists.")
+
+        self.__setitem__(key, value)
+
+    def update(self, key: str, new_schema: Union[Schema, Dict[str, Any]]) -> None:
+        """
+        Update an existing schema by its key.
+        Raises an error if the key does not exist.
+
+        :param key: The key to update.
+        :param new_schema: The new schema object or dict convertible to a Schema.
+        :raises KeyError: If the key does not exist.
+        """
+        if key is not None and key not in self:
+            raise KeyError(f"Schema with name '{key}' does not exist.")
+
+        self.__setitem__(key, new_schema)
+
+    def __delitem__(self, key: str) -> None:
+        """
+        Override __delitem__ to delete a schema.
+
+        param: key (str): The key of the schema to delete.
+        returns: None.
+        raises: KeyError if the key is not present.
+        """
+        if key not in self:
+            raise KeyError(f"Schema with name '{key}' does not exist.")
+
+        super().__delitem__(key)
+
+    def get_schemas(self) -> List[Schema]:
+        """
+        Retrieve all stored schemas as a list.
+
+        param: None.
+        returns: List[Schema] containing all schemas in insertion order.
+        raises: None.
+        """
+        return list(self.values())
+
+    def equivalent_to(self, other: SchemaMap) -> bool:
+        """
+        Compare this SchemaMap with another mapping for equivalence.
+
+        param: other (Any): Another mapping (dict or SchemaMap) to compare against.
+        returns: bool indicating whether both mappings have the same keys in the same order and equivalent Schema objects.
+        raises: None.
+        """
+        if not isinstance(other, (dict, SchemaMap)):
+            return False
+        if len(self) != len(other):
+            return False
+        for (key_self, schema_self), (key_other, schema_other) in zip(
+            self.items(), other.items()
+        ):
+            if key_self != key_other:
+                return False
+            if not schema_self.equivalent_to(schema_other):
+                return False
+        return True
