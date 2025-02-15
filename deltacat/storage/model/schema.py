@@ -654,9 +654,18 @@ class SchemaMap(OrderedDict):
     """
 
     @staticmethod
-    def of(item: Union[Dict[str, Any], List[Any]]) -> SchemaMap:
+    def of(item: Union[Dict[str, Schema], List[Schema]]) -> SchemaMap:
         """
         Create a SchemaMap from a dictionary or a list of schema data.
+
+        Supported Item Types:
+        - If a dict, each key becomes the name of a schema, and each value
+          should be either:
+           (1) A pre-constructed Schema object, or
+           (2) A dictionary/JSON-like structure that can be converted
+               to a Schema (e.g., {"fields": [...] }).
+        - If a list, each element is treated like the dict values above, but
+          is given an auto-generated name (e.g., "1", "2", etc.).
 
         param: item (Union[Dict[str, Any], List[Any]]): A dict mapping names to schema data or a list of schema data.
         returns: SchemaMap instance containing the provided schemas.
@@ -696,8 +705,8 @@ class SchemaMap(OrderedDict):
         self, key: Optional[str], value: Union[Schema, Dict[str, Any]]
     ) -> None:
         """
-        Override __setitem__ to convert the value to a Schema, generate a default name if needed,
-        and check for duplicates.
+        Override __setitem__ to convert the value to a Schema, generate a default name if needed.
+        Will overwrite any existing schema with the same key, if called directly.
 
         param: key (Optional[str]): The desired key for the schema; if None or empty, a default name is generated.
         param: value (Union[Schema, Dict[str, Any]]): The schema or dict convertible to a Schema.
