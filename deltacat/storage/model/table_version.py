@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 import posixpath
 import uuid
-from typing import Any, Dict, List, Optional
 from typing import Any, Dict, List, Optional, Union
 
 import pyarrow

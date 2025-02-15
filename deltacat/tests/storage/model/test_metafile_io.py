@@ -2505,7 +2505,6 @@ class TestMetafileIO:
             partition_schemes=[partition_scheme, partition_scheme],
             sort_schemes=[sort_scheme, sort_scheme],
         )
-        # print(table_version.schemas)
         # given a transaction that creates a single table version
         write_paths, txn_log_path = Transaction.of(
             txn_type=TransactionType.APPEND,

@@ -677,7 +677,6 @@ class SchemaMap(OrderedDict):
         """
         Generate a default unique name for the given schema.
         Uses the schema's own name attribute if available; otherwise, creates one based on the current number of entries.
-        Ensures uniqueness by appending an incremental suffix if needed.
 
         param: schema (Schema): The schema for which to generate a name.
         returns: A unique default name (str) for the schema.
@@ -705,17 +704,41 @@ class SchemaMap(OrderedDict):
         returns: None.
         raises: ValueError if a schema with the given (or generated) key already exists.
         """
-        schema_obj = value if isinstance(value, Schema) else Schema.of(value)
+        schema = value if isinstance(value, Schema) else Schema.of(value)
 
         if not key:
-            key = self._generate_default_name(schema_obj)
+            key = self._generate_default_name(schema)
+            print(f"No schema name provided. Using generated ID: {key}")
 
+        super().__setitem__(key, schema)
+
+    def insert(self, key: Optional[str], value: Union[Schema, Dict[str, Any]]) -> None:
+        """
+        Insert a new schema into the SchemaMap.
+        Raises an error if the key already exists.
+
+        :param key: The desired key; generates one if None.
+        :param value: The schema object or dict convertible to a Schema.
+        :raises ValueError: If the key already exists.
+        """
         if key in self:
-            raise ValueError(
-                f"Schema with name '{key}' already exists in the SchemaMap."
-            )
+            raise ValueError(f"Schema with name '{key}' already exists.")
 
-        super().__setitem__(key, schema_obj)
+        self.__setitem__(key, value)
+
+    def update(self, key: str, new_schema: Union[Schema, Dict[str, Any]]) -> None:
+        """
+        Update an existing schema by its key.
+        Raises an error if the key does not exist.
+
+        :param key: The key to update.
+        :param new_schema: The new schema object or dict convertible to a Schema.
+        :raises KeyError: If the key does not exist.
+        """
+        if key is not None and key not in self:
+            raise KeyError(f"Schema with name '{key}' does not exist.")
+
+        self.__setitem__(key, new_schema)
 
     def __delitem__(self, key: str) -> None:
         """
