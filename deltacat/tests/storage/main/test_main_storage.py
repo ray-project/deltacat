@@ -7,15 +7,12 @@ import copy
 from deltacat.storage import (
     metastore,
     CommitState,
-    Field,
     LifecycleState,
     Metafile,
     Namespace,
     NamespaceLocator,
-    Table,
     TableVersion,
     TableVersionLocator,
-    Schema,
     Stream,
     StreamFormat,
 )
@@ -25,30 +22,6 @@ from deltacat.tests.test_utils.storage import (
     create_test_table_version,
 )
 from deltacat.catalog.main.impl import PropertyCatalog
-import pyarrow as pa
-
-
-@pytest.fixture
-def schema():
-    return Schema.of(
-        [
-            Field.of(
-                field=pa.field("some_string", pa.string(), nullable=False),
-                field_id=1,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_int32", pa.int32(), nullable=False),
-                field_id=2,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_float64", pa.float64()),
-                field_id=3,
-                is_merge_key=False,
-            ),
-        ]
-    )
 
 
 class TestNamespace:
