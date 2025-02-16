@@ -82,7 +82,7 @@ from deltacat.utils.common import ReadKwargsProvider
 #       This will ensure that they remain consistent across different storage
 #       implementations and can be easily modified or overridden when needed.
 DEFAULT_NAMESPACE = "namespace"
-DEFAULT_TABLE_VERSION = "table_version"
+DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
 DEFAULT_STREAM_FORMAT = StreamFormat.DELTACAT
 DEFAULT_PARTITION_ID = "partition"
@@ -296,7 +296,7 @@ def list_table_versions(
     locator = TableVersionLocator.at(
         namespace=namespace,
         table_name=table_name,
-        table_version="placeholder",
+        table_version="placeholder.0",
     )
     table_version = TableVersion.of(
         locator=locator,
@@ -799,7 +799,22 @@ def create_table_version(
         new_table: Table = Metafile.update_for(prev_table)
         prev_table_version = prev_table.latest_table_version
         if not table_version:
+            # generate the next table version ID
             table_version = TableVersion.next_version(prev_table_version)
+        else:
+            # ensure that the given table version number matches expectations
+            expected_table_version = TableVersion.next_version(prev_table_version)
+            _, version_number = TableVersion.parse_table_version(
+                table_version,
+            )
+            _, expected_version_number = TableVersion.parse_table_version(
+                expected_table_version,
+            )
+            if version_number != expected_version_number:
+                raise ValueError(
+                    f"Expected to create table version "
+                    f"{expected_version_number} but found {version_number}.",
+                )
     new_table.description = table_description or table_version_description
     new_table.properties = table_properties
     new_table.latest_table_version = table_version
@@ -983,11 +998,20 @@ def update_table_version(
         **kwargs,
     )
     txn_operations = []
-    if old_table.latest_table_version == new_table_version.table_version:
-        if (
-            old_table_version.state != LifecycleState.ACTIVE
-            and new_table_version.state == LifecycleState.ACTIVE
-        ):
+
+    if (
+        lifecycle_state == LifecycleState.ACTIVE
+        and old_table_version.state != LifecycleState.ACTIVE
+    ):
+        _, old_version_number = (
+            TableVersion.parse_table_version(
+                old_table.latest_active_table_version,
+            )
+            if old_table.latest_active_table_version
+            else (None, None)
+        )
+        _, new_version_number = TableVersion.parse_table_version(table_version)
+        if old_version_number is None or old_version_number < new_version_number:
             # update the table's latest table version
             new_table: Table = Metafile.update_for(old_table)
             new_table.latest_active_table_version = table_version
@@ -1798,7 +1822,8 @@ def get_latest_table_version(
 ) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest version of the specified table.
-    Returns None if no table version exists for the given table.
+    Returns None if no table version exists for the given table. Raises
+    an error if the given table doesn't exist.
     """
     table_version_id = _resolve_latest_table_version_id(
         *args,
@@ -1827,6 +1852,7 @@ def get_latest_active_table_version(
     """
     Gets table version metadata for the latest active version of the specified
     table. Returns None if no active table version exists for the given table.
+    Raises an error if the given table doesn't exist.
     """
     table_version_id = _resolve_latest_active_table_version_id(
         *args,

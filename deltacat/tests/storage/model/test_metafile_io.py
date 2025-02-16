@@ -993,7 +993,7 @@ class TestMetafileIO:
         # expect a subsequent replace of the deleted table version to fail
         replacement_table_version: TableVersion = TableVersion.based_on(
             original_table_version,
-            new_id=original_table_version.id + "_2",
+            new_id=original_table_version.id + "0",
         )
         bad_txn_operations = [
             TransactionOperation.of(
@@ -1047,7 +1047,7 @@ class TestMetafileIO:
         # given a transaction containing a table version replacement
         replacement_table_version: TableVersion = TableVersion.based_on(
             original_table_version,
-            new_id=original_table_version.id + "_2",
+            new_id=original_table_version.id + "0",
         )
 
         # expect the proposed replacement table version to be assigned a new ID
@@ -1628,7 +1628,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id=original_table_version_created.id + "_2",
+            new_id=original_table_version_created.id + "0",
         )
         # 2. a new stream in the new table version
         original_stream_created = Stream(commit_results[3][1])
@@ -1683,7 +1683,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version_to_create: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id=original_table_version_created.id + "_2",
+            new_id=original_table_version_created.id + "0",
         )
         new_table_version_to_create.table_locator.table_name = renamed_table.table_name
         # 3. ordered transaction operations that try to put the new table
@@ -1771,7 +1771,7 @@ class TestMetafileIO:
             other=original_stream_created,
             new_id="test_stream_id",
         )
-        new_stream.table_version_locator.table_version = "missing_table_version"
+        new_stream.table_version_locator.table_version = "missing_table_version.0"
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND,
             txn_operations=[
@@ -1795,7 +1795,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id="test_table_version",
+            new_id="test_table_version.1",
         )
         new_table_version.namespace_locator.namespace = "missing_namespace"
         transaction = Transaction.of(
@@ -1821,7 +1821,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id="test_table_version",
+            new_id="test_table_version.1",
         )
         new_table_version.table_locator.table_name = "missing_table"
         transaction = Transaction.of(
@@ -1882,7 +1882,7 @@ class TestMetafileIO:
         # 2. a new table version in the renamed table
         new_table_version_to_create: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id=original_table_version_created.table_version + "_2",
+            new_id=original_table_version_created.table_version + "0",
         )
         new_table_version_to_create.table_locator.table_name = renamed_table.table_name
         # 3. a new stream in the new table version in the renamed table
@@ -2237,7 +2237,7 @@ class TestMetafileIO:
         table_version_locator = TableVersionLocator.at(
             namespace=None,
             table_name=None,
-            table_version="test_table_version",
+            table_version="test_table_version.1",
         )
         schema = Schema.of(
             [

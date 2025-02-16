@@ -96,7 +96,7 @@ def create_test_table_version():
     table_version_locator = TableVersionLocator.at(
         namespace="test_namespace",
         table_name="test_table",
-        table_version="v1",
+        table_version="v.1",
     )
     schema = Schema.of(
         [
@@ -171,7 +171,7 @@ def create_test_stream():
     stream_locator = StreamLocator.at(
         namespace="test_namespace",
         table_name="test_table",
-        table_version="v1",
+        table_version="v.1",
         stream_id="test_stream_id",
         stream_format=StreamFormat.DELTACAT,
     )
@@ -207,7 +207,7 @@ def create_test_partition():
     partition_locator = PartitionLocator.at(
         namespace="test_namespace",
         table_name="test_table",
-        table_version="v1",
+        table_version="v.1",
         stream_id="test_stream_id",
         stream_format=StreamFormat.DELTACAT,
         partition_values=["a", 1],
@@ -248,7 +248,7 @@ def create_test_delta():
     delta_locator = DeltaLocator.at(
         namespace="test_namespace",
         table_name="test_table",
-        table_version="v1",
+        table_version="v.1",
         stream_id="test_stream_id",
         stream_format=StreamFormat.DELTACAT,
         partition_values=["a", 1],
