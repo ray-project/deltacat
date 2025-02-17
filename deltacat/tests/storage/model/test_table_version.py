@@ -1,5 +1,4 @@
 import pytest
-import uuid
 
 from deltacat.constants import BYTES_PER_KIBIBYTE
 from deltacat.storage.model.table_version import TableVersion, TableVersionLocator

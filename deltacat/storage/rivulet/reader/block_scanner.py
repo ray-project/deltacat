@@ -1,3 +1,4 @@
+import heapq
 import logging
 
 from collections import defaultdict
@@ -30,8 +31,6 @@ from deltacat.storage.rivulet import Schema
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-import heapq
 
 FILE_FORMAT = TypeVar("FILE_FORMAT")
 MEMORY_FORMAT = TypeVar("MEMORY_FORMAT")
