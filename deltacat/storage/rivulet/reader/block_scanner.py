@@ -1,3 +1,5 @@
+import logging
+
 from collections import defaultdict
 from typing import (
     Generator,
@@ -25,6 +27,9 @@ from deltacat.storage.rivulet.reader.pyarrow_data_reader import ArrowDataReader
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 from deltacat.storage.rivulet.reader.reader_type_registrar import FileReaderRegistrar
 from deltacat.storage.rivulet import Schema
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 import heapq
 
@@ -113,7 +118,7 @@ class ZipperBlockScanExecutor(Generic[MEMORY_FORMAT]):
         """
         for block_group in self.ordered_block_groups.block_groups:
 
-            print(f"Starting scan of block group {block_group}")
+            logger.debug(f"Starting scan of block group {block_group}")
 
             # Set of all blocks that need to be read within this block group
             blocks: set[Block] = {

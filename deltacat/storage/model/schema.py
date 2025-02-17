@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import logging
 import copy
 
 import msgpack
@@ -14,6 +15,7 @@ from deltacat.storage.model.types import (
     SortOrder,
     NullOrder,
 )
+from deltacat import logs
 
 # PyArrow Field Metadata Key used to set the Field ID when writing to Parquet.
 # See: https://arrow.apache.org/docs/cpp/parquet.html#parquet-field-id
@@ -52,6 +54,8 @@ FieldId = int
 FieldName = str
 NestedFieldName = List[str]
 FieldLocator = Union[FieldName, NestedFieldName, FieldId]
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class MergeOrder(tuple):
@@ -643,14 +647,7 @@ class Schema(dict):
 
 class SchemaMap(OrderedDict):
     """
-    An OrderedDict wrapper for managing DeltaCAT Schema objects.
-
-    method: of(item)
-    method: __setitem__(key, value)
-    method: update(iterable_or_mapping, **kwargs)
-    method: __delitem__(key)
-    method: get_schemas()
-    method: equivalent_to(other)
+    An OrderedDict wrapper for managing named DeltaCAT schemas.
     """
 
     @staticmethod
@@ -717,7 +714,7 @@ class SchemaMap(OrderedDict):
 
         if not key:
             key = self._generate_default_name(schema)
-            print(f"No schema name provided. Using generated ID: {key}")
+            logger.debug(f"No schema name provided. Using generated ID: {key}")
 
         super().__setitem__(key, schema)
 

@@ -3,30 +3,35 @@ from typing import Optional, Dict
 import pyarrow as pa
 
 from deltacat import (
-    Schema,
-    Field,
-    PartitionScheme,
-    PartitionKey,
     ContentEncoding,
     ContentType,
-    SortScheme,
-    SortKey,
-    SortOrder,
-    NullOrder,
-    LifecycleState,
 )
 from deltacat.storage import (
     BucketTransform,
     BucketTransformParameters,
     BucketingStrategy,
     CommitState,
+    Delta,
+    DeltaLocator,
+    DeltaType,
     EntryParams,
     EntryType,
+    Field,
+    LifecycleState,
     ManifestAuthor,
     ManifestEntry,
     Namespace,
     NamespaceLocator,
+    NullOrder,
+    Partition,
+    PartitionKey,
     PartitionLocator,
+    PartitionScheme,
+    Schema,
+    SchemaMap,
+    SortScheme,
+    SortKey,
+    SortOrder,
     StreamLocator,
     StreamFormat,
     Stream,
@@ -43,7 +48,6 @@ from deltacat.storage.model.manifest import (
     ManifestMeta,
     ManifestEntryList,
 )
-from deltacat.storage import Partition, DeltaType, DeltaLocator, Delta
 from deltacat.utils.common import current_time_ms
 
 
@@ -161,7 +165,7 @@ def create_test_table_version():
         sort_scheme=sort_scheme,
         watermark=None,
         lifecycle_state=LifecycleState.CREATED,
-        schemas={"default": schema},
+        schemas=SchemaMap.of([schema]),
         partition_schemes=[partition_scheme],
         sort_schemes=[sort_scheme],
     )
