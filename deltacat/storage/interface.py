@@ -251,7 +251,8 @@ def get_delta_manifest(
     """
     Get the manifest associated with the given delta or delta locator. This
     always retrieves the authoritative durable copy of the delta manifest, and
-    never the local manifest defined for any input delta.
+    never the local manifest defined for any input delta. Raises an error if
+    the delta can't be found, or if it doesn't contain a manifest.
     """
     raise NotImplementedError("get_delta_manifest not implemented")
 

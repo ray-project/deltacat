@@ -57,7 +57,7 @@ from deltacat.storage.model.metafile import (
     MetafileRevisionInfo,
 )
 from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, NANOS_PER_SEC
-from deltacat.storage.model.schema import SchemaMap
+from deltacat.storage.model.schema import SchemaListMap
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
@@ -2302,7 +2302,7 @@ class TestMetafileIO:
             sort_scheme=sort_scheme,
             watermark=1,
             lifecycle_state=LifecycleState.CREATED,
-            schemas=SchemaMap.of([schema, schema, schema]),
+            schemas=SchemaListMap.of([[schema, schema, schema]]),
             partition_schemes=[partition_scheme, partition_scheme],
             sort_schemes=[sort_scheme, sort_scheme],
         )

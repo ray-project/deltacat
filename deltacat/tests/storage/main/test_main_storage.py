@@ -22,6 +22,7 @@ from deltacat.tests.test_utils.storage import (
     create_test_table_version,
 )
 from deltacat.catalog.main.impl import PropertyCatalog
+from deltacat.storage.main.impl import DEFAULT_TABLE_VERSION
 
 
 class TestNamespace:
@@ -167,20 +168,24 @@ class TestTableVersion:
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = PropertyCatalog(cls.tmpdir)
 
+        # create the namespace that we'll attach the base table to
         cls.namespace = create_test_namespace()
+        # create the base table that we'll attach table versions to
         cls.table = create_test_table()
+        # create the first table version to attach to the base table
         cls.table_version = create_test_table_version()
+        # create the second table version to attach to the base table
         cls.table_version2 = create_test_table_version()
         cls.table_version2.previous_table_version = cls.table_version.table_version
         cls.table_version2.locator.table_version = "v.2"
 
-        # Create a namespace and single table
+        # create a namespace and single table
         cls.namespace_obj = metastore.create_namespace(
             namespace=cls.namespace.namespace,
             catalog=cls.catalog,
         )
 
-        # Create a "base" table to attach versions to
+        # create a "base" table with single table version attached
         cls.stream1 = metastore.create_table_version(
             namespace=cls.table.namespace,
             table_name=cls.table.table_name,
@@ -195,7 +200,7 @@ class TestTableVersion:
             supported_content_types=cls.table_version.content_types,
             catalog=cls.catalog,
         )
-        # Now create an additional version
+        # now attach a second table version to the same base table
         cls.stream2 = metastore.create_table_version(
             namespace=cls.table.namespace,
             table_name=cls.table.table_name,
@@ -210,17 +215,99 @@ class TestTableVersion:
             supported_content_types=cls.table_version2.content_types,
             catalog=cls.catalog,
         )
+        cls.table.latest_table_version = cls.table_version2.table_version
 
     @classmethod
     def teardown_method(cls):
         shutil.rmtree(cls.tmpdir)
 
+    def test_create_bad_next_table_version(self):
+        # given that the latest ordinal table version is 2
+        table_version = create_test_table_version()
+        # when we try to create ordinal table version 1 again
+        # expect an error to be raised (ordinal version 3 expected)
+        with pytest.raises(ValueError):
+            metastore.create_table_version(
+                namespace=self.table.namespace,
+                table_name=self.table.table_name,
+                table_version=table_version.table_version,
+                schema=self.table_version.schema,
+                partition_scheme=table_version.partition_scheme,
+                sort_keys=self.table_version.sort_scheme,
+                table_version_description=table_version.description,
+                table_version_properties=table_version.properties,
+                table_description=self.table.description,
+                table_properties=self.table.properties,
+                supported_content_types=table_version.content_types,
+                catalog=self.catalog,
+            )
+
+    def test_create_next_table_version(self):
+        # given that our test table's latest ordinal table version is 2
+        table_version = create_test_table_version()
+        table_version.locator.table_version = TableVersion.next_version(
+            self.table_version2.table_version
+        )
+        # when we try to create the next ordinal table version (3)
+        metastore.create_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=table_version.table_version,
+            schema=self.table_version.schema,
+            partition_scheme=table_version.partition_scheme,
+            sort_keys=self.table_version.sort_scheme,
+            table_version_description=table_version.description,
+            table_version_properties=table_version.properties,
+            table_description=self.table.description,
+            table_properties=self.table.properties,
+            supported_content_types=table_version.content_types,
+            catalog=self.catalog,
+        )
+        # expect ordinal table version 3 to be successfully created
+        table_version3 = metastore.get_latest_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            catalog=self.catalog,
+        )
+        table_version.previous_table_version = self.table_version2.table_version
+        assert table_version3.equivalent_to(table_version)
+
+    def test_create_first_table_version_default_id_assignment(self):
+        # given a new first table version created without a table version ID
+        metastore.create_table_version(
+            namespace=self.table.namespace,
+            table_name="test_table_2",
+            schema=self.table_version.schema,
+            partition_scheme=self.table_version.partition_scheme,
+            sort_keys=self.table_version.sort_scheme,
+            table_version_description=self.table_version.description,
+            table_version_properties=self.table_version.properties,
+            table_description=self.table.description,
+            table_properties=self.table.properties,
+            supported_content_types=self.table_version.content_types,
+            catalog=self.catalog,
+        )
+        # when we retrieve this table version
+        table_version = metastore.get_latest_table_version(
+            namespace=self.table.namespace,
+            table_name="test_table_2",
+            catalog=self.catalog,
+        )
+        # expect it to have the correct default table version ID assigned
+        table_version.previous_table_version = self.table_version2.table_version
+        table_version_default_id: TableVersion = Metafile.update_for(self.table_version)
+        table_version_default_id.locator.table_version = DEFAULT_TABLE_VERSION
+        assert table_version.equivalent_to(table_version)
+
     def test_list_table_versions(self):
+        # given 2 previously created table versions in the same table
         list_result = metastore.list_table_versions(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             catalog=self.catalog,
         )
+        # when we list all table versions
+        # expect the table versions fetched to be equivalent to those created
         tvs = list_result.all_items()
         for tv in tvs:
             if tv.id == self.table_version.id:
@@ -235,7 +322,10 @@ class TestTableVersion:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
+            # given a bad table version parent locator
             kwargs_copy[key] = "i_dont_exist"
+            # when we list table versions
+            # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.list_table_versions(
                     catalog=self.catalog,
@@ -243,11 +333,14 @@ class TestTableVersion:
                 )
 
     def test_get_latest_table_version(self):
+        # given two previously created table versions in the same table
+        # when we get the latest table version
         tv = metastore.get_latest_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             catalog=self.catalog,
         )
+        # expect it to be equivalent ot the last created table version
         assert tv.equivalent_to(self.table_version2)
 
     def test_get_latest_table_version_bad_parent_locator(self):
@@ -257,7 +350,10 @@ class TestTableVersion:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
+            # given a bad table version parent locator
             kwargs_copy[key] = "i_dont_exist"
+            # when we get the latest table version
+            # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.get_latest_table_version(
                     catalog=self.catalog,
@@ -265,12 +361,29 @@ class TestTableVersion:
                 )
 
     def test_get_latest_active_table_version(self):
+        # given two table versions but no active table version
+        # when we get the latest active table version
         tv = metastore.get_latest_active_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             catalog=self.catalog,
         )
+        # expect it to be undefined
         assert tv is None
+        # when we get the parent table
+        table = metastore.get_table(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            catalog=self.catalog,
+        )
+        # expect its latest table version to be table version 2
+        assert table.latest_table_version == self.table_version2.table_version
+        # expect its latest active table version to be None
+        assert table.latest_active_table_version is None
+        # expect table attributes to be equal to the original parent table
+        assert table.equivalent_to(self.table)
+
+        # given an update to make table version 1 active
         metastore.update_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
@@ -278,14 +391,17 @@ class TestTableVersion:
             lifecycle_state=LifecycleState.ACTIVE,
             catalog=self.catalog,
         )
+        # when we get the latest active table version
         tv = metastore.get_latest_active_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             catalog=self.catalog,
         )
+        # expect it to be table version 1
         active_table_version: TableVersion = Metafile.update_for(self.table_version)
         active_table_version.state = LifecycleState.ACTIVE
         assert tv.equivalent_to(active_table_version)
+        # given an update to make table version 2 active
         metastore.update_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
@@ -293,11 +409,13 @@ class TestTableVersion:
             lifecycle_state=LifecycleState.ACTIVE,
             catalog=self.catalog,
         )
+        # when we get the latest active table version
         tv = metastore.get_latest_active_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             catalog=self.catalog,
         )
+        # expect it to be table version 2
         active_table_version2: TableVersion = Metafile.update_for(self.table_version2)
         active_table_version2.state = LifecycleState.ACTIVE
         assert tv.equivalent_to(active_table_version2)
@@ -309,7 +427,10 @@ class TestTableVersion:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
+            # given a bad table version parent locator
             kwargs_copy[key] = "i_dont_exist"
+            # when we get the latest active table version
+            # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.get_latest_active_table_version(
                     catalog=self.catalog,
@@ -317,21 +438,27 @@ class TestTableVersion:
                 )
 
     def test_get_table_version(self):
+        # given a previously created table version
+        # when we explicitly get that table version by ID
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             catalog=self.catalog,
         )
+        # expect the table version returned to be equivalent to the one created
         assert tv.equivalent_to(self.table_version)
 
     def test_get_table_version_not_exists(self):
+        # given a previously created table
+        # when we explicitly try to get table version whose ID doesn't exist
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version="v.999",
             catalog=self.catalog,
         )
+        # expect nothing to be returned
         assert tv is None
 
     def test_get_table_version_bad_parent_locator(self):
@@ -341,7 +468,10 @@ class TestTableVersion:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
+            # given a bad table version parent locator
             kwargs_copy[key] = "i_dont_exist"
+            # when we try to explicitly get a table version by ID
+            # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.get_table_version(
                     table_version=self.table_version.table_version,
@@ -350,7 +480,9 @@ class TestTableVersion:
                 )
 
     def test_table_version_exists(self):
-        # v.2 should exist
+        # given a previously created table version
+        # when we check if that table version exists by ID
+        # expect the check to pass
         assert metastore.table_version_exists(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
@@ -359,7 +491,9 @@ class TestTableVersion:
         )
 
     def test_table_version_not_exists(self):
-        # "v.999" should not exist
+        # given a previously created table
+        # when we check if a non-existent table version ID exists
+        # expect the check to fail
         assert not metastore.table_version_exists(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
@@ -374,7 +508,10 @@ class TestTableVersion:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
+            # given a bad table version parent locator
             kwargs_copy[key] = "i_dont_exist"
+            # when we try to explicitly check if a table version exists by ID
+            # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.table_version_exists(
                     table_version=self.table_version.table_version,
@@ -383,7 +520,9 @@ class TestTableVersion:
                 )
 
     def test_creation_fails_if_already_exists(self):
-        # Assert that creating the same table version again raises a ValueError
+        # given an existing table version
+        # when we try to create a table version with the same ID
+        # expect an error to be raised
         with pytest.raises(ValueError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
@@ -404,7 +543,7 @@ class TestStream:
         )
         # Create a table version.
         # This call should automatically create a default DeltaCAT stream.
-        metastore.create_table_version(
+        cls.created_stream = metastore.create_table_version(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
@@ -419,6 +558,7 @@ class TestStream:
         )
         # Ensure that the default stream was auto-created.
         assert cls.default_stream is not None, "Default stream not found."
+        assert cls.default_stream.equivalent_to(cls.created_stream)
 
     @classmethod
     def teardown_method(cls):

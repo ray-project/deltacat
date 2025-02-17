@@ -40,6 +40,7 @@ from deltacat.storage.model.partition import (
 )
 from deltacat.storage.model.schema import (
     Schema,
+    SchemaListMap,
 )
 from deltacat.storage.model.sort_key import (
     SortScheme,
@@ -671,9 +672,32 @@ def get_delta_manifest(
     """
     Get the manifest associated with the given delta or delta locator. This
     always retrieves the authoritative durable copy of the delta manifest, and
-    never the local manifest defined for any input delta.
+    never the local manifest defined for any input delta. Raises an error if
+    the delta can't be found, or if it doesn't contain a manifest.
     """
-    raise NotImplementedError("get_delta_manifest not implemented")
+    if isinstance(delta_like, Delta):
+        delta_locator = delta_like.locator
+    elif isinstance(delta_like, DeltaLocator):
+        delta_locator = delta_like
+    else:
+        raise ValueError(
+            f"Expected delta or delta locator, but got: {type(delta_like)}"
+        )
+    delta = Delta.of(
+        locator=delta_locator,
+        delta_type=None,
+        meta=None,
+        properties=None,
+        manifest=None,
+    )
+    latest_delta = _latest(
+        metafile=delta,
+        *args,
+        **kwargs,
+    )
+    if not latest_delta or not latest_delta.manifest:
+        raise ValueError(f"No manifest found for delta: {delta_locator}")
+    return latest_delta.manifest
 
 
 def create_namespace(
@@ -791,7 +815,7 @@ def create_table_version(
         new_table = Table.of(
             locator=TableLocator.at(namespace=namespace, table_name=table_name),
         )
-        table_version = table_version or "1"
+        table_version = table_version or DEFAULT_TABLE_VERSION
     else:
         # the parent table exists, so we'll update it in this transaction
         txn_type = TransactionType.ALTER
@@ -824,6 +848,13 @@ def create_table_version(
         table_name=table_name,
         table_version=table_version,
     )
+    schemas = (
+        SchemaListMap.of({schema.name: [schema]})
+        if schema and schema.name
+        else [[schema]]
+        if schema
+        else None
+    )
     table_version = TableVersion.of(
         locator=locator,
         schema=schema,
@@ -834,7 +865,7 @@ def create_table_version(
         sort_scheme=sort_keys,
         watermark=None,
         lifecycle_state=LifecycleState.UNRELEASED,
-        schemas=[schema] if schema else None,
+        schemas=schemas,
         partition_schemes=[partition_scheme] if partition_scheme else None,
         sort_schemes=[sort_keys] if sort_keys else None,
         previous_table_version=prev_table_version,

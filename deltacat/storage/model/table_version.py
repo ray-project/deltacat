@@ -12,7 +12,7 @@ import deltacat.storage.model.partition as partition
 
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
 from deltacat.constants import TXN_DIR_NAME, BYTES_PER_KIBIBYTE
-from deltacat.storage.model.schema import Schema, SchemaMap
+from deltacat.storage.model.schema import Schema, SchemaListMap
 from deltacat.storage.model.locator import (
     Locator,
     LocatorName,
@@ -41,7 +41,7 @@ class TableVersion(Metafile):
         sort_scheme: Optional[SortScheme] = None,
         watermark: Optional[int] = None,
         lifecycle_state: Optional[LifecycleState] = None,
-        schemas: Optional[Union[SchemaMap, Dict[str, Schema]]] = None,
+        schemas: Optional[SchemaListMap] = None,
         partition_schemes: Optional[partition.PartitionSchemeList] = None,
         sort_schemes: Optional[SortSchemeList] = None,
         previous_table_version: Optional[str] = None,
@@ -87,14 +87,14 @@ class TableVersion(Metafile):
         self["schema"] = schema
 
     @property
-    def schemas(self) -> Optional[SchemaMap]:
-        val: Optional[SchemaMap] = self.get("schemas")
-        if val is not None and not isinstance(val, SchemaMap):
-            self["schemas"] = val = SchemaMap.of(val)
+    def schemas(self) -> Optional[SchemaListMap]:
+        val: Optional[SchemaListMap] = self.get("schemas")
+        if val is not None and not isinstance(val, SchemaListMap):
+            self["schemas"] = val = SchemaListMap.of(val)
         return val
 
     @schemas.setter
-    def schemas(self, schemas: Optional[SchemaMap]) -> None:
+    def schemas(self, schemas: Optional[SchemaListMap]) -> None:
         self["schemas"] = schemas
 
     @property
@@ -284,7 +284,7 @@ class TableVersion(Metafile):
         )
 
         self.schemas = (
-            SchemaMap.of(
+            SchemaListMap.of(
                 {
                     key: Schema.deserialize(pa.py_buffer(val))
                     for key, val in self["schemas"].items()
