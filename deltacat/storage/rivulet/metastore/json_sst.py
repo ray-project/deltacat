@@ -1,6 +1,8 @@
+import logging
+import json
+
 from itertools import zip_longest
 from typing import List
-import json
 
 from deltacat.storage.rivulet.fs.input_file import InputFile
 from deltacat.storage.rivulet.fs.output_file import OutputFile
@@ -10,6 +12,9 @@ from deltacat.storage.rivulet.metastore.sst import (
     SSTReader,
     SSTable,
 )
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class JsonSstWriter(SSTWriter):
@@ -53,10 +58,10 @@ class JsonSstWriter(SSTWriter):
         try:
             with file.create() as f:
                 f.write(json.dumps(file_as_dict).encode())
-            print(f"SSTable data successfully written to {file.location}")
+            logger.debug(f"SSTable data successfully written to {file.location}")
         except Exception as e:
             # TODO better error handling for IO
-            print(f"Unexpected error occurred while writing SSTable data: {e}")
+            logger.debug(f"Unexpected error occurred while writing SSTable data: {e}")
             raise e
 
 

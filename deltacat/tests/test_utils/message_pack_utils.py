@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 
+from tempfile import mkdtemp
+
 
 def _convert_bytes_to_base64_str(obj):
     if isinstance(obj, dict):
@@ -24,12 +26,11 @@ def _convert_bytes_to_base64_str(obj):
 
 def copy_and_convert(src_dir, dst_dir=None):
     """
-    Helper function for copying a metastore recursively and converting all messagepack files to json
-    This can be used manually to more easily introspect metastore metadata
+    Helper function for copying a metastore recursively and converting all
+    messagepack files to json. This can be used manually to more easily
+    introspect metastore metadata.
     """
     if dst_dir is None:
-        from tempfile import mkdtemp
-
         dst_dir = mkdtemp()
         print(f"destination is: {dst_dir}")
     if not os.path.exists(dst_dir):

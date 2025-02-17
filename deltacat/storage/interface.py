@@ -66,6 +66,20 @@ def list_table_versions(
     raise NotImplementedError("list_table_versions not implemented")
 
 
+def list_streams(
+    namespace: str,
+    table_name: str,
+    table_version: str,
+    *args,
+    **kwargs,
+) -> ListResult[Stream]:
+    """
+    Lists a page of streams for the given table version.
+    Raises an error if the table version does not exist.
+    """
+    raise NotImplementedError("list_streams not implemented")
+
+
 def list_partitions(
     namespace: str,
     table_name: str,
@@ -384,23 +398,23 @@ def delete_stream(
     Deletes the delta stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
     Resolves to the deltacat stream format if no stream format is given.
-    Raises an error if the table version does not exist.
+    Raises an error if the stream does not exist.
     """
     raise NotImplementedError("delete_stream not implemented")
 
 
-def get_staged_stream(
+def get_stream_by_id(
     table_version_locator: TableVersionLocator,
     stream_id: str,
     *args,
     **kwargs,
 ) -> Optional[Partition]:
     """
-    Gets the staged stream for the given table version locator and stream ID.
+    Gets the stream for the given table version locator and stream ID.
     Returns None if the stream does not exist. Raises an error if the given
     table version locator does not exist.
     """
-    raise NotImplementedError("get_staged_stream not implemented")
+    raise NotImplementedError("get_stream_by_id not implemented")
 
 
 def get_stream(
@@ -477,18 +491,18 @@ def delete_partition(
     raise NotImplementedError("delete_partition not implemented")
 
 
-def get_staged_partition(
+def get_partition_by_id(
     stream_locator: StreamLocator,
     partition_id: str,
     *args,
     **kwargs,
 ) -> Optional[Partition]:
     """
-    Gets the staged partition for the given stream locator and partition ID.
+    Gets the partition for the given stream locator and partition ID.
     Returns None if the partition does not exist. Raises an error if the
     given stream locator does not exist.
     """
-    raise NotImplementedError("get_staged_partition not implemented")
+    raise NotImplementedError("get_partition_by_id not implemented")
 
 
 def get_partition(

@@ -1,3 +1,4 @@
+import logging
 import json
 import pyarrow as pa
 import pyarrow.parquet
@@ -5,6 +6,9 @@ import pyarrow.feather
 from typing import Callable, Dict
 
 from deltacat.storage.rivulet.reader.query_expression import QueryExpression
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def export_parquet(dataset, file_uri: str, query: QueryExpression = QueryExpression()):
@@ -52,4 +56,4 @@ def export_dataset(dataset, file_uri: str, format: str = "parquet", query=None):
 
     export_handlers[format](dataset, file_uri, query or QueryExpression())
 
-    print(f"Dataset exported to {file_uri} in {format} format.")
+    logger.info(f"Dataset exported to {file_uri} in {format} format.")
