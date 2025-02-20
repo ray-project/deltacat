@@ -123,23 +123,25 @@ def _get_merge_task_options(
             ]
             for entry_index in range(entry_start, entry_end):
                 entry: ManifestEntry = compacted_delta_manifest.entries[entry_index]
-
-                current_entry_size: Optional[
-                    float
-                ] = estimate_manifest_entry_size_bytes(
-                    entry=entry,
-                    operation_type=OperationType.PYARROW_DOWNLOAD,
-                    estimate_resources_params=estimate_resources_params,
+                current_entry_size: float = (
+                    estimate_manifest_entry_size_bytes(
+                        entry=entry,
+                        operation_type=OperationType.PYARROW_DOWNLOAD,
+                        estimate_resources_params=estimate_resources_params,
+                    )
+                    or 0.0
                 )
-                current_entry_rows: Optional[int] = estimate_manifest_entry_num_rows(
-                    entry=entry,
-                    operation_type=OperationType.PYARROW_DOWNLOAD,
-                    estimate_resources_params=estimate_resources_params,
+                current_entry_rows: int = (
+                    estimate_manifest_entry_num_rows(
+                        entry=entry,
+                        operation_type=OperationType.PYARROW_DOWNLOAD,
+                        estimate_resources_params=estimate_resources_params,
+                    )
+                    or 0
                 )
-                if current_entry_size:
-                    data_size += current_entry_size
-                if current_entry_rows:
-                    num_rows += current_entry_rows
+                # NOTE: We can treat the current_entry_size and current_entry_rows as 0 as a None estimated entry size implies a 0 value
+                data_size += current_entry_size
+                num_rows += current_entry_rows
                 if primary_keys:
                     pk_size: Optional[
                         float
@@ -150,8 +152,7 @@ def _get_merge_task_options(
                         estimate_resources_params=estimate_resources_params,
                     )
                     if not pk_size:
-                        pk_size_bytes += current_entry_size if current_entry_size else 0
-                        # NOTE: We can treat the current entry size as 0 for the purpose of this calculation as a None estimated entry size implies that the entry size is 0
+                        pk_size_bytes += current_entry_size
                     else:
                         pk_size_bytes += pk_size
 
