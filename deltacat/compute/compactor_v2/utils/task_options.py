@@ -1,11 +1,16 @@
 import logging
 from typing import Dict, Optional, List, Tuple, Any
 from deltacat import logs
+from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
+from deltacat.compute.compactor_v2.constants import (
+    AVERAGE_RECORD_SIZE_BYTES as DEFAULT_AVERAGE_RECORD_SIZE_BYTES,
+)
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     LocalMergeFileGroupsProvider,
 )
 from deltacat.storage import (
     Manifest,
+    ManifestEntry,
     interface as unimplemented_deltacat_storage,
 )
 from deltacat.compute.compactor.model.delta_annotated import DeltaAnnotated
@@ -81,16 +86,27 @@ def _get_merge_task_options(
         and compacted_delta_manifest
         and round_completion_info.hb_index_to_entry_range
     ):
-
-        previous_inflation = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.file_bytes
+        logger.debug_conditional(
+            f"[Merge task {index}]: Using previous compaction rounds to calculate merge memory: {round_completion_info.compacted_pyarrow_write_result}",
+            memory_logs_enabled,
+        )
+        previous_inflation: float = (
+            (
+                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+                / round_completion_info.compacted_pyarrow_write_result.file_bytes
+            )
+            if round_completion_info.compacted_pyarrow_write_result.file_bytes
+            else PYARROW_INFLATION_MULTIPLIER
         )
         debug_memory_params["previous_inflation"] = previous_inflation
 
-        average_record_size = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.records
+        average_record_size: float = (
+            (
+                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+                / round_completion_info.compacted_pyarrow_write_result.records
+            )
+            if round_completion_info.compacted_pyarrow_write_result.records
+            else DEFAULT_AVERAGE_RECORD_SIZE_BYTES
         )
         debug_memory_params["average_record_size"] = average_record_size
 
@@ -106,31 +122,36 @@ def _get_merge_task_options(
                 str(hb_idx)
             ]
             for entry_index in range(entry_start, entry_end):
-                entry = compacted_delta_manifest.entries[entry_index]
-
-                current_entry_size = estimate_manifest_entry_size_bytes(
-                    entry=entry,
-                    operation_type=OperationType.PYARROW_DOWNLOAD,
-                    estimate_resources_params=estimate_resources_params,
+                entry: ManifestEntry = compacted_delta_manifest.entries[entry_index]
+                current_entry_size: float = (
+                    estimate_manifest_entry_size_bytes(
+                        entry=entry,
+                        operation_type=OperationType.PYARROW_DOWNLOAD,
+                        estimate_resources_params=estimate_resources_params,
+                    )
+                    or 0.0
                 )
-                current_entry_rows = estimate_manifest_entry_num_rows(
-                    entry=entry,
-                    operation_type=OperationType.PYARROW_DOWNLOAD,
-                    estimate_resources_params=estimate_resources_params,
+                current_entry_rows: int = (
+                    estimate_manifest_entry_num_rows(
+                        entry=entry,
+                        operation_type=OperationType.PYARROW_DOWNLOAD,
+                        estimate_resources_params=estimate_resources_params,
+                    )
+                    or 0
                 )
-
+                # NOTE: We can treat the current_entry_size and current_entry_rows as 0 as a None estimated entry size implies a 0 value
                 data_size += current_entry_size
                 num_rows += current_entry_rows
-
                 if primary_keys:
-                    pk_size = estimate_manifest_entry_column_size_bytes(
+                    pk_size: Optional[
+                        float
+                    ] = estimate_manifest_entry_column_size_bytes(
                         entry=entry,
                         columns=primary_keys,
                         operation_type=OperationType.PYARROW_DOWNLOAD,
                         estimate_resources_params=estimate_resources_params,
                     )
-
-                    if pk_size is None:
+                    if not pk_size:
                         pk_size_bytes += current_entry_size
                     else:
                         pk_size_bytes += pk_size
@@ -159,7 +180,6 @@ def _get_merge_task_options(
         f"[Merge task {index}]: Params used for calculating merge memory: {debug_memory_params}",
         memory_logs_enabled,
     )
-
     return _get_task_options(0.01, total_memory, ray_custom_resources)
 
 
