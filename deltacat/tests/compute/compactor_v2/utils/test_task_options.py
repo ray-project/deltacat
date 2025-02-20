@@ -59,7 +59,7 @@ class TestTaskOptions(unittest.TestCase):
     def tearDownClass(cls) -> None:
         ray.shutdown()
 
-    def make_estimate_resource_params(
+    def _make_estimate_resource_params(
         cls,
         resource_estimation_method: Optional[
             ResourceEstimationMethod
@@ -73,7 +73,7 @@ class TestTaskOptions(unittest.TestCase):
             average_record_size_bytes=average_record_size_bytes,
         )
 
-    def make_manifest(
+    def _make_manifest(
         self,
         source_content_length: Optional[int] = 1000,
         content_type: Optional[ContentType] = ContentType.PARQUET,
@@ -82,7 +82,7 @@ class TestTaskOptions(unittest.TestCase):
         uri: Optional[str] = "test",
         url: Optional[str] = "test",
         author: Optional[str] = "foo",
-        entry_uuid: Optional[str] = "fooo",
+        entry_uuid: Optional[str] = "foo",
         manifest_uuid: Optional[str] = "bar",
     ) -> Manifest:
         meta = ManifestMeta.of(
@@ -151,10 +151,10 @@ class TestTaskOptions(unittest.TestCase):
         test_index = 0
         test_hb_group_idx = 0
         test_debug_memory_params = {"merge_task_index": test_index}
-        test_estimate_memory_params = self.make_estimate_resource_params()
+        test_estimate_memory_params = self._make_estimate_resource_params()
         test_ray_custom_resources = {}
         test_rcf = self.make_round_completion_info()
-        test_manifest = self.make_manifest()
+        test_manifest = self._make_manifest()
         expected_task_opts = {
             "max_retries": 3,
             "memory": 1680.64,
@@ -182,16 +182,23 @@ class TestTaskOptions(unittest.TestCase):
                 memory_logs_enabled=True,
             )
             assert {k: actual_merge_tasks_opts[k] for k in expected_task_opts}
-        log_message = cm.records[0].getMessage()
+        log_message_round_completion_info = cm.records[0].getMessage()
+        log_message_debug_memory_params = cm.records[1].getMessage()
+        self.assertIn(
+            f"[Merge task {test_index}]: Using previous compaction rounds to calculate merge memory",
+            log_message_round_completion_info,
+        )
         self.assertIn(
             f"[Merge task {test_index}]: Params used for calculating merge memory",
-            log_message,
+            log_message_debug_memory_params,
         )
         self.assertIn(
-            f"'previous_inflation': {expected_previous_inflation}", log_message
+            f"'previous_inflation': {expected_previous_inflation}",
+            log_message_debug_memory_params,
         )
         self.assertIn(
-            f"'average_record_size': {expected_average_record_size}", log_message
+            f"'average_record_size': {expected_average_record_size}",
+            log_message_debug_memory_params,
         )
 
     def test_get_merge_task_options_memory_logs_enabled_fallback_previous_inflation_fallback_average_record_size(
@@ -200,12 +207,12 @@ class TestTaskOptions(unittest.TestCase):
         test_index = 0
         test_hb_group_idx = 0
         test_debug_memory_params = {"merge_task_index": test_index}
-        test_estimate_memory_params = self.make_estimate_resource_params()
+        test_estimate_memory_params = self._make_estimate_resource_params()
         test_ray_custom_resources = {}
         test_rcf = self.make_round_completion_info(
             bytes_written=0, records_written=0, files_written=0, rows_dropped=0
         )
-        test_manifest = self.make_manifest()
+        test_manifest = self._make_manifest()
         expected_task_opts = {
             "max_retries": 3,
             "memory": 1680.64,
@@ -233,14 +240,66 @@ class TestTaskOptions(unittest.TestCase):
                 memory_logs_enabled=True,
             )
             assert {k: actual_merge_tasks_opts[k] for k in expected_task_opts}
-        log_message = cm.records[0].getMessage()
+        log_message_round_completion_info = cm.records[0].getMessage()
+        log_message_debug_memory_params = cm.records[1].getMessage()
+        self.assertIn(
+            f"[Merge task {test_index}]: Using previous compaction rounds to calculate merge memory",
+            log_message_round_completion_info,
+        )
         self.assertIn(
             f"[Merge task {test_index}]: Params used for calculating merge memory",
-            log_message,
+            log_message_debug_memory_params,
         )
         self.assertIn(
-            f"'previous_inflation': {expected_previous_inflation}", log_message
+            f"'previous_inflation': {expected_previous_inflation}",
+            log_message_debug_memory_params,
         )
         self.assertIn(
-            f"'average_record_size': {expected_average_record_size}", log_message
+            f"'average_record_size': {expected_average_record_size}",
+            log_message_debug_memory_params,
+        )
+
+    def test_get_merge_task_options_memory_logs_enabled_not_using_previous_round_completion_info(
+        self,
+    ):
+        test_index = 0
+        test_hb_group_idx = 0
+        test_debug_memory_params = {"merge_task_index": test_index}
+        test_estimate_memory_params = self._make_estimate_resource_params()
+        test_ray_custom_resources = {}
+        test_rcf = None
+        test_manifest = self._make_manifest()
+        expected_task_opts = {
+            "max_retries": 3,
+            "memory": 1680.64,
+            "num_cpus": 0.01,
+            "scheduling_strategy": "SPREAD",
+        }
+        with self.assertLogs(logger=logger.name, level="DEBUG") as cm:
+            # At least one log of level DEBUG must be emitted
+            actual_merge_tasks_opts = _get_merge_task_options(
+                index=test_index,
+                hb_group_idx=test_hb_group_idx,
+                data_size=1,
+                pk_size_bytes=1,
+                num_rows=1,
+                num_hash_groups=1,
+                total_memory_buffer_percentage=1,
+                incremental_index_array_size=1,
+                debug_memory_params=test_debug_memory_params,
+                ray_custom_resources=test_ray_custom_resources,
+                estimate_resources_params=test_estimate_memory_params,
+                round_completion_info=test_rcf,
+                compacted_delta_manifest=test_manifest,
+                memory_logs_enabled=True,
+            )
+            assert {k: actual_merge_tasks_opts[k] for k in expected_task_opts}
+        log_message_debug_memory_params = cm.records[0].getMessage()
+        self.assertIn(
+            f"[Merge task {test_index}]: Params used for calculating merge memory",
+            log_message_debug_memory_params,
+        )
+        self.assertNotIn(
+            "'average_record_size'",
+            log_message_debug_memory_params,
         )

@@ -86,7 +86,10 @@ def _get_merge_task_options(
         and compacted_delta_manifest
         and round_completion_info.hb_index_to_entry_range
     ):
-
+        logger.debug_conditional(
+            f"[Merge task {index}]: Using previous compaction rounds to calculate merge memory: {round_completion_info.compacted_pyarrow_write_result}",
+            memory_logs_enabled,
+        )
         previous_inflation: float = (
             (
                 round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
@@ -146,8 +149,9 @@ def _get_merge_task_options(
                         operation_type=OperationType.PYARROW_DOWNLOAD,
                         estimate_resources_params=estimate_resources_params,
                     )
-                    if pk_size is None:
-                        pk_size_bytes += current_entry_size
+                    if not pk_size:
+                        pk_size_bytes += current_entry_size if current_entry_size else 0
+                        # NOTE: We can treat the current entry size as 0 for the purpose of this calculation as a None estimated entry size implies that the entry size is 0
                     else:
                         pk_size_bytes += pk_size
 
