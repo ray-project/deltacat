@@ -1,6 +1,10 @@
 import logging
 from typing import Dict, Optional, List, Tuple, Any
 from deltacat import logs
+from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
+from deltacat.compute.compactor_v2.constants import (
+    AVERAGE_RECORD_SIZE_BYTES as DEFAULT_AVERAGE_RECORD_SIZE_BYTES,
+)
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     LocalMergeFileGroupsProvider,
 )
@@ -83,14 +87,22 @@ def _get_merge_task_options(
     ):
 
         previous_inflation = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.file_bytes
+            (
+                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+                / round_completion_info.compacted_pyarrow_write_result.file_bytes
+            )
+            if round_completion_info.compacted_pyarrow_write_result.file_bytes
+            else PYARROW_INFLATION_MULTIPLIER
         )
         debug_memory_params["previous_inflation"] = previous_inflation
 
         average_record_size = (
-            round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
-            / round_completion_info.compacted_pyarrow_write_result.records
+            (
+                round_completion_info.compacted_pyarrow_write_result.pyarrow_bytes
+                / round_completion_info.compacted_pyarrow_write_result.records
+            )
+            if round_completion_info.compacted_pyarrow_write_result.records
+            else DEFAULT_AVERAGE_RECORD_SIZE_BYTES
         )
         debug_memory_params["average_record_size"] = average_record_size
 
