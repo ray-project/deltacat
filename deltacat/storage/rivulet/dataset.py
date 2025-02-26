@@ -4,7 +4,7 @@ import itertools
 import posixpath
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
-from deltacat.storage.main.impl import (
+from deltacat.storage.model.constants import (
     DEFAULT_NAMESPACE,
     DEFAULT_PARTITION_ID,
     DEFAULT_PARTITION_VALUES,
