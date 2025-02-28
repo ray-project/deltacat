@@ -1,7 +1,7 @@
 import tempfile
 
 import pytest
-from deltacat.catalog.main.impl import PropertyCatalog
+from deltacat.catalog import CatalogProperties
 from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
 
 
@@ -22,4 +22,4 @@ def keep_temp_dir():
 
 @pytest.fixture
 def temp_catalog(temp_dir):
-    return PropertyCatalog(temp_dir)
+    return CatalogProperties(temp_dir)

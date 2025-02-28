@@ -627,7 +627,12 @@ class Schema(dict):
             visitor_dict["maxFieldId"] + len(field_ids_to_fields)
         ) % MAX_FIELD_ID_EXCLUSIVE
         _field = Field.of(field)
-        field_id = _field.id if _field is not None else max_field_id
+
+        if _field is not None and _field.id is not None:
+            field_id = _field.id
+        else:
+            field_id = max_field_id
+
         if (dupe := field_ids_to_fields.get(field_id)) is not None:
             raise ValueError(
                 f"Duplicate field id {field_id} for field: {field} "
