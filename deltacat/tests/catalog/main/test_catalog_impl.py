@@ -5,18 +5,9 @@ from typing import Dict, List, Optional
 
 import pytest
 import pyarrow as pa
-import pyarrow.parquet as pq
 
-from deltacat.catalog.main.impl import PropertyCatalog, initialize
-from deltacat.catalog.main.impl import (
-    create_table,
-    write_to_table,
-    read_table,
-    get_table,
-    table_exists,
-    create_namespace,
-    namespace_exists,
-)
+from deltacat.catalog import CatalogProperties
+import deltacat.catalog.v2.catalog_impl as catalog
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import SortScheme, SortKey
 from deltacat.storage.model.types import LocalTable, LifecycleState
@@ -27,12 +18,13 @@ from deltacat.storage.rivulet.reader.query_expression import QueryExpression
 
 class TestCatalogBasicEndToEnd:
     temp_dir = None
+    property_catalog = None
     catalog = None
 
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.catalog = initialize(root=cls.temp_dir)
+        cls.property_catalog = CatalogProperties(root=cls.temp_dir)
 
     @classmethod
     def teardown_class(cls):
@@ -52,11 +44,11 @@ class TestCatalogBasicEndToEnd:
         schema = Schema.of(table.schema)
         
         # Create the table
-        create_table(
+        catalog.create_table(
             table=table_name,
             namespace=namespace,
             schema=schema,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         return table
@@ -69,10 +61,10 @@ class TestCatalogBasicEndToEnd:
         pa_table = self.create_test_table(table_name)
         
         # Verify table exists
-        assert table_exists(table_name, catalog=self.catalog)
+        assert catalog.table_exists(table_name, catalog=catalog)
         
         # Get table definition
-        table_def = get_table(table_name, catalog=self.catalog)
+        table_def = catalog.get_table(table_name, catalog=catalog)
         
         # Verify table definition
         assert table_def is not None
@@ -90,18 +82,18 @@ class TestCatalogBasicEndToEnd:
         pa_table = self.create_test_table(table_name)
         
         # Write data to the table
-        write_to_table(
+        catalog.write_to_table(
             data=pa_table,
             table=table_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Read data from the table
-        result = read_table(
+        result = catalog.read_table(
             table=table_name,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Convert to pandas for comparison
@@ -127,23 +119,23 @@ class TestCatalogBasicEndToEnd:
         pa_table = pa.Table.from_pydict(data)
         
         # Write data with AUTO mode (should create the table)
-        write_to_table(
+        catalog.write_to_table(
             data=pa_table,
             table=table_name,
             mode=TableWriteMode.AUTO,
             content_type=ContentType.PARQUET,
-            catalog=self.catalog,
+            catalog=catalog,
             schema=Schema.of_arrow(pa_table.schema),
             sort_keys=SortScheme([SortKey("id")])
         )
         
         # Verify table exists
-        assert table_exists(table_name, catalog=self.catalog)
+        assert catalog.table_exists(table_name, catalog=catalog)
         
         # Read data back
-        result = read_table(
+        result = catalog.read_table(
             table=table_name,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Convert to pandas for comparison
@@ -162,12 +154,12 @@ class TestCatalogBasicEndToEnd:
         pa_table = self.create_test_table(table_name)
         
         # Write first batch
-        write_to_table(
+        catalog.write_to_table(
             data=pa_table,
             table=table_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Create second batch with different data
@@ -179,18 +171,18 @@ class TestCatalogBasicEndToEnd:
         pa_table2 = pa.Table.from_pydict(data2)
         
         # Write second batch
-        write_to_table(
+        catalog.write_to_table(
             data=LocalTable(pa_table2),
             table=table_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Read data back
-        result = read_table(
+        result = catalog.read_table(
             table=table_name,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Verify data
@@ -215,26 +207,26 @@ class TestCatalogBasicEndToEnd:
         sort_keys = None
         
         # Create the table
-        create_table(
+        catalog.create_table(
             table=table_name,
             schema=schema,
             sort_keys=sort_keys,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Write data
-        write_to_table(
+        catalog.write_to_table(
             data=pa_table,
             table=table_name,
             mode=TableWriteMode.APPEND,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Read with query for id range 3-7
         query = QueryExpression().with_range(3, 7)
-        result = read_table(
+        result = catalog.read_table(
             table=table_name,
-            catalog=self.catalog,
+            catalog=catalog,
             query=query
         )
         
@@ -248,41 +240,116 @@ class TestCatalogBasicEndToEnd:
         namespace = "test_namespace"
         
         # Create namespace
-        create_namespace(
+        catalog.create_namespace(
             namespace=namespace,
             properties={},
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Verify namespace exists
-        assert namespace_exists(namespace, catalog=self.catalog)
+        assert catalog.namespace_exists(namespace, catalog=catalog)
         
         # Create table in namespace
         table_name = "namespaced_table"
         pa_table = self.create_test_table(table_name, namespace)
         
         # Verify table exists in namespace
-        assert table_exists(table_name, namespace, catalog=self.catalog)
+        assert catalog.table_exists(table_name, namespace, catalog=catalog)
         
         # Write and read data in namespaced table
-        write_to_table(
+        catalog.write_to_table(
             data=pa_table,
             table=table_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
-            catalog=self.catalog
+            catalog=catalog
         )
         
-        result = read_table(
+        result = catalog.read_table(
             table=table_name,
             namespace=namespace,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Verify data
         original_df = pa_table.to_pandas()
         result_df = result.to_pandas()
         assert len(result_df) == len(original_df)
+
+
+class TestCatalogNamespaceOperations:
+    temp_dir = None
+    property_catalog = None
+    catalog = None
+
+    @classmethod
+    def setup_class(cls):
+        cls.temp_dir = tempfile.mkdtemp()
+        catalog.initialize(root=cls.temp_dir)
+
+    @classmethod
+    def teardown_class(cls):
+        shutil.rmtree(cls.temp_dir)
+    
+    def test_create_namespace(self):
+        """Test creating a namespace with properties"""
+        namespace = "test_create_namespace"
+        properties = {"description": "Test namespace", "owner": "test-user"}
+        
+        # Create namespace
+        catalog.create_namespace(
+            namespace=namespace,
+            properties=properties,
+            catalog=catalog
+        )
+        
+        # Verify namespace exists
+        assert catalog.namespace_exists(namespace, catalog=catalog)
+        
+        # Get namespace and verify properties
+        namespace_props = catalog.get_namespace(namespace, catalog=catalog)
+        assert namespace_props is not None
+        assert namespace_props.get("description") == "Test namespace"
+        assert namespace_props.get("owner") == "test-user"
+    
+    def test_get_namespace(self):
+        """Test getting namespace properties"""
+        namespace = "test_get_namespace"
+        properties = {"description": "Another test namespace", "created_by": "unit-test"}
+        
+        # Create namespace
+        catalog.create_namespace(
+            namespace=namespace,
+            properties=properties,
+            catalog=catalog
+        )
+        
+        # Get namespace properties
+        namespace_props = catalog.get_namespace(namespace, catalog=catalog)
+        
+        # Verify properties
+        assert namespace_props is not None
+        assert isinstance(namespace_props, dict)
+        assert namespace_props.get("description") == "Another test namespace"
+        assert namespace_props.get("created_by") == "unit-test"
+    
+    def test_namespace_exists(self):
+        """Test checking if a namespace exists"""
+        existing_namespace = "test_namespace_exists"
+        non_existing_namespace = "non_existing_namespace"
+        
+        # Create namespace
+        catalog.create_namespace(
+            namespace=existing_namespace,
+            properties={},
+            catalog=catalog
+        )
+        
+        # Check existing namespace
+        assert catalog.namespace_exists(existing_namespace, catalog=catalog)
+        
+        # Check non-existing namespace
+        assert not catalog.namespace_exists(non_existing_namespace, catalog=catalog)
 
 
 class TestCatalogErrorHandling:
@@ -292,7 +359,7 @@ class TestCatalogErrorHandling:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.catalog = initialize(root=cls.temp_dir)
+        cls.catalog = Catalog(CatalogProperties(root=cls.temp_dir))
 
     @classmethod
     def teardown_class(cls):
@@ -307,10 +374,10 @@ class TestCatalogErrorHandling:
         pa_table = pa.Table.from_pydict(data)
         schema = Schema.of(pa_table.schema)
         
-        create_table(
+        cls.catalog.create_table(
             table=table_name,
             schema=schema,
-            catalog=self.catalog
+            catalog=catalog
         )
         
         # Try to create again with fail_if_exists=True
@@ -318,7 +385,7 @@ class TestCatalogErrorHandling:
             create_table(
                 table=table_name,
                 schema=schema,
-                catalog=self.catalog,
+                catalog=catalog,
                 fail_if_exists=True
             )
         
@@ -326,7 +393,7 @@ class TestCatalogErrorHandling:
         result = create_table(
             table=table_name,
             schema=schema,
-            catalog=self.catalog,
+            catalog=catalog,
             fail_if_exists=False
         )
         assert result is not None
@@ -344,7 +411,7 @@ class TestCatalogErrorHandling:
                 data=pa_table,
                 table=table_name,
                 mode=TableWriteMode.APPEND,
-                catalog=self.catalog
+                catalog=catalog
             )
         
         # Should work with AUTO mode
@@ -352,12 +419,12 @@ class TestCatalogErrorHandling:
             data=pa_table,
             table=table_name,
             mode=TableWriteMode.AUTO,
-            catalog=self.catalog,
+            catalog=catalog,
             schema=Schema.of(pa_table.schema)
         )
         
         # Verify table was created
-        assert table_exists(table_name, catalog=self.catalog)
+        assert table_exists(table_name, catalog=catalog)
 
     def test_read_nonexistent_table(self):
         """Test error when reading a table that doesn't exist"""
@@ -367,5 +434,5 @@ class TestCatalogErrorHandling:
         with pytest.raises(ValueError, match=f"Table .+{table_name} does not exist"):
             read_table(
                 table=table_name,
-                catalog=self.catalog
-            ) 
+                catalog=catalog
+            )

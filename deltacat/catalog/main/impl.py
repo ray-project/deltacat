@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
-import pyarrow
-
+from deltacat.catalog.catalog_properties import initialize_properties
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.sort_key import SortScheme
@@ -17,30 +16,6 @@ from deltacat.storage.model.types import (
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
-from deltacat.utils.filesystem import resolve_path_and_filesystem
-
-
-class PropertyCatalog:
-    def __init__(
-        self,
-        root: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ):
-        resolved_root, resolved_filesystem = resolve_path_and_filesystem(
-            path=root,
-            filesystem=filesystem,
-        )
-        self._root = resolved_root
-        self._filesystem = resolved_filesystem
-
-    @property
-    def root(self) -> str:
-        return self._root
-
-    @property
-    def filesystem(self) -> Optional[pyarrow.fs.FileSystem]:
-        return self._filesystem
-
 
 # table functions
 def write_to_table(
@@ -202,11 +177,4 @@ def default_namespace(*args, **kwargs) -> str:
 
 # catalog functions
 def initialize(*args, **kwargs) -> Optional[Any]:
-    """Initializes the data catalog by forwarding the given arguments to
-    `PropertyCatalog(*args, **kwargs)`. Returns the initialized
-    PropertyCatalog."""
-    catalog = PropertyCatalog(
-        *args,
-        **kwargs,
-    )
-    return catalog
+    initialize_properties(*args, **kwargs)

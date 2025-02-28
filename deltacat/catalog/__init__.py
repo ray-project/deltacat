@@ -1,0 +1,1 @@
+from deltacat.catalog.catalog_properties import CatalogProperties, get_catalog_properties

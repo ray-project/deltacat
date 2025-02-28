@@ -6,8 +6,8 @@ from deltacat.storage import StreamFormat
 #       be determined at runtime based on the storage catalog configuration.
 #       This will ensure that they remain consistent across different storage
 #       implementations and can be easily modified or overridden when needed.
-DEFAULT_NAMESPACE = "namespace"
-DEFAULT_TABLE_VERSION = "table_version"
+DEFAULT_NAMESPACE = "DEFAULT"
+DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
 DEFAULT_STREAM_FORMAT = StreamFormat.DELTACAT
 DEFAULT_PARTITION_ID = "partition"

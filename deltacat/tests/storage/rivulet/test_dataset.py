@@ -57,7 +57,7 @@ def test_dataset_creation_metadata_structure(tmp_path):
     dataset = Dataset(dataset_name="test_dataset", metadata_uri=str(tmp_path))
 
     assert dataset._metadata_folder.startswith(".riv-meta")
-    assert dataset._namespace == "namespace"
+    assert dataset._namespace == "DEFAULT"
     assert dataset.dataset_name == "test_dataset"
     assert dataset._metadata_path == str(tmp_path / ".riv-meta-test_dataset")
 

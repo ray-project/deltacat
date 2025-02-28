@@ -13,7 +13,7 @@ from deltacat.storage import (
     TableVersionLocator,
     StreamFormat,
 )
-from deltacat.catalog.main.impl import PropertyCatalog
+from deltacat.catalog import CatalogProperties
 import pyarrow as pa
 
 
@@ -44,14 +44,14 @@ class TestNamespace:
     @classmethod
     def setup_class(cls):
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = PropertyCatalog(cls.tmpdir)
+        cls.catalog = CatalogProperties(cls.tmpdir)
         cls.namespace1 = metastore.create_namespace(
             namespace="namespace1",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         cls.namespace2 = metastore.create_namespace(
             namespace="namespace2",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
 
     @classmethod
@@ -67,11 +67,11 @@ class TestNamespace:
         # expect the namespace to exist
         assert metastore.namespace_exists(
             namespace="namespace1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
 
         # expect the namespace to also be returned when listing namespaces
-        list_result = metastore.list_namespaces(catalog=self.catalog)
+        list_result = metastore.list_namespaces(catalog_properties=self.catalog)
         namespaces_by_name = {n.locator.namespace: n for n in list_result.all_items()}
         assert len(namespaces_by_name.items()) == 2
         assert namespaces_by_name["namespace1"].equivalent_to(self.namespace1)
@@ -81,20 +81,20 @@ class TestNamespace:
         # expect the namespace to also be returned when explicitly retrieved
         read_namespace = metastore.get_namespace(
             namespace="namespace1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         assert read_namespace and read_namespace.equivalent_to(self.namespace1)
 
     def test_namespace_exists_existing(self):
         assert metastore.namespace_exists(
             "namespace1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
 
     def test_namespace_exists_nonexisting(self):
         assert not metastore.namespace_exists(
             "foobar",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
 
 
@@ -102,24 +102,24 @@ class TestTable:
     @classmethod
     def setup_class(cls):
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = PropertyCatalog(cls.tmpdir)
+        cls.catalog = CatalogProperties(cls.tmpdir)
         # Create a namespace to hold our tables
         cls.namespace_obj = metastore.create_namespace(
             namespace="test_table_ns",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         # Create two tables
         cls.stream1 = metastore.create_table_version(
             namespace="test_table_ns",
             table_name="table1",
             table_version="v1",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         cls.stream2 = metastore.create_table_version(
             namespace="test_table_ns",
             table_name="table2",
             table_version="v1",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
 
     @classmethod
@@ -130,7 +130,7 @@ class TestTable:
         # list the tables under our namespace
         list_result = metastore.list_tables(
             "test_table_ns",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         all_tables = list_result.all_items()
 
@@ -144,7 +144,7 @@ class TestTable:
         tbl = metastore.get_table(
             "test_table_ns",
             "table1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         assert tbl is not None
         # TODO(pdames): replace with tbl.equivalent_to(expected)
@@ -155,14 +155,14 @@ class TestTable:
         assert metastore.table_exists(
             "test_table_ns",
             "table1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
 
     def test_table_exists_nonexisting(self):
         assert not metastore.table_exists(
             "test_table_ns",
             "no_such_table",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
 
 
@@ -170,25 +170,25 @@ class TestTableVersion:
     @classmethod
     def setup_class(cls):
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = PropertyCatalog(cls.tmpdir)
+        cls.catalog = CatalogProperties(cls.tmpdir)
         # Create a namespace and single table
         cls.namespace_obj = metastore.create_namespace(
             namespace="test_tv_ns",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         # Create a "base" table to attach versions to
         metastore.create_table_version(
             namespace="test_tv_ns",
             table_name="mytable",
             table_version="v1",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         # Now create an additional version
         cls.stream2 = metastore.create_table_version(
             namespace="test_tv_ns",
             table_name="mytable",
             table_version="v2",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
 
     @classmethod
@@ -199,7 +199,7 @@ class TestTableVersion:
         list_result = metastore.list_table_versions(
             "test_tv_ns",
             "mytable",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         tvs = list_result.all_items()
         # we expect v1 and v2
@@ -214,7 +214,7 @@ class TestTableVersion:
             "test_tv_ns",
             "mytable",
             "v1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         assert tv is not None
         assert tv.table_version == "v1"
@@ -225,7 +225,7 @@ class TestTableVersion:
             "test_tv_ns",
             "mytable",
             "v2",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
 
     def test_table_version_exists_nonexisting(self):
@@ -234,7 +234,7 @@ class TestTableVersion:
             "test_tv_ns",
             "mytable",
             "v999",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
 
     def test_creation_fails_if_already_exists(self):
@@ -244,7 +244,7 @@ class TestTableVersion:
                 namespace="test_tv_ns",
                 table_name="mytable",
                 table_version="v1",
-                catalog=self.catalog,
+                catalog_properties=self.catalog,
             )
 
 
@@ -252,10 +252,10 @@ class TestStream:
     @classmethod
     def setup_class(cls):
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = PropertyCatalog(cls.tmpdir)
+        cls.catalog = CatalogProperties(cls.tmpdir)
         metastore.create_namespace(
             "test_stream_ns",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         # Create a table version.
         # This call should automatically create a default DeltaCAT stream.
@@ -263,14 +263,14 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         # Retrieve the auto-created default stream.
         cls.default_stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
-            catalog=cls.catalog,
+            catalog_properties=cls.catalog,
         )
         # Ensure that the default stream was auto-created.
         assert cls.default_stream is not None, "Default stream not found."
@@ -281,7 +281,7 @@ class TestStream:
 
     def test_list_streams(self):
         list_result = metastore.list_streams(
-            "test_stream_ns", "mystreamtable", "v1", catalog=self.catalog
+            "test_stream_ns", "mystreamtable", "v1", catalog_properties=self.catalog
         )
         streams = list_result.all_items()
         # We expect exactly one stream (the default "deltacat" stream).
@@ -292,7 +292,7 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         assert stream is not None
         # The stream's format should be the default "deltacat"
@@ -302,7 +302,7 @@ class TestStream:
         # no partitions yet
         list_result = metastore.list_stream_partitions(
             self.default_stream,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         partitions = list_result.all_items()
         assert len(partitions) == 0
@@ -313,14 +313,14 @@ class TestStream:
             "test_stream_ns",
             "mystreamtable",
             "v1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # Now get_stream should return None
         stream = metastore.get_stream(
             "test_stream_ns",
             "mystreamtable",
             "v1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         assert stream is None
 
@@ -330,7 +330,7 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         fetched_stream = metastore.get_staged_stream(
             table_version_locator=TableVersionLocator.at(
@@ -339,25 +339,25 @@ class TestStream:
                 table_version="v1",
             ),
             stream_id=stream.stream_id,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         assert fetched_stream.equivalent_to(stream)
         committed_stream = metastore.commit_stream(
             stream=stream,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         fetched_stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         assert fetched_stream.equivalent_to(committed_stream)
         list_result = metastore.list_streams(
             "test_stream_ns",
             "mystreamtable",
             "v1",
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         streams = list_result.all_items()
         # This will list the staged stream and the committed stream
