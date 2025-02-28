@@ -80,7 +80,12 @@ def get_catalog_properties(**kwargs) -> CatalogProperties:
 class CatalogProperties:
     """
     This holds all configuration for a DeltaCAT catalog.
-    A catalog implementation that stores and retrieves properties for tables and namespaces.
+
+    The PropertyCatalog can be configured at the interpreter level by calling initialize_properties, or provided with a kwarg. We expect functions to plumb through kwargs throughout, so only when a property needs to be fetched does a function need to retrieve the property catalog. Property catalog must be retrieved through get_property_catalog, which will hierarchically check kwargs then the global value.
+
+    Specific properties are configurable via env variable.
+
+    Be aware that unit tests should explicitly provide catalog_properties, or else parallel tests will override the global catalog_properties.
 
     Attributes:
         root (str): URI string The root path where catalog metadata and data files are stored. If none provided,
