@@ -17,6 +17,7 @@ from deltacat.storage.model.types import (
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
 
+
 # table functions
 def write_to_table(
     data: Union[LocalTable, LocalDataset, DistributedDataset],

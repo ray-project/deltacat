@@ -785,11 +785,11 @@ class Metafile(dict):
         )
         try:
             ancestor_ids = self.ancestor_ids(
-            catalog_root=catalog_root,
-            current_txn_start_time=current_txn_start_time,
-            current_txn_id=current_txn_id,
-            filesystem=filesystem,
-        )
+                catalog_root=catalog_root,
+                current_txn_start_time=current_txn_start_time,
+                current_txn_id=current_txn_id,
+                filesystem=filesystem,
+            )
         except ValueError:
             # Ancestor does not exist - return empty list results
             return ListResult.empty()

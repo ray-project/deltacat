@@ -73,13 +73,14 @@ from deltacat.types.media import (
 )
 from deltacat.utils.common import ReadKwargsProvider
 
+
 def _list(
     metafile: Metafile,
     txn_op_type: TransactionOperationType,
     *args,
     **kwargs,
 ) -> ListResult[Metafile]:
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     limit = kwargs.get("limit") or None
     transaction = Transaction.of(
         txn_type=TransactionType.READ,
@@ -92,8 +93,8 @@ def _list(
         ],
     )
     list_results_per_op = transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return list_results_per_op[0]
 
@@ -672,10 +673,10 @@ def create_namespace(
             )
         ],
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_catalog_properties.root,
+        filesystem=catalog_catalog_properties.filesystem,
     )
     return namespace
 
@@ -710,10 +711,10 @@ def update_namespace(
             )
         ],
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return namespace
 
@@ -776,7 +777,7 @@ def create_table_version(
     new_table.description = table_description or table_version_description
     new_table.properties = table_properties
     new_table.latest_table_version = table_version
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     locator = TableVersionLocator.at(
         namespace=namespace,
         table_name=table_name,
@@ -829,8 +830,8 @@ def create_table_version(
         ],
     )
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return stream
 
@@ -872,10 +873,10 @@ def update_table(
             )
         ],
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
 
 
@@ -1001,10 +1002,10 @@ def update_table_version(
         txn_type=TransactionType.ALTER,
         txn_operations=txn_operations,
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
 
 
@@ -1075,10 +1076,10 @@ def stage_stream(
             )
         ],
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return stream
 
@@ -1173,10 +1174,10 @@ def commit_stream(
         txn_type=txn_type,
         txn_operations=txn_ops,
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return stream
 
@@ -1224,10 +1225,10 @@ def delete_stream(
             )
         ],
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
 
 
@@ -1378,10 +1379,10 @@ def stage_partition(
             )
         ],
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return partition
 
@@ -1484,10 +1485,10 @@ def commit_partition(
         txn_type=txn_type,
         txn_operations=txn_ops,
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return partition
 
@@ -1527,10 +1528,10 @@ def delete_partition(
             )
         ],
     )
-    properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=properties.root,
-        filesystem=properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
 
 

@@ -12,16 +12,16 @@ Property catalog is configured globally (at the interpreter level)
 Ray has limitations around serialized class size. For this reason, larger files like catalog impl and
 storage impl need to be a flat list of functions rather than a stateful class initialized with properties
 
-These classes will fetch the globally configured CatalogProperties, OR allow injection of a custom 
+These classes will fetch the globally configured CatalogProperties, OR allow injection of a custom
 CatalogProperties in kwargs
 """
 CATALOG_PROPERTIES: CatalogProperties = None
 _INITIALIZED = False
 
-def initialize_properties(root: Optional[str] = None,
-               *args,
-               force: bool = False,
-               **kwargs) -> CatalogProperties:
+
+def initialize_properties(
+    root: Optional[str] = None, *args, force: bool = False, **kwargs
+) -> CatalogProperties:
     """
     Initialize a Catalog state, if not already initialized.
 
@@ -47,10 +47,7 @@ def initialize_properties(root: Optional[str] = None,
         root = env_root
 
     # Initialize the catalog properties
-    CATALOG_PROPERTIES = CatalogProperties(
-        root=root,
-        **kwargs
-    )
+    CATALOG_PROPERTIES = CatalogProperties(root=root, **kwargs)
 
     _INITIALIZED = True
     return CATALOG_PROPERTIES
@@ -79,6 +76,7 @@ def get_catalog_properties(**kwargs) -> CatalogProperties:
 
     return CATALOG_PROPERTIES
 
+
 class CatalogProperties:
     """
     This holds all configuration for a DeltaCAT catalog.
@@ -91,14 +89,15 @@ class CatalogProperties:
         filesystem (pyarrow.fs.FileSystem): pyarrow filesystem implementation used for
             accessing files. If not provided, will be inferred via root
     """
+
     DEFAULT_ROOT = ".deltacat"
 
     def __init__(
-            self,
-            root: Optional[str] = None,
-            *args,
-            filesystem: Optional[pyarrow.fs.FileSystem] = None,
-            **kwargs
+        self,
+        root: Optional[str] = None,
+        *args,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        **kwargs,
     ):
         """
         Initialize a CatalogProperties instance.
@@ -125,4 +124,3 @@ class CatalogProperties:
     @property
     def filesystem(self) -> Optional[pyarrow.fs.FileSystem]:
         return self._filesystem
-
