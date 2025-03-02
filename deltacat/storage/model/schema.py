@@ -392,7 +392,7 @@ class Schema(dict):
     @staticmethod
     def of(
         schema: Union[SingleSchema, MultiSchema],
-        schema_id: SchemaId = 0,
+        schema_id: Optional[SchemaId] = None,
         native_object: Optional[Any] = None,
     ) -> Schema:
         """
@@ -404,7 +404,6 @@ class Schema(dict):
         order of their dictionary keys. This unified schema saves all named
         subschema field mappings in its metadata to support DeltaCAT subschema
         retrieval by name after schema creation.
-
 
         Args:
             schema (Union[SingleSchema, MultiSchema]): For a single unnamed
@@ -421,11 +420,12 @@ class Schema(dict):
             of their fields in their natural iteration order. Any missing
             field IDs will be autoassigned starting from 0 or the max field ID
             + 1 across the natural iteration order of all  schemas first, and
-            all fields second. All fields across all schemas must have unique
-            names (case-insensitive).
+            all fields second.
+            All fields across all schemas must have unique names
+            (case-insensitive).
 
-            schema_id (SchemaId): Unique ID of schema within its parent table.
-            Defaults to 0.
+            schema_id (SchemaId): Unique ID of schema within its parent table
+            version. Defaults to 0.
 
             native_object (Optional[Any]): The native object, if any, that this
             schema was converted from.
@@ -473,7 +473,10 @@ class Schema(dict):
             for schema_name, field_names in subschema_to_field_names.items()
         }
         # create a final pyarrow schema with populated schema metadata
-        schema_metadata[SCHEMA_ID_KEY_NAME] = str(schema_id)
+        if schema_id is not None:
+            schema_metadata[SCHEMA_ID_KEY_NAME] = str(schema_id)
+        if schema_metadata.get(SCHEMA_ID_KEY_NAME) is None:
+            schema_metadata[SCHEMA_ID_KEY_NAME] = str(0)
         schema_metadata[SUBSCHEMAS_KEY_NAME] = msgpack.dumps(subschema_to_field_ids)
         final_schema = pyarrow_schema.with_metadata(schema_metadata)
         return Schema(
@@ -514,7 +517,10 @@ class Schema(dict):
         if not subschemas:  # self is SingleSchema
             subschemas = {BASE_SCHEMA_NAME: self}
         subschemas = Schema._add_subschema(name, schema, subschemas)
-        return Schema.of(subschemas)
+        return Schema.of(
+            schema=subschemas,
+            schema_id=self.id + 1,
+        )
 
     def delete_subschema(self, name: SchemaName) -> Schema:
         subschemas = copy.copy(self.subschemas)
@@ -522,7 +528,10 @@ class Schema(dict):
         if not subschemas:
             raise ValueError(f"Deleting `{name}` would leave the schema empty.")
         subschemas = {name: val.arrow for name, val in subschemas.items()}
-        return Schema.of(subschemas)
+        return Schema.of(
+            schema=subschemas,
+            schema_id=self.id + 1,
+        )
 
     def replace_subschema(
         self,
@@ -532,7 +541,10 @@ class Schema(dict):
         subschemas = copy.copy(self.subschemas)
         subschemas = Schema._del_subschema(name, subschemas)
         subschemas = Schema._add_subschema(name, schema, subschemas)
-        return Schema.of(subschemas)
+        return Schema.of(
+            schema=subschemas,
+            schema_id=self.id + 1,
+        )
 
     def field_id(self, name: Union[FieldName, NestedFieldName]) -> FieldId:
         return Schema._field_name_to_field_id(self.arrow, name)

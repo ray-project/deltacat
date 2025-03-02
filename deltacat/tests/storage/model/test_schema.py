@@ -90,8 +90,8 @@ def test_insert_explicit_name(schema_a, schema_b):
     assert "explicit" in new_schema.subschemas_to_field_ids
     assert BASE_SCHEMA_NAME in new_schema.subschemas
     assert BASE_SCHEMA_NAME in new_schema.subschemas_to_field_ids
-    assert new_schema.subschemas[BASE_SCHEMA_NAME].equivalent_to(schema_a, True)
-    assert new_schema.subschemas["explicit"].equivalent_to(schema_b, True)
+    assert new_schema.subschemas[BASE_SCHEMA_NAME].equivalent_to(schema_a)
+    assert new_schema.subschemas["explicit"].equivalent_to(schema_b)
 
 
 def test_insert_reserved_name_fails(schema_a, schema_b):
@@ -136,9 +136,7 @@ def test_insert_autofill_field_id():
     assert len(new_schema.subschemas["explicit"].fields) == 1
     assert new_schema.subschemas[BASE_SCHEMA_NAME].fields[0].id == 0
     assert new_schema.subschemas["explicit"].fields[0].id == 1
-    assert new_schema.subschemas[BASE_SCHEMA_NAME].equivalent_to(
-        Schema.of(schema1), True
-    )
+    assert new_schema.subschemas[BASE_SCHEMA_NAME].equivalent_to(Schema.of(schema1))
     schema2_with_expected_field_id = [
         Field.of(
             field=pa.field("col2", pa.int32(), nullable=False),
@@ -147,7 +145,7 @@ def test_insert_autofill_field_id():
         )
     ]
     assert new_schema.subschemas["explicit"].equivalent_to(
-        Schema.of(schema2_with_expected_field_id), True
+        Schema.of(schema2_with_expected_field_id)
     )
 
 

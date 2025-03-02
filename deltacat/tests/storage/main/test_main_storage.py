@@ -3,6 +3,7 @@ import tempfile
 
 import pytest
 import copy
+import pyarrow as pa
 
 from deltacat.storage import (
     metastore,
@@ -13,6 +14,7 @@ from deltacat.storage import (
     NamespaceLocator,
     TableVersion,
     TableVersionLocator,
+    Schema,
     Stream,
     StreamFormat,
 )
@@ -359,6 +361,129 @@ class TestTableVersion:
                     catalog=self.catalog,
                     **kwargs_copy,
                 )
+
+    def test_update_table_version_schema(self):
+        # given an update to the schema of table version 1
+        old_schema = self.table_version.schema
+        new_pyarrow_schema = pa.schema(
+            [
+                ("col_1", pa.int64()),
+                ("col_2", pa.float64()),
+                ("col_3", pa.string()),
+            ]
+        )
+        new_schema = old_schema.add_subschema(
+            name="test",
+            schema=new_pyarrow_schema,
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            schema=new_schema,
+            catalog=self.catalog,
+        )
+        # when we get the new schema of table version 1
+        actual_schema = metastore.get_table_version_schema(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the expected schema
+        assert actual_schema.equivalent_to(new_schema)
+        # expect the table version to have two schemas in its evolution history
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        assert len(tv.schemas) == 2
+        assert tv.schemas[0].equivalent_to(old_schema)
+        assert tv.schemas[1].equivalent_to(new_schema)
+
+    def test_update_table_version_schema_same_schema_id_fails(self):
+        # given an update to the schema of table version 1 w/ the same schema ID
+        old_schema = self.table_version.schema
+        new_schema = Schema.of(
+            schema=pa.schema(
+                [
+                    ("col_1", pa.int64()),
+                    ("col_2", pa.float64()),
+                    ("col_3", pa.string()),
+                ]
+            ),
+            schema_id=old_schema.id,
+        )
+        # when we try to update the schema
+        # expect an error to be raised
+        with pytest.raises(ValueError):
+            metastore.update_table_version(
+                namespace=self.table.namespace,
+                table_name=self.table.table_name,
+                table_version=self.table_version.table_version,
+                schema=new_schema,
+                catalog=self.catalog,
+            )
+
+    def test_update_table_version_schema_equivalent_schema_noop(self):
+        # given a noop update to the schema of table version 1
+        old_schema = self.table_version.schema
+        new_schema = Schema.of(
+            schema=old_schema.arrow,
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            schema=new_schema,
+            catalog=self.catalog,
+        )
+        # when we get the new schema of table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the old schema (including metadata)
+        assert tv.schema.equivalent_to(old_schema, True)
+        # expect it to only have one schema in its evolution history
+        assert len(tv.schemas) == 1
+        assert tv.schemas[0].equivalent_to(old_schema, True)
+
+    def test_update_table_version_schema_equivalent_schema_new_id(self):
+        # given an update to only the schema ID of table version 1
+        old_schema = self.table_version.schema
+        new_schema = Schema.of(
+            schema=old_schema.arrow,
+            schema_id=old_schema.id + 1,
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            schema=new_schema,
+            catalog=self.catalog,
+        )
+        # when we get the new schema of table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the old schema (ignoring metadata)
+        assert tv.schema.equivalent_to(old_schema)
+        assert not tv.schema.equivalent_to(old_schema, True)
+        # expect it to have two schema in its evolution history
+        assert len(tv.schemas) == 2
+        assert tv.schemas[0].equivalent_to(old_schema, True)
+        assert tv.schemas[0].id == old_schema.id
+        assert tv.schemas[1].equivalent_to(old_schema)
+        assert not tv.schemas[1].equivalent_to(old_schema, True)
+        assert tv.schemas[1].id == old_schema.id + 1
 
     def test_get_latest_active_table_version(self):
         # given two table versions but no active table version

@@ -964,7 +964,7 @@ def update_table_version(
     lifecycle state to 'active' telegraphs that it is ready for external
     consumption, and causes all calls made to consume/produce streams,
     partitions, or deltas from/to its parent table to automatically resolve to
-    this table version by default (i.e. when the client does not explicitly
+    this table version by default (i.e., when the client does not explicitly
     specify a different table version). Raises an error if the given table
     version does not exist.
     """
@@ -984,15 +984,31 @@ def update_table_version(
     new_table_version: TableVersion = Metafile.update_for(old_table_version)
     new_table_version.state = lifecycle_state or old_table_version.state
     # TODO(pdames): Use schema patch to check for backwards incompatible changes.
-    new_table_version.schema = schema or old_table_version.schema
+    #  By default, backwards incompatible changes should be pushed to a new
+    #  table version unless the user explicitly forces the update to this
+    #  table version (i.e., at the cost of potentially breaking consumers).
+    update_schema = schema and not schema.equivalent_to(
+        old_table_version.schema,
+        True,
+    )
+    if update_schema and schema.id in [s.id for s in old_table_version.schemas]:
+        raise ValueError(
+            f"Schema ID `{schema.id}` already exists in "
+            f"table version `{table_version}`."
+        )
+    new_table_version.schema = schema if update_schema else old_table_version.schema
     new_table_version.schemas = (
-        old_table_version.schemas + [schema] if schema else old_table_version.schemas
+        old_table_version.schemas + [schema]
+        if update_schema
+        else old_table_version.schemas
     )
     new_table_version.description = description or old_table_version.description
     new_table_version.properties = properties or old_table_version.properties
     new_table_version.partition_scheme = (
         partition_scheme or old_table_version.partition_scheme
     )
+    # TODO(pdames): Check partition scheme equivalence before updating, and
+    #   check for backwards incompatible changes.
     if partition_scheme and partition_scheme.id in [
         ps.id for ps in old_table_version.partition_schemes
     ]:
@@ -1005,6 +1021,8 @@ def update_table_version(
         if partition_scheme
         else old_table_version.partition_schemes
     )
+    # TODO(pdames): Check sort key equivalence before updating, and check for
+    #   backwards incompatible changes.
     if sort_keys and sort_keys.id in [sk.id for sk in old_table_version.sort_schemes]:
         raise ValueError(
             f"Sort scheme ID `{sort_keys.id}` already exists in "
@@ -1023,7 +1041,6 @@ def update_table_version(
         **kwargs,
     )
     txn_operations = []
-
     if (
         lifecycle_state == LifecycleState.ACTIVE
         and old_table_version.state != LifecycleState.ACTIVE
