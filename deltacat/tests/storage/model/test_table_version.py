@@ -37,13 +37,16 @@ def test_parse_version(table_version, expected_parsed_version):
     assert (prefix, version_number) == expected_parsed_version
 
 
-def test_version_validation():
+def test_version_validation_invalid():
     with pytest.raises(ValueError):
         TableVersionLocator.at(
             namespace="test_namespace",
             table_name="test_table",
             table_version="invalid_version",
         )
+
+
+def test_version_validation_valid_to_invalid():
     valid_tv_locator = TableVersionLocator.at(
         namespace="test_namespace",
         table_name="test_table",
@@ -57,6 +60,9 @@ def test_version_validation():
     assert tv.current_version_number() == 1
     with pytest.raises(ValueError):
         valid_tv_locator.table_version = "invalid_version"
+
+
+def test_version_validation_numeric_name():
     valid_tv_locator = TableVersionLocator.at(
         namespace="test_namespace",
         table_name="test_table",
@@ -68,6 +74,9 @@ def test_version_validation():
         schema=None,
     )
     assert tv.current_version_number() == 0
+
+
+def test_version_validation_truncate_leading_zeros():
     valid_tv_locator = TableVersionLocator.at(
         namespace="test_namespace",
         table_name="test_table",
@@ -80,6 +89,9 @@ def test_version_validation():
         schema=None,
     )
     assert tv.current_version_number() == 2
+
+
+def test_version_validation_version_id_length_limits():
     # ensure that long version identifiers are accepted
     long_tv_id = "a" * (BYTES_PER_KIBIBYTE - 2) + ".1"
     valid_tv_locator = TableVersionLocator.at(

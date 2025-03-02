@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.storage import (
     EntryParams,
@@ -298,14 +298,16 @@ def create_table_version(
     supported_content_types: Optional[List[ContentType]] = None,
     *args,
     **kwargs,
-) -> Stream:
+) -> Tuple[Optional[Table], TableVersion, Stream]:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned to improve write
     performance, or have their writes governed by a schema and partition scheme
     to improve data consistency and read performance.
 
-    Returns the stream for the created table version.
+    Returns a tuple containing the created/updated table, table version, and
+    stream (respectively).
+
     Raises an error if the given namespace does not exist.
     """
     raise NotImplementedError("create_table_version not implemented")

@@ -100,7 +100,7 @@ class TestTable:
         cls.test_table2.locator.table_name = "table2"
         cls.test_table2.latest_table_version = "v.1"
         # Create two table versions (their parent tables will be auto-created)
-        cls.stream1 = metastore.create_table_version(
+        cls.table1, cls.tv1, cls.stream1 = metastore.create_table_version(
             namespace=cls.test_table1.namespace,
             table_name=cls.test_table1.table_name,
             table_version=cls.test_table1.latest_table_version,
@@ -108,7 +108,7 @@ class TestTable:
             table_properties=cls.test_table1.properties,
             catalog=cls.catalog,
         )
-        cls.stream2 = metastore.create_table_version(
+        cls.table2, cls.tv2, cls.stream2 = metastore.create_table_version(
             namespace=cls.test_table2.namespace,
             table_name=cls.test_table2.table_name,
             table_version=cls.test_table2.latest_table_version,
@@ -186,7 +186,7 @@ class TestTableVersion:
         )
 
         # create a "base" table with single table version attached
-        cls.stream1 = metastore.create_table_version(
+        cls.table1, cls.tv1, cls.stream1 = metastore.create_table_version(
             namespace=cls.table.namespace,
             table_name=cls.table.table_name,
             table_version=cls.table_version.table_version,
@@ -201,7 +201,7 @@ class TestTableVersion:
             catalog=cls.catalog,
         )
         # now attach a second table version to the same base table
-        cls.stream2 = metastore.create_table_version(
+        cls.table2, cls.tv2, cls.stream2 = metastore.create_table_version(
             namespace=cls.table.namespace,
             table_name=cls.table.table_name,
             table_version=cls.table_version2.table_version,
@@ -543,7 +543,7 @@ class TestStream:
         )
         # Create a table version.
         # This call should automatically create a default DeltaCAT stream.
-        cls.created_stream = metastore.create_table_version(
+        cls.table, cls.tv, cls.stream = metastore.create_table_version(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
@@ -558,7 +558,7 @@ class TestStream:
         )
         # Ensure that the default stream was auto-created.
         assert cls.default_stream is not None, "Default stream not found."
-        assert cls.default_stream.equivalent_to(cls.created_stream)
+        assert cls.default_stream.equivalent_to(cls.stream)
 
     @classmethod
     def teardown_method(cls):
