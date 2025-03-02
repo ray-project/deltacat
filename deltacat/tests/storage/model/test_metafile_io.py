@@ -57,225 +57,25 @@ from deltacat.storage.model.metafile import (
     MetafileRevisionInfo,
 )
 from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, NANOS_PER_SEC
-from deltacat.storage.model.schema import SchemaMap
 from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.tests.test_utils.storage import (
+    create_test_namespace,
+    create_test_table,
+    create_test_table_version,
+    create_test_stream,
+    create_test_partition,
+    create_test_delta,
+)
 
 
 def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, str]]:
-    # namespace
-    namespace_locator = NamespaceLocator.of(namespace="test_namespace")
-    namespace = Namespace.of(locator=namespace_locator)
+    namespace = create_test_namespace()
+    table = create_test_table()
+    table_version = create_test_table_version()
+    stream = create_test_stream()
+    partition = create_test_partition()
+    delta = create_test_delta()
 
-    # table
-    table_locator = TableLocator.at(
-        namespace="test_namespace",
-        table_name="test_table",
-    )
-    table = Table.of(
-        locator=table_locator,
-        description="test table description",
-    )
-
-    # stream
-    table_version_locator = TableVersionLocator.at(
-        namespace="test_namespace",
-        table_name="test_table",
-        table_version="test_table_version",
-    )
-    schema = Schema.of(
-        [
-            Field.of(
-                field=pa.field("some_string", pa.string(), nullable=False),
-                field_id=1,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_int32", pa.int32(), nullable=False),
-                field_id=2,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_float64", pa.float64()),
-                field_id=3,
-                is_merge_key=False,
-            ),
-        ]
-    )
-    bucket_transform = BucketTransform.of(
-        BucketTransformParameters.of(
-            num_buckets=2,
-            bucketing_strategy=BucketingStrategy.DEFAULT,
-        )
-    )
-    partition_keys = [
-        PartitionKey.of(
-            key=["some_string", "some_int32"],
-            name="test_partition_key",
-            field_id="test_field_id",
-            transform=bucket_transform,
-        )
-    ]
-    partition_scheme = PartitionScheme.of(
-        keys=partition_keys,
-        name="test_partition_scheme",
-        scheme_id="test_partition_scheme_id",
-    )
-    sort_keys = [
-        SortKey.of(
-            key=["some_int32"],
-            sort_order=SortOrder.DESCENDING,
-            null_order=NullOrder.AT_START,
-            transform=TruncateTransform.of(
-                TruncateTransformParameters.of(width=3),
-            ),
-        )
-    ]
-    sort_scheme = SortScheme.of(
-        keys=sort_keys,
-        name="test_sort_scheme",
-        scheme_id="test_sort_scheme_id",
-    )
-
-    table_version = TableVersion.of(
-        locator=table_version_locator,
-        schema=schema,
-        partition_scheme=partition_scheme,
-        description="test table version description",
-        properties={"test_property_key": "test_property_value"},
-        content_types=[ContentType.PARQUET],
-        sort_scheme=sort_scheme,
-        watermark=1,
-        lifecycle_state=LifecycleState.CREATED,
-        schemas={
-            "default": schema,
-            "v1": schema,
-            "v2": schema,
-        },
-        partition_schemes=[partition_scheme, partition_scheme],
-        sort_schemes=[sort_scheme, sort_scheme],
-    )
-
-    stream_locator = StreamLocator.at(
-        namespace="test_namespace",
-        table_name="test_table",
-        table_version="test_table_version",
-        stream_id="test_stream_id",
-        stream_format=StreamFormat.DELTACAT,
-    )
-    bucket_transform = BucketTransform.of(
-        BucketTransformParameters.of(
-            num_buckets=2,
-            bucketing_strategy=BucketingStrategy.DEFAULT,
-        )
-    )
-    partition_keys = [
-        PartitionKey.of(
-            key=["some_string", "some_int32"],
-            name="test_partition_key",
-            field_id="test_field_id",
-            transform=bucket_transform,
-        )
-    ]
-    partition_scheme = PartitionScheme.of(
-        keys=partition_keys,
-        name="test_partition_scheme",
-        scheme_id="test_partition_scheme_id",
-    )
-    stream = Stream.of(
-        locator=stream_locator,
-        partition_scheme=partition_scheme,
-        state=CommitState.STAGED,
-        previous_stream_id="test_previous_stream_id",
-        watermark=1,
-    )
-
-    # partition
-    partition_locator = PartitionLocator.at(
-        namespace="test_namespace",
-        table_name="test_table",
-        table_version="test_table_version",
-        stream_id="test_stream_id",
-        stream_format=StreamFormat.DELTACAT,
-        partition_values=["a", 1],
-        partition_id="test_partition_id",
-    )
-    schema = Schema.of(
-        [
-            Field.of(
-                field=pa.field("some_string", pa.string(), nullable=False),
-                field_id=1,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_int32", pa.int32(), nullable=False),
-                field_id=2,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_float64", pa.float64()),
-                field_id=3,
-                is_merge_key=False,
-            ),
-        ]
-    )
-    partition = Partition.of(
-        locator=partition_locator,
-        schema=schema,
-        content_types=[ContentType.PARQUET],
-        state=CommitState.STAGED,
-        previous_stream_position=0,
-        previous_partition_id="test_previous_partition_id",
-        stream_position=1,
-        partition_scheme_id="test_partition_scheme_id",
-    )
-
-    # delta
-    delta_locator = DeltaLocator.at(
-        namespace="test_namespace",
-        table_name="test_table",
-        table_version="test_table_version",
-        stream_id="test_stream_id",
-        stream_format=StreamFormat.DELTACAT,
-        partition_values=["a", 1],
-        partition_id="test_partition_id",
-        stream_position=1,
-    )
-    manifest_entry_params = EntryParams.of(
-        equality_field_locators=["some_string", "some_int32"],
-    )
-    manifest_meta = ManifestMeta.of(
-        record_count=1,
-        content_length=10,
-        content_type=ContentType.PARQUET.value,
-        content_encoding=ContentEncoding.IDENTITY.value,
-        source_content_length=100,
-        credentials={"foo": "bar"},
-        content_type_parameters=[{"param1": "value1"}],
-        entry_type=EntryType.EQUALITY_DELETE,
-        entry_params=manifest_entry_params,
-    )
-    manifest = Manifest.of(
-        entries=[
-            ManifestEntry.of(
-                url="s3://test/url",
-                meta=manifest_meta,
-            )
-        ],
-        author=ManifestAuthor.of(
-            name="deltacat",
-            version="2.0",
-        ),
-        entry_type=EntryType.EQUALITY_DELETE,
-        entry_params=manifest_entry_params,
-    )
-    delta = Delta.of(
-        locator=delta_locator,
-        delta_type=DeltaType.APPEND,
-        meta=manifest_meta,
-        properties={"property1": "value1"},
-        manifest=manifest,
-        previous_stream_position=0,
-    )
     meta_to_create = [
         namespace,
         table,
@@ -1192,7 +992,7 @@ class TestMetafileIO:
         # expect a subsequent replace of the deleted table version to fail
         replacement_table_version: TableVersion = TableVersion.based_on(
             original_table_version,
-            new_id=original_table_version.id + "_2",
+            new_id=original_table_version.id + "0",
         )
         bad_txn_operations = [
             TransactionOperation.of(
@@ -1246,7 +1046,7 @@ class TestMetafileIO:
         # given a transaction containing a table version replacement
         replacement_table_version: TableVersion = TableVersion.based_on(
             original_table_version,
-            new_id=original_table_version.id + "_2",
+            new_id=original_table_version.id + "0",
         )
 
         # expect the proposed replacement table version to be assigned a new ID
@@ -1827,7 +1627,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id=original_table_version_created.id + "_2",
+            new_id=original_table_version_created.id + "0",
         )
         # 2. a new stream in the new table version
         original_stream_created = Stream(commit_results[3][1])
@@ -1882,7 +1682,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version_to_create: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id=original_table_version_created.id + "_2",
+            new_id=original_table_version_created.id + "0",
         )
         new_table_version_to_create.table_locator.table_name = renamed_table.table_name
         # 3. ordered transaction operations that try to put the new table
@@ -1970,7 +1770,7 @@ class TestMetafileIO:
             other=original_stream_created,
             new_id="test_stream_id",
         )
-        new_stream.table_version_locator.table_version = "missing_table_version"
+        new_stream.table_version_locator.table_version = "missing_table_version.0"
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND,
             txn_operations=[
@@ -1994,7 +1794,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id="test_table_version",
+            new_id="test_table_version.1",
         )
         new_table_version.namespace_locator.namespace = "missing_namespace"
         transaction = Transaction.of(
@@ -2020,7 +1820,7 @@ class TestMetafileIO:
         original_table_version_created = TableVersion(commit_results[2][1])
         new_table_version: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id="test_table_version",
+            new_id="test_table_version.1",
         )
         new_table_version.table_locator.table_name = "missing_table"
         transaction = Transaction.of(
@@ -2081,7 +1881,7 @@ class TestMetafileIO:
         # 2. a new table version in the renamed table
         new_table_version_to_create: TableVersion = TableVersion.based_on(
             other=original_table_version_created,
-            new_id=original_table_version_created.table_version + "_2",
+            new_id=original_table_version_created.table_version + "0",
         )
         new_table_version_to_create.table_locator.table_name = renamed_table.table_name
         # 3. a new stream in the new table version in the renamed table
@@ -2436,7 +2236,7 @@ class TestMetafileIO:
         table_version_locator = TableVersionLocator.at(
             namespace=None,
             table_name=None,
-            table_version="test_table_version",
+            table_version="test_table_version.1",
         )
         schema = Schema.of(
             [
@@ -2501,7 +2301,7 @@ class TestMetafileIO:
             sort_scheme=sort_scheme,
             watermark=1,
             lifecycle_state=LifecycleState.CREATED,
-            schemas=SchemaMap.of([schema, schema, schema]),
+            schemas=[schema, schema, schema],
             partition_schemes=[partition_scheme, partition_scheme],
             sort_schemes=[sort_scheme, sort_scheme],
         )

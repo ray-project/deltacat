@@ -42,7 +42,7 @@ from deltacat.storage.model.schema import (
     FieldName,
     NestedFieldName,
     Schema,
-    SchemaMap,
+    SchemaList,
 )
 from deltacat.storage.model.stream import (
     Stream,
@@ -142,7 +142,7 @@ __all__ = [
     "PartitionSchemeList",
     "PartitionValues",
     "Schema",
-    "SchemaMap",
+    "SchemaList",
     "SchemaConsistencyType",
     "SortKey",
     "SortOrder",
