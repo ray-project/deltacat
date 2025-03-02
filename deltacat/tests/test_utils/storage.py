@@ -28,7 +28,7 @@ from deltacat.storage import (
     PartitionLocator,
     PartitionScheme,
     Schema,
-    SchemaListMap,
+    SchemaList,
     SortScheme,
     SortKey,
     SortOrder,
@@ -165,7 +165,7 @@ def create_test_table_version():
         sort_scheme=sort_scheme,
         watermark=None,
         lifecycle_state=LifecycleState.CREATED,
-        schemas=SchemaListMap.of([[schema]]),
+        schemas=SchemaList.of([schema]),
         partition_schemes=[partition_scheme],
         sort_schemes=[sort_scheme],
     )

@@ -40,7 +40,6 @@ from deltacat.storage.model.partition import (
 )
 from deltacat.storage.model.schema import (
     Schema,
-    SchemaListMap,
 )
 from deltacat.storage.model.sort_key import (
     SortScheme,
@@ -848,13 +847,6 @@ def create_table_version(
         table_name=table_name,
         table_version=table_version,
     )
-    schemas = (
-        SchemaListMap.of({schema.name: [schema]})
-        if schema and schema.name
-        else [[schema]]
-        if schema
-        else None
-    )
     table_version = TableVersion.of(
         locator=locator,
         schema=schema,
@@ -865,7 +857,7 @@ def create_table_version(
         sort_scheme=sort_keys,
         watermark=None,
         lifecycle_state=LifecycleState.UNRELEASED,
-        schemas=schemas,
+        schemas=[schema] if schema else None,
         partition_schemes=[partition_scheme] if partition_scheme else None,
         sort_schemes=[sort_keys] if sort_keys else None,
         previous_table_version=prev_table_version,

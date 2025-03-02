@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import logging
 import copy
-import uuid
 
 import msgpack
-from typing import Optional, Any, Dict, OrderedDict, Union, List, Callable, Set, Tuple
+from typing import Optional, Any, Dict, Union, List, Callable, Tuple
 
 import pyarrow as pa
 from pyarrow import ArrowInvalid
 
+from deltacat.constants import BYTES_PER_KIBIBYTE
 from deltacat.storage.model.types import (
     SchemaConsistencyType,
     SortOrder,
@@ -52,6 +52,10 @@ SUBSCHEMAS_KEY_NAME = b"DELTACAT:subschemas"
 # Set max field ID to INT32.MAX_VALUE - 200 for backwards-compatibility with
 # Apache Iceberg, which sets aside this range for reserved fields
 MAX_FIELD_ID_EXCLUSIVE = 2147483447
+
+# Default name assigned to the base, unnamed single schema when a new named
+# subschema is first added.
+BASE_SCHEMA_NAME = "_base"
 
 SchemaId = int
 SchemaName = str
@@ -392,8 +396,15 @@ class Schema(dict):
         native_object: Optional[Any] = None,
     ) -> Schema:
         """
-        Creates a DeltaCAT schema from either an Arrow base schema or list
-        of DeltaCAT fields.
+        Creates a DeltaCAT schema from either one or multiple Arrow base schemas
+        or lists of DeltaCAT fields. All field names across all input schemas
+        must be unique (case-insensitive). If a dict of named subschemas is
+        given, then this DeltaCAT schema will be backed by a unified arrow
+        schema created as a union of all input schemas in the natural iteration
+        order of their dictionary keys. This unified schema saves all named
+        subschema field mappings in its metadata to support DeltaCAT subschema
+        retrieval by name after schema creation.
+
 
         Args:
             schema (Union[SingleSchema, MultiSchema]): For a single unnamed
@@ -404,16 +415,17 @@ class Schema(dict):
             each Arrow field's metadata if they exist. Any field missing a
             field ID will be assigned a unique field ID, with assigned field
             IDs either starting from 0 or the max field ID + 1.
-            For multiple named schemas, a dictionary of schema names to either
-            an arrow base schema or list of DeltaCAT fields. The same rules for
-            single unnamed schema creation apply to each named schema. Any field
-            missing a field ID will be have a unique field ID assigned
-            starting from 0 or the max field ID + 1 across the natural iteration
-            order of all dictionary keys first, and all schema fields second.
-            All fields across all schemas must have unique names
-            (case-insensitive).
+            For multiple named subschemas, a dictionary of schema names to an
+            arrow base schema or list of DeltaCAT fields. These schemas will
+            be copied into a unified Arrow schema representing a union of all
+            of their fields in their natural iteration order. Any missing
+            field IDs will be autoassigned starting from 0 or the max field ID
+            + 1 across the natural iteration order of all  schemas first, and
+            all fields second. All fields across all schemas must have unique
+            names (case-insensitive).
 
             schema_id (SchemaId): Unique ID of schema within its parent table.
+            Defaults to 0.
 
             native_object (Optional[Any]): The native object, if any, that this
             schema was converted from.
@@ -422,7 +434,7 @@ class Schema(dict):
         """
         # normalize the input as a unified pyarrow schema
         # if the input included multiple subschemas, then also save a mapping
-        # from subschema name to its unique field names
+        # from each subschema to its unique field names
         schema, subschema_to_field_names = Schema._to_unified_pyarrow_schema(schema)
         # discover assigned field IDs in the given pyarrow schema
         field_ids_to_fields = {}
@@ -452,15 +464,17 @@ class Schema(dict):
         pyarrow_schema = pa.schema(
             fields=[field.arrow for field in field_ids_to_fields.values()],
         )
-        # map subschema field names to IDs (lower storage and faster lookup)
+        # map subschema field names to IDs (for faster lookup and reduced size)
         subschema_to_field_ids = {
-            name: [Field.of(pyarrow_schema[name]).id for name in field_names]
-            for name, field_names in subschema_to_field_names.items()
+            schema_name: [
+                Field.of(pyarrow_schema.field(field_name)).id
+                for field_name in field_names
+            ]
+            for schema_name, field_names in subschema_to_field_names.items()
         }
         # create a final pyarrow schema with populated schema metadata
         schema_metadata[SCHEMA_ID_KEY_NAME] = str(schema_id)
-        if subschema_to_field_ids:
-            schema_metadata[SUBSCHEMAS_KEY_NAME] = msgpack.dumps(subschema_to_field_ids)
+        schema_metadata[SUBSCHEMAS_KEY_NAME] = msgpack.dumps(subschema_to_field_ids)
         final_schema = pyarrow_schema.with_metadata(schema_metadata)
         return Schema(
             {
@@ -479,11 +493,46 @@ class Schema(dict):
     def serialize(self) -> pa.Buffer:
         return self.arrow.serialize()
 
-    def equivalent_to(self, other):
-        try:
-            return self.serialize().to_pybytes() == other.serialize().to_pybytes()
-        except Exception:
+    def equivalent_to(self, other: Schema, check_metadata: bool = False):
+        if other is None:
             return False
+        if not isinstance(other, dict):
+            return False
+        if not isinstance(other, Schema):
+            other = Schema(other)
+        return self.arrow.equals(
+            other.arrow,
+            check_metadata,
+        )
+
+    def add_subschema(
+        self,
+        name: SchemaName,
+        schema: SingleSchema,
+    ) -> Schema:
+        subschemas = copy.copy(self.subschemas)
+        if not subschemas:  # self is SingleSchema
+            subschemas = {BASE_SCHEMA_NAME: self}
+        subschemas = Schema._add_subschema(name, schema, subschemas)
+        return Schema.of(subschemas)
+
+    def delete_subschema(self, name: SchemaName) -> Schema:
+        subschemas = copy.copy(self.subschemas)
+        subschemas = self._del_subschema(name, subschemas)
+        if not subschemas:
+            raise ValueError(f"Deleting `{name}` would leave the schema empty.")
+        subschemas = {name: val.arrow for name, val in subschemas.items()}
+        return Schema.of(subschemas)
+
+    def replace_subschema(
+        self,
+        name: SchemaName,
+        schema: SingleSchema,
+    ) -> Schema:
+        subschemas = copy.copy(self.subschemas)
+        subschemas = Schema._del_subschema(name, subschemas)
+        subschemas = Schema._add_subschema(name, schema, subschemas)
+        return Schema.of(subschemas)
 
     def field_id(self, name: Union[FieldName, NestedFieldName]) -> FieldId:
         return Schema._field_name_to_field_id(self.arrow, name)
@@ -501,6 +550,11 @@ class Schema(dict):
             else self.field_id(field_locator)
         )
         return self.field_ids_to_fields[field_id]
+
+    @property
+    def fields(self) -> List[Field]:
+        field_ids_to_fields = self.field_ids_to_fields
+        return list(field_ids_to_fields.values())
 
     @property
     def merge_keys(self) -> Optional[List[FieldId]]:
@@ -524,44 +578,36 @@ class Schema(dict):
 
     @property
     def subschema(self, name: SchemaName) -> Optional[Schema]:
-        subschemas = self.subschemas()
+        subschemas = self.subschemas
         return subschemas.get(name) if subschemas else None
 
     @property
-    def subschemas(self) -> Optional[Dict[SchemaName, Schema]]:
+    def subschemas(self) -> Dict[SchemaName, Schema]:
+        # return cached subschemas first if they exist
         subschemas = self.get("subschemas")
-        if subschemas is not None:
-            return subschemas
-        subschemas_to_field_ids = self.subschemas_to_field_ids()
-        subschemas = (
-            (
-                {
-                    schema_name: Schema.of(
-                        schema=pa.schema(
-                            [self.field(field_id).arrow for field_id in field_ids]
-                        ),
-                        schema_id=self.id,
-                        native_object=self.native_object,
-                    )
-                }
+        if subschemas is None:
+            # retrieve any defined subschemas
+            subschemas_to_field_ids = self.subschemas_to_field_ids
+            # rebuild and return the subschema cache
+            subschemas = {
+                schema_name: Schema.of(
+                    schema=pa.schema(
+                        [self.field(field_id).arrow for field_id in field_ids]
+                    ),
+                    schema_id=self.id,
+                    native_object=self.native_object,
+                )
                 for schema_name, field_ids in subschemas_to_field_ids.items()
-            )
-            if subschemas_to_field_ids
-            else None
-        )
-        self["subschemas"] = subschemas
+            }
+            self["subschemas"] = subschemas
         return subschemas
 
     @property
     def subschema_field_ids(self, name: SchemaName) -> Optional[List[FieldId]]:
-        return (
-            self.subschemas_to_field_ids.get(name)
-            if self.subschemas_to_field_ids
-            else None
-        )
+        return self.subschemas_to_field_ids.get(name)
 
     @property
-    def subschemas_to_field_ids(self) -> Optional[Dict[SchemaName, List[FieldId]]]:
+    def subschemas_to_field_ids(self) -> Dict[SchemaName, List[FieldId]]:
         return Schema._subschemas(self.arrow)
 
     @property
@@ -579,7 +625,7 @@ class Schema(dict):
     @staticmethod
     def _subschemas(
         schema: pa.Schema,
-    ) -> Optional[Dict[SchemaName, List[FieldId]]]:
+    ) -> Dict[SchemaName, List[FieldId]]:
         subschemas = None
         if schema.metadata:
             bytes_val = schema.metadata.get(SUBSCHEMAS_KEY_NAME)
@@ -592,7 +638,7 @@ class Schema(dict):
         name: Union[FieldName, NestedFieldName],
     ) -> FieldId:
         if isinstance(name, str):
-            return Field.of(schema[name]).id
+            return Field.of(schema.field(name)).id
         if isinstance(name, List):
             if not len(name):
                 raise ValueError(f"Nested field name `{name}` is empty.")
@@ -694,8 +740,8 @@ class Schema(dict):
         max_field_id = (
             visitor_dict["maxFieldId"] + len(field_ids_to_fields)
         ) % MAX_FIELD_ID_EXCLUSIVE
-        _field = Field.of(field)
-        field_id = _field.id if _field is not None else max_field_id
+        dc_field = Field.of(field)
+        field_id = dc_field.id if dc_field.id is not None else max_field_id
         if (dupe := field_ids_to_fields.get(field_id)) is not None:
             raise ValueError(
                 f"Duplicate field id {field_id} for field: {field} "
@@ -709,15 +755,27 @@ class Schema(dict):
         field_ids_to_fields[field_id] = field
 
     @staticmethod
-    def _get_field_names(
+    def _get_lower_case_field_names(
         schema: SingleSchema,
-    ) -> Set[str]:
+    ) -> List[str]:
         if isinstance(schema, pa.Schema):
-            return set([name.lower() for name in schema.names])
+            return [name.lower() for name in schema.names]
         elif isinstance(schema, List):  # List[Field]
-            return set([field.arrow.name.lower() for field in schema])
-        else:
-            raise ValueError(f"Unsupported schema base type: {schema}")
+            names = [f.arrow.name.lower() for f in schema if isinstance(f, Field)]
+            if len(names) == len(schema):
+                return names  # all items in list are valid Field objects
+        raise ValueError(f"Unsupported schema argument: {schema}")
+
+    @staticmethod
+    def _validate_schema_name(name: str) -> None:
+        if not name:
+            raise ValueError(f"Schema name cannot be empty.")
+        if len(name) > BYTES_PER_KIBIBYTE:
+            raise ValueError(
+                f"Invalid schema name `{name}`. Schema names "
+                f"cannot be greater than {BYTES_PER_KIBIBYTE} "
+                f"characters."
+            )
 
     @staticmethod
     def _validate_field_names(
@@ -725,18 +783,22 @@ class Schema(dict):
     ) -> None:
         all_names = []
         if isinstance(schema, dict):  # MultiSchema
-            for val in schema.values():
-                all_names.append(Schema._get_field_names(val))
+            for schema_name, val in schema.items():
+                Schema._validate_schema_name(schema_name)
+                all_names.extend(Schema._get_lower_case_field_names(val))
         else:  # SingleSchema
-            all_names.append(Schema._get_field_names(schema))
+            all_names.extend(Schema._get_lower_case_field_names(schema))
         if not all_names:
             raise ValueError(f"Schema must contain at least one field.")
-        duplicate_field_names = set.intersection(*all_names)
-        if duplicate_field_names:
+        name_set = set()
+        dupes = []
+        for name in all_names:
+            dupes.append(name) if name in name_set else name_set.add(name)
+        if dupes:
             raise ValueError(
                 f"Expected all schema fields to have unique names "
                 f"(case-insensitive), but found the following duplicates: "
-                f"{duplicate_field_names}"
+                f"{dupes}"
             )
 
     @staticmethod
@@ -767,6 +829,34 @@ class Schema(dict):
             return pa.unify_schemas(all_schemas), subschema_to_field_names
         return Schema._to_pyarrow_schema(schema), {}  # SingleSchema
 
+    @staticmethod
+    def _del_subschema(
+        name: SchemaName,
+        subschemas: Dict[SchemaName, Schema],
+    ) -> Dict[SchemaName, Schema]:
+        deleted_subschema = subschemas.pop(name, None)
+        if deleted_subschema is None:
+            raise ValueError(f"Subschema `{name}` does not exist.")
+        return subschemas
+
+    @staticmethod
+    def _add_subschema(
+        name: SchemaName,
+        schema: SingleSchema,
+        subschemas: Dict[SchemaName, Schema],
+    ) -> Dict[SchemaName, Schema]:
+        Schema._validate_schema_name(name)
+        if name == BASE_SCHEMA_NAME:
+            raise ValueError(
+                f"Cannot add subschema with reserved name: {BASE_SCHEMA_NAME}"
+            )
+        if name in subschemas:
+            raise ValueError(f"Subschema `{name}` already exists.")
+        for key, val in subschemas.items():
+            subschemas[key] = val.arrow
+        subschemas[name] = schema
+        return subschemas
+
 
 class SchemaList(List[Schema]):
     @staticmethod
@@ -783,156 +873,3 @@ class SchemaList(List[Schema]):
         if val is not None and not isinstance(val, Schema):
             self[item] = val = Schema(val)
         return val
-
-
-class SchemaListMap(OrderedDict[str, SchemaList]):
-    """
-    An OrderedDict wrapper for managing named lists of DeltaCAT schemas.
-    Each named schema list in the map represents the schema associated with
-    a subset of fields in a DeltaCAT dataset, and each schema in the list
-    represents subsequent schema evolution events for that subset of fields.
-    """
-
-    @staticmethod
-    def of(item: Union[Dict[str, SchemaList], List[SchemaList]]) -> SchemaListMap:
-        """
-        Create a SchemaListMap from a dictionary or a list of schema data.
-
-        Supported Item Types:
-        - If a dict, each key becomes the name of a schema, and each value
-          should be either:
-           (1) A pre-constructed SchemaList object, or
-           (2) A dictionary/JSON-like structure that can be converted
-               to a SchemaList (e.g., [{"fields": [...] }]).
-        - If a list, each element is treated like the dict values above, but
-          are given auto-generated unique names (e.g., UUIDs).
-
-        param: item: A dict mapping names to schemas or a nested schema list.
-        returns: SchemaListMap instance containing the provided schema lists.
-        raises: ValueError if item is neither a dict nor a list.
-        """
-        mapping = SchemaListMap()
-        if isinstance(item, dict):
-            for name, schema_data in item.items():
-                mapping[name] = schema_data
-        elif isinstance(item, list):
-            for schema_data in item:
-                mapping[None] = schema_data
-        else:
-            raise ValueError(f"Cannot create SchemaListMap from {item}")
-        return mapping
-
-    @staticmethod
-    def _generate_unique_key_name(self) -> str:
-        """
-        Generate a default unique name.
-
-        returns: A unique default name string.
-        """
-        return str(uuid.uuid4())
-
-    def __setitem__(
-        self,
-        key: Optional[str],
-        value: SchemaList,
-    ) -> None:
-        """
-        Override __setitem__ to convert the value to a SchemaList. Generates a
-        default name if needed.
-        Will overwrite any existing schema list with the same key, if called
-        directly.
-        param: key: The desired key for the schema list; if
-        None or empty, a default name is generated.
-        param: value: The schema list
-        returns: None.
-        raises: ValueError if a schema with the given (or generated) key
-        already exists.
-        """
-        schema = value if isinstance(value, SchemaList) else SchemaList(value)
-
-        if not key:
-            key = self._generate_unique_key_name()
-            logger.debug(f"No schema name provided. Using generated ID: {key}")
-
-        super().__setitem__(key, schema)
-
-    def append(self, key: Optional[str], value: Schema) -> None:
-        """
-        Appends a new schema to either a new or existing list associated with
-        the given map key. If no key is given, then a new unique key will be
-        assigned.
-
-        :param key: The desired key; generates one if None.
-        :param value: The schema list object.
-        :raises ValueError: If the key already exists.
-        """
-        existing_schemas = self.get(key)
-        if existing_schemas is None:
-            self.__setitem__(key, SchemaList.of([value]))
-        else:
-            existing_schemas.append(value)
-
-    def insert(self, key: Optional[str], value: SchemaList) -> None:
-        """
-        Insert a new schema list into the map.
-        Raises an error if the key already exists.
-
-        :param key: The desired key; generates one if None.
-        :param value: The schema list object.
-        :raises ValueError: If the key already exists.
-        """
-        if key in self:
-            raise ValueError(f"Schema list with name '{key}' already exists.")
-
-        self.__setitem__(key, value)
-
-    def update(self, key: str, value: SchemaList) -> None:
-        """
-        Update an existing schema list by its key.
-        Raises an error if the key does not exist.
-
-        :param key: The key to update.
-        :param value: The new schema list object
-        :raises KeyError: If the key does not exist.
-        """
-        if key is not None and key not in self:
-            raise KeyError(f"Schema list with name '{key}' does not exist.")
-
-        self.__setitem__(key, value)
-
-    def __delitem__(self, key: str) -> None:
-        """
-        Override __delitem__ to delete a schema.
-
-        param: key (str): The key of the schema to delete.
-        returns: None.
-        raises: KeyError if the key is not present.
-        """
-        if key not in self:
-            raise KeyError(f"Schema list with name '{key}' does not exist.")
-
-        super().__delitem__(key)
-
-    def equivalent_to(self, other: SchemaListMap) -> bool:
-        """
-        Compare this SchemaMap with another mapping for equivalence.
-
-        param: other (Any): Another mapping (dict or SchemaMap) to compare against.
-        returns: bool indicating whether both mappings have the same keys in the same order and equivalent Schema objects.
-        raises: None.
-        """
-        for k, v in self.items():
-            if k not in other:
-                return False
-            other_schema_list: SchemaList = other[k]
-            if len(other_schema_list) != len(v):
-                return False
-            for i in range(len(other_schema_list)):
-                other_schema = other_schema_list[i]
-                schema = v[i]
-                if not schema.equivalent_to(other_schema):
-                    return False
-        for k in other.keys():
-            if k not in self:
-                return False
-        return True
