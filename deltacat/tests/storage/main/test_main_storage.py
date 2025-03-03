@@ -5,16 +5,22 @@ import pytest
 import copy
 import pyarrow as pa
 
+from deltacat import PartitionKey, PartitionScheme
 from deltacat.storage import (
     metastore,
     CommitState,
+    IdentityTransform,
     LifecycleState,
     Metafile,
     Namespace,
     NamespaceLocator,
+    NullOrder,
     TableVersion,
     TableVersionLocator,
     Schema,
+    SortKey,
+    SortOrder,
+    SortScheme,
     Stream,
     StreamFormat,
 )
@@ -363,7 +369,7 @@ class TestTableVersion:
                     **kwargs_copy,
                 )
 
-    def test_update_table_version_schema(self):
+    def test_update_table_version_schema_add_named_subschema(self):
         # given an update to the schema of table version 1
         old_schema = self.table_version.schema
         new_pyarrow_schema = pa.schema(
@@ -478,13 +484,334 @@ class TestTableVersion:
         # expect it to be equivalent to the old schema (ignoring metadata)
         assert tv.schema.equivalent_to(old_schema)
         assert not tv.schema.equivalent_to(old_schema, True)
+        assert tv.schema.id == new_schema.id != old_schema.id
         # expect it to have two schema in its evolution history
         assert len(tv.schemas) == 2
         assert tv.schemas[0].equivalent_to(old_schema, True)
         assert tv.schemas[0].id == old_schema.id
         assert tv.schemas[1].equivalent_to(old_schema)
         assert not tv.schemas[1].equivalent_to(old_schema, True)
-        assert tv.schemas[1].id == old_schema.id + 1
+        assert tv.schemas[1].id == new_schema.id != old_schema.id
+
+    def test_update_table_version_partition_scheme(self):
+        # given an update to the partition scheme of table version 1
+        identity_transform = IdentityTransform.of()
+        partition_keys = [
+            PartitionKey.of(
+                key=["some_string", "some_int32"],
+                name="test_partition_key",
+                field_id="test_field_id",
+                transform=identity_transform,
+            )
+        ]
+        new_scheme = PartitionScheme.of(
+            keys=partition_keys,
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id_2",
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            partition_scheme=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get the new partition scheme of table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the expected scheme
+        assert tv.partition_scheme.equivalent_to(new_scheme, True)
+        assert tv.partition_scheme == new_scheme
+        # expect the table version to have two schemes in its evolution history
+        assert len(tv.partition_schemes) == 2
+        old_scheme = self.table_version.partition_scheme
+        assert tv.partition_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.partition_schemes[0] == old_scheme
+        assert tv.partition_schemes[1].equivalent_to(new_scheme, True)
+        assert tv.partition_schemes[1] == new_scheme
+
+    def test_update_table_version_partition_scheme_same_id_fails(self):
+        # given an update to table version 1 partition scheme using the same ID
+        identity_transform = IdentityTransform.of()
+        partition_keys = [
+            PartitionKey.of(
+                key=["some_string", "some_int32"],
+                name="test_partition_key",
+                field_id="test_field_id",
+                transform=identity_transform,
+            )
+        ]
+        new_scheme = PartitionScheme.of(
+            keys=partition_keys,
+            name="new_partition_scheme_name",
+            scheme_id="test_partition_scheme_id",
+        )
+        # when we try to update the partition scheme
+        # expect an error to be raised
+        with pytest.raises(ValueError):
+            metastore.update_table_version(
+                namespace=self.table.namespace,
+                table_name=self.table.table_name,
+                table_version=self.table_version.table_version,
+                partition_scheme=new_scheme,
+                catalog=self.catalog,
+            )
+
+    def test_update_table_version_partition_scheme_equivalent_scheme_noop(self):
+        # given a noop update to the partition scheme of table version 1
+        old_scheme = self.table_version.partition_scheme
+        new_scheme = copy.deepcopy(old_scheme)
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            partition_scheme=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get the new partition scheme of table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equal the old scheme (including identifiers)
+        assert tv.partition_scheme.equivalent_to(old_scheme, True)
+        assert tv.partition_scheme == old_scheme
+        # expect it to only have one scheme in its evolution history
+        assert len(tv.partition_schemes) == 1
+        assert tv.partition_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.partition_schemes[0] == old_scheme
+
+    def test_update_table_version_partition_scheme_equivalent_scheme_new_id(self):
+        # given an update to only the partition scheme ID of table version 1
+        old_scheme = self.table_version.partition_scheme
+        new_scheme = PartitionScheme.of(
+            keys=copy.deepcopy(old_scheme.keys),
+            name=old_scheme.name,
+            scheme_id=old_scheme.id + "_2",
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            partition_scheme=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the old scheme (ignoring identifiers)
+        assert tv.partition_scheme.equivalent_to(old_scheme, False)
+        assert not tv.partition_scheme.equivalent_to(old_scheme, True)
+        # expect it to have two schemes in its evolution history
+        assert len(tv.partition_schemes) == 2
+        assert tv.partition_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.partition_schemes[0].id == old_scheme.id != new_scheme.id
+        assert tv.partition_schemes[1].equivalent_to(old_scheme)
+        assert not tv.partition_schemes[1].equivalent_to(old_scheme, True)
+        assert tv.partition_schemes[1].id == new_scheme.id != old_scheme.id
+
+    def test_update_table_version_partition_scheme_equivalent_scheme_new_name(self):
+        # given an update to the partition scheme name & ID of table version 1
+        old_scheme = self.table_version.partition_scheme
+        new_scheme = PartitionScheme.of(
+            keys=copy.deepcopy(old_scheme.keys),
+            name=old_scheme.name + "_2",
+            scheme_id=old_scheme.id + "_2",
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            partition_scheme=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the old scheme (ignoring identifiers)
+        assert tv.partition_scheme.equivalent_to(old_scheme, False)
+        assert tv.partition_scheme.id == new_scheme.id != old_scheme.id
+        assert tv.partition_scheme.name == new_scheme.name != old_scheme.name
+        assert not tv.partition_scheme.equivalent_to(old_scheme, True)
+        # expect it to have two schemes in its evolution history
+        assert len(tv.partition_schemes) == 2
+        assert tv.partition_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.partition_schemes[0].id == old_scheme.id
+        assert tv.partition_schemes[1].equivalent_to(old_scheme)
+        assert not tv.partition_schemes[1].equivalent_to(old_scheme, True)
+        assert tv.partition_schemes[1].id == new_scheme.id != old_scheme.id
+        assert tv.partition_schemes[1].name == new_scheme.name != old_scheme.name
+
+    def test_update_table_version_sort_scheme(self):
+        # given an update to the sort scheme of table version 1
+        sort_keys = [
+            SortKey.of(
+                key=["some_int32"],
+                transform=IdentityTransform.of(),
+            )
+        ]
+        new_scheme = SortScheme.of(
+            keys=sort_keys,
+            name="test_sort_scheme",
+            scheme_id="test_sort_scheme_id_2",
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            sort_keys=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get the new sort scheme of table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the expected scheme
+        assert tv.sort_scheme.equivalent_to(new_scheme, True)
+        assert tv.sort_scheme == new_scheme
+        # expect the table version to have two schemes in its evolution history
+        assert len(tv.sort_schemes) == 2
+        old_scheme = self.table_version.sort_scheme
+        assert tv.sort_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.sort_schemes[0] == old_scheme
+        assert tv.sort_schemes[1].equivalent_to(new_scheme, True)
+        assert tv.sort_schemes[1] == new_scheme
+
+    def test_update_table_version_sort_scheme_same_id_fails(self):
+        # given an update to table version 1 sort scheme using the same ID
+        sort_keys = [
+            SortKey.of(
+                key=["some_int32"],
+                transform=IdentityTransform.of(),
+            )
+        ]
+        new_scheme = SortScheme.of(
+            keys=sort_keys,
+            name="new_sort_scheme_name",
+            scheme_id="test_sort_scheme_id",
+        )
+        # when we try to update the sort scheme
+        # expect an error to be raised
+        with pytest.raises(ValueError):
+            metastore.update_table_version(
+                namespace=self.table.namespace,
+                table_name=self.table.table_name,
+                table_version=self.table_version.table_version,
+                sort_keys=new_scheme,
+                catalog=self.catalog,
+            )
+
+    def test_update_table_version_sort_scheme_equivalent_scheme_noop(self):
+        # given a noop update to the sort scheme of table version 1
+        old_scheme = self.table_version.sort_scheme
+        new_scheme = copy.deepcopy(old_scheme)
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            sort_keys=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get the new sort scheme of table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equal the old scheme (including identifiers)
+        assert tv.sort_scheme.equivalent_to(old_scheme, True)
+        assert tv.sort_scheme == old_scheme
+        # expect it to only have one scheme in its evolution history
+        assert len(tv.sort_schemes) == 1
+        assert tv.sort_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.sort_schemes[0] == old_scheme
+
+    def test_update_table_version_sort_scheme_equivalent_scheme_new_id(self):
+        # given an update to only the sort scheme ID of table version 1
+        old_scheme = self.table_version.sort_scheme
+        new_scheme = SortScheme.of(
+            keys=copy.deepcopy(old_scheme.keys),
+            name=old_scheme.name,
+            scheme_id=old_scheme.id + "_2",
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            sort_keys=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the old scheme (ignoring identifiers)
+        assert tv.sort_scheme.equivalent_to(old_scheme, False)
+        assert not tv.sort_scheme.equivalent_to(old_scheme, True)
+        # expect it to have two schemes in its evolution history
+        assert len(tv.sort_schemes) == 2
+        assert tv.sort_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.sort_schemes[0].id == old_scheme.id != new_scheme.id
+        assert tv.sort_schemes[1].equivalent_to(old_scheme)
+        assert not tv.sort_schemes[1].equivalent_to(old_scheme, True)
+        assert tv.sort_schemes[1].id == new_scheme.id != old_scheme.id
+
+    def test_update_table_version_sort_scheme_equivalent_scheme_new_name(self):
+        # given an update to the sort scheme name & ID of table version 1
+        old_scheme = self.table_version.sort_scheme
+        new_scheme = SortScheme.of(
+            keys=copy.deepcopy(old_scheme.keys),
+            name=old_scheme.name + "_2",
+            scheme_id=old_scheme.id + "_2",
+        )
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            sort_keys=new_scheme,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to be equivalent to the old scheme (ignoring identifiers)
+        assert tv.sort_scheme.equivalent_to(old_scheme, False)
+        assert tv.sort_scheme.id == new_scheme.id != old_scheme.id
+        assert tv.sort_scheme.name == new_scheme.name != old_scheme.name
+        assert not tv.sort_scheme.equivalent_to(old_scheme, True)
+        # expect it to have two schemes in its evolution history
+        assert len(tv.sort_schemes) == 2
+        assert tv.sort_schemes[0].equivalent_to(old_scheme, True)
+        assert tv.sort_schemes[0].id == old_scheme.id
+        assert tv.sort_schemes[1].equivalent_to(old_scheme)
+        assert not tv.sort_schemes[1].equivalent_to(old_scheme, True)
+        assert tv.sort_schemes[1].id == new_scheme.id != old_scheme.id
+        assert tv.sort_schemes[1].name == new_scheme.name != old_scheme.name
 
     def test_get_latest_active_table_version(self):
         # given two table versions but no active table version

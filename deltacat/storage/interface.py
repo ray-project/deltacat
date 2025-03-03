@@ -290,6 +290,7 @@ def create_table_version(
     table_version: Optional[str] = None,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
+    # TODO(pdames): rename to `sort_scheme`
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -340,6 +341,7 @@ def update_table_version(
     description: Optional[str] = None,
     properties: Optional[TableVersionProperties] = None,
     partition_scheme: Optional[PartitionScheme] = None,
+    # TODO(pdames): rename to `sort_scheme`
     sort_keys: Optional[SortScheme] = None,
     *args,
     **kwargs,

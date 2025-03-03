@@ -37,6 +37,23 @@ class SortKey(tuple):
             )
         )
 
+    def equivalent_to(
+        self,
+        other: SortKey,
+    ):
+        if other is None:
+            return False
+        if not isinstance(other, tuple):
+            return False
+        if not isinstance(other, SortKey):
+            other = SortKey(other)
+        return (
+            self.key == other.key
+            and self.transform == other.transform
+            and self.sort_order == other.sort_order
+            and self.null_order == other.null_order
+        )
+
     @property
     def key(self) -> Optional[List[FieldLocator]]:
         return self[0]
@@ -51,9 +68,9 @@ class SortKey(tuple):
 
     @property
     def transform(self) -> Optional[Transform]:
-        val: Dict[str, Any] = self[3] if len(self) >= 4 else None
-        if val is not None and not isinstance(val, Transform):
-            self[3] = val = Transform.of(val)
+        val: Dict[str, Any] = (
+            Transform(self[3]) if len(self) >= 4 and self[3] is not None else None
+        )
         return val
 
     @property
@@ -102,6 +119,24 @@ class SortScheme(dict):
                 "id": scheme_id,
                 "nativeObject": native_object,
             }
+        )
+
+    def equivalent_to(
+        self,
+        other: SortScheme,
+        check_identifiers: bool = False,
+    ) -> bool:
+        if other is None:
+            return False
+        if not isinstance(other, dict):
+            return False
+        if not isinstance(other, SortScheme):
+            other = SortScheme(other)
+        for i in range(len(self.keys)):
+            if not self.keys[i].equivalent_to(other.keys[i]):
+                return False
+        return not check_identifiers or (
+            self.name == other.name and self.id == other.id
         )
 
     @property
