@@ -833,7 +833,7 @@ def create_table_version(
         content_types=supported_content_types,
         sort_scheme=sort_keys,
         watermark=None,
-        lifecycle_state=LifecycleState.UNRELEASED,
+        lifecycle_state=LifecycleState.CREATED,
         schemas=[schema] if schema else None,
         partition_schemes=[partition_scheme] if partition_scheme else None,
         sort_schemes=[sort_keys] if sort_keys else None,
@@ -977,8 +977,12 @@ def update_table_version(
         if update_schema
         else old_table_version.schemas
     )
-    new_table_version.description = description or old_table_version.description
-    new_table_version.properties = properties or old_table_version.properties
+    new_table_version.description = (
+        description if description is not None else old_table_version.description
+    )
+    new_table_version.properties = (
+        properties if properties is not None else old_table_version.properties
+    )
     new_table_version.partition_scheme = (
         partition_scheme or old_table_version.partition_scheme
     )

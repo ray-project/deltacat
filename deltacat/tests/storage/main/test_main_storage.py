@@ -399,6 +399,7 @@ class TestTableVersion:
         )
         # expect it to be equivalent to the expected schema
         assert actual_schema.equivalent_to(new_schema)
+        assert not actual_schema.equivalent_to(old_schema)
         # expect the table version to have two schemas in its evolution history
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
@@ -409,6 +410,11 @@ class TestTableVersion:
         assert len(tv.schemas) == 2
         assert tv.schemas[0].equivalent_to(old_schema)
         assert tv.schemas[1].equivalent_to(new_schema)
+        # expect ONLY the schema to be updated
+        expected_tv = Metafile.update_for(self.table_version)
+        expected_tv.schema = tv.schema
+        expected_tv.schemas = [old_schema, tv.schema]
+        assert tv.equivalent_to(expected_tv)
 
     def test_update_table_version_schema_same_schema_id_fails(self):
         # given an update to the schema of table version 1 w/ the same schema ID
@@ -459,6 +465,8 @@ class TestTableVersion:
         # expect it to only have one schema in its evolution history
         assert len(tv.schemas) == 1
         assert tv.schemas[0].equivalent_to(old_schema, True)
+        # expect the full table version to also be unchanged
+        assert tv.equivalent_to(self.table_version)
 
     def test_update_table_version_schema_equivalent_schema_new_id(self):
         # given an update to only the schema ID of table version 1
@@ -533,6 +541,11 @@ class TestTableVersion:
         assert tv.partition_schemes[0] == old_scheme
         assert tv.partition_schemes[1].equivalent_to(new_scheme, True)
         assert tv.partition_schemes[1] == new_scheme
+        # expect ONLY the partition scheme to be updated
+        expected_tv = Metafile.update_for(self.table_version)
+        expected_tv.partition_scheme = new_scheme
+        expected_tv.partition_schemes = [old_scheme, new_scheme]
+        assert tv.equivalent_to(expected_tv)
 
     def test_update_table_version_partition_scheme_same_id_fails(self):
         # given an update to table version 1 partition scheme using the same ID
@@ -586,6 +599,8 @@ class TestTableVersion:
         assert len(tv.partition_schemes) == 1
         assert tv.partition_schemes[0].equivalent_to(old_scheme, True)
         assert tv.partition_schemes[0] == old_scheme
+        # expect the full table version to also be unchanged
+        assert tv.equivalent_to(self.table_version)
 
     def test_update_table_version_partition_scheme_equivalent_scheme_new_id(self):
         # given an update to only the partition scheme ID of table version 1
@@ -693,6 +708,11 @@ class TestTableVersion:
         assert tv.sort_schemes[0] == old_scheme
         assert tv.sort_schemes[1].equivalent_to(new_scheme, True)
         assert tv.sort_schemes[1] == new_scheme
+        # expect ONLY the sort scheme to be updated
+        expected_tv = Metafile.update_for(self.table_version)
+        expected_tv.sort_scheme = new_scheme
+        expected_tv.sort_schemes = [old_scheme, new_scheme]
+        assert tv.equivalent_to(expected_tv)
 
     def test_update_table_version_sort_scheme_same_id_fails(self):
         # given an update to table version 1 sort scheme using the same ID
@@ -743,6 +763,8 @@ class TestTableVersion:
         assert len(tv.sort_schemes) == 1
         assert tv.sort_schemes[0].equivalent_to(old_scheme, True)
         assert tv.sort_schemes[0] == old_scheme
+        # expect the full table version to also be unchanged
+        assert tv.equivalent_to(self.table_version)
 
     def test_update_table_version_sort_scheme_equivalent_scheme_new_id(self):
         # given an update to only the sort scheme ID of table version 1
@@ -812,6 +834,136 @@ class TestTableVersion:
         assert not tv.sort_schemes[1].equivalent_to(old_scheme, True)
         assert tv.sort_schemes[1].id == new_scheme.id != old_scheme.id
         assert tv.sort_schemes[1].name == new_scheme.name != old_scheme.name
+
+    def test_update_table_version_description(self):
+        # given an update to the description of table version 1
+        new_description = "new description"
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            description=new_description,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to contain the new description
+        assert tv.description == new_description != self.table_version.description
+        # expect ONLY the description to be updated
+        expected_tv = Metafile.update_for(self.table_version)
+        expected_tv.description = new_description
+        assert tv.equivalent_to(expected_tv)
+
+    def test_update_table_version_description_empty(self):
+        # given an update to create an empty description of table version 1
+        new_description = ""
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            description=new_description,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to contain the new description
+        assert tv.description == new_description != self.table_version.description
+
+    def test_update_table_version_description_noop(self):
+        # given an attempt to set the description of table version 1
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            description=None,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to contain the old description (None == noop)
+        assert tv.description == self.table_version.description
+        # expect the full table version to also be unchanged
+        assert tv.equivalent_to(self.table_version)
+
+    def test_update_table_version_properties(self):
+        # given an update to the properties of table version 1
+        new_properties = {"new_property_key": "new_property_value"}
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            properties=new_properties,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to contain the new properties
+        assert tv.properties == new_properties != self.table_version.properties
+        # expect ONLY the properties to be updated
+        expected_tv = Metafile.update_for(self.table_version)
+        expected_tv.properties = new_properties
+        assert tv.equivalent_to(expected_tv)
+
+    def test_update_table_version_properties_empty(self):
+        # given an update to leave table version 1 properties empty
+        new_properties = {}
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            properties=new_properties,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to contain the new properties
+        assert tv.properties == new_properties != self.table_version.properties
+
+    def test_update_table_version_properties_noop(self):
+        # given an attempt to set the properties of table version 1
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            properties=None,
+            catalog=self.catalog,
+        )
+        # when we get table version 1
+        tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        # expect it to contain the old properties (None == noop)
+        assert tv.properties == self.table_version.properties
+        # expect the full table version to also be unchanged
+        assert tv.equivalent_to(self.table_version)
 
     def test_get_latest_active_table_version(self):
         # given two table versions but no active table version

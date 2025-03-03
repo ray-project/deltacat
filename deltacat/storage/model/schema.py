@@ -597,22 +597,23 @@ class Schema(dict):
     def subschemas(self) -> Dict[SchemaName, Schema]:
         # return cached subschemas first if they exist
         subschemas = self.get("subschemas")
-        if subschemas is None:
+        if not subschemas:
             # retrieve any defined subschemas
             subschemas_to_field_ids = self.subschemas_to_field_ids
             # rebuild and return the subschema cache
-            subschemas = {
-                schema_name: Schema.of(
-                    schema=pa.schema(
-                        [self.field(field_id).arrow for field_id in field_ids]
-                    ),
-                    schema_id=self.id,
-                    native_object=self.native_object,
-                )
-                for schema_name, field_ids in subschemas_to_field_ids.items()
-            }
-            self["subschemas"] = subschemas
-        return subschemas
+            if subschemas_to_field_ids:
+                subschemas = {
+                    schema_name: Schema.of(
+                        schema=pa.schema(
+                            [self.field(field_id).arrow for field_id in field_ids]
+                        ),
+                        schema_id=self.id,
+                        native_object=self.native_object,
+                    )
+                    for schema_name, field_ids in subschemas_to_field_ids.items()
+                }
+                self["subschemas"] = subschemas
+        return subschemas or {}
 
     @property
     def subschema_field_ids(self, name: SchemaName) -> Optional[List[FieldId]]:
