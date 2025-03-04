@@ -58,6 +58,15 @@ def test_remove_files_from_failed(self, temp_dir):
     for expected, actual, _ in commit_results:
         assert expected.equivalent_to(actual)
 
+    txn_log_file_dir = create_failed_dummy_transaction(temp_dir)
+
+    assert os.path.exists(txn_log_file_dir)
+
+    janitor_job(temp_dir)
+
+    assert not os.path.exists(txn_log_file_dir), "Failed transaction file should be removed after janitor job"
+
+
 
 def create_failed_dummy_transaction(temp_dir):
     """Creates a dummy transaction, simulates a failure, and moves it to the failed transaction directory."""
@@ -82,18 +91,14 @@ def create_failed_dummy_transaction(temp_dir):
     with filesystem.open_output_stream(conflict_delta_write_path):
         pass  
 
-    txn_log_file_dir = os.path.join(
+    return os.path.join(
             temp_dir,
             TXN_DIR_NAME,
             FAILED_TXN_DIR_NAME,
             mri.txn_id,
         )
     
-    assert os.path.exists(txn_log_file_dir)
-
-    janitor_job(temp_dir)
-
-    assert not os.path.exists(txn_log_file_dir), "Failed transaction file should be removed after janitor job"
+    
 
     
     
