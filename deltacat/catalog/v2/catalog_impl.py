@@ -19,9 +19,8 @@ from deltacat.storage.model.types import (
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
-from deltacat.storage.rivulet.dataset import Dataset as RivuletDataset
 from deltacat.storage.main import impl as storage_impl
-from deltacat.storage.model.constants import (
+from deltacat.constants import (
     DEFAULT_NAMESPACE,
 )
 
@@ -81,77 +80,7 @@ def create_table(
     Create an empty table. Raises an error if the table already exists and
     `fail_if_exists` is True (default behavior).
     """
-    catalog = kwargs.get("catalog")
-    if not isinstance(catalog, CatalogProperties):
-        raise ValueError("Catalog must be a CatalogProperties instance")
-
-    namespace = namespace or default_namespace()
-
-    # TODO
-    # Check if table exists
-    # if table_exists(table, namespace, **kwargs):
-    #     if fail_if_exists:
-    #         raise ValueError(f"Table {namespace}.{table} already exists")
-    #     return get_table(table, namespace, catalog=catalog)
-
-    # Create namespace if it doesn't exist
-    if not namespace_exists(namespace, catalog=catalog):
-        create_namespace(
-            namespace=namespace, properties=namespace_properties, catalog=catalog
-        )
-
-    # Extract merge keys from sort keys if provided
-    # TODO this code appears incorrect - fix during next iteration
-    merge_keys = []
-    if sort_keys:
-        merge_keys = [key.name for key in sort_keys.keys]
-
-    # Create a table version through the storage layer
-    storage_impl.create_table_version(
-        namespace=namespace,
-        table_name=table,
-        schema=schema,
-        partition_scheme=partition_scheme,
-        sort_keys=sort_keys,
-        table_version_description=description,
-        table_description=description,
-        table_properties=table_properties,
-        lifecycle_state=lifecycle_state or LifecycleState.CREATED,
-        catalog=catalog,
-    )
-
-    # Create a dataset
-    # TODO ensure the content type or other fields set to rivulet / attach dedicated rivulet stream
-    dataset = RivuletDataset(
-        dataset_name=table,
-        metadata_uri=catalog.root,
-        namespace=namespace,
-        filesystem=catalog.filesystem,
-    )
-
-    # Add schema if provided
-    # TODO - need to reconcile concept of multiple rivulet schemas and the "all" schema
-    # with deltacat schema model
-    if schema and schema.arrow:
-        from deltacat.storage.rivulet import Schema as RivuletSchema
-
-        rivulet_schema = RivuletSchema.from_pyarrow(schema.arrow, merge_keys)
-        dataset.add_schema(rivulet_schema)
-
-    # Cache the dataset
-    catalog.cache_dataset(dataset, namespace)
-
-    # Return table definition
-    return TableDefinition(
-        namespace=namespace,
-        name=table,
-        schema=schema,
-        partition_scheme=partition_scheme,
-        sort_keys=sort_keys,
-        lifecycle_state=lifecycle_state or LifecycleState.CREATED,
-        description=description or "",
-        properties=table_properties or {},
-    )
+    raise NotImplementedError()
 
 
 def drop_table(
@@ -172,29 +101,7 @@ def list_tables(
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions. Raises an error if the given namespace
     does not exist."""
-    catalog = kwargs.get("catalog")
-    if not isinstance(catalog, CatalogProperties):
-        raise ValueError("Catalog must be a CatalogProperties instance")
-
-    namespace = namespace or default_namespace()
-
-    # Check if namespace exists
-    if not namespace_exists(namespace, catalog=catalog):
-        raise ValueError(f"Namespace {namespace} does not exist")
-
-    # Get tables from storage layer
-    tables_list_result = storage_impl.list_tables(namespace=namespace, catalog=catalog)
-
-    # Convert to TableDefinition objects
-    table_definitions = []
-    for table in tables_list_result.all_items():
-        table_definition = get_table(
-            table=table.table_name, namespace=namespace, catalog=catalog
-        )
-        if table_definition:
-            table_definitions.append(table_definition)
-
-    return ListResult(items=table_definitions, next_token=tables_list_result.next_token)
+    raise NotImplementedError()
 
 
 def get_table(
@@ -204,39 +111,7 @@ def get_table(
     Get table definition metadata. Returns None if the given table does not exist.
 
     """
-    catalog = kwargs.get("catalog")
-    if not isinstance(catalog, CatalogProperties):
-        raise ValueError("Catalog must be a CatalogProperties instance")
-
-    namespace = namespace or default_namespace()
-
-    # Get table from storage layer
-    storage_table = storage_impl.get_table(
-        table_name=table, namespace=namespace, catalog=catalog
-    )
-
-    if not storage_table:
-        return None
-
-    # Get the latest table version
-    table_version = storage_impl.get_latest_table_version(
-        namespace=namespace, table_name=table, catalog=catalog
-    )
-
-    if not table_version:
-        return None
-
-    # Create and return table definition
-    return TableDefinition(
-        namespace=namespace,
-        name=table,
-        schema=table_version.schema,
-        partition_scheme=table_version.partition_scheme,
-        sort_keys=table_version.sort_scheme,
-        lifecycle_state=table_version.state,
-        description=storage_table.description or "",
-        properties=storage_table.properties or {},
-    )
+    raise NotImplementedError()
 
 
 def truncate_table(
@@ -280,7 +155,6 @@ def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     """Gets table namespace metadata for the specified table namespace.
     Returns None if the given namespace does not exist.
     """
-
     return storage_impl.get_namespace(namespace=namespace, **kwargs)
 
 

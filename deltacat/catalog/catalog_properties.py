@@ -15,6 +15,19 @@ For more details see - README-development.md
 
 These classes will fetch the globally configured CatalogProperties, OR allow injection of a custom
 CatalogProperties in kwargs
+
+Example: injecting custom CatalogProperties
+    catalog.namespace_exists("my_namespace", catalog_properties=CatalogProperties(root="..."))
+
+Example: explicitly initializing global CatalogProperties
+    from deltacat.catalog import initialize_properties
+    initialize_properties(root="...")
+    catalog.namespace_exists("mynamespace")
+
+By default, catalog properties are initialized automatically, and fall back to defaults/env variables.
+Example: using env variables
+  os.environ["DELTACAT_ROOT"]="..."
+  catalog.namespace_exists("mynamespace")
 """
 CATALOG_PROPERTIES: CatalogProperties = None
 _INITIALIZED = False
@@ -91,11 +104,15 @@ class CatalogProperties:
     """
     This holds all configuration for a DeltaCAT catalog.
 
-    The PropertyCatalog can be configured at the interpreter level by calling initialize_properties, or provided with a kwarg. We expect functions to plumb through kwargs throughout, so only when a property needs to be fetched does a function need to retrieve the property catalog. Property catalog must be retrieved through get_property_catalog, which will hierarchically check kwargs then the global value.
+    CatalogProperties can be configured at the interpreter level by calling initialize_properties, or provided with
+    the kwarg catalog_properties. We expect functions to plumb through kwargs throughout, so only when a property needs to be fetched does a function
+    need to retrieve the property catalog. Property catalog must be retrieved through get_property_catalog, which will
+    hierarchically check kwargs then the global value.
 
     Specific properties are configurable via env variable.
 
-    Be aware that unit tests should explicitly provide catalog_properties, or else parallel tests will override the global catalog_properties.
+    Be aware that parallel code (e.g. parallel tests) may overwrite the catalog properties defined global at the interpreter level
+    In this case, you must explicitly provide the kwarg catalog_properties rather than declare it globally with initialize_catalog_properties
 
     Attributes:
         root (str): URI string The root path where catalog metadata and data files are stored. If none provided,
@@ -104,8 +121,6 @@ class CatalogProperties:
         filesystem (pyarrow.fs.FileSystem): pyarrow filesystem implementation used for
             accessing files. If not provided, will be inferred via root
     """
-
-    DEFAULT_ROOT = ".deltacat"
 
     def __init__(
         self,

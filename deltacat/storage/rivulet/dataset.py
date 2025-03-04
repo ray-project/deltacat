@@ -12,7 +12,7 @@ import pyarrow.json
 import pyarrow.csv
 import pyarrow.parquet
 
-from deltacat.storage.model.constants import (
+from deltacat.constants import (
     DEFAULT_NAMESPACE,
     DEFAULT_PARTITION_ID,
     DEFAULT_PARTITION_VALUES,

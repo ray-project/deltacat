@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from deltacat.storage import StreamFormat
 from deltacat.utils.common import env_string, env_bool
 import os
 
@@ -82,3 +83,12 @@ RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"
 SUCCESS_TXN_DIR_NAME: str = "success"
 TXN_PART_SEPARATOR = "_"
+# Storage interface defaults
+# These defaults should be applied in catalog interface implementations
+# Storage interface implementations should be agnostic to defaults and require full information
+DEFAULT_NAMESPACE = "DEFAULT"
+DEFAULT_TABLE_VERSION = "1"
+DEFAULT_STREAM_ID = "stream"
+DEFAULT_STREAM_FORMAT = StreamFormat.DELTACAT
+DEFAULT_PARTITION_ID = "partition"
+DEFAULT_PARTITION_VALUES = ["default"]

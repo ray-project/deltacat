@@ -591,19 +591,21 @@ class TestTableVersion:
         kwargs = {
             "namespace": self.table.namespace,
             "table_name": self.table.table_name,
-            "catalog_properties": self.catalog
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
             # given a bad table version parent locator
             kwargs_copy[key] = "i_dont_exist"
             # when we try to explicitly get a table version by ID
-            # expect an error to be raised
-            with pytest.raises(ValueError):
+            # expect result to be None
+            assert (
                 metastore.get_table_version(
                     table_version=self.table_version.table_version,
+                    catalog_properties=self.catalog,
                     **kwargs_copy,
                 )
+                is None
+            )
 
     def test_table_version_exists(self):
         # given a previously created table version
@@ -631,20 +633,18 @@ class TestTableVersion:
         kwargs = {
             "namespace": self.table.namespace,
             "table_name": self.table.table_name,
-            "catalog_properties": self.catalog
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
             # given a bad table version parent locator
             kwargs_copy[key] = "i_dont_exist"
             # when we try to explicitly check if a table version exists by ID
-            # expect an error to be raised
-            with pytest.raises(ValueError):
-                metastore.table_version_exists(
-                    table_version=self.table_version.table_version,
-                    catalog_properties=self.catalog,
-                    **kwargs_copy,
-                )
+            # expect empty results
+            assert not metastore.table_version_exists(
+                table_version=self.table_version.table_version,
+                catalog_properties=self.catalog,
+                **kwargs_copy,
+            )
 
     def test_creation_fails_if_already_exists(self):
         # given an existing table version
@@ -727,16 +727,18 @@ class TestStream:
             "namespace": "test_stream_ns",
             "table_name": "mystreamtable",
             "table_version": "v.1",
-            "catalog_properties": self.catalog
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            kwargs_copy[key] = "i_dont_exist"
-            with pytest.raises(ValueError):
-                metastore.stream_exists(
-                    catalog_properties=self.catalog,
-                    **kwargs_copy,
-                )
+            if key != "table_version":
+                kwargs_copy[key] = "i_dont_exist"
+            else:
+                # table versions much be format like v.N or will raise Value Error
+                kwargs_copy[key] = "v.1000"
+            assert not metastore.stream_exists(
+                catalog_properties=self.catalog,
+                **kwargs_copy,
+            )
 
     def test_list_streams_bad_parent_locator(self):
         kwargs = {
@@ -767,15 +769,21 @@ class TestStream:
             "namespace": "test_stream_ns",
             "table_name": "mystreamtable",
             "table_version": "v.1",
-            "catalog_properties": self.catalog
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            kwargs_copy[key] = "i_dont_exist"
-            with pytest.raises(ValueError):
+            if key != "table_version":
+                kwargs_copy[key] = "i_dont_exist"
+            else:
+                # table versions much be format like v.N or will raise Value Error
+                kwargs_copy[key] = "v.1000"
+            assert (
                 metastore.get_stream(
+                    catalog_properties=self.catalog,
                     **kwargs_copy,
                 )
+                is None
+            )
 
     def test_get_missing_stream(self):
         stream = metastore.get_stream(

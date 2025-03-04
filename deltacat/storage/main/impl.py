@@ -3,7 +3,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.catalog import get_catalog_properties
-from deltacat.storage.model.constants import DEFAULT_TABLE_VERSION
+from deltacat.constants import DEFAULT_TABLE_VERSION
 from deltacat.storage.model.manifest import (
     EntryParams,
     ManifestAuthor,
@@ -697,10 +697,10 @@ def create_namespace(
             )
         ],
     )
-    catalog_catalog_properties = get_catalog_properties(**kwargs)
+    catalog_properties = get_catalog_properties(**kwargs)
     transaction.commit(
-        catalog_root_dir=catalog_catalog_properties.root,
-        filesystem=catalog_catalog_properties.filesystem,
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
     )
     return namespace
 
