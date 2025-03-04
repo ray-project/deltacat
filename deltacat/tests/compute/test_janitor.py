@@ -10,14 +10,18 @@ from delta.metafile import MetafileRevisionInfo
 from delta.transactions import TransactionOperationType
 from delta.filesystem import resolve_path_and_filesystem
 from janitor import janitor_job
+from time import time;
 
 
-def test_janitor_job(self, temp_dir):
+# referenced test_metafile_io.py a lot, mainly looked at def test_txn_bad_end_time_fails(self, temp_dir, mocker):
+# also referenced test_txn_conflict_concurrent_complete
+
+def test_janitor_job_running_to_failed(self, temp_dir):
     commit_results = _commit_single_delta_table(temp_dir)
     for expected, actual, _ in commit_results:
         assert expected.equivalent_to(actual)
 
-    # given an initial metafile revision of a committed delta
+    # Given an initial metafile revision of a committed delta
     write_paths = [result[2] for result in commit_results]
     orig_delta_write_path = write_paths[5]
 
@@ -31,18 +35,29 @@ def test_janitor_job(self, temp_dir):
     _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
     with filesystem.open_output_stream(conflict_delta_write_path):
         pass  # Just create an empty metafile revision
-            
-    # Define directories
-    txn_log_file_dir = os.path.join(temp_dir, TXN_DIR_NAME, RUNNING_TXN_DIR_NAME, mri.txn_id)
+
+    # Define directories using posixpath
+    txn_log_file_dir = os.path.join(temp_dir, TXN_DIR_NAME, RUNNING_TXN_DIR_NAME, mri.txn_id) #reference line 443 of test_metafile_io.py
     failed_txn_log_dir = os.path.join(temp_dir, TXN_DIR_NAME, FAILED_TXN_DIR_NAME)
 
     txn_log_file_path = os.path.join(txn_log_file_dir, str(time.time_ns() - 60))
-    
-    # Simulate writing a failed transaction log file entry
-    failed_txn_log_file_path = os.path.join(failed_txn_log_dir, mri.txn_id)
-    os.makedirs(failed_txn_log_dir, exist_ok=True)
+
+    # Create the failed transaction log directory
+
+    filesystem.create_dir(failed_txn_log_dir, recursive=True)
+
+    # Ensure the original transaction log file exists
+    assert filesystem.exists(txn_log_file_path)
 
     janitor_job(temp_dir)
     # Verify the file was moved to the failed directory
     assert not os.path.exists(posixpath.join(txn_log_file_dir, mri.txn_id))
     assert os.path.exists(posixpath.join(failed_txn_log_dir, mri.txn_id))
+
+
+def test_remove_files_from_failed(self, temp_dir):
+    commit_results = _commit_single_delta_table(temp_dir)
+    for expected, actual, _ in commit_results:
+        assert expected.equivalent_to(actual)
+
+
