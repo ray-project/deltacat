@@ -101,6 +101,7 @@ def create_table(
         )
 
     # Extract merge keys from sort keys if provided
+    # TODO this code appears incorrect - fix during next iteration
     merge_keys = []
     if sort_keys:
         merge_keys = [key.name for key in sort_keys.keys]
@@ -115,11 +116,12 @@ def create_table(
         table_version_description=description,
         table_description=description,
         table_properties=table_properties,
-        lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
+        lifecycle_state=lifecycle_state or LifecycleState.CREATED,
         catalog=catalog,
     )
 
     # Create a dataset
+    # TODO ensure the content type or other fields set to rivulet / attach dedicated rivulet stream
     dataset = RivuletDataset(
         dataset_name=table,
         metadata_uri=catalog.root,
@@ -128,6 +130,8 @@ def create_table(
     )
 
     # Add schema if provided
+    # TODO - need to reconcile concept of multiple rivulet schemas and the "all" schema
+    # with deltacat schema model
     if schema and schema.arrow:
         from deltacat.storage.rivulet import Schema as RivuletSchema
 
@@ -144,7 +148,7 @@ def create_table(
         schema=schema,
         partition_scheme=partition_scheme,
         sort_keys=sort_keys,
-        lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
+        lifecycle_state=lifecycle_state or LifecycleState.CREATED,
         description=description or "",
         properties=table_properties or {},
     )

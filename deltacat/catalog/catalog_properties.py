@@ -1,8 +1,8 @@
 from __future__ import annotations
-import os
 from typing import Optional
 
 import pyarrow
+from deltacat.constants import DELTACAT_CATALOG_PROPERTY_ROOT
 
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
@@ -10,7 +10,8 @@ from deltacat.utils.filesystem import resolve_path_and_filesystem
 Property catalog is configured globally (at the interpreter level)
 
 Ray has limitations around serialized class size. For this reason, larger files like catalog impl and
-storage impl need to be a flat list of functions rather than a stateful class initialized with properties
+storage impl need to be a flat list of functions rather than a stateful class initialized with properties.
+For more details see - README-development.md
 
 These classes will fetch the globally configured CatalogProperties, OR allow injection of a custom
 CatalogProperties in kwargs
@@ -40,10 +41,15 @@ def initialize_properties(
         return CATALOG_PROPERTIES
 
     # Check environment variables
-    env_root = os.environ.get("DELTACAT_ROOT")
+    # This is set or defaulted in constants.py
+    env_root = DELTACAT_CATALOG_PROPERTY_ROOT
+    if env_root is None:
+        raise ValueError(
+            "Expected environment variable DELTACAT_ROOT to be set or defaulted"
+        )
 
     # Environment variables are overridden by explicit parameters
-    if root is None and env_root is not None:
+    if root is None:
         root = env_root
 
     # Initialize the catalog properties
@@ -69,6 +75,10 @@ def get_catalog_properties(**kwargs) -> CatalogProperties:
     properties = kwargs.get("catalog_properties")
     if properties is not None and isinstance(properties, CatalogProperties):
         return properties
+    elif not isinstance(properties, CatalogProperties):
+        raise ValueError(
+            "Expected kwarg catalog_properties to be instance of CatalogProperties"
+        )
 
     # Use the global catalog, initializing if necessary
     if not _INITIALIZED:
@@ -99,7 +109,7 @@ class CatalogProperties:
 
     def __init__(
         self,
-        root: Optional[str] = None,
+        root: str,
         *args,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         **kwargs,
@@ -112,9 +122,6 @@ class CatalogProperties:
             filesystem (pyarrow.fs.FileSystem, optional): FileSystem implementation to use.
                 If None, will be resolved based on the root path.
         """
-        if root is None:
-            self._root = os.path.join(os.getcwd(), ".deltacat")
-
         resolved_root, resolved_filesystem = resolve_path_and_filesystem(
             path=root,
             filesystem=filesystem,

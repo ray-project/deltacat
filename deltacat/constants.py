@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from deltacat.utils.common import env_string, env_bool
+import os
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -35,6 +36,9 @@ DELTACAT_LOGGER_CONTEXT = env_string("DELTACAT_LOGGER_CONTEXT", None)
 DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
     "DELTACAT_LOGGER_USE_SINGLE_HANDLER",
     False,
+)
+DELTACAT_CATALOG_PROPERTY_ROOT = os.environ.get(
+    "DELTACAT_ROOT", os.path.join(os.getcwd(), ".deltacat")
 )
 
 # Byte Units
