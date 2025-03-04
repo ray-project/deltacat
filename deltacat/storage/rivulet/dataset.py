@@ -16,7 +16,6 @@ from deltacat.constants import (
     DEFAULT_NAMESPACE,
     DEFAULT_PARTITION_ID,
     DEFAULT_PARTITION_VALUES,
-    DEFAULT_STREAM_FORMAT,
     DEFAULT_STREAM_ID,
     DEFAULT_TABLE_VERSION,
 )
@@ -217,7 +216,6 @@ class Dataset:
             table_name=self.dataset_name,
             table_version=self._table_version,
             stream_id=DEFAULT_STREAM_ID,
-            stream_format=DEFAULT_STREAM_FORMAT,
             partition_values=DEFAULT_PARTITION_VALUES,
             partition_id=self._partition_id,
         )
@@ -279,7 +277,6 @@ class Dataset:
                     table_name=self.dataset_name,
                     table_version=self._table_version,
                     stream_id=DEFAULT_STREAM_ID,
-                    stream_format=DEFAULT_STREAM_FORMAT,
                 ),
                 partition_scheme=None,
                 state=CommitState.STAGED,
@@ -292,7 +289,6 @@ class Dataset:
                     table_name=self.dataset_name,
                     table_version=self._table_version,
                     stream_id=DEFAULT_STREAM_ID,
-                    stream_format=DEFAULT_STREAM_FORMAT,
                     partition_values=DEFAULT_PARTITION_VALUES,
                     partition_id=self._partition_id,
                 ),

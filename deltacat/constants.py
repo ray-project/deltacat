@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from deltacat.storage import StreamFormat
 from deltacat.utils.common import env_string, env_bool
 import os
 
@@ -89,6 +88,5 @@ TXN_PART_SEPARATOR = "_"
 DEFAULT_NAMESPACE = "DEFAULT"
 DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
-DEFAULT_STREAM_FORMAT = StreamFormat.DELTACAT
 DEFAULT_PARTITION_ID = "partition"
 DEFAULT_PARTITION_VALUES = ["default"]
