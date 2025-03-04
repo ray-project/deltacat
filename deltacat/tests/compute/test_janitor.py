@@ -10,8 +10,6 @@ from delta.metafile import MetafileRevisionInfo
 from delta.transactions import TransactionOperationType
 from delta.filesystem import resolve_path_and_filesystem
 from janitor import janitor_job
-from time import time;
-
 
 # referenced test_metafile_io.py a lot, mainly looked at def test_txn_bad_end_time_fails(self, temp_dir, mocker):
 # also referenced test_txn_conflict_concurrent_complete
@@ -59,5 +57,47 @@ def test_remove_files_from_failed(self, temp_dir):
     commit_results = _commit_single_delta_table(temp_dir)
     for expected, actual, _ in commit_results:
         assert expected.equivalent_to(actual)
+
+
+def create_dummy_transaction(mri, txn_id, operation_type, revision):
+    """Creates a dummy transaction with a given MetafileRevisionInfo and operation type."""
+    mri.txn_id = txn_id
+    mri.txn_op_type = operation_type
+    mri.revision = revision
+    # Simulate an operation (e.g., update or delete)
+    txn_operations = [
+        TransactionOperation.of(
+            operation_type=operation_type,
+            dest_metafile=mri.path,
+            src_metafile=mri.path,
+        )
+    ]
+    transaction = Transaction.of(
+        txn_type=TransactionType.ALTER,
+        txn_operations=txn_operations,
+    )
+    return transaction
+
+def create_multiple_dummy_transactions(num_transactions=1):
+    """Creates and commits multiple dummy transactions."""
+    commit_results = []  # Store commit results
+    for i in range(num_transactions):
+        mri = MetafileRevisionInfo()  
+        mri.path = f"dummy_path_{i}.json"  # Unique file path for each transaction
+        mri.txn_id = f"txn_{i}_id"  # Unique txn_id for each transaction
+        mri.txn_op_type = TransactionOperationType.UPDATE  # You can change this to other operation types like INSERT or DELETE
+        mri.revision = i  # Simple revision for demo purposes
+
+        # Create a dummy transaction
+        transaction = create_dummy_transaction(mri, mri.txn_id, mri.txn_op_type, mri.revision)
+
+        # Simulate committing the transaction
+        try:
+            transaction.commit(temp_dir)  # Replace `temp_dir` with actual path or mock for testing
+            commit_results.append((mri, transaction))  # Store result for further verification
+        except Exception as e:
+            print(f"Transaction {mri.txn_id} failed: {str(e)}")
+
+    return commit_results
 
 
