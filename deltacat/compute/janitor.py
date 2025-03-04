@@ -54,6 +54,21 @@ def janitor_move_old_running_transactions(catalog_root: str, threshold_seconds: 
                 shutil.move(file_path, destination_path)
             except Exception as e:
                 raise RuntimeError(f"Failed to move '{filename}' to failed directory: {e}") from e
+            
+
+# TODO: delete every operation of a transaction, reference line 628 of transactions.py
+            
+def janitor_remove_files_in_failed(catalog_root: str) -> None:
+    """
+    Traverse the failed transactions directory and remove any file that has not been yet been removed
+    """
+
+
+    failed_dir = posixpath.join(catalog_root, TXN_DIR_NAME, FAILED_TXN_DIR_NAME)
+
+    for filename in os.listdir(running_dir):
+        file_path = posixpath.join(running_dir, filename)
+        
 
     
 
