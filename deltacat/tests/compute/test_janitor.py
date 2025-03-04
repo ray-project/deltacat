@@ -59,45 +59,42 @@ def test_remove_files_from_failed(self, temp_dir):
         assert expected.equivalent_to(actual)
 
 
-def create_dummy_transaction(mri, txn_id, operation_type, revision):
-    """Creates a dummy transaction with a given MetafileRevisionInfo and operation type."""
-    mri.txn_id = txn_id
-    mri.txn_op_type = operation_type
-    mri.revision = revision
-    # Simulate an operation (e.g., update or delete)
-    txn_operations = [
-        TransactionOperation.of(
-            operation_type=operation_type,
-            dest_metafile=mri.path,
-            src_metafile=mri.path,
+def create_failed_dummy_transaction(temp_dir):
+    """Creates a dummy transaction, simulates a failure, and moves it to the failed transaction directory."""
+    
+    commit_results = _commit_single_delta_table(temp_dir)
+    
+    for expected, actual, _ in commit_results:
+        assert expected.equivalent_to(actual)
+
+    write_paths = [result[2] for result in commit_results]
+    orig_delta_write_path = write_paths[5]  # Arbitrary index for an existing delta
+
+    mri = MetafileRevisionInfo.parse(orig_delta_write_path)
+    mri.txn_id = "9999999999999_test-txn-id" 
+    mri.txn_op_type = TransactionOperationType.DELETE  
+    mri.revision += 1  
+
+    conflict_delta_write_path = mri.path  
+
+    _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
+    
+    with filesystem.open_output_stream(conflict_delta_write_path):
+        pass  
+
+    txn_log_file_dir = os.path.join(
+            temp_dir,
+            TXN_DIR_NAME,
+            FAILED_TXN_DIR_NAME,
+            mri.txn_id,
         )
-    ]
-    transaction = Transaction.of(
-        txn_type=TransactionType.ALTER,
-        txn_operations=txn_operations,
-    )
-    return transaction
+    
+    assert os.path.exists(txn_log_file_dir)
 
-def create_multiple_dummy_transactions(num_transactions=1):
-    """Creates and commits multiple dummy transactions."""
-    commit_results = []  # Store commit results
-    for i in range(num_transactions):
-        mri = MetafileRevisionInfo()  
-        mri.path = f"dummy_path_{i}.json"  # Unique file path for each transaction
-        mri.txn_id = f"txn_{i}_id"  # Unique txn_id for each transaction
-        mri.txn_op_type = TransactionOperationType.UPDATE  # You can change this to other operation types like INSERT or DELETE
-        mri.revision = i  # Simple revision for demo purposes
+    janitor_job(temp_dir)
 
-        # Create a dummy transaction
-        transaction = create_dummy_transaction(mri, mri.txn_id, mri.txn_op_type, mri.revision)
+    assert not os.path.exists(txn_log_file_dir), "Failed transaction file should be removed after janitor job"
 
-        # Simulate committing the transaction
-        try:
-            transaction.commit(temp_dir)  # Replace `temp_dir` with actual path or mock for testing
-            commit_results.append((mri, transaction))  # Store result for further verification
-        except Exception as e:
-            print(f"Transaction {mri.txn_id} failed: {str(e)}")
-
-    return commit_results
-
+    
+    
 
