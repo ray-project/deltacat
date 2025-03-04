@@ -552,7 +552,7 @@ class Metafile(dict):
         with filesystem.open_input_stream(path) as file:
             binary = file.readall()
             data = msgpack.loads(binary)
-        # Cast this Metafile into the appropriate child class type
+        # cast this Metafile into the appropriate child class type
         clazz = Metafile.get_class(data)
         obj = clazz(**data).from_serializable(path, filesystem)
         return obj

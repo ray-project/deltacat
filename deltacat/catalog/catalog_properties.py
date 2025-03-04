@@ -75,7 +75,7 @@ def get_catalog_properties(**kwargs) -> CatalogProperties:
     properties = kwargs.get("catalog_properties")
     if properties is not None and isinstance(properties, CatalogProperties):
         return properties
-    elif not isinstance(properties, CatalogProperties):
+    elif properties is not None and not isinstance(properties, CatalogProperties):
         raise ValueError(
             "Expected kwarg catalog_properties to be instance of CatalogProperties"
         )

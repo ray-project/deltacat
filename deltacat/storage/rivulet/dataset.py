@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import logging
 import itertools
 import posixpath
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
+
+import pyarrow.fs
+import pyarrow as pa
+import pyarrow.dataset
+import pyarrow.json
+import pyarrow.csv
+import pyarrow.parquet
 
 from deltacat.storage.model.constants import (
     DEFAULT_NAMESPACE,
@@ -45,13 +53,10 @@ from deltacat.storage import (
     TransactionOperation,
     TransactionOperationType,
 )
+from deltacat import logs
 
-import pyarrow.fs
-import pyarrow as pa
-import pyarrow.dataset
-import pyarrow.json
-import pyarrow.csv
-import pyarrow.parquet
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
 
 # These are the hardcoded default schema names
 ALL = "all"
@@ -315,7 +320,7 @@ class Dataset:
             # TODO: Have deltacat storage interface handle transaction errors.
             error_message = str(e).lower()
             if "already exists" in error_message:
-                print(f"Skipping creation: {e}")
+                logger.debug(f"Skipping creation: {e}")
                 return []
             else:
                 raise

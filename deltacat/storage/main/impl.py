@@ -1,8 +1,9 @@
 import uuid
 
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.catalog import get_catalog_properties
+from deltacat.storage.model.constants import DEFAULT_TABLE_VERSION
 from deltacat.storage.model.manifest import (
     EntryParams,
     ManifestAuthor,
@@ -270,7 +271,7 @@ def list_table_versions(
     locator = TableVersionLocator.at(
         namespace=namespace,
         table_name=table_name,
-        table_version="placeholder",
+        table_version="placeholder.0",
     )
     table_version = TableVersion.of(
         locator=locator,
@@ -290,25 +291,25 @@ def list_streams(
     table_version: str,
     *args,
     **kwargs,
-) -> ListResult[TableVersion]:
+) -> ListResult[Stream]:
     """
-    Lists a page of table versions for the given table.
-    Raises an error if the table does not exist.
+    Lists a page of streams for the given table version.
+    Raises an error if the table version does not exist.
     """
-    tv = get_table_version(
-        namespace,
-        table_name,
-        table_version,
-        *args,
-        **kwargs,
+    locator = StreamLocator.at(
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+        stream_id="placeholder",
+        stream_format=None,
     )
-    if not tv:
-        raise ValueError(
-            f"Table Version `{namespace}.{table_name}.{table_version}` not found."
-        )
+    stream = Stream.of(
+        locator=locator,
+        partition_scheme=None,
+    )
     return _list(
-        tv,
-        TransactionOperationType.READ_CHILDREN,
+        stream,
+        TransactionOperationType.READ_SIBLINGS,
         *args,
         **kwargs,
     )
@@ -645,9 +646,32 @@ def get_delta_manifest(
     """
     Get the manifest associated with the given delta or delta locator. This
     always retrieves the authoritative durable copy of the delta manifest, and
-    never the local manifest defined for any input delta.
+    never the local manifest defined for any input delta. Raises an error if
+    the delta can't be found, or if it doesn't contain a manifest.
     """
-    raise NotImplementedError("get_delta_manifest not implemented")
+    if isinstance(delta_like, Delta):
+        delta_locator = delta_like.locator
+    elif isinstance(delta_like, DeltaLocator):
+        delta_locator = delta_like
+    else:
+        raise ValueError(
+            f"Expected delta or delta locator, but got: {type(delta_like)}"
+        )
+    delta = Delta.of(
+        locator=delta_locator,
+        delta_type=None,
+        meta=None,
+        properties=None,
+        manifest=None,
+    )
+    latest_delta = _latest(
+        metafile=delta,
+        *args,
+        **kwargs,
+    )
+    if not latest_delta or not latest_delta.manifest:
+        raise ValueError(f"No manifest found for delta: {delta_locator}")
+    return latest_delta.manifest
 
 
 def create_namespace(
@@ -733,14 +757,16 @@ def create_table_version(
     supported_content_types: Optional[List[ContentType]] = None,
     *args,
     **kwargs,
-) -> Stream:
+) -> Tuple[Table, TableVersion, Stream]:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned to improve write
     performance, or have their writes governed by a schema and partition scheme
     to improve data consistency and read performance.
 
-    Returns the stream for the created table version.
+    Returns a tuple containing the created/updated table, table version, and
+    stream (respectively).
+
     Raises an error if the given namespace does not exist.
     """
     if not namespace_exists(
@@ -765,7 +791,7 @@ def create_table_version(
         new_table = Table.of(
             locator=TableLocator.at(namespace=namespace, table_name=table_name),
         )
-        table_version = table_version or "1"
+        table_version = table_version or DEFAULT_TABLE_VERSION
     else:
         # the parent table exists, so we'll update it in this transaction
         txn_type = TransactionType.ALTER
@@ -773,7 +799,22 @@ def create_table_version(
         new_table: Table = Metafile.update_for(prev_table)
         prev_table_version = prev_table.latest_table_version
         if not table_version:
+            # generate the next table version ID
             table_version = TableVersion.next_version(prev_table_version)
+        else:
+            # ensure that the given table version number matches expectations
+            expected_table_version = TableVersion.next_version(prev_table_version)
+            _, version_number = TableVersion.parse_table_version(
+                table_version,
+            )
+            _, expected_version_number = TableVersion.parse_table_version(
+                expected_table_version,
+            )
+            if version_number != expected_version_number:
+                raise ValueError(
+                    f"Expected to create table version "
+                    f"{expected_version_number} but found {version_number}.",
+                )
     new_table.description = table_description or table_version_description
     new_table.properties = table_properties
     new_table.latest_table_version = table_version
@@ -833,7 +874,7 @@ def create_table_version(
         catalog_root_dir=catalog_properties.root,
         filesystem=catalog_properties.filesystem,
     )
-    return stream
+    return new_table, table_version, stream
 
 
 def update_table(
@@ -898,7 +939,7 @@ def update_table_version(
     lifecycle state to 'active' telegraphs that it is ready for external
     consumption, and causes all calls made to consume/produce streams,
     partitions, or deltas from/to its parent table to automatically resolve to
-    this table version by default (i.e. when the client does not explicitly
+    this table version by default (i.e., when the client does not explicitly
     specify a different table version). Raises an error if the given table
     version does not exist.
     """
@@ -918,15 +959,31 @@ def update_table_version(
     new_table_version: TableVersion = Metafile.update_for(old_table_version)
     new_table_version.state = lifecycle_state or old_table_version.state
     # TODO(pdames): Use schema patch to check for backwards incompatible changes.
-    new_table_version.schema = schema or old_table_version.schema
+    #  By default, backwards incompatible changes should be pushed to a new
+    #  table version unless the user explicitly forces the update to this
+    #  table version (i.e., at the cost of potentially breaking consumers).
+    update_schema = schema and not schema.equivalent_to(
+        old_table_version.schema,
+        True,
+    )
+    if update_schema and schema.id in [s.id for s in old_table_version.schemas]:
+        raise ValueError(
+            f"Schema ID `{schema.id}` already exists in "
+            f"table version `{table_version}`."
+        )
+    new_table_version.schema = schema if update_schema else old_table_version.schema
     new_table_version.schemas = (
-        old_table_version.schemas + [schema] if schema else old_table_version.schemas
+        old_table_version.schemas + [schema]
+        if update_schema
+        else old_table_version.schemas
     )
     new_table_version.description = description or old_table_version.description
     new_table_version.properties = properties or old_table_version.properties
     new_table_version.partition_scheme = (
         partition_scheme or old_table_version.partition_scheme
     )
+    # TODO(pdames): Check partition scheme equivalence before updating, and
+    #   check for backwards incompatible changes.
     if partition_scheme and partition_scheme.id in [
         ps.id for ps in old_table_version.partition_schemes
     ]:
@@ -939,6 +996,8 @@ def update_table_version(
         if partition_scheme
         else old_table_version.partition_schemes
     )
+    # TODO(pdames): Check sort key equivalence before updating, and check for
+    #   backwards incompatible changes.
     if sort_keys and sort_keys.id in [sk.id for sk in old_table_version.sort_schemes]:
         raise ValueError(
             f"Sort scheme ID `{sort_keys.id}` already exists in "
@@ -957,11 +1016,19 @@ def update_table_version(
         **kwargs,
     )
     txn_operations = []
-    if old_table.latest_table_version == new_table_version.table_version:
-        if (
-            old_table_version.state != LifecycleState.ACTIVE
-            and new_table_version.state == LifecycleState.ACTIVE
-        ):
+    if (
+        lifecycle_state == LifecycleState.ACTIVE
+        and old_table_version.state != LifecycleState.ACTIVE
+    ):
+        _, old_version_number = (
+            TableVersion.parse_table_version(
+                old_table.latest_active_table_version,
+            )
+            if old_table.latest_active_table_version
+            else (None, None)
+        )
+        _, new_version_number = TableVersion.parse_table_version(table_version)
+        if old_version_number is None or old_version_number < new_version_number:
             # update the table's latest table version
             new_table: Table = Metafile.update_for(old_table)
             new_table.latest_active_table_version = table_version
@@ -1029,8 +1096,10 @@ def stage_stream(
     # TODO(pdames): Support retrieving previously staged streams by ID.
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
+            *args,
             namespace=namespace,
             table_name=table_name,
+            **kwargs,
         )
     table_version_meta = get_table_version(
         *args,
@@ -1101,7 +1170,7 @@ def commit_stream(
             "Stream to commit must have its table version locator "
             "set to the parent of its staged stream ID."
         )
-    prev_staged_stream = get_staged_stream(
+    prev_staged_stream = get_stream_by_id(
         *args,
         table_version_locator=stream.table_version_locator,
         stream_id=stream.stream_id,
@@ -1194,12 +1263,14 @@ def delete_stream(
     Deletes the delta stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
     Resolves to the deltacat stream format if no stream format is given.
-    Raises an error if the table version does not exist.
+    Raises an error if the stream does not exist.
     """
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
+            *args,
             namespace=namespace,
             table_name=table_name,
+            **kwargs,
         )
     stream_to_delete = get_stream(
         *args,
@@ -1232,14 +1303,14 @@ def delete_stream(
     )
 
 
-def get_staged_stream(
+def get_stream_by_id(
     table_version_locator: TableVersionLocator,
     stream_id: str,
     *args,
     **kwargs,
 ) -> Optional[Partition]:
     """
-    Gets the staged stream for the given table version locator and stream ID.
+    Gets the stream for the given table version locator and stream ID.
     Returns None if the stream does not exist. Raises an error if the given
     table version locator does not exist.
     """
@@ -1285,6 +1356,46 @@ def get_stream(
         stream_format=stream_format,
     )
     return _latest(
+        *args,
+        metafile=Stream.of(
+            locator=locator,
+            partition_scheme=None,
+            state=CommitState.COMMITTED,
+        ),
+        **kwargs,
+    )
+
+
+def stream_exists(
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
+    *args,
+    **kwargs,
+) -> Optional[Stream]:
+    """
+    Returns True if the given Stream exists, False if not.
+    Resolves to the latest active table version if no table version is given.
+    Resolves to the DeltaCAT stream format if no stream format is given.
+    Returns None if the table version or stream format does not exist.
+    """
+    if not table_version:
+        table_version = _resolve_latest_active_table_version_id(
+            *args,
+            namespace=namespace,
+            table_name=table_name,
+            fail_if_no_active_table_version=False,
+            **kwargs,
+        )
+    locator = StreamLocator.at(
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+        stream_id=None,
+        stream_format=stream_format,
+    )
+    return _exists(
         *args,
         metafile=Stream.of(
             locator=locator,
@@ -1422,7 +1533,7 @@ def commit_partition(
             "Partition to commit must have its stream locator "
             "set to the parent of its staged partition ID."
         )
-    prev_staged_partition = get_staged_partition(
+    prev_staged_partition = get_partition_by_id(
         *args,
         stream_locator=partition.stream_locator,
         partition_id=partition.partition_id,
@@ -1535,14 +1646,14 @@ def delete_partition(
     )
 
 
-def get_staged_partition(
+def get_partition_by_id(
     stream_locator: StreamLocator,
     partition_id: str,
     *args,
     **kwargs,
 ) -> Optional[Partition]:
     """
-    Gets the staged partition for the given stream locator and partition ID.
+    Gets the partition for the given stream locator and partition ID.
     Returns None if the partition does not exist. Raises an error if the
     given stream locator does not exist.
     """
@@ -1728,7 +1839,8 @@ def get_latest_table_version(
 ) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest version of the specified table.
-    Returns None if no table version exists for the given table.
+    Returns None if no table version exists for the given table. Raises
+    an error if the given table doesn't exist.
     """
     table_version_id = _resolve_latest_table_version_id(
         *args,
@@ -1757,6 +1869,7 @@ def get_latest_active_table_version(
     """
     Gets table version metadata for the latest active version of the specified
     table. Returns None if no active table version exists for the given table.
+    Raises an error if the given table doesn't exist.
     """
     table_version_id = _resolve_latest_active_table_version_id(
         *args,
@@ -1833,7 +1946,11 @@ def get_table_version_schema(
 
 
 def table_version_exists(
-    namespace: str, table_name: str, table_version: str, *args, **kwargs
+    namespace: str,
+    table_name: str,
+    table_version: str,
+    *args,
+    **kwargs,
 ) -> bool:
     """
     Returns True if the given table version exists, False if not.
