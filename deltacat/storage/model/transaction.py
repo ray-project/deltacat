@@ -246,7 +246,18 @@ class TransactionOperation(dict):
         if not locator_write_paths:
             locator_write_paths = self["locator_write_paths"] = []
         locator_write_paths.append(write_path)
-
+        
+    def replace_metafile_write_path(self, write_paths: List[str]):
+        if len(write_paths) == 0:
+            raise ValueError("Metafile write paths cannot be empty.")
+        # TODO(martinezdavid): check if we need to use protected access or if direct write is OK
+        self["metafile_write_paths"] = write_paths
+    def replace_locator_write_path(self, write_paths: List[str]):
+        if len(write_paths) == 0:
+            raise ValueError("Locator write paths cannot be empty.")
+        # TODO(martinezdavid): check if we need to use protected access or if direct write is OK
+        self["locator_write_paths"] = write_paths
+    
 
 class TransactionOperationList(List[TransactionOperation]):
     @staticmethod
@@ -269,6 +280,48 @@ class Transaction(dict):
     """
     Base class for DeltaCAT transactions.
     """
+    @staticmethod
+    def abs_to_relative(
+            root : str, 
+            target : str)->str:
+        """
+        Takes an absolute (catalog root) and target absolute path which 
+        is relativized with respect to the root directory.
+
+        Args:
+            root (str): The root directory path.
+            target (str): The absolute path to be relativized.
+
+        Returns:
+            str: The relative path from `root` to `target`.
+
+        Raises:
+            ValueError: If `target` is not inside `root`.
+        """
+        # standard error checking
+        if len(root) == 0 or len(target) == 0 or len(target) < len(root):
+            raise ValueError("Invalid directories")
+        # clean and standardize paths if needed
+        if root[0] != "/":
+            root = "/" + root
+        if target[0] != "/":
+            target = "/" + target
+            
+        # Remove trailing slashes to avoid inconsistencies
+        root = root.rstrip("/")
+        target = target.rstrip("/")
+        prev = 0
+        cur_dir = ""
+        for i in range(len(root)):
+            if root[i] != target[i]:
+                print("Paths do not match")
+                # TODO: add new exception here to properly handle directory mismatch
+                raise ValueError(f"Target path '{target}' is not within the root '{root}'")
+            # update current directory
+            if root[i] == "/":
+                cur_dir = root[prev:i]   
+                prev = i
+        return target[i:]
 
     @staticmethod
     def of(
@@ -435,8 +488,27 @@ class Transaction(dict):
             raise RuntimeError("Cannot end a completed transaction.")
         end_time = self["end_time"] = time_provider.end_time()
         return end_time
+    
+    def relativize_paths(self, catalog_root: str) -> None:
+        """
+        Converts all absolute paths in the transaction to relative paths
+        with respect to the catalog root directory.
+        """
+        # TODO(martinezdavid): check if we also need to relativize locator paths, or if only metafile paths are enough
+        for operation in self.operations:
+            if operation.dest_metafile:
+                operation.dest_metafile.relativize_paths(catalog_root)
+            if operation.src_metafile:
+                operation.src_metafile.relativize_paths(catalog_root)
+            for path in operation.metafile_write_paths:
+                relative_path = Transaction.abs_to_relative(catalog_root, path)
+                operation.replace_metafile_write_path([relative_path])
+            for path in operation.locator_write_paths:
+                relative_path = Transaction.abs_to_relative(catalog_root, path)
+                operation.replace_locator_write_path([relative_path])
 
-    def to_serializable(self) -> Transaction:
+
+    def to_serializable(self, catalog_root) -> Transaction:
         """
         Prepare the object for serialization by converting any non-serializable
         types to serializable types. May also run any required pre-write
@@ -447,6 +519,9 @@ class Transaction(dict):
         # remove all src/dest metafile contents except IDs and locators to
         # reduce file size (they can be reconstructed from their corresponding
         # files as required).
+        
+        # TODO(martinezdavid): revise and check if not breaking anything - check metafile tests
+        self.relativize_paths(catalog_root)
         for operation in serializable.operations:
             # Sanity check that IDs exist on source and dest metafiles
             if operation.dest_metafile and operation.dest_metafile.id is None:
@@ -583,7 +658,7 @@ class Transaction(dict):
             self.id,
         )
         with filesystem.open_output_stream(running_txn_log_file_path) as file:
-            packed = msgpack.dumps(self.to_serializable())
+            packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
             file.write(packed)
 
         # write each metafile associated with the transaction
@@ -615,7 +690,7 @@ class Transaction(dict):
                 self.id,
             )
             with filesystem.open_output_stream(failed_txn_log_file_path) as file:
-                packed = msgpack.dumps(self.to_serializable())
+                packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
                 file.write(packed)
 
             ###################################################################
@@ -656,7 +731,7 @@ class Transaction(dict):
             str(end_time),
         )
         with filesystem.open_output_stream(success_txn_log_file_path) as file:
-            packed = msgpack.dumps(self.to_serializable())
+            packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
             file.write(packed)
         try:
             Transaction._validate_txn_log_file(
