@@ -4,7 +4,7 @@ import time
 from typing import Any, Dict
 
 
-def env_bool(key: str, default: bool) -> bool:
+def env_bool(key: str, default: bool) -> int:
     if key in os.environ:
         return bool(os.environ[key])
     return default
@@ -13,12 +13,13 @@ def env_bool(key: str, default: bool) -> bool:
 def env_integer(key: str, default: int) -> int:
     if key in os.environ:
         return int(os.environ[key])
-
     return default
 
 
 def env_string(key: str, default: str) -> str:
-    return os.getenv(key, default)
+    if key in os.environ:
+        return os.environ[key]
+    return default
 
 
 def current_time_ms() -> int:
