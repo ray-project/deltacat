@@ -3,16 +3,18 @@ import os
 import time
 import posixpath
 from test_metafile_io import _commit_single_delta_table 
-from delta.constants import (
+from deltacat.constants import (
     RUNNING_TXN_DIR_NAME, FAILED_TXN_DIR_NAME, TXN_DIR_NAME
 )
-from delta.metafile import MetafileRevisionInfo
-from delta.transactions import TransactionOperationType
-from delta.filesystem import resolve_path_and_filesystem
+from deltacat.metafile import MetafileRevisionInfo
+from deltacat.transactions import TransactionOperationType
+from deltacat.filesystem import resolve_path_and_filesystem
 from janitor import janitor_job
 
 # referenced test_metafile_io.py a lot, mainly looked at def test_txn_bad_end_time_fails(self, temp_dir, mocker):
 # also referenced test_txn_conflict_concurrent_complete
+
+# TODO: Delete transactions by OPERATION not by TRANSACTION
 
 def test_janitor_job_running_to_failed(self, temp_dir):
     commit_results = _commit_single_delta_table(temp_dir)

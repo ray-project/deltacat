@@ -123,6 +123,7 @@ def janitor_remove_files_in_failed(txn_dir: str, failed_txn_log_dir: str, filesy
                 print(f"Error processing failed transaction `{txn_id}`: {e}")
 
 
-def janitor_job(catalog_root_dir):
+def janitor_job(catalog_root_dir: str) -> None:
+    # TODO: Implement proper heartbeat mechanics
     janitor_move_old_running_transactions(catalog_root_dir, threshold_seconds=30)
     janitor_remove_files_in_failed(catalog_root_dir)

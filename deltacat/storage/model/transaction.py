@@ -631,6 +631,7 @@ class Transaction(dict):
                     for operation in self.operations
                 ]
             )
+            
             # TODO(pdames): Add separate janitor job to cleanup files that we
             #  either failed to add to the known write paths, or fail to delete.
             for write_path in known_write_paths:
