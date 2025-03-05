@@ -219,6 +219,21 @@ make benchmark-aws
 to add more files and benchmark test cases.
 
 ## Coding Quirks
+### Limitations on Large Classes
+Ray has limitations around serialized class size. For this reason, larger files like catalog impl and
+storage impl need to be a flat list of functions rather than a stateful class initialized with properties.
+
+We should be consistently testing our application on Ray to ensure that we are not accidentally breaking compatibility
+
+TODO - we need to validate the actual class limit sizes on Ray
+
+### Using classes inheriting from Dict
+We use the pattern of basing classes off of Dict, because native dictionaries perform better on Ray than classes
+
+For an example of this, see `Metafile.py`. The Metafile class is purposefully NOT an abstract base class. Properties
+are stored as dict keys (e.g. self["id"]), and exposed through property methods. Methods which are logically abstract
+methods, such as `locator`, raise a NotImplementedError in the parent class but are NOT annotated as @abstractmethod
+
 ### Cloudpickle
 Some DeltaCAT compute functions interact with Cloudpickle differently than the typical Ray application. This allows
 us to improve compute stability and efficiency at the cost of managing our own distributed object garbage collection
