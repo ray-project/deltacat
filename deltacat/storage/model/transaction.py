@@ -10,6 +10,7 @@ from collections import defaultdict
 
 from itertools import chain
 from typing import Optional, List, Union, Tuple
+import logging
 
 import msgpack
 import pyarrow.fs
@@ -36,7 +37,7 @@ from deltacat.utils.filesystem import (
     list_directory,
 )
 
-
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler('test_log.log'), logging.StreamHandler()])
 class TransactionTimeProvider:
     """
     Provider interface for transaction start and end times. An ideal
@@ -246,18 +247,19 @@ class TransactionOperation(dict):
         if not locator_write_paths:
             locator_write_paths = self["locator_write_paths"] = []
         locator_write_paths.append(write_path)
-        
-    def replace_metafile_write_path(self, write_paths: List[str]):
+
+    def replace_metafile_write_paths(self, write_paths: List[str]):
         if len(write_paths) == 0:
             raise ValueError("Metafile write paths cannot be empty.")
         # TODO(martinezdavid): check if we need to use protected access or if direct write is OK
         self["metafile_write_paths"] = write_paths
-    def replace_locator_write_path(self, write_paths: List[str]):
+
+    def replace_locator_write_paths(self, write_paths: List[str]):
         if len(write_paths) == 0:
             raise ValueError("Locator write paths cannot be empty.")
         # TODO(martinezdavid): check if we need to use protected access or if direct write is OK
         self["locator_write_paths"] = write_paths
-    
+
 
 class TransactionOperationList(List[TransactionOperation]):
     @staticmethod
@@ -280,12 +282,11 @@ class Transaction(dict):
     """
     Base class for DeltaCAT transactions.
     """
+
     @staticmethod
-    def abs_to_relative(
-            root : str, 
-            target : str)->str:
+    def abs_to_relative(root: str, target: str) -> str:
         """
-        Takes an absolute (catalog root) and target absolute path which 
+        Takes an absolute (catalog root) and target absolute path which
         is relativized with respect to the root directory.
 
         Args:
@@ -306,22 +307,26 @@ class Transaction(dict):
             root = "/" + root
         if target[0] != "/":
             target = "/" + target
-            
+
         # Remove trailing slashes to avoid inconsistencies
-        root = root.rstrip("/")
-        target = target.rstrip("/")
+        root = root.rstrip("/") + "/"
+        #target = target.rstrip("/")
         prev = 0
-        cur_dir = ""
+        cur_dir = ""  # keep track of current directory
+        # validate common prefix
         for i in range(len(root)):
             if root[i] != target[i]:
                 print("Paths do not match")
-                # TODO: add new exception here to properly handle directory mismatch
-                raise ValueError(f"Target path '{target}' is not within the root '{root}'")
+                # TODO (martinezdavid): possibly add new exception here to properly handle directory mismatch
+                raise ValueError(
+                    f"Target path '{target}' is not within the root '{root}'"
+                )
             # update current directory
             if root[i] == "/":
-                cur_dir = root[prev:i]   
+                cur_dir = root[prev:i]
                 prev = i
-        return target[i:]
+        relative_path = target[i:]
+        return relative_path
 
     @staticmethod
     def of(
@@ -488,25 +493,48 @@ class Transaction(dict):
             raise RuntimeError("Cannot end a completed transaction.")
         end_time = self["end_time"] = time_provider.end_time()
         return end_time
-    
+
     def relativize_paths(self, catalog_root: str) -> None:
         """
         Converts all absolute paths in the transaction to relative paths
         with respect to the catalog root directory.
         """
-        # TODO(martinezdavid): check if we also need to relativize locator paths, or if only metafile paths are enough
         for operation in self.operations:
-            if operation.dest_metafile:
+            # recurse if necessary
+            if type(operation.dest_metafile) is TransactionOperation:
                 operation.dest_metafile.relativize_paths(catalog_root)
-            if operation.src_metafile:
+            if type(operation.src_metafile) is TransactionOperation:
                 operation.src_metafile.relativize_paths(catalog_root)
+                
+            # base case: convert paths for current metafile
+            clean_catalog_root = "/" + catalog_root.lstrip("/")
+            logging.debug(f"Catalog root: {clean_catalog_root}")
+            # handle metafile paths
+            metafile_write_paths = []
+            abs_metafile_path_len = len(operation.metafile_write_paths)
+            logging.debug(f"Metafile write paths BEFORE: {operation.metafile_write_paths}")
             for path in operation.metafile_write_paths:
+                if not path.startswith(clean_catalog_root) or not path.startswith(catalog_root):
+                    metafile_write_paths.append(path)
+                    continue
+                path_len = len(path)
                 relative_path = Transaction.abs_to_relative(catalog_root, path)
-                operation.replace_metafile_write_path([relative_path])
+                metafile_write_paths.append(relative_path)
+            if len(metafile_write_paths) > 0 and abs_metafile_path_len > 0:
+                operation.replace_metafile_write_paths(metafile_write_paths)
+            logging.debug(f"Metafile write paths AFTER: {operation.metafile_write_paths} \n")
+            
+            # handle locator paths
+            locator_write_paths = []
+            abs_locator_path_len = len(operation.locator_write_paths)
             for path in operation.locator_write_paths:
+                if not path.startswith(clean_catalog_root) or not path.startswith(catalog_root):
+                    locator_write_paths.append(path)
+                    continue
                 relative_path = Transaction.abs_to_relative(catalog_root, path)
-                operation.replace_locator_write_path([relative_path])
-
+                locator_write_paths.append(relative_path)
+            if len(locator_write_paths) > 0 and abs_locator_path_len > 0:
+                operation.replace_locator_write_paths(locator_write_paths)
 
     def to_serializable(self, catalog_root) -> Transaction:
         """
@@ -519,7 +547,7 @@ class Transaction(dict):
         # remove all src/dest metafile contents except IDs and locators to
         # reduce file size (they can be reconstructed from their corresponding
         # files as required).
-        
+
         # TODO(martinezdavid): revise and check if not breaking anything - check metafile tests
         self.relativize_paths(catalog_root)
         for operation in serializable.operations:
