@@ -18,6 +18,9 @@ class ConverterSessionParams(dict):
         assert (
             params.get("iceberg_warehouse_bucket_name") is not None
         ), "iceberg_warehouse_bucket_name is a required arg"
+        assert (
+            params.get("iceberg_namespace") is not None
+        ), "iceberg_namespace is a required arg"
         result = ConverterSessionParams(params)
 
         result.compact_small_files = params.get("compact_small_files", False)
@@ -43,6 +46,10 @@ class ConverterSessionParams(dict):
     @property
     def iceberg_warehouse_bucket_name(self) -> str:
         return self["iceberg_warehouse_bucket_name"]
+
+    @property
+    def iceberg_namespace(self) -> str:
+        return self["iceberg_namespace"]
 
     @property
     def compact_small_files(self) -> bool:

@@ -12,7 +12,7 @@ from pyiceberg.manifest import (
 )
 import itertools
 from pyiceberg.utils.concurrent import ExecutorFactory
-from pyiceberg.table import UpdateSnapshot, _SnapshotProducer
+from pyiceberg.table.update.snapshot import UpdateSnapshot, _SnapshotProducer
 
 
 class _ReplaceFiles(_SnapshotProducer["_ReplaceFiles"]):

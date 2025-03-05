@@ -14,6 +14,7 @@ from collections import defaultdict
 from deltacat.compute.converter.model.converter_session_params import (
     ConverterSessionParams,
 )
+
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
@@ -23,6 +24,7 @@ from deltacat.compute.converter.pyiceberg.overrides import (
 )
 from deltacat.compute.converter.utils.converter_session_utils import (
     check_data_files_sequence_number,
+    construct_iceberg_table_prefix,
 )
 from deltacat.compute.converter.pyiceberg.replace_snapshot import (
     commit_overwrite_snapshot,
@@ -70,7 +72,13 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         )
 
     iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
-    print(f"iceberg_warehouse_bucket_name:{iceberg_warehouse_bucket_name}")
+    iceberg_namespace = params.iceberg_namespace
+    iceberg_table_warehouse_prefix = construct_iceberg_table_prefix(
+        iceberg_warehouse_bucket_name=iceberg_warehouse_bucket_name,
+        table_name=table_name,
+        iceberg_namespace=iceberg_namespace,
+    )
+    logger.info(f"iceberg_warehouse_bucket_name:{iceberg_warehouse_bucket_name}")
     merge_keys = params.merge_keys
     # Using table identifier fields as merge keys if merge keys not provided
     if not merge_keys:
@@ -105,7 +113,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
             "convert_input": ConvertInput.of(
                 files_for_each_bucket=item,
                 convert_task_index=index,
-                iceberg_warehouse_bucket_name=iceberg_warehouse_bucket_name,
+                iceberg_table_warehouse_prefix=iceberg_table_warehouse_prefix,
                 identifier_fields=identifier_fields,
                 compact_small_files=compact_small_files,
                 position_delete_for_multiple_data_files=position_delete_for_multiple_data_files,

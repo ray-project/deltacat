@@ -48,3 +48,9 @@ def append_larger_sequence_number_data_files(data_files_list):
             sublist_file_list.append(file)
         result.append(sublist_file_list)
     return result
+
+
+def construct_iceberg_table_prefix(
+    iceberg_warehouse_bucket_name, table_name, iceberg_namespace
+):
+    return f"{iceberg_warehouse_bucket_name}/{iceberg_namespace}/{table_name}/data"
