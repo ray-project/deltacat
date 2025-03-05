@@ -23,7 +23,7 @@ from deltacat.storage.model.partition import Partition, PartitionLocator
 from deltacat.storage.model.shard import Shard, ShardingStrategy
 from deltacat.storage.model.stream import Stream, StreamLocator
 from deltacat.storage.model.transaction import TransactionOperationList
-from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.types import CommitState, StreamFormat
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
@@ -216,6 +216,7 @@ class Dataset:
             table_name=self.dataset_name,
             table_version=self._table_version,
             stream_id=DEFAULT_STREAM_ID,
+            stream_format=StreamFormat.DELTACAT,
             partition_values=DEFAULT_PARTITION_VALUES,
             partition_id=self._partition_id,
         )
@@ -277,6 +278,7 @@ class Dataset:
                     table_name=self.dataset_name,
                     table_version=self._table_version,
                     stream_id=DEFAULT_STREAM_ID,
+                    stream_format=StreamFormat.DELTACAT,
                 ),
                 partition_scheme=None,
                 state=CommitState.STAGED,
@@ -289,6 +291,7 @@ class Dataset:
                     table_name=self.dataset_name,
                     table_version=self._table_version,
                     stream_id=DEFAULT_STREAM_ID,
+                    stream_format=StreamFormat.DELTACAT,
                     partition_values=DEFAULT_PARTITION_VALUES,
                     partition_id=self._partition_id,
                 ),
