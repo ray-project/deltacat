@@ -220,67 +220,70 @@ to add more files and benchmark test cases.
 
 ## Coding Quirks & Conventions
 ### Storage and Catalog APIs
-DeltaCAT defines the signature for its internal `storage` and `catalog` APIs in their respective `interface.py` scripts.
-All functions in `interface.py` raise a `NotImplementedError` if invoked directly. Implementations of each are expected 
-to conform to the function signatures defined in `interface.py`, and to validate conformance through DeltaCAT unit test
-suite execution. 
+DeltaCAT defines the signature for its internal `storage` and `catalog` APIs in their respective `interface.py` files.
+All functions in `interface.py` raise a `NotImplementedError` if invoked directly. Implementations of each are expected
+to conform to the function signatures defined in `interface.py`, with conformance validated through unit tests.
 
 Some reasons we made these "classless" interface signatures are:
-1. **SERDE LIMITATIONS**: In early DeltaCAT test cases, distributed Ray applications that used equivalent `storage` and 
-`catalog` classes produced oversized serialized payloads when pickled with Ray cloudpickle. This resulted in either 
-application stability issues or severe runtime performance penalties.
-2. **STATELESSNESS**: All `catalog` and `storage` implementations are expected to be stateless (e.g., to support 
-wrapping them in a stateless web service), and classless API signatures are meant to discourage attaching and tracking 
-ephemeral state alongside implementations of either.
+1. **SERDE LIMITATIONS**: In early DeltaCAT test cases, distributed Ray applications using equivalent `storage` and
+`catalog` classes produced oversized serialized payloads via Ray cloudpickle. This resulted in application stability
+issues and/or severe runtime performance penalties.
+2. **STATELESSNESS**: All `catalog` and `storage` implementations are meant to be stateless (e.g., to support
+wrapping them in stateless web services), but classes encourage attaching and tracking ephemeral state in class
+properties.
 
-### Storage Models are Based on Python Collections 
-DeltaCAT's internal metadata storage model, `Metafile`, and all of its child classes inherit from a standard Python 
-`Dict`. Other storage models, like `SortKey` inherit from other standard Python collections like `Tuple`.
+### Storage Models
+DeltaCAT's base metadata `storage` model (`Metafile`) and all child classes inherit from a standard Python
+`Dict`. Other `storage` models like `SortKey` inherit from other standard Python collections like `Tuple`.
 
 There are a few reasons for this:
-1. **SERDE**: `Dict` and other Python collections support standardized serialization/deserialization via 
-`json`, `msgpack`, `pickle`, and Ray `cloudpickle` `dumps`/`loads` methods. They also provide standardized mechanisms
-to serialize into various flavors of pretty-printed strings (e.g, to simplify debugging and log message evaluation).
-2. **EXTENSIBLE**: `Dict` and other Python collections make it easy to add new attributes to models over time, and
-allow us to draw a clear delineation between when model validation is required (e.g., before serializing to disk via its
-`to_serializable` method) or not (e.g., when it's first instantiated in-memory, and not all attributes are known).
-3. **PERFORMANT**: We prioritize model performance over pure object-oriented design principals, and Python's base 
-collections (e.g., `Dict`, `List`, `Set`, `Tuple`) provide better read/write and SerDe performance than higher-level
-object-oriented abstractions like abstract base classes (`ABC`).
+1. **SERDE**: `Dict` and other Python collections support standardized serialization/deserialization via
+`json`, `msgpack`, `pickle`, and Ray `cloudpickle` `dumps`/`loads` functions. They also support standardized output
+to a wide variety of human-readable and/or pretty-printed string formats (e.g., via `pprint`) to simplify log message
+evaluation and debugging.
+2. **EXTENSIBLE**: `Dict` and other Python collections make it easy to add new properties to models over time, can
+store/retrieve any valid Python object, and make it easy to delineate between when model validation is required
+(e.g., before serializing to disk) and not (e.g., when a model is instantiated in-memory before knowing the final value
+of all its properties).
+3. **PERFORMANT**: We prioritize model performance over pure object-oriented design principals, and Python's base
+collections (e.g., `Dict`, `List`, `Set`, `Tuple`) avoid many performance penalties otherwise incurred by Python OOD
+extensions like abstract bases classes (`ABC`).
 
-Here are a few rules of thumb to follow when creating or modifying DeltaCAT's internal storage models:
-1. **CORRECTNESS**: The general rule of thumb is "don't make it easy for another dev to create invalid models" not 
-"try to make it impossible to create invalid model". To that end, we provide properties & setters as the paved road
-to interface with in-memory model state by default. We also provide dedicated `to_serializable` and `from_serializable` 
-methods to control model SerDe, and validate all models read/written to/from disk. 
-    - **How hard should it be to create an invalid model?** A developer dedicated to modifying an instantiated model's 
-   underlying structure will do so, regardless of the guardrails put in place. However, the act of creating an invalid 
-   model should look obvious to the end user, not accidental (e.g., directly modifying the bytes of a persisted 
-   metadata file on disk, directly modifying an in-memory model's items by key name in its underlying `Dict`, etc.). 
-   If you're directly reading or updating a model by accessing the keys in its underlying `Dict` directly, then we 
-   assume that you know what you're doing, have intentionally bypassed the property-based guardrails, and have agreed 
-   to assume responsibility for keeping the model in a valid state.
-   - **Should I freeze my model to prevent accidental modification?** DeltaCAT model SerDe compatibility, flexibility, 
-   and performance is more important than trying to protect other DeltaCAT devs from themselves. Don't worry about 
-   trying to freeze your model via NamedTuple, frozendict, frozen pydantic ConfigDict, etc. Users that want to mutate 
-   the model will do so anyway. An immutable type can be copied into new immutable types with the desired changes 
-   applied and, unless you also make all nested objects immutable, your model isn't completely frozen. 
-2. **DECORATORS**: Models should follow the decorator design pattern. In other words, they should only extend their 
-base collections and wrap their underlying methods, but shouldn't override any base collection methods to produce 
-different behavior.
-3. **PROPERTIES**: For read-only model properties, only create a `@property` decorator with no corresponding setter. 
-For mutable model properties, create a corresponding `@property-name.setter` decorator. 
-4. **PERSISTENCE**: Models are validated before being written to durable storage by their `to_serializable` method. They
-are validated again when read from durable storage in their `from_serializable` method. Only model properties that are
-added to their model's base Python collection will be persisted post-serialization. In other words, durable (written 
-to disk) model properties should have a corresponding key added to their underlying `Dict`, while ephemeral (in-memory 
-only) model properties should not.
+Here are a few guiding principles to keep in mind when creating or modifying DeltaCAT's internal storage models:
+1. **CORRECTNESS**: The general best practice is "don't make it easy to create invalid models" not "try to make it
+impossible to create invalid model". To that end, use properties & setters to validate reads/writes of in-memory model
+state, and override `Metafile` `to_serializable`/`from_serializable` methods to validate model correctness during
+reads/writes to/from disk.
+    - **How hard should it be to create an invalid model?** A developer set on modifying a model's internal state
+   will do so, regardless of guardrails put in place. However, the act of creating an invalid model should look obvious,
+   not accidental (e.g., directly modifying the bytes of a persisted metadata file on disk, directly modifying
+   an in-memory model's key/value pairs in its underlying `Dict`, etc.).
+   - **Should I interact with a model's base collection directly?** If you're directly accessing key/value pairs
+   of a model's underlying `Dict`, then it's assumed that you know what you're doing, have intentionally bypassed all
+   property-based guardrails (e.g., for performance reasons), and will assume responsibility for leaving the model in a
+   valid state. This isn't implicitly a bad thing, provided that you understand the trade-offs being made.
+   - **Should I make my model immutable to prevent accidental modification?** DeltaCAT model performance,
+   flexibility, and SerDe compatibility take priority over trying to create immutable models. Don't worry about
+   trying to freeze your model via NamedTuple, frozendict, frozen pydantic ConfigDict, etc. Users that want to mutate
+   the model will do so anyway. An immutable type can be copied into new immutable types with the desired changes
+   applied, and forcing all nested objects to be immutable creates unnecessary limitations on the types of properties
+   that can be modeled.
+2. **DECORATORS**: Models should follow the decorator design pattern. In other words, they should only extend their
+base collections and wrap their underlying methods, but shouldn't override base Python collection methods with
+different/unexpected behaviors.
+3. **PROPERTIES**: Telegraph read-only model properties by just creating a `@property` decorator with no corresponding
+setter. Telegraph mutable model properties by creating a corresponding `@property-name.setter` decorator.
+4. **PERSISTENCE**: Models should be validated before being written to durable storage by their `to_serializable`
+method. They should be validated again when read from durable storage by their `from_serializable` method. Only model
+properties that are added to their model's base Python collection will be persisted post-serialization. In other words,
+durable (written-to-disk) model properties should have a corresponding key added to their underlying `Dict`, while
+ephemeral (in-memory-only) model properties should not.
 5. **INTERFACES**: Interface API declarations and abstract methods should simply raise a `NotImplementedError` in the
 base class where they're defined, but not implemented.
 
 ### Cloudpickle
-Some DeltaCAT compute functions interact with Cloudpickle differently than the typical Ray application. This allows
-us to improve compute stability and efficiency at the cost of managing our own distributed object garbage collection
-instead of relying on Ray's automatic distributed object reference counting and garbage collection. For example, see
-the comment at `deltacat/compute/compactor/utils/primary_key_index.py` for an explanation of our custom
+Some DeltaCAT compute functions interact with Ray `cloudpickle` differently than the typical Ray application. This
+allows us to improve compute stability and efficiency at the cost of managing our own distributed object garbage
+collection instead of relying on Ray's automatic distributed object reference counting and garbage collection. For
+example, see the comment at `deltacat/compute/compactor/utils/primary_key_index.py` for an explanation of our custom
 `cloudpickle.dumps` usage.

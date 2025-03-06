@@ -1207,11 +1207,8 @@ class TestStream:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            if key != "table_version":
-                kwargs_copy[key] = "i_dont_exist"
-            else:
-                # table versions much be format like v.N or will raise Value Error
-                kwargs_copy[key] = "v.1000"
+            # table version format must be v.N to not raise a ValueError
+            kwargs_copy[key] = "i_dont_exist" if key != "table_version" else "v.1000"
             assert not metastore.stream_exists(
                 catalog_properties=self.catalog,
                 **kwargs_copy,
@@ -1249,11 +1246,8 @@ class TestStream:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            if key != "table_version":
-                kwargs_copy[key] = "i_dont_exist"
-            else:
-                # table versions much be format like v.N or will raise Value Error
-                kwargs_copy[key] = "v.1000"
+            # table version format must be v.N to not raise a ValueError
+            kwargs_copy[key] = "i_dont_exist" if key != "table_version" else "v.1000"
             assert (
                 metastore.get_stream(
                     catalog_properties=self.catalog,
