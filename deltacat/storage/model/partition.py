@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import base64
 import posixpath
 
 import pyarrow
@@ -9,7 +10,7 @@ import pyarrow as pa
 from typing import Any, Dict, List, Optional
 
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
-from deltacat.constants import TXN_DIR_NAME
+from deltacat.constants import METAFILE_FORMAT, METAFILE_FORMAT_JSON, TXN_DIR_NAME
 from deltacat.storage.model.schema import (
     FieldLocator,
     Schema,
@@ -239,11 +240,14 @@ class Partition(Metafile):
 
     def to_serializable(self) -> Partition:
         serializable: Partition = Partition.update_for(self)
-        serializable.schema = (
-            serializable.schema.serialize().to_pybytes()
-            if serializable.schema
-            else None
-        )
+        if serializable.schema:
+            schema_bytes = serializable.schema.serialize().to_pybytes()
+            serializable.schema = (
+                base64.b64encode(schema_bytes).decode("utf-8")
+                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                else schema_bytes
+            )
+
         if serializable.table_locator:
             # replace the mutable table locator
             serializable.table_version_locator.table_locator = TableLocator.at(
@@ -257,11 +261,17 @@ class Partition(Metafile):
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Partition:
-        self["schema"] = (
-            Schema.deserialize(pa.py_buffer(self["schema"]))
-            if self.get("schema")
-            else None
-        )
+        if self.get("schema"):
+            schema_data = self["schema"]
+            schema_bytes = (
+                base64.b64decode(schema_data)
+                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                else schema_data
+            )
+            self["schema"] = Schema.deserialize(pa.py_buffer(schema_bytes))
+        else:
+            self["schema"] = None
+
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
             parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
