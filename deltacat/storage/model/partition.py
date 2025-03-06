@@ -468,6 +468,24 @@ class PartitionKey(dict):
             }
         )
 
+    def equivalent_to(
+        self,
+        other: PartitionKey,
+        check_identifiers: False,
+    ):
+        if other is None:
+            return False
+        if not isinstance(other, dict):
+            return False
+        if not isinstance(other, PartitionKey):
+            other = PartitionKey(other)
+        return (
+            self.key == other.key
+            and self.transform == other.transform
+            and not check_identifiers
+            or (self.name == other.name and self.id == other.id)
+        )
+
     @property
     def key(self) -> List[FieldLocator]:
         return self.get("key")
@@ -484,7 +502,7 @@ class PartitionKey(dict):
     def transform(self) -> Optional[Transform]:
         val: Dict[str, Any] = self.get("transform")
         if val is not None and not isinstance(val, Transform):
-            self["transform"] = val = Transform.of(val)
+            self["transform"] = val = Transform(val)
         return val
 
     @property
@@ -524,6 +542,24 @@ class PartitionScheme(dict):
                 "id": scheme_id,
                 "nativeObject": native_object,
             }
+        )
+
+    def equivalent_to(
+        self,
+        other: PartitionScheme,
+        check_identifiers: bool = False,
+    ) -> bool:
+        if other is None:
+            return False
+        if not isinstance(other, dict):
+            return False
+        if not isinstance(other, PartitionScheme):
+            other = PartitionScheme(other)
+        for i in range(len(self.keys)):
+            if not self.keys[i].equivalent_to(other.keys[i], check_identifiers):
+                return False
+        return not check_identifiers or (
+            self.name == other.name and self.id == other.id
         )
 
     @property
