@@ -59,7 +59,7 @@ class TableVersion(Metafile):
         table_version.content_types = content_types
         table_version.sort_scheme = sort_scheme
         table_version.watermark = watermark
-        table_version.lifecycle_state = lifecycle_state
+        table_version.state = lifecycle_state
         table_version.schemas = schemas
         table_version.partition_schemes = partition_schemes
         table_version.sort_schemes = sort_schemes

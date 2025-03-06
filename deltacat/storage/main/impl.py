@@ -833,7 +833,7 @@ def create_table_version(
         content_types=supported_content_types,
         sort_scheme=sort_keys,
         watermark=None,
-        lifecycle_state=LifecycleState.UNRELEASED,
+        lifecycle_state=LifecycleState.CREATED,
         schemas=[schema] if schema else None,
         partition_schemes=[partition_scheme] if partition_scheme else None,
         sort_schemes=[sort_keys] if sort_keys else None,
@@ -977,14 +977,21 @@ def update_table_version(
         if update_schema
         else old_table_version.schemas
     )
-    new_table_version.description = description or old_table_version.description
-    new_table_version.properties = properties or old_table_version.properties
+    new_table_version.description = (
+        description if description is not None else old_table_version.description
+    )
+    new_table_version.properties = (
+        properties if properties is not None else old_table_version.properties
+    )
     new_table_version.partition_scheme = (
         partition_scheme or old_table_version.partition_scheme
     )
-    # TODO(pdames): Check partition scheme equivalence before updating, and
-    #   check for backwards incompatible changes.
-    if partition_scheme and partition_scheme.id in [
+    # TODO(pdames): Check for backwards incompatible partition scheme changes.
+    update_partition_scheme = partition_scheme and not partition_scheme.equivalent_to(
+        old_table_version.partition_scheme,
+        True,
+    )
+    if update_partition_scheme and partition_scheme.id in [
         ps.id for ps in old_table_version.partition_schemes
     ]:
         raise ValueError(
@@ -993,12 +1000,17 @@ def update_table_version(
         )
     new_table_version.partition_schemes = (
         old_table_version.partition_schemes + [partition_scheme]
-        if partition_scheme
+        if update_partition_scheme
         else old_table_version.partition_schemes
     )
-    # TODO(pdames): Check sort key equivalence before updating, and check for
-    #   backwards incompatible changes.
-    if sort_keys and sort_keys.id in [sk.id for sk in old_table_version.sort_schemes]:
+    # TODO(pdames): Check for backwards incompatible sort scheme changes.
+    update_sort_scheme = sort_keys and not sort_keys.equivalent_to(
+        old_table_version.sort_scheme,
+        True,
+    )
+    if update_sort_scheme and sort_keys.id in [
+        sk.id for sk in old_table_version.sort_schemes
+    ]:
         raise ValueError(
             f"Sort scheme ID `{sort_keys.id}` already exists in "
             f"table version `{table_version}`."
@@ -1006,7 +1018,7 @@ def update_table_version(
     new_table_version.sort_scheme = sort_keys or old_table_version.sort_scheme
     new_table_version.sort_schemes = (
         old_table_version.sort_schemes + [sort_keys]
-        if sort_keys
+        if update_sort_scheme
         else old_table_version.sort_schemes
     )
     old_table = get_table(

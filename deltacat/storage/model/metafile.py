@@ -711,16 +711,11 @@ class Metafile(dict):
             catalog_root,
             filesystem,
         )
-        ancestor_ids = self.ancestor_ids(
+        metafile_root_dir_path = self.metafile_root_path(
             catalog_root=catalog_root,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             filesystem=filesystem,
-        )
-        parent_obj_path = posixpath.join(*[catalog_root] + ancestor_ids)
-        metafile_root_dir_path = posixpath.join(
-            parent_obj_path,
-            self.id,
         )
         # List metafiles with respect to this metafile's URI as root
         return self._list_metafiles(
@@ -749,13 +744,12 @@ class Metafile(dict):
             catalog_root,
             filesystem,
         )
-        ancestor_ids = self.ancestor_ids(
+        parent_obj_path = self.parent_root_path(
             catalog_root=catalog_root,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             filesystem=filesystem,
         )
-        parent_obj_path = posixpath.join(*[catalog_root] + ancestor_ids)
         return self._list_metafiles(
             success_txn_log_dir=success_txn_log_dir,
             metafile_root_dir_path=parent_obj_path,
@@ -784,16 +778,17 @@ class Metafile(dict):
             filesystem,
         )
         try:
-            ancestor_ids = self.ancestor_ids(
+            parent_root = self.parent_root_path(
                 catalog_root=catalog_root,
                 current_txn_start_time=current_txn_start_time,
                 current_txn_id=current_txn_id,
                 filesystem=filesystem,
             )
         except ValueError:
-            # Ancestor does not exist - return empty list results
+            # one or more ancestor's don't exist - return an empty list result
+            # TODO(pdames): Raise and catch a more explicit AncestorNotFound
+            #  error type here.
             return ListResult.empty()
-        metafile_root = posixpath.join(*[catalog_root] + ancestor_ids)
         try:
             locator = (
                 self.locator
@@ -808,7 +803,7 @@ class Metafile(dict):
                 or Metafile._locator_to_id(
                     locator=locator,
                     catalog_root=catalog_root,
-                    metafile_root=metafile_root,
+                    metafile_root=parent_root,
                     filesystem=filesystem,
                     txn_start_time=current_txn_start_time,
                     txn_id=current_txn_id,
@@ -823,7 +818,7 @@ class Metafile(dict):
             # the metafile does not exist
             return ListResult.empty()
         revision_dir_path = posixpath.join(
-            metafile_root,
+            parent_root,
             immutable_id,
             REVISION_DIR_NAME,
         )
@@ -876,6 +871,39 @@ class Metafile(dict):
         """
         return self
 
+    def parent_root_path(
+        self,
+        catalog_root: str,
+        current_txn_start_time: Optional[int] = None,
+        current_txn_id: Optional[str] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> str:
+        ancestor_ids = self.ancestor_ids(
+            catalog_root=catalog_root,
+            current_txn_start_time=current_txn_start_time,
+            current_txn_id=current_txn_id,
+            filesystem=filesystem,
+        )
+        return posixpath.join(*[catalog_root] + ancestor_ids)
+
+    def metafile_root_path(
+        self,
+        catalog_root: str,
+        current_txn_start_time: Optional[int] = None,
+        current_txn_id: Optional[str] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> str:
+        parent_obj_path = self.parent_root_path(
+            catalog_root=catalog_root,
+            current_txn_start_time=current_txn_start_time,
+            current_txn_id=current_txn_id,
+            filesystem=filesystem,
+        )
+        return posixpath.join(
+            parent_obj_path,
+            self.id,
+        )
+
     def ancestor_ids(
         self,
         catalog_root: str,
@@ -889,47 +917,13 @@ class Metafile(dict):
         """
         ancestor_ids = self.get("ancestor_ids") or []
         if not ancestor_ids:
-            catalog_root, filesystem = resolve_path_and_filesystem(
-                path=catalog_root,
+            ancestor_ids = Metafile._ancestor_ids(
+                locator=self.locator,
+                catalog_root=catalog_root,
+                current_txn_start_time=current_txn_start_time,
+                current_txn_id=current_txn_id,
                 filesystem=filesystem,
             )
-            parent_locators = []
-            # TODO(pdames): Correctly resolve missing parents and K of N
-            #  specified ancestors by using placeholder IDs for missing
-            #  ancestors
-            parent_locator = self.locator.parent
-            while parent_locator:
-                parent_locators.append(parent_locator)
-                parent_locator = parent_locator.parent
-            metafile_root = catalog_root
-            while parent_locators:
-                parent_locator = parent_locators.pop()
-                ancestor_id = Metafile._locator_to_id(
-                    locator=parent_locator,
-                    catalog_root=catalog_root,
-                    metafile_root=metafile_root,
-                    filesystem=filesystem,
-                    txn_start_time=current_txn_start_time,
-                    txn_id=current_txn_id,
-                )
-                if not ancestor_id:
-                    err_msg = f"Ancestor does not exist: {parent_locator}."
-                    raise ValueError(err_msg)
-                metafile_root = posixpath.join(
-                    metafile_root,
-                    ancestor_id,
-                )
-                try:
-                    get_file_info(
-                        path=metafile_root,
-                        filesystem=filesystem,
-                    )
-                except FileNotFoundError:
-                    raise ValueError(
-                        f"Ancestor {parent_locator} does not exist at: "
-                        f"{metafile_root}"
-                    )
-                ancestor_ids.append(ancestor_id)
             self["ancestor_ids"] = ancestor_ids
         return ancestor_ids
 
@@ -996,6 +990,57 @@ class Metafile(dict):
                 raise ValueError(err_msg)
             metafile_id = posixpath.splitext(mri.path)[1][1:]
         return metafile_id
+
+    @staticmethod
+    def _ancestor_ids(
+        locator: Locator,
+        catalog_root: str,
+        current_txn_start_time: Optional[int] = None,
+        current_txn_id: Optional[str] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> List[str]:
+        ancestor_ids = []
+        catalog_root, filesystem = resolve_path_and_filesystem(
+            path=catalog_root,
+            filesystem=filesystem,
+        )
+        parent_locators = []
+        # TODO(pdames): Correctly resolve missing parents and K of N
+        #  specified ancestors by using placeholder IDs for missing
+        #  ancestors
+        parent_locator = locator.parent
+        while parent_locator:
+            parent_locators.append(parent_locator)
+            parent_locator = parent_locator.parent
+        metafile_root = catalog_root
+        while parent_locators:
+            parent_locator = parent_locators.pop()
+            ancestor_id = Metafile._locator_to_id(
+                locator=parent_locator,
+                catalog_root=catalog_root,
+                metafile_root=metafile_root,
+                filesystem=filesystem,
+                txn_start_time=current_txn_start_time,
+                txn_id=current_txn_id,
+            )
+            if not ancestor_id:
+                err_msg = f"Ancestor does not exist: {parent_locator}."
+                raise ValueError(err_msg)
+            metafile_root = posixpath.join(
+                metafile_root,
+                ancestor_id,
+            )
+            try:
+                get_file_info(
+                    path=metafile_root,
+                    filesystem=filesystem,
+                )
+            except FileNotFoundError:
+                raise ValueError(
+                    f"Ancestor {parent_locator} does not exist at: " f"{metafile_root}"
+                )
+            ancestor_ids.append(ancestor_id)
+        return ancestor_ids
 
     def _write_locator_to_id_map_file(
         self,
@@ -1064,13 +1109,12 @@ class Metafile(dict):
         part of the given transaction. All paths returned will be based in the
         given root directory.
         """
-        ancestor_path_elements = self.ancestor_ids(
+        parent_obj_path = self.parent_root_path(
             catalog_root=catalog_root,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
             filesystem=filesystem,
         )
-        parent_obj_path = posixpath.join(*[catalog_root] + ancestor_path_elements)
         mutable_src_locator = None
         mutable_dest_locator = None
         # metafiles without named immutable IDs have mutable name mappings
@@ -1229,33 +1273,3 @@ class Metafile(dict):
             pagination_key=None,
             next_page_provider=None,
         )
-
-    def _ancestor_ids(
-        self,
-        catalog_root: str,
-        current_txn_start_time: Optional[int] = None,
-        current_txn_id: Optional[str] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> List[str]:
-        """
-        Retrieve all ancestor IDs of this object.
-        :return: List of ancestor IDs of this object.
-        """
-        catalog_root, filesystem = resolve_path_and_filesystem(
-            catalog_root,
-            filesystem,
-        )
-        success_txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME)
-        mri = MetafileRevisionInfo.latest_revision(
-            revision_dir_path=catalog_root,
-            filesystem=filesystem,
-            success_txn_log_dir=success_txn_log_dir,
-            current_txn_start_time=current_txn_start_time,
-            current_txn_id=current_txn_id,
-            ignore_missing_revision=True,
-        )
-        if mri.exists():
-            return mri.revision.ancestor_ids
-        else:
-            raise ValueError(f"Metafile {self.id} does not exist.")
-        raise NotImplementedError()
