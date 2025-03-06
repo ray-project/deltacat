@@ -1,9 +1,8 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pyarrow
 from deltacat.constants import DELTACAT_CATALOG_PROPERTY_ROOT
-
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 """

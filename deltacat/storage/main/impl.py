@@ -1316,6 +1316,98 @@ def delete_stream(
         filesystem=catalog_properties.filesystem,
     )
 
+def drop_table(
+    namespace: str,
+    table_name: str,
+    purge: bool = False,
+    *args,
+    **kwargs,
+) -> None:
+    """
+    Drops the given table and all its contents (table versions, streams, partitions,
+    and deltas). If purge is True, also removes all data files associated with the table.
+    Raises an error if the given table does not exist.
+    """
+    table = get_table(
+        *args,
+        namespace=namespace,
+        table_name=table_name,
+        **kwargs,
+    )
+
+    if not table:
+        raise ValueError(f"Table `{namespace}.{table_name}` does not exist.")
+
+    # Get all table versions to drop
+    table_versions_result = list_table_versions(
+        *args,
+        namespace=namespace,
+        table_name=table_name,
+        **kwargs,
+    )
+    
+    # Create a transaction with delete operations for the table and all its versions
+    txn_operations = [
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.DELETE,
+            dest_metafile=table,
+        )
+    ]
+    
+    # Add delete operations for each table version
+    for table_version in table_versions_result.all_items():
+        txn_operations.append(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=table_version,
+            )
+        )
+        
+    transaction = Transaction.of(
+        txn_type=TransactionType.DELETE,
+        txn_operations=txn_operations,
+    )
+    
+    catalog_properties = get_catalog_properties(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
+    )
+
+
+def delete_namespace(
+    namespace: str,
+    *args,
+    **kwargs,
+) -> None:
+    """
+    Drops the given table namespace and all its contents. Raises an error if the
+    given namespace does not exist.
+    """
+    namespace: Optional[Namespace] = get_namespace(
+        *args,
+        namespace=namespace,
+        **kwargs,
+    )
+
+    if not namespace:
+        raise ValueError(f"Namespace `{namespace}` does not exist.")
+
+    transaction = Transaction.of(
+        txn_type=TransactionType.DELETE,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=namespace,
+            )
+        ],
+    )
+    catalog_properties = get_catalog_properties(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
+    )
+
 
 def delete_table(
     namespace: str,

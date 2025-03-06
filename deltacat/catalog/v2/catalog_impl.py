@@ -12,7 +12,8 @@ from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
 from deltacat.storage.model.schema import Schema
-from deltacat.storage.model.table import Table, TableProperties
+from deltacat.storage.model.stream import Stream
+from deltacat.storage.model.table import TableProperties
 from deltacat.storage.model.table_version import TableVersion
 from deltacat.storage.model.types import (
     DistributedDataset,
@@ -27,6 +28,8 @@ from deltacat.storage.main import impl as storage_impl
 from deltacat.constants import (
     DEFAULT_NAMESPACE,
 )
+
+from deltacat.storage.rivulet import Dataset
 
 
 def write_to_table(
