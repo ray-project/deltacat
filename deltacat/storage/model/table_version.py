@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import base64
 import re
 import posixpath
 from typing import Any, Dict, List, Optional, Tuple
@@ -277,12 +278,12 @@ class TableVersion(Metafile):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> TableVersion:
         self["schema"] = (
-            Schema.deserialize(pa.py_buffer(self["schema"]))
+            Schema.deserialize(pa.py_buffer(base64.b64decode(self["schema"])))
             if self.get("schema")
             else None
         )
         self.schemas = (
-            [Schema.deserialize(pa.py_buffer(_)) for _ in self["schemas"]]
+            [Schema.deserialize(pa.py_buffer(base64.b64decode(schema))) for schema in self["schemas"]]
             if self.get("schemas")
             else None
         )

@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import base64
 import posixpath
 
 import pyarrow
@@ -240,7 +241,7 @@ class Partition(Metafile):
     def to_serializable(self) -> Partition:
         serializable: Partition = Partition.update_for(self)
         serializable.schema = (
-            serializable.schema.serialize().to_pybytes()
+            base64.b64encode(serializable.schema.serialize().to_pybytes()).decode('utf-8')
             if serializable.schema
             else None
         )
@@ -258,7 +259,7 @@ class Partition(Metafile):
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Partition:
         self["schema"] = (
-            Schema.deserialize(pa.py_buffer(self["schema"]))
+            Schema.deserialize(pa.py_buffer(base64.b64decode(self["schema"])))
             if self.get("schema")
             else None
         )
