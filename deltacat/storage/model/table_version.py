@@ -267,7 +267,6 @@ class TableVersion(Metafile):
                 else schema_bytes
             )
 
-        # Handle schemas list
         if serializable.schemas:
             serializable.schemas = [
                 base64.b64encode(schema.serialize().to_pybytes()).decode("utf-8")
@@ -299,13 +298,12 @@ class TableVersion(Metafile):
         else:
             self["schema"] = None
 
-        # Handle schemas list
         if self.get("schemas"):
             self.schemas = [
                 Schema.deserialize(
                     pa.py_buffer(
                         base64.b64decode(schema)
-                        if METAFILE_FORMAT == "json"
+                        if METAFILE_FORMAT == METAFILE_FORMAT_JSON
                         else schema
                     )
                 )
