@@ -29,12 +29,16 @@ class Table(Metafile):
         locator: Optional[TableLocator],
         description: Optional[str] = None,
         properties: Optional[TableProperties] = None,
+        latest_active_table_version: Optional[str] = None,
+        latest_table_version: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> Table:
         table = Table()
         table.locator = locator
         table.description = description
         table.properties = properties
+        table.latest_active_table_version = latest_active_table_version
+        table.latest_table_version = latest_table_version
         table.native_object = native_object
         return table
 
@@ -64,6 +68,28 @@ class Table(Metafile):
     @properties.setter
     def properties(self, properties: Optional[TableProperties]) -> None:
         self["properties"] = properties
+
+    @property
+    def latest_active_table_version(self) -> Optional[str]:
+        return self.get("latest_active_table_version")
+
+    @latest_active_table_version.setter
+    def latest_active_table_version(
+        self,
+        latest_active_table_version: Optional[str],
+    ) -> None:
+        self["latest_active_table_version"] = latest_active_table_version
+
+    @property
+    def latest_table_version(self) -> Optional[str]:
+        return self.get("latest_table_version")
+
+    @latest_table_version.setter
+    def latest_table_version(
+        self,
+        latest_table_version: Optional[str],
+    ) -> None:
+        self["latest_table_version"] = latest_table_version
 
     @property
     def native_object(self) -> Optional[Any]:

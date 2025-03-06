@@ -1,6 +1,9 @@
 from typing import Any, Dict, List, Optional, Union
 
-from deltacat.catalog.catalog_properties import initialize_properties
+from deltacat.catalog.catalog_properties import (
+    CatalogProperties,
+)
+
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.sort_key import SortScheme
@@ -16,6 +19,10 @@ from deltacat.storage.model.types import (
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
+from deltacat.storage.main import impl as storage_impl
+from deltacat.constants import (
+    DEFAULT_NAMESPACE,
+)
 
 
 # table functions
@@ -26,23 +33,15 @@ def write_to_table(
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
-    """Write local or distributed data to a table. Raises an error if the
-    table does not exist and the table write mode is not CREATE or AUTO.
-
-    When creating a table, all `create_table` parameters may be optionally
-    specified as additional keyword arguments. When appending to, or replacing,
-    an existing table, all `alter_table` parameters may be optionally specified
-    as additional keyword arguments."""
-    raise NotImplementedError("write_to_table not implemented")
+    raise NotImplementedError("Not implemented")
 
 
 def read_table(
     table: str, namespace: Optional[str] = None, *args, **kwargs
 ) -> DistributedDataset:
-    """Read a table into a distributed dataset."""
-    raise NotImplementedError("read_table not implemented")
+    raise NotImplementedError("Not implemented")
 
 
 def alter_table(
@@ -55,7 +54,7 @@ def alter_table(
     description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Alter table definition."""
     raise NotImplementedError("alter_table not implemented")
@@ -63,8 +62,10 @@ def alter_table(
 
 def create_table(
     table: str,
+    *args,
     namespace: Optional[str] = None,
-    lifecycle_state: Optional[LifecycleState] = None,
+    version: Optional[str] = None,
+    lifecycle_state: Optional[LifecycleState] = LifecycleState.ACTIVE,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
     sort_keys: Optional[SortScheme] = None,
@@ -73,12 +74,13 @@ def create_table(
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
-    *args,
-    **kwargs
+    **kwargs,
 ) -> TableDefinition:
-    """Create an empty table. Raises an error if the table already exists and
-    `fail_if_exists` is True (default behavior)."""
-    raise NotImplementedError("create_table not implemented")
+    """
+    Create an empty table. Raises an error if the table already exists and
+    `fail_if_exists` is True (default behavior).
+    """
+    raise NotImplementedError()
 
 
 def drop_table(
@@ -99,15 +101,17 @@ def list_tables(
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions. Raises an error if the given namespace
     does not exist."""
-    raise NotImplementedError("list_tables not implemented")
+    raise NotImplementedError()
 
 
 def get_table(
     table: str, namespace: Optional[str] = None, *args, **kwargs
 ) -> Optional[TableDefinition]:
-    """Get table definition metadata. Returns None if the given table does not
-    exist."""
-    raise NotImplementedError("get_table not implemented")
+    """
+    Get table definition metadata. Returns None if the given table does not exist.
+
+    """
+    raise NotImplementedError()
 
 
 def truncate_table(
@@ -126,32 +130,56 @@ def rename_table(
 
 def table_exists(table: str, namespace: Optional[str] = None, *args, **kwargs) -> bool:
     """Returns True if the given table exists, False if not."""
-    raise NotImplementedError("table_exists not implemented")
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
+
+    return storage_impl.table_exists(
+        table_name=table, namespace=namespace, catalog=catalog
+    )
 
 
 # namespace functions
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     """List a page of table namespaces."""
-    raise NotImplementedError("list_namespaces not implemented")
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    return storage_impl.list_namespaces(catalog=catalog)
 
 
 def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
-    """Gets table namespace metadata for the specified table namespace. Returns
-    None if the given namespace does not exist."""
-    raise NotImplementedError("get_namespace not implemented")
+    """Gets table namespace metadata for the specified table namespace.
+    Returns None if the given namespace does not exist.
+    """
+    return storage_impl.get_namespace(namespace=namespace, **kwargs)
 
 
 def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     """Returns True if the given table namespace exists, False if not."""
-    raise NotImplementedError("namespace_exists not implemented")
+
+    return storage_impl.namespace_exists(namespace=namespace, **kwargs)
 
 
 def create_namespace(
-    namespace: str, properties: NamespaceProperties, *args, **kwargs
+    namespace: str, properties: Optional[NamespaceProperties], *args, **kwargs
 ) -> Namespace:
     """Creates a table namespace with the given name and properties. Returns
-    the created namespace. Raises an error if the namespace already exists."""
-    raise NotImplementedError("create_namespace not implemented")
+    the created namespace.
+
+    :raises ValueError if the namespace already exists.
+    """
+    # Check if namespace already exists
+    if namespace_exists(namespace):
+        raise ValueError(f"Namespace {namespace} already exists")
+
+    # Create namespace through storage layer
+    return storage_impl.create_namespace(
+        namespace=namespace, properties=properties, **kwargs
+    )
 
 
 def alter_namespace(
@@ -159,7 +187,7 @@ def alter_namespace(
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Alter table namespace definition."""
     raise NotImplementedError("alter_namespace not implemented")
@@ -173,9 +201,4 @@ def drop_namespace(namespace: str, purge: bool = False, *args, **kwargs) -> None
 
 def default_namespace(*args, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
-    raise NotImplementedError("default_namespace not implemented")
-
-
-# catalog functions
-def initialize(*args, **kwargs) -> Optional[Any]:
-    initialize_properties(*args, **kwargs)
+    return DEFAULT_NAMESPACE

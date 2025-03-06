@@ -81,7 +81,9 @@ class TransactionSystemTimeProvider(TransactionTimeProvider):
 
     def start_time(self) -> int:
         """
-        Gets the current system time in nanoseconds since the epoch.
+        Gets the current system time in nanoseconds since the epoch. Ensures
+        that the start time returned is greater than the last known end time
+        recorded at the time this method is invoked.
         :return: Current epoch time in nanoseconds.
         """
         # ensure serial transactions in a single process have start times after
@@ -112,7 +114,9 @@ class TransactionSystemTimeProvider(TransactionTimeProvider):
 
     def end_time(self) -> int:
         """
-        Gets the current system time in nanoseconds since the epoch.
+        Gets the current system time in nanoseconds since the epoch. Ensures
+        that the end time returned is no less than the last known start time
+        recorded at the time this method is invoked.
         :return: Current epoch time in nanoseconds.
         """
         # ensure serial transactions in a single process have end times no less
@@ -444,6 +448,17 @@ class Transaction(dict):
         # reduce file size (they can be reconstructed from their corresponding
         # files as required).
         for operation in serializable.operations:
+            # Sanity check that IDs exist on source and dest metafiles
+            if operation.dest_metafile and operation.dest_metafile.id is None:
+                raise ValueError(
+                    f"Transaction operation ${operation} dest metafile does "
+                    f"not have ID: ${operation.dest_metafile}"
+                )
+            if operation.src_metafile and operation.src_metafile.id is None:
+                raise ValueError(
+                    f"Transaction operation ${operation} src metafile does "
+                    f"not have ID: ${operation.src_metafile}"
+                )
             operation.dest_metafile = {
                 "id": operation.dest_metafile.id,
                 "locator": operation.dest_metafile.locator,

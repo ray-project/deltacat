@@ -170,7 +170,7 @@ def _resolve_table_version(
 def _get_current_schema_for_meta(meta: TableMetadata) -> IcebergSchema:
     schema_id = meta.current_schema_id
     try:
-        return next(schema for schema in meta.schemas if schema.schema_id == schema_id)
+        return next(schema for schema in meta.schemas if schema.id == schema_id)
     except StopIteration as e:
         err_msg = f"No table schema with ID: {schema_id}"
         raise ValueError(err_msg) from e
@@ -476,7 +476,6 @@ class SchemaMapper(ModelMapper[IcebergSchema, Schema]):
         #  to this Iceberg schema.
         return Schema.of(
             schema=final_fields,
-            metadata=schema.metadata,
             native_object=obj,
         )
 

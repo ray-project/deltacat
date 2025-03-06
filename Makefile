@@ -46,6 +46,14 @@ test-integration: install
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml exec -T spark-iceberg ipython ./provision.py
 	venv/bin/python -m pytest deltacat/tests/integ -v -m integration
 
+test-converter:
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml rm -f
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml up -d
+	sleep 3
+	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml exec -T spark-iceberg ipython ./provision.py
+	venv/bin/python -m pytest deltacat/tests/compute/converter -vv
+
 test-integration-rebuild:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml rm -f
@@ -56,3 +64,6 @@ benchmark-aws: install
 
 benchmark: install
 	pytest -m benchmark deltacat/benchmarking
+
+publish: test test-integration rebuild
+	twine upload dist/*
