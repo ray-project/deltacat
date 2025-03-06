@@ -10,7 +10,9 @@ from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
 from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.stream import Stream
 from deltacat.storage.model.table import TableProperties
+from deltacat.storage.model.table_version import TableVersion
 from deltacat.storage.model.types import (
     DistributedDataset,
     LifecycleState,
@@ -23,6 +25,8 @@ from deltacat.storage.main import impl as storage_impl
 from deltacat.constants import (
     DEFAULT_NAMESPACE,
 )
+
+from deltacat.storage.rivulet import Dataset
 
 
 # table functions
@@ -57,11 +61,31 @@ def alter_table(
     **kwargs,
 ) -> None:
     """Alter table definition."""
-    raise NotImplementedError("alter_table not implemented")
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
+
+    if not table_exists(table, namespace, catalog=catalog):
+        raise ValueError(f"Table {namespace}.{table} does not exist")
+
+    storage_impl.update_table(
+        table_name=table,
+        namespace=namespace,
+        lifecycle_state=lifecycle_state,
+        schema_updates=schema_updates,
+        partition_updates=partition_updates,
+        sort_keys=sort_keys,
+        description=description,
+        properties=properties,
+        *args,
+        **kwargs
+    )
 
 
 def create_table(
-    table: str,
+    name: str,
     *args,
     namespace: Optional[str] = None,
     version: Optional[str] = None,
@@ -80,7 +104,66 @@ def create_table(
     Create an empty table. Raises an error if the table already exists and
     `fail_if_exists` is True (default behavior).
     """
-    raise NotImplementedError()
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
+
+    if table_exists(name, namespace, **kwargs):
+        if fail_if_exists:
+            raise ValueError(f"Table {namespace}.{name} already exists")
+        return get_table(name, namespace, catalog=catalog)
+
+    # Create namespace if it doesn't exist
+    if not namespace_exists(namespace, catalog=catalog):
+        create_namespace(
+            namespace=namespace, properties=namespace_properties, catalog=catalog
+        )
+
+    # Extract merge keys from sort keys if provided
+    zipper_merge_keys = []
+    if sort_keys:
+        zipper_merge_keys = [key.key[0] for key in sort_keys.keys]
+
+    # Create a table version through the storage layer
+    (table, table_version, stream) = storage_impl.create_table_version(
+        namespace=namespace,
+        table_name=name,
+        schema=schema,
+        partition_scheme=partition_scheme,
+        sort_keys=sort_keys,
+        table_version_description=description,
+        table_description=description,
+        table_properties=table_properties,
+        lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
+        catalog=catalog,
+    )
+
+    # What do we do with this dataset?
+    dataset = Dataset(
+        dataset_name=name,
+        metadata_uri=catalog.root,
+        namespace=namespace,
+        filesystem=catalog.filesystem,
+    )
+
+    # Add schema if provided
+    if schema and schema.arrow:
+        from deltacat.storage.rivulet import Schema as RivuletSchema
+
+        rivulet_schema = RivuletSchema.from_pyarrow(schema.arrow, zipper_merge_keys)
+        dataset.add_schema(rivulet_schema)
+
+    # Cache the dataset
+    catalog.cache_dataset(dataset, namespace)
+
+    # Return table definition
+    return TableDefinition.of(
+        table=table,
+        table_version=table_version,
+        stream=stream,
+    )
 
 
 def drop_table(
@@ -88,7 +171,24 @@ def drop_table(
 ) -> None:
     """Drop a table from the catalog and optionally purge it. Raises an error
     if the table does not exist."""
-    raise NotImplementedError("drop_table not implemented")
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
+
+    if not table_exists(table, namespace, catalog=catalog):
+        raise ValueError(f"Table {namespace}.{table} does not exist")
+
+    catalog.remove_dataset_from_cache(namespace, table)
+
+    # Call storage implementation to drop the table
+    storage_impl.drop_table(
+        table_name=table, 
+        namespace=namespace, 
+        purge=purge, 
+        catalog=catalog
+    )
 
 
 def refresh_table(table: str, namespace: Optional[str] = None, *args, **kwargs) -> None:
@@ -101,7 +201,12 @@ def list_tables(
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions. Raises an error if the given namespace
     does not exist."""
-    raise NotImplementedError()
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
+    storage_impl.list_tables(namespace=namespace, catalog=catalog)
 
 
 def get_table(
@@ -109,9 +214,25 @@ def get_table(
 ) -> Optional[TableDefinition]:
     """
     Get table definition metadata. Returns None if the given table does not exist.
-
     """
-    raise NotImplementedError()
+
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
+    table = storage_impl.get_table(
+        table_name=table, namespace=namespace, catalog=catalog
+    )
+
+    table_version = storage_impl.get_table_version(namespace, table, table.latest_table_version, catalog=catalog)
+
+    return TableDefinition.of(
+        table=table,
+        table_version=table_version,
+        stream=Stream(),
+    )
+
 
 
 def truncate_table(
@@ -124,8 +245,23 @@ def truncate_table(
 def rename_table(
     table: str, new_name: str, namespace: Optional[str] = None, *args, **kwargs
 ) -> None:
-    """Rename a table."""
-    raise NotImplementedError("rename_table not implemented")
+    """Rename an existing table."""
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
+
+    if not table_exists(table, namespace, catalog=catalog):
+        raise ValueError(f"Table {namespace}.{table} does not exist")
+
+    storage_impl.update_table(
+        table_name=table, 
+        new_table_name=new_name, 
+        namespace=namespace, 
+        *args,
+        **kwargs
+    )
 
 
 def table_exists(table: str, namespace: Optional[str] = None, *args, **kwargs) -> bool:
@@ -190,13 +326,34 @@ def alter_namespace(
     **kwargs,
 ) -> None:
     """Alter table namespace definition."""
-    raise NotImplementedError("alter_namespace not implemented")
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+    
+    storage_impl.update_namespace(
+        namespace=namespace,
+        properties=properties,
+        new_namespace=new_namespace,
+        catalog=catalog,
+        **kwargs
+    )
 
 
 def drop_namespace(namespace: str, purge: bool = False, *args, **kwargs) -> None:
     """Drop the given namespace and all of its tables from the catalog,
     optionally purging them."""
-    raise NotImplementedError("drop_namespace not implemented")
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+    
+    if not namespace_exists(namespace, catalog=catalog):
+        raise ValueError(f"Namespace {namespace} does not exist")
+    
+    storage_impl.delete_namespace(
+        namespace=namespace,
+        purge=purge,
+        **kwargs
+    )
 
 
 def default_namespace(*args, **kwargs) -> str:

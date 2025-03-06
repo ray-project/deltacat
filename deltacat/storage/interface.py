@@ -405,6 +405,20 @@ def delete_stream(
     """
     raise NotImplementedError("delete_stream not implemented")
 
+def drop_namespace(
+    namespace: str,
+    purge: bool,
+    *args,
+    **kwargs,
+) -> None:
+    """
+    Drops a table namespace and all its contents. If purge is True, then all
+    tables, table versions, and deltas will be deleted. Otherwise, the namespace
+    will be dropped only if it is empty. Raises an error if the given namespace
+    does not exist.
+    """
+    raise NotImplementedError("drop_namespace not implemented")
+
 
 def get_stream_by_id(
     table_version_locator: TableVersionLocator,

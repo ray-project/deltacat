@@ -1,9 +1,8 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pyarrow
 from deltacat.constants import DELTACAT_CATALOG_PROPERTY_ROOT
-
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 """
@@ -143,6 +142,8 @@ class CatalogProperties:
         )
         self._root = resolved_root
         self._filesystem = resolved_filesystem
+        
+        self._dataset_cache: Dict[Tuple[str, str], Any] = {}
 
     @property
     def root(self) -> str:
@@ -151,3 +152,104 @@ class CatalogProperties:
     @property
     def filesystem(self) -> Optional[pyarrow.fs.FileSystem]:
         return self._filesystem
+    
+    def cache_dataset(self, dataset, namespace: str) -> None:
+        """
+        Cache a dataset for faster retrieval.
+        
+        Args:
+            dataset: The dataset to cache
+            namespace: The namespace the dataset belongs to
+        """
+        self._dataset_cache[(namespace, dataset.dataset_name)] = dataset
+    
+    def get_cached_dataset(self, namespace: str, table_name: str) -> Optional[Any]:
+        """
+        Retrieve a cached dataset if available.
+        
+        Args:
+            namespace: The namespace
+            table_name: The table name
+            
+        Returns:
+            The cached dataset or None if not found
+        """
+        return self._dataset_cache.get((namespace, table_name))
+    
+    def remove_dataset_from_cache(self, namespace: str, table_name: str) -> None:
+        """
+        Remove a specific dataset from the cache.
+        
+        Args:
+            namespace: The namespace
+            table_name: The table name
+        """
+        if (namespace, table_name) in self._dataset_cache:
+            del self._dataset_cache[(namespace, table_name)]
+    
+    def remove_namespace_from_cache(self, namespace: str) -> None:
+        """
+        Remove all datasets for a specific namespace from the cache.
+        
+        Args:
+            namespace: The namespace to remove
+        """
+        keys_to_remove = []
+        for (ns, table), _ in self._dataset_cache.items():
+            if ns == namespace:
+                keys_to_remove.append((ns, table))
+        
+        for key in keys_to_remove:
+            del self._dataset_cache[key]
+    
+    def rename_dataset_in_cache(self, namespace: str, old_table_name: str, new_table_name: str) -> None:
+        """
+        Rename a dataset in the cache.
+        
+        Args:
+            namespace: The namespace 
+            old_table_name: The current table name
+            new_table_name: The new table name
+        """
+        if (namespace, old_table_name) in self._dataset_cache:
+            dataset = self._dataset_cache[(namespace, old_table_name)]
+            # Update the dataset's name property if available
+            if hasattr(dataset, 'dataset_name'):
+                dataset.dataset_name = new_table_name
+            # Store with new key
+            self._dataset_cache[(namespace, new_table_name)] = dataset
+            # Remove old entry
+            del self._dataset_cache[(namespace, old_table_name)]
+    
+    def rename_namespace_in_cache(self, old_namespace: str, new_namespace: str) -> None:
+        """
+        Rename a namespace in the cache, updating all associated datasets.
+        
+        Args:
+            old_namespace: The current namespace name
+            new_namespace: The new namespace name
+        """
+        datasets_to_rename = []
+        
+        # Find all datasets in the cache that belong to this namespace
+        for (ns, table_name), dataset in self._dataset_cache.items():
+            if ns == old_namespace:
+                datasets_to_rename.append((table_name, dataset))
+        
+        # Remove old entries and add with new namespace
+        for table_name, dataset in datasets_to_rename:
+            del self._dataset_cache[(old_namespace, table_name)]
+            self._dataset_cache[(new_namespace, table_name)] = dataset
+    
+    def clear_dataset_cache(self) -> None:
+        """Clear the entire dataset cache"""
+        self._dataset_cache.clear()
+        
+    def get_dataset_cache_size(self) -> int:
+        """
+        Get the number of datasets in the cache.
+        
+        Returns:
+            int: The number of cached datasets
+        """
+        return len(self._dataset_cache)
