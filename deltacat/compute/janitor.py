@@ -2,7 +2,6 @@ import os
 import time
 import shutil
 import posixpath
-import logging
 
 from deltacat.constants import TXN_DIR_NAME, RUNNING_TXN_DIR_NAME, FAILED_TXN_DIR_NAME, TXN_PART_SEPARATOR
 
