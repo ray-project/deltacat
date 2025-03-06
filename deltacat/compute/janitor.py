@@ -1,11 +1,8 @@
-import os
 import time
-import shutil
 import posixpath
 import logging
 import msgpack
 import pyarrow.fs
-from deltacat.storage.model.locator import Locator 
 from deltacat.storage.model.transaction import read
 
 from deltacat.utils.filesystem import (
@@ -66,12 +63,75 @@ def janitor_move_old_running_transactions(catalog_root: str, threshold_seconds: 
             except Exception as e:
                 raise RuntimeError(f"Failed to move '{filename}' to failed directory: {e}") from e
             
+def janitor_delete_timed_out_transaction(catalog_root: str, threshold_seconds: int = 3600) -> None:
+    """
+    Traverse the running transactions directory and move transactions that have been
+    running longer than threshold_seconds into the failed transactions directory.
+
+    Directory structure expected:
+        <catalog_root>/<TXN_DIR_NAME>/<RUNNING_TXN_DIR_NAME>
+        <catalog_root>/<TXN_DIR_NAME>/<FAILED_TXN_DIR_NAME>
+
+    Each file in the running directory is expected to be named as:
+        "<start_time><TXN_PART_SEPARATOR><transaction_id>"
+    """
+
+    catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+        catalog_root,
+        filesystem,
+    )
+
+    txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+    running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
+    filesystem.create_dir(running_txn_log_dir, recursive=False)
+
+    running_txn_file_selector = filesystem.FileSelector(running_txn_log_dir)
+
+    # Get file information for all files in the directory
+    running_txn_info_list = filesystem.get_file_info(running_txn_file_selector)  
+
+    for running_txn_info in running_txn_info_list:
+        try:
+            # TODO: NEED TO ACTUALLY MOVE FILE TO FAILED TRANSACTION DIRECTORY REFERENCE LINE 613 OF TRANSACTION.PY
+
+            # Read the transaction, class method from transaction.py line 349
+            txn = read(running_txn_info.path, filesystem)
+
+            curr_id = txn.id 
+
+            # Expected file name format: "<start_time><TXN_PART_SEPARATOR><transaction_id>"
+            parts = curr_id.split(TXN_PART_SEPARATOR)
+            
+            start_time_str = parts[0]
+
+            start_time = float(start_time_str)
+            current_time = time.time()
+
+            elapsed = current_time - start_time
+            if elapsed >= threshold_seconds:
+
+                known_write_paths = chain.from_iterable(
+                    [
+                        operation.metafile_write_paths + operation.locator_write_paths
+                        for operation in txn.operations
+                    ]
+                )
+
+                for write_path in known_write_paths:
+                    filesystem.delete_file(write_path)
+
+                # Delete the running transaction log file
+                filesystem.delete_file(running_txn_info.path)
+
+        except Exception as e:
+            print(f"Error cleaning failed transaction '{running_txn_info.base_name}': {e}")
+
 
 # TODO: I think to implement the iteration of each transaction in a directory we can use the children function in 
 # metafile.py on line 697 once we have established an absolute path from catalog to the directory
             
 
-def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.FileSystem):
+def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.FileSystem) -> None:
     """
     Cleans up metafiles and locator files associated with failed transactions.
     Only processes transactions that have not been successfully committed or are still running.
@@ -85,7 +145,7 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
 
     txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
 
-    failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+    failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME) # TODO: Lowkey need to clarify 
     filesystem.create_dir(failed_txn_log_dir, recursive=False)
 
     failed_txn_file_selector = filesystem.FileSelector(failed_txn_log_dir)
