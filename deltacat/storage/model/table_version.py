@@ -12,7 +12,12 @@ import pyarrow as pa
 import deltacat.storage.model.partition as partition
 
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
-from deltacat.constants import TXN_DIR_NAME, BYTES_PER_KIBIBYTE
+from deltacat.constants import (
+    METAFILE_FORMAT,
+    METAFILE_FORMAT_JSON,
+    TXN_DIR_NAME,
+    BYTES_PER_KIBIBYTE,
+)
 from deltacat.storage.model.schema import (
     Schema,
     SchemaList,
@@ -254,16 +259,22 @@ class TableVersion(Metafile):
 
     def to_serializable(self) -> TableVersion:
         serializable: TableVersion = TableVersion.update_for(self)
-        serializable.schema = (
-            serializable.schema.serialize().to_pybytes()
-            if serializable.schema
-            else None
-        )
-        serializable.schemas = (
-            [_.serialize().to_pybytes() for _ in serializable.schemas]
-            if serializable.schemas
-            else None
-        )
+        if serializable.schema:
+            schema_bytes = serializable.schema.serialize().to_pybytes()
+            serializable.schema = (
+                base64.b64encode(schema_bytes).decode("utf-8")
+                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                else schema_bytes
+            )
+
+        # Handle schemas list
+        if serializable.schemas:
+            serializable.schemas = [
+                base64.b64encode(schema.serialize().to_pybytes()).decode("utf-8")
+                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                else schema.serialize().to_pybytes()
+                for schema in serializable.schemas
+            ]
         if serializable.table_locator:
             # remove the mutable table locator
             serializable.locator.table_locator = TableLocator.at(
@@ -277,19 +288,32 @@ class TableVersion(Metafile):
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> TableVersion:
-        self["schema"] = (
-            Schema.deserialize(pa.py_buffer(base64.b64decode(self["schema"])))
-            if self.get("schema")
-            else None
-        )
-        self.schemas = (
-            [
-                Schema.deserialize(pa.py_buffer(base64.b64decode(schema)))
+        if self.get("schema"):
+            schema_data = self["schema"]
+            schema_bytes = (
+                base64.b64decode(schema_data)
+                if METAFILE_FORMAT == "json"
+                else schema_data
+            )
+            self["schema"] = Schema.deserialize(pa.py_buffer(schema_bytes))
+        else:
+            self["schema"] = None
+
+        # Handle schemas list
+        if self.get("schemas"):
+            self.schemas = [
+                Schema.deserialize(
+                    pa.py_buffer(
+                        base64.b64decode(schema)
+                        if METAFILE_FORMAT == "json"
+                        else schema
+                    )
+                )
                 for schema in self["schemas"]
             ]
-            if self.get("schemas")
-            else None
-        )
+        else:
+            self.schemas = None
+
         if self.sort_scheme:
             # force list-to-tuple conversion of sort keys via property invocation
             self.sort_scheme.keys
