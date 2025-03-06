@@ -283,7 +283,10 @@ class TableVersion(Metafile):
             else None
         )
         self.schemas = (
-            [Schema.deserialize(pa.py_buffer(base64.b64decode(schema))) for schema in self["schemas"]]
+            [
+                Schema.deserialize(pa.py_buffer(base64.b64decode(schema)))
+                for schema in self["schemas"]
+            ]
             if self.get("schemas")
             else None
         )

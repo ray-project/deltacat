@@ -241,7 +241,9 @@ class Partition(Metafile):
     def to_serializable(self) -> Partition:
         serializable: Partition = Partition.update_for(self)
         serializable.schema = (
-            base64.b64encode(serializable.schema.serialize().to_pybytes()).decode('utf-8')
+            base64.b64encode(serializable.schema.serialize().to_pybytes()).decode(
+                "utf-8"
+            )
             if serializable.schema
             else None
         )
