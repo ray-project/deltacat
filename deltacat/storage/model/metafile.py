@@ -5,6 +5,8 @@ import copy
 
 from typing import Optional, Tuple, List
 
+import base64
+import json
 import msgpack
 import pyarrow.fs
 import posixpath
@@ -12,8 +14,10 @@ import uuid
 import deltacat
 
 from deltacat.constants import (
+    METAFILE_FORMAT,
     REVISION_DIR_NAME,
     METAFILE_EXT,
+    SUPPORTED_METAFILE_FORMATS,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
@@ -540,18 +544,37 @@ class Metafile(dict):
         cls,
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        format: Optional[str] = METAFILE_FORMAT,
     ) -> Metafile:
         """
         Read a metadata file and return the deserialized object.
         :param path: Metadata file path to read.
         :param filesystem: File system to use for reading the metadata file.
+        :param format: Format to use for deserializing the metadata file.
         :return: Deserialized object from the metadata file.
         """
+        if format not in SUPPORTED_METAFILE_FORMATS:
+            raise ValueError(
+                f"Unsupported format '{format}'. Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
+            )
+
         if not filesystem:
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path) as file:
             binary = file.readall()
-            data = msgpack.loads(binary)
+        reader = {
+            "json": lambda b: json.loads(
+                b.decode("utf-8"),
+                object_hook=lambda obj: {
+                    k: base64.b64decode(v)
+                    if isinstance(v, str) and v.startswith("b64:")
+                    else v
+                    for k, v in obj.items()
+                },
+            ),
+            "msgpack": msgpack.loads,
+        }[format]
+        data = reader(binary)
         # cast this Metafile into the appropriate child class type
         clazz = Metafile.get_class(data)
         obj = clazz(**data).from_serializable(path, filesystem)
@@ -597,6 +620,7 @@ class Metafile(dict):
         self,
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        format: Optional[str] = METAFILE_FORMAT,
     ) -> None:
         """
         Serialize and write this object to a metadata file.
@@ -604,14 +628,31 @@ class Metafile(dict):
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
+        param: format: Format to use for serializing the metadata file.
         """
+        if format not in SUPPORTED_METAFILE_FORMATS:
+            raise ValueError(
+                f"Unsupported format '{format}'. Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
+            )
+
         if not filesystem:
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         revision_dir_path = posixpath.dirname(path)
         filesystem.create_dir(revision_dir_path, recursive=True)
+
+        writer = {
+            "json": lambda data: json.dumps(
+                data,
+                indent=4,
+                default=lambda b: base64.b64encode(b).decode("utf-8")
+                if isinstance(b, bytes)
+                else b,
+            ).encode("utf-8"),
+            "msgpack": msgpack.dumps,
+        }[format]
+
         with filesystem.open_output_stream(path) as file:
-            packed = msgpack.dumps(self.to_serializable())
-            file.write(packed)
+            file.write(writer(self.to_serializable()))
 
     def equivalent_to(self, other: Metafile) -> bool:
         """
