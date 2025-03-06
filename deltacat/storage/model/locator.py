@@ -123,3 +123,7 @@ class Locator:
         any string.
         """
         return f"{root}{separator}{self.hexdigest()}"
+    
+    def resolve_full_path(self, catalog_root: str, filesystem: Optional[pyarrow.fs.FileSystem] = None):
+        """ Resolves the full path including ancestors and catalog root. """
+        pass

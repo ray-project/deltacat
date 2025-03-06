@@ -4,6 +4,15 @@ import shutil
 import posixpath
 import logging
 import msgpack
+import pyarrow.fs
+from deltacat.storage.model.locator import Locator 
+from deltacat.storage.model.transaction import read
+
+from deltacat.utils.filesystem import (
+    resolve_path_and_filesystem,
+    list_directory,
+    get_file_info,
+)
 
 from itertools import chain
 
@@ -58,70 +67,54 @@ def janitor_move_old_running_transactions(catalog_root: str, threshold_seconds: 
                 raise RuntimeError(f"Failed to move '{filename}' to failed directory: {e}") from e
             
 
-# TODO: delete every operation of a transaction, reference line 628 of transactions.py
+# TODO: I think to implement the iteration of each transaction in a directory we can use the children function in 
+# metafile.py on line 697 once we have established an absolute path from catalog to the directory
             
 
-def janitor_remove_files_in_failed(txn_dir: str, failed_txn_log_dir: str, filesystem: pyarrow.fs.FileSystem):
+def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.FileSystem):
     """
     Cleans up metafiles and locator files associated with failed transactions.
     Only processes transactions that have not been successfully committed or are still running.
     txn_dir: Path to directory with all transactions
     failed_txn_log_dir: Path to failed transaction log, which should only contain ids of transactions
     """
-    try:
-        all_txn_files = filesystem.get_file_info(txn_dir)
-    except Exception as e:
-        print(f"Failed to list all transaction logs: {e}")
-        return
+    catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+        catalog_root,
+        filesystem,
+    )
 
-    try:
-        failed_txn_files = filesystem.get_file_info(failed_txn_log_dir)
-        failed_txn_ids = {posixpath.basename(txn_log_path) for txn_log_path in failed_txn_files}  # Set of failed txn IDs
-    except Exception as e:
-        print(f"Failed to list failed transaction logs: {e}")
-        return
+    txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
 
-    for txn_log in all_txn_files:
-        txn_id = posixpath.basename(txn_log.path)  # Extract transaction ID from the log filename
-        txn_log_path = posixpath.join(txn_dir, txn_id)  # Full path to the txn log
+    failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+    filesystem.create_dir(failed_txn_log_dir, recursive=False)
 
-        # Check if the transaction is already successfully committed or still running
-        success_txn_log_path = posixpath.join(txn_dir, SUCCESS_TXN_DIR_NAME, txn_id)
-        running_txn_log_path = posixpath.join(txn_dir, RUNNING_TXN_DIR_NAME, txn_id)
+    failed_txn_file_selector = filesystem.FileSelector(failed_txn_log_dir)
 
-        if filesystem.exists(success_txn_log_path):
-            continue  # Skip if already successfully committed
+    # Get file information for all files in the directory
+    failed_txn_info_list = filesystem.get_file_info(failed_txn_file_selector)  
 
-        if filesystem.exists(running_txn_log_path):
-            continue  # Skip if the transaction is still running, we know it hasn't failed because first call to 
-                        #janitor_move_old_running_transactions will handle this
+    for failed_txn_info in failed_txn_info_list:
+        try:
+            # Read the transaction, class method from transaction.py line 349
+            txn = read(failed_txn_info.path, filesystem)
 
-        # If the transaction is not in the success or running logs, it's a failed transaction
-        if txn_id in failed_txn_ids:
-            try:
-                # this was pretty much taken directly out of _commit_write in transactions.py
-                with filesystem.open_input_stream(txn_log_path) as file:
-                    txn_data = msgpack.loads(file.read())  
+            known_write_paths = chain.from_iterable(
+                [
+                    operation.metafile_write_paths + operation.locator_write_paths
+                    for operation in txn.operations
+                ]
+            )
 
-                # changed logic a little bit from _commit_write but same idea
-                metafile_paths = list(
-                    chain.from_iterable(op["metafile_write_paths"] for op in txn_data["operations"])
-                )
-                locator_paths = list(
-                    chain.from_iterable(op["locator_write_paths"] for op in txn_data["operations"])
-                )
+            for write_path in known_write_paths:
+                filesystem.delete_file(write_path)
 
-                for path in metafile_paths + locator_paths:
-                    try:
-                        filesystem.delete_file(path)
-                    except Exception as e:
-                        print(f"Failed to delete file `{path}`: {e}")
+            # Delete the failed transaction log file
+            filesystem.delete_file(failed_txn_info.path)
 
-                filesystem.delete_file(txn_log_path)
+            print(f"Cleaned up failed transaction: {failed_txn_info.base_name}")
 
-            except Exception as e:
-                print(f"Error processing failed transaction `{txn_id}`: {e}")
-
+        except Exception as e:
+            print(f"Error cleaning failed transaction '{failed_txn_info.base_name}': {e}")
 
 def janitor_job(catalog_root_dir: str) -> None:
     # TODO: Implement proper heartbeat mechanics
