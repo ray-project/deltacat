@@ -520,14 +520,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get the new partition scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equivalent to the expected scheme
         assert tv.partition_scheme.equivalent_to(new_scheme, True)
@@ -569,7 +569,7 @@ class TestTableVersion:
                 table_name=self.table.table_name,
                 table_version=self.table_version.table_version,
                 partition_scheme=new_scheme,
-                catalog=self.catalog,
+                catalog_properties=self.catalog,
             )
 
     def test_update_table_version_partition_scheme_equivalent_scheme_noop(self):
@@ -581,14 +581,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get the new partition scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equal the old scheme (including identifiers)
         assert tv.partition_scheme.equivalent_to(old_scheme, True)
@@ -613,14 +613,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.partition_scheme.equivalent_to(old_scheme, False)
@@ -646,14 +646,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.partition_scheme.equivalent_to(old_scheme, False)
@@ -687,14 +687,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get the new sort scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equivalent to the expected scheme
         assert tv.sort_scheme.equivalent_to(new_scheme, True)
@@ -733,7 +733,7 @@ class TestTableVersion:
                 table_name=self.table.table_name,
                 table_version=self.table_version.table_version,
                 sort_keys=new_scheme,
-                catalog=self.catalog,
+                catalog_properties=self.catalog,
             )
 
     def test_update_table_version_sort_scheme_equivalent_scheme_noop(self):
@@ -745,14 +745,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get the new sort scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equal the old scheme (including identifiers)
         assert tv.sort_scheme.equivalent_to(old_scheme, True)
@@ -777,14 +777,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.sort_scheme.equivalent_to(old_scheme, False)
@@ -810,14 +810,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.sort_scheme.equivalent_to(old_scheme, False)
@@ -841,14 +841,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             description=new_description,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to contain the new description
         assert tv.description == new_description != self.table_version.description
@@ -865,14 +865,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             description=new_description,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to contain the new description
         assert tv.description == new_description != self.table_version.description
@@ -884,14 +884,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             description=None,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to contain the old description (None == noop)
         assert tv.description == self.table_version.description
@@ -906,14 +906,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             properties=new_properties,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to contain the new properties
         assert tv.properties == new_properties != self.table_version.properties
@@ -930,14 +930,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             properties=new_properties,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to contain the new properties
         assert tv.properties == new_properties != self.table_version.properties
@@ -949,14 +949,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             properties=None,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog=self.catalog,
+            catalog_properties=self.catalog,
         )
         # expect it to contain the old properties (None == noop)
         assert tv.properties == self.table_version.properties
