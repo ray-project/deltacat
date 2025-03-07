@@ -25,7 +25,7 @@ def write_to_table(
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Write local or distributed data to a table. Raises an error if the
     table does not exist and the table write mode is not CREATE or AUTO.
@@ -54,7 +54,7 @@ def alter_table(
     description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Alter table definition."""
     raise NotImplementedError("alter_table not implemented")
@@ -73,7 +73,7 @@ def create_table(
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
     *args,
-    **kwargs
+    **kwargs,
 ) -> TableDefinition:
     """Create an empty table. Raises an error if the table already exists and
     `fail_if_exists` is True (default behavior)."""
@@ -146,7 +146,10 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
 
 
 def create_namespace(
-    namespace: str, properties: NamespaceProperties, *args, **kwargs
+    namespace: str,
+    properties: Optional[NamespaceProperties] = None,
+    *args,
+    **kwargs,
 ) -> Namespace:
     """Creates a table namespace with the given name and properties. Returns
     the created namespace. Raises an error if the namespace already exists."""
@@ -158,7 +161,7 @@ def alter_namespace(
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Alter table namespace definition."""
     raise NotImplementedError("alter_namespace not implemented")

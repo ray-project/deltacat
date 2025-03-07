@@ -29,6 +29,7 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     get_catalog,
 )
 from deltacat.catalog.iceberg import impl as IcebergCatalog
+from deltacat.catalog.main import impl as deltacatalog
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage import (
     DistributedDataset,

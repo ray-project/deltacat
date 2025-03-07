@@ -54,7 +54,10 @@ def write_to_table(
 
 
 def read_table(
-    table: str, *args, namespace: Optional[str] = None, **kwargs
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
+    **kwargs,
 ) -> DistributedDataset:
     """Read data from a DeltaCat table.
 
@@ -239,7 +242,12 @@ def drop_table(
     )
 
 
-def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) -> None:
+def refresh_table(
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
+    **kwargs,
+) -> None:
     """Refresh metadata cached on the Ray cluster for the given table.
 
     Args:
@@ -253,7 +261,9 @@ def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) 
 
 
 def list_tables(
-    *args, namespace: Optional[str] = None, **kwargs
+    *args,
+    namespace: Optional[str] = None,
+    **kwargs,
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions.
 
@@ -337,7 +347,10 @@ def get_table(
 
 
 def truncate_table(
-    table: str, *args, namespace: Optional[str] = None, **kwargs
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
+    **kwargs,
 ) -> None:
     """Truncate table data.
 
@@ -352,7 +365,11 @@ def truncate_table(
 
 
 def rename_table(
-    table: str, new_name: str, *args, namespace: Optional[str] = None, **kwargs
+    table: str,
+    new_name: str,
+    *args,
+    namespace: Optional[str] = None,
+    **kwargs,
 ) -> None:
     """Rename an existing table.
 
@@ -373,7 +390,12 @@ def rename_table(
     )
 
 
-def table_exists(table: str, *args, namespace: Optional[str] = None, **kwargs) -> bool:
+def table_exists(
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
+    **kwargs,
+) -> bool:
     """Check if a table exists in the catalog.
 
     Args:
@@ -385,7 +407,10 @@ def table_exists(table: str, *args, namespace: Optional[str] = None, **kwargs) -
     """
     namespace = namespace or default_namespace()
     return storage_impl.table_exists(
-        *args, table_name=table, namespace=namespace, **kwargs
+        *args,
+        table_name=table,
+        namespace=namespace,
+        **kwargs,
     )
 
 
@@ -401,7 +426,11 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     return storage_impl.list_namespaces(*args, **kwargs)
 
 
-def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
+def get_namespace(
+    namespace: str,
+    *args,
+    **kwargs,
+) -> Optional[Namespace]:
     """Get metadata for a specific table namespace.
 
     Args:
@@ -410,23 +439,37 @@ def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     Returns:
         Namespace object if the namespace exists, None otherwise.
     """
-    return storage_impl.get_namespace(*args, namespace=namespace, **kwargs)
+    return storage_impl.get_namespace(
+        namespace=namespace,
+        *args,
+        **kwargs,
+    )
 
 
-def namespace_exists(namespace: str, *args, **kwargs) -> bool:
-    """Check if a namespace exists.
-
+def namespace_exists(
+    namespace: str,
+    *args,
+    **kwargs,
+) -> bool:
+    """
     Args:
         namespace: Name of the namespace to check.
 
     Returns:
         True if the namespace exists, False otherwise.
     """
-    return storage_impl.namespace_exists(*args, namespace=namespace, **kwargs)
+    return storage_impl.namespace_exists(
+        namespace=namespace,
+        *args,
+        **kwargs,
+    )
 
 
 def create_namespace(
-    namespace: str, *args, properties: Optional[NamespaceProperties] = None, **kwargs
+    namespace: str,
+    *args,
+    properties: Optional[NamespaceProperties] = None,
+    **kwargs,
 ) -> Namespace:
     """Create a new namespace.
 
@@ -440,11 +483,14 @@ def create_namespace(
     Raises:
         NamespaceAlreadyExistsError: If the namespace already exists.
     """
-    if namespace_exists(namespace):
+    if namespace_exists(namespace, *args, **kwargs):
         raise NamespaceAlreadyExistsError(f"Namespace {namespace} already exists")
 
     return storage_impl.create_namespace(
-        *args, namespace=namespace, properties=properties, **kwargs
+        namespace=namespace,
+        properties=properties,
+        *args,
+        **kwargs,
     )
 
 
