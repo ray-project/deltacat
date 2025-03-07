@@ -407,15 +407,36 @@ def create_table_version(
         schema=iceberg_schema,
         case_sensitive=case_sensitive_col_names,
     )
-    table = catalog.create_table(
-        identifier=identifier,
-        schema=iceberg_schema,
-        location=location,
-        partition_spec=partition_spec or UNPARTITIONED_PARTITION_SPEC,
-        sort_order=sort_order or UNSORTED_SORT_ORDER,
-        properties=table_properties or EMPTY_DICT,
-    )
-    logger.info(f"Created table: {table}")
+    
+    # attempt to load table (if it exists) (resolve todo #1)
+    existing_table = _try_load_iceberg_table(catalog, namespace, table_name)
+    
+    # table already exists
+    if existing_table is not None:
+        table = existing_table
+        logger.info(f"Table already exists: {table}")
+        
+        # Update table properties if provided (resolves todo #2)
+        if table_properties:
+            try:
+                # Use transaction to update table properties
+                with table.transaction() as transaction:
+                    transaction.set_properties(table_properties)
+                logger.info(f"Updated table properties for {namespace}.{table_name}")
+            except Exception as e:
+                logger.warning(f"Failed to update table properties: {e}")
+    else:
+        # otherwise create a new table
+        table = catalog.create_table(
+            identifier=identifier,
+            schema=iceberg_schema,
+            location=location,
+            partition_spec=partition_spec or UNPARTITIONED_PARTITION_SPEC,
+            sort_order=sort_order or UNSORTED_SORT_ORDER,
+            properties=table_properties or EMPTY_DICT,
+        )
+        logger.info(f"Created table: {table}")
+
     # no snapshot is committed on table creation, so return an undefined stream
     return Stream.of(locator=None, partition_scheme=None)
 
