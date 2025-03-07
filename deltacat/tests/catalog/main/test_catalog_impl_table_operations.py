@@ -139,6 +139,8 @@ class TestCatalogTableOperations:
             description="Original description",
             catalog=self.catalog_properties
         )
+
+        assert catalog.table_exists(table_name, self.test_namespace, catalog=self.catalog_properties)
         
         # Create the same table with fail_if_exists=False
         table_definition = catalog.create_table(

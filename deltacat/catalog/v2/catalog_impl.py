@@ -201,7 +201,13 @@ def list_tables(
         raise ValueError("Catalog must be a CatalogProperties instance")
 
     namespace = namespace or default_namespace()
-    storage_impl.list_tables(namespace=namespace, catalog=catalog)
+    tables = storage_impl.list_tables(namespace=namespace, catalog=catalog)
+    table_definitions = [
+        _get_table_definition(table.table_name, namespace, *args, **kwargs)
+        for table in tables.all_items()
+    ]
+    
+    return ListResult(items=table_definitions)
 
 
 def get_table(
@@ -216,18 +222,41 @@ def get_table(
         raise ValueError("Catalog must be a CatalogProperties instance")
 
     namespace = namespace or default_namespace()
+    return _get_table_definition(table, namespace, *args, **kwargs)
+
+
+def _get_table_definition(
+    table_name: str, namespace: Optional[str] = None, *args, **kwargs
+) -> Optional[TableDefinition]:
+    """
+    Get table definition metadata. Returns None if the given table does not exist.
+
+    TODO: Throw errors if None values?
+    """
+    catalog = kwargs.get("catalog")
+    if not isinstance(catalog, CatalogProperties):
+        raise ValueError("Catalog must be a CatalogProperties instance")
+
+    namespace = namespace or default_namespace()
     table = storage_impl.get_table(
-        table_name=table, namespace=namespace, catalog=catalog
+        table_name=table_name, namespace=namespace, catalog=catalog
     )
 
-    table_version = storage_impl.get_table_version(namespace, table, table.latest_table_version, catalog=catalog)
+    table_version = storage_impl.get_table_version(namespace, table_name, table.latest_table_version, catalog=catalog)
+
+    stream = storage_impl.get_stream(
+        *args,
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+        **kwargs,
+    )
 
     return TableDefinition.of(
         table=table,
         table_version=table_version,
-        stream=Stream(),
+        stream=stream,
     )
-
 
 
 def truncate_table(
