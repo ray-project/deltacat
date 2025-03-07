@@ -44,6 +44,19 @@ class Catalog:
         # (e.g. Iceberg catalog w/ unserializable SSLContext from boto3 client)
         return partial(self.__class__, **self._kwargs), (self._impl, *self._args)
 
+    def __str__(self):
+        string_rep = f"{self.__class__.__name__}("
+        if self._args:
+            string_rep += f"args={self._args}, "
+        if self._kwargs:
+            string_rep += f"kwargs={self._kwargs}, "
+        if self._native_object:
+            string_rep += f"native_object={self._native_object})"
+        return string_rep
+
+    def __repr__(self):
+        return self.__str__()
+
 
 @ray.remote
 class Catalogs:
@@ -88,6 +101,10 @@ class Catalogs:
         return self.default_catalog
 
 
+def is_initialized() -> bool:
+    return all_catalogs is not None
+
+
 def init(
     catalogs: Dict[str, Catalog],
     default_catalog_name: Optional[str] = None,
@@ -95,6 +112,9 @@ def init(
     *args,
     **kwargs,
 ) -> None:
+    if is_initialized():
+        logger.warning("DeltaCAT already initialized.")
+        return
 
     if not ray.is_initialized():
         if ray_init_args:
@@ -134,3 +154,19 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
             f"Catalog '{name}' not found. Available catalogs: " f"{available_catalogs}."
         )
     return catalog
+
+
+def put_catalog(name: str, *args, **kwargs) -> Catalog:
+    from deltacat.catalog.model.catalog import all_catalogs
+
+    new_catalog = Catalog(*args, **kwargs)
+    if is_initialized():
+        try:
+            get_catalog(name)
+            raise ValueError(f"Catalog {name} already exists.")
+        except ValueError:
+            # TODO(pdames): Create dc.put_catalog() helper.
+            ray.get(all_catalogs.put.remote(name, new_catalog))
+    else:
+        init({name: new_catalog})
+    return new_catalog

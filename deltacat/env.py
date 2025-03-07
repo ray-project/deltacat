@@ -1,6 +1,5 @@
 import os
 import logging
-import argparse
 from typing import Dict, Any
 
 from deltacat import logs

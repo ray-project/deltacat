@@ -39,11 +39,11 @@ class TestNamespace:
         cls.catalog = CatalogProperties(cls.tmpdir)
         cls.namespace1 = metastore.create_namespace(
             namespace="namespace1",
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         cls.namespace2 = metastore.create_namespace(
             namespace="namespace2",
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
 
     @classmethod
@@ -59,11 +59,11 @@ class TestNamespace:
         # expect the namespace to exist
         assert metastore.namespace_exists(
             namespace="namespace1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
 
         # expect the namespace to also be returned when listing namespaces
-        list_result = metastore.list_namespaces(catalog_properties=self.catalog)
+        list_result = metastore.list_namespaces(catalog=self.catalog)
         namespaces_by_name = {n.locator.namespace: n for n in list_result.all_items()}
         assert len(namespaces_by_name.items()) == 2
         assert namespaces_by_name["namespace1"].equivalent_to(self.namespace1)
@@ -73,20 +73,20 @@ class TestNamespace:
         # expect the namespace to also be returned when explicitly retrieved
         read_namespace = metastore.get_namespace(
             namespace="namespace1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert read_namespace and read_namespace.equivalent_to(self.namespace1)
 
     def test_namespace_exists_existing(self):
         assert metastore.namespace_exists(
             "namespace1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
 
     def test_namespace_not_exists(self):
         assert not metastore.namespace_exists(
             "foobar",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
 
 
@@ -99,7 +99,7 @@ class TestTable:
         cls.test_namespace = create_test_namespace()
         cls.namespace_obj = metastore.create_namespace(
             namespace=cls.test_namespace.namespace,
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         cls.test_table1 = create_test_table()
         cls.test_table1.latest_table_version = "v.1"
@@ -113,7 +113,7 @@ class TestTable:
             table_version=cls.test_table1.latest_table_version,
             table_description=cls.test_table1.description,
             table_properties=cls.test_table1.properties,
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         cls.table2, cls.tv2, cls.stream2 = metastore.create_table_version(
             namespace=cls.test_table2.namespace,
@@ -121,7 +121,7 @@ class TestTable:
             table_version=cls.test_table2.latest_table_version,
             table_description=cls.test_table2.description,
             table_properties=cls.test_table2.properties,
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
 
     @classmethod
@@ -132,7 +132,7 @@ class TestTable:
         # list the tables under our namespace
         list_result = metastore.list_tables(
             namespace=self.test_namespace.namespace,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         all_tables = list_result.all_items()
 
@@ -148,7 +148,7 @@ class TestTable:
         tbl = metastore.get_table(
             namespace=self.test_namespace.namespace,
             table_name=self.test_table1.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert tbl is not None
         assert tbl.equivalent_to(self.test_table1)
@@ -158,14 +158,14 @@ class TestTable:
         assert metastore.table_exists(
             namespace=self.test_namespace.namespace,
             table_name=self.test_table1.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
 
     def test_table_not_exists(self):
         assert not metastore.table_exists(
             namespace=self.test_namespace.namespace,
             table_name="no_such_table",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
 
 
@@ -189,7 +189,7 @@ class TestTableVersion:
         # create a namespace and single table
         cls.namespace_obj = metastore.create_namespace(
             namespace=cls.namespace.namespace,
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
 
         # create a "base" table with single table version attached
@@ -205,7 +205,7 @@ class TestTableVersion:
             table_description=cls.table.description,
             table_properties=cls.table.properties,
             supported_content_types=cls.table_version.content_types,
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         # now attach a second table version to the same base table
         cls.table2, cls.tv2, cls.stream2 = metastore.create_table_version(
@@ -220,7 +220,7 @@ class TestTableVersion:
             table_description=cls.table.description,
             table_properties=cls.table.properties,
             supported_content_types=cls.table_version2.content_types,
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         cls.table.latest_table_version = cls.table_version2.table_version
 
@@ -246,7 +246,7 @@ class TestTableVersion:
                 table_description=self.table.description,
                 table_properties=self.table.properties,
                 supported_content_types=table_version.content_types,
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
             )
 
     def test_create_next_table_version(self):
@@ -268,13 +268,13 @@ class TestTableVersion:
             table_description=self.table.description,
             table_properties=self.table.properties,
             supported_content_types=table_version.content_types,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect ordinal table version 3 to be successfully created
         table_version3 = metastore.get_latest_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         table_version.previous_table_version = self.table_version2.table_version
         assert table_version3.equivalent_to(table_version)
@@ -292,13 +292,13 @@ class TestTableVersion:
             table_description=self.table.description,
             table_properties=self.table.properties,
             supported_content_types=self.table_version.content_types,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we retrieve this table version
         table_version = metastore.get_latest_table_version(
             namespace=self.table.namespace,
             table_name="test_table_2",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to have the correct default table version ID assigned
         table_version.previous_table_version = self.table_version2.table_version
@@ -311,7 +311,7 @@ class TestTableVersion:
         list_result = metastore.list_table_versions(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we list all table versions
         # expect the table versions fetched to be equivalent to those created
@@ -335,7 +335,7 @@ class TestTableVersion:
             # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.list_table_versions(
-                    catalog_properties=self.catalog,
+                    catalog=self.catalog,
                     **kwargs_copy,
                 )
 
@@ -345,7 +345,7 @@ class TestTableVersion:
         tv = metastore.get_latest_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent ot the last created table version
         assert tv.equivalent_to(self.table_version2)
@@ -363,7 +363,7 @@ class TestTableVersion:
             # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.get_latest_table_version(
-                    catalog_properties=self.catalog,
+                    catalog=self.catalog,
                     **kwargs_copy,
                 )
 
@@ -386,14 +386,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             schema=new_schema,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the new schema of table version 1
         actual_schema = metastore.get_table_version_schema(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the expected schema
         assert actual_schema.equivalent_to(new_schema)
@@ -403,7 +403,7 @@ class TestTableVersion:
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert len(tv.schemas) == 2
         assert tv.schemas[0].equivalent_to(old_schema)
@@ -435,7 +435,7 @@ class TestTableVersion:
                 table_name=self.table.table_name,
                 table_version=self.table_version.table_version,
                 schema=new_schema,
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
             )
 
     def test_update_table_version_schema_equivalent_schema_noop(self):
@@ -449,14 +449,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             schema=new_schema,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the new schema of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the old schema (including metadata)
         assert tv.schema.equivalent_to(old_schema, True)
@@ -478,14 +478,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             schema=new_schema,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the new schema of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the old schema (ignoring metadata)
         assert tv.schema.equivalent_to(old_schema)
@@ -520,14 +520,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the new partition scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the expected scheme
         assert tv.partition_scheme.equivalent_to(new_scheme, True)
@@ -569,7 +569,7 @@ class TestTableVersion:
                 table_name=self.table.table_name,
                 table_version=self.table_version.table_version,
                 partition_scheme=new_scheme,
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
             )
 
     def test_update_table_version_partition_scheme_equivalent_scheme_noop(self):
@@ -581,14 +581,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the new partition scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equal the old scheme (including identifiers)
         assert tv.partition_scheme.equivalent_to(old_scheme, True)
@@ -613,14 +613,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.partition_scheme.equivalent_to(old_scheme, False)
@@ -646,14 +646,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             partition_scheme=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.partition_scheme.equivalent_to(old_scheme, False)
@@ -687,14 +687,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the new sort scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the expected scheme
         assert tv.sort_scheme.equivalent_to(new_scheme, True)
@@ -733,7 +733,7 @@ class TestTableVersion:
                 table_name=self.table.table_name,
                 table_version=self.table_version.table_version,
                 sort_keys=new_scheme,
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
             )
 
     def test_update_table_version_sort_scheme_equivalent_scheme_noop(self):
@@ -745,14 +745,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the new sort scheme of table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equal the old scheme (including identifiers)
         assert tv.sort_scheme.equivalent_to(old_scheme, True)
@@ -777,14 +777,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.sort_scheme.equivalent_to(old_scheme, False)
@@ -810,14 +810,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             sort_keys=new_scheme,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be equivalent to the old scheme (ignoring identifiers)
         assert tv.sort_scheme.equivalent_to(old_scheme, False)
@@ -841,14 +841,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             description=new_description,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to contain the new description
         assert tv.description == new_description != self.table_version.description
@@ -865,14 +865,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             description=new_description,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to contain the new description
         assert tv.description == new_description != self.table_version.description
@@ -884,14 +884,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             description=None,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to contain the old description (None == noop)
         assert tv.description == self.table_version.description
@@ -906,14 +906,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             properties=new_properties,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to contain the new properties
         assert tv.properties == new_properties != self.table_version.properties
@@ -930,14 +930,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             properties=new_properties,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to contain the new properties
         assert tv.properties == new_properties != self.table_version.properties
@@ -949,14 +949,14 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             properties=None,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get table version 1
         tv = metastore.get_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to contain the old properties (None == noop)
         assert tv.properties == self.table_version.properties
@@ -969,7 +969,7 @@ class TestTableVersion:
         tv = metastore.get_latest_active_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be undefined
         assert tv is None
@@ -977,7 +977,7 @@ class TestTableVersion:
         table = metastore.get_table(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect its latest table version to be table version 2
         assert table.latest_table_version == self.table_version2.table_version
@@ -992,13 +992,13 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
             lifecycle_state=LifecycleState.ACTIVE,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the latest active table version
         tv = metastore.get_latest_active_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be table version 1
         active_table_version: TableVersion = Metafile.update_for(self.table_version)
@@ -1010,13 +1010,13 @@ class TestTableVersion:
             table_name=self.table.table_name,
             table_version=self.table_version2.table_version,
             lifecycle_state=LifecycleState.ACTIVE,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # when we get the latest active table version
         tv = metastore.get_latest_active_table_version(
             namespace=self.table.namespace,
             table_name=self.table.table_name,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect it to be table version 2
         active_table_version2: TableVersion = Metafile.update_for(self.table_version2)
@@ -1036,7 +1036,7 @@ class TestTableVersion:
             # expect an error to be raised
             with pytest.raises(ValueError):
                 metastore.get_latest_active_table_version(
-                    catalog_properties=self.catalog,
+                    catalog=self.catalog,
                     **kwargs_copy,
                 )
 
@@ -1047,7 +1047,7 @@ class TestTableVersion:
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect the table version returned to be equivalent to the one created
         assert tv.equivalent_to(self.table_version)
@@ -1059,7 +1059,7 @@ class TestTableVersion:
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version="v.999",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # expect nothing to be returned
         assert tv is None
@@ -1078,7 +1078,7 @@ class TestTableVersion:
             assert (
                 metastore.get_table_version(
                     table_version=self.table_version.table_version,
-                    catalog_properties=self.catalog,
+                    catalog=self.catalog,
                     **kwargs_copy,
                 )
                 is None
@@ -1092,7 +1092,7 @@ class TestTableVersion:
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version=self.table_version.table_version,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
 
     def test_table_version_not_exists(self):
@@ -1103,7 +1103,7 @@ class TestTableVersion:
             namespace=self.table.namespace,
             table_name=self.table.table_name,
             table_version="v.999",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
 
     def test_table_version_exists_bad_parent_locator(self):
@@ -1119,7 +1119,7 @@ class TestTableVersion:
             # expect empty results
             assert not metastore.table_version_exists(
                 table_version=self.table_version.table_version,
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
                 **kwargs_copy,
             )
 
@@ -1132,7 +1132,7 @@ class TestTableVersion:
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
                 table_version=self.table_version.table_version,
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
             )
 
 
@@ -1143,7 +1143,7 @@ class TestStream:
         cls.catalog = CatalogProperties(cls.tmpdir)
         metastore.create_namespace(
             "test_stream_ns",
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         # Create a table version.
         # This call should automatically create a default DeltaCAT stream.
@@ -1151,14 +1151,14 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         # Retrieve the auto-created default stream.
         cls.default_stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=cls.catalog,
+            catalog=cls.catalog,
         )
         # Ensure that the default stream was auto-created.
         assert cls.default_stream is not None, "Default stream not found."
@@ -1173,7 +1173,7 @@ class TestStream:
             "test_stream_ns",
             "mystreamtable",
             "v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         streams = list_result.all_items()
         # We expect exactly one stream (the default "deltacat" stream).
@@ -1185,7 +1185,7 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert exists
 
@@ -1195,7 +1195,7 @@ class TestStream:
             table_name="mystreamtable",
             table_version="v.1",
             stream_format=StreamFormat.ICEBERG,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert not exists
 
@@ -1210,7 +1210,7 @@ class TestStream:
             # table version format must be v.N to not raise a ValueError
             kwargs_copy[key] = "i_dont_exist" if key != "table_version" else "v.1000"
             assert not metastore.stream_exists(
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
                 **kwargs_copy,
             )
 
@@ -1225,7 +1225,7 @@ class TestStream:
             kwargs_copy[key] = "i_dont_exist"
             with pytest.raises(ValueError):
                 metastore.list_streams(
-                    catalog_properties=self.catalog,
+                    catalog=self.catalog,
                     **kwargs_copy,
                 )
 
@@ -1234,7 +1234,7 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert stream.equivalent_to(self.default_stream)
 
@@ -1250,7 +1250,7 @@ class TestStream:
             kwargs_copy[key] = "i_dont_exist" if key != "table_version" else "v.1000"
             assert (
                 metastore.get_stream(
-                    catalog_properties=self.catalog,
+                    catalog=self.catalog,
                     **kwargs_copy,
                 )
                 is None
@@ -1262,7 +1262,7 @@ class TestStream:
             table_name="mystreamtable",
             table_version="v.1",
             stream_format=StreamFormat.ICEBERG,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert stream is None
 
@@ -1270,7 +1270,7 @@ class TestStream:
         # no partitions yet
         list_result = metastore.list_stream_partitions(
             self.default_stream,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         partitions = list_result.all_items()
         assert len(partitions) == 0
@@ -1281,14 +1281,14 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # When we try to get the last committed stream
         stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # Expect nothing to be returned
         assert stream is None
@@ -1301,7 +1301,7 @@ class TestStream:
                 table_version="v.1",
             ),
             stream_id=self.default_stream.id,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # Expect nothing to be returned
         assert stream is None
@@ -1314,7 +1314,7 @@ class TestStream:
                 table_name="mystreamtable",
                 table_version="v.1",
                 stream_format=StreamFormat.ICEBERG,
-                catalog_properties=self.catalog,
+                catalog=self.catalog,
             )
 
     def test_delete_stream_bad_parent_locator(self):
@@ -1328,7 +1328,7 @@ class TestStream:
             kwargs_copy[key] = "i_dont_exist"
             with pytest.raises(ValueError):
                 metastore.delete_stream(
-                    catalog_properties=self.catalog,
+                    catalog=self.catalog,
                     **kwargs_copy,
                 )
 
@@ -1338,7 +1338,7 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # When that staged stream is retrieved by ID
         fetched_stream = metastore.get_stream_by_id(
@@ -1348,7 +1348,7 @@ class TestStream:
                 table_version="v.1",
             ),
             stream_id=staged_stream.stream_id,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # Ensure that it is equivalent to the stream we staged
         assert fetched_stream.id == staged_stream.id == fetched_stream.stream_id
@@ -1359,21 +1359,21 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         assert fetched_stream.id == self.default_stream.id == fetched_stream.stream_id
         assert fetched_stream.equivalent_to(self.default_stream)
         # Given a committed stream that replaces the default stream
         committed_stream = metastore.commit_stream(
             stream=staged_stream,
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # When the last committed stream is retrieved
         fetched_stream = metastore.get_stream(
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         # Ensure that it is equivalent to the stream we committed
         assert fetched_stream.id == committed_stream.id == fetched_stream.stream_id
@@ -1382,7 +1382,7 @@ class TestStream:
             "test_stream_ns",
             "mystreamtable",
             "v.1",
-            catalog_properties=self.catalog,
+            catalog=self.catalog,
         )
         streams = list_result.all_items()
         # This will list the default stream and the newly committed stream

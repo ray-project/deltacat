@@ -9,24 +9,23 @@ from deltacat.utils.filesystem import resolve_path_and_filesystem
 """
 Global (i.e., interpreter-level) DeltaCAT catalog property config attributes.
 
-These will be fetched by CatalogProperties, OR allow injection of a custom
-CatalogProperties in kwargs
+These will be set to catalog property system environment variables by
+default, unless overridden by custom catalog properties provided to catalog or 
+storage APIs directly.
 
 Example: injecting custom CatalogProperties
-.. code-block:: python    
+.. code-block:: python
     catalog.namespace_exists(
-        "my_namespace", 
-        catalog_properties=CatalogProperties(root="..."),
+        "my_namespace",
+        catalog=CatalogProperties(root="..."),
     )
 
 Example: explicitly initializing global CatalogProperties
-.. code-block:: python    
+.. code-block:: python
     from deltacat.catalog import initialize_properties
     initialize_properties(root="...")
     catalog.namespace_exists("mynamespace")
 
-By default, catalog properties are initialized automatically, and fall back to 
-defaults/env variables.
 Example: using env variables
   os.environ["DELTACAT_ROOT"]="..."
   catalog.namespace_exists("mynamespace")
@@ -86,7 +85,7 @@ def get_catalog_properties(
     Helper function to get the appropriate CatalogProperties instance.
 
     If 'catalog_properties' is provided it will be used. Otherwise, catalog
-    properties will be read from environment variables.
+    properties will be read from system environment variables.
 
     Args:
         catalog: Catalog property overrides to use instead of
@@ -99,7 +98,10 @@ def get_catalog_properties(
     if properties is not None and isinstance(properties, CatalogProperties):
         return properties
     elif properties is not None and not isinstance(properties, CatalogProperties):
-        raise ValueError("Catalog must be a CatalogProperties instance.")
+        raise ValueError(
+            f"Expected catalog properties of type {CatalogProperties.__name__} "
+            f"but found {type(properties)}."
+        )
 
     # Use the global catalog, initializing if necessary
     if not _INITIALIZED:
@@ -110,28 +112,27 @@ def get_catalog_properties(
 
 class CatalogProperties:
     """
-    Holds all DeltaCAT catalog configuration.
+    DeltaCAT catalog properties used to deterministically resolve a durable
+    DeltaCAT catalog instance. Properties are set from system environment
+    variables unless explicit overrides are provided during initialization.
 
     Can be configured at the interpreter level by calling initialize_properties,
-    or provided with the kwarg catalog_properties. We expect functions to plumb
-    through kwargs throughout, so only when a property needs to be fetched does
-    a function need to retrieve the property catalog. Property catalog must be
-    retrieved through get_property_catalog, which will hierarchically check
-    kwargs then the global value.
+    or provided directly to catalog/store APIs. Catalog and storage APIs rely
+    on the property catalog to retrieve durable state about the catalog they're
+    working against.
 
-    Specific properties are configurable via env variable.
-
-    Be aware that parallel code (e.g. parallel tests) may overwrite the
-    catalog properties defined global at the interpreter level.
-    In this case, you must explicitly provide the kwarg catalog_properties
-    rather than declare it globally with initialize_catalog_properties.
+    Since interpreter-global catalog properties are not multi-process or thread
+    safe, parallel code (e.g. parallel tests) they should only be used to
+    simplify local, single-process development. For all other use-cases,
+    properties must be passed explicitly into all catalog and storage APIs.
 
     Attributes:
-        root (str): URI string The root path where catalog metadata and data files are stored. If none provided,
-          will be initialized as .deltacat/ relative to current working directory
+        root (str): URI string The root path where catalog metadata and data
+            files are stored. Set to {current-working-dir}/.deltacat if None.
 
-        filesystem (pyarrow.fs.FileSystem): pyarrow filesystem implementation used for
-            accessing files. If not provided, will be inferred via root
+        filesystem: The filesystem implementation that should be used for
+            reading/writing files. If None, a filesystem will be inferred from
+            the catalog root path.
     """
 
     def __init__(
@@ -145,8 +146,7 @@ class CatalogProperties:
         Initialize a CatalogProperties instance.
 
         Args:
-            root: A single directory path that will serve as the root
-                directory for this catalog.
+            root: A single directory path that serves as the catalog root dir.
             filesystem: The filesystem implementation that should be used for
                 reading these files. If None, a filesystem will be inferred.
                 If not None, the provided filesystem will still be validated
@@ -166,3 +166,11 @@ class CatalogProperties:
     @property
     def filesystem(self) -> Optional[pyarrow.fs.FileSystem]:
         return self._filesystem
+
+    def __str__(self):
+        return (
+            f"{self.__class__.__name__}(root={self.root}, filesystem={self.filesystem})"
+        )
+
+    def __repr__(self):
+        return self.__str__()

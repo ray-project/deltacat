@@ -276,7 +276,10 @@ def list_namespaces(
 
 
 def get_namespace(
-    namespace: str, catalog: Optional[str] = None, *args, **kwargs
+    namespace: str,
+    catalog: Optional[str] = None,
+    *args,
+    **kwargs,
 ) -> Optional[Namespace]:
     """Get table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist."""
