@@ -1,7 +1,7 @@
 import shutil
 import tempfile
 import deltacat.catalog.v2.catalog_impl as catalog
-from deltacat.catalog.catalog_properties import initialize_properties
+from deltacat.catalog.model.properties import initialize_properties
 
 
 class TestCatalogNamespaceOperations:

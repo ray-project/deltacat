@@ -8,7 +8,7 @@ from functools import partial
 import ray
 
 from deltacat import logs
-from deltacat.catalog import interface as catalog_interface
+from deltacat.catalog.main import impl as deltacat_catalog
 
 all_catalogs: Optional[Catalogs] = None
 
@@ -16,7 +16,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class Catalog:
-    def __init__(self, impl=catalog_interface, *args, **kwargs):
+    def __init__(self, impl=deltacat_catalog, *args, **kwargs):
         if not isinstance(self, Catalog):
             # self may contain the tuple returned from __reduce__ (ray pickle bug?)
             if callable(self[0]) and isinstance(self[1], tuple):

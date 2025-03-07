@@ -290,7 +290,10 @@ def get_namespace(
 
 
 def namespace_exists(
-    namespace: str, catalog: Optional[str] = None, *args, **kwargs
+    namespace: str,
+    catalog: Optional[str] = None,
+    *args,
+    **kwargs,
 ) -> bool:
     """Returns True if the given table namespace exists, False if not."""
     catalog = get_catalog(catalog)
@@ -304,7 +307,7 @@ def namespace_exists(
 
 def create_namespace(
     namespace: str,
-    properties: NamespaceProperties,
+    properties: Optional[NamespaceProperties] = None,
     catalog: Optional[str] = None,
     *args,
     **kwargs,

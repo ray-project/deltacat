@@ -2,29 +2,31 @@ from __future__ import annotations
 from typing import Optional
 
 import pyarrow
-from deltacat.constants import DELTACAT_CATALOG_PROPERTY_ROOT
+from deltacat.constants import DELTACAT_ROOT
 
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 """
-Property catalog is configured globally (at the interpreter level)
+Global (i.e., interpreter-level) DeltaCAT catalog property config attributes.
 
-Ray has limitations around serialized class size. For this reason, larger files like catalog impl and
-storage impl need to be a flat list of functions rather than a stateful class initialized with properties.
-For more details see - README-development.md
-
-These classes will fetch the globally configured CatalogProperties, OR allow injection of a custom
+These will be fetched by CatalogProperties, OR allow injection of a custom
 CatalogProperties in kwargs
 
 Example: injecting custom CatalogProperties
-    catalog.namespace_exists("my_namespace", catalog_properties=CatalogProperties(root="..."))
+.. code-block:: python    
+    catalog.namespace_exists(
+        "my_namespace", 
+        catalog_properties=CatalogProperties(root="..."),
+    )
 
 Example: explicitly initializing global CatalogProperties
+.. code-block:: python    
     from deltacat.catalog import initialize_properties
     initialize_properties(root="...")
     catalog.namespace_exists("mynamespace")
 
-By default, catalog properties are initialized automatically, and fall back to defaults/env variables.
+By default, catalog properties are initialized automatically, and fall back to 
+defaults/env variables.
 Example: using env variables
   os.environ["DELTACAT_ROOT"]="..."
   catalog.namespace_exists("mynamespace")
@@ -34,19 +36,22 @@ _INITIALIZED = False
 
 
 def initialize_properties(
-    root: Optional[str] = None, *args, force: bool = False, **kwargs
+    root: Optional[str] = None,
+    *args,
+    force: bool = False,
+    **kwargs,
 ) -> CatalogProperties:
     """
-    Initialize a Catalog state, if not already initialized.
+    Initializes interpreter-global catalog properties.
 
-    If environment variables are present, will check the following environment variables to configure catalog:
-        DELTACAT_ROOT: maps to "root" parameter
-
-    Environment variables will be overridden if explicit parameters are provided
+    Checks the following environment variables to configure catalog:
+        DELTACAT_ROOT: default value for the "root" parameter if unspecified
 
     Args:
-        root: filesystem URI for catalog root
-        force: if True, will re-initialize even if global catalog exists. If False, will return global catalog
+        root: filesystem URI for catalog root (overrides the `DELTACAT_ROOT`
+        system environment variable)
+        force: if True, will re-initialize the interpreter-global catalog. If
+        False, will return any previously initialized catalog .
     """
     global _INITIALIZED, CATALOG_PROPERTIES
 
@@ -55,7 +60,7 @@ def initialize_properties(
 
     # Check environment variables
     # This is set or defaulted in constants.py
-    env_root = DELTACAT_CATALOG_PROPERTY_ROOT
+    env_root = DELTACAT_ROOT
     if env_root is None:
         raise ValueError(
             "Expected environment variable DELTACAT_ROOT to be set or defaulted"
@@ -72,26 +77,29 @@ def initialize_properties(
     return CATALOG_PROPERTIES
 
 
-def get_catalog_properties(**kwargs) -> CatalogProperties:
+def get_catalog_properties(
+    *args,
+    catalog: Optional[CatalogProperties] = None,
+    **kwargs,
+) -> CatalogProperties:
     """
     Helper function to get the appropriate CatalogProperties instance.
 
-    If 'catalog_properties' is provided in kwargs, it will be used.
-    Otherwise, it will use the global catalog, initializing it if necessary.
+    If 'catalog_properties' is provided it will be used. Otherwise, catalog
+    properties will be read from environment variables.
 
     Args:
-        **kwargs: Keyword arguments that might contain 'properties'
+        catalog: Catalog property overrides to use instead of
+        system environment variables.
 
     Returns:
-        CatalogProperties: The catalog properties to use
+        CatalogProperties: Instantiated catalog properties.
     """
-    properties = kwargs.get("catalog_properties")
+    properties = catalog
     if properties is not None and isinstance(properties, CatalogProperties):
         return properties
     elif properties is not None and not isinstance(properties, CatalogProperties):
-        raise ValueError(
-            "Expected kwarg catalog_properties to be instance of CatalogProperties"
-        )
+        raise ValueError("Catalog must be a CatalogProperties instance.")
 
     # Use the global catalog, initializing if necessary
     if not _INITIALIZED:
@@ -102,17 +110,21 @@ def get_catalog_properties(**kwargs) -> CatalogProperties:
 
 class CatalogProperties:
     """
-    This holds all configuration for a DeltaCAT catalog.
+    Holds all DeltaCAT catalog configuration.
 
-    CatalogProperties can be configured at the interpreter level by calling initialize_properties, or provided with
-    the kwarg catalog_properties. We expect functions to plumb through kwargs throughout, so only when a property needs to be fetched does a function
-    need to retrieve the property catalog. Property catalog must be retrieved through get_property_catalog, which will
-    hierarchically check kwargs then the global value.
+    Can be configured at the interpreter level by calling initialize_properties,
+    or provided with the kwarg catalog_properties. We expect functions to plumb
+    through kwargs throughout, so only when a property needs to be fetched does
+    a function need to retrieve the property catalog. Property catalog must be
+    retrieved through get_property_catalog, which will hierarchically check
+    kwargs then the global value.
 
     Specific properties are configurable via env variable.
 
-    Be aware that parallel code (e.g. parallel tests) may overwrite the catalog properties defined global at the interpreter level
-    In this case, you must explicitly provide the kwarg catalog_properties rather than declare it globally with initialize_catalog_properties
+    Be aware that parallel code (e.g. parallel tests) may overwrite the
+    catalog properties defined global at the interpreter level.
+    In this case, you must explicitly provide the kwarg catalog_properties
+    rather than declare it globally with initialize_catalog_properties.
 
     Attributes:
         root (str): URI string The root path where catalog metadata and data files are stored. If none provided,
@@ -133,9 +145,12 @@ class CatalogProperties:
         Initialize a CatalogProperties instance.
 
         Args:
-            root (str, optional): Root path for the catalog storage. If None, will be resolved later.
-            filesystem (pyarrow.fs.FileSystem, optional): FileSystem implementation to use.
-                If None, will be resolved based on the root path.
+            root: A single directory path that will serve as the root
+                directory for this catalog.
+            filesystem: The filesystem implementation that should be used for
+                reading these files. If None, a filesystem will be inferred.
+                If not None, the provided filesystem will still be validated
+                against the provided path to ensure compatibility.
         """
         resolved_root, resolved_filesystem = resolve_path_and_filesystem(
             path=root,

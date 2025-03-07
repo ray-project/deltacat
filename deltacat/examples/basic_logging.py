@@ -5,9 +5,9 @@ import logging
 from deltacat import logs
 from deltacat.constants import DELTACAT_APP_LOG_DIR, DELTACAT_SYS_LOG_DIR
 from deltacat.examples.common.fixtures import (
-    create_runtime_environment,
     store_cli_args_in_os_environ,
 )
+from deltacat.env import create_ray_runtime_environment
 
 # initialize the driver logger
 driver_logger = logs.configure_application_logger(logging.getLogger(__name__))
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     store_cli_args_in_os_environ(example_script_args)
 
     # create any runtime environment required to run the example
-    runtime_env = create_runtime_environment()
+    runtime_env = create_ray_runtime_environment()
 
     # initialize ray
     ray.init(runtime_env=runtime_env)
