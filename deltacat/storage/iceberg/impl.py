@@ -393,8 +393,6 @@ def create_table_version(
         )
         raise TypeError(err_msg)
 
-    # TODO: ensure catalog.create_table() is idempotent
-    # TODO: get table and commit new metadata if table already exists?
     identifier = _to_identifier(namespace, table_name)
     iceberg_schema = SchemaMapper.unmap(schema)
     sort_order = SortSchemeMapper.unmap(
@@ -408,25 +406,19 @@ def create_table_version(
         case_sensitive=case_sensitive_col_names,
     )
     
-    # attempt to load table (if it exists) (resolve todo #1)
     existing_table = _try_load_iceberg_table(catalog, namespace, table_name)
-    
-    # table already exists
     if existing_table is not None:
         table = existing_table
         logger.info(f"Table already exists: {table}")
         
-        # Update table properties if provided (resolves todo #2)
         if table_properties:
             try:
-                # Use transaction to update table properties
                 with table.transaction() as transaction:
                     transaction.set_properties(table_properties)
                 logger.info(f"Updated table properties for {namespace}.{table_name}")
             except Exception as e:
                 logger.warning(f"Failed to update table properties: {e}")
     else:
-        # otherwise create a new table
         table = catalog.create_table(
             identifier=identifier,
             schema=iceberg_schema,
