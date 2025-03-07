@@ -27,16 +27,14 @@ class TestCatalogNamespaceOperations:
 
         # Create namespace
         catalog.create_namespace(
-            namespace=namespace, properties=properties, catalog=catalog
+            namespace=namespace, properties=properties, catalog=self.catalog_properties
         )
 
         # Verify namespace exists
-        assert catalog.namespace_exists(namespace, catalog=catalog)
+        assert catalog.namespace_exists(namespace, catalog=self.catalog_properties)
 
         # Get namespace and verify properties
-        namespace = catalog.get_namespace(
-            namespace, catalog_properties=self.catalog_properties
-        )
+        namespace = catalog.get_namespace(namespace, catalog=self.catalog_properties)
         assert namespace.namespace == "test_create_namespace"
         assert namespace.properties["description"] == "Test Namespace"
 
@@ -47,7 +45,7 @@ class TestCatalogNamespaceOperations:
 
         # Create namespace
         catalog.create_namespace(
-            namespace=namespace, properties=properties, catalog=catalog
+            namespace=namespace, properties=properties, catalog=self.catalog_properties
         )
 
         # Get namespace properties
@@ -64,14 +62,18 @@ class TestCatalogNamespaceOperations:
 
         # Create namespace
         catalog.create_namespace(
-            namespace=existing_namespace, properties={}, catalog=catalog
+            namespace=existing_namespace, properties={}, catalog=self.catalog_properties
         )
 
         # Check existing namespace
-        assert catalog.namespace_exists(existing_namespace, catalog=catalog)
+        assert catalog.namespace_exists(
+            existing_namespace, catalog=self.catalog_properties
+        )
 
         # Check non-existing namespace
-        assert not catalog.namespace_exists(non_existing_namespace, catalog=catalog)
+        assert not catalog.namespace_exists(
+            non_existing_namespace, catalog=self.catalog_properties
+        )
 
     def test_create_namespace_already_exists(self):
         """Test creating a namespace that already exists should fail"""
@@ -82,16 +84,18 @@ class TestCatalogNamespaceOperations:
         catalog.create_namespace(
             namespace=namespace,
             properties=properties,
-            catalog_properties=self.catalog_properties,
+            catalog=self.catalog_properties,
         )
 
         # Verify namespace exists
-        assert catalog.namespace_exists(namespace, catalog=catalog)
+        assert catalog.namespace_exists(namespace, catalog=self.catalog_properties)
 
         # Try to create the same namespace again, should raise ValueError
         with pytest.raises(NamespaceAlreadyExistsError, match=namespace):
             catalog.create_namespace(
-                namespace=namespace, properties=properties, catalog=catalog
+                namespace=namespace,
+                properties=properties,
+                catalog=self.catalog_properties,
             )
 
     def test_drop_namespace(self):
