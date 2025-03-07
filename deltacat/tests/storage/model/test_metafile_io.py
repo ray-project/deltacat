@@ -603,10 +603,7 @@ class TestMetafileIO:
             with pytest.raises(ValueError):
                 transaction.commit(temp_dir)
 
-    def test_replace_partition(self, keep_temp_dir):
-        os.environ["METAFILE_FORMAT"] = "json"
-        temp_dir = keep_temp_dir
-        print(f"DeltaCAT Catalog Root Dir: {temp_dir}")
+    def test_replace_partition(self, temp_dir):
         commit_results = _commit_single_delta_table(temp_dir)
         for expected, actual, _ in commit_results:
             assert expected.equivalent_to(actual)

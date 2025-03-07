@@ -53,19 +53,19 @@ def copy(source, destination):
 
 
 def concat(source, destination):
-    pass
+    raise NotImplementedError
 
 
 def delete(source):
-    pass
+    raise NotImplementedError
 
 
 def move(source, destination):
-    pass
+    raise NotImplementedError
 
 
 def list(path):
-    pass
+    raise NotImplementedError
 
 
 def get(path) -> Any:
@@ -150,16 +150,16 @@ def put(path, *args, **kwargs) -> Any:
 
 
 def exists(path):
-    pass
+    raise NotImplementedError
 
 
 def query(path, expression):
-    pass
+    raise NotImplementedError
 
 
 def tail(path):
-    pass
+    raise NotImplementedError
 
 
 def head(path):
-    pass
+    raise NotImplementedError
