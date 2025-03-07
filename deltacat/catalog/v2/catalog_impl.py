@@ -178,7 +178,7 @@ def drop_table(
         raise ValueError(f"Table {namespace}.{table} does not exist")
 
     # Call storage implementation to drop the table
-    storage_impl.drop_table(
+    storage_impl.delete_table(
         table_name=table, 
         namespace=namespace, 
         purge=purge, 
