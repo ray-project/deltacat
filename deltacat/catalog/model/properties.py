@@ -10,7 +10,7 @@ from deltacat.utils.filesystem import resolve_path_and_filesystem
 Global (i.e., interpreter-level) DeltaCAT catalog property config attributes.
 
 These will be set to catalog property system environment variables by
-default, unless overridden by custom catalog properties provided to catalog or 
+default, unless overridden by custom catalog properties provided to catalog or
 storage APIs directly.
 
 Example: injecting custom CatalogProperties
