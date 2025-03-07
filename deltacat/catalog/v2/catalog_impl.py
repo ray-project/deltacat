@@ -155,9 +155,6 @@ def create_table(
         rivulet_schema = RivuletSchema.from_pyarrow(schema.arrow, zipper_merge_keys)
         dataset.add_schema(rivulet_schema)
 
-    # Cache the dataset
-    catalog.cache_dataset(dataset, namespace)
-
     # Return table definition
     return TableDefinition.of(
         table=table,
@@ -179,8 +176,6 @@ def drop_table(
 
     if not table_exists(table, namespace, catalog=catalog):
         raise ValueError(f"Table {namespace}.{table} does not exist")
-
-    catalog.remove_dataset_from_cache(namespace, table)
 
     # Call storage implementation to drop the table
     storage_impl.drop_table(
