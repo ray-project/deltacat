@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import logging
 import itertools
 import posixpath
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
-from deltacat.storage.main.impl import (
+import pyarrow.fs
+import pyarrow as pa
+import pyarrow.dataset
+import pyarrow.json
+import pyarrow.csv
+import pyarrow.parquet
+
+from deltacat.constants import (
     DEFAULT_NAMESPACE,
     DEFAULT_PARTITION_ID,
     DEFAULT_PARTITION_VALUES,
-    DEFAULT_STREAM_FORMAT,
     DEFAULT_STREAM_ID,
     DEFAULT_TABLE_VERSION,
 )
@@ -16,7 +23,7 @@ from deltacat.storage.model.partition import Partition, PartitionLocator
 from deltacat.storage.model.shard import Shard, ShardingStrategy
 from deltacat.storage.model.stream import Stream, StreamLocator
 from deltacat.storage.model.transaction import TransactionOperationList
-from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.types import CommitState, StreamFormat
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.fs.file_provider import FileProvider
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
@@ -45,13 +52,10 @@ from deltacat.storage import (
     TransactionOperation,
     TransactionOperationType,
 )
+from deltacat import logs
 
-import pyarrow.fs
-import pyarrow as pa
-import pyarrow.dataset
-import pyarrow.json
-import pyarrow.csv
-import pyarrow.parquet
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
 
 # These are the hardcoded default schema names
 ALL = "all"
@@ -212,7 +216,7 @@ class Dataset:
             table_name=self.dataset_name,
             table_version=self._table_version,
             stream_id=DEFAULT_STREAM_ID,
-            stream_format=DEFAULT_STREAM_FORMAT,
+            stream_format=StreamFormat.DELTACAT,
             partition_values=DEFAULT_PARTITION_VALUES,
             partition_id=self._partition_id,
         )
@@ -274,7 +278,7 @@ class Dataset:
                     table_name=self.dataset_name,
                     table_version=self._table_version,
                     stream_id=DEFAULT_STREAM_ID,
-                    stream_format=DEFAULT_STREAM_FORMAT,
+                    stream_format=StreamFormat.DELTACAT,
                 ),
                 partition_scheme=None,
                 state=CommitState.STAGED,
@@ -287,7 +291,7 @@ class Dataset:
                     table_name=self.dataset_name,
                     table_version=self._table_version,
                     stream_id=DEFAULT_STREAM_ID,
-                    stream_format=DEFAULT_STREAM_FORMAT,
+                    stream_format=StreamFormat.DELTACAT,
                     partition_values=DEFAULT_PARTITION_VALUES,
                     partition_id=self._partition_id,
                 ),
@@ -315,7 +319,7 @@ class Dataset:
             # TODO: Have deltacat storage interface handle transaction errors.
             error_message = str(e).lower()
             if "already exists" in error_message:
-                print(f"Skipping creation: {e}")
+                logger.debug(f"Skipping creation: {e}")
                 return []
             else:
                 raise

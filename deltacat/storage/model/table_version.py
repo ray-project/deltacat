@@ -1,10 +1,10 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import base64
 import re
 import posixpath
-import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pyarrow
 import pyarrow as pa
@@ -12,8 +12,16 @@ import pyarrow as pa
 import deltacat.storage.model.partition as partition
 
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
-from deltacat.constants import TXN_DIR_NAME
-from deltacat.storage.model.schema import Schema, SchemaList
+from deltacat.constants import (
+    METAFILE_FORMAT,
+    METAFILE_FORMAT_JSON,
+    TXN_DIR_NAME,
+    BYTES_PER_KIBIBYTE,
+)
+from deltacat.storage.model.schema import (
+    Schema,
+    SchemaList,
+)
 from deltacat.storage.model.locator import (
     Locator,
     LocatorName,
@@ -57,7 +65,7 @@ class TableVersion(Metafile):
         table_version.content_types = content_types
         table_version.sort_scheme = sort_scheme
         table_version.watermark = watermark
-        table_version.lifecycle_state = lifecycle_state
+        table_version.state = lifecycle_state
         table_version.schemas = schemas
         table_version.partition_schemes = partition_schemes
         table_version.sort_schemes = sort_schemes
@@ -89,7 +97,7 @@ class TableVersion(Metafile):
 
     @property
     def schemas(self) -> Optional[SchemaList]:
-        val: List[Schema] = self.get("schemas")
+        val: Optional[SchemaList] = self.get("schemas")
         if val is not None and not isinstance(val, SchemaList):
             self["schemas"] = val = SchemaList.of(val)
         return val
@@ -251,16 +259,21 @@ class TableVersion(Metafile):
 
     def to_serializable(self) -> TableVersion:
         serializable: TableVersion = TableVersion.update_for(self)
-        serializable.schema = (
-            serializable.schema.serialize().to_pybytes()
-            if serializable.schema
-            else None
-        )
-        serializable.schemas = (
-            [_.serialize().to_pybytes() for _ in serializable.schemas]
-            if serializable.schemas
-            else None
-        )
+        if serializable.schema:
+            schema_bytes = serializable.schema.serialize().to_pybytes()
+            serializable.schema = (
+                base64.b64encode(schema_bytes).decode("utf-8")
+                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                else schema_bytes
+            )
+
+        if serializable.schemas:
+            serializable.schemas = [
+                base64.b64encode(schema.serialize().to_pybytes()).decode("utf-8")
+                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                else schema.serialize().to_pybytes()
+                for schema in serializable.schemas
+            ]
         if serializable.table_locator:
             # remove the mutable table locator
             serializable.locator.table_locator = TableLocator.at(
@@ -274,16 +287,31 @@ class TableVersion(Metafile):
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> TableVersion:
-        self["schema"] = (
-            Schema.deserialize(pa.py_buffer(self["schema"]))
-            if self.get("schema")
-            else None
-        )
-        self.schemas = (
-            [Schema.deserialize(pa.py_buffer(_)) for _ in self["schemas"]]
-            if self.get("schemas")
-            else None
-        )
+        if self.get("schema"):
+            schema_data = self["schema"]
+            schema_bytes = (
+                base64.b64decode(schema_data)
+                if METAFILE_FORMAT == "json"
+                else schema_data
+            )
+            self["schema"] = Schema.deserialize(pa.py_buffer(schema_bytes))
+        else:
+            self["schema"] = None
+
+        if self.get("schemas"):
+            self.schemas = [
+                Schema.deserialize(
+                    pa.py_buffer(
+                        base64.b64decode(schema)
+                        if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                        else schema
+                    )
+                )
+                for schema in self["schemas"]
+            ]
+        else:
+            self.schemas = None
+
         if self.sort_scheme:
             # force list-to-tuple conversion of sort keys via property invocation
             self.sort_scheme.keys
@@ -313,22 +341,67 @@ class TableVersion(Metafile):
             self.locator.table_locator = table.locator
         return self
 
+    def current_version_number(self) -> Optional[int]:
+        """
+        Returns the current table version number as an integer, or None if
+        a table version has not yet been assigned.
+        """
+        prefix, version_number = (
+            TableVersion.parse_table_version(
+                self.table_version,
+            )
+            if self.table_version is not None
+            else (None, None)
+        )
+        return int(version_number) if version_number is not None else None
+
     @staticmethod
     def next_version(previous_version: Optional[str] = None) -> str:
         """
-        Assigns the next table version string given the previous table version.
-        Attempts to use the convention of 1-based incrementing integers of
-        the form "v1", "v2", etc. or of the form "1", "2", etc.
-        If the previous table version is not of this form, then assigns a UUID
-        to the next table version.
+        Assigns the next table version string given the previous table version
+        by incrementing the version number of the given previous table version
+        identifier. Returns "1" if the previous version is undefined.
         """
-        if previous_version is not None:
-            version_match = re.match(r"^(v?)(\d+)$", previous_version)
-            if version_match:
-                prefix, version_number = version_match.groups()
-                new_version_number = int(version_number) + 1
-                return f"{prefix}{new_version_number}"
-        return str(uuid.uuid4())
+        prefix, previous_version_number = (
+            TableVersion.parse_table_version(
+                previous_version,
+            )
+            if previous_version is not None
+            else (None, None)
+        )
+        new_version_number = (
+            int(previous_version_number) + 1
+            if previous_version_number is not None
+            else 1
+        )
+        new_prefix = prefix if prefix is not None else ""
+        return f"{new_prefix}{new_version_number}"
+
+    @staticmethod
+    def parse_table_version(table_version: str) -> Tuple[Optional[str], int]:
+        """
+        Parses a table version string into its prefix and version number.
+        Returns a tuple of the prefix and version number.
+        """
+        if not table_version:
+            raise ValueError(f"Table version to parse is undefined.")
+        if len(table_version) > BYTES_PER_KIBIBYTE:
+            raise ValueError(
+                f"Invalid table version {table_version}. Table version "
+                f"identifier cannot be greater than {BYTES_PER_KIBIBYTE} "
+                f"characters."
+            )
+        version_match = re.match(
+            rf"^(\w*\.)?(\d+)$",
+            table_version,
+        )
+        if version_match:
+            prefix, version_number = version_match.groups()
+            return prefix, int(version_number)
+        raise ValueError(
+            f"Invalid table version {table_version}. Valid table versions "
+            f"are of the form `TableVersionName.1` or simply `1`.",
+        )
 
 
 class TableVersionLocatorName(LocatorName):
@@ -350,7 +423,8 @@ class TableVersionLocatorName(LocatorName):
 class TableVersionLocator(Locator, dict):
     @staticmethod
     def of(
-        table_locator: Optional[TableLocator], table_version: Optional[str]
+        table_locator: Optional[TableLocator],
+        table_version: Optional[str],
     ) -> TableVersionLocator:
         table_version_locator = TableVersionLocator()
         table_version_locator.table_locator = table_locator
@@ -391,7 +465,13 @@ class TableVersionLocator(Locator, dict):
 
     @table_version.setter
     def table_version(self, table_version: Optional[str]) -> None:
-        self["tableVersion"] = table_version
+        # ensure that the table version is valid
+        prefix, version_number = TableVersion.parse_table_version(table_version)
+        # restate the table version number in its canonical form
+        # (e.g., ensure that "MyVersion.0001" is saved as "MyVersion.1")
+        self["tableVersion"] = (
+            f"{prefix}{version_number}" if prefix else str(version_number)
+        )
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:

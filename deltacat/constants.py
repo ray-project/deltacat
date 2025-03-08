@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+
 from deltacat.utils.common import env_string, env_bool
+import os
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -36,6 +38,21 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
     "DELTACAT_LOGGER_USE_SINGLE_HANDLER",
     False,
 )
+DELTACAT_CATALOG_PROPERTY_ROOT = os.environ.get(
+    "DELTACAT_ROOT", os.path.join(os.getcwd(), ".deltacat")
+)
+
+# CLI Args
+METAFILE_FORMAT_KEY = "METAFILE_FORMAT"
+METAFILE_FORMAT_JSON = "json"
+METAFILE_FORMAT_MSGPACK = "msgpack"
+METAFILE_FORMAT = env_string(METAFILE_FORMAT_KEY, METAFILE_FORMAT_MSGPACK)
+SUPPORTED_METAFILE_FORMATS = [METAFILE_FORMAT_JSON, METAFILE_FORMAT_MSGPACK]
+METAFILE_EXT = {
+    "json": ".json",
+    "msgpack": ".mpk",
+}[METAFILE_FORMAT]
+
 
 # Byte Units
 BYTES_PER_KIBIBYTE = 2**10
@@ -72,9 +89,16 @@ NULL_SIZE_BYTES = 4
 
 # Metastore Constants
 REVISION_DIR_NAME: str = "rev"
-METAFILE_EXT = ".mpk"
 TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"
 SUCCESS_TXN_DIR_NAME: str = "success"
 TXN_PART_SEPARATOR = "_"
+# Storage interface defaults
+# These defaults should be applied in catalog interface implementations
+# Storage interface implementations should be agnostic to defaults and require full information
+DEFAULT_NAMESPACE = "DEFAULT"
+DEFAULT_TABLE_VERSION = "1"
+DEFAULT_STREAM_ID = "stream"
+DEFAULT_PARTITION_ID = "partition"
+DEFAULT_PARTITION_VALUES = ["default"]

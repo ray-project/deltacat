@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.storage import (
     EntryParams,
@@ -64,6 +64,20 @@ def list_table_versions(
     exist.
     """
     raise NotImplementedError("list_table_versions not implemented")
+
+
+def list_streams(
+    namespace: str,
+    table_name: str,
+    table_version: str,
+    *args,
+    **kwargs,
+) -> ListResult[Stream]:
+    """
+    Lists a page of streams for the given table version.
+    Raises an error if the table version does not exist.
+    """
+    raise NotImplementedError("list_streams not implemented")
 
 
 def list_partitions(
@@ -237,7 +251,8 @@ def get_delta_manifest(
     """
     Get the manifest associated with the given delta or delta locator. This
     always retrieves the authoritative durable copy of the delta manifest, and
-    never the local manifest defined for any input delta.
+    never the local manifest defined for any input delta. Raises an error if
+    the delta can't be found, or if it doesn't contain a manifest.
     """
     raise NotImplementedError("get_delta_manifest not implemented")
 
@@ -275,6 +290,7 @@ def create_table_version(
     table_version: Optional[str] = None,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
+    # TODO(pdames): rename to `sort_scheme`
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -283,14 +299,16 @@ def create_table_version(
     supported_content_types: Optional[List[ContentType]] = None,
     *args,
     **kwargs,
-) -> Stream:
+) -> Tuple[Optional[Table], TableVersion, Stream]:
     """
     Create a table version with an unreleased lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned to improve write
     performance, or have their writes governed by a schema and partition scheme
     to improve data consistency and read performance.
 
-    Returns the stream for the created table version.
+    Returns a tuple containing the created/updated table, table version, and
+    stream (respectively).
+
     Raises an error if the given namespace does not exist.
     """
     raise NotImplementedError("create_table_version not implemented")
@@ -323,6 +341,7 @@ def update_table_version(
     description: Optional[str] = None,
     properties: Optional[TableVersionProperties] = None,
     partition_scheme: Optional[PartitionScheme] = None,
+    # TODO(pdames): rename to `sort_scheme`
     sort_keys: Optional[SortScheme] = None,
     *args,
     **kwargs,
@@ -384,23 +403,23 @@ def delete_stream(
     Deletes the delta stream currently registered with the given table version.
     Resolves to the latest active table version if no table version is given.
     Resolves to the deltacat stream format if no stream format is given.
-    Raises an error if the table version does not exist.
+    Raises an error if the stream does not exist.
     """
     raise NotImplementedError("delete_stream not implemented")
 
 
-def get_staged_stream(
+def get_stream_by_id(
     table_version_locator: TableVersionLocator,
     stream_id: str,
     *args,
     **kwargs,
 ) -> Optional[Partition]:
     """
-    Gets the staged stream for the given table version locator and stream ID.
+    Gets the stream for the given table version locator and stream ID.
     Returns None if the stream does not exist. Raises an error if the given
     table version locator does not exist.
     """
-    raise NotImplementedError("get_staged_stream not implemented")
+    raise NotImplementedError("get_stream_by_id not implemented")
 
 
 def get_stream(
@@ -477,18 +496,18 @@ def delete_partition(
     raise NotImplementedError("delete_partition not implemented")
 
 
-def get_staged_partition(
+def get_partition_by_id(
     stream_locator: StreamLocator,
     partition_id: str,
     *args,
     **kwargs,
 ) -> Optional[Partition]:
     """
-    Gets the staged partition for the given stream locator and partition ID.
+    Gets the partition for the given stream locator and partition ID.
     Returns None if the partition does not exist. Raises an error if the
     given stream locator does not exist.
     """
-    raise NotImplementedError("get_staged_partition not implemented")
+    raise NotImplementedError("get_partition_by_id not implemented")
 
 
 def get_partition(

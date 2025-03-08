@@ -1,3 +1,4 @@
+import logging
 import posixpath
 from typing import Generator, Optional
 
@@ -17,6 +18,9 @@ from deltacat.storage.rivulet.metastore.delta import (
 )
 from deltacat.storage.rivulet.metastore.sst import SSTReader, SSTable
 from deltacat.utils.metafile_locator import _find_table_path
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class ManifestAccessor:
@@ -85,7 +89,7 @@ class DatasetMetastore:
         )
 
         if not revisions:
-            print(f"Warning: No revision files found in {rev_directory}")
+            logger.warning(f"No revision files found in {rev_directory}")
             return None
 
         # Take lexicographical max to find the latest revision
@@ -120,7 +124,7 @@ class DatasetMetastore:
         partition_info = filesystem.get_file_info(partition_path)
 
         if partition_info.type != pyarrow.fs.FileType.Directory:
-            print(f"Partition directory {partition_path} not found. Skipping.")
+            logger.debug(f"Partition directory {partition_path} not found. Skipping.")
             return
 
         # Locate "rev" directory inside the partition
@@ -128,7 +132,7 @@ class DatasetMetastore:
         rev_info = filesystem.get_file_info(rev_directory)
 
         if rev_info.type != pyarrow.fs.FileType.Directory:
-            print(f"Revision directory {rev_directory} not found. Skipping.")
+            logger.debug(f"Revision directory {rev_directory} not found. Skipping.")
             return
 
         # Fetch all delta directories inside the partition
