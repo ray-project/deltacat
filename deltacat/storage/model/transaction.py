@@ -37,7 +37,6 @@ from deltacat.utils.filesystem import (
     list_directory,
 )
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler('test_log.log'), logging.StreamHandler()])
 class TransactionTimeProvider:
     """
     Provider interface for transaction start and end times. An ideal
@@ -500,37 +499,30 @@ class Transaction(dict):
         with respect to the catalog root directory. 
         """
         clean_catalog_root = "/" + catalog_root.lstrip("/")
-        logging.debug(f"Catalog root: {clean_catalog_root}")
         # handle metafile paths
         metafile_write_paths = []
         abs_metafile_path_len = len(operation.metafile_write_paths)
-        logging.debug(f"Number of meta write paths: {abs_metafile_path_len}")
-        logging.debug(f"Metafile write paths BEFORE: {operation.metafile_write_paths}")
         for path in operation.metafile_write_paths:
             if not path.startswith(clean_catalog_root) or not path.startswith(catalog_root):
-                metafile_write_paths.append(path)
+                metafile_write_paths.append(path) # skip if not in catalog root
                 continue
             path_len = len(path)
             relative_path = Transaction.abs_to_relative(catalog_root, path)
             metafile_write_paths.append(relative_path)
         if len(metafile_write_paths) > 0 and abs_metafile_path_len > 0:
             operation.replace_metafile_write_paths(metafile_write_paths)
-        logging.debug(f"Metafile write paths AFTER: {operation.metafile_write_paths} \n")
         
         # handle locator paths
         locator_write_paths = []
         abs_locator_path_len = len(operation.locator_write_paths)
-        logging.debug(f"Number of loc write paths: {abs_metafile_path_len}")
-        logging.debug(f"locator write paths BEFORE: {operation.locator_write_paths}")
         for path in operation.locator_write_paths:
             if not path.startswith(clean_catalog_root) or not path.startswith(catalog_root):
-                locator_write_paths.append(path)
+                locator_write_paths.append(path) # skip if not in catalog root
                 continue
             relative_path = Transaction.abs_to_relative(catalog_root, path)
             locator_write_paths.append(relative_path)
         if len(locator_write_paths) > 0 and abs_locator_path_len > 0:
             operation.replace_locator_write_paths(locator_write_paths)
-        logging.debug(f"Locator write paths AFTER: {operation.locator_write_paths} \n")
 
     def to_serializable(self, catalog_root) -> Transaction:
         """
