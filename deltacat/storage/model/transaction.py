@@ -10,7 +10,6 @@ from collections import defaultdict
 
 from itertools import chain
 from typing import Optional, List, Union, Tuple
-import logging
 
 import msgpack
 import pyarrow.fs
@@ -36,6 +35,7 @@ from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
 )
+
 
 class TransactionTimeProvider:
     """
@@ -310,22 +310,16 @@ class Transaction(dict):
             target = "/" + target
         root = root.rstrip("/") + "/"
         target = target.rstrip("/")
-        
-        prev = 0
-        cur_dir = ""
+
         # validate common prefix
         for i in range(len(root)):
             if root[i] != target[i]:
                 # TODO (martinezdavid): possibly add new exception here to properly handle directory mismatch
                 raise ValueError("Target path is not within the catalog root")
-            # update current directory
-            if root[i] == "/":
-                cur_dir = root[prev:i]
-                prev = i
         relative_path = target[i:]
         if len(relative_path) > 0 and relative_path[0] == "/":
             relative_path = relative_path[1:]
-        return relative_path 
+        return relative_path
 
     @staticmethod
     def of(
@@ -492,32 +486,37 @@ class Transaction(dict):
             raise RuntimeError("Cannot end a completed transaction.")
         end_time = self["end_time"] = time_provider.end_time()
         return end_time
-    
-    def relativize_operation_paths(self, operation: TransactionOperation, catalog_root: str) -> None:
+
+    def relativize_operation_paths(
+        self, operation: TransactionOperation, catalog_root: str
+    ) -> None:
         """
         Converts all absolute paths in an operation to relative paths
-        with respect to the catalog root directory. 
+        with respect to the catalog root directory.
         """
         clean_catalog_root = "/" + catalog_root.lstrip("/")
         # handle metafile paths
         metafile_write_paths = []
         abs_metafile_path_len = len(operation.metafile_write_paths)
         for path in operation.metafile_write_paths:
-            if not path.startswith(clean_catalog_root) or not path.startswith(catalog_root):
-                metafile_write_paths.append(path) # skip if not in catalog root
+            if not path.startswith(clean_catalog_root) or not path.startswith(
+                catalog_root
+            ):
+                metafile_write_paths.append(path)  # skip if not in catalog root
                 continue
-            path_len = len(path)
             relative_path = Transaction.abs_to_relative(catalog_root, path)
             metafile_write_paths.append(relative_path)
         if len(metafile_write_paths) > 0 and abs_metafile_path_len > 0:
             operation.replace_metafile_write_paths(metafile_write_paths)
-        
+
         # handle locator paths
         locator_write_paths = []
         abs_locator_path_len = len(operation.locator_write_paths)
         for path in operation.locator_write_paths:
-            if not path.startswith(clean_catalog_root) or not path.startswith(catalog_root):
-                locator_write_paths.append(path) # skip if not in catalog root
+            if not path.startswith(clean_catalog_root) or not path.startswith(
+                catalog_root
+            ):
+                locator_write_paths.append(path)  # skip if not in catalog root
                 continue
             relative_path = Transaction.abs_to_relative(catalog_root, path)
             locator_write_paths.append(relative_path)
