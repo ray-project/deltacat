@@ -1,107 +1,156 @@
 import pytest
-import os
+from deltacat.storage.model.transaction import *
 import time
+
 import posixpath
-from test_metafile_io import _commit_single_delta_table 
+from deltacat.tests.storage.model.test_metafile_io import _commit_single_delta_table 
 from deltacat.constants import (
-    RUNNING_TXN_DIR_NAME, FAILED_TXN_DIR_NAME, TXN_DIR_NAME
+    RUNNING_TXN_DIR_NAME, FAILED_TXN_DIR_NAME, TXN_DIR_NAME, TXN_PART_SEPARATOR
 )
-from deltacat.metafile import MetafileRevisionInfo
-from deltacat.transactions import TransactionOperationType
-from deltacat.filesystem import resolve_path_and_filesystem
-from janitor import janitor_job
+from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.compute.janitor import janitor_job, janitor_remove_files_in_failed, janitor_delete_timed_out_transaction
 
-# referenced test_metafile_io.py a lot, mainly looked at def test_txn_bad_end_time_fails(self, temp_dir, mocker):
-# also referenced test_txn_conflict_concurrent_complete
+from unittest.mock import MagicMock
 
-# TODO: Delete transactions by OPERATION not by TRANSACTION
+@pytest.fixture
+def temp_dir():
+    # tmpdir is a pytest fixture that automatically provides a temporary directory
+    catalog_root = "/catalog/root"
+    return catalog_root  # return the string path of the temporary directory
 
-def test_janitor_job_running_to_failed(self, temp_dir):
-    commit_results = _commit_single_delta_table(temp_dir)
-    for expected, actual, _ in commit_results:
-        assert expected.equivalent_to(actual)
+def test_remove_files_from_failed(mocker, temp_dir: str): 
+# Create a dummy transaction operation with absolute paths
+    #<start_time><TXN_PART_SEPARATOR><transaction_id>"
+     # Create a mock filesystem instance
+    mock_fs = MagicMock(spec=pyarrow.fs.FileSystem)
+    mock_fs.create_dir.return_value = None  # Simulate a successful directory creation
+    
+    # Patch the LocalFileSystem class to return the mocked filesystem
+    mocker.patch('pyarrow.fs.LocalFileSystem', return_value=mock_fs)
+    
+    # Initialize filesystem to the mock_fs
+    filesystem = mock_fs
+    
+    # Call the function that needs the filesystem
+    catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+        temp_dir,
+        filesystem,
+    )
 
-    # Given an initial metafile revision of a committed delta
-    write_paths = [result[2] for result in commit_results]
-    orig_delta_write_path = write_paths[5]
 
-    mri = MetafileRevisionInfo.parse(orig_delta_write_path)
-    mri.txn_id = "9999999999999_test-txn-id"
-    mri.txn_op_type = TransactionOperationType.DELETE
-    mri.revision += 1
-    conflict_delta_write_path = mri.path
-
-    # Simulate an incomplete transaction
-    _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
-    with filesystem.open_output_stream(conflict_delta_write_path):
-        pass  # Just create an empty metafile revision
-
-    # Define directories using posixpath
-    txn_log_file_dir = os.path.join(temp_dir, TXN_DIR_NAME, RUNNING_TXN_DIR_NAME, mri.txn_id) #reference line 443 of test_metafile_io.py
-    failed_txn_log_dir = os.path.join(temp_dir, TXN_DIR_NAME, FAILED_TXN_DIR_NAME)
-
-    txn_log_file_path = os.path.join(txn_log_file_dir, str(time.time_ns() - 60))
-
-    # Create the failed transaction log directory
-
+    txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+    failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
     filesystem.create_dir(failed_txn_log_dir, recursive=True)
 
-    # Ensure the original transaction log file exists
-    assert filesystem.exists(txn_log_file_path)
+    id = str(time.time()) + TXN_PART_SEPARATOR + "9999999999999_test-txn-id"
 
-    janitor_job(temp_dir)
-    # Verify the file was moved to the failed directory
-    assert not os.path.exists(posixpath.join(txn_log_file_dir, mri.txn_id))
-    assert os.path.exists(posixpath.join(failed_txn_log_dir, mri.txn_id))
-
-
-def test_remove_files_from_failed(self, temp_dir):
-    commit_results = _commit_single_delta_table(temp_dir)
-    for expected, actual, _ in commit_results:
-        assert expected.equivalent_to(actual)
-
-    txn_log_file_dir = create_failed_dummy_transaction(temp_dir)
-
-    assert os.path.exists(txn_log_file_dir)
-
-    janitor_job(temp_dir)
-
-    assert not os.path.exists(txn_log_file_dir), "Failed transaction file should be removed after janitor job"
-
-
-
-def create_failed_dummy_transaction(temp_dir):
-    """Creates a dummy transaction, simulates a failure, and moves it to the failed transaction directory."""
+    failed_txn_log_file_path = posixpath.join(
+                failed_txn_log_dir,
+                id,
+            )
     
-    commit_results = _commit_single_delta_table(temp_dir)
-    
-    for expected, actual, _ in commit_results:
-        assert expected.equivalent_to(actual)
+    dest_metafile = Metafile({"id": id}) # do we really need to use this?
 
-    write_paths = [result[2] for result in commit_results]
-    orig_delta_write_path = write_paths[5]  # Arbitrary index for an existing delta
+    transaction_operation = Transaction.of(
+        operation_type=TransactionOperationType.CREATE
+    )
 
-    mri = MetafileRevisionInfo.parse(orig_delta_write_path)
-    mri.txn_id = "9999999999999_test-txn-id" 
-    mri.txn_op_type = TransactionOperationType.DELETE  
-    mri.revision += 1  
 
-    conflict_delta_write_path = mri.path  
+    with filesystem.open_output_stream(failed_txn_log_file_path) as file:
+            packed = msgpack.dumps(transaction_operation.to_serializable()) 
+            file.write(packed)
 
-    _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
-    
-    with filesystem.open_output_stream(conflict_delta_write_path):
-        pass  
-
-    return os.path.join(
-            temp_dir,
-            TXN_DIR_NAME,
-            FAILED_TXN_DIR_NAME,
-            mri.txn_id,
+    transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[transaction_operation]
         )
     
+    transaction.id() # when we first instantiate a transaction the id field doesn't get set, this will set it
     
+    known_write_paths = chain.from_iterable(
+                [
+                    operation.metafile_write_paths + operation.locator_write_paths
+                    for operation in transaction.operations
+                ]
+            )
+    
+    print("known write paths before job", known_write_paths)
+
+    janitor_remove_files_in_failed(temp_dir)
+
+    print("known write paths after job:", known_write_paths)
+
+    #assert( known_write_paths) #known_write paths don't exist and go bye bye?
+    
+           
+def test_heartbeat_moves_file(mocker, temp_dir: str):
+     # Create a mock filesystem instance
+    mock_fs = MagicMock(spec=pyarrow.fs.FileSystem)
+    mock_fs.create_dir.return_value = None  # Simulate a successful directory creation
+    
+    # Patch the LocalFileSystem class to return the mocked filesystem
+    mocker.patch('pyarrow.fs.LocalFileSystem', return_value=mock_fs)
+    
+    # Initialize filesystem to the mock_fs
+    filesystem = mock_fs
+    
+    # Call the function that needs the filesystem
+    catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+        temp_dir,
+        filesystem,
+    )
+
+
+    txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+    running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
+    filesystem.create_dir(running_txn_log_dir, recursive=True)
+
+    id = str(time.time() - 4000) + TXN_PART_SEPARATOR + "9999999999999_test-txn-id"
+
+    running_txn_log_file_path = posixpath.join(
+                running_txn_log_dir,
+                id,
+            )
+    
+    dest_metafile = Metafile({"id": id}) # do we really need to use this?
+
+    transaction_operation = Transaction.of(
+        operation_type=TransactionOperationType.CREATE ### I DON'T THINK THIS WORKS BUT FUCK IT WE BALLLLLLL
+    )
+
+    transaction_operation.id = id
+
+    with filesystem.open_output_stream(running_txn_log_file_path) as file:
+            packed = msgpack.dumps(transaction_operation.to_serializable()) 
+            file.write(packed)
+
+    transaction = Transaction.of(
+            txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
+        )
+
+    known_write_paths = chain.from_iterable(
+                [
+                    operation.metafile_write_paths + operation.locator_write_paths
+                    for operation in transaction.operations
+                ]
+            )
+    
+    known_write_paths = chain.from_iterable(
+                [
+                    operation.metafile_write_paths + operation.locator_write_paths
+                    for operation in transaction.operations
+                ]
+            )
+    
+    assert(known_write_paths) #exist?
+
+    janitor_delete_timed_out_transaction(temp_dir)
+
+    assert(not known_write_paths) # does exist and go bye bye?
+
+
+
+
+
 
     
-    
-

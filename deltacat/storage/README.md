@@ -78,7 +78,7 @@ Note that (except **Immutable ID**) this is the same format used by **Metadata R
 
 ### Transaction Log Directory
 The **Transaction Log Directory** (`${CATALOG_ROOT}/txn`) is a special directory in the **Catalog Root Directory** which holds all successfully committed transactions. It contains one **Transaction Log File** per successful transaction recording transaction details.
-```
+``
 ${CATALOG_ROOT}/txn/
   |-${txn-1-start-time}_${txn-1-uuid}
   |-${txn-2-start-time}_${txn-2-uuid}

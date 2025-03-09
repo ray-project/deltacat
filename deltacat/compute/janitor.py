@@ -2,7 +2,7 @@ import time
 import posixpath
 
 import pyarrow.fs
-from deltacat.storage.model.transaction import read
+from deltacat.storage.model.transaction import Transaction
 
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
@@ -12,9 +12,7 @@ from deltacat.utils.filesystem import (
 
 from itertools import chain
 
-
 from deltacat.constants import TXN_DIR_NAME, RUNNING_TXN_DIR_NAME, FAILED_TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, TXN_PART_SEPARATOR
-from deltacat.utils import pyarrow
 
 
 def brute_force_search_matching_metafiles (transaction_ids, filesystem: pyarrow.fs.FileSystem):
@@ -164,7 +162,7 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
     for failed_txn_info in failed_txn_info_list:
         try:
             # Read the transaction, class method from transaction.py line 349
-            txn = read(failed_txn_info.path, filesystem)
+            txn = Transaction.read(failed_txn_info.path, filesystem)
 
             known_write_paths = chain.from_iterable(
                 [
@@ -177,7 +175,6 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
                 filesystem.delete_file(write_path)
 
 
-
             print(f"Cleaned up failed transaction: {failed_txn_info.base_name}")
 
         except Exception as e:
@@ -185,7 +182,7 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
 
 def janitor_job(catalog_root_dir: str) -> None:
     # TODO: Implement proper heartbeat mechanics
-    janitor_move_old_running_transactions(catalog_root_dir, threshold_seconds=30)
+    janitor_delete_timed_out_transaction(catalog_root_dir, threshold_seconds=30)
     janitor_remove_files_in_failed(catalog_root_dir)
 
 
