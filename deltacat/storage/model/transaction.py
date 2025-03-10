@@ -452,7 +452,7 @@ class Transaction(dict):
         """
         if not root or not target:
             raise ValueError("Root and target paths must be non-empty.")
-        # clean and standardize paths if needed
+        # clean and standardize paths
         root = root.strip("/")
         target = target.strip("/")
         if root == target:
