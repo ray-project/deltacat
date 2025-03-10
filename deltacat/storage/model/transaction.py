@@ -247,17 +247,13 @@ class TransactionOperation(dict):
             locator_write_paths = self["locator_write_paths"] = []
         locator_write_paths.append(write_path)
 
-    def replace_metafile_write_paths(self, write_paths: List[str]):
-        if len(write_paths) == 0:
-            raise ValueError("Metafile write paths cannot be empty.")
-        # TODO(martinezdavid): check if we need to use protected access or if direct write is OK
+    def set_metafile_write_paths(self, write_paths: List[str]):
         self["metafile_write_paths"] = write_paths
 
-    def replace_locator_write_paths(self, write_paths: List[str]):
-        if len(write_paths) == 0:
-            raise ValueError("Locator write paths cannot be empty.")
-        # TODO(martinezdavid): check if we need to use protected access or if direct write is OK
+    def set_locator_write_paths(self, write_paths: List[str]):
         self["locator_write_paths"] = write_paths
+
+    # TODO(martinezdavid): Check if we need protected access for setter methods
 
 
 class TransactionOperationList(List[TransactionOperation]):
@@ -281,45 +277,6 @@ class Transaction(dict):
     """
     Base class for DeltaCAT transactions.
     """
-
-    @staticmethod
-    def abs_to_relative(root: str, target: str) -> str:
-        """
-        Takes an absolute (catalog root) and target absolute path which
-        is relativized with respect to the root directory.
-
-        Args:
-            root (str): The root directory path.
-            target (str): The absolute path to be relativized.
-
-        Returns:
-            str: The relative path from `root` to `target`.
-
-        Raises:
-            ValueError: If `target` is not inside `root`.
-        """
-        # standard error checking
-        if len(root) == 0 or len(target) == 0 or len(target) < len(root):
-            raise ValueError("Invalid directory paths")
-        # clean and standardize paths if needed
-        root = root.lstrip("/")
-        target = target.lstrip("/")
-        if root[0] != "/":
-            root = "/" + root
-        if target[0] != "/":
-            target = "/" + target
-        root = root.rstrip("/") + "/"
-        target = target.rstrip("/")
-
-        # validate common prefix
-        for i in range(len(root)):
-            if root[i] != target[i]:
-                # TODO (martinezdavid): possibly add new exception here to properly handle directory mismatch
-                raise ValueError("Target path is not within the catalog root")
-        relative_path = target[i:]
-        if len(relative_path) > 0 and relative_path[0] == "/":
-            relative_path = relative_path[1:]
-        return relative_path
 
     @staticmethod
     def of(
@@ -487,6 +444,24 @@ class Transaction(dict):
         end_time = self["end_time"] = time_provider.end_time()
         return end_time
 
+    @staticmethod
+    def abs_to_relative(root: str, target: str) -> str:
+        """
+        Takes an absolute (catalog root) and target absolute path which
+        is relativized with respect to the root directory.
+        """
+        if not root or not target:
+            raise ValueError("Root and target paths must be non-empty.")
+        # clean and standardize paths if needed
+        root = root.strip("/")
+        target = target.strip("/")
+        if root == target:
+            return ""
+        # Validate prefix and ensure target is subpath of root
+        if not target.startswith(root + "/"):
+            raise ValueError("Target path is not within the catalog root")
+        return target[len(root) + 1 :]
+
     def relativize_operation_paths(
         self, operation: TransactionOperation, catalog_root: str
     ) -> None:
@@ -494,34 +469,20 @@ class Transaction(dict):
         Converts all absolute paths in an operation to relative paths
         with respect to the catalog root directory.
         """
-        clean_catalog_root = "/" + catalog_root.lstrip("/")
         # handle metafile paths
-        metafile_write_paths = []
-        abs_metafile_path_len = len(operation.metafile_write_paths)
-        for path in operation.metafile_write_paths:
-            if not path.startswith(clean_catalog_root) or not path.startswith(
-                catalog_root
-            ):
-                metafile_write_paths.append(path)  # skip if not in catalog root
-                continue
-            relative_path = Transaction.abs_to_relative(catalog_root, path)
-            metafile_write_paths.append(relative_path)
-        if len(metafile_write_paths) > 0 and abs_metafile_path_len > 0:
-            operation.replace_metafile_write_paths(metafile_write_paths)
-
+        if operation.metafile_write_paths:
+            metafile_write_paths = [
+                Transaction.abs_to_relative(catalog_root, path)
+                for path in operation.metafile_write_paths
+            ]
+            operation.set_metafile_write_paths(metafile_write_paths)
         # handle locator paths
-        locator_write_paths = []
-        abs_locator_path_len = len(operation.locator_write_paths)
-        for path in operation.locator_write_paths:
-            if not path.startswith(clean_catalog_root) or not path.startswith(
-                catalog_root
-            ):
-                locator_write_paths.append(path)  # skip if not in catalog root
-                continue
-            relative_path = Transaction.abs_to_relative(catalog_root, path)
-            locator_write_paths.append(relative_path)
-        if len(locator_write_paths) > 0 and abs_locator_path_len > 0:
-            operation.replace_locator_write_paths(locator_write_paths)
+        if operation.locator_write_paths:
+            locator_write_paths = [
+                Transaction.abs_to_relative(catalog_root, path)
+                for path in operation.locator_write_paths
+            ]
+            operation.set_locator_write_paths(locator_write_paths)
 
     def to_serializable(self, catalog_root) -> Transaction:
         """
@@ -546,7 +507,7 @@ class Transaction(dict):
                     f"Transaction operation ${operation} src metafile does "
                     f"not have ID: ${operation.src_metafile}"
                 )
-            # relativize after error checking
+            # relativize after checking that dest and src metafiles are valid
             self.relativize_operation_paths(operation, catalog_root)
             operation.dest_metafile = {
                 "id": operation.dest_metafile.id,
