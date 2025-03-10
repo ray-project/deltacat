@@ -4,6 +4,9 @@ from dataclasses import dataclass, asdict
 from typing import MutableMapping, Dict, Iterable, Tuple, Optional
 
 import pyarrow as pa
+import json
+import tarfile
+import os
 
 from deltacat.storage.rivulet.schema.datatype import Datatype
 
@@ -98,6 +101,61 @@ class Schema(MutableMapping[str, Field]):
             for field_data in data["fields"]
         ]
         return cls(fields)
+    
+    def convert_tuple_to_Field(cls, k, valuetype, merge_key) -> Field:
+        return Field(
+            name = k,
+            datatype = valuetype,
+            is_merge_key = merge_key # temporary
+            )
+
+    def from_webdataset_schema(tar_path):
+        # tar_path = "deltacat/examples/rivulet/imagenet1k-train-0000.tar"
+
+        # store unique JSON keys
+        json_fields = set()
+
+        print('hello')
+        print(os.getcwd())
+        with tarfile.open(tar_path, "r") as tar:
+            # iterate over each file in .tar
+            for member in tar.getmembers():
+                # only JSON files
+                if member.isfile() and member.name.endswith(".json"):
+                    f = tar.extractfile(member)
+                    if f:
+                        try:
+                            data = json.load(f)  # load JSON content
+                            if isinstance(data, dict):
+                                for k, v in data.items():
+                                    # json_fields.add((k, Datatype.string(v[0]), False))
+                                    # TODO: create the field object here, use map to check dupes. problem is nested objects
+                                    # TODO: create record batch here
+                                    # TODO: union here, map of fields
+                                    json_fields.add((k, type(v), False))
+                        except json.JSONDecodeError:
+                            print(f"Skipping invalid JSON file: {member.name}")
+
+        # iterate through set and turn it into Field object
+        fields = []
+        for field in json_fields:
+            k, v, m = field
+            fields.append(convert_tuple_to_Field(k, v, m)) # type: ignore
+
+        schema = Schema(fields, merge_keys=["merge_key"])
+        return [cls(fields), schema]
+    
+    # def from_json(cls, j):
+    #     for k, v in j.items():
+    #         fields = [
+    #             Field(
+    #                     name = k,
+    #                     datatype = Datatype.string(v),
+    #                     is_merge_key = False # temporary
+    #                     )
+    #             ]
+        # schema = Schema(fields, merge_keys=["merge_key"])
+        # return [cls(fields), schema]
 
     @classmethod
     def from_pyarrow(
