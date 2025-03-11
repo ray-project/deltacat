@@ -393,8 +393,6 @@ def create_table_version(
         )
         raise TypeError(err_msg)
 
-    # TODO: ensure catalog.create_table() is idempotent
-    # TODO: get table and commit new metadata if table already exists?
     identifier = _to_identifier(namespace, table_name)
     iceberg_schema = SchemaMapper.unmap(schema)
     sort_order = SortSchemeMapper.unmap(
@@ -407,15 +405,30 @@ def create_table_version(
         schema=iceberg_schema,
         case_sensitive=case_sensitive_col_names,
     )
-    table = catalog.create_table(
-        identifier=identifier,
-        schema=iceberg_schema,
-        location=location,
-        partition_spec=partition_spec or UNPARTITIONED_PARTITION_SPEC,
-        sort_order=sort_order or UNSORTED_SORT_ORDER,
-        properties=table_properties or EMPTY_DICT,
-    )
-    logger.info(f"Created table: {table}")
+
+    existing_table = _try_load_iceberg_table(catalog, namespace, table_name)
+    if existing_table is not None:
+        table = existing_table
+        logger.info(f"Table already exists: {table}")
+
+        if table_properties:
+            try:
+                with table.transaction() as transaction:
+                    transaction.set_properties(table_properties)
+                logger.info(f"Updated table properties for {namespace}.{table_name}")
+            except Exception as e:
+                logger.warning(f"Failed to update table properties: {e}")
+    else:
+        table = catalog.create_table(
+            identifier=identifier,
+            schema=iceberg_schema,
+            location=location,
+            partition_spec=partition_spec or UNPARTITIONED_PARTITION_SPEC,
+            sort_order=sort_order or UNSORTED_SORT_ORDER,
+            properties=table_properties or EMPTY_DICT,
+        )
+        logger.info(f"Created table: {table}")
+
     # no snapshot is committed on table creation, so return an undefined stream
     return Stream.of(locator=None, partition_scheme=None)
 
