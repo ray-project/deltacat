@@ -1318,7 +1318,7 @@ def delete_stream(
 
 def drop_table(
     namespace: str,
-    table_name: str,
+    name: str,
     purge: bool = False,
     *args,
     **kwargs,
@@ -1327,16 +1327,18 @@ def drop_table(
     Drops the given table and all its contents (table versions, streams, partitions,
     and deltas). If purge is True, also removes all data files associated with the table.
     Raises an error if the given table does not exist.
+
+    TODO: Honor purge once garbage collection is implemented.
     """
     table = get_table(
         *args,
         namespace=namespace,
-        table_name=table_name,
+        table_name=name,
         **kwargs,
     )
 
     if not table:
-        raise ValueError(f"Table `{namespace}.{table_name}` does not exist.")
+        raise TableNotFoundError(f"Table `{namespace}.{name}` does not exist.")
 
     # Get all table versions to drop
     table_versions_result = list_table_versions(

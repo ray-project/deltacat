@@ -407,6 +407,7 @@ def delete_stream(
     """
     raise NotImplementedError("delete_stream not implemented")
 
+
 def drop_namespace(
     namespace: str,
     purge: bool,
