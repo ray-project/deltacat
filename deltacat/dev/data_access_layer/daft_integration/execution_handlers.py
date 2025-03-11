@@ -6,28 +6,34 @@ DeltaCAT storage formats via the Writer interface.
 """
 
 import functools
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Iterable
 
 import pyarrow as pa
 from daft.table import MicroPartition
 from daft.datatype import DataType
+from deltacat.dev.data_access_layer.storage.writer import Writer, WriteOptions
 
 def deltacat_write_execution_step(table: MicroPartition, **kwargs) -> MicroPartition:
     """
-    Custom execution step to write DeltaCAT data
+    Custom execution step to write DeltaCAT data.
+    
+    This function processes a single partition of data, converting it to PyArrow RecordBatches
+    and writing through the DeltaCAT Writer interface.
     
     Args:
         table: The MicroPartition containing the data to write
-        kwargs: Arguments including writer and write_options
+        kwargs: Context containing writer, write_options, and io_config
         
     Returns:
         MicroPartition with metadata about the write operation
     """
-    writer = kwargs.get("writer")
-    write_options = kwargs.get("write_options")
+    # Extract writer and options from context
+    context = kwargs.get("execution_context", {})
+    writer = context.get("writer")
+    write_options = context.get("write_options")
     
     if writer is None or write_options is None:
-        raise ValueError("Both writer and write_options must be provided")
+        raise ValueError("Both writer and write_options must be provided in execution_context")
     
     # Convert MicroPartition to PyArrow Table
     arrow_table = table.to_arrow()
@@ -38,47 +44,50 @@ def deltacat_write_execution_step(table: MicroPartition, **kwargs) -> MicroParti
     # Call write_batches and collect results
     write_results = list(writer.write_batches(record_batches, write_options))
     
+    # Convert write results to a format suitable for MicroPartition
+    # This ensures all values are serializable across distributed execution
+    serializable_results = []
+    for result in write_results:
+        if isinstance(result, dict):
+            # Ensure all dictionary values are serializable
+            serialized_result = {}
+            for key, value in result.items():
+                # Convert complex types to strings for serialization
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    serialized_result[key] = value
+                else:
+                    serialized_result[key] = str(value)
+            serializable_results.append(serialized_result)
+        else:
+            # If not a dict, convert to string representation
+            serializable_results.append(str(result))
+    
     # Return MicroPartition with the write results
-    return MicroPartition.from_pydict({"write_results": write_results})
+    # Use a list column to preserve the structure across distributed execution
+    return MicroPartition.from_pydict({"write_results": [serializable_results]})
 
-def deltacat_write_finalize_step(table: MicroPartition, **kwargs) -> MicroPartition:
+def process_deltacat_results(tables: Iterable[MicroPartition]) -> List[Any]:
     """
-    Custom execution step to finalize a write operation (commit)
+    Process results from multiple DeltaCAT write operations.
+    
+    Extracts and concatenates all write results from multiple partitions.
     
     Args:
-        table: The MicroPartition containing write results from write_batches
-        kwargs: Arguments including writer
+        tables: An iterable of MicroPartitions containing write results
         
     Returns:
-        MicroPartition with commit result metadata
+        A list of write results that can be passed to writer.commit()
     """
-    writer = kwargs.get("writer")
+    all_results = []
     
-    if writer is None:
-        raise ValueError("Writer must be provided")
+    for table in tables:
+        dict_data = table.to_pydict()
         
-    # Extract write results from input table
-    pydict = table.to_pydict()
-    write_results = pydict.get("write_results", [])
+        if "write_results" in dict_data:
+            for result_list in dict_data["write_results"]:
+                if isinstance(result_list, list):
+                    all_results.extend(result_list)
+                else:
+                    all_results.append(result_list)
     
-    # Finalize local and commit
-    local_result = writer.finalize_local(write_results)
-    commit_result = writer.commit([local_result])
-    
-    # Convert commit result to a flat dictionary suitable for MicroPartition
-    result_dict = {}
-    
-    if isinstance(commit_result, dict):
-        # Flatten nested dictionaries for simple representation
-        for key, value in commit_result.items():
-            if isinstance(value, (str, int, float, bool)) or value is None:
-                result_dict[key] = [value]
-            elif isinstance(value, list):
-                result_dict[f"{key}_count"] = [len(value)]
-                result_dict[key] = [str(value)]
-            else:
-                result_dict[key] = [str(value)]
-    else:
-        result_dict["result"] = [str(commit_result)]
-    
-    return MicroPartition.from_pydict(result_dict)
+    return all_results

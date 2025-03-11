@@ -6,7 +6,7 @@ to write data directly to DeltaCAT's storage formats via the Writer interface.
 """
 
 from daft import DataFrame
-from .monkey_patch import write_deltacat_df_method
+from .monkey_patch import write_deltacat_df_method, apply_monkey_patches
 
 # Make sure our key modules are available for import
 from . import execution_handlers
@@ -23,5 +23,8 @@ def patch_daft():
     Returns:
         bool: True if the patch was applied successfully
     """
-    DataFrame.write_deltacat = write_deltacat_df_method
+    apply_monkey_patches()
     return True
+
+# Automatically apply the monkey patch when this module is imported
+patch_daft()
