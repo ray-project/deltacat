@@ -17,9 +17,6 @@ from deltacat.dev.data_access_layer.storage.iceberg_writer import (
     IcebergWriteOptions,
 )
 
-HIVE_METASTORE_FAKE_URL = "thrift://unknown:9083"
-
-
 @pytest.fixture(scope="function")
 def iceberg_environment():
     """Create a temporary environment with Iceberg catalog and table"""

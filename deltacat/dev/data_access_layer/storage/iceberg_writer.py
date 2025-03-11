@@ -41,7 +41,11 @@ class IcebergWriteResultMetadata(Dict[str, Any]):
 
 class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
     """
-    Iceberg implementation of Writer interface
+    Prototype implementation of Writer interface for iceberg
+
+    This prototype does NOT support many features, like bucketing. Consider it a placeholder to test integrations
+    with the writer interface. We will revisit this class and build out more features in the future
+
     """
 
     def __init__(
@@ -85,26 +89,6 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
         self.data_location = posixpath.join(table_location, "data")
         # Create data directory (this succeeds if dir already exists)
         self.filesystem.create_dir(self.data_location)
-
-    def _get_partition_values(self, batch: pa.RecordBatch) -> Dict[str, Any]:
-        """
-        Extract partition values from the batch based on the partition spec
-
-        For simplicity, this assumes all rows in a batch have the same partition values
-        """
-        if not self.partition_by or not batch.num_rows:
-            return {}
-
-        partition_values = {}
-        for field in self.partition_by:
-            if field in batch.schema.names:
-                # Get the first value for the partition field
-                # This assumes all rows in a batch have the same partition values
-                column_idx = batch.schema.get_field_index(field)
-                value = batch.column(column_idx)[0].as_py()
-                partition_values[field] = value
-
-        return partition_values
 
     def _write_batches_through_pyiceberg(
         self,
@@ -170,11 +154,6 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
         result_metadata = IcebergWriteResultMetadata()
         result_metadata.append_data_files = data_files
         yield result_metadata
-
-    def finalize_local(
-        self, write_metadata: Generator[IcebergWriteResultMetadata, None, None]
-    ) -> List[Dict[str, Any]]:
-        raise NotImplementedError("Iceberg writer must finalize via calling commit")
 
     def commit(
         self,

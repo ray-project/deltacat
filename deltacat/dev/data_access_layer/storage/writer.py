@@ -61,8 +61,7 @@ class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
     If there's a global commit step, the partial metadata from each writer
     is posted to a shared place for a final aggregator to use.
 
-    TODO writer should return whether it supports finalize_local or not
-    TODO writer should return if write_batches will also commit metadata
+    TODO writer have way to instrospect if it supports ACID transactions or if data is visible after write_batch
     """
 
     @abstractmethod
@@ -102,3 +101,4 @@ class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
         This MAY perform other synchronous clean up steps which block commit. For instance, it may compact small files
         written by workers into larger files before final commit.
         """
+        pass
