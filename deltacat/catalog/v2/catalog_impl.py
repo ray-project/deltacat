@@ -1,8 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
 
-from deltacat.catalog.catalog_properties import (
-    CatalogProperties,
-)
 
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -128,44 +125,54 @@ def rename_table(
     raise NotImplementedError("rename_table not implemented")
 
 
-def table_exists(table: str, namespace: Optional[str] = None, *args, **kwargs) -> bool:
+def table_exists(
+    table: str,
+    namespace: Optional[str] = None,
+    *args,
+    **kwargs,
+) -> bool:
     """Returns True if the given table exists, False if not."""
-    catalog = kwargs.get("catalog")
-    if not isinstance(catalog, CatalogProperties):
-        raise ValueError("Catalog must be a CatalogProperties instance")
-
     namespace = namespace or default_namespace()
-
     return storage_impl.table_exists(
-        table_name=table, namespace=namespace, catalog=catalog
+        table_name=table,
+        namespace=namespace,
+        *args,
+        **kwargs,
     )
 
 
 # namespace functions
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     """List a page of table namespaces."""
-    catalog = kwargs.get("catalog")
-    if not isinstance(catalog, CatalogProperties):
-        raise ValueError("Catalog must be a CatalogProperties instance")
-
-    return storage_impl.list_namespaces(catalog=catalog)
+    return storage_impl.list_namespaces(*args, **kwargs)
 
 
 def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     """Gets table namespace metadata for the specified table namespace.
     Returns None if the given namespace does not exist.
     """
-    return storage_impl.get_namespace(namespace=namespace, **kwargs)
+    return storage_impl.get_namespace(
+        namespace=namespace,
+        *args,
+        **kwargs,
+    )
 
 
 def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     """Returns True if the given table namespace exists, False if not."""
 
-    return storage_impl.namespace_exists(namespace=namespace, **kwargs)
+    return storage_impl.namespace_exists(
+        namespace=namespace,
+        *args,
+        **kwargs,
+    )
 
 
 def create_namespace(
-    namespace: str, properties: Optional[NamespaceProperties], *args, **kwargs
+    namespace: str,
+    properties: Optional[NamespaceProperties],
+    *args,
+    **kwargs,
 ) -> Namespace:
     """Creates a table namespace with the given name and properties. Returns
     the created namespace.
@@ -173,12 +180,15 @@ def create_namespace(
     :raises ValueError if the namespace already exists.
     """
     # Check if namespace already exists
-    if namespace_exists(namespace):
+    if namespace_exists(namespace, *args, **kwargs):
         raise ValueError(f"Namespace {namespace} already exists")
 
     # Create namespace through storage layer
     return storage_impl.create_namespace(
-        namespace=namespace, properties=properties, **kwargs
+        namespace=namespace,
+        properties=properties,
+        *args,
+        **kwargs,
     )
 
 

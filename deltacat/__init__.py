@@ -1,6 +1,11 @@
 import logging
 
 import deltacat.logs  # noqa: F401
+from deltacat.api import (
+    copy,
+    get,
+    put,
+)
 from deltacat.catalog.delegate import (
     alter_namespace,
     alter_table,
@@ -25,8 +30,10 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     Catalog,
     Catalogs,
     all_catalogs,
+    is_initialized,
     init,
     get_catalog,
+    put_catalog,
 )
 from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -58,6 +65,9 @@ __version__ = "2.0"
 
 __all__ = [
     "__version__",
+    "copy",
+    "get",
+    "put",
     "all_catalogs",
     "alter_table",
     "create_table",
@@ -78,6 +88,8 @@ __all__ = [
     "write_to_table",
     "read_table",
     "get_catalog",
+    "put_catalog",
+    "is_initialized",
     "init",
     "Catalog",
     "ContentType",
