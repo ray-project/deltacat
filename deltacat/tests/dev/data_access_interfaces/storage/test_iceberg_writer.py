@@ -14,7 +14,7 @@ from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.transforms import IdentityTransform
 
 # Import our IcebergWriter implementation
-from deltacat.dev.data_access_layer.storage.iceberg_writer import IcebergWriter, WriteOptions, IcebergWriteOptions
+from deltacat.dev.data_access_layer.storage.iceberg_writer import IcebergWriter, IcebergWriteOptions
 
 HIVE_METASTORE_FAKE_URL = "thrift://unknown:9083"
 

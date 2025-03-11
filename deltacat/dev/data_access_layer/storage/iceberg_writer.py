@@ -1,26 +1,17 @@
 import posixpath
 from typing import Iterable, Dict, Any, List, Optional, Generator, Type
 
-import daft
-
 import pyarrow
 import pyarrow as pa
-from daft import DataFrame
 from deltacat.catalog.v2.model.writer import Writer, WriteOptions, WriteMode
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from pyiceberg.catalog import Catalog as PyIcebergCatalog
 from pyiceberg.io.pyarrow import (
-    _check_pyarrow_schema_compatible,
-    data_file_statistics_from_parquet_metadata,
-    compute_statistics_plan,
-    parquet_path_to_id_mapping, PyArrowFileIO,
+    PyArrowFileIO
 )
 from pyiceberg.manifest import (
     DataFile,
-    DataFileContent,
-    FileFormat,
 )
-from pyiceberg.typedef import Record
 from pyiceberg.io.pyarrow import _dataframe_to_data_files
 from pyiceberg.table import Table as IcebergTable
 
@@ -201,5 +192,5 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
                     for data_file in wm.append_data_files:
                         update_snapshot.append_data_file(data_file)
 
-        # TODO what should this return?
+        # TODO what relevant metadata should this return?
         return {}

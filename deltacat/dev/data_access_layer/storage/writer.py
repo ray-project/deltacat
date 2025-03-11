@@ -3,6 +3,9 @@ from enum import Enum
 from typing import Iterable, Dict, Any, Optional, Generator, TypeVar, Generic
 import pyarrow as pa
 
+WRITE_RESULT = TypeVar('WRITE_RESULT', bound=Dict[str, Any])
+WRITE_OPTIONS = TypeVar('WRITE_OPTIONS', bound=Dict[str, Any])
+
 
 class WriteMode(str, Enum):
     """
@@ -35,6 +38,7 @@ class WriteOptions(Dict[str, Any]):
     In a distributed setting, WriteOptions should be initialized before writing data files and
     passed to each worker
     """
+
     def __init__(self, write_mode: WriteMode = "append", **kwargs):
         super().__init__()
         self.write_mode = write_mode
@@ -46,12 +50,6 @@ class WriteOptions(Dict[str, Any]):
     @write_mode.setter
     def write_mode(self, write_mode):
         self["write_mode"] = write_mode
-
-
-
-WRITE_RESULT = TypeVar('WRITE_RESULT', bound=Dict[str, Any])
-WRITE_OPTIONS = TypeVar('WRITE_OPTIONS', bound=Dict[str, Any])
-
 
 
 class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
