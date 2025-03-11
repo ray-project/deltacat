@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.catalog import get_catalog_properties
 from deltacat.constants import DEFAULT_TABLE_VERSION
+from deltacat.exceptions import TableNotFoundError
 from deltacat.storage.model.manifest import (
     EntryParams,
     ManifestAuthor,
@@ -834,7 +835,7 @@ def create_table_version(
         content_types=supported_content_types,
         sort_scheme=sort_keys,
         watermark=None,
-        lifecycle_state=LifecycleState.UNRELEASED,
+        lifecycle_state=LifecycleState.CREATED,
         schemas=[schema] if schema else None,
         partition_schemes=[partition_scheme] if partition_scheme else None,
         sort_schemes=[sort_keys] if sort_keys else None,
@@ -900,7 +901,7 @@ def update_table(
         **kwargs,
     )
     if not old_table:
-        raise ValueError(f"Table `{namespace}.{table_name}` does not exist.")
+        raise TableNotFoundError(f"Table `{namespace}.{table_name}` does not exist.")
     new_table: Table = Metafile.update_for(old_table)
     new_table.description = description or old_table.description
     new_table.properties = properties or old_table.properties
@@ -1303,9 +1304,10 @@ def delete_stream(
         filesystem=catalog_properties.filesystem,
     )
 
+
 def delete_table(
     namespace: str,
-    table_name: str,
+    name: str,
     purge: bool = False,
     *args,
     **kwargs,
@@ -1315,26 +1317,28 @@ def delete_table(
     and deltas). If purge is True, also removes all data files associated with the table.
     Raises an error if the given table does not exist.
 
-    TODO: Purge data files.
+    TODO: Honor purge once garbage collection is implemented.
     """
     table: Optional[Table] = get_table(
         *args,
         namespace=namespace,
-        table_name=table_name,
+        table_name=name,
         **kwargs,
     )
 
     if not table:
-        raise ValueError(f"Table `{namespace}.{table_name}` does not exist.")
+        raise TableNotFoundError(f"Table `{namespace}.{name}` does not exist.")
 
     transaction = Transaction.of(
         txn_type=TransactionType.DELETE,
-        txn_operations=TransactionOperationList.of([
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.DELETE,
-                dest_metafile=table,
-            )
-        ]),
+        txn_operations=TransactionOperationList.of(
+            [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.DELETE,
+                    dest_metafile=table,
+                )
+            ]
+        ),
     )
 
     catalog_properties = get_catalog_properties(**kwargs)
@@ -1342,10 +1346,11 @@ def delete_table(
         catalog_root_dir=catalog_properties.root,
         filesystem=catalog_properties.filesystem,
     )
-    
+
 
 def delete_namespace(
     namespace: str,
+    purge: bool = False,
     *args,
     **kwargs,
 ) -> None:

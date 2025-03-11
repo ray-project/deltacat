@@ -70,6 +70,7 @@ class DeltaCatErrorNames(str, Enum):
     STREAM_NOT_FOUND_ERROR = "StreamNotFoundError"
     DELTA_NOT_FOUND_ERROR = "DeltaNotFoundError"
     TABLE_ALREADY_EXISTS_ERROR = "TableAlreadyExistsError"
+    NAMESPACE_ALREADY_EXISTS_ERROR = "NamespaceAlreadyExistsError"
 
 
 class DeltaCatError(Exception):
@@ -234,6 +235,10 @@ class DeltaNotFoundError(NonRetryableError):
 
 
 class TableAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
+
+
+class NamespaceAlreadyExistsError(NonRetryableError):
     error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
 
 
