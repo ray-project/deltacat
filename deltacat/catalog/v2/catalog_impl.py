@@ -44,7 +44,6 @@ def read_table(
     raise NotImplementedError("Not implemented")
 
 
-
 def alter_table(
     table: str,
     namespace: Optional[str] = None,

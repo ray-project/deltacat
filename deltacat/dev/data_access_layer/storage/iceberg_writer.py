@@ -1,14 +1,16 @@
 import posixpath
-from typing import Iterable, Dict, Any, List, Optional, Generator, Type
+from typing import Iterable, Dict, Any, List, Optional, Generator
 
 import pyarrow
 import pyarrow as pa
-from deltacat.dev.data_access_layer.storage.writer import WriteOptions, WriteMode, Writer
+from deltacat.dev.data_access_layer.storage.writer import (
+    WriteOptions,
+    WriteMode,
+    Writer,
+)
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from pyiceberg.catalog import Catalog as PyIcebergCatalog
-from pyiceberg.io.pyarrow import (
-    PyArrowFileIO
-)
+from pyiceberg.io.pyarrow import PyArrowFileIO
 from pyiceberg.manifest import (
     DataFile,
 )
@@ -19,6 +21,7 @@ from pyiceberg.table import Table as IcebergTable
 class IcebergWriteOptions(WriteOptions):
     def __init__(self, write_mode: WriteMode = "append", **kwargs):
         super().__init__(write_mode, **kwargs)
+
 
 class IcebergWriteResultMetadata(Dict[str, Any]):
     """
@@ -42,13 +45,13 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
     """
 
     def __init__(
-            self,
-            catalog: PyIcebergCatalog,
-            table_identifier: str,
-            *args,
-            fs: pyarrow.fs.FileSystem = None,
-            partition_by: Optional[List[str]] = None,
-            **kwargs
+        self,
+        catalog: PyIcebergCatalog,
+        table_identifier: str,
+        *args,
+        fs: pyarrow.fs.FileSystem = None,
+        partition_by: Optional[List[str]] = None,
+        **kwargs,
     ):
         """
         Initialize an IcebergWriter.
@@ -103,8 +106,11 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
 
         return partition_values
 
-    def _write_batches_through_pyiceberg(self, batches: Iterable[pa.RecordBatch],
-                                         partition_values: Optional[Dict[str, Any]]) -> Iterable[DataFile]:
+    def _write_batches_through_pyiceberg(
+        self,
+        batches: Iterable[pa.RecordBatch],
+        partition_values: Optional[Dict[str, Any]],
+    ) -> Iterable[DataFile]:
         """
         Write a single batch to a Parquet file using PyIceberg's mechanisms.
 
@@ -124,25 +130,26 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
         Args:
             batch: PyArrow RecordBatch to write
             partition_values: Dictionary of partition values
-            
+
         Returns:
             Iterable of iceberg DataFiles, representing data files which were just written
         """
         # Create a table from the batch
         table = pa.Table.from_batches(batches)
 
-        datafiles = _dataframe_to_data_files(self.table.metadata,
-                                             table,
-                                             # TODO use user configured pyarrow filesystem
-                                             PyArrowFileIO()
-                                             )
+        datafiles = _dataframe_to_data_files(
+            self.table.metadata,
+            table,
+            # TODO use user configured pyarrow filesystem
+            PyArrowFileIO(),
+        )
 
         return datafiles
 
     def write_batches(
-            self,
-            record_batches: Iterable[pa.RecordBatch],
-            write_options: IcebergWriteOptions
+        self,
+        record_batches: Iterable[pa.RecordBatch],
+        write_options: IcebergWriteOptions,
     ) -> Generator[IcebergWriteResultMetadata, None, None]:
         """
         Write data files from record batches
@@ -151,9 +158,11 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
             Generator of WriteResultMetadata for each batch
         """
         # TODO support other write options
-        if (write_options.write_mode != WriteMode.APPEND):
-            raise NotImplementedError(f"Received write mode {write_options.write_mode}. "
-                                      f"Iceberg writer currently only supports write mode APPEND")
+        if write_options.write_mode != WriteMode.APPEND:
+            raise NotImplementedError(
+                f"Received write mode {write_options.write_mode}. "
+                f"Iceberg writer currently only supports write mode APPEND"
+            )
 
         # TODO support partitioning
         data_files = self._write_batches_through_pyiceberg(record_batches, None)
@@ -162,14 +171,16 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
         result_metadata.append_data_files = data_files
         yield result_metadata
 
-    def finalize_local(self, write_metadata: Generator[IcebergWriteResultMetadata, None, None]) -> List[Dict[str, Any]]:
+    def finalize_local(
+        self, write_metadata: Generator[IcebergWriteResultMetadata, None, None]
+    ) -> List[Dict[str, Any]]:
         raise NotImplementedError("Iceberg writer must finalize via calling commit")
 
     def commit(
-            self,
-            write_metadata: Generator[IcebergWriteResultMetadata, None, None],
-            *args,
-            **kwargs
+        self,
+        write_metadata: Generator[IcebergWriteResultMetadata, None, None],
+        *args,
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Finalize transaction across all batches and workers

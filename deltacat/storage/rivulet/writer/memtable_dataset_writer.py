@@ -217,10 +217,6 @@ class MemtableDatasetWriter(DatasetWriter):
         Explicitly flush any data and metadata and commit to dataset
         """
         self.__flush_memtable(self.__curr_memtable)
-        for thread in self.__open_threads:
-            print(thread)
-            print(thread.is_alive())
-
         for thread in [t for t in self.__open_threads if t.is_alive()]:
             thread.join()
 

@@ -1,7 +1,11 @@
-from typing import Iterable, Dict, Any, List, Optional, Generator, Type
+from typing import Iterable, Dict, Any, Optional, Generator
 
 import pyarrow as pa
-from deltacat.dev.data_access_layer.storage.writer import Writer, WriteOptions, WriteMode
+from deltacat.dev.data_access_layer.storage.writer import (
+    Writer,
+    WriteOptions,
+    WriteMode,
+)
 from deltacat.storage.rivulet.dataset import Dataset as RivuletDataset
 
 
@@ -10,7 +14,12 @@ class RivuletWriteOptions(WriteOptions):
     Rivulet-specific write options
     """
 
-    def __init__(self, write_mode: WriteMode = "upsert", file_format: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        write_mode: WriteMode = "upsert",
+        file_format: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(write_mode=write_mode, **kwargs)
         self.file_format = file_format
 
@@ -48,15 +57,15 @@ class RivuletWriter(Writer[RivuletWriteResultMetadata, RivuletWriteOptions]):
     """
 
     def __init__(
-            self,
-            dataset: RivuletDataset,
-            *args,
-            file_format: Optional[str]=None,
-            **kwargs
+        self,
+        dataset: RivuletDataset,
+        *args,
+        file_format: Optional[str] = None,
+        **kwargs,
     ):
         """
         Initialize a RivuletWriter
-        
+
         Args:
             dataset: rivulet dataset
             file_format: format to write. See Rivulet dataset.py. Options are [parquet, feather].
@@ -66,21 +75,23 @@ class RivuletWriter(Writer[RivuletWriteResultMetadata, RivuletWriteOptions]):
         self.dataset_writer = self.dataset.writer(file_format)
 
     def write_batches(
-            self,
-            record_batches: Iterable[pa.RecordBatch],
-            write_options: RivuletWriteOptions
+        self,
+        record_batches: Iterable[pa.RecordBatch],
+        write_options: RivuletWriteOptions,
     ) -> Generator[RivuletWriteResultMetadata, None, None]:
         """
         Write data files from record batches
-        
+
         Returns:
             Generator of RivuletWriteResultMetadata for each batch
         """
 
         # Only supporting upsert mode
         if write_options.write_mode != WriteMode.UPSERT:
-            raise NotImplementedError(f"Received write mode {write_options.write_mode}. "
-                                      f"Rivulet writer currently only supports write mode UPSERT")
+            raise NotImplementedError(
+                f"Received write mode {write_options.write_mode}. "
+                f"Rivulet writer currently only supports write mode UPSERT"
+            )
 
         # Write batches to dataset writer without flushing yet
         for batch in record_batches:
@@ -89,14 +100,11 @@ class RivuletWriter(Writer[RivuletWriteResultMetadata, RivuletWriteOptions]):
         yield RivuletWriteResultMetadata()
 
     def commit(
-            self,
-            write_metadata: Iterable[RivuletWriteResultMetadata],
-            *args,
-            **kwargs
+        self, write_metadata: Iterable[RivuletWriteResultMetadata], *args, **kwargs
     ) -> Dict[str, Any]:
         """
         Finalize and commit transaction across all batches
-        
+
         For Rivulet, this writes the manifest file for all collected SST files.
         """
         # Flushing dataset writer effectively commits data by writing manifest

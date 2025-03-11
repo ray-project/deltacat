@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Iterable, Dict, Any, Optional, Generator, TypeVar, Generic
+from typing import Iterable, Dict, Any, Generator, TypeVar, Generic
 import pyarrow as pa
 
-WRITE_RESULT = TypeVar('WRITE_RESULT', bound=Dict[str, Any])
-WRITE_OPTIONS = TypeVar('WRITE_OPTIONS', bound=Dict[str, Any])
+WRITE_RESULT = TypeVar("WRITE_RESULT", bound=Dict[str, Any])
+WRITE_OPTIONS = TypeVar("WRITE_OPTIONS", bound=Dict[str, Any])
 
 
 class WriteMode(str, Enum):
@@ -25,6 +25,7 @@ class WriteMode(str, Enum):
     DELETE: Equality based delete of matching records. The logic to determine which records to delete
        based on incoming data, e.g. by primary key, by partial record match, is specific to each table format
     """
+
     APPEND = "append"
     UPSERT = "upsert"
     OVERWRITE = "overwrite"
@@ -66,9 +67,9 @@ class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
 
     @abstractmethod
     def write_batches(
-            self,
-            record_batches: Iterable[pa.RecordBatch],
-            write_options: WRITE_OPTIONS,
+        self,
+        record_batches: Iterable[pa.RecordBatch],
+        write_options: WRITE_OPTIONS,
     ) -> Generator[WRITE_RESULT, None, None]:
         """
         Writes data files in batches.
@@ -87,10 +88,7 @@ class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
         pass
 
     @abstractmethod
-    def commit(self,
-               write_metadata: Iterable[WRITE_RESULT],
-               *args,
-               **kwargs) -> Any:
+    def commit(self, write_metadata: Iterable[WRITE_RESULT], *args, **kwargs) -> Any:
         """
         Finalize and commit transaction.
 

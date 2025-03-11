@@ -1,10 +1,8 @@
 import os
 import tempfile
-import uuid
 import shutil
 import pytest
 import pyarrow as pa
-from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 
 from pyiceberg.catalog.memory import InMemoryCatalog
@@ -14,9 +12,13 @@ from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.transforms import IdentityTransform
 
 # Import our IcebergWriter implementation
-from deltacat.dev.data_access_layer.storage.iceberg_writer import IcebergWriter, IcebergWriteOptions
+from deltacat.dev.data_access_layer.storage.iceberg_writer import (
+    IcebergWriter,
+    IcebergWriteOptions,
+)
 
 HIVE_METASTORE_FAKE_URL = "thrift://unknown:9083"
+
 
 @pytest.fixture(scope="function")
 def iceberg_environment():
@@ -27,10 +29,7 @@ def iceberg_environment():
     os.makedirs(warehouse_path, exist_ok=True)
 
     # Create a local HiveCatalog
-    catalog = InMemoryCatalog(
-        "test_catalog",
-        warehouse_path
-    )
+    catalog = InMemoryCatalog("test_catalog", warehouse_path)
 
     # Define test database and table names
     test_namespace = "test_db"
@@ -42,10 +41,12 @@ def iceberg_environment():
 
     # Define schema for the test table - using LongType for id to match PyArrow's defaults
     schema = Schema(
-        NestedField(1, "id", LongType(), required=True),  # Changed to LongType to match PyArrow int64 default
+        NestedField(
+            1, "id", LongType(), required=True
+        ),  # Changed to LongType to match PyArrow int64 default
         NestedField(2, "name", StringType()),
         NestedField(3, "category", StringType()),
-        NestedField(4, "value", LongType())
+        NestedField(4, "value", LongType()),
     )
 
     # Define partition spec (partitioning by category)
@@ -53,15 +54,12 @@ def iceberg_environment():
         source_id=3,  # ID for 'category' field
         field_id=1000,  # Field ID for the partition field
         transform=IdentityTransform(),
-        name="category"
+        name="category",
     )
     partition_spec = PartitionSpec(partition_field)
 
     # Create table properties
-    properties = {
-        "write.format.default": "parquet",
-        "format-version": "2"
-    }
+    properties = {"write.format.default": "parquet", "format-version": "2"}
 
     # Create the table if it doesn't exist
     if not catalog.table_exists(table_identifier):
@@ -69,7 +67,7 @@ def iceberg_environment():
             identifier=table_identifier,
             schema=schema,
             partition_spec=partition_spec,
-            properties=properties
+            properties=properties,
         )
 
     # Get the table location
@@ -86,7 +84,7 @@ def iceberg_environment():
         "table_identifier": table_identifier,
         "table_location": table_location,
         "schema": schema,
-        "partition_spec": partition_spec
+        "partition_spec": partition_spec,
     }
 
     yield env
@@ -95,8 +93,9 @@ def iceberg_environment():
     shutil.rmtree(temp_dir)
 
 
-def generate_test_data(num_batches: int = 2, rows_per_batch: int = 5,
-                       category: Optional[str] = None) -> List[pa.RecordBatch]:
+def generate_test_data(
+    num_batches: int = 2, rows_per_batch: int = 5, category: Optional[str] = None
+) -> List[pa.RecordBatch]:
     """Generate test data batches"""
     batches = []
 
@@ -105,20 +104,26 @@ def generate_test_data(num_batches: int = 2, rows_per_batch: int = 5,
 
         # Create arrays for each column
         ids = pa.array([i for i in range(start_id, start_id + rows_per_batch)])
-        names = pa.array([f"name-{i}" for i in range(start_id, start_id + rows_per_batch)])
+        names = pa.array(
+            [f"name-{i}" for i in range(start_id, start_id + rows_per_batch)]
+        )
 
         # Use the provided category or alternate categories
         if category:
             categories = pa.array([category] * rows_per_batch)
         else:
-            categories = pa.array(["A" if i % 2 == 0 else "B" for i in range(start_id, start_id + rows_per_batch)])
+            categories = pa.array(
+                [
+                    "A" if i % 2 == 0 else "B"
+                    for i in range(start_id, start_id + rows_per_batch)
+                ]
+            )
 
         values = pa.array([i * 10 for i in range(start_id, start_id + rows_per_batch)])
 
         # Create a record batch
         batch = pa.RecordBatch.from_arrays(
-            [ids, names, categories, values],
-            names=["id", "name", "category", "value"]
+            [ids, names, categories, values], names=["id", "name", "category", "value"]
         )
 
         batches.append(batch)
@@ -131,13 +136,10 @@ def test_write_batches(iceberg_environment):
     # Get environment variables
     catalog = iceberg_environment["catalog"]
     table_identifier = iceberg_environment["table_identifier"]
-    table_location = iceberg_environment["table_location"]
 
     # Create the writer
     writer = IcebergWriter(
-        catalog=catalog,
-        table_identifier=table_identifier,
-        partition_by=["category"]
+        catalog=catalog, table_identifier=table_identifier, partition_by=["category"]
     )
 
     # Generate test data
@@ -146,9 +148,8 @@ def test_write_batches(iceberg_environment):
     # Write the batches
     write_results = list(writer.write_batches(test_batches, IcebergWriteOptions()))
 
-
     # Finalize global commit
-    commit_result = writer.commit(write_results)
+    writer.commit(write_results)
 
     # Reload the table and verify the data
     updated_table = catalog.load_table(table_identifier)
