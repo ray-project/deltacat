@@ -82,12 +82,12 @@ make test
 Runs all unit tests.
 
 > [!NOTE]
-> To run an individual unit test where `my_deltacat_test` exists in either the test file, class, 
+> To run an individual unit test where `my_deltacat_test` exists in either the test file, class,
 > or function/method name, run a command of the form:
 > ```shell
 > python -m pytest -k "my_deltacat_test" -s -vv
 > ```
-> Note that the `-s` flag disables output capturing so that you can see stdout from `print` 
+> Note that the `-s` flag disables output capturing so that you can see stdout from `print`
 > and other statements in real time, and `-vv` let's you see each test version and its input
 > parameters to ease debugging.
 

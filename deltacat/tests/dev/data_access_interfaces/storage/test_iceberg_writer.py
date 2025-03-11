@@ -17,6 +17,7 @@ from deltacat.dev.data_access_layer.storage.iceberg_writer import (
     IcebergWriteOptions,
 )
 
+
 @pytest.fixture(scope="function")
 def iceberg_environment():
     """Create a temporary environment with Iceberg catalog and table"""
