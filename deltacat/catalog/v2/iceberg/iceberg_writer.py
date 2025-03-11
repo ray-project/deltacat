@@ -1,15 +1,19 @@
-import os
-import uuid
-from typing import Iterable, Dict, Any, List, Optional, Generator, TypeVar, Generic
+import posixpath
+from typing import Iterable, Dict, Any, List, Optional, Generator, Type
+
+import daft
+
+import pyarrow
 import pyarrow as pa
-import pyarrow.parquet as pq
-from deltacat.catalog.v2.model.writer import WriteResultMetadata, Writer, WriteOptions
+from daft import DataFrame
+from deltacat.catalog.v2.model.writer import Writer, WriteOptions, WriteMode
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 from pyiceberg.catalog import Catalog as PyIcebergCatalog
 from pyiceberg.io.pyarrow import (
     _check_pyarrow_schema_compatible,
     data_file_statistics_from_parquet_metadata,
     compute_statistics_plan,
-    parquet_path_to_id_mapping,
+    parquet_path_to_id_mapping, PyArrowFileIO,
 )
 from pyiceberg.manifest import (
     DataFile,
@@ -17,16 +21,31 @@ from pyiceberg.manifest import (
     FileFormat,
 )
 from pyiceberg.typedef import Record
+from pyiceberg.io.pyarrow import _dataframe_to_data_files
+from pyiceberg.table import Table as IcebergTable
 
 
-class IcebergWriteResultMetadata(WriteResultMetadata):
+class IcebergWriteOptions(WriteOptions):
+    def __init__(self, write_mode: WriteMode = "append", **kwargs):
+        super().__init__(**kwargs)
+
+class IcebergWriteResultMetadata(Dict[str, Any]):
     """
-    Class representing metadata collected during Iceberg data file write
+    Class representing metadata collected during Iceberg data file write.
+
+    Basically just a wrapper for DataFile
     """
-    pass
+
+    @property
+    def append_data_files(self) -> Iterable[DataFile]:
+        return self["append_data_files"]
+
+    @append_data_files.setter
+    def append_data_files(self, data_files: Iterable[DataFile]):
+        self["append_data_files"] = data_files
 
 
-class IcebergWriter(Writer[IcebergWriteResultMetadata]):
+class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
     """
     Iceberg implementation of Writer interface
     """
@@ -35,8 +54,10 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata]):
             self,
             catalog: PyIcebergCatalog,
             table_identifier: str,
-            write_options: WriteOptions,
-            partition_by: Optional[List[str]] = None
+            *args,
+            fs: pyarrow.fs.FileSystem = None,
+            partition_by: Optional[List[str]] = None,
+            **kwargs
     ):
         """
         Initialize an IcebergWriter
@@ -49,20 +70,24 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata]):
         """
         self.catalog = catalog
         self.table_identifier = table_identifier
-        self.write_options = write_options
         self.partition_by = partition_by or []
 
         # Load the table
-        self.table = catalog.load_table(table_identifier)
+        self.table: IcebergTable = catalog.load_table(table_identifier)
         self.table_schema = self.table.metadata.schema()
         self.spec_id = self.table.metadata.default_spec_id
 
         # Store partition spec for creating records
-        self.partition_spec = self.table.metadata.spec(self.spec_id) if self.spec_id is not None else None
+        self.partition_spec = self.table.metadata.spec()
 
-        # Generate transaction ID if not provided
-        if not self.write_options.transaction_id:
-            self.write_options.transaction_id = str(uuid.uuid4())
+        # Set write location, based on either write options or table's path
+
+        table_location, filesystem = resolve_path_and_filesystem(self.table.location())
+        self.filesystem = fs if fs is not None else filesystem
+
+        self.data_location = posixpath.join(table_location, "data")
+        # Create data directory (this succeeds if dir already exists)
+        self.filesystem.create_dir(self.data_location)
 
     def _get_partition_values(self, batch: pa.RecordBatch) -> Dict[str, Any]:
         """
@@ -84,94 +109,46 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata]):
 
         return partition_values
 
-    def _write_batch_to_file(self, batch: pa.RecordBatch, partition_values: Dict[str, Any]) -> Dict[str, Any]:
+    def _write_batches_through_pyiceberg(self, batches: Iterable[pa.RecordBatch],
+                                         partition_values: Optional[Dict[str, Any]]) -> Iterable[DataFile]:
         """
-        Write a single batch to a Parquet file and return file metadata
+        Write a single batch to a Parquet file using PyIceberg's mechanisms.
+
+        TODO support using pyarrow filesystem in this method. Currently it instantiates the default PyArrowFileIO.
+        To property use the user-configured filesystem, we need to build a shim from pyarrow filesystem to
+        the iceberg FileIO interface (and required interfaces like OutputFile, InputFile, etc). We may consider
+        working with py-iceberg to get this shim in their repository.
+
+        TODO understand if we can implement this without calling an internal pyiceberg method, which is brittle
+        The alternatives evaluated are:
+        1. Implement this directly by writing data files through arrow, then introspecting parquet metadata
+        to populate data files. This implementation risks getting out of sync with canonical pyiceberg
+        logic
+
+        2. Use Daft's `recordbatch_io.write_iceberg`. This method essentially does what we need - writes iceberg data files without actually committing metadata. It operations on a Daft MicroPartition, and it's not clear whether we can safely instantiate a MicroPartition external to Daft.
+
+        Args:
+            batch: PyArrow RecordBatch to write
+            partition_values: Dictionary of partition values
+            
+        Returns:
+            Iterable of iceberg DataFiles, representing data files which were just written
         """
-        # Convert batch to table
-        table = pa.Table.from_batches([batch])
+        # Create a table from the batch
+        table = pa.Table.from_batches(batches)
 
-        # Create directory structure for partitions if needed
-        partition_path = ""
-        if partition_values:
-            partition_parts = []
-            for field, value in partition_values.items():
-                partition_parts.append(f"{field}={value}")
-            partition_path = "/".join(partition_parts)
+        datafiles = _dataframe_to_data_files(self.table.metadata,
+                                             table,
+                                             # TODO use user configured pyarrow filesystem
+                                             PyArrowFileIO()
+                                             )
 
-        # Create data path
-        data_path = self.write_options.table_location
-        if not data_path.endswith("/"):
-            data_path += "/"
-
-        if partition_path:
-            data_path += partition_path + "/"
-
-        # Ensure directory exists
-        os.makedirs(data_path, exist_ok=True)
-
-        # Generate unique file name
-        file_name = f"data-{uuid.uuid4()}.parquet"
-        file_path = data_path + file_name
-
-        # Write the table to a Parquet file
-        pq.write_table(table, file_path)
-
-        # Get file size
-        file_size = os.path.getsize(file_path)
-
-        return {
-            "file_path": file_path,
-            "file_size": file_size,
-            "num_rows": batch.num_rows,
-            "partition_values": partition_values
-        }
-
-    def _create_data_file(self, file_metadata: Dict[str, Any]) -> DataFile:
-        """
-        Create a DataFile object from file metadata
-        """
-        # Get the file path
-        file_path = file_metadata["file_path"]
-
-        # Read the Parquet metadata to get statistics
-        parquet_metadata = pq.read_metadata(file_path)
-
-        # Create partition record
-        partition_values = file_metadata.get("partition_values", {})
-        partition_record = Record(**partition_values) if partition_values else None
-
-        # Check schema compatibility
-        _check_pyarrow_schema_compatible(
-            self.table_schema,
-            parquet_metadata.schema.to_arrow_schema()
-        )
-
-        # Get statistics
-        statistics = data_file_statistics_from_parquet_metadata(
-            parquet_metadata=parquet_metadata,
-            stats_columns=compute_statistics_plan(self.table_schema, self.table.metadata.properties),
-            parquet_column_mapping=parquet_path_to_id_mapping(self.table_schema),
-        )
-
-        # Create DataFile object
-        data_file = DataFile(
-            content=DataFileContent.DATA,
-            file_path=file_path,
-            file_format=FileFormat.PARQUET,
-            partition=partition_record,
-            file_size_in_bytes=file_metadata["file_size"],
-            record_count=file_metadata["num_rows"],
-            sort_order_id=None,
-            spec_id=self.spec_id,
-            **statistics.to_serialized_dict(),
-        )
-
-        return data_file
+        return datafiles
 
     def write_batches(
             self,
-            record_batches: Iterable[pa.RecordBatch]
+            record_batches: Iterable[pa.RecordBatch],
+            write_options: IcebergWriteOptions
     ) -> Generator[IcebergWriteResultMetadata, None, None]:
         """
         Write data files from record batches
@@ -179,36 +156,22 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata]):
         Returns:
             Generator of WriteResultMetadata for each batch
         """
-        for batch in record_batches:
-            if batch.num_rows == 0:
-                continue
+        # TODO support other write options
+        if (write_options.write_mode != WriteMode.APPEND):
+            raise NotImplementedError(f"Received write mode {write_options.write_mode}. "
+                                      f"Iceberg writer currently only supports write mode APPEND")
 
-            # Get partition values
-            partition_values = self._get_partition_values(batch)
+        # TODO support partitioning
+        data_files = self._write_batches_through_pyiceberg(record_batches, None)
 
-            # Write batch to file
-            file_metadata = self._write_batch_to_file(batch, partition_values)
-
-            # Create and yield result metadata
-            result = IcebergWriteResultMetadata([file_metadata])
-            yield result
+        result_metadata = IcebergWriteResultMetadata()
+        result_metadata.append_data_files = data_files
+        yield result_metadata
 
     def finalize_local(self, write_metadata: Generator[IcebergWriteResultMetadata, None, None]) -> List[Dict[str, Any]]:
-        """
-        Finalize the segment-level commit by collecting all metadata
+        raise NotImplementedError("Iceberg writer must finalize via calling commit")
 
-        Returns:
-            Aggregated file metadata
-        """
-        # Collect all file metadata
-        all_file_metadata = []
-        for metadata_batch in write_metadata:
-            for file_metadata in metadata_batch:
-                all_file_metadata.append(file_metadata)
-
-        return all_file_metadata
-
-    def finalize_global(
+    def commit(
             self,
             write_metadata: Generator[IcebergWriteResultMetadata, None, None],
             *args,
@@ -219,14 +182,12 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata]):
 
         This will commit the transaction to the Iceberg table
         """
-        # Collect all file metadata
-        all_file_metadata = []
-        for metadata_batch in write_metadata:
-            all_file_metadata.extend(metadata_batch)
 
         # Start a transaction
         with self.table.transaction() as tx:
+
             # Ensure name mapping is set
+            # TODO do we need this line?
             if self.table.metadata.name_mapping() is None:
                 tx.set_properties(
                     **{
@@ -234,19 +195,11 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata]):
                     }
                 )
 
-            # Create a snapshot update
+            # Create an append snapshot update
             with tx.update_snapshot().fast_append() as update_snapshot:
-                for file_info in all_file_metadata:
-                    # Create DataFile object
-                    data_file = self._create_data_file(file_info)
+                for wm in write_metadata:
+                    for data_file in wm.append_data_files:
+                        update_snapshot.append_data_file(data_file)
 
-                    # Append to snapshot
-                    update_snapshot.append_data_file(data_file)
-
-        # Return information about the commit
-        return {
-            "transaction_id": self.write_options.transaction_id,
-            "table_identifier": self.table_identifier,
-            "num_files_committed": len(all_file_metadata),
-            "total_rows": sum(file["num_rows"] for file in all_file_metadata)
-        }
+        # TODO what should this return?
+        return {}

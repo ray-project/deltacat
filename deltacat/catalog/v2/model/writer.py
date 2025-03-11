@@ -1,55 +1,76 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Dict, Any, List, Optional, Generator, TypeVar, Generic
+from enum import Enum
+from typing import Iterable, Dict, Any, Optional, Generator, TypeVar, Generic
 import pyarrow as pa
 
 
-class WriteOptions:
+class WriteMode(str, Enum):
+    """
+    WriteMode defines the semantics of how incoming writes are merged with existing data
+
+    The low level sematantics and behavior of write operations may still vary based on different table formats
+
+    Not all table formats support all modes. TODO mechanism to signal through write interface which modes are supported
+
+    APPEND: add new data files. Newly inserted data is not merged or upserted with relation to existing data
+
+    OVERWRITE: add new data files and delete existing data files. Existing data files which are overwritten
+        are defined via an overwrite filter. For instance - overwrite existing data files by table partition
+
+    UPSERT: records in new data files are merged with existing data files using table's merge keys
+
+    DELETE: Equality based delete of matching records. The logic to determine which records to delete
+       based on incoming data, e.g. by primary key, by partial record match, is specific to each table format
+    """
+    APPEND = "append"
+    UPSERT = "upsert"
+    OVERWRITE = "overwrite"
+    DELETE = "delete"
+
+
+class WriteOptions(Dict[str, Any]):
     """
     Global options for writing.
 
     In a distributed setting, WriteOptions should be initialized before writing data files and
     passed to each worker
-
-    # TODO make Dict and follow pattern like in Metafile.py
     """
-    def __init__(
-            self,
-            table_location: str,
-            format: str = "parquet",
-            mode: str = "append",
-            transaction_id: Optional[str] = None,
-            custom_params: Optional[Dict[str, Any]] = None
-    ):
-        self.table_location = table_location
-        self.format = format
-        self.mode = mode
-        self.transaction_id = transaction_id
-        self.custom_params = custom_params or {}
+    def __init__(self, write_mode: WriteMode = "append", **kwargs):
+        super().__init__()
+        self.write_mode = write_mode
+
+    @property
+    def write_mode(self) -> str:
+        return self["write_mode"]
+
+    @write_mode.setter
+    def write_mode(self, write_mode):
+        self["write_mode"] = write_mode
 
 
-class WriteResultMetadata(List[Dict[str, Any]]):
-    """
-    Class representing metadata collected during data file write, E.g.: [{"file_path": "...", "num_rows": ...}, ...]
 
-    Each table format may subclass WriteResultMetadata
-    """
-    pass
+WRITE_RESULT = TypeVar('WRITE_RESULT', bound=Dict[str, Any])
+WRITE_OPTIONS = TypeVar('WRITE_OPTIONS', bound=Dict[str, Any])
 
-# Write result subtype specific to a given data format
-WRITE_RESULT = TypeVar('WRITE_RESULT', bound=WriteResultMetadata)
 
-class Writer(Generic[WRITE_RESULT], ABC):
+
+class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
     """
     Each Writer instance is responsible for writing and finalizing
     a subset of data and metadata.
 
     If there's a global commit step, the partial metadata from each writer
     is posted to a shared place for a final aggregator to use.
+
+    TODO writer should return whether it supports finalize_local or not
+    TODO writer should return if write_batches will also commit metadata
     """
+
     @abstractmethod
     def write_batches(
             self,
-            record_batches: Iterable[pa.RecordBatch]
+            record_batches: Iterable[pa.RecordBatch],
+            write_options: WRITE_OPTIONS,
     ) -> Generator[WRITE_RESULT, None, None]:
         """
         Writes data files in batches.
@@ -80,12 +101,12 @@ class Writer(Generic[WRITE_RESULT], ABC):
         pass
 
     @abstractmethod
-    def finalize_global(self,
-                        write_metadata: Iterable[WRITE_RESULT],
-                        *args,
-                        **kwargs) -> Any:
+    def commit(self,
+               write_metadata: Iterable[WRITE_RESULT],
+               *args,
+               **kwargs) -> Any:
         """
-        Finalize transaction across all batches and all local workers. Expected to be invoked from head node
+        Finalize and commit transaction across all batches and all local workers. Expected to be invoked from head node
 
         This MUST commit any open transactions. For table formats supporting ACID transactions, the writer is expected
         to call finalize_global after writing.
@@ -93,5 +114,3 @@ class Writer(Generic[WRITE_RESULT], ABC):
         This MAY perform other synchronous clean up steps which block commit. For instance, it may compact small files
         written by workers into larger files before final commit.
         """
-
-

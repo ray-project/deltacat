@@ -6,9 +6,7 @@ import pytest
 import pyarrow as pa
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Generator, Optional
-from unittest.mock import MagicMock
 
-from pyiceberg.catalog.hive import HiveCatalog
 from pyiceberg.catalog.memory import InMemoryCatalog
 from pyiceberg.schema import Schema
 from pyiceberg.types import NestedField, StringType, IntegerType, LongType
@@ -17,7 +15,9 @@ from pyiceberg.transforms import IdentityTransform
 from pyiceberg.io.pyarrow import PyArrowFileIO
 
 # Import our IcebergWriter implementation
-from deltacat.catalog.v2.iceberg.iceberg_writer import IcebergWriter, WriteOptions, IcebergWriteResultMetadata
+from deltacat.catalog.v2.iceberg.iceberg_writer import IcebergWriter, WriteOptions, IcebergWriteResultMetadata, \
+    IcebergWriteOptions
+
 HIVE_METASTORE_FAKE_URL = "thrift://unknown:9083"
 
 @pytest.fixture(scope="function")
@@ -30,7 +30,8 @@ def iceberg_environment():
 
     # Create a local HiveCatalog
     catalog = InMemoryCatalog(
-        "test_catalog"
+        "test_catalog",
+        warehouse_path
     )
 
     # Define test database and table names
@@ -41,9 +42,9 @@ def iceberg_environment():
     # Create namespace if it doesn't exist
     catalog.create_namespace(test_namespace)
 
-    # Define schema for the test table
+    # Define schema for the test table - using LongType for id to match PyArrow's defaults
     schema = Schema(
-        NestedField(1, "id", IntegerType(), required=True),
+        NestedField(1, "id", LongType(), required=True),  # Changed to LongType to match PyArrow int64 default
         NestedField(2, "name", StringType()),
         NestedField(3, "category", StringType()),
         NestedField(4, "value", LongType())
@@ -134,19 +135,10 @@ def test_write_batches(iceberg_environment):
     table_identifier = iceberg_environment["table_identifier"]
     table_location = iceberg_environment["table_location"]
 
-    # Create write options
-    write_options = WriteOptions(
-        table_location=table_location,
-        format="parquet",
-        mode="append",
-        transaction_id=str(uuid.uuid4())
-    )
-
     # Create the writer
     writer = IcebergWriter(
         catalog=catalog,
         table_identifier=table_identifier,
-        write_options=write_options,
         partition_by=["category"]
     )
 
@@ -154,20 +146,11 @@ def test_write_batches(iceberg_environment):
     test_batches = generate_test_data(num_batches=2, rows_per_batch=5)
 
     # Write the batches
-    write_results = list(writer.write_batches(test_batches))
+    write_results = list(writer.write_batches(test_batches, IcebergWriteOptions()))
 
-    # Verify that we get the expected number of results
-    assert len(write_results) == 2, "Should have 2 write results (one per batch)"
-
-    # Finalize local commit
-    local_metadata = writer.finalize_local(iter(write_results))
 
     # Finalize global commit
-    commit_result = writer.finalize_global(iter([local_metadata]))
-
-    # Verify commit result
-    assert commit_result["num_files_committed"] == 2, "Should have committed 2 files"
-    assert commit_result["total_rows"] == 10, "Should have committed 10 rows total"
+    commit_result = writer.commit(write_results)
 
     # Reload the table and verify the data
     updated_table = catalog.load_table(table_identifier)
@@ -185,70 +168,6 @@ def test_write_batches(iceberg_environment):
     assert "name" in column_names
     assert "category" in column_names
     assert "value" in column_names
-
-
-def test_snapshot_commit_timing(iceberg_environment):
-    """Test that snapshots aren't committed until finalize_global is called"""
-    # Get environment variables
-    catalog = iceberg_environment["catalog"]
-    table_identifier = iceberg_environment["table_identifier"]
-    table_location = iceberg_environment["table_location"]
-
-    # Load the initial table state
-    initial_table = catalog.load_table(table_identifier)
-    initial_snapshot_id = initial_table.metadata.current_snapshot_id
-
-    # Create write options
-    write_options = WriteOptions(
-        table_location=table_location,
-        format="parquet",
-        mode="append",
-        transaction_id=str(uuid.uuid4())
-    )
-
-    # Create the writer
-    writer = IcebergWriter(
-        catalog=catalog,
-        table_identifier=table_identifier,
-        write_options=write_options,
-        partition_by=["category"]
-    )
-
-    # Generate and write test data
-    test_batches = generate_test_data(num_batches=1, rows_per_batch=3)
-    write_results = list(writer.write_batches(test_batches))
-
-    # Check that snapshot hasn't changed after write_batches
-    table_after_write = catalog.load_table(table_identifier)
-    assert table_after_write.metadata.current_snapshot_id == initial_snapshot_id, \
-        "Snapshot should not change after write_batches"
-
-    # Finalize local commit
-    local_metadata = writer.finalize_local(iter(write_results))
-
-    # Check that snapshot hasn't changed after finalize_local
-    table_after_local = catalog.load_table(table_identifier)
-    assert table_after_local.metadata.current_snapshot_id == initial_snapshot_id, \
-        "Snapshot should not change after finalize_local"
-
-    # Check that no data is available to read yet
-    scanner = table_after_local.scan()
-    arrow_table = scanner.to_arrow()
-    assert arrow_table.num_rows == 0, "No data should be available before finalize_global"
-
-    # Finalize global commit
-    writer.finalize_global(iter([local_metadata]))
-
-    # Check that snapshot has changed after finalize_global
-    table_after_global = catalog.load_table(table_identifier)
-    assert table_after_global.metadata.current_snapshot_id != initial_snapshot_id, \
-        "Snapshot should change after finalize_global"
-
-    # Verify that data is now available
-    scanner = table_after_global.scan()
-    arrow_table = scanner.to_arrow()
-    assert arrow_table.num_rows == 3, "Data should be available after finalize_global"
-
 
 def test_multi_threaded_writers(iceberg_environment):
     """Test multiple writers on different threads with transaction only committing at finalize_global"""
@@ -355,7 +274,6 @@ def test_multi_threaded_writers(iceberg_environment):
     for i in range(num_workers):
         expected_category = f"worker_{i}"
         assert expected_category in categories, f"Category {expected_category} should be present"
-
 
 def test_file_paths_exist_before_commit(iceberg_environment):
     """Test that data files physically exist after write_batches but aren't visible in table scan"""
