@@ -701,8 +701,9 @@ class Dataset:
 
     def writer(
         self,
-        schema_name: str = None,
-        file_format: str | None = None,
+        *args,
+        schema_name: Optional[str] = None,
+        file_format: Optional[str] = None,
     ) -> DatasetWriter:
         """Create a new (stateful) writer using the schema at the conjunction of given schemas.
 

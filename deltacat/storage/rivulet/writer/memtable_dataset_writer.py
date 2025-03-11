@@ -217,6 +217,10 @@ class MemtableDatasetWriter(DatasetWriter):
         Explicitly flush any data and metadata and commit to dataset
         """
         self.__flush_memtable(self.__curr_memtable)
+        for thread in self.__open_threads:
+            print(thread)
+            print(thread.is_alive())
+
         for thread in [t for t in self.__open_threads if t.is_alive()]:
             thread.join()
 
@@ -253,6 +257,8 @@ class MemtableDatasetWriter(DatasetWriter):
             self.__open_threads = [t for t in self.__open_threads if t.is_alive()]
 
     def __flush_memtable(self, memtable):
+        # TODO exceptions in async flush are swallowed
+        # Use alternate approach like Futures or putting results of async flush in queue
         thread = threading.Thread(target=self.__flush_memtable_async, args=(memtable,))
         thread.start()
         with self.__rlock:

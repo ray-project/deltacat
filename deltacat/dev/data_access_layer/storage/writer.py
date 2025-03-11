@@ -79,22 +79,10 @@ class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
         The implementation of this is responsible for all table format level considerations like as partitioning,
         bucketing, etc.
 
-        This function SHOULD NOT expose data written to readers before finalize_local/finalize_global are called.
+        This function SHOULD NOT expose data written to readers before commit is called.
         For table formats which do not support ACID compliance, the expectation is to write data files only in
-        write_batches then write metafiles in finalize_*. This means that the output of finalize_batches must be
+        write_batches then write metafiles in commit. This means that the output of finalize_batches must be
         preserved to finalize commit, or else there will be orphaned data files.
-        """
-        pass
-
-    @abstractmethod
-    def finalize_local(self, write_metadata: Iterable[WRITE_RESULT]) -> Any:
-        """
-        Finalize the segment-level commit. This method will collect all WRITE_RESULTs from write_batches
-        and publish a partial commit or otherwise collect data to pass to finalize_global if commit must be done
-        by global coordinator.
-
-        This MAY terminate transaction, depending on whether a given writer impl will commit one transaction globally
-        or one transaction per local worker.
         """
         pass
 
@@ -104,7 +92,11 @@ class Writer(Generic[WRITE_RESULT, WRITE_OPTIONS], ABC):
                *args,
                **kwargs) -> Any:
         """
-        Finalize and commit transaction across all batches and all local workers. Expected to be invoked from head node
+        Finalize and commit transaction.
+
+        Note that this may be run on head node if all worker nodes pass write results. Or, commit may happen
+        directly on worker node. The supported pattern depends on the constraints of the underlying table format
+        and writer implementation.
 
         This MUST commit any open transactions. For table formats supporting ACID transactions, the writer is expected
         to call finalize_global after writing.

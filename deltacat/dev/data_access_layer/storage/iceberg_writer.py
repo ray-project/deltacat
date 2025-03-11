@@ -3,7 +3,7 @@ from typing import Iterable, Dict, Any, List, Optional, Generator, Type
 
 import pyarrow
 import pyarrow as pa
-from deltacat.catalog.v2.model.writer import Writer, WriteOptions, WriteMode
+from deltacat.dev.data_access_layer.storage.writer import WriteOptions, WriteMode, Writer
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from pyiceberg.catalog import Catalog as PyIcebergCatalog
 from pyiceberg.io.pyarrow import (
@@ -18,7 +18,7 @@ from pyiceberg.table import Table as IcebergTable
 
 class IcebergWriteOptions(WriteOptions):
     def __init__(self, write_mode: WriteMode = "append", **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(write_mode, **kwargs)
 
 class IcebergWriteResultMetadata(Dict[str, Any]):
     """
@@ -51,7 +51,10 @@ class IcebergWriter(Writer[IcebergWriteResultMetadata, IcebergWriteOptions]):
             **kwargs
     ):
         """
-        Initialize an IcebergWriter
+        Initialize an IcebergWriter.
+
+        TODO Currently, this takes a PyIcebergCatalog and iceberg table identifier.
+        Future iterations will flesh out the story for how iceberg-backed. DeltaCAT streams can use this directly from a deltaCAT table.
 
         Args:
             catalog: PyIceberg catalog instance
