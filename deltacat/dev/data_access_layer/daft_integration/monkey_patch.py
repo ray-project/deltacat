@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional, List
 import daft
 from daft import DataFrame
 from daft.daft import IOConfig
-from daft.expressions import col, lit, udf
+from daft.expressions import col, lit
 from daft.datatype import DataType
 from daft.context import get_context
 
