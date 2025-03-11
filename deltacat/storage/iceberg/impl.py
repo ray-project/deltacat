@@ -405,12 +405,12 @@ def create_table_version(
         schema=iceberg_schema,
         case_sensitive=case_sensitive_col_names,
     )
-    
+
     existing_table = _try_load_iceberg_table(catalog, namespace, table_name)
     if existing_table is not None:
         table = existing_table
         logger.info(f"Table already exists: {table}")
-        
+
         if table_properties:
             try:
                 with table.transaction() as transaction:
