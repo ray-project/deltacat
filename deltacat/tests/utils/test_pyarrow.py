@@ -2,9 +2,12 @@ from unittest import TestCase
 from deltacat.utils.pyarrow import (
     s3_partial_parquet_file_to_table,
     pyarrow_read_csv,
+    ContentTypeValidationError,
     content_type_to_reader_kwargs,
     _add_column_kwargs,
+    logger,
     s3_file_to_table,
+    s3_file_to_parquet,
     ReadKwargsProviderPyArrowSchemaOverride,
     RAISE_ON_EMPTY_CSV_KWARG,
     RAISE_ON_DECIMAL_OVERFLOW,
@@ -435,7 +438,7 @@ class TestReadCSV(TestCase):
             pa.lib.ArrowInvalid,
             lambda: pyarrow_read_csv(
                 OVERFLOWING_DECIMAL_PRECISION_UTSV_PATH,
-                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True}
+                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True},
             ),
         )
 
@@ -479,7 +482,7 @@ class TestReadCSV(TestCase):
             pa.lib.ArrowInvalid,
             lambda: pyarrow_read_csv(
                 OVERFLOWING_DECIMAL_SCALE_UTSV_PATH,
-                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True}
+                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True},
             ),
         )
 
@@ -590,7 +593,7 @@ class TestReadCSV(TestCase):
             pa.lib.ArrowNotImplementedError,
             lambda: pyarrow_read_csv(
                 OVERFLOWING_DECIMAL_SCALE_UTSV_PATH,
-                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True}
+                **{**kwargs, RAISE_ON_DECIMAL_OVERFLOW: True},
             ),
         )
 
@@ -818,8 +821,11 @@ class TestS3FileToTable(TestCase):
         schema = pa.schema(
             [("is_active", pa.string()), ("ship_datetime_utc", pa.timestamp("us"))]
         )
-
         # OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG has no effect on uTSV files
+        pa_kwargs_provider = lambda content_type, kwargs: {
+            "reader_type": "pyarrow",
+            **kwargs,
+        }
         pa_kwargs_provider = lambda content_type, kwargs: {
             "reader_type": "pyarrow",
             OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG: ContentEncoding.IDENTITY.value,
@@ -864,3 +870,99 @@ class TestS3FileToTable(TestCase):
         schema = result.schema
         schema_index = schema.get_field_index("n_legs")
         self.assertEqual(schema.field(schema_index).type, "int64")
+
+
+class TestS3FileToParquet(TestCase):
+    def test_s3_file_to_parquet_sanity(self):
+        test_s3_url = PARQUET_FILE_PATH
+        test_content_type = ContentType.PARQUET.value
+        test_content_encoding = ContentEncoding.IDENTITY.value
+        pa_kwargs_provider = lambda content_type, kwargs: {
+            "reader_type": "pyarrow",
+            **kwargs,
+        }
+        with self.assertLogs(logger=logger.name, level="DEBUG") as cm:
+            result_parquet_file: ParquetFile = s3_file_to_parquet(
+                test_s3_url,
+                test_content_type,
+                test_content_encoding,
+                ["n_legs", "animal"],
+                ["n_legs"],
+                pa_read_func_kwargs_provider=pa_kwargs_provider,
+            )
+        log_message_log_args = cm.records[0].getMessage()
+        log_message_presanitize_kwargs = cm.records[1].getMessage()
+        self.assertIn(
+            f"Reading {test_s3_url} to PyArrow ParquetFile. Content type: {test_content_type}. Encoding: {test_content_encoding}",
+            log_message_log_args,
+        )
+        self.assertIn("{'reader_type': 'pyarrow'}", log_message_presanitize_kwargs)
+        for index, field in enumerate(result_parquet_file.schema_arrow):
+            self.assertEqual(
+                field.name, result_parquet_file.schema_arrow.field(index).name
+            )
+        self.assertEqual(result_parquet_file.schema_arrow.field(0).type, "int64")
+
+    def test_s3_file_to_parquet_when_parquet_gzip_encoding_and_overridden_returns_success(
+        self,
+    ):
+        test_s3_url = PARQUET_FILE_PATH
+        test_content_type = ContentType.PARQUET.value
+        test_content_encoding = ContentEncoding.GZIP.value
+        pa_kwargs_provider = lambda content_type, kwargs: {
+            "reader_type": "pyarrow",
+            OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG: ContentEncoding.IDENTITY.value,
+            **kwargs,
+        }
+        with self.assertLogs(logger=logger.name, level="DEBUG") as cm:
+            result_parquet_file: ParquetFile = s3_file_to_parquet(
+                test_s3_url,
+                test_content_type,
+                test_content_encoding,
+                ["n_legs", "animal"],
+                ["n_legs"],
+                pa_read_func_kwargs_provider=pa_kwargs_provider,
+            )
+        log_message_log_args = cm.records[0].getMessage()
+        log_message_log_new_content_encoding = cm.records[1].getMessage()
+        log_message_presanitize_kwargs = cm.records[2].getMessage()
+        self.assertIn(
+            f"Reading {test_s3_url} to PyArrow ParquetFile. Content type: {test_content_type}. Encoding: {test_content_encoding}",
+            log_message_log_args,
+        )
+        self.assertIn(
+            f"Overriding {test_s3_url} content encoding from {ContentEncoding.GZIP.value} to {ContentEncoding.IDENTITY.value}",
+            log_message_log_new_content_encoding,
+        )
+        self.assertIn("{'reader_type': 'pyarrow'}", log_message_presanitize_kwargs)
+        for index, field in enumerate(result_parquet_file.schema_arrow):
+            self.assertEqual(
+                field.name, result_parquet_file.schema_arrow.field(index).name
+            )
+        self.assertEqual(result_parquet_file.schema_arrow.field(0).type, "int64")
+
+    def test_s3_file_to_parquet_when_parquet_gzip_encoding_not_overridden_throws_error(
+        self,
+    ):
+        test_s3_url = PARQUET_FILE_PATH
+        test_content_type = ContentType.PARQUET.value
+        test_content_encoding = ContentEncoding.GZIP.value
+        pa_kwargs_provider = lambda content_type, kwargs: {
+            "reader_type": "pyarrow",
+            **kwargs,
+        }
+        with self.assertRaises(ContentTypeValidationError):
+            with self.assertLogs(logger=logger.name, level="DEBUG") as cm:
+                s3_file_to_parquet(
+                    test_s3_url,
+                    test_content_type,
+                    test_content_encoding,
+                    ["n_legs", "animal"],
+                    ["n_legs"],
+                    pa_read_func_kwargs_provider=pa_kwargs_provider,
+                )
+        log_message_log_args = cm.records[0].getMessage()
+        self.assertIn(
+            f"Reading {test_s3_url} to PyArrow ParquetFile. Content type: {test_content_type}. Encoding: {test_content_encoding}",
+            log_message_log_args,
+        )
