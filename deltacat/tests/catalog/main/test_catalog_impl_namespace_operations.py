@@ -1,4 +1,6 @@
 import shutil
+from deltacat.exceptions import NamespaceAlreadyExistsError
+import pytest
 import tempfile
 import deltacat.catalog.v2.catalog_impl as catalog
 from deltacat.catalog.catalog_properties import initialize_properties
@@ -87,12 +89,26 @@ class TestCatalogNamespaceOperations:
         assert catalog.namespace_exists(namespace, catalog=catalog)
 
         # Try to create the same namespace again, should raise ValueError
-        import pytest
-
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(NamespaceAlreadyExistsError, match=namespace):
             catalog.create_namespace(
                 namespace=namespace, properties=properties, catalog=catalog
             )
 
-        # Verify the error message
-        assert f"Namespace {namespace} already exists" in str(excinfo.value)
+    def test_drop_namespace(self):
+        """Test dropping a namespace"""
+        namespace = "test_drop_namespace"
+        properties = {"description": "Test Namespace", "owner": "test-user"}
+
+        # Create namespace
+        catalog.create_namespace(
+            namespace=namespace, properties=properties, catalog=catalog
+        )
+
+        # Verify namespace exists
+        assert catalog.namespace_exists(namespace, catalog=catalog)
+
+        # Drop namespace
+        catalog.drop_namespace(namespace, catalog=catalog)
+
+        # Verify namespace does not exist
+        assert not catalog.namespace_exists(namespace, catalog=catalog)
