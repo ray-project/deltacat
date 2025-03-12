@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, List
 from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.locator import Locator, LocatorName
 
-NamespaceProperties = Dict[str, Any]
+NamespaceProperties = dict[str, Any]
 
 
 class Namespace(Metafile):
