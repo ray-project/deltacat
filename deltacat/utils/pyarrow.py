@@ -617,7 +617,18 @@ def s3_file_to_parquet(
         f"Reading {s3_url} to PyArrow ParquetFile. "
         f"Content type: {content_type}. Encoding: {content_encoding}"
     )
+    kwargs = {}
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
+    if OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG in kwargs:
+        new_content_encoding = kwargs.pop(OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG)
+        if content_type == ContentType.PARQUET.value:
+            logger.debug(
+                f"Overriding {s3_url} content encoding from {content_encoding} "
+                f"to {new_content_encoding}"
+            )
+            content_encoding = new_content_encoding
     if (
         content_type != ContentType.PARQUET.value
         or content_encoding != ContentEncoding.IDENTITY
@@ -630,14 +641,9 @@ def s3_file_to_parquet(
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
-    kwargs = {}
-
     if s3_url.startswith("s3://"):
         s3_file_system = create_s3_file_system(s3_client_kwargs)
         kwargs["filesystem"] = s3_file_system
-
-    if pa_read_func_kwargs_provider:
-        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
     logger.debug(f"Pre-sanitize kwargs for {s3_url}: {kwargs}")
 
