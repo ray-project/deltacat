@@ -289,8 +289,8 @@ def create_table_version(
     table_name: str,
     table_version: Optional[str] = None,
     schema: Optional[Schema] = None,
-    # TODO(pdames): rename to `sort_scheme`
     partition_scheme: Optional[PartitionScheme] = None,
+    # TODO(pdames): rename to `sort_scheme`
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
