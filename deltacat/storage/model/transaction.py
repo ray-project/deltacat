@@ -596,11 +596,28 @@ class Transaction(dict):
         filesystem: pyarrow.fs.FileSystem,
         time_provider: TransactionTimeProvider,
     ) -> Tuple[List[str], str]:
-        # write the in-progress transaction log file
-        running_txn_log_file_path = posixpath.join(
-            running_txn_log_dir,
-            self.id,
-        )
+        #TODO: move this dict into a different more suiting place
+        OPERATION_TIMEOUTS = {
+            "create": 5,
+            "update": 3,
+            "delete": 4,
+            "read_siblings": 2,
+            "read_children": 2,
+            "read_latest": 3,
+            "read_exists": 1,
+        }
+
+        total_time_for_transaction = 0
+        for operation in self.operations:
+            total_time_for_transaction += OPERATION_TIMEOUTS.get(operation.type, 0)
+
+        start_time = float(self.id.split(TXN_PART_SEPARATOR)[0])
+        final_time_heartbeat = start_time + (total_time_for_transaction * 1_000_000_000)  # Convert seconds to nanoseconds
+
+        path_ending = f"{self.id}{TXN_PART_SEPARATOR}{str(final_time_heartbeat)}"
+
+        # Write the in-progress transaction log file
+        running_txn_log_file_path = posixpath.join(running_txn_log_dir, path_ending)
         with filesystem.open_output_stream(running_txn_log_file_path) as file:
             packed = msgpack.dumps(self.to_serializable())
             file.write(packed)
@@ -610,6 +627,7 @@ class Transaction(dict):
         locator_write_paths = []
         try:
             for operation in self.operations:
+                total_time_for_transaction += OPERATION_TIMEOUTS[operation.type]
                 operation.dest_metafile.write_txn(
                     catalog_root_dir=catalog_root_normalized,
                     success_txn_log_dir=success_txn_log_dir,

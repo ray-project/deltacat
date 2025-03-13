@@ -52,7 +52,7 @@ def brute_force_search_matching_metafiles(transaction_ids, filesystem: pyarrow.f
     recursive_search(catalog_root)
 
 
-def janitor_delete_timed_out_transaction(catalog_root: str, threshold_seconds: int = 3600) -> None:
+def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
     """
     Traverse the running transactions directory and move transactions that have been
     running longer than threshold_seconds into the failed transactions directory.
@@ -72,10 +72,10 @@ def janitor_delete_timed_out_transaction(catalog_root: str, threshold_seconds: i
         try:
             filename = posixpath.basename(running_txn_info.path)
             parts = filename.split(TXN_PART_SEPARATOR)
-            start_time_str = parts[0]
-            start_time = float(start_time_str)
-            current_time = time.time()
-            if current_time - start_time >= threshold_seconds:
+            end_time_str = parts[0]
+            end_time = float(end_time_str)
+            current_time = time.time_ns()
+            if end_time <= current_time:
                 src_path = running_txn_info.path
                 dest_path = posixpath.join(failed_txn_log_dir, filename)
 
@@ -90,7 +90,6 @@ def janitor_delete_timed_out_transaction(catalog_root: str, threshold_seconds: i
 
                 
                 # Move the file using copy and delete instead of rename
-                # since pyarrow.fs.LocalFileSystem doesn't have a rename method
                 with filesystem.open_input_file(src_path) as src_file:
                     contents = src_file.read()
                     
@@ -161,5 +160,5 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
 
 
 def janitor_job(catalog_root_dir: str) -> None:
-    janitor_delete_timed_out_transaction(catalog_root_dir, threshold_seconds=30)
+    janitor_delete_timed_out_transaction(catalog_root_dir)
     janitor_remove_files_in_failed(catalog_root_dir)
