@@ -247,10 +247,12 @@ class TransactionOperation(dict):
             locator_write_paths = self["locator_write_paths"] = []
         locator_write_paths.append(write_path)
 
-    def set_metafile_write_paths(self, write_paths: List[str]):
+    @metafile_write_paths.setter
+    def metafile_write_paths(self, write_paths: List[str]) -> None:
         self["metafile_write_paths"] = write_paths
 
-    def set_locator_write_paths(self, write_paths: List[str]):
+    @locator_write_paths.setter
+    def locator_write_paths(self, write_paths: List[str]):
         self["locator_write_paths"] = write_paths
 
     # TODO(martinezdavid): Check if we need protected access for setter methods
