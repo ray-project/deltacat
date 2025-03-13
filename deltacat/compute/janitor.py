@@ -7,20 +7,18 @@ from deltacat.storage.model.transaction import Transaction
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from itertools import chain
 from deltacat.constants import (
+    SUCCESSFULLY_CLEANED,
     TXN_DIR_NAME, 
     RUNNING_TXN_DIR_NAME, 
     FAILED_TXN_DIR_NAME, 
     TXN_PART_SEPARATOR,
-    TIMEOUT_TXN,
-    DELETED_TXN,
-    FAILED_TXN
 )
 
 
 #TODO: implement heartbeat mechanics that scale with operation rather than current arbitrary
 #TODO: add another attribute to the file in failed to mark it as successfully deleted, a heartbeat timeout, or detected fail
 
-def brute_force_search_matching_metafiles(transaction_ids, filesystem: pyarrow.fs.FileSystem, catalog_root="."):
+def brute_force_search_matching_metafiles(transaction_ids, filesystem: pyarrow.fs.FileSystem, catalog_root):
     txn_dir_name = TXN_DIR_NAME
 
     def recursive_search(path):
@@ -75,36 +73,28 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
             end_time_str = parts[0]
             end_time = float(end_time_str)
             current_time = time.time_ns()
+            print(current_time)
             if end_time <= current_time:
                 src_path = running_txn_info.path
                 dest_path = posixpath.join(failed_txn_log_dir, filename)
 
-                janitor_delete_timed_out_transaction
-
-                txn = Transaction.read(running_txn_info.path, filesystem) # need to access file to add timed out tag
-                id = txn.id
-
-                new_path_ending = f"{id}{TXN_PART_SEPARATOR}{TIMEOUT_TXN}"  # Modify as needed
-                new_failed_txn_log_file_path = posixpath.join(running_txn_info, new_path_ending)
-                os.rename(filename, new_failed_txn_log_file_path)
-
-                
-                # Move the file using copy and delete instead of rename
+                # Move the file using copy and delete
                 with filesystem.open_input_file(src_path) as src_file:
                     contents = src_file.read()
                     
                 with filesystem.open_output_stream(dest_path) as dest_file:
                     dest_file.write(contents)
-                    
-                filesystem.delete_file(src_path)
                 
-                print(f"Moved timed out transaction: {filename}")
+                filesystem.delete_file(src_path)
+
                 dirty_files.append(parts[1])
+
         except Exception as e:
             print(f"Error cleaning failed transaction '{running_txn_info.path}': {e}")
 
     # Pass catalog_root to the brute_force_search so it searches from the right place
     brute_force_search_matching_metafiles(dirty_files, filesystem, catalog_root_normalized)
+
 
 
 def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.FileSystem = None) -> None:
@@ -128,8 +118,13 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
             id = posixpath.basename(failed_txn_info.path)
             
             parts = id.split(TXN_PART_SEPARATOR)
-            
-            if parts[2] == FAILED_TXN:
+            should_process = True
+            try: 
+                if parts[2] == SUCCESSFULLY_CLEANED:
+                    should_process = False
+            except Exception as e:
+                print("Could not check attribute")
+            if should_process:
                 txn = Transaction.read(failed_txn_info.path, filesystem)
                 id = txn.id
 
@@ -148,7 +143,7 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
                     except Exception as e:
                         print(f"Failed to delete file '{write_path}': {e}")
 
-                new_path_ending = f"{id}{TXN_PART_SEPARATOR}{DELETED_TXN}"  # Modify as needed
+                new_path_ending = f"{id}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"  # Modify as needed
                 new_failed_txn_log_file_path = posixpath.join(failed_txn_info, new_path_ending)
                 os.rename(failed_txn_info, new_failed_txn_log_file_path)
 

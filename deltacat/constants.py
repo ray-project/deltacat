@@ -104,8 +104,5 @@ DEFAULT_PARTITION_ID = "partition"
 DEFAULT_PARTITION_VALUES = ["default"]
 
 # Transaction Status constants
-TIMEOUT_TXN = "timeout"
-SUCCESS_TXN = "success"
-FAILED_TXN = "failed"
-DELETED_TXN = "deleted"
-RUNNING_TXN = "running"
+SUCCESSFULLY_CLEANED = "cleaned"
+CURRENTLY_CLEANING = "working"

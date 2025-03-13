@@ -15,16 +15,15 @@ import msgpack
 import pyarrow.fs
 
 from deltacat.constants import (
+    CURRENTLY_CLEANING,
+    SUCCESSFULLY_CLEANED,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
     NANOS_PER_SEC,
-    SUCCESS_TXN,
-    TIMEOUT_TXN,
-    FAILED_TXN,
-    DELETED_TXN
+
 )
 
 from deltacat.storage.model.list_result import ListResult
@@ -647,12 +646,12 @@ class Transaction(dict):
                     )
         except Exception:
             # write a failed transaction log file entry
+            path_ending = f"{self.id}{TXN_PART_SEPARATOR}{CURRENTLY_CLEANING}"
             failed_txn_log_file_path = posixpath.join(
                 failed_txn_log_dir,
-                self.id,
+                path_ending
             )
 
-            self._mark_status(FAILED_TXN) ### TODO: MARK THIS FILE AS FAILED BUT NOT SUCCESSFULLY DELETED
 
             with filesystem.open_output_stream(failed_txn_log_file_path) as file:
                 packed = msgpack.dumps(self.to_serializable())
@@ -680,8 +679,11 @@ class Transaction(dict):
             # delete the in-progress transaction log file entry
             filesystem.delete_file(running_txn_log_file_path)
             # failed transaction cleanup is now complete
+            old_path = failed_txn_log_file_path
+            new_path = posixpath.join(failed_txn_log_dir, f"{self.id}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}")
 
-            self._mark_status(DELETED_TXN) #TODO: make transaction success
+            filesystem.move(old_path, new_path)
+
 
             raise
 

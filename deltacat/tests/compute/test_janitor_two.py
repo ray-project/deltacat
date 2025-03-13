@@ -1,7 +1,6 @@
 import os
 import time
 import posixpath
-import pytest
 import pyarrow as pa
 
 from deltacat.storage import (
@@ -71,10 +70,9 @@ class TestJanitorJob:
         
         # Run the function with a 30-second threshold
         janitor_delete_timed_out_transaction(temp_dir)
-        
         # Check that the transaction is both in the failed directory and no also not in running anymore
-        assert not os.path.exists(txn_path)
         assert os.path.exists(posixpath.join(failed_txn_dir, txn_filename))
+        assert not os.path.exists(txn_path)
         
         # Check that the metafile was deleted by the brute force search
         assert not os.path.exists(test_metafile_path)
