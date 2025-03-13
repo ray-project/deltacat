@@ -102,18 +102,12 @@ class Schema(MutableMapping[str, Field]):
         ]
         return cls(fields)
     
-    def convert_tuple_to_Field(cls, k, valuetype, merge_key) -> Field:
-        return Field(
-            name = k,
-            datatype = valuetype,
-            is_merge_key = merge_key # temporary
-            )
+    
 
-    def from_webdataset_schema(tar_path):
+    def from_webdataset_schema(tar_path) -> Schema:
         # tar_path = "deltacat/examples/rivulet/imagenet1k-train-0000.tar"
-
         # store unique JSON keys
-        json_fields = set()
+        json_fields = {} # (json key, type(json value), merge key) : [list of json ids that have the field]
 
         print('hello')
         print(os.getcwd())
@@ -128,22 +122,41 @@ class Schema(MutableMapping[str, Field]):
                             data = json.load(f)  # load JSON content
                             if isinstance(data, dict):
                                 for k, v in data.items():
+                                    print(k)
+                                    # TODO: when applying the schema, turn dicts into pyarrow.DictionaryArray
+                                    if type(v) == dict:
+                                        continue
+                                    if k in json_fields.keys():
+                                        # if the json_key name is the same, but value type is different
+                                        if json_fields[k].datatype != Datatype(v):
+                                            json_fields[k] = Field(
+                                                name = k,
+                                                datatype = Datatype(''),
+                                                is_merge_key = False # TODO: temporary false
+                                            )
+
+                                    else:
+                                        # unique field
+                                        json_fields[k] = Field(
+                                                name = k,
+                                                datatype = Datatype(v),
+                                                is_merge_key = False # TODO: temporary false
+                                            )
+                                    
                                     # json_fields.add((k, Datatype.string(v[0]), False))
                                     # TODO: create the field object here, use map to check dupes. problem is nested objects
                                     # TODO: create record batch here
                                     # TODO: union here, map of fields
-                                    json_fields.add((k, type(v), False))
+                                    # json_fields.add((k, type(v), False))
                         except json.JSONDecodeError:
                             print(f"Skipping invalid JSON file: {member.name}")
 
         # iterate through set and turn it into Field object
         fields = []
-        for field in json_fields:
-            k, v, m = field
-            fields.append(convert_tuple_to_Field(k, v, m)) # type: ignore
+        for field_instance in json_fields.values():
+            fields.append(field_instance) # type: ignore
 
-        schema = Schema(fields, merge_keys=["merge_key"])
-        return [cls(fields), schema]
+        return Schema(fields, merge_keys=["merge_key"])
     
     # def from_json(cls, j):
     #     for k, v in j.items():
