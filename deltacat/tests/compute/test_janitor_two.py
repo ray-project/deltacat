@@ -39,9 +39,10 @@ class TestJanitorJob:
         os.makedirs(failed_txn_dir, exist_ok=True)
         
         # Create a test transaction that should time out
-        start_time = time.time() - 100  # 100 seconds ago (older than default threshold)
+        start_time = time.time_ns() - 100  # 100 seconds ago (older than default threshold)
+        end_time = time.time_ns()
         txn_id = "test_transaction_id"
-        txn_filename = f"{start_time}{TXN_PART_SEPARATOR}{txn_id}"
+        txn_filename = f"{start_time}{TXN_PART_SEPARATOR}{txn_id}{TXN_PART_SEPARATOR}{end_time}"
         txn_path = posixpath.join(running_txn_dir, txn_filename)
         
         # Create a mock transaction file
@@ -69,7 +70,7 @@ class TestJanitorJob:
             f.write("mock metafile content")
         
         # Run the function with a 30-second threshold
-        janitor_delete_timed_out_transaction(temp_dir, threshold_seconds=30)
+        janitor_delete_timed_out_transaction(temp_dir)
         
         # Check that the transaction is both in the failed directory and no also not in running anymore
         assert not os.path.exists(txn_path)
