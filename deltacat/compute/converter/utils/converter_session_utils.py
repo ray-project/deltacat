@@ -54,3 +54,9 @@ def construct_iceberg_table_prefix(
     iceberg_warehouse_bucket_name, table_name, iceberg_namespace
 ):
     return f"{iceberg_warehouse_bucket_name}/{iceberg_namespace}/{table_name}/data"
+
+
+def partition_value_record_to_partition_value_string(partition):
+    # Get string representation of partition value out of Record[partition_value]
+    partition_value_str = partition.__repr__().split("[", 1)[1].split("]")[0]
+    return partition_value_str

@@ -8,6 +8,9 @@ import ray
 import logging
 from deltacat.compute.converter.model.convert_input import ConvertInput
 from deltacat.compute.converter.utils.s3u import upload_table_with_retry
+from deltacat.compute.converter.utils.converter_session_utils import (
+    partition_value_record_to_partition_value_string,
+)
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -34,12 +37,8 @@ def convert(convert_input: ConvertInput):
 
     logger.info(f"Starting convert task index: {convert_task_index}")
     data_files, equality_delete_files, position_delete_files = files_for_each_bucket[1]
-    # Get string representation of partition value out of Record[partition_value]
-    partition_value_str = (
-        files_for_each_bucket[0].__repr__().split("[", 1)[1].split("]")[0]
-    )
-    partition_value_str = (
-        files_for_each_bucket[0].__repr__().split("[", 1)[1].split("]")[0]
+    partition_value_str = partition_value_record_to_partition_value_string(
+        files_for_each_bucket[0]
     )
     partition_value = files_for_each_bucket[0]
     iceberg_table_warehouse_prefix_with_partition = (
@@ -81,7 +80,7 @@ def filter_rows_to_be_deleted(
     if positional_delete_table:
         # TODO: Add support for multiple identify columns
         identifier_column = identifier_columns[0]
-        positional_delete_table = positional_delete_table.drop(identifier_column)
+        positional_delete_table = positional_delete_table.drop([identifier_column])
     if len(positional_delete_table) == len(data_file_table):
         return True, None
     return False, positional_delete_table
