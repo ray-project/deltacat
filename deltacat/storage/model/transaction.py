@@ -447,7 +447,7 @@ class Transaction(dict):
         return end_time
 
     @staticmethod
-    def abs_to_relative(root: str, target: str) -> str:
+    def _abs_txn_meta_path_to_relative(root: str, target: str) -> str:
         """
         Takes an absolute root directory path and target absolute path to
         relativize with respect to the root directory. Returns the target
