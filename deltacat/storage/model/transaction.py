@@ -449,8 +449,12 @@ class Transaction(dict):
     @staticmethod
     def abs_to_relative(root: str, target: str) -> str:
         """
-        Takes an absolute (catalog root) and target absolute path which
-        is relativized with respect to the root directory.
+        Takes an absolute root directory path and target absolute path to
+        relativize with respect to the root directory. Returns the target
+        path relative to the root directory path. Raises an error if the
+        target path is not contained in the given root directory path, if
+        either path is not an absolute path, or if the target path is equal
+        to the root directory path.
         """
         if not root or not target:
             raise ValueError("Root and target paths must be non-empty.")
