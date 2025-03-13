@@ -27,7 +27,7 @@ def get_s3_path(
 
 
 def get_bucket_name():
-    return "metadata-py4j-zyiqin1"
+    return "converter-test"
 
 
 def get_credential():

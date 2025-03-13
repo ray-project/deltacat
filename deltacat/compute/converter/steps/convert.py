@@ -8,6 +8,9 @@ import ray
 import logging
 from deltacat.compute.converter.model.convert_input import ConvertInput
 from deltacat.compute.converter.utils.s3u import upload_table_with_retry
+from deltacat.compute.converter.utils.converter_session_utils import (
+    partition_value_record_to_partition_value_string,
+)
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -17,14 +20,14 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def convert(convert_input: ConvertInput):
     files_for_each_bucket = convert_input.files_for_each_bucket
     convert_task_index = convert_input.convert_task_index
-    iceberg_warehouse_bucket_name = convert_input.iceberg_warehouse_bucket_name
+    iceberg_table_warehouse_prefix = convert_input.iceberg_table_warehouse_prefix
     identifier_fields = convert_input.identifier_fields
     compact_small_files = convert_input.compact_small_files
     position_delete_for_multiple_data_files = (
         convert_input.position_delete_for_multiple_data_files
     )
     max_parallel_data_file_download = convert_input.max_parallel_data_file_download
-
+    s3_file_system = convert_input.s3_file_system
     if not position_delete_for_multiple_data_files:
         raise NotImplementedError(
             f"Distributed file level position delete compute is not supported yet"
@@ -34,7 +37,13 @@ def convert(convert_input: ConvertInput):
 
     logger.info(f"Starting convert task index: {convert_task_index}")
     data_files, equality_delete_files, position_delete_files = files_for_each_bucket[1]
+    partition_value_str = partition_value_record_to_partition_value_string(
+        files_for_each_bucket[0]
+    )
     partition_value = files_for_each_bucket[0]
+    iceberg_table_warehouse_prefix_with_partition = (
+        f"{iceberg_table_warehouse_prefix}/{partition_value_str}"
+    )
     (
         to_be_deleted_files_list,
         to_be_added_files_list,
@@ -42,8 +51,9 @@ def convert(convert_input: ConvertInput):
         data_files_list=data_files,
         identifier_columns=identifier_fields,
         equality_delete_files_list=equality_delete_files,
-        iceberg_warehouse_bucket_name=iceberg_warehouse_bucket_name,
+        iceberg_table_warehouse_prefix_with_partition=iceberg_table_warehouse_prefix_with_partition,
         max_parallel_data_file_download=max_parallel_data_file_download,
+        s3_file_system=s3_file_system,
     )
     to_be_delete_files_dict = defaultdict()
     to_be_delete_files_dict[partition_value] = to_be_deleted_files_list
@@ -68,7 +78,9 @@ def filter_rows_to_be_deleted(
             f"length_pos_delete_table, {len(positional_delete_table)}, length_data_table:{len(data_file_table)}"
         )
     if positional_delete_table:
-        positional_delete_table = positional_delete_table.drop(["primarykey"])
+        # TODO: Add support for multiple identify columns
+        identifier_column = identifier_columns[0]
+        positional_delete_table = positional_delete_table.drop([identifier_column])
     if len(positional_delete_table) == len(data_file_table):
         return True, None
     return False, positional_delete_table
@@ -78,7 +90,8 @@ def compute_pos_delete(
     equality_delete_table,
     data_file_table,
     identifier_columns,
-    iceberg_warehouse_bucket_name,
+    iceberg_table_warehouse_prefix_with_partition,
+    s3_file_system,
 ):
     delete_whole_file, new_position_delete_table = filter_rows_to_be_deleted(
         data_file_table=data_file_table,
@@ -89,7 +102,10 @@ def compute_pos_delete(
         logger.info(f"compute_pos_delete_table:{new_position_delete_table.to_pydict()}")
     if new_position_delete_table:
         new_pos_delete_s3_link = upload_table_with_retry(
-            new_position_delete_table, iceberg_warehouse_bucket_name, {}
+            table=new_position_delete_table,
+            s3_url_prefix=iceberg_table_warehouse_prefix_with_partition,
+            s3_table_writer_kwargs={},
+            s3_file_system=s3_file_system,
         )
     return delete_whole_file, new_pos_delete_s3_link
 
@@ -126,8 +142,9 @@ def compute_pos_delete_with_limited_parallelism(
     data_files_list,
     identifier_columns,
     equality_delete_files_list,
-    iceberg_warehouse_bucket_name,
+    iceberg_table_warehouse_prefix_with_partition,
     max_parallel_data_file_download,
+    s3_file_system,
 ):
     to_be_deleted_file_list = []
     to_be_added_pos_delete_file_list = []
@@ -144,8 +161,9 @@ def compute_pos_delete_with_limited_parallelism(
         delete_whole_file, new_pos_delete_s3_link = compute_pos_delete(
             equality_delete_table=equality_delete_table,
             data_file_table=data_table,
-            iceberg_warehouse_bucket_name=iceberg_warehouse_bucket_name,
+            iceberg_table_warehouse_prefix_with_partition=iceberg_table_warehouse_prefix_with_partition,
             identifier_columns=identifier_columns,
+            s3_file_system=s3_file_system,
         )
         if delete_whole_file:
             to_be_deleted_file_list.extend(data_files)
@@ -182,7 +200,6 @@ def download_parquet_with_daft_hash_applied(
         io_config=io_config,
         coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
     )
-    logger.info(f"debug_identify_columns:{identify_columns}")
     df = df.select(daft.col(identify_columns[0]).hash())
     arrow_table = df.to_arrow()
     return arrow_table
