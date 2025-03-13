@@ -12,47 +12,52 @@ from deltacat.storage.model.metafile import (
 
 
 class TestAbsToRelative:
+    @classmethod
+    def setup_method(cls):
+        cls.catalog_root = "/catalog/root/path"
     # Test cases for the abs_to_relative function
     def test_abs_to_relative_simple(self):
         """
         Tests the function which relativizes absolute paths (string) into relative paths (string)
         """
-        catalog_root = "/catalog/root/path"
+        catalog_root = TestAbsToRelative.catalog_root
         absolute_path = "/catalog/root/path/namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
-        relative_path = Transaction.abs_to_relative(catalog_root, absolute_path)
+        relative_path = Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
         assert (
             relative_path
             == "namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
         )
 
     def test_abs_to_relative_same_paths(self):
-        catalog_root = "/catalog/root/path"
-        absolute_path = "/catalog/root/path"
-        relative_path = Transaction.abs_to_relative(catalog_root, absolute_path)
-        assert relative_path == ""
+        catalog_root = TestAbsToRelative.catalog_root
+        absolute_path = TestAbsToRelative.catalog_root
+        with pytest.raises(
+            ValueError, match="Target and root are identical, but expected target to be a child of root."
+        ):
+            Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
 
     def test_abs_to_relative_root_with_trailing_slash(self):
         catalog_root = "/catalog/root/path/"
         absolute_path = "/catalog/root/path/namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
-        relative_path = Transaction.abs_to_relative(catalog_root, absolute_path)
+        relative_path = Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
         assert (
             relative_path
             == "namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
         )
 
     def test_abs_to_relative_bad_root(self):
-        catalog_root = "/catalog/root/path"
+        catalog_root = TestAbsToRelative.catalog_root
         absolute_path = "/cat/rt/pth/namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
         with pytest.raises(
-            ValueError, match="Target path is not within the catalog root"
+            ValueError, match="Expected target to be a child of root."
         ):
-            Transaction.abs_to_relative(catalog_root, absolute_path)
+            Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
 
     def test_abs_to_relative_empty_path(self):
-        with pytest.raises(ValueError, match="Root and target paths must be non-empty"):
-            Transaction.abs_to_relative("", "/lorem/ipsum")
-        with pytest.raises(ValueError, match="Root and target paths must be non-empty"):
-            Transaction.abs_to_relative("/lorem/ipsum/", "")
+        with pytest.raises(ValueError, match="Both root and target must be absolute paths."):
+            Transaction._abs_txn_meta_path_to_relative("", "/lorem/ipsum")
+        with pytest.raises(ValueError, match="Both root and target must be absolute paths."):
+            Transaction._abs_txn_meta_path_to_relative("/lorem/ipsum/", "")
 
     # Test cases for the relativize_operation_paths function
     def test_relativize_metafile_write_paths(self):
@@ -80,7 +85,7 @@ class TestAbsToRelative:
             dest_metafile=dest_metafile,
         )
         # use replace method as setter
-        transaction_operation.set_metafile_write_paths(absolute_paths)
+        transaction_operation.metafile_write_paths = absolute_paths
         # Create a transaction and relativize paths
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
@@ -114,7 +119,7 @@ class TestAbsToRelative:
             dest_metafile=dest_metafile,
         )
         # use replace as setter
-        transaction_operation.set_locator_write_paths(absolute_paths)
+        transaction_operation.locator_write_paths = absolute_paths
         # Create a transaction and relativize paths
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
@@ -152,8 +157,8 @@ class TestAbsToRelative:
             dest_metafile=dest_metafile,
         )
         # use replace as setter
-        transaction_operation.set_metafile_write_paths(meta_absolute_paths)
-        transaction_operation.set_locator_write_paths(loc_absolute_paths)
+        transaction_operation.metafile_write_paths = meta_absolute_paths
+        transaction_operation.locator_write_paths = loc_absolute_paths
         # Create a transaction and relativize paths
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
@@ -209,8 +214,8 @@ class TestAbsToRelative:
                 operation_type=TransactionOperationType.CREATE,
                 dest_metafile=dest_metafile,
             )
-            transaction_operation.set_metafile_write_paths(meta_absolute_paths)
-            transaction_operation.set_locator_write_paths(loc_absolute_paths)
+            transaction_operation.metafile_write_paths = meta_absolute_paths
+            transaction_operation.locator_write_paths = loc_absolute_paths
             transaction_operations.append(transaction_operation)
         # Create a transaction and relativize paths
         transaction = Transaction.of(
@@ -230,8 +235,8 @@ class TestAbsToRelative:
             dest_metafile=Metafile({"id": "dummy_metafile_id"}),
         )
         # Empty paths
-        transaction_operation.set_metafile_write_paths([])
-        transaction_operation.set_locator_write_paths([])
+        transaction_operation.metafile_write_paths = []
+        transaction_operation.locator_write_paths = []
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
         )
@@ -247,7 +252,7 @@ class TestAbsToRelative:
             operation_type=TransactionOperationType.CREATE,
             dest_metafile=Metafile({"id": "dummy_metafile_id"}),
         )
-        transaction_operation.set_metafile_write_paths(absolute_paths)
+        transaction_operation.metafile_write_paths = absolute_paths
         transaction = Transaction.of(
             txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
         )
@@ -287,7 +292,7 @@ class TestAbsToRelative:
                     operation_type=op_type,
                     dest_metafile=Metafile({"id": "dummy_metafile_id"}),
                 )
-                transaction_operation.set_metafile_write_paths(absolute_paths)
+                transaction_operation.metafile_write_paths = absolute_paths
                 transaction_ops.append(transaction_operation)
             transaction = Transaction.of(
                 txn_type=txn_type, txn_operations=[transaction_operation]

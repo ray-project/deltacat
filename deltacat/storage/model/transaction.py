@@ -5,6 +5,7 @@ import copy
 import time
 import uuid
 import posixpath
+from pathlib import PosixPath
 import threading
 from collections import defaultdict
 
@@ -456,17 +457,20 @@ class Transaction(dict):
         either path is not an absolute path, or if the target path is equal
         to the root directory path.
         """
-        if not root or not target:
-            raise ValueError("Root and target paths must be non-empty.")
-        # clean and standardize paths
-        root = root.strip("/")
-        target = target.strip("/")
-        if root == target:
-            return ""
-        # Validate prefix and ensure target is subpath of root
-        if not target.startswith(root + "/"):
-            raise ValueError("Target path is not within the catalog root")
-        return target[len(root) + 1 :]
+        root_path = PosixPath(root)
+        target_path = PosixPath(target)
+
+        if not root_path.is_absolute() or not target_path.is_absolute():
+            raise ValueError("Both root and target must be absolute paths.")
+        if root_path == target_path:
+            raise ValueError(
+                "Target and root are identical, but expected target to be a child of root."
+            )
+        try:
+            relative_path = target_path.relative_to(root_path)
+        except ValueError:
+            raise ValueError("Expected target to be a child of root.")
+        return str(relative_path)
 
     def relativize_operation_paths(
         self, operation: TransactionOperation, catalog_root: str
@@ -478,17 +482,17 @@ class Transaction(dict):
         # handle metafile paths
         if operation.metafile_write_paths:
             metafile_write_paths = [
-                Transaction.abs_to_relative(catalog_root, path)
+                Transaction._abs_txn_meta_path_to_relative(catalog_root, path)
                 for path in operation.metafile_write_paths
             ]
-            operation.set_metafile_write_paths(metafile_write_paths)
+            operation.metafile_write_paths = metafile_write_paths
         # handle locator paths
         if operation.locator_write_paths:
             locator_write_paths = [
-                Transaction.abs_to_relative(catalog_root, path)
+                Transaction._abs_txn_meta_path_to_relative(catalog_root, path)
                 for path in operation.locator_write_paths
             ]
-            operation.set_locator_write_paths(locator_write_paths)
+            operation.locator_write_paths = locator_write_paths
 
     def to_serializable(self, catalog_root) -> Transaction:
         """
