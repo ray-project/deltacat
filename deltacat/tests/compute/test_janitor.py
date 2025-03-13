@@ -37,7 +37,6 @@ def test_remove_files_from_failed(mocker, temp_dir: str):
         filesystem,
     )
 
-
     txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
     failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
     filesystem.create_dir(failed_txn_log_dir, recursive=True)
@@ -68,11 +67,11 @@ def test_remove_files_from_failed(mocker, temp_dir: str):
     transaction.id() # when we first instantiate a transaction the id field doesn't get set, this will set it
     
     known_write_paths = chain.from_iterable(
-                [
-                    operation.metafile_write_paths + operation.locator_write_paths
-                    for operation in transaction.operations
-                ]
-            )
+            [
+                operation.metafile_write_paths + operation.locator_write_paths
+                for operation in transaction.operations
+            ]
+        )
     
     print("known write paths before job", known_write_paths)
 
@@ -115,7 +114,7 @@ def test_heartbeat_moves_file(mocker, temp_dir: str):
     dest_metafile = Metafile({"id": id}) # do we really need to use this?
 
     transaction_operation = Transaction.of(
-        operation_type=TransactionOperationType.CREATE ### I DON'T THINK THIS WORKS BUT FUCK IT WE BALLLLLLL
+        operation_type=TransactionOperationType.CREATE ### 
     )
 
     transaction_operation.id = id

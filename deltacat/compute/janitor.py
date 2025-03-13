@@ -1,11 +1,20 @@
 import time
+import os
 import posixpath
 import pyarrow.fs
 from pyarrow.fs import FileSelector, FileType
 from deltacat.storage.model.transaction import Transaction
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from itertools import chain
-from deltacat.constants import TXN_DIR_NAME, RUNNING_TXN_DIR_NAME, FAILED_TXN_DIR_NAME, TXN_PART_SEPARATOR
+from deltacat.constants import (
+    TXN_DIR_NAME, 
+    RUNNING_TXN_DIR_NAME, 
+    FAILED_TXN_DIR_NAME, 
+    TXN_PART_SEPARATOR,
+    TIMEOUT_TXN,
+    DELETED_TXN,
+    FAILED_TXN
+)
 
 
 #TODO: implement heartbeat mechanics that scale with operation rather than current arbitrary
@@ -69,6 +78,16 @@ def janitor_delete_timed_out_transaction(catalog_root: str, threshold_seconds: i
             if current_time - start_time >= threshold_seconds:
                 src_path = running_txn_info.path
                 dest_path = posixpath.join(failed_txn_log_dir, filename)
+
+                janitor_delete_timed_out_transaction
+
+                txn = Transaction.read(running_txn_info.path, filesystem) # need to access file to add timed out tag
+                id = txn.id
+
+                new_path_ending = f"{id}{TXN_PART_SEPARATOR}{TIMEOUT_TXN}"  # Modify as needed
+                new_failed_txn_log_file_path = posixpath.join(running_txn_info, new_path_ending)
+                os.rename(filename, new_failed_txn_log_file_path)
+
                 
                 # Move the file using copy and delete instead of rename
                 # since pyarrow.fs.LocalFileSystem doesn't have a rename method
@@ -107,23 +126,35 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
 
     for failed_txn_info in failed_txn_info_list:
         try:
-            txn = Transaction.read(failed_txn_info.path, filesystem)
+            id = posixpath.basename(failed_txn_info.path)
             
-            operations = txn["operations"]
+            parts = id.split(TXN_PART_SEPARATOR)
+            
+            if parts[2] == FAILED_TXN:
+                txn = Transaction.read(failed_txn_info.path, filesystem)
+                id = txn.id
 
-            known_write_paths = chain.from_iterable(
-                (
-                    op["metafile_write_paths"] + op["locator_write_paths"]
+                operations = txn["operations"]
+
+                known_write_paths = chain.from_iterable(
+                    (
+                        op["metafile_write_paths"] + op["locator_write_paths"]
+                    )
+                    for op in operations
                 )
-                for op in operations
-            )
-            for write_path in known_write_paths:
-                try:
-                    filesystem.delete_file(write_path)
-                except Exception as e:
-                    print(f"Failed to delete file '{write_path}': {e}")
 
-            print(f"Cleaned up failed transaction: {posixpath.basename(failed_txn_info.path)}")
+                for write_path in known_write_paths:
+                    try:
+                        filesystem.delete_file(write_path)
+                    except Exception as e:
+                        print(f"Failed to delete file '{write_path}': {e}")
+
+                new_path_ending = f"{id}{TXN_PART_SEPARATOR}{DELETED_TXN}"  # Modify as needed
+                new_failed_txn_log_file_path = posixpath.join(failed_txn_info, new_path_ending)
+                os.rename(failed_txn_info, new_failed_txn_log_file_path)
+
+                print(f"Cleaned up failed transaction: {posixpath.basename(failed_txn_info.path)}")
+
         except Exception as e:
             print(f"Could not read transaction '{failed_txn_info.path}', skipping: {e}")
 

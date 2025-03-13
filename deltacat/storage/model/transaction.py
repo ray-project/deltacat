@@ -21,7 +21,12 @@ from deltacat.constants import (
     FAILED_TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
     NANOS_PER_SEC,
+    SUCCESS_TXN,
+    TIMEOUT_TXN,
+    FAILED_TXN,
+    DELETED_TXN
 )
+
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.types import (
     TransactionOperationType,
@@ -410,6 +415,20 @@ class Transaction(dict):
         Returns the end time of the transaction.
         """
         return self.get("end_time")
+    
+    def _mark_status(self, status: str) -> None:
+        """
+        Marks the status of the transaction. Status can either be failed 
+        but not deleted, successfuly deleted, or timed out. 
+        """
+        id = self.id
+        parts = id.split(TXN_PART_SEPARATOR)
+
+        if len(parts) == 2:
+            self.id = id + TXN_PART_SEPARATOR + status
+        elif len(parts) == 3:
+            self.id = parts[0] + TXN_PART_SEPARATOR + parts[1] + status
+    
 
     def _mark_start_time(self, time_provider: TransactionTimeProvider) -> int:
         """
@@ -614,6 +633,9 @@ class Transaction(dict):
                 failed_txn_log_dir,
                 self.id,
             )
+
+            self._mark_status(FAILED_TXN) ### TODO: MARK THIS FILE AS FAILED BUT NOT SUCCESSFULLY DELETED
+
             with filesystem.open_output_stream(failed_txn_log_file_path) as file:
                 packed = msgpack.dumps(self.to_serializable())
                 file.write(packed)
@@ -640,6 +662,9 @@ class Transaction(dict):
             # delete the in-progress transaction log file entry
             filesystem.delete_file(running_txn_log_file_path)
             # failed transaction cleanup is now complete
+
+            self._mark_status(DELETED_TXN) #TODO: make transaction success
+
             raise
 
         # record the completed transaction
