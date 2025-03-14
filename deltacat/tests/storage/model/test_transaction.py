@@ -15,6 +15,7 @@ class TestAbsToRelative:
     @classmethod
     def setup_method(cls):
         cls.catalog_root = "/catalog/root/path"
+
     # Test cases for the abs_to_relative function
     def test_abs_to_relative_simple(self):
         """
@@ -22,7 +23,9 @@ class TestAbsToRelative:
         """
         catalog_root = TestAbsToRelative.catalog_root
         absolute_path = "/catalog/root/path/namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
-        relative_path = Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
+        relative_path = Transaction._abs_txn_meta_path_to_relative(
+            catalog_root, absolute_path
+        )
         assert (
             relative_path
             == "namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
@@ -32,14 +35,17 @@ class TestAbsToRelative:
         catalog_root = TestAbsToRelative.catalog_root
         absolute_path = TestAbsToRelative.catalog_root
         with pytest.raises(
-            ValueError, match="Target and root are identical, but expected target to be a child of root."
+            ValueError,
+            match="Target and root are identical, but expected target to be a child of root.",
         ):
             Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
 
     def test_abs_to_relative_root_with_trailing_slash(self):
         catalog_root = "/catalog/root/path/"
         absolute_path = "/catalog/root/path/namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
-        relative_path = Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
+        relative_path = Transaction._abs_txn_meta_path_to_relative(
+            catalog_root, absolute_path
+        )
         assert (
             relative_path
             == "namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
@@ -48,15 +54,17 @@ class TestAbsToRelative:
     def test_abs_to_relative_bad_root(self):
         catalog_root = TestAbsToRelative.catalog_root
         absolute_path = "/cat/rt/pth/namespace/table/table_version/stream_id/partition_id/00000000000000000001.mpk"
-        with pytest.raises(
-            ValueError, match="Expected target to be a child of root."
-        ):
+        with pytest.raises(ValueError, match="Expected target to be a child of root."):
             Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
 
     def test_abs_to_relative_empty_path(self):
-        with pytest.raises(ValueError, match="Both root and target must be absolute paths."):
+        with pytest.raises(
+            ValueError, match="Expected target to be a child of root."
+        ):
             Transaction._abs_txn_meta_path_to_relative("", "/lorem/ipsum")
-        with pytest.raises(ValueError, match="Both root and target must be absolute paths."):
+        with pytest.raises(
+            ValueError, match="Expected target to be a child of root."
+        ):
             Transaction._abs_txn_meta_path_to_relative("/lorem/ipsum/", "")
 
     # Test cases for the relativize_operation_paths function

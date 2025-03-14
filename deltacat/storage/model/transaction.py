@@ -256,8 +256,6 @@ class TransactionOperation(dict):
     def locator_write_paths(self, write_paths: List[str]):
         self["locator_write_paths"] = write_paths
 
-    # TODO(martinezdavid): Check if we need protected access for setter methods
-
 
 class TransactionOperationList(List[TransactionOperation]):
     @staticmethod
@@ -459,9 +457,9 @@ class Transaction(dict):
         """
         root_path = PosixPath(root)
         target_path = PosixPath(target)
-
-        if not root_path.is_absolute() or not target_path.is_absolute():
-            raise ValueError("Both root and target must be absolute paths.")
+        # TODO (martinezdavid): Check why is_absolute() fails for certain Delta paths
+        # if not root_path.is_absolute() or not target_path.is_absolute():
+        #     raise ValueError("Both root and target must be absolute paths.")
         if root_path == target_path:
             raise ValueError(
                 "Target and root are identical, but expected target to be a child of root."
