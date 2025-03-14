@@ -58,13 +58,9 @@ class TestAbsToRelative:
             Transaction._abs_txn_meta_path_to_relative(catalog_root, absolute_path)
 
     def test_abs_to_relative_empty_path(self):
-        with pytest.raises(
-            ValueError, match="Expected target to be a child of root."
-        ):
+        with pytest.raises(ValueError, match="Expected target to be a child of root."):
             Transaction._abs_txn_meta_path_to_relative("", "/lorem/ipsum")
-        with pytest.raises(
-            ValueError, match="Expected target to be a child of root."
-        ):
+        with pytest.raises(ValueError, match="Expected target to be a child of root."):
             Transaction._abs_txn_meta_path_to_relative("/lorem/ipsum/", "")
 
     # Test cases for the relativize_operation_paths function
