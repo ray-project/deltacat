@@ -10,10 +10,10 @@ from deltacat.compute.converter.utils.convert_task_options import (
 )
 import logging
 from deltacat import logs
-from collections import defaultdict
 from deltacat.compute.converter.model.converter_session_params import (
     ConverterSessionParams,
 )
+
 
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
@@ -23,13 +23,16 @@ from deltacat.compute.converter.pyiceberg.overrides import (
     parquet_files_dict_to_iceberg_data_files,
 )
 from deltacat.compute.converter.utils.converter_session_utils import (
-    check_data_files_sequence_number,
     construct_iceberg_table_prefix,
 )
 from deltacat.compute.converter.pyiceberg.replace_snapshot import (
     commit_overwrite_snapshot,
+    commit_append_snapshot,
 )
 from deltacat.compute.converter.pyiceberg.catalog import load_table
+from deltacat.compute.converter.utils.converter_session_utils import (
+    group_all_files_to_each_bucket,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -44,33 +47,15 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     catalog = params.catalog
     table_name = params.iceberg_table_name
     iceberg_table = load_table(catalog, table_name)
+    enforce_primary_key_uniqueness = params.enforce_primary_key_uniqueness
     data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
         iceberg_table
     )
-
-    # files_for_each_bucket contains the following files list:
-    # {partition_value: [(equality_delete_files_list, data_files_list, pos_delete_files_list)]
-    files_for_each_bucket = defaultdict(tuple)
-    for k, v in data_file_dict.items():
-        logger.info(f"data_file: k, v:{k, v}")
-    for k, v in equality_delete_dict.items():
-        logger.info(f"equality_delete_file: k, v:{k, v}")
-    for partition_value, equality_delete_file_list in equality_delete_dict.items():
-        (
-            result_equality_delete_file,
-            result_data_file,
-        ) = check_data_files_sequence_number(
-            data_files_list=data_file_dict[partition_value],
-            equality_delete_files_list=equality_delete_dict[partition_value],
-        )
-        logger.info(f"result_data_file:{result_data_file}")
-        logger.info(f"result_equality_delete_file:{result_equality_delete_file}")
-        files_for_each_bucket[partition_value] = (
-            result_data_file,
-            result_equality_delete_file,
-            [],
-        )
-
+    convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
+        data_file_dict=data_file_dict,
+        equality_delete_dict=equality_delete_dict,
+        pos_delete_dict=pos_delete_dict,
+    )
     iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
     iceberg_namespace = params.iceberg_namespace
     iceberg_table_warehouse_prefix = construct_iceberg_table_prefix(
@@ -116,6 +101,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
                 iceberg_table_warehouse_prefix=iceberg_table_warehouse_prefix,
                 identifier_fields=identifier_fields,
                 compact_small_files=compact_small_files,
+                enforce_primary_key_uniqueness=enforce_primary_key_uniqueness,
                 position_delete_for_multiple_data_files=position_delete_for_multiple_data_files,
                 max_parallel_data_file_download=max_parallel_data_file_download,
             )
@@ -125,7 +111,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     # Assuming that memory consume by each bucket doesn't exceed one node's memory limit.
     # TODO: Add split mechanism to split large buckets
     convert_tasks_pending = invoke_parallel(
-        items=files_for_each_bucket.items(),
+        items=convert_input_files_for_all_buckets.items(),
         ray_task=convert,
         max_parallelism=task_max_parallelism,
         options_provider=convert_options_provider,
@@ -143,9 +129,16 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         table_metadata=iceberg_table.metadata,
         files_dict_list=to_be_added_files_dict_list,
     )
-    commit_overwrite_snapshot(
-        iceberg_table=iceberg_table,
-        # equality_delete_files + data file that all rows are deleted
-        to_be_deleted_files_list=to_be_deleted_files_list[0],
-        new_position_delete_files=new_position_delete_files,
-    )
+
+    if not to_be_deleted_files_list:
+        commit_append_snapshot(
+            iceberg_table=iceberg_table,
+            new_position_delete_files=new_position_delete_files,
+        )
+    else:
+        commit_overwrite_snapshot(
+            iceberg_table=iceberg_table,
+            # equality_delete_files + data file that all rows are deleted
+            to_be_deleted_files_list=to_be_deleted_files_list,
+            new_position_delete_files=new_position_delete_files,
+        )
