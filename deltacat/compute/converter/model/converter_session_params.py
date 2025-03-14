@@ -23,6 +23,9 @@ class ConverterSessionParams(dict):
         ), "iceberg_namespace is a required arg"
         result = ConverterSessionParams(params)
 
+        result.enforce_primary_key_uniqueness = params.get(
+            "enforce_primary_key_uniqueness", False
+        )
         result.compact_small_files = params.get("compact_small_files", False)
 
         # For Iceberg v3 spec, option to produce delete vector that can establish 1:1 mapping with data files.
@@ -50,6 +53,14 @@ class ConverterSessionParams(dict):
     @property
     def iceberg_namespace(self) -> str:
         return self["iceberg_namespace"]
+
+    @property
+    def enforce_primary_key_uniqueness(self) -> bool:
+        return self["enforce_primary_key_uniqueness"]
+
+    @enforce_primary_key_uniqueness.setter
+    def enforce_primary_key_uniqueness(self, enforce_primary_key_uniqueness) -> None:
+        self["compact_small_files"] = enforce_primary_key_uniqueness
 
     @property
     def compact_small_files(self) -> bool:

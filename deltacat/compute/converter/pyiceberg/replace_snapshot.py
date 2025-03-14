@@ -159,16 +159,41 @@ def commit_overwrite_snapshot(
 ):
     commit_uuid = uuid.uuid4()
     with iceberg_table.transaction() as tx:
+        print(
+            f"iceberg_table.metadata.name_mapping:{iceberg_table.metadata.name_mapping()}"
+        )
         if iceberg_table.metadata.name_mapping() is None:
-            iceberg_table.set_properties(
+            tx.set_properties(
                 **{
-                    "schema.name-mapping.default": iceberg_table.table_metadata.schema().name_mapping.model_dump_json()
+                    "schema.name-mapping.default": tx.table_metadata.schema().name_mapping.model_dump_json()
                 }
             )
         with tx.update_snapshot().overwrite(
             commit_uuid=commit_uuid
         ) as overwrite_snapshot:
-            for data_file in new_position_delete_files:
-                overwrite_snapshot.append_data_file(data_file)
-            for original_data_file in to_be_deleted_files_list:
-                overwrite_snapshot.delete_data_file(original_data_file)
+            if new_position_delete_files:
+                for data_file in new_position_delete_files:
+                    overwrite_snapshot.append_data_file(data_file)
+            if to_be_deleted_files_list:
+                for original_data_file in to_be_deleted_files_list:
+                    overwrite_snapshot.delete_data_file(original_data_file)
+
+
+def commit_append_snapshot(iceberg_table, new_position_delete_files):
+    commit_uuid = uuid.uuid4()
+    with iceberg_table.transaction() as tx:
+        print(
+            f"iceberg_table.metadata.name_mapping:{iceberg_table.metadata.name_mapping()}"
+        )
+        if iceberg_table.metadata.name_mapping() is None:
+            tx.set_properties(
+                **{
+                    "schema.name-mapping.default": tx.table_metadata.schema().name_mapping.model_dump_json()
+                }
+            )
+        with tx.update_snapshot().fast_append(
+            commit_uuid=commit_uuid
+        ) as append_snapshot:
+            if new_position_delete_files:
+                for data_file in new_position_delete_files:
+                    append_snapshot.append_data_file(data_file)
