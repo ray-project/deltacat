@@ -122,7 +122,7 @@ class Schema(MutableMapping[str, Field]):
                             data = json.load(f)  # load JSON content
                             if isinstance(data, dict):
                                 for k, v in data.items():
-                                    print(k)
+                                    # print(k)
                                     # TODO: when applying the schema, turn dicts into pyarrow.DictionaryArray
                                     if type(v) == dict:
                                         continue

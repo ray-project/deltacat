@@ -27,5 +27,8 @@ def test_t():
     #     merge_keys="msg_id"
     # )
 
-    print(Schema.from_webdataset_schema(tar_path))
+    s = Schema.from_webdataset_schema(tar_path)
+    for f in s:
+        print(f)
+    assert False
 
