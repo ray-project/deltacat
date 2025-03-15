@@ -253,6 +253,8 @@ class MemtableDatasetWriter(DatasetWriter):
             self.__open_threads = [t for t in self.__open_threads if t.is_alive()]
 
     def __flush_memtable(self, memtable):
+        # TODO exceptions in async flush are swallowed
+        # Use alternate approach like Futures or putting results of async flush in queue
         thread = threading.Thread(target=self.__flush_memtable_async, args=(memtable,))
         thread.start()
         with self.__rlock:

@@ -51,7 +51,7 @@ class TestBasicEndToEnd:
     @pytest.fixture
     def ds1_schema(self, ds1_schema: Schema, ds1_dataset: MvpTable):
         self.dataset.add_schema(ds1_schema, "ds1_schema")
-        with self.dataset.writer("ds1_schema") as writer:
+        with self.dataset.writer(schema_name="ds1_schema") as writer:
             write_mvp_table(writer, ds1_dataset)
         return ds1_schema
 
@@ -223,7 +223,7 @@ class TestMultiLayerCompactionEndToEnd:
         assert read_records_single_key[0]["id"] == 600
 
     def write_dataset(self, schema_name: str, dataset) -> str:
-        ds1_writer = self.dataset.writer(schema_name)
+        ds1_writer = self.dataset.writer(schema_name=schema_name)
         write_mvp_table(ds1_writer, dataset)
         return ds1_writer.flush()
 
@@ -258,14 +258,14 @@ class TestZipperMergeEndToEnd:
     @pytest.fixture
     def schema1(self, ds1_dataset: MvpTable, ds1_schema: Schema):
         self.dataset.add_schema(ds1_schema, "ds1_schema")
-        with self.dataset.writer("ds1_schema") as writer:
+        with self.dataset.writer(schema_name="ds1_schema") as writer:
             write_mvp_table(writer, ds1_dataset)
         return ds1_schema
 
     @pytest.fixture
     def schema2(self, ds2_dataset: MvpTable, ds2_schema: Schema):
         self.dataset.add_schema(ds2_schema, "ds2_schema")
-        with self.dataset.writer("ds2_schema") as writer:
+        with self.dataset.writer(schema_name="ds2_schema") as writer:
             write_mvp_table(writer, ds2_dataset)
         return ds2_schema
 
@@ -329,11 +329,11 @@ class TestDataFormatSupport:
         dataset = create_dataset_for_method(self.temp_dir)
         table, schema = dataset_images_with_label
         dataset.add_schema(schema, "schema")
-        with dataset.writer("schema", "feather") as writer:
+        with dataset.writer(schema_name="schema", file_format="feather") as writer:
             record_batch = mvp_table_to_record_batches(table, schema)
             writer.write([record_batch])
 
-        with dataset.writer("schema", "parquet") as writer:
+        with dataset.writer(schema_name="schema", file_format="parquet") as writer:
             record_batch = mvp_table_to_record_batches(table, schema)
             writer.write([record_batch])
 
