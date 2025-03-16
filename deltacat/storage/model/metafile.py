@@ -521,6 +521,29 @@ class Metafile(dict):
         #  is brittle to renames. On the other hand, this implementation does
         #  not require any marker fields to be persisted, and a regression
         #  will be quickly detected by test_metafile.io or other unit tests
+
+        # (sahil) Updated implementation 
+        # The simplest and most reliable way to go about this is to add an 
+        # additional "_type" key to all (serialized) metafiles. Then, there is 
+        # no need to "infer" what class we are dealing with. If space is a
+        # concern, I think this approach adds just a couple of bytes to every 
+        # metafile. There are less simple ways we can implement "_type" such as 
+        # using an low-bit integer/enum to identify the class instead of a string. 
+        # Implementhing this would involve updating several files with a new field 
+        # and updating any serialization logic to account for the new field.
+
+        # Sample new implementation: 
+        # if "_type" in serialized_dict: 
+        #     type_code = serialized_dict["_type"]
+        #     if type_code in SOME_MAPPING: 
+        #         return SOME_MAPPING[type_code]
+        #     else: 
+        #         raise an error 
+        # else: 
+        #     raise and error 
+
+
+        # OLD IMPL
         if serialized_dict.__contains__("tableLocator"):
             return deltacat.storage.model.table.Table
         elif serialized_dict.__contains__("namespaceLocator"):
