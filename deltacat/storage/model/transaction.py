@@ -16,6 +16,7 @@ import pyarrow.fs
 
 from deltacat.constants import (
     CURRENTLY_CLEANING,
+    OPERATION_TIMEOUTS,
     SUCCESSFULLY_CLEANED,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
@@ -596,15 +597,7 @@ class Transaction(dict):
         time_provider: TransactionTimeProvider,
     ) -> Tuple[List[str], str]:
         #TODO: move this dict into a different more suiting place
-        OPERATION_TIMEOUTS = {
-            "create": 5,
-            "update": 3,
-            "delete": 4,
-            "read_siblings": 2,
-            "read_children": 2,
-            "read_latest": 3,
-            "read_exists": 1,
-        }
+        
 
         total_time_for_transaction = 0
         for operation in self.operations:
