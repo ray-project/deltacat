@@ -106,3 +106,4 @@ DEFAULT_PARTITION_VALUES = ["default"]
 # Transaction Status constants
 SUCCESSFULLY_CLEANED = "cleaned"
 CURRENTLY_CLEANING = "working"
+TIMEOUT_TXN = "timedout"
