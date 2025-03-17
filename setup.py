@@ -39,6 +39,8 @@ setuptools.setup(
             "pyiceberg[glue] >= 0.6.0",
             "pyiceberg[hive] >= 0.6.0",
             "pyiceberg[sql-sqlite] >= 0.6.0",
+            # Usage of ray data currently experimental feature
+            "ray[data] >= 2.20.0,<2.31.0"
         ],
         # "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
     },
