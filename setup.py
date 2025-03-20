@@ -32,7 +32,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/ray-project/deltacat",
-    packages=setuptools.find_packages(where=".", include=["deltacat*"]),
+    packages=setuptools.find_packages(where=".", include=["deltacat*", "deltacat.aws"]),
     extras_require={
         "iceberg": ["pyiceberg[glue] >= 0.6.0"],
         # "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
