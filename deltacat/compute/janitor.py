@@ -19,6 +19,13 @@ from deltacat.constants import (
 
 def brute_force_search_matching_metafiles(dirty_files_names, filesystem: pyarrow.fs.FileSystem, catalog_root):
     txn_dir_name = TXN_DIR_NAME
+     #collect transaction ids of the files
+    transaction_ids = []
+    for dirty_file in dirty_files_names:
+        parts = dirty_file.split(TXN_PART_SEPARATOR)
+        if len(parts) < 2:
+            continue
+        transaction_ids.append(parts[1])
 
     def recursive_search(path):
         try:
@@ -27,33 +34,18 @@ def brute_force_search_matching_metafiles(dirty_files_names, filesystem: pyarrow
         except Exception as e:
             print(f"Error listing directory '{path}': {e}")
             return
-
+       
         for entry in entries:
             base_name = posixpath.basename(entry.path)
             if entry.type == FileType.File:
-                for dirty_file in dirty_files_names:
-                    parts = dirty_file.split(TXN_PART_SEPARATOR)
-                    if len(parts) < 2:
-                        continue
-                    transaction_id = parts[1]
+                    for transaction_id in transaction_ids:
                     # Look for transaction_id in the filename
-                    if transaction_id in base_name:
-                        try:
-                            filesystem.delete_file(entry.path)
-                            print(f"Deleted file: {entry.path}")
-                        except Exception as e:
-                            print(f"Error deleting file '{entry.path}': {e}")
-                # After processing files, attempt to rename the txn log file.
-                failed_txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME, FAILED_TXN_DIR_NAME)
-                old_log_path = posixpath.join(failed_txn_log_dir, dirty_file)
-                if dirty_file.endswith(TIMEOUT_TXN):
-                    new_filename = dirty_file.replace(TIMEOUT_TXN, SUCCESSFULLY_CLEANED)
-                    new_log_path = posixpath.join(failed_txn_log_dir, new_filename)
-                    try:
-                        filesystem.move(old_log_path, new_log_path)
-                        print(f"Renamed file from {old_log_path} to {new_log_path}")
-                    except Exception as e:
-                        print(f"Error renaming file '{old_log_path}': {e}")
+                        if transaction_id in base_name:
+                            try:
+                                filesystem.delete_file(entry.path)
+                                print(f"Deleted file: {entry.path}")
+                            except Exception as e:
+                                print(f"Error deleting file '{entry.path}': {e}")
 
             elif entry.type == FileType.Directory:
                 # Skip directories that match txn_dir_name
@@ -61,8 +53,23 @@ def brute_force_search_matching_metafiles(dirty_files_names, filesystem: pyarrow
                     print(f"Skipping directory: {entry.path}")
                     continue
                 recursive_search(entry.path)
+
     # Start recursive search from the catalog root
     recursive_search(catalog_root)
+
+    #renaming to successful completion
+    for dirty_file in dirty_files_names:
+        failed_txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME, FAILED_TXN_DIR_NAME)
+        old_log_path = posixpath.join(failed_txn_log_dir, dirty_file)
+        if dirty_file.endswith(TIMEOUT_TXN):
+            new_filename = dirty_file.replace(TIMEOUT_TXN, SUCCESSFULLY_CLEANED)
+            new_log_path = posixpath.join(failed_txn_log_dir, new_filename)
+            try:
+                filesystem.move(old_log_path, new_log_path)
+                print(f"Renamed file from {old_log_path} to {new_log_path}")
+            except Exception as e:
+                print(f"Error renaming file '{old_log_path}': {e}")
+
 
 
 def janitor_delete_timed_out_transaction(catalog_root: str) -> None:

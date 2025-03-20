@@ -604,7 +604,7 @@ class Transaction(dict):
             total_time_for_transaction += OPERATION_TIMEOUTS.get(operation.type, 0)
 
         start_time = float(self.id.split(TXN_PART_SEPARATOR)[0])
-        final_time_heartbeat = start_time + (total_time_for_transaction * 1_000_000_000)  # Convert seconds to nanoseconds
+        final_time_heartbeat = start_time + (total_time_for_transaction * NANOS_PER_SEC)  # Convert seconds to nanoseconds
 
         path_ending = f"{self.id}{TXN_PART_SEPARATOR}{str(final_time_heartbeat)}"
 
