@@ -1,10 +1,16 @@
 from __future__ import annotations
 from enum import Enum
-import botocore
-import ray
+from typing import Callable
 import logging
+
 import tenacity
-from deltacat import logs
+
+from pyarrow.lib import ArrowException, ArrowInvalid, ArrowCapacityError
+
+import botocore
+from botocore.exceptions import BotoCoreError
+
+import ray
 from ray.exceptions import (
     RayError,
     RayTaskError,
@@ -13,14 +19,14 @@ from ray.exceptions import (
     NodeDiedError,
     OutOfMemoryError,
 )
-from deltacat.storage import interface as DeltaCatStorage
-from pyarrow.lib import ArrowException, ArrowInvalid, ArrowCapacityError
-from botocore.exceptions import BotoCoreError
-from typing import Callable
+
+from daft.exceptions import DaftTransientError, DaftCoreException
+
+import deltacat as dc
+from deltacat import logs
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
 )
-from daft.exceptions import DaftTransientError, DaftCoreException
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -274,7 +280,7 @@ def categorize_errors(func: Callable):
 
 def categorize_deltacat_exception(
     e: BaseException,
-    deltacat_storage: DeltaCatStorage = None,
+    deltacat_storage: dc.storage.interface = None,
     deltacat_storage_kwargs: dict = None,
 ):
     if deltacat_storage_kwargs is None:
