@@ -105,14 +105,25 @@ class TestCatalogNamespaceOperations:
 
         # Create namespace
         catalog.create_namespace(
-            namespace=namespace, properties=properties, catalog=catalog
+            namespace=namespace,
+            properties=properties,
+            catalog=self.catalog_properties,
         )
 
         # Verify namespace exists
-        assert catalog.namespace_exists(namespace, catalog=catalog)
+        assert catalog.namespace_exists(
+            namespace,
+            catalog=self.catalog_properties,
+        )
 
         # Drop namespace
-        catalog.drop_namespace(namespace, catalog=catalog)
+        catalog.drop_namespace(
+            namespace,
+            catalog=self.catalog_properties,
+        )
 
         # Verify namespace does not exist
-        assert not catalog.namespace_exists(namespace, catalog=catalog)
+        assert not catalog.namespace_exists(
+            namespace,
+            catalog=self.catalog_properties,
+        )
