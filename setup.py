@@ -57,7 +57,6 @@ setuptools.setup(
         "typing-extensions == 4.6.1",
         "redis == 4.6.0",
         "schedule == 1.2.0",
-        "pyspark == 3.5.3",
     ],
     setup_requires=["wheel"],
     package_data={
