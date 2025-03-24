@@ -7,7 +7,6 @@ import deltacat as dc
 from deltacat import logs
 from deltacat import IcebergCatalog
 from deltacat.examples.common.fixtures import (
-    create_runtime_environment,
     store_cli_args_in_os_environ,
 )
 
@@ -24,6 +23,7 @@ from deltacat.storage.iceberg.model import (
     SchemaMapper,
     PartitionSchemeMapper,
 )
+from deltacat.env import create_ray_runtime_environment
 
 # initialize the driver logger
 driver_logger = logs.configure_application_logger(logging.getLogger(__name__))
@@ -31,7 +31,7 @@ driver_logger = logs.configure_application_logger(logging.getLogger(__name__))
 
 def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
     # create any runtime environment required to run the example
-    runtime_env = create_runtime_environment()
+    runtime_env = create_ray_runtime_environment()
 
     # Start by initializing DeltaCAT and registering available Catalogs.
     # Ray will be initialized automatically via `ray.init()`.

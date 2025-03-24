@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 
-from deltacat.catalog.catalog_properties import initialize_properties
+import deltacat.catalog.v2.catalog_impl as v2
+from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.sort_key import SortScheme
@@ -26,7 +27,7 @@ def write_to_table(
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Write local or distributed data to a table. Raises an error if the
     table does not exist and the table write mode is not CREATE or AUTO.
@@ -55,7 +56,7 @@ def alter_table(
     description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Alter table definition."""
     raise NotImplementedError("alter_table not implemented")
@@ -74,7 +75,7 @@ def create_table(
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
     *args,
-    **kwargs
+    **kwargs,
 ) -> TableDefinition:
     """Create an empty table. Raises an error if the table already exists and
     `fail_if_exists` is True (default behavior)."""
@@ -135,10 +136,18 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     raise NotImplementedError("list_namespaces not implemented")
 
 
-def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
+def get_namespace(
+    namespace: str,
+    *args,
+    **kwargs,
+) -> Optional[Namespace]:
     """Gets table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist."""
-    raise NotImplementedError("get_namespace not implemented")
+    return v2.get_namespace(
+        namespace=namespace,
+        *args,
+        **kwargs,
+    )
 
 
 def namespace_exists(namespace: str, *args, **kwargs) -> bool:
@@ -147,11 +156,19 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
 
 
 def create_namespace(
-    namespace: str, properties: NamespaceProperties, *args, **kwargs
+    namespace: str,
+    properties: Optional[NamespaceProperties] = None,
+    *args,
+    **kwargs,
 ) -> Namespace:
     """Creates a table namespace with the given name and properties. Returns
     the created namespace. Raises an error if the namespace already exists."""
-    raise NotImplementedError("create_namespace not implemented")
+    return v2.create_namespace(
+        namespace=namespace,
+        properties=properties,
+        *args,
+        **kwargs,
+    )
 
 
 def alter_namespace(
@@ -159,7 +176,7 @@ def alter_namespace(
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
     *args,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Alter table namespace definition."""
     raise NotImplementedError("alter_namespace not implemented")
@@ -178,4 +195,4 @@ def default_namespace(*args, **kwargs) -> str:
 
 # catalog functions
 def initialize(*args, **kwargs) -> Optional[Any]:
-    initialize_properties(*args, **kwargs)
+    return CatalogProperties(*args, **kwargs)

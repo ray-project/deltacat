@@ -19,7 +19,6 @@ pyarrow == 17.0.0
 #pyiceberg[glue] @ git+https://github.com/apache/iceberg-python
 pyiceberg[glue] >= 0.6.0
 pymemcache == 4.0.0
-pyspark == 3.5.3
 ray[default] >= 2.20.0,<2.31.0
 redis == 4.6.0
 s3fs == 2024.5.0

@@ -276,7 +276,10 @@ def list_namespaces(
 
 
 def get_namespace(
-    namespace: str, catalog: Optional[str] = None, *args, **kwargs
+    namespace: str,
+    catalog: Optional[str] = None,
+    *args,
+    **kwargs,
 ) -> Optional[Namespace]:
     """Get table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist."""
@@ -290,7 +293,10 @@ def get_namespace(
 
 
 def namespace_exists(
-    namespace: str, catalog: Optional[str] = None, *args, **kwargs
+    namespace: str,
+    catalog: Optional[str] = None,
+    *args,
+    **kwargs,
 ) -> bool:
     """Returns True if the given table namespace exists, False if not."""
     catalog = get_catalog(catalog)
@@ -304,7 +310,7 @@ def namespace_exists(
 
 def create_namespace(
     namespace: str,
-    properties: NamespaceProperties,
+    properties: Optional[NamespaceProperties] = None,
     catalog: Optional[str] = None,
     *args,
     **kwargs,
