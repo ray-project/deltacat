@@ -8,8 +8,12 @@ class ContentType(str, Enum):
     # https://www.iana.org/assignments/media-types/media-types.xhtml
 
     # IANA registered types
+    AVRO = "application/avro"
+    BINARY = "application/octet-stream"
     CSV = "text/csv"
     JSON = "application/json"
+    TEXT = "text/plain"
+    WEB_DATASET = "application/x-web-dataset"
 
     # unregistered types
     TSV = "text/tsv"
@@ -58,6 +62,40 @@ class StorageType(str, Enum):
     DISTRIBUTED = "distributed"
 
 
+class DatasourceType(str, Enum):
+    # DeltaCAT Catalog Datasources
+    DELTACAT = "dc"
+    DELTACAT_NAMESPACE = "namespace"
+    DELTACAT_TABLE = "table"
+    DELTACAT_TABLE_VERSION = "tableversion"
+    DELTACAT_STREAM = "stream"
+    DELTACAT_PARTITION = "partition"
+    DELTACAT_DELTA = "delta"
+
+    # External Datasources
+    AUDIO = "audio"
+    AVRO = "avro"
+    BIGQUERY = "bigquery"
+    BINARY_FILES = "binary"
+    CSV = "csv"
+    CLICKHOUSE = "clickhouse"
+    DATABRICKS_TABLES = "databricks"
+    DELTA_SHARING = "deltasharing"
+    HUDI = "hudi"
+    ICEBERG = "iceberg"
+    IMAGES = "images"
+    JSON = "json"
+    LANCE = "lance"
+    MONGO = "mongo"
+    NUMPY = "numpy"
+    PARQUET = "parquet"
+    SQL = "sql"
+    TEXT = "text"
+    TFRECORDS = "tfrecords"
+    VIDEOS = "videos"
+    WEBDATASET = "webdataset"
+
+
 DELIMITED_TEXT_CONTENT_TYPES: Set[str] = {
     ContentType.UNESCAPED_TSV.value,
     ContentType.TSV.value,
@@ -73,6 +111,7 @@ TABULAR_CONTENT_TYPES: Set[str] = {
     ContentType.PARQUET.value,
     ContentType.ORC.value,
     ContentType.FEATHER.value,
+    ContentType.AVRO.value,
 }
 
 EXPLICIT_COMPRESSION_CONTENT_TYPES: Set[str] = {
@@ -81,15 +120,4 @@ EXPLICIT_COMPRESSION_CONTENT_TYPES: Set[str] = {
     ContentType.CSV.value,
     ContentType.PSV.value,
     ContentType.JSON.value,
-}
-
-CONTENT_TYPE_TO_USER_KWARGS_KEY: Dict[str, str] = {
-    ContentType.UNESCAPED_TSV.value: "unescaped_tsv",
-    ContentType.TSV.value: "csv",
-    ContentType.CSV.value: "csv",
-    ContentType.PSV.value: "csv",
-    ContentType.PARQUET.value: "parquet",
-    ContentType.FEATHER.value: "feather",
-    ContentType.ORC.value: "orc",
-    ContentType.JSON.value: "json",
 }

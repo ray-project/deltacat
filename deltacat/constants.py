@@ -44,10 +44,9 @@ DELTACAT_ROOT = env_string(
 )
 
 # CLI Args
-METAFILE_FORMAT_KEY = "METAFILE_FORMAT"
 METAFILE_FORMAT_JSON = "json"
 METAFILE_FORMAT_MSGPACK = "msgpack"
-METAFILE_FORMAT = env_string(METAFILE_FORMAT_KEY, METAFILE_FORMAT_MSGPACK)
+METAFILE_FORMAT = env_string("METAFILE_FORMAT", METAFILE_FORMAT_MSGPACK)
 SUPPORTED_METAFILE_FORMATS = [METAFILE_FORMAT_JSON, METAFILE_FORMAT_MSGPACK]
 METAFILE_EXT = {
     "json": ".json",
@@ -95,11 +94,12 @@ RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"
 SUCCESS_TXN_DIR_NAME: str = "success"
 TXN_PART_SEPARATOR = "_"
+
 # Storage interface defaults
 # These defaults should be applied in catalog interface implementations
 # Storage interface implementations should be agnostic to defaults and require full information
-DEFAULT_CATALOG = "DEFAULT"
-DEFAULT_NAMESPACE = "DEFAULT"
+DEFAULT_CATALOG = "default"
+DEFAULT_NAMESPACE = "default"
 DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
 DEFAULT_PARTITION_ID = "partition"

@@ -30,6 +30,7 @@ from deltacat.catalog.delegate import (
 from deltacat.catalog.model.catalog import (  # noqa: F401
     Catalog,
     Catalogs,
+    ensure_initialized,
     is_initialized,
     init,
     get_catalog,
@@ -95,6 +96,7 @@ __all__ = [
     "read_table",
     "get_catalog",
     "put_catalog",
+    "ensure_initialized",
     "is_initialized",
     "init",
     "Catalog",
