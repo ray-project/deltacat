@@ -20,10 +20,12 @@ from deltacat.storage.model.types import (
     LifecycleState,
     LocalDataset,
     LocalTable,
+    StreamFormat,
 )
 from deltacat.storage.iceberg import impl as IcebergStorage
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
+from deltacat.constants import DEFAULT_NAMESPACE
 
 from pyiceberg.catalog import load_catalog
 from pyiceberg.transforms import BucketTransform
@@ -35,10 +37,10 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def write_to_table(
     data: Union[LocalTable, LocalDataset, DistributedDataset],
     table: str,
+    *args,
     namespace: Optional[str] = None,
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
-    *args,
     **kwargs,
 ) -> None:
     """Write local or distributed data to a table. Raises an error if the
@@ -58,11 +60,12 @@ def write_to_table(
     table_definition = (
         create_table(
             table,
-            namespace,
+            *args,
+            namespace=namespace,
             **kwargs,
         )
         if (mode == TableWriteMode.AUTO or mode == TableWriteMode.CREATE)
-        else get_table(table, namespace, catalog=catalog)
+        else get_table(table, *args, namespace=namespace, catalog=catalog, **kwargs)
     )
 
     # TODO(pdames): Use native DeltaCAT models to map from Iceberg partitioning to Daft partitioning...
@@ -114,7 +117,7 @@ def write_to_table(
 
 
 def read_table(
-    table: str, namespace: Optional[str] = None, *args, **kwargs
+    table: str, *args, namespace: Optional[str] = None, **kwargs
 ) -> DistributedDataset:
     """Read a table into a distributed dataset."""
     raise NotImplementedError("read_table not implemented")
@@ -122,15 +125,14 @@ def read_table(
 
 def alter_table(
     table: str,
+    *args,
     namespace: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
     schema_updates: Optional[Dict[str, Any]] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Alter table definition."""
@@ -138,40 +140,43 @@ def alter_table(
 
 
 def create_table(
-    table: str,
+    name: str,
+    *args,
     namespace: Optional[str] = None,
+    version: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
-    primary_keys: Optional[Set[str]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
-    *args,
     **kwargs,
 ) -> TableDefinition:
     """Create an empty table. Raises an error if the table already exists and
     `fail_if_exists` is True (default behavior)."""
 
+    namespace = namespace or default_namespace()
     catalog = _get_native_catalog(**kwargs)
     existing_table = get_table(
-        table,
-        namespace,
+        name,
+        *args,
+        namespace=namespace,
         catalog=catalog,
+        **kwargs,
     )
     if existing_table:
         if fail_if_exists:
             err_msg = (
-                f"Table `{namespace}.{table}` already exists. "
+                f"Table `{namespace}.{name}` already exists. "
                 f"To suppress this error, rerun `create_table()` with "
                 f"`fail_if_exists=False`."
             )
             raise TableAlreadyExistsError(err_msg)
         else:
-            logger.debug(f"Returning existing table: `{namespace}.{table}`")
+            logger.debug(f"Returning existing table: `{namespace}.{name}`")
             return existing_table
 
     if not IcebergStorage.namespace_exists(
@@ -187,7 +192,8 @@ def create_table(
 
     IcebergStorage.create_table_version(
         namespace=namespace,
-        table_name=table,
+        table_name=name,
+        table_version=version,
         schema=schema,
         partition_scheme=partition_scheme,
         sort_keys=sort_keys,
@@ -195,27 +201,34 @@ def create_table(
         **kwargs,
     )
     return get_table(
-        table,
-        namespace,
+        name,
+        *args,
+        namespace=namespace,
         catalog=catalog,
+        **kwargs,
     )
 
 
 def drop_table(
-    table: str, namespace: Optional[str] = None, purge: bool = False, *args, **kwargs
+    name: str,
+    *args,
+    namespace: Optional[str] = None,
+    table_version: Optional[str] = None,
+    purge: bool = False,
+    **kwargs,
 ) -> None:
     """Drop a table from the catalog and optionally purge it. Raises an error
     if the table does not exist."""
     raise NotImplementedError("drop_table not implemented")
 
 
-def refresh_table(table: str, namespace: Optional[str] = None, *args, **kwargs) -> None:
+def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) -> None:
     """Refresh metadata cached on the Ray cluster for the given table."""
     raise NotImplementedError("refresh_table not implemented")
 
 
 def list_tables(
-    namespace: Optional[str] = None, *args, **kwargs
+    *args, namespace: Optional[str] = None, **kwargs
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions. Raises an error if the given namespace
     does not exist."""
@@ -223,50 +236,63 @@ def list_tables(
 
 
 def get_table(
-    table: str, namespace: Optional[str] = None, *args, **kwargs
+    name: str,
+    *args,
+    namespace: Optional[str] = None,
+    table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
+    **kwargs,
 ) -> Optional[TableDefinition]:
     """Get table definition metadata. Returns None if the given table does not
     exist."""
+    namespace = namespace or default_namespace()
     catalog = _get_native_catalog(**kwargs)
     stream = IcebergStorage.get_stream(
-        namespace=namespace, table_name=table, catalog=catalog
+        namespace=namespace, table_name=name, catalog=catalog
     )
     if not stream:
         return None
     table_obj = IcebergStorage.get_table(
-        namespace=namespace, table_name=table, catalog=catalog
+        namespace=namespace, table_name=name, catalog=catalog
     )
     if not table_obj:
         return None
-    table_version = IcebergStorage.get_latest_table_version(
-        namespace=namespace, table_name=table, catalog=catalog
-    )
-    if not table_version:
+    table_version_obj = None
+    if table_version:
+        table_version_obj = IcebergStorage.get_table_version(
+            namespace=namespace, table_name=name, table_version=table_version, catalog=catalog
+        )
+    else:
+        table_version_obj = IcebergStorage.get_latest_table_version(
+            namespace=namespace, table_name=name, catalog=catalog
+        )
+    if not table_version_obj:
         return None
     return TableDefinition.of(
         table=table_obj,
-        table_version=table_version,
+        table_version=table_version_obj,
         stream=stream,
         native_object=table_obj.native_object,
     )
 
 
 def truncate_table(
-    table: str, namespace: Optional[str] = None, *args, **kwargs
+    table: str, *args, namespace: Optional[str] = None, **kwargs
 ) -> None:
     """Truncate table data. Raises an error if the table does not exist."""
     raise NotImplementedError("truncate_table not implemented")
 
 
 def rename_table(
-    table: str, new_name: str, namespace: Optional[str] = None, *args, **kwargs
+    table: str, new_name: str, *args, namespace: Optional[str] = None, **kwargs
 ) -> None:
     """Rename a table."""
     raise NotImplementedError("rename_table not implemented")
 
 
-def table_exists(table: str, namespace: Optional[str] = None, *args, **kwargs) -> bool:
+def table_exists(table: str, *args, namespace: Optional[str] = None, **kwargs) -> bool:
     """Returns True if the given table exists, False if not."""
+    namespace = namespace or default_namespace()
     return IcebergStorage.table_exists(namespace=namespace, table_name=table)
 
 
@@ -288,7 +314,7 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
 
 
 def create_namespace(
-    namespace: str, properties: NamespaceProperties, *args, **kwargs
+    namespace: str, *args, properties: Optional[NamespaceProperties] = None, **kwargs
 ) -> Namespace:
     """Creates a table namespace with the given name and properties. Returns
     the created namespace. Raises an error if the namespace already exists."""
@@ -297,24 +323,24 @@ def create_namespace(
 
 def alter_namespace(
     namespace: str,
+    *args,
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Alter table namespace definition."""
     raise NotImplementedError("alter_namespace not implemented")
 
 
-def drop_namespace(namespace: str, purge: bool = False, *args, **kwargs) -> None:
+def drop_namespace(namespace: str, *args, purge: bool = False, **kwargs) -> None:
     """Drop the given namespace and all of its tables from the catalog,
     optionally purging them."""
     raise NotImplementedError("drop_namespace not implemented")
 
 
-def default_namespace() -> str:
+def default_namespace(*args, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
-    raise NotImplementedError("default_namespace not implemented")
+    return DEFAULT_NAMESPACE
 
 
 # catalog functions
