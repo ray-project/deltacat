@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 
 import deltacat
+from deltacat.catalog import CatalogProperties
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
     StreamNotFoundError,
@@ -599,11 +600,18 @@ def default_namespace(*args, **kwargs) -> str:
 
 
 # catalog functions
-def initialize(*args, ds: deltacat_storage=None, **kwargs) -> None:
-    """Initializes the data catalog with the given arguments."""
+def initialize(*args, ds: deltacat_storage=None, **kwargs) -> CatalogProperties:
+    """
+    Initializes the data catalog with the given arguments.
+
+    returns CatalogProperties as the "native catalog" for a DC native catalog
+
+
+    """
     if ds:
         global STORAGE
         STORAGE = ds
+    return CatalogProperties(*args, **kwargs)
 
 
 def _validate_read_table_args(
