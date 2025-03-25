@@ -32,7 +32,7 @@ def write_to_table(
     namespace: Optional[str] = None,
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Write data to a DeltaCat table.
 
@@ -74,7 +74,7 @@ def alter_table(
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Alter deltacat table/table_version definition.
 
@@ -114,7 +114,7 @@ def create_table(
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
-    **kwargs
+    **kwargs,
 ) -> TableDefinition:
     """Create an empty table in the catalog.
 
@@ -311,7 +311,10 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
 
 
 def create_namespace(
-    namespace: str, *args, properties: Optional[NamespaceProperties] = None, **kwargs
+    namespace: str,
+    properties: Optional[NamespaceProperties] = None,
+    *args,
+    **kwargs,
 ) -> Namespace:
     """Create a new namespace.
 
@@ -333,7 +336,8 @@ def alter_namespace(
     *args,
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
-    **kwargs
+    *args,
+    **kwargs,
 ) -> None:
     """Alter a namespace definition.
 

@@ -38,8 +38,9 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
     "DELTACAT_LOGGER_USE_SINGLE_HANDLER",
     False,
 )
-DELTACAT_CATALOG_PROPERTY_ROOT = os.environ.get(
-    "DELTACAT_ROOT", os.path.join(os.getcwd(), ".deltacat")
+DELTACAT_ROOT = env_string(
+    "DELTACAT_ROOT",
+    os.path.join(os.getcwd(), ".deltacat"),
 )
 
 # CLI Args
