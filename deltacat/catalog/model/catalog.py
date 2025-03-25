@@ -8,7 +8,7 @@ from functools import partial
 import ray
 
 from deltacat import logs
-from deltacat.catalog.main import impl as deltacat_catalog
+import deltacat.catalog.default_catalog_impl as deltacat_catalog
 
 all_catalogs: Optional[Catalogs] = None
 

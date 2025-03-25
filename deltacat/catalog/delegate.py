@@ -327,8 +327,6 @@ def create_namespace(
     properties: Optional[NamespaceProperties] = None,
     catalog: Optional[str] = None,
     *args,
-    properties: Optional[NamespaceProperties] = None,
-    catalog: Optional[str] = None,
     **kwargs,
 ) -> Namespace:
     """Creates a table namespace with the given name and properties. Returns

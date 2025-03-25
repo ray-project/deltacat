@@ -1,11 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
 
-from deltacat.exceptions import (
-    NamespaceAlreadyExistsError,
-    StreamNotFoundError,
-    TableAlreadyExistsError,
-    TableVersionNotFoundError,
-)
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.sort_key import SortScheme
@@ -120,7 +114,6 @@ def create_table(
 
     If a namespace isn't provided, the table will be created within the default deltacat namespace.
     Additionally if the provided namespace does not exist, it will be created for you.
-
 
     Args:
         name: Name of the table to create.
@@ -336,7 +329,6 @@ def alter_namespace(
     *args,
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Alter a namespace definition.

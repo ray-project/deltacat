@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 
+import deltacat
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
     StreamNotFoundError,
@@ -34,10 +35,12 @@ from deltacat.types.tables import TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
+from deltacat.storage.main import impl as storage_impl
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-
+# Set default storage impl. This may be overridden in initialize()
+STORAGE = storage_impl
 
 # table functions
 def write_to_table(
@@ -596,10 +599,11 @@ def default_namespace(*args, **kwargs) -> str:
 
 
 # catalog functions
-def initialize(ds: deltacat_storage, *args, **kwargs) -> None:
+def initialize(*args, ds: deltacat_storage=None, **kwargs) -> None:
     """Initializes the data catalog with the given arguments."""
-    global STORAGE
-    STORAGE = ds
+    if ds:
+        global STORAGE
+        STORAGE = ds
 
 
 def _validate_read_table_args(

@@ -3,7 +3,7 @@ import tempfile
 import pytest
 import pyarrow as pa
 
-import deltacat.catalog.v2.catalog_impl as catalog
+import deltacat.catalog.default_catalog_impl as catalog
 from deltacat.catalog.model.properties import initialize_properties
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder

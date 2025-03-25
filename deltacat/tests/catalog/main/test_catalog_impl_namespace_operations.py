@@ -2,7 +2,7 @@ import shutil
 from deltacat.exceptions import NamespaceAlreadyExistsError
 import pytest
 import tempfile
-import deltacat.catalog.v2.catalog_impl as catalog
+import deltacat.catalog.default_catalog_impl as catalog
 from deltacat.catalog.model.properties import initialize_properties
 
 
