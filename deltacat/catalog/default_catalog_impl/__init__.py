@@ -30,7 +30,6 @@ from deltacat.storage.model.partition import (
 from deltacat.storage.model.table_version import TableVersion
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
 from deltacat.storage.model.delta import DeltaType
-import deltacat.storage.interface as deltacat_storage
 from deltacat.types.media import ContentType, TableType, DistributedDatasetType
 from deltacat.types.tables import TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
@@ -39,9 +38,6 @@ from deltacat.constants import DEFAULT_NAMESPACE
 from deltacat.storage.main import impl as storage_impl
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-# Set default storage impl. This may be overridden in initialize()
-STORAGE = storage_impl
 
 # table functions
 def write_to_table(
@@ -86,19 +82,21 @@ def read_table(
 
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
+    expanded_kwargs = {**deltacat_storage_kwargs, **kwargs}
 
     _validate_read_table_args(
         namespace=namespace,
         table_type=table_type,
         distributed_dataset_type=distributed_dataset_type,
         merge_on_read=merge_on_read,
+        **expanded_kwargs
     )
 
     table_version_obj = _get_latest_or_given_table_version(
         namespace=namespace,
         table_name=table,
         table_version=table_version,
-        **deltacat_storage_kwargs,
+        **expanded_kwargs,
     )
     table_version = table_version_obj.table_version
 
@@ -122,17 +120,17 @@ def read_table(
             f"Reading all partitions metadata in the table={table} "
             "as partition_filter was None."
         )
-        partition_filter = STORAGE.list_partitions(
+        partition_filter = _get_storage(**kwargs).list_partitions(
             table_name=table,
             namespace=namespace,
             table_version=table_version,
-            **deltacat_storage_kwargs,
+            **expanded_kwargs,
         ).all_items()
 
     qualified_deltas = _get_deltas_from_partition_filter(
         stream_position_range_inclusive=stream_position_range_inclusive,
         partition_filter=partition_filter,
-        **deltacat_storage_kwargs,
+        **expanded_kwargs,
     )
 
     logger.info(
@@ -143,7 +141,7 @@ def read_table(
     merge_on_read_params = MergeOnReadParams.of(
         {
             "deltas": qualified_deltas,
-            "deltacat_storage": STORAGE,
+            "deltacat_storage": _get_storage(**expanded_kwargs),
             "deltacat_storage_kwargs": deltacat_storage_kwargs,
             "reader_kwargs": reader_kwargs,
         }
@@ -188,7 +186,7 @@ def alter_table(
     """
     namespace = namespace or default_namespace()
 
-    STORAGE.update_table(
+    _get_storage(**kwargs).update_table(
         *args,
         namespace=namespace,
         table_name=table,
@@ -198,8 +196,8 @@ def alter_table(
         **kwargs,
     )
 
-    table_version = STORAGE.get_latest_table_version(namespace, table, **kwargs)
-    STORAGE.update_table_version(
+    table_version = _get_storage(**kwargs).get_latest_table_version(namespace, table, **kwargs)
+    _get_storage(**kwargs).update_table_version(
         *args,
         namespace=namespace,
         table_name=table,
@@ -268,7 +266,7 @@ def create_table(
             *args, namespace=namespace, properties=namespace_properties, **kwargs
         )
 
-    (table, table_version, stream) = STORAGE.create_table_version(
+    (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
         *args,
         namespace=namespace,
         table_name=name,
@@ -319,7 +317,7 @@ def drop_table(
         raise NotImplementedError("Purge flag is not currently supported.")
 
     namespace = namespace or default_namespace()
-    STORAGE.delete_table(
+    _get_storage(**kwargs).delete_table(
         *args, namespace=namespace, name=name, purge=purge, **kwargs
     )
 
@@ -351,7 +349,7 @@ def list_tables(
         ListResult containing TableDefinition objects for tables in the namespace.
     """
     namespace = namespace or default_namespace()
-    tables = STORAGE.list_tables(*args, namespace=namespace, **kwargs)
+    tables = _get_storage(**kwargs).list_tables(*args, namespace=namespace, **kwargs)
     table_definitions = [
         get_table(*args, table.table_name, namespace, **kwargs)
         for table in tables.all_items()
@@ -386,14 +384,14 @@ def get_table(
         StreamNotFoundError: If the stream does not exist.
     """
     namespace = namespace or default_namespace()
-    table: Optional[Table] = STORAGE.get_table(
+    table: Optional[Table] = _get_storage(**kwargs).get_table(
         *args, table_name=name, namespace=namespace, **kwargs
     )
 
     if table is None:
         return None
 
-    table_version: Optional[TableVersion] = STORAGE.get_table_version(
+    table_version: Optional[TableVersion] = _get_storage(**kwargs).get_table_version(
         *args, namespace, name, table_version or table.latest_table_version, **kwargs
     )
 
@@ -402,7 +400,7 @@ def get_table(
             f"TableVersion {namespace}.{name}.{table_version} does not exist."
         )
 
-    stream = STORAGE.get_stream(
+    stream = _get_storage(**kwargs).get_stream(
         *args,
         namespace=namespace,
         table_name=name,
@@ -462,7 +460,7 @@ def rename_table(
         TableNotFoundError: If the table does not exist.
     """
     namespace = namespace or default_namespace()
-    STORAGE.update_table(
+    _get_storage(**kwargs).update_table(
         *args, table_name=table, new_table_name=new_name, namespace=namespace, **kwargs
     )
 
@@ -481,7 +479,7 @@ def table_exists(table: str,
         True if the table exists, False otherwise.
     """
     namespace = namespace or default_namespace()
-    return STORAGE.table_exists(
+    return _get_storage(**kwargs).table_exists(
         *args, table_name=table, namespace=namespace, **kwargs
     )
 
@@ -495,7 +493,7 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
     Returns:
         ListResult containing Namespace objects.
     """
-    return STORAGE.list_namespaces(*args, **kwargs)
+    return _get_storage(**kwargs).list_namespaces(*args, **kwargs)
 
 
 def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
@@ -507,7 +505,7 @@ def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     Returns:
         Namespace object if the namespace exists, None otherwise.
     """
-    return STORAGE.get_namespace(*args, namespace=namespace, **kwargs)
+    return _get_storage(**kwargs).get_namespace(*args, namespace=namespace, **kwargs)
 
 
 def namespace_exists(namespace: str, *args, **kwargs) -> bool:
@@ -519,7 +517,7 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     Returns:
         True if the namespace exists, False otherwise.
     """
-    return STORAGE.namespace_exists(*args, namespace=namespace, **kwargs)
+    return _get_storage(**kwargs).namespace_exists(*args, namespace=namespace, **kwargs)
 
 
 def create_namespace(
@@ -540,7 +538,7 @@ def create_namespace(
     if namespace_exists(namespace, **kwargs):
         raise NamespaceAlreadyExistsError(f"Namespace {namespace} already exists")
 
-    return STORAGE.create_namespace(
+    return _get_storage(**kwargs).create_namespace(
         *args, namespace=namespace, properties=properties, **kwargs
     )
 
@@ -562,7 +560,7 @@ def alter_namespace(
     Returns:
         None
     """
-    STORAGE.update_namespace(
+    _get_storage(**kwargs).update_namespace(
         namespace=namespace,
         properties=properties,
         new_namespace=new_namespace,
@@ -587,7 +585,7 @@ def drop_namespace(namespace: str, *args, purge: bool = False, **kwargs) -> None
     if purge:
         raise NotImplementedError("Purge flag is not currently supported.")
 
-    STORAGE.delete_namespace(*args, namespace=namespace, purge=purge, **kwargs)
+    _get_storage(**kwargs).delete_namespace(*args, namespace=namespace, purge=purge, **kwargs)
 
 
 def default_namespace(*args, **kwargs) -> str:
@@ -614,8 +612,10 @@ def _validate_read_table_args(
     table_type: Optional[TableType] = None,
     distributed_dataset_type: Optional[DistributedDatasetType] = None,
     merge_on_read: Optional[bool] = None,
+    **kwargs
 ):
-    if STORAGE is None:
+    storage=_get_storage(**kwargs)
+    if storage is None:
         raise ValueError(
             "Catalog not initialized. Did you miss calling "
             "initialize(ds=<deltacat_storage>)?"
@@ -645,12 +645,12 @@ def _get_latest_or_given_table_version(
 ) -> TableVersion:
     table_version_obj = None
     if table_version is None:
-        table_version_obj = STORAGE.get_latest_table_version(
+        table_version_obj = _get_storage(**kwargs).get_latest_table_version(
             namespace=namespace, table_name=table_name, *args, **kwargs
         )
         table_version = table_version_obj.table_version
     else:
-        table_version_obj = STORAGE.get_table_version(
+        table_version_obj = _get_storage(**kwargs).get_table_version(
             namespace=namespace,
             table_name=table_name,
             table_version=table_version,
@@ -674,7 +674,7 @@ def _get_deltas_from_partition_filter(
         None,
     )
     for partition_like in partition_filter:
-        deltas = STORAGE.list_partition_deltas(
+        deltas = _get_storage(**kwargs).list_partition_deltas(
             partition_like=partition_like,
             ascending_order=True,
             include_manifest=True,
@@ -697,3 +697,11 @@ def _get_deltas_from_partition_filter(
                 result_deltas.append(delta)
 
     return result_deltas
+
+def _get_storage(**kwargs):
+    properties: Optional[CatalogProperties] = kwargs.get("catalog")
+    if properties is not None and properties.storage is not None:
+        return properties.storage
+    else: 
+        return storage_impl
+    

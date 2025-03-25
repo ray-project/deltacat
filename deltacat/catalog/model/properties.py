@@ -83,7 +83,7 @@ class CatalogProperties:
         )
         self._root = resolved_root
         self._filesystem = resolved_filesystem
-        self._storage = kwargs.get("storage")
+        self._storage = kwargs.get("storage", None)
 
     @property
     def root(self) -> str:

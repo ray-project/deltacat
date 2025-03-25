@@ -14,7 +14,6 @@ from deltacat.catalog import default_catalog_impl as dc
 
 class TestReadTable(unittest.TestCase):
     READ_TABLE_NAMESPACE = "catalog_read_table_namespace"
-    LOCAL_CATALOG_NAME = "local_catalog"
     DB_FILE_PATH = f"{current_time_ms()}.db"
     SAMPLE_FILE_PATH = "deltacat/tests/catalog/data/sample_table.csv"
 
@@ -49,11 +48,11 @@ class TestReadTable(unittest.TestCase):
             **self.kwargs,
         )
 
-        dc.initialize(storage=ds)
+        catalog_properties = dc.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
-            catalog=self.LOCAL_CATALOG_NAME,
+            catalog=catalog_properties,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             deltacat_storage_kwargs=self.kwargs,
         )
@@ -81,11 +80,11 @@ class TestReadTable(unittest.TestCase):
         )
 
         # action
-        dc.initialize(storage=ds)
+        catalog_properties = dc.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
-            catalog=self.LOCAL_CATALOG_NAME,
+            catalog=catalog_properties,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             merge_on_read=False,
             deltacat_storage_kwargs=self.kwargs,
