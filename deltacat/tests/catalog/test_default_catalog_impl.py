@@ -49,7 +49,7 @@ class TestReadTable(unittest.TestCase):
             **self.kwargs,
         )
 
-        dc.initialize(ds=ds)
+        dc.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
@@ -81,7 +81,7 @@ class TestReadTable(unittest.TestCase):
         )
 
         # action
-        dc.initialize(ds=ds)
+        dc.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,

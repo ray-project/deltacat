@@ -537,7 +537,7 @@ def create_namespace(
     Raises:
         NamespaceAlreadyExistsError: If the namespace already exists.
     """
-    if namespace_exists(namespace):
+    if namespace_exists(namespace, **kwargs):
         raise NamespaceAlreadyExistsError(f"Namespace {namespace} already exists")
 
     return STORAGE.create_namespace(
@@ -600,17 +600,12 @@ def default_namespace(*args, **kwargs) -> str:
 
 
 # catalog functions
-def initialize(*args, ds: deltacat_storage=None, **kwargs) -> CatalogProperties:
+def initialize(*args, **kwargs) -> CatalogProperties:
     """
     Initializes the data catalog with the given arguments.
 
     returns CatalogProperties as the "native catalog" for a DC native catalog
-
-
     """
-    if ds:
-        global STORAGE
-        STORAGE = ds
     return CatalogProperties(*args, **kwargs)
 
 
