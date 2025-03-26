@@ -6,6 +6,7 @@ from deltacat.constants import DELTACAT_ROOT
 
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
+
 def get_catalog_properties(
     *args,
     catalog: Optional[CatalogProperties] = None,
@@ -26,6 +27,7 @@ def get_catalog_properties(
         )
     else:
         return CatalogProperties(**kwargs)
+
 
 class CatalogProperties:
     """
@@ -67,7 +69,7 @@ class CatalogProperties:
         """
         # set root, using precedence rules described in pydoc
         if kwargs.get("root"):
-            root=kwargs.get("root")
+            root = kwargs.get("root")
         else:
             # Check environment variables
             # This is set or defaulted in constants.py

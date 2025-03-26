@@ -179,10 +179,7 @@ def refresh_table(
 
 
 def list_tables(
-    *args,
-    namespace: Optional[str] = None,
-    catalog: Optional[str] = None,
-    **kwargs
+    *args, namespace: Optional[str] = None, catalog: Optional[str] = None, **kwargs
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions. Raises an error if the given namespace
     does not exist."""
@@ -276,9 +273,7 @@ def table_exists(
 
 # namespace functions
 def list_namespaces(
-    *args,
-    catalog: Optional[str] = None,
-    **kwargs
+    *args, catalog: Optional[str] = None, **kwargs
 ) -> ListResult[Namespace]:
     """List a page of table namespaces."""
     catalog_obj = get_catalog(catalog)
@@ -362,11 +357,7 @@ def alter_namespace(
 
 
 def drop_namespace(
-    namespace: str,
-    *args,
-    catalog: Optional[str] = None,
-    purge: bool = False,
-    **kwargs
+    namespace: str, *args, catalog: Optional[str] = None, purge: bool = False, **kwargs
 ) -> None:
     """Drop the given namespace and all of its tables from the catalog,
     optionally purging them."""
@@ -380,15 +371,9 @@ def drop_namespace(
     )
 
 
-def default_namespace(
-    *args,
-    catalog: Optional[str] = None,
-    **kwargs
-) -> str:
+def default_namespace(*args, catalog: Optional[str] = None, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.default_namespace(
-        *args,
-        catalog=catalog_obj.native_object,
-        **kwargs
+        *args, catalog=catalog_obj.native_object, **kwargs
     )

@@ -1,6 +1,6 @@
 import logging
 
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
 from daft import DataFrame
 
@@ -260,7 +260,10 @@ def get_table(
     table_version_obj = None
     if table_version:
         table_version_obj = IcebergStorage.get_table_version(
-            namespace=namespace, table_name=name, table_version=table_version, catalog=catalog
+            namespace=namespace,
+            table_name=name,
+            table_version=table_version,
+            catalog=catalog,
         )
     else:
         table_version_obj = IcebergStorage.get_latest_table_version(

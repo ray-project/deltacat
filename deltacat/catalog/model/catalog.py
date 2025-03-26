@@ -83,9 +83,7 @@ class Catalogs:
 
         # if user only provides single Catalog, override it to be a map with default key
         if isinstance(catalogs, Catalog):
-            catalogs = {
-                self.DEFAULT_CATALOG_NAME: catalogs
-            }
+            catalogs = {self.DEFAULT_CATALOG_NAME: catalogs}
 
         self.catalogs: Dict[str, Catalog] = catalogs
         if default_catalog_name:
@@ -139,7 +137,6 @@ def init(
     )
 
     global all_catalogs
-
 
     all_catalogs = Catalogs.remote(
         catalogs=catalogs, default_catalog_name=default_catalog_name

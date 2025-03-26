@@ -145,7 +145,7 @@ def drop_table(
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
     purge: bool = False,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Drop a table from the catalog and optionally purges underlying data.
 
@@ -197,7 +197,7 @@ def get_table(
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
     stream_format: StreamFormat = StreamFormat.DELTACAT,
-    **kwargs
+    **kwargs,
 ) -> Optional[TableDefinition]:
     """Get table definition metadata.
 

@@ -1,7 +1,6 @@
 import shutil
 import tempfile
 
-import deltacat
 import pytest
 import pyarrow as pa
 
