@@ -9,7 +9,7 @@ from deltacat.tests.test_utils.pyarrow import (
     commit_delta_to_partition,
 )
 from deltacat.types.media import DistributedDatasetType, ContentType
-from deltacat.catalog import default_catalog_impl as dc
+from deltacat.catalog import main as dc
 
 
 class TestReadTable(unittest.TestCase):
@@ -54,7 +54,7 @@ class TestReadTable(unittest.TestCase):
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=catalog_properties,
             distributed_dataset_type=DistributedDatasetType.DAFT,
-            deltacat_storage_kwargs=self.kwargs,
+            **self.kwargs,
         )
 
         # verify
@@ -87,7 +87,7 @@ class TestReadTable(unittest.TestCase):
             catalog=catalog_properties,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             merge_on_read=False,
-            deltacat_storage_kwargs=self.kwargs,
+            **self.kwargs,
         )
 
         # verify

@@ -60,12 +60,12 @@ def write_to_table(
     table_definition = (
         create_table(
             table,
-            *args,
             namespace=namespace,
+            *args,
             **kwargs,
         )
         if (mode == TableWriteMode.AUTO or mode == TableWriteMode.CREATE)
-        else get_table(table, *args, namespace=namespace, catalog=catalog, **kwargs)
+        else get_table(table, namespace=namespace, catalog=catalog, *args, **kwargs)
     )
 
     # TODO(pdames): Use native DeltaCAT models to map from Iceberg partitioning to Daft partitioning...

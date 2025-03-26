@@ -8,7 +8,8 @@ from functools import partial
 import ray
 
 from deltacat import logs
-import deltacat.catalog.default_catalog_impl as deltacat_catalog
+import deltacat.catalog.main as deltacat_catalog
+from deltacat.constants import DEFAULT_CATALOG
 
 all_catalogs: Optional[Catalogs] = None
 
@@ -61,8 +62,6 @@ class Catalog:
 @ray.remote
 class Catalogs:
 
-    DEFAULT_CATALOG_NAME = "default"
-
     def __init__(
         self,
         catalogs: Union[Catalog, Dict[str, Catalog]],
@@ -83,7 +82,7 @@ class Catalogs:
 
         # if user only provides single Catalog, override it to be a map with default key
         if isinstance(catalogs, Catalog):
-            catalogs = {self.DEFAULT_CATALOG_NAME: catalogs}
+            catalogs = {DEFAULT_CATALOG: catalogs}
 
         self.catalogs: Dict[str, Catalog] = catalogs
         if default_catalog_name:

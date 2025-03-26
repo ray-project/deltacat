@@ -4,7 +4,7 @@ from deltacat.catalog import get_catalog_properties
 from deltacat.exceptions import NamespaceAlreadyExistsError
 import pytest
 import tempfile
-import deltacat.catalog.default_catalog_impl as catalog
+import deltacat.catalog.main as catalog
 
 
 class TestCatalogNamespaceOperations:

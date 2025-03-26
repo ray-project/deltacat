@@ -34,7 +34,7 @@ from deltacat.types.tables import TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
-from deltacat.storage.main import impl as storage_impl
+from deltacat.storage import metastore as storage_impl
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -72,7 +72,6 @@ def read_table(
     stream_position_range_inclusive: Optional[Tuple[int, int]] = None,
     merge_on_read: Optional[bool] = False,
     reader_kwargs: Optional[Dict[Any, Any]] = None,
-    deltacat_storage_kwargs: Optional[Dict[Any, Any]] = None,
     **kwargs,
 ) -> DistributedDataset:  # type: ignore
     """Read a table into a distributed dataset."""
@@ -80,23 +79,19 @@ def read_table(
     if reader_kwargs is None:
         reader_kwargs = {}
 
-    if deltacat_storage_kwargs is None:
-        deltacat_storage_kwargs = {}
-    expanded_kwargs = {**deltacat_storage_kwargs, **kwargs}
-
     _validate_read_table_args(
         namespace=namespace,
         table_type=table_type,
         distributed_dataset_type=distributed_dataset_type,
         merge_on_read=merge_on_read,
-        **expanded_kwargs,
+        **kwargs,
     )
 
     table_version_obj = _get_latest_or_given_table_version(
         namespace=namespace,
         table_name=table,
         table_version=table_version,
-        **expanded_kwargs,
+        **kwargs,
     )
     table_version = table_version_obj.table_version
 
@@ -126,7 +121,7 @@ def read_table(
                 table_name=table,
                 namespace=namespace,
                 table_version=table_version,
-                **expanded_kwargs,
+                **kwargs,
             )
             .all_items()
         )
@@ -134,7 +129,7 @@ def read_table(
     qualified_deltas = _get_deltas_from_partition_filter(
         stream_position_range_inclusive=stream_position_range_inclusive,
         partition_filter=partition_filter,
-        **expanded_kwargs,
+        **kwargs,
     )
 
     logger.info(
@@ -145,8 +140,8 @@ def read_table(
     merge_on_read_params = MergeOnReadParams.of(
         {
             "deltas": qualified_deltas,
-            "deltacat_storage": _get_storage(**expanded_kwargs),
-            "deltacat_storage_kwargs": deltacat_storage_kwargs,
+            "deltacat_storage": _get_storage(**kwargs),
+            "deltacat_storage_kwargs": {**kwargs},
             "reader_kwargs": reader_kwargs,
         }
     )
