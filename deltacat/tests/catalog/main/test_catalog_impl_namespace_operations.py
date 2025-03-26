@@ -1,9 +1,10 @@
 import shutil
+
+from deltacat.catalog import get_catalog_properties
 from deltacat.exceptions import NamespaceAlreadyExistsError
 import pytest
 import tempfile
-import deltacat.catalog.v2.catalog_impl as catalog
-from deltacat.catalog.model.properties import initialize_properties
+import deltacat.catalog.default_catalog_impl as catalog
 
 
 class TestCatalogNamespaceOperations:
@@ -14,7 +15,7 @@ class TestCatalogNamespaceOperations:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.catalog_properties = initialize_properties(root=cls.temp_dir)
+        cls.catalog_properties = get_catalog_properties(root=cls.temp_dir)
 
     @classmethod
     def teardown_class(cls):
@@ -49,7 +50,7 @@ class TestCatalogNamespaceOperations:
         )
 
         # Get namespace properties
-        namespace = catalog.get_namespace(namespace)
+        namespace = catalog.get_namespace(namespace, catalog=self.catalog_properties)
 
         # Verify properties
         assert namespace.namespace == "test_get_namespace"

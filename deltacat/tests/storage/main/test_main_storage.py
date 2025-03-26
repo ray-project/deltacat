@@ -35,8 +35,9 @@ from deltacat.storage.main.impl import DEFAULT_TABLE_VERSION
 class TestNamespace:
     @classmethod
     def setup_method(cls):
+
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = CatalogProperties(cls.tmpdir)
+        cls.catalog = CatalogProperties(root=cls.tmpdir)
         cls.namespace1 = metastore.create_namespace(
             namespace="namespace1",
             catalog=cls.catalog,
@@ -94,7 +95,7 @@ class TestTable:
     @classmethod
     def setup_method(cls):
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = CatalogProperties(cls.tmpdir)
+        cls.catalog = CatalogProperties(root=cls.tmpdir)
         # Create a namespace to hold our tables
         cls.test_namespace = create_test_namespace()
         cls.namespace_obj = metastore.create_namespace(
@@ -173,7 +174,7 @@ class TestTableVersion:
     @classmethod
     def setup_method(cls):
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = CatalogProperties(cls.tmpdir)
+        cls.catalog = CatalogProperties(root=cls.tmpdir)
 
         # create the namespace that we'll attach the base table to
         cls.namespace = create_test_namespace()
@@ -1140,7 +1141,7 @@ class TestStream:
     @classmethod
     def setup_method(cls):
         cls.tmpdir = tempfile.mkdtemp()
-        cls.catalog = CatalogProperties(cls.tmpdir)
+        cls.catalog = CatalogProperties(root=cls.tmpdir)
         metastore.create_namespace(
             "test_stream_ns",
             catalog=cls.catalog,

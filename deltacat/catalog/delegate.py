@@ -13,6 +13,7 @@ from deltacat.storage.model.types import (
     LifecycleState,
     LocalDataset,
     LocalTable,
+    StreamFormat,
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
@@ -22,11 +23,11 @@ from deltacat.types.tables import TableWriteMode
 def write_to_table(
     data: Union[LocalTable, LocalDataset, DistributedDataset],
     table: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
-    *args,
     **kwargs,
 ) -> None:
     """Write local or distributed data to a table. Raises an error if the
@@ -36,39 +37,40 @@ def write_to_table(
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
     as additional keyword arguments."""
-    catalog = get_catalog(catalog)
-    catalog.impl.write_to_table(
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.write_to_table(
         data,
         table,
-        namespace,
-        mode,
-        content_type,
-        catalog=catalog.native_object,
         *args,
+        namespace=namespace,
+        mode=mode,
+        content_type=content_type,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def read_table(
     table: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> DistributedDataset:
     """Read a table into a distributed dataset."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.read_table(
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.read_table(
         table,
-        namespace,
-        catalog=catalog.native_object,
         *args,
+        namespace=namespace,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def alter_table(
     table: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
@@ -77,31 +79,32 @@ def alter_table(
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Alter table definition."""
-    catalog = get_catalog(catalog)
-    catalog.impl.alter_table(
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.alter_table(
         table,
-        namespace,
-        lifecycle_state,
-        schema_updates,
-        partition_updates,
-        sort_keys,
-        description,
-        properties,
-        catalog=catalog.native_object,
         *args,
+        namespace=namespace,
+        lifecycle_state=lifecycle_state,
+        schema_updates=schema_updates,
+        partition_updates=partition_updates,
+        sort_keys=sort_keys,
+        description=description,
+        properties=properties,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def create_table(
-    table: str,
+    name: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    lifecycle_state: Optional[LifecycleState] = None,
+    version: Optional[str] = None,
+    lifecycle_state: Optional[LifecycleState] = LifecycleState.ACTIVE,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
     sort_keys: Optional[SortScheme] = None,
@@ -110,116 +113,122 @@ def create_table(
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
-    *args,
     **kwargs,
 ) -> TableDefinition:
     """Create an empty table. Raises an error if the table already exists and
     `fail_if_exists` is True (default behavior)."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.create_table(
-        table,
-        namespace,
-        lifecycle_state,
-        schema,
-        partition_scheme,
-        sort_keys,
-        description,
-        table_properties,
-        namespace_properties,
-        content_types,
-        fail_if_exists,
-        catalog=catalog.native_object,
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.create_table(
+        name,
         *args,
+        namespace=namespace,
+        version=version,
+        lifecycle_state=lifecycle_state,
+        schema=schema,
+        partition_scheme=partition_scheme,
+        sort_keys=sort_keys,
+        description=description,
+        table_properties=table_properties,
+        namespace_properties=namespace_properties,
+        content_types=content_types,
+        fail_if_exists=fail_if_exists,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def drop_table(
-    table: str,
+    name: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
+    table_version: Optional[str] = None,
     purge: bool = False,
-    *args,
     **kwargs,
 ) -> None:
     """Drop a table from the catalog and optionally purge it. Raises an error
     if the table does not exist."""
-    catalog = get_catalog(catalog)
-    catalog.impl.drop_table(
-        table,
-        namespace,
-        purge,
-        catalog=catalog.native_object,
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.drop_table(
+        name,
         *args,
+        namespace=namespace,
+        table_version=table_version,
+        purge=purge,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def refresh_table(
     table: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Refresh metadata cached on the Ray cluster for the given table."""
-    catalog = get_catalog(catalog)
-    catalog.impl.refresh_table(
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.refresh_table(
         table,
-        namespace,
-        catalog=catalog.native_object,
         *args,
+        namespace=namespace,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def list_tables(
-    namespace: Optional[str] = None, catalog: Optional[str] = None, *args, **kwargs
+    *args, namespace: Optional[str] = None, catalog: Optional[str] = None, **kwargs
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions. Raises an error if the given namespace
     does not exist."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.list_tables(
-        namespace,
-        catalog=catalog.native_object,
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.list_tables(
         *args,
+        namespace=namespace,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def get_table(
-    table: str,
+    name: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    *args,
+    table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
     **kwargs,
 ) -> Optional[TableDefinition]:
     """Get table definition metadata. Returns None if the given table does not
     exist."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.get_table(
-        table,
-        namespace,
-        catalog=catalog.native_object,
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.get_table(
+        name,
         *args,
+        namespace=namespace,
+        table_version=table_version,
+        stream_format=stream_format,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def truncate_table(
     table: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Truncate table data. Raises an error if the table does not exist."""
-    catalog = get_catalog(catalog)
-    catalog.impl.truncate_table(
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.truncate_table(
         table,
-        namespace,
-        catalog=catalog.native_object,
         *args,
+        namespace=namespace,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
@@ -227,50 +236,50 @@ def truncate_table(
 def rename_table(
     table: str,
     new_name: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Rename a table."""
-    catalog = get_catalog(catalog)
-    catalog.impl.rename_table(
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.rename_table(
         table,
         new_name,
-        namespace,
-        catalog=catalog.native_object,
         *args,
+        namespace=namespace,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def table_exists(
     table: str,
+    *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> bool:
     """Returns True if the given table exists, False if not."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.table_exists(
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.table_exists(
         table,
-        namespace,
-        catalog=catalog.native_object,
         *args,
+        namespace=namespace,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 # namespace functions
 def list_namespaces(
-    catalog: Optional[str] = None, *args, **kwargs
+    *args, catalog: Optional[str] = None, **kwargs
 ) -> ListResult[Namespace]:
     """List a page of table namespaces."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.list_namespaces(
-        catalog=catalog.native_object,
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.list_namespaces(
         *args,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
@@ -283,11 +292,11 @@ def get_namespace(
 ) -> Optional[Namespace]:
     """Get table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.get_namespace(
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.get_namespace(
         namespace,
-        catalog=catalog.native_object,
         *args,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
@@ -299,11 +308,11 @@ def namespace_exists(
     **kwargs,
 ) -> bool:
     """Returns True if the given table namespace exists, False if not."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.namespace_exists(
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.namespace_exists(
         namespace,
-        catalog=catalog.native_object,
         *args,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
@@ -317,52 +326,54 @@ def create_namespace(
 ) -> Namespace:
     """Creates a table namespace with the given name and properties. Returns
     the created namespace. Raises an error if the namespace already exists."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.create_namespace(
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.create_namespace(
         namespace,
-        properties,
-        catalog=catalog.native_object,
         *args,
+        properties=properties,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def alter_namespace(
     namespace: str,
+    *args,
     catalog: Optional[str] = None,
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
-    *args,
     **kwargs,
 ) -> None:
     """Alter table namespace definition."""
-    catalog = get_catalog(catalog)
-    catalog.impl.alter_namespace(
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.alter_namespace(
         namespace,
-        properties,
-        new_namespace,
-        catalog=catalog.native_object,
         *args,
+        properties=properties,
+        new_namespace=new_namespace,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
 def drop_namespace(
-    namespace: str, catalog: Optional[str] = None, purge: bool = False, *args, **kwargs
+    namespace: str, *args, catalog: Optional[str] = None, purge: bool = False, **kwargs
 ) -> None:
     """Drop the given namespace and all of its tables from the catalog,
     optionally purging them."""
-    catalog = get_catalog(catalog)
-    catalog.impl.drop_namespace(
+    catalog_obj = get_catalog(catalog)
+    catalog_obj.impl.drop_namespace(
         namespace,
-        purge,
-        catalog=catalog.native_object,
         *args,
+        purge=purge,
+        catalog=catalog_obj.native_object,
         **kwargs,
     )
 
 
-def default_namespace(catalog: Optional[str] = None) -> str:
+def default_namespace(*args, catalog: Optional[str] = None, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
-    catalog = get_catalog(catalog)
-    return catalog.impl.default_namespace(catalog=catalog.native_object)
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.default_namespace(
+        *args, catalog=catalog_obj.native_object, **kwargs
+    )

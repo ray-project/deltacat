@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import logging
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from functools import partial
 import ray
 
 from deltacat import logs
-from deltacat.catalog.main import impl as deltacat_catalog
+import deltacat.catalog.default_catalog_impl as deltacat_catalog
 
 all_catalogs: Optional[Catalogs] = None
 
@@ -60,9 +60,12 @@ class Catalog:
 
 @ray.remote
 class Catalogs:
+
+    DEFAULT_CATALOG_NAME = "default"
+
     def __init__(
         self,
-        catalogs: Dict[str, Catalog],
+        catalogs: Union[Catalog, Dict[str, Catalog]],
         default_catalog_name: Optional[str] = None,
         *args,
         **kwargs,
@@ -77,6 +80,11 @@ class Catalogs:
                 f"No catalogs given to register. "
                 f"Please specify one or more catalogs."
             )
+
+        # if user only provides single Catalog, override it to be a map with default key
+        if isinstance(catalogs, Catalog):
+            catalogs = {self.DEFAULT_CATALOG_NAME: catalogs}
+
         self.catalogs: Dict[str, Catalog] = catalogs
         if default_catalog_name:
             self.default_catalog = self.catalogs[default_catalog_name]
@@ -106,7 +114,7 @@ def is_initialized() -> bool:
 
 
 def init(
-    catalogs: Dict[str, Catalog],
+    catalogs: Union[Dict[str, Catalog], Catalog],
     default_catalog_name: Optional[str] = None,
     ray_init_args: Dict[str, Any] = None,
     *args,
@@ -129,6 +137,7 @@ def init(
     )
 
     global all_catalogs
+
     all_catalogs = Catalogs.remote(
         catalogs=catalogs, default_catalog_name=default_catalog_name
     )

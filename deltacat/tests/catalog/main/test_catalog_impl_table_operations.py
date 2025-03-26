@@ -1,10 +1,11 @@
 import shutil
 import tempfile
+
 import pytest
 import pyarrow as pa
 
-import deltacat.catalog.v2.catalog_impl as catalog
-from deltacat.catalog.model.properties import initialize_properties
+import deltacat.catalog.default_catalog_impl as catalog
+from deltacat.catalog import get_catalog_properties
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder
 from deltacat.storage.model.table import TableProperties
@@ -20,8 +21,7 @@ from deltacat.exceptions import (
 def catalog_setup():
     """Setup and teardown for the catalog test environment."""
     temp_dir = tempfile.mkdtemp()
-    catalog_properties = initialize_properties(root=temp_dir)
-
+    catalog_properties = get_catalog_properties(root=temp_dir)
     yield temp_dir, catalog_properties
 
     # Teardown
