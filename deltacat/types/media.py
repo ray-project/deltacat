@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Set
 
@@ -60,6 +61,15 @@ class SchemaType(str, Enum):
 class StorageType(str, Enum):
     LOCAL = "local"
     DISTRIBUTED = "distributed"
+
+
+@dataclass
+class DatasetFormat:
+    table_type: TableType = TableType.PYARROW
+    storage_type: StorageType = StorageType.DISTRIBUTED
+    distributed_dataset_type: DistributedDatasetType = (
+        DistributedDatasetType.RAY_DATASET
+    )
 
 
 class DatasourceType(str, Enum):

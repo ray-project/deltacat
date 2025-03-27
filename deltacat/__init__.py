@@ -5,6 +5,7 @@ import deltacat.logs  # noqa: F401
 from deltacat.api import (
     copy,
     get,
+    list,
     put,
 )
 from deltacat.catalog.delegate import (
@@ -57,6 +58,7 @@ from deltacat.storage import (
 from deltacat.storage.rivulet import Dataset, Datatype
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode
+from deltacat.utils.url import DeltacatUrl
 
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
@@ -75,6 +77,7 @@ __all__ = [
     "__version__",
     "copy",
     "get",
+    "list",
     "put",
     "alter_table",
     "create_table",
@@ -102,6 +105,7 @@ __all__ = [
     "Catalog",
     "ContentType",
     "ContentEncoding",
+    "DeltacatUrl",
     "DistributedDataset",
     "Dataset",
     "Datatype",

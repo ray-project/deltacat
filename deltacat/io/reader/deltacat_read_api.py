@@ -1,22 +1,22 @@
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 
-import pyarrow as pa
-from pyarrow.fs import FileSystem
+from ray.data import Dataset as RayDataset
 from ray.data import read_datasource
 
-from deltacat import ContentType
-
 from deltacat.io.datasource.deltacat_datasource import DeltacatDatasource
-from deltacat.io.datasource.s3_datasource import (
-    S3Datasource,
-    DelimitedTextReaderConfig,
-    S3PathType,
-    HivePartitionParser,
-)
 from deltacat.io.dataset.deltacat_dataset import DeltacatDataset
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.url import DeltacatUrl
 from deltacat.io.datasource.deltacat_datasource import DeltacatReadType
+
+
+class EmptyReadKwargsProvider(ReadKwargsProvider):
+    def _get_kwargs(
+        self,
+        datasource_type: str,
+        kwargs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {}
 
 
 def read_deltacat(
@@ -25,7 +25,7 @@ def read_deltacat(
     deltacat_read_type: DeltacatReadType = DeltacatReadType.DATA,
     timestamp_as_of: Optional[int] = None,
     merge_on_read: Optional[bool] = False,
-    read_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    read_kwargs_provider: Optional[ReadKwargsProvider] = EmptyReadKwargsProvider(),
 ) -> DeltacatDataset:
     """Reads the given DeltaCAT URLs into a Ray Dataset. DeltaCAT URLs can
     either reference objects registered in a DeltaCAT catalog, or unregistered
@@ -129,7 +129,7 @@ def read_deltacat(
             and deletes in the registered DeltaCAT table version being read. Only
             applicable if `metadata_only` is False.
             ray_remote_args: kwargs passed to `ray.remote` in the read tasks.
-        read_kwargs_provider: Dictionary of
+        read_kwargs_provider: Resolves
             :class:`~deltacat.types.media.DatasourceType` string keys to
             kwarg dictionaries to pass to the resolved
             :class:`~ray.data.Datasource` implementation for each distinct
@@ -145,148 +145,27 @@ def read_deltacat(
     #   (i.e., by returning the `ReadTask` for all datasources in
     #   `get_read_tasks()` and estimating the corresponding memory size across
     #   all datasources in `estimate_inmemory_data_size()`.
-    external_datasets = []
+    dataset: RayDataset = None
     for url in urls:
         if not url.catalog_name:
             # this URL points to an external unregistered Ray Datasource
-            external_datasets.append(
-                url.reader(read_kwargs_provider(url.datasource_type)),
-            )
+            # TODO(pdames): Honor metadata only reads of external datasources
+            #  by registering only file paths & metadata in delta manifests.
+            next_ds = url.reader(read_kwargs_provider(url.datasource_type, {}))
         else:
             # this URL points to a registered DeltaCAT object
-            dataset = read_datasource(
-                DeltacatDatasource(),
-                url=url,
-                deltacat_read_type=deltacat_read_type,
-                timestamp_as_of=timestamp_as_of,
-                merge_on_read=merge_on_read,
-                read_kwargs_provider=read_kwargs_provider,
+            next_ds = read_datasource(
+                DeltacatDatasource(
+                    url=url,
+                    deltacat_read_type=deltacat_read_type,
+                    timestamp_as_of=timestamp_as_of,
+                    merge_on_read=merge_on_read,
+                    read_kwargs_provider=read_kwargs_provider,
+                )
             )
-    return DeltacatDataset.from_dataset(dataset)
-
-
-def read_s3(
-    paths: Union[str, List[str]],
-    *,
-    path_type: S3PathType = S3PathType.MANIFEST,
-    filesystem: Optional[pa.fs.S3FileSystem] = None,
-    columns: Optional[List[str]] = None,
-    schema: Optional[pa.Schema] = None,
-    csv_reader_config: DelimitedTextReaderConfig = DelimitedTextReaderConfig(),
-    partitioning: HivePartitionParser = None,
-    content_type_provider: Callable[[str], ContentType] = lambda p: ContentType.PARQUET
-    if p.endswith(".parquet")
-    else ContentType.CSV,
-    parallelism: int = 200,
-    ray_remote_args: Dict[str, Any] = None,
-    arrow_open_stream_args: Optional[Dict[str, Any]] = None,
-    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **kwargs,
-) -> DeltacatDataset:
-    """Reads a DeltaCAT manifest from either S3 Parquet or delimited text
-    files into a Ray Dataset.
-
-    Examples:
-        >>> # Read all files contained in a DeltaCAT Manifest:
-        >>> import deltacat as dc
-        >>> dc.io.read_s3("/bucket/dir/manifest")
-
-        >>> # Read all files matching the given key prefix. If this prefix
-        >>> # refers to multiple files, like s3://bucket/data.parquet,
-        >>> # s3://bucket/data.1.csv, etc. then all will be read. The dataset
-        >>> # schema will be inferred from the first parquet file and used for
-        >>> # explicit type conversion of all CSV files:
-        >>> dc.io.read_s3(
-        >>>     "s3://bucket/data.txt",
-        >>>     path_type=S3PathType.PREFIX)
-
-        >>> # Read all files matching the given key prefix. If this prefix
-        >>> # refers to multiple files or folders, like s3://bucket/dir/,
-        >>> # s3://bucket/dir1/, s3://bucket/dir.txt, s3://bucket/dir.txt.1,
-        >>> # then all files and subfolder contents will be read.
-        >>> dc.io.read_s3(
-        >>>     "/bucket/dir",
-        >>>     path_type=S3PathType.PREFIX)
-
-        >>> # Read multiple files and folders:
-        >>> dc.io.read_s3(
-        >>>     ["/bucket/file1", "/bucket/folder1/"],
-        >>>     path_type=S3PathType.FILES_AND_FOLDERS)
-
-        >>> # Read multiple Parquet and CSV files. The dataset schema will be
-        >>> # inferred from the first parquet file and used for explicit type
-        >>> # conversion of all CSV files:
-        >>> dc.io.read_s3(
-        >>>     ["/bucket/file.parquet", "/bucket/file.csv"],
-        >>>     path_type=S3PathType.FILES_AND_FOLDERS)
-
-    Args:
-        paths: Paths to S3 files and folders to read. If `path_type` is
-            `MANIFEST` then this must be a DeltaCAT Manifest file. If
-            `path_type` is `PREFIX` then this must be a valid S3 key prefix.
-            All files matching the key prefix, including files in matching
-            subdirectories, will be read. Unless custom
-            `content_type_extensions` are specified, file content types will be
-            inferred by file extension with ".parquet" used for Parquet files,
-            and all others assumed to be delimited text (e.g. CSV). It's
-            recommended to specify the path to a manifest whenever possible to
-            improve the correctness and performance of Dataset reads, compute
-            operations, and writes.
-            `FILES_AND_FOLDERS` is not recommended when reading thousands of
-            files due to its relatively high-latency.
-        path_type: Determines how the `paths` parameter is interpreted.
-        filesystem: The filesystem implementation to read from. This should be
-            either PyArrow's S3FileSystem or s3fs.
-        columns: A list of column names to read. Reads all columns if None or
-            empty.
-        schema: PyArrow schema used to determine delimited text column
-            names and types. If not specified and both Parquet and delimited
-            text files are read as input, then the first Parquet file schema
-            discovered is used instead.
-        csv_reader_config: Configuration for correctly parsing delimited text
-            file formats (e.g. CSV). These arguments ensure that all input
-            text files will be correctly parsed. If not specified, then all
-            text files read are assumed to use a default pipe-delimited text
-            format.
-        partition_base_dir: Base directory to start searching for partitions
-            (exclusive). File paths outside of this directory will not be parsed
-            for partitions and automatically added to the dataset without passing
-            through any partition filter. Specify `None` or an empty string to
-            search for partitions in all file path directories.
-        partition_filter_fn: Callback used to filter `PARTITION` columns. Receives a
-            dictionary mapping partition keys to values as input, returns `True` to
-            read a partition, and `False` to skip it. Each partition key and value
-            is a string parsed directly from an S3 key using hive-style
-            partition directory names of the form "{key}={value}". For example:
-            ``lambda x:
-            True if x["month"] == "January" and x["year"] == "2022" else False``
-        content_type_provider: Takes a file path as input and returns the file
-            content type as output.
-        parallelism: The requested parallelism of the read. Parallelism may be
-            limited by the number of files of the dataset.
-        ray_remote_args: kwargs passed to `ray.remote` in the read tasks.
-        arrow_open_stream_args: kwargs passed to to
-            `pa.fs.open_input_stream()`.
-        pa_read_func_kwargs_provider: Callback that takes a `ContentType` value
-            string as input, and provides read options to pass to either
-            `pa.csv.open_csv()` or `pa.parquet.read_table()` as output.
-    Returns:
-        Dataset holding Arrow records read from the specified paths.
-    """
-    dataset = read_datasource(
-        S3Datasource(),
-        parallelism=parallelism,
-        paths=paths,
-        content_type_provider=content_type_provider,
-        path_type=path_type,
-        filesystem=filesystem,
-        columns=columns,
-        schema=schema,
-        csv_reader_config=csv_reader_config,
-        partitioning=partitioning,
-        ray_remote_args=ray_remote_args,
-        open_stream_args=arrow_open_stream_args,
-        read_kwargs_provider=pa_read_func_kwargs_provider,
-        **kwargs,
-    )
+        # union the last dataset read into the result set
+        if not dataset:
+            dataset = next_ds
+        else:
+            dataset.union(next_ds)
     return DeltacatDataset.from_dataset(dataset)

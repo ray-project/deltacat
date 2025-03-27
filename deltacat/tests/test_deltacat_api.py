@@ -2,10 +2,13 @@ import shutil
 import tempfile
 import deltacat as dc
 
+from deltacat import Namespace
+from deltacat.types.media import DatasetFormat
+
 
 class TestDeltaCAT:
     @classmethod
-    def setup_class(cls):
+    def setup_method(cls):
         cls.temp_dir_1 = tempfile.mkdtemp()
         cls.temp_dir_2 = tempfile.mkdtemp()
         # Initialize DeltaCAT with two local catalogs.
@@ -13,7 +16,7 @@ class TestDeltaCAT:
         dc.put("test_catalog_2", root=cls.temp_dir_2)
 
     @classmethod
-    def teardown_class(cls):
+    def teardown_method(cls):
         shutil.rmtree(cls.temp_dir_1)
         shutil.rmtree(cls.temp_dir_2)
 
@@ -33,7 +36,28 @@ class TestDeltaCAT:
         # When each catalog namespace is fetched explicitly
         # Expect them to be equivalent but not equal
         # (due to different metafile IDs).
-        actual_namespace_src = dc.get("test_catalog_1/test_namespace")
-        actual_namespace_dst = dc.get("test_catalog_2/test_namespace")
+        actual_namespace_src = dc.get("dc://test_catalog_1/test_namespace")
+        actual_namespace_dst = dc.get("dc://test_catalog_2/test_namespace")
         assert actual_namespace_src.equivalent_to(actual_namespace_dst)
         assert not actual_namespace_src == actual_namespace_dst
+
+    def test_catalog_listing_shallow_local_metafiles(self):
+        # Given two empty DeltaCAT catalogs.
+        # When a namespace is put in the catalog.
+        namespace_src: Namespace = dc.put("test_catalog_1/test_namespace")
+        # Expect the namespace to be listed.
+        assert any(
+            namespace_src.equivalent_to(other)
+            for other in dc.list("dc://test_catalog_1")
+        )
+
+    def test_catalog_listing_shallow_ray_dataset(self):
+        # Given two empty DeltaCAT catalogs.
+        # When a namespace is put in the catalog.
+        namespace_src: Namespace = dc.put("test_catalog_1/test_namespace")
+        # Expect the namespace to be listed.
+        dataset = dc.list(
+            "dc://test_catalog_1",
+            dataset_format=DatasetFormat(),
+        )
+        dataset.show()

@@ -1,14 +1,26 @@
-import functools
-from typing import Any, Optional
-
-import ray.data
+from typing import Any, Union, List, Optional, Dict
 
 import deltacat as dc
 from deltacat.catalog import Catalog
+from deltacat.io import (
+    read_deltacat,
+    DeltacatReadType,
+)
 
-from deltacat import DistributedDataset
-from storage import StreamLocator
-from deltacat.storage import metastore
+from deltacat.storage import (
+    DistributedDataset,
+    ListResult,
+    LocalTable,
+    Metafile,
+)
+from deltacat.types.media import (
+    DatasetFormat,
+    DistributedDatasetType,
+    TableType,
+    StorageType,
+)
+from deltacat.utils.url import DeltacatUrl
+from deltacat.utils.common import ReadKwargsProvider
 
 """
     # CLI Example of Copying from Source to Dest without file conversion
@@ -37,15 +49,18 @@ from deltacat.storage import metastore
 """
 
 
-
 def copy(source, destination, recursive=False):
-    src_obj = get(source) if not recursive else list(source, long=True)
-    dc_dest_url = DcUrl(destination)
+    src_obj = (
+        get("dc://" + source) if not recursive else list("dc://" + source, long=True)
+    )
+    """
+    dc_dest_url = DeltacatUrl(destination)
     # TODO(pdames): Add writer with support for Ray Dataset DeltaCAT Sink &
     #  Recursive DeltaCAT source object copies. Ideally, the Ray Dataset read
     #  is lazy, and only indexes metadata about the objects at source instead
     #  of eagerly converting them to PyArrow-based Blocks.
     dc_dest_url.writer(src_obj, recursive=recursive)
+    """
 
     src_parts = source.split("/")
     src_parts = [part for part in src_parts if part]
@@ -105,16 +120,102 @@ def move(source, destination):
     raise NotImplementedError
 
 
-def list(path, long=False):
-    raise NotImplementedError
+def _list_all_metafiles(
+    url: DeltacatUrl,
+    recursive: bool = False,
+    **kwargs,
+) -> List[Metafile]:
+    list_results: List[ListResult[Metafile]] = []
+    lister = url.listers.pop(0)[0]
+    # the top-level lister doesn't have any missing keyword args
+    metafiles: ListResult[Metafile] = lister(**kwargs)
+    list_results.append(metafiles)
+    if recursive:
+        for lister, kwarg_name, kwarg_val_resolver_fn in url.listers:
+            # each subsequent lister needs to inject missing keyword args from the parent metafile
+            for metafile in metafiles.all_items():
+                kwargs_update = (
+                    {kwarg_name: kwarg_val_resolver_fn(metafile)}
+                    if kwarg_name and kwarg_val_resolver_fn
+                    else {}
+                )
+                lister_kwargs = {
+                    **kwargs,
+                    **kwargs_update,
+                }
+                metafiles = lister(**lister_kwargs)
+                list_results.append(metafiles)
+    return [
+        metafile for list_result in list_results for metafile in list_result.all_items()
+    ]
 
 
-def _ensure_dc_initialized():
-    if not dc.is_initialized():
-        # TODO(pdames): Re-initialize DeltaCAT with all catalogs from the
-        #  last session.
-        raise RuntimeError(
-            "DeltaCAT is not initialized. Please call `dc.init()` and try again."
+class CustomReadKwargsProvider(ReadKwargsProvider):
+    def __init__(
+        self,
+        datasource_type: str,
+        kwargs: Dict[str, Any],
+    ):
+        self._datasource_type = datasource_type
+        self._kwargs = kwargs
+
+    def _get_kwargs(
+        self,
+        datasource_type: str,
+        kwargs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if datasource_type == self._datasource_type:
+            kwargs.update(self._kwargs)
+        return kwargs
+
+
+def list(
+    path: str,
+    *args,
+    recursive: bool = False,
+    long: bool = False,
+    dataset_format: Optional[DatasetFormat] = None,
+    **kwargs,
+) -> Union[List[Metafile], LocalTable, DistributedDataset]:
+    dc_url = DeltacatUrl(path)
+    if dataset_format:
+        if dataset_format.table_type == TableType.PYARROW:
+            if dataset_format.storage_type == StorageType.DISTRIBUTED:
+                if (
+                    dataset_format.distributed_dataset_type
+                    == DistributedDatasetType.RAY_DATASET
+                ):
+                    return read_deltacat(
+                        [dc_url],
+                        deltacat_read_type=DeltacatReadType.METADATA_LIST
+                        if not recursive
+                        else DeltacatReadType.METADATA_LIST_RECURSIVE,
+                        timestamp_as_of=None,
+                        merge_on_read=False,
+                        read_kwargs_provider=CustomReadKwargsProvider(
+                            datasource_type=dc_url.datasource_type,
+                            kwargs=kwargs,
+                        ),
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Unsupported distributed dataset type: "
+                        f"{dataset_format.distributed_dataset_type}"
+                    )
+            else:
+                raise NotImplementedError(
+                    f"Unsupported storage type: {dataset_format.storage_type}"
+                )
+        else:
+            raise NotImplementedError(
+                f"Unsupported table type: {dataset_format.table_type}"
+            )
+    else:
+        # return a local list of metafiles
+        return _list_all_metafiles(
+            url=dc_url,
+            recursive=recursive,
+            **kwargs,
         )
 
 
@@ -123,7 +224,7 @@ def get(
     *args,
     **kwargs,
 ) -> Union[Metafile, DistributedDataset]:
-    dc_url = DcUrl(path)
+    dc_url = DeltacatUrl(path)
     return dc_url.reader(*args, **kwargs)
 
 

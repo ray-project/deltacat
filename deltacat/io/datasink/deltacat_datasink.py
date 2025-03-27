@@ -29,9 +29,6 @@ from deltacat.types.media import (
     ContentType,
     ContentEncoding,
 )
-from deltacat.io.datasource.deltacat_datasource import (
-    normalize_s3_paths_for_filesystem,
-)
 from deltacat.storage import (
     ManifestEntryList,
     ManifestMeta,
@@ -100,7 +97,7 @@ class DeltacatWriteResult:
         self.filesystem = None
 
 
-class S3Datasink(_ParquetDatasink):
+class DeltacatDatasink(_ParquetDatasink):
     def __init__(
         self,
         path: str,

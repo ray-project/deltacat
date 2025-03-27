@@ -1,11 +1,13 @@
+import copy
+import functools
 import logging
-import json
 
 from collections import defaultdict
 from enum import Enum
-from typing import Union, List, Callable, Optional, Dict, Any, Tuple
+from typing import Union, List, Callable, Optional, Dict, Any, Tuple, Iterable
 
-import msgpack
+import numpy as np
+
 import pyarrow as pa
 import pyarrow.fs
 from pyarrow import parquet as pq
@@ -15,23 +17,18 @@ from ray.data import (
     Datasource,
     ReadTask,
 )
-from ray.data._internal.datasource.binary_datasource import BinaryDatasource
 from ray.data._internal.datasource.csv_datasource import CSVDatasource
 from ray.data._internal.datasource.parquet_datasource import ParquetDatasource
-from ray.data.block import BlockMetadata
+from ray.data.block import BlockMetadata, Block, BlockAccessor
 from ray.data.datasource import (
-    DefaultFileMetadataProvider,
-    PathPartitionParser,
     FastFileMetadataProvider,
     ParquetMetadataProvider,
 )
 
-from constants import METAFILE_FORMAT, METAFILE_FORMAT_JSON
+from deltacat.constants import METAFILE_FORMAT_MSGPACK
 from deltacat.aws.s3u import (
     S3Url,
     parse_s3_url,
-    filter_objects_by_prefix,
-    objects_to_paths,
 )
 from deltacat.types.media import (
     ContentType,
@@ -43,17 +40,21 @@ from deltacat.storage import (
     ManifestEntryList,
 )
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.filesystem import resolve_paths_and_filesystem
 from deltacat.utils.url import DeltacatUrl
+from deltacat.storage import (
+    Metafile,
+    ListResult,
+)
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class DeltacatReadType(str, Enum):
-    METADATA = "metadata"
-    METADATA_RECURSIVE = "metadata_recursive"
-    DATA = "data"
+    METADATA = "metadata"  # get only a single metafile
+    METADATA_LIST = "metadata_list"  # list top-level metafiles
+    METADATA_LIST_RECURSIVE = "metadata_recursive"  # list all metafiles
+    DATA = "data"  # read all data files
 
 
 class CachedFileMetadataProvider(
@@ -98,18 +99,6 @@ class CachedFileMetadataProvider(
 class PathType(str, Enum):
     MANIFEST = "manifest"
     FILES_AND_FOLDERS = "files_and_folders"
-
-
-class HivePartitionParser(PathPartitionParser):
-    def __init__(
-        self,
-        base_dir: Optional[str] = None,
-        filter_fn: Optional[Callable[[Dict[str, str]], bool]] = None,
-    ):
-        super(HivePartitionParser, self).__init__(
-            base_dir=base_dir,
-            filter_fn=filter_fn,
-        )
 
 
 class DelimitedTextReaderConfig:
@@ -232,7 +221,7 @@ def _expand_manifest_paths_by_content_type(
     content_type_to_paths = {}
     meta_provider = CachedFileMetadataProvider({})
     if not manifest.entries:
-        logger.warning(f"No entries to read in DeltaCAT Manifest: {manifest_path}")
+        logger.warning(f"No entries to read in DeltaCAT Manifest: {manifest}")
     else:
         content_type_to_paths, meta_provider = _read_manifest_entry_paths(
             manifest.entries,
@@ -273,8 +262,49 @@ def _read_manifest_entry_paths(
     return content_type_to_paths, CachedFileMetadataProvider(meta_cache)
 
 
+def _get_metafile_read_task(
+    metafile: Metafile,
+) -> Iterable[Block]:
+    pyarrow_table_dict = {
+        DeltacatDatasource.METAFILE_DATA_COLUMN_NAME: [
+            metafile.serialize(METAFILE_FORMAT_MSGPACK)
+        ],
+        DeltacatDatasource.METAFILE_TYPE_COLUMN_NAME: [
+            Metafile.get_class(metafile).__name__
+        ],
+    }
+    yield BlockAccessor.batch_to_arrow_block(pyarrow_table_dict)
+
+
+def _get_metafile_lister_read_task(
+    lister: Callable[[Any], ListResult[Metafile]],
+    all_lister_kwargs: List[Dict[str, Any]],
+) -> Iterable[Block]:
+    metafiles = []
+    for lister_kwargs in all_lister_kwargs:
+        metafile_list_result = lister(**lister_kwargs)
+        # TODO(pdames): switch to paginated read
+        metafiles.append(metafile_list_result.all_items())
+    pyarrow_table_dict = {
+        DeltacatDatasource.METAFILE_DATA_COLUMN_NAME: [
+            meta.serialize(METAFILE_FORMAT_MSGPACK)
+            for metasublist in metafiles
+            for meta in metasublist
+        ],
+        DeltacatDatasource.METAFILE_TYPE_COLUMN_NAME: [
+            Metafile.get_class(meta).__name__
+            for metasublist in metafiles
+            for meta in metasublist
+        ],
+    }
+    yield BlockAccessor.batch_to_arrow_block(pyarrow_table_dict)
+
+
 class DeltacatDatasource(Datasource):
     """Datasource for reading registered DeltaCAT catalog objects."""
+
+    METAFILE_DATA_COLUMN_NAME = "metafile_data"
+    METAFILE_TYPE_COLUMN_NAME = "metafile_type"
 
     def __init__(
         self,
@@ -296,7 +326,7 @@ class DeltacatDatasource(Datasource):
 
         Note that the in-memory data size may be larger than the on-disk data size.
         """
-        raise NotImplementedError
+        return None
 
     def get_read_tasks(self, parallelism: int) -> List[ReadTask]:
         """Execute the read and return read tasks.
@@ -309,17 +339,47 @@ class DeltacatDatasource(Datasource):
             A list of read tasks that can be executed to read blocks from the
             datasource in parallel.
         """
-        kwargs = self._read_kwargs_provider(self._url.datasource_type)
+        kwargs = self._read_kwargs_provider(self._url.datasource_type, {})
         if self._deltacat_read_type == DeltacatReadType.METADATA:
             # do a shallow read of the top-level DeltaCAT metadata
+            empty_block_metadata = BlockMetadata(
+                num_rows=None,
+                size_bytes=None,
+                schema=None,
+                input_files=None,
+                exec_stats=None,
+            )
             metafile = self._url.reader(**kwargs)
-            read_tasks = self._metafile_to_read_task(metafile)
-        elif self._deltacat_read_type == DeltacatReadType.METADATA_RECURSIVE:
-            list_results = self._list_all_metafiles(**kwargs)
-            read_tasks = self._metafile_list_results_to_read_tasks(list_results)
+            read_tasks = [
+                ReadTask(
+                    lambda: _get_metafile_read_task(metafile),
+                    empty_block_metadata,
+                )
+            ]
+        elif self._deltacat_read_type == DeltacatReadType.METADATA_LIST:
+            # do a shallow read of the top-level DeltaCAT metadata
+            print(f"listers: {self._url.listers}")
+            listers = copy.deepcopy(self._url.listers)
+            listers = [listers[0]]
+            read_tasks = self._list_all_metafiles_read_tasks(
+                parallelism=parallelism,
+                listers=listers,
+                **kwargs,
+            )
+        elif self._deltacat_read_type == DeltacatReadType.METADATA_LIST_RECURSIVE:
+            read_tasks = self._list_all_metafiles_read_tasks(
+                parallelism=parallelism,
+                **kwargs,
+            )
+
         elif self._deltacat_read_type == DeltacatReadType.DATA:
             # do a deep read across all in-scope Delta manifest file paths
             # recursive is implicitly true for deep data reads
+            # TODO(pdames): For data reads targeting DeltaCAT catalogs, run a
+            #  recursive distributed metadata read first, then a data read
+            #  second.
+            raise NotImplementedError()
+            """
             list_results = self._list_all_metafiles(**kwargs)
             deltas: List[Delta] = list_results[len(list_results) - 1]
             read_tasks = []
@@ -330,6 +390,7 @@ class DeltacatDatasource(Datasource):
                         parallelism,
                     ),
                 )
+            """
         else:
             raise NotImplementedError(
                 f"Unsupported DeltaCAT read type: {self._deltacat_read_type}"
@@ -337,42 +398,118 @@ class DeltacatDatasource(Datasource):
 
         return read_tasks
 
-    def _read_stream(self, f: "pyarrow.NativeFile", path: str):
-        data = f.readall()
-
-        builder = ArrowBlockBuilder()
-        item = {self._COLUMN_NAME: data}
-        builder.add(item)
-        yield builder.build()
-
-    def _get_read_task(self) -> Iterable[Block]:
-        return BinaryDatasource().get_read_tasks()
-
-    def _list_all_metafiles_read_tasks(self, **kwargs):
-        read_tasks = []
-        read_tasks.append(
-            ReadTask(
-                read_fn=lambda tasks=chunk_tasks: get_read_task(tasks),
-                metadata=metadata,
-            )
-        )
-
-    def _list_all_metafiles(self, **kwargs):
-        list_results = []
-        lister = self._url.listers.pop(0)[0]
-        # the top-level lister doesn't have any missing keyword args
-        metafiles = lister(**kwargs)
-        list_results.append(metafiles)
-        for lister, kwarg_name, kwarg_val_resolver_fn in self._url.listers:
+    def _list_all_metafiles_read_tasks(
+        self,
+        parallelism: int,
+        listers: List[Callable[[Any], ListResult[Metafile]]],
+        **kwargs,
+    ) -> List[ReadTask]:
+        list_results: List[ListResult[Metafile]] = []
+        # the first lister doesn't have any missing keyword args
+        (
+            first_lister,
+            first_kwarg_name,
+            first_kwarg_val_resolver_fn,
+        ) = listers.pop(0)
+        if listers:
+            metafile_list_result = first_lister(**kwargs)
+            list_results.append(metafile_list_result)
+            (
+                last_lister,
+                last_kwarg_name,
+                last_kwarg_val_resolver_fn,
+            ) = listers.pop()
+        else:
+            metafile_list_result = None
+            (
+                last_lister,
+                last_kwarg_name,
+                last_kwarg_val_resolver_fn,
+            ) = (first_lister, first_kwarg_name, first_kwarg_val_resolver_fn)
+        for lister, kwarg_name, kwarg_val_resolver_fn in listers:
             # each subsequent lister needs to inject missing keyword args from the parent metafile
-            for metafile in metafiles:
-                kwargs.update(
+            for metafile in metafile_list_result.all_items():
+                kwargs_update = (
                     {kwarg_name: kwarg_val_resolver_fn(metafile)}
                     if kwarg_name and kwarg_val_resolver_fn
                     else {}
                 )
-                metafiles = lister(**kwargs)
-                list_results.append(metafiles)
+                lister_kwargs = {
+                    **kwargs,
+                    **kwargs_update,
+                }
+                metafile_list_result = lister(**lister_kwargs)
+                list_results.append(metafile_list_result)
+        empty_block_metadata = BlockMetadata(
+            num_rows=None,
+            size_bytes=None,
+            schema=None,
+            input_files=None,
+            exec_stats=None,
+        )
+        if metafile_list_result:
+            # use a single read task to materialize all prior metafiles read
+            # as an arrow table block
+            # (very lightweight, so not counted against target parallelism)
+            read_tasks = [
+                ReadTask(
+                    read_fn=functools.partial(
+                        _get_metafile_lister_read_task,
+                        lister=lambda all_list_results: ListResult.of(
+                            [
+                                item
+                                for list_result in all_list_results
+                                for item in list_result.all_items()
+                            ]
+                        ),
+                        all_lister_kwargs=[{"all_list_results": list_results}],
+                    ),
+                    metadata=empty_block_metadata,
+                )
+            ]
+            # parallelize the listing of all metafile leaf nodes
+            split_metafiles = np.array_split(
+                metafile_list_result.all_items(),
+                parallelism,
+            )
+            for metafiles in split_metafiles:
+                all_lister_kwargs = []
+                for metafile in metafiles:
+                    kwargs_update = (
+                        {last_kwarg_name: last_kwarg_val_resolver_fn(metafile)}
+                        if last_kwarg_name and last_kwarg_val_resolver_fn
+                        else {}
+                    )
+                    lister_kwargs = {
+                        **kwargs,
+                        **kwargs_update,
+                    }
+                    all_lister_kwargs.append(lister_kwargs)
+                read_tasks.append(
+                    ReadTask(
+                        read_fn=functools.partial(
+                            _get_metafile_lister_read_task,
+                            lister=last_lister,
+                            all_lister_kwargs=all_lister_kwargs,
+                        ),
+                        metadata=empty_block_metadata,
+                    )
+                )
+        else:
+            # first lister is the last lister
+            read_tasks = [
+                ReadTask(
+                    read_fn=functools.partial(
+                        _get_metafile_lister_read_task,
+                        lister=last_lister,
+                        all_lister_kwargs=[kwargs],
+                    ),
+                    metadata=empty_block_metadata,
+                )
+            ]
+        return read_tasks
+
+    """
 
     def _get_delta_manifest_read_tasks(
         self,
@@ -447,3 +584,4 @@ class DeltacatDatasource(Datasource):
         **s3_client_kwargs,
     ) -> List[ReadTask]:
         pass
+    """

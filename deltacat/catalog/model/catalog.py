@@ -255,7 +255,7 @@ def put_catalog(
     ray_init_args: Dict[str, Any] = None,
     fail_if_exists: bool = False,
     **kwargs,
-) -> None:
+) -> Catalog:
     """
     Add a named catalog to the global map of named catalogs. Initializes ray if not already initialized.
 
@@ -266,6 +266,9 @@ def put_catalog(
             ignored if this is the only catalog available, since it will always be the default catalog.
         ray_init_args: ray initialization args (used only if ray not already initialized)
         fail_if_exists: if True, raises KeyError if the catalog name already exists. Otherwise, overwrite catalog
+
+    Returns:
+        The catalog put in the named catalog map.
     """
     global all_catalogs
 
@@ -297,3 +300,4 @@ def put_catalog(
 
     # Add the catalog (which may overwrite existing if fail_if_exists=False)
     ray.get(all_catalogs.put.remote(name, catalog, default))
+    return catalog

@@ -1,5 +1,5 @@
 import functools
-from typing import Callable, List, Tuple
+from typing import Callable, List, Tuple, Any, Union
 from urllib.parse import urlparse, urlunparse
 
 import ray
@@ -11,6 +11,8 @@ from deltacat.types.media import DatasourceType
 
 from deltacat.storage import (
     metastore,
+    ListResult,
+    Metafile,
     Stream,
     StreamFormat,
     StreamLocator,
@@ -83,7 +85,16 @@ class DeltacatUrl:
     DELTACAT_URL_DEFAULT_TABLE_VERSION = "default"
     DELTACAT_URL_DEFAULT_STREAM = "default"
 
-    def _resolve_path_identifiers(self):
+    def _resolve_deltacat_path_identifiers(self):
+        if not dc.is_initialized():
+            # TODO(pdames): Re-initialize DeltaCAT with all catalogs from the
+            #  last session.
+            raise RuntimeError(
+                "DeltaCAT is not initialized. Please call `dc.init()` and try again."
+            )
+        self.unresolved_stream = (
+            self.unresolved_namespace
+        ) = self.unresolved_table_version = None
         if self.catalog_name:
             if self.catalog_name.lower() == DeltacatUrl.DELTACAT_URL_DEFAULT_CATALOG:
                 self.catalog: CatalogProperties = None
@@ -178,11 +189,19 @@ class DeltacatUrl:
         if self.catalog_name:
             return functools.partial(
                 dc.get_catalog,
-                name=self.catalog,
+                name=self.catalog_name,
             )
         raise ValueError("No DeltaCAT object to read.")
 
-    def _resolve_dc_lister(self) -> List[Tuple[Callable, str]]:
+    def _resolve_dc_lister(
+        self,
+    ) -> List[
+        Tuple[
+            Callable[[Any], ListResult[Metafile]],
+            str,
+            Callable[[Metafile], Union[Metafile, str]],
+        ]
+    ]:
         if self.partition:
             partition_locator = PartitionLocator.at(
                 namespace=self.namespace,
@@ -198,7 +217,7 @@ class DeltacatUrl:
                 partition_like=partition_locator,
                 catalog=self.catalog,
             )
-            return [(delta_lister, None)]
+            return [(delta_lister, None, None)]
         if self.stream or self.unresolved_stream:
             stream_locator = StreamLocator.at(
                 namespace=self.namespace,
@@ -241,7 +260,7 @@ class DeltacatUrl:
                 catalog=self.catalog,
             )
             return [
-                (stream_lister, None),
+                (stream_lister, None, None),
                 (partition_lister, "stream", lambda x: x),
                 (delta_lister, "partition_like", lambda x: x),
             ]
@@ -267,7 +286,7 @@ class DeltacatUrl:
                 catalog=self.catalog,
             )
             return [
-                (table_version_lister, None),
+                (table_version_lister, None, None),
                 (stream_lister, "table_version", lambda x: x.table_version),
                 (partition_lister, "stream", lambda x: x),
                 (delta_lister, "partition_like", lambda x: x),
@@ -298,7 +317,7 @@ class DeltacatUrl:
                 catalog=self.catalog,
             )
             return [
-                (table_lister, None),
+                (table_lister, None, None),
                 (table_version_lister, "table_name", lambda x: x.table_name),
                 (stream_lister, "table_version", lambda x: x.table_version),
                 (partition_lister, "stream", lambda x: x),
@@ -333,7 +352,7 @@ class DeltacatUrl:
                 catalog=self.catalog,
             )
             return [
-                (namespace_lister, None),
+                (namespace_lister, None, None),
                 (table_lister, "namespace", lambda x: x.namespace),
                 (table_version_lister, "table_name", lambda x: x.table_name),
                 (stream_lister, "table_version", lambda x: x.table_version),
@@ -370,7 +389,7 @@ class DeltacatUrl:
             self.stream = path_elements[3] if len(path_elements) > 3 else None
             self.partition = path_elements[4] if len(path_elements) > 4 else None
             self.delta = path_elements[5] if len(path_elements) > 5 else None
-            self._resolve_path_identifiers()
+            self._resolve_deltacat_path_identifiers()
             self.reader = self._resolve_dc_reader()
             self.listers = self._resolve_dc_lister()
         elif self.datasource_type == DatasourceType.DELTACAT_NAMESPACE:
@@ -381,7 +400,7 @@ class DeltacatUrl:
             self.stream = path_elements[2] if len(path_elements) > 2 else None
             self.partition = path_elements[3] if len(path_elements) > 3 else None
             self.delta = path_elements[4] if len(path_elements) > 4 else None
-            self._resolve_path_identifiers()
+            self._resolve_deltacat_path_identifiers()
             self.reader = self._resolve_dc_reader()
             self.listers = self._resolve_dc_lister()
         elif self.datasource_type == DatasourceType.DELTACAT_TABLE:
@@ -391,7 +410,7 @@ class DeltacatUrl:
             self.stream = path_elements[1] if len(path_elements) > 1 else None
             self.partition = path_elements[2] if len(path_elements) > 2 else None
             self.delta = path_elements[3] if len(path_elements) > 3 else None
-            self._resolve_path_identifiers()
+            self._resolve_deltacat_path_identifiers()
             self.reader = self._resolve_dc_reader()
             self.listers = self._resolve_dc_lister()
         elif self.datasource_type == DatasourceType.AUDIO:
@@ -503,4 +522,7 @@ class DeltacatUrl:
                 paths=self.reader_url,
             )
         else:
-            raise ValueError(f"Invalid DeltaCAT URL scheme: {self._parsed.scheme}")
+            raise ValueError(
+                f"Invalid DeltaCAT datasource type `{self.datasource_type}` "
+                f"for URL `{url}`"
+            )
