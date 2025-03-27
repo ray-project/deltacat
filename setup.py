@@ -52,7 +52,7 @@ setuptools.setup(
         # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
         # due to input_inflation exceeding 1e-5
         "pyarrow == 17.0.0",
-        "pydantic == 1.10.4",
+        "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
         "pymemcache == 4.0.0",
         "ray >= 2.20.0",
         "s3fs == 2024.5.0",
