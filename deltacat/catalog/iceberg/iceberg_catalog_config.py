@@ -1,41 +1,24 @@
 from __future__ import annotations
 from typing import Any, Dict
+
+from attr import dataclass
 from pyiceberg.catalog import CatalogType
 
-
-class IcebergCatalogConfig(Dict[str, Any]):
+@dataclass
+class IcebergCatalogConfig:
     """
     Configuration properties for Iceberg catalog implementation.
 
     This class holds the PyIceberg Catalog instance needed for interaction with
     Iceberg tables and metadata.
 
+    This configuration is passed through to PyIceberg by invoking load_catalog.
+    The Properties provided must match properties accepted by PyIceberg for each catalog type
+    See: :func:`deltacat.catalog.iceberg.initialize`
+
     Attributes:
-        catalog: The PyIceberg Catalog instance
+        type: The PyIceberg Catalog instance
+        properties: Dict of properties passed to pyiceberg load_catalog
     """
-
-    def __init__(self, *args, type: CatalogType, properties: Dict[str, Any]):
-        """
-        Initialize an IcebergCatalogConfig with a PyIceberg Catalog.
-
-        Args:
-            catalog: PyIceberg Catalog instance. If None, other kwargs are passed to initialize a catalog.
-            **kwargs: Additional arguments passed to create or configure the catalog
-        """
-        super().__init__()
-        self["type"] = type
-        self["properties"] = properties
-
-    @property
-    def type(self) -> CatalogType:
-        """
-        The PyIceberg Catalog instance.
-        """
-        return self["type"]
-
-    @property
-    def properties(self) -> Dict[str, Any]:
-        """
-        The PyIceberg Catalog instance.
-        """
-        return self["properties"]
+    type: CatalogType
+    properties: Dict[str, Any]

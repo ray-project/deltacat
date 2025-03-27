@@ -177,25 +177,7 @@ def create_table(
     fail_if_exists: bool = True,
     **kwargs,
 ) -> TableDefinition:
-    """Create an empty table in the catalog.
-    Args:
-        name: Name of the table to create
-        namespace: Optional namespace for the table. Uses default namespace if not specified.
-        version: Optional version identifier for the table
-        schema: Schema definition for the table
-        partition_scheme: Optional partitioning scheme for the table
-        sort_keys: Optional sort keys for the table
-        description: Optional description of the table
-        table_properties: Optional properties for the table
-        namespace_properties: Optional properties for the namespace if it needs to be created
-        content_types: Optional list of allowed content types for the table
-        fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
-
-    Returns:
-        TableDefinition object for the created or existing table.
-
-    Raises:
-        TableAlreadyExistsError: If the table already exists and fail_if_exists is True.
+    """Create an empty table in the catalog
     """
 
     namespace = namespace or default_namespace()
@@ -235,6 +217,7 @@ def create_table(
         table_properties=table_properties,
         **kwargs,
     )
+
     return get_table(
         name,
         *args,

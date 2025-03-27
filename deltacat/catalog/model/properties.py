@@ -75,9 +75,7 @@ class CatalogProperties:
                 against the provided path to ensure compatibility.
         """
         # set root, using precedence rules described in pydoc
-        if kwargs.get("root"):
-            root = kwargs.get("root")
-        else:
+        if root is None:
             # Check environment variables
             # This is set or defaulted in constants.py
             root = DELTACAT_ROOT
@@ -88,11 +86,11 @@ class CatalogProperties:
 
         resolved_root, resolved_filesystem = resolve_path_and_filesystem(
             path=root,
-            filesystem=kwargs.get("filesystem"),
+            filesystem=filesystem,
         )
         self._root = resolved_root
         self._filesystem = resolved_filesystem
-        self._storage = kwargs.get("storage", None)
+        self._storage = storage
 
     @property
     def root(self) -> str:

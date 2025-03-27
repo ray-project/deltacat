@@ -6,6 +6,8 @@ import shutil
 import uuid
 from unittest import mock
 import os
+
+from deltacat.catalog import CatalogProperties
 from pyiceberg.catalog import Catalog as IcebergCatalog
 
 from deltacat.catalog.model.catalog import (
@@ -289,10 +291,26 @@ class TestDefaultCatalogIntegration:
         catalog = Catalog.default(config)
 
         # Initialize DeltaCAT with this catalog
-        init({catalog_name: catalog}, ray_init_args={"namespace": isolated_ray_env})
+        init({catalog_name: catalog},
+             ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+             **{"force_reinitialize": True})
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
         assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main"
-        assert isinstance(retrieved_catalog, CatalogProperties)
-        assert retrieved_catalog.root == self.temp_dir
+        assert isinstance(retrieved_catalog.inner, CatalogProperties)
+        assert retrieved_catalog.inner.root == self.temp_dir
+
+    def test_default_catalog_initialization_from_kwargs(self, isolated_ray_env):
+
+        catalog_name = str(uuid.uuid4())
+        # Initialize DeltaCAT with this catalog
+        init({catalog_name: Catalog(**{"root": "test_root"})},
+             ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+             **{"force_reinitialization": True})
+
+        # Retrieve the catalog and verify it's the same one
+        retrieved_catalog = get_catalog(catalog_name)
+        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main"
+        assert isinstance(retrieved_catalog.inner, CatalogProperties)
+        assert retrieved_catalog.inner.root == "test_root"

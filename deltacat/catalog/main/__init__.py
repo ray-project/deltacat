@@ -49,13 +49,16 @@ will be called the kwarg "inner" equal to the `CatalogProperties` this was initi
 
 
 # catalog functions
-def initialize(*args, **kwargs) -> CatalogProperties:
+def initialize(config: CatalogProperties = None, *args, **kwargs) -> CatalogProperties:
     """
     Initializes the data catalog with the given arguments.
 
     returns CatalogProperties as the "inner" state value for a DC native catalog
     """
-    return CatalogProperties(*args, **kwargs)
+    if config is not None:
+        return config
+    else:
+        return CatalogProperties(*args, **kwargs)
 
 
 # table functions
