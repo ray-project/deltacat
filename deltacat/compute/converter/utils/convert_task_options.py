@@ -73,12 +73,10 @@ def _get_task_options(
     # https://github.com/boto/botocore/blob/develop/botocore/exceptions.py
     task_opts["retry_exceptions"] = [RetryableError]
 
-    print(f"estimated_memory:{memory}")
     return task_opts
 
 
 def convert_resource_options_provider(index, files_for_each_bucket):
-    print(f"option_files_for_each_bucket:{files_for_each_bucket}")
     (
         data_files_list,
         equality_delete_files_list,
