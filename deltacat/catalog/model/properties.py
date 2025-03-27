@@ -58,7 +58,7 @@ class CatalogProperties:
 
     def __init__(
         self,
-        root: Optional[str]=None,
+        root: Optional[str] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         storage=None,
         *args,

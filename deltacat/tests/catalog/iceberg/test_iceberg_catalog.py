@@ -1,4 +1,3 @@
-import os
 import tempfile
 import shutil
 import uuid
@@ -12,6 +11,7 @@ import pyarrow as pa
 
 from deltacat.catalog.iceberg.iceberg_catalog_config import IcebergCatalogConfig
 
+
 @pytest.fixture
 def schema_a():
     return Schema.of(
@@ -24,6 +24,7 @@ def schema_a():
         ]
     )
 
+
 class TestIcebergCatalogInitialization:
     temp_dir = None
 
@@ -35,16 +36,21 @@ class TestIcebergCatalogInitialization:
     def teardown_class(cls):
         shutil.rmtree(cls.temp_dir)
 
-    def test_iceberg_catalog_initialize(self, schema_a):
+    def test_iceberg_catalog_and_table_create(self, schema_a):
 
+        # Note - we're using the global Catalog context here (shared across tests), so generating a random catalog name
         catalog_name = str(uuid.uuid4())
 
-        config = IcebergCatalogConfig(type=CatalogType.IN_MEMORY,
-                                      properties={"warehouse": self.temp_dir})
+        config = IcebergCatalogConfig(
+            type=CatalogType.IN_MEMORY, properties={"warehouse": self.temp_dir}
+        )
         # Initialize with the PyIceberg catalog
         deltacat.put_catalog(
-            catalog_name, deltacat.IcebergCatalog,
-            **{"config": config})
+            catalog_name, deltacat.IcebergCatalog, **{"config": config}
+        )
 
-        iceberg_catalog = deltacat.get_catalog(catalog_name)
-        deltacat.create_table("test_table", catalog=catalog_name, schema=schema_a)
+        table_def = deltacat.create_table(
+            "test_table", catalog=catalog_name, schema=schema_a
+        )
+        # For now, just check that we created a table version with an equivalent schema
+        assert table_def.table_version.schema.equivalent_to(schema_a)

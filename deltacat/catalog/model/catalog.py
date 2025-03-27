@@ -19,11 +19,9 @@ all_catalogs: Optional[Catalogs] = None
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+
 class Catalog:
-    def __init__(self,
-                 impl: ModuleType = deltacat_catalog,
-                 *args,
-                 **kwargs):
+    def __init__(self, impl: ModuleType = deltacat_catalog, *args, **kwargs):
         """
         Constructor for a Catalog.
 
@@ -65,7 +63,7 @@ class Catalog:
     def default(cls, config: CatalogProperties, *args, **kwargs):
         """
         Factory method to construct a catalog with the default implementation
-        
+
         Uses CatalogProperties as configuration
         """
         return cls(impl=deltacat_catalog, *args, **{"config": config, **kwargs})
@@ -100,7 +98,6 @@ class Catalog:
 
 @ray.remote
 class Catalogs:
-
     def __init__(
         self,
         catalogs: Union[Catalog, Dict[str, Catalog]],
@@ -159,7 +156,7 @@ def init(
     **kwargs,
 ) -> None:
 
-    force_reinitialize =  kwargs.get("force_reinitialize"), False
+    force_reinitialize = kwargs.get("force_reinitialize"), False
 
     if is_initialized() and not force_reinitialize:
         logger.warning("DeltaCAT already initialized.")
@@ -200,8 +197,10 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
         default = all_catalogs.default.remote()
         if not default:
             available_catalogs = ray.get(all_catalogs.all.remote()).values()
-            raise KeyError(f"Call to get_catalog without name failed because no default catalog is configured."
-                           f"Available catalogs are: {available_catalogs}")
+            raise KeyError(
+                f"Call to get_catalog without name failed because no default catalog is configured."
+                f"Available catalogs are: {available_catalogs}"
+            )
         catalog = ray.get(default)
 
     if not catalog:
@@ -212,10 +211,12 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
     return catalog
 
 
-def put_catalog(name: str, impl: ModuleType = deltacat_catalog, *args, **kwargs) -> Catalog:
+def put_catalog(
+    name: str, impl: ModuleType = deltacat_catalog, *args, **kwargs
+) -> Catalog:
     from deltacat.catalog.model.catalog import all_catalogs
 
-    new_catalog = Catalog(impl,*args, **kwargs)
+    new_catalog = Catalog(impl, *args, **kwargs)
     if is_initialized():
         try:
             get_catalog(name)

@@ -27,7 +27,7 @@ def initialize(*args, **kwargs) -> Optional[Any]:
     initializing an iceberg catalog will return the underlying native PyIceberg catalog.
 
     The return value initialize is stored in  :class:`deltacat.Catalog` as the "inner" property,
-    and then passed to catalog function invocations as the kwarg "inner" 
+    and then passed to catalog function invocations as the kwarg "inner"
     """
     raise NotImplementedError("initialize not implemented")
 
@@ -379,4 +379,3 @@ def default_namespace(*args, **kwargs) -> str:
         String name of the default namespace.
     """
     raise NotImplementedError("default_namespace not implemented")
-

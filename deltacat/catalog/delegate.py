@@ -374,6 +374,4 @@ def drop_namespace(
 def default_namespace(*args, catalog: Optional[str] = None, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
     catalog_obj = get_catalog(catalog)
-    return catalog_obj.impl.default_namespace(
-        *args, inner=catalog_obj.inner, **kwargs
-    )
+    return catalog_obj.impl.default_namespace(*args, inner=catalog_obj.inner, **kwargs)

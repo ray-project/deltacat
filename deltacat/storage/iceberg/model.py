@@ -342,7 +342,9 @@ class PartitionSchemeMapper(ModelMapper[PartitionSpec, PartitionScheme]):
         if not schema:
             err_msg = "Schema is required for Partition Scheme conversion."
             raise ValueError(err_msg)
-        fields = [PartitionKeyMapper.unmap(key, schema, case_sensitive) for key in obj.keys]
+        fields = [
+            PartitionKeyMapper.unmap(key, schema, case_sensitive) for key in obj.keys
+        ]
         return PartitionSpec(
             fields=fields,
             spec_id=int(obj.id),
