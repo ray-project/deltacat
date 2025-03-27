@@ -38,6 +38,23 @@ from deltacat.storage import metastore as storage_impl
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+""" 
+This is the default implementation for the Catalog interface, using DeltaCAT native storage
+
+Note that, when this catalog implementation gets called through the normal pattern of `delegate.py`, all functions
+will be called the kwarg "inner" equal to the `CatalogProperties` this was initialized with. 
+
+`CatalogProperties` has all state required to implement catalog functions, such as metastore root URI
+"""
+
+# catalog functions
+def initialize(*args, **kwargs) -> CatalogProperties:
+    """
+    Initializes the data catalog with the given arguments.
+
+    returns CatalogProperties as the "inner" state value for a DC native catalog
+    """
+    return CatalogProperties(*args, **kwargs)
 
 # table functions
 def write_to_table(
@@ -589,16 +606,6 @@ def default_namespace(*args, **kwargs) -> str:
     return DEFAULT_NAMESPACE  # table functions
 
 
-# catalog functions
-def initialize(*args, **kwargs) -> CatalogProperties:
-    """
-    Initializes the data catalog with the given arguments.
-
-    returns CatalogProperties as the "native catalog" for a DC native catalog
-    """
-    return CatalogProperties(*args, **kwargs)
-
-
 def _validate_read_table_args(
     namespace: Optional[str] = None,
     table_type: Optional[TableType] = None,
@@ -696,7 +703,12 @@ def _get_deltas_from_partition_filter(
 
 
 def _get_storage(**kwargs):
-    properties: Optional[CatalogProperties] = kwargs.get("catalog")
+    """
+    Returns the implementation of `deltacat.storage.interface` to use
+
+    This is configured in the `CatalogProperties` stored during initialization and passed through `delegate.py`
+    """
+    properties: Optional[CatalogProperties] = kwargs.get("inner")
     if properties is not None and properties.storage is not None:
         return properties.storage
     else:

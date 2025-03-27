@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from types import ModuleType
 
 from typing import Any, Dict, List, Optional, Union
 from functools import partial
@@ -9,15 +10,31 @@ import ray
 
 from deltacat import logs
 import deltacat.catalog.main as deltacat_catalog
+import deltacat.catalog.iceberg as iceberg_catalog
+from deltacat.catalog import CatalogProperties
+from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
 
 all_catalogs: Optional[Catalogs] = None
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-
 class Catalog:
-    def __init__(self, impl=deltacat_catalog, *args, **kwargs):
+    def __init__(self,
+                 impl: ModuleType = deltacat_catalog,
+                 *args,
+                 **kwargs):
+        """
+        Constructor for a Catalog.
+
+        The args and kwargs here will be plumbed through to the catalog initialize function, and the results
+        are stored in Catalog.inner. Any state which is required (like: metastore root URI, pyiceberg native catalog)
+        MUST be returned by initialize.
+
+        Note: all initialization configuration MUST be pickle-able. When `Catalog` is pickled, _inner is excluded
+          and instead we only pass impl/args/kwargs, which
+
+        """
         if not isinstance(self, Catalog):
             # self may contain the tuple returned from __reduce__ (ray pickle bug?)
             if callable(self[0]) and isinstance(self[1], tuple):
@@ -26,22 +43,40 @@ class Catalog:
             else:
                 err_msg = f"Expected `self` to be {Catalog}, but found: {self}"
                 raise RuntimeError(err_msg)
+
         self._impl = impl
-        self._native_object = self._impl.initialize(*args, **kwargs)
+        self._inner = self._impl.initialize(*args, **kwargs)
         self._args = args
         self._kwargs = kwargs
+
+    @classmethod
+    def iceberg(cls, config: IcebergCatalogConfig, *args, **kwargs):
+        """
+        Factory method to construct a catalog from Iceberg catalog params
+
+        This method is just a wrapper around __init__ with stronger typing. You may still call __init__,
+        plumbing __params__ through as kwargs
+        """
+        return cls(impl=iceberg_catalog, *args, **{**config, **kwargs})
+
+    @classmethod
+    def default(cls, config: CatalogProperties, *args, **kwargs):
+        """
+        TODO ensure this works
+        """
+        return cls(impl=deltacat_catalog, *args, **{**config, **kwargs})
 
     @property
     def impl(self):
         return self._impl
 
     @property
-    def native_object(self) -> Optional[Any]:
-        return self._native_object
+    def inner(self) -> Optional[Any]:
+        return self._inner
 
     # support pickle, copy, deepcopy, etc.
     def __reduce__(self):
-        # instantiated catalogs may fail to pickle, so exclude _native_object
+        # instantiated catalogs may fail to pickle, so exclude _inner
         # (e.g. Iceberg catalog w/ unserializable SSLContext from boto3 client)
         return partial(self.__class__, **self._kwargs), (self._impl, *self._args)
 
@@ -51,8 +86,8 @@ class Catalog:
             string_rep += f"args={self._args}, "
         if self._kwargs:
             string_rep += f"kwargs={self._kwargs}, "
-        if self._native_object:
-            string_rep += f"native_object={self._native_object})"
+        if self._inner:
+            string_rep += f"inner={self._inner})"
         return string_rep
 
     def __repr__(self):
@@ -164,10 +199,10 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
     return catalog
 
 
-def put_catalog(name: str, *args, **kwargs) -> Catalog:
+def put_catalog(name: str, impl: ModuleType = deltacat_catalog, *args, **kwargs) -> Catalog:
     from deltacat.catalog.model.catalog import all_catalogs
 
-    new_catalog = Catalog(*args, **kwargs)
+    new_catalog = Catalog(impl,*args, **kwargs)
     if is_initialized():
         try:
             get_catalog(name)

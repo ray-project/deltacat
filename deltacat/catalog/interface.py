@@ -18,6 +18,20 @@ from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
 
 
+# catalog functions
+def initialize(*args, **kwargs) -> Optional[Any]:
+    """
+    Initializes the data catalog with the given arguments.
+
+    Will return an object containing any state needed for the operation of the catalog. For example,
+    initializing an iceberg catalog will return the underlying native PyIceberg catalog.
+
+    The return value initialize is stored in  :class:`deltacat.Catalog` as the "inner" property,
+    and then passed to catalog function invocations as the kwarg "inner" 
+    """
+    raise NotImplementedError("initialize not implemented")
+
+
 # table functions
 def write_to_table(
     data: Union[LocalTable, LocalDataset, DistributedDataset],
@@ -366,9 +380,3 @@ def default_namespace(*args, **kwargs) -> str:
     """
     raise NotImplementedError("default_namespace not implemented")
 
-
-# catalog functions
-def initialize(*args, **kwargs) -> Optional[Any]:
-    """Initializes the data catalog with the given arguments. Returns the
-    underlying native catalog object if it exists."""
-    raise NotImplementedError("initialize not implemented")

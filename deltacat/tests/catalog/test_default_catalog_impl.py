@@ -86,6 +86,7 @@ class TestReadTable(unittest.TestCase):
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=catalog_properties,
             distributed_dataset_type=DistributedDatasetType.DAFT,
+
             merge_on_read=False,
             **self.kwargs,
         )

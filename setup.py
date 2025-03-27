@@ -34,8 +34,11 @@ setuptools.setup(
     url="https://github.com/ray-project/deltacat",
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     extras_require={
-        "iceberg": ["pyiceberg[glue] >= 0.6.0"],
-        # "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
+        "iceberg": [
+            "pyiceberg[glue] >= 0.9.0",
+            "pyiceberg[hive] >= 0.9.0",
+            "pyiceberg[sql-sqlite] >= 0.9.0",
+        ],
     },
     install_requires=[
         # any changes here should also be reflected in requirements.txt
