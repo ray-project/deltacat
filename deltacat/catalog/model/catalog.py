@@ -52,19 +52,23 @@ class Catalog:
     @classmethod
     def iceberg(cls, config: IcebergCatalogConfig, *args, **kwargs):
         """
+        !!! ICEBERG SUPPORT IS EXPERIMENTAL !!!
+
         Factory method to construct a catalog from Iceberg catalog params
 
         This method is just a wrapper around __init__ with stronger typing. You may still call __init__,
         plumbing __params__ through as kwargs
         """
-        return cls(impl=iceberg_catalog, *args, **{**config, **kwargs})
+        return cls(impl=iceberg_catalog, *args, **{"config": config, **kwargs})
 
     @classmethod
     def default(cls, config: CatalogProperties, *args, **kwargs):
         """
-        TODO ensure this works
+        Factory method to construct a catalog with the default implementation
+        
+        Uses CatalogProperties as configuration
         """
-        return cls(impl=deltacat_catalog, *args, **{**config, **kwargs})
+        return cls(impl=deltacat_catalog, *args, **{"config": config, **kwargs})
 
     @property
     def impl(self):
@@ -154,11 +158,14 @@ def init(
     *args,
     **kwargs,
 ) -> None:
-    if is_initialized():
+
+    force_reinitialize =  kwargs.get("force_reinitialize"), False
+
+    if is_initialized() and not force_reinitialize:
         logger.warning("DeltaCAT already initialized.")
         return
 
-    if not ray.is_initialized():
+    if force_reinitialize or not ray.is_initialized():
         if ray_init_args:
             ray.init(**ray_init_args)
         else:
@@ -181,19 +188,25 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
     from deltacat.catalog.model.catalog import all_catalogs
 
     if not all_catalogs:
-        raise ValueError(
+        raise KeyError(
             "No catalogs available! Call "
             "`deltacat.init(catalogs={...})` to register one or more "
             "catalogs then retry."
         )
-    catalog = (
-        ray.get(all_catalogs.get.remote(name))
-        if name
-        else ray.get(all_catalogs.default.remote())
-    )
+
+    if name is not None:
+        catalog = ray.get(all_catalogs.get.remote(name))
+    else:
+        default = all_catalogs.default.remote()
+        if not default:
+            available_catalogs = ray.get(all_catalogs.all.remote()).values()
+            raise KeyError(f"Call to get_catalog without name failed because no default catalog is configured."
+                           f"Available catalogs are: {available_catalogs}")
+        catalog = ray.get(default)
+
     if not catalog:
         available_catalogs = ray.get(all_catalogs.all.remote()).values()
-        raise ValueError(
+        raise KeyError(
             f"Catalog '{name}' not found. Available catalogs: " f"{available_catalogs}."
         )
     return catalog
@@ -207,7 +220,7 @@ def put_catalog(name: str, impl: ModuleType = deltacat_catalog, *args, **kwargs)
         try:
             get_catalog(name)
             raise ValueError(f"Catalog {name} already exists.")
-        except ValueError:
+        except KeyError:
             # TODO(pdames): Create dc.put_catalog() helper.
             ray.get(all_catalogs.put.remote(name, new_catalog))
     else:

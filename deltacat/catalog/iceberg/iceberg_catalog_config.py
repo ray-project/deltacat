@@ -1,8 +1,6 @@
 from __future__ import annotations
 from typing import Optional, Any, Dict
-
-from pyiceberg.catalog import Catalog as IcebergCatalog, CatalogType
-
+from pyiceberg.catalog import CatalogType
 
 class IcebergCatalogConfig(Dict[str, Any]):
     """
@@ -14,7 +12,7 @@ class IcebergCatalogConfig(Dict[str, Any]):
     Attributes:
         catalog: The PyIceberg Catalog instance
     """
-    def __init__(self, *args, type: CatalogType, properties: Dict[str, Any], **kwargs):
+    def __init__(self, *args, type: CatalogType, properties: Dict[str, Any]):
         """
         Initialize an IcebergCatalogConfig with a PyIceberg Catalog.
         

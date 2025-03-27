@@ -53,11 +53,14 @@ class CatalogProperties:
             reading/writing files. If None, a filesystem will be inferred from
             the catalog root path.
 
-        storage: Storage class implementation (defaults to default filesystem storage impl)
+        storage: Storage class implementation (overrides default filesystem storage impl)
     """
 
     def __init__(
         self,
+        root: Optional[str]=None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        storage=None,
         *args,
         **kwargs,
     ):
