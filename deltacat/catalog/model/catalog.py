@@ -9,10 +9,10 @@ from functools import partial
 import ray
 
 from deltacat import logs
-import deltacat.catalog.main.impl as deltacat_catalog
-import deltacat.catalog.iceberg as iceberg_catalog
+from deltacat.catalog.main import impl as DeltacatCatalog
+from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog import CatalogProperties
-from deltacat.catalog.iceberg.iceberg_catalog_config import IcebergCatalogConfig
+from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
 
 all_catalogs: Optional[Catalogs] = None
@@ -21,7 +21,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class Catalog:
-    def __init__(self, impl: ModuleType = deltacat_catalog, *args, **kwargs):
+    def __init__(self, impl: ModuleType = DeltacatCatalog, *args, **kwargs):
         """
         Constructor for a Catalog.
 
@@ -57,7 +57,7 @@ class Catalog:
         This method is just a wrapper around __init__ with stronger typing. You may still call __init__,
         plumbing __params__ through as kwargs
         """
-        return cls(impl=iceberg_catalog, *args, **{"config": config, **kwargs})
+        return cls(impl=IcebergCatalog, *args, **{"config": config, **kwargs})
 
     @classmethod
     def default(cls, config: CatalogProperties, *args, **kwargs):
@@ -66,7 +66,7 @@ class Catalog:
 
         Uses CatalogProperties as configuration
         """
-        return cls(impl=deltacat_catalog, *args, **{"config": config, **kwargs})
+        return cls(impl=DeltacatCatalog, *args, **{"config": config, **kwargs})
 
     @property
     def impl(self):
@@ -212,7 +212,7 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
 
 
 def put_catalog(
-    name: str, impl: ModuleType = deltacat_catalog, *args, **kwargs
+    name: str, impl: ModuleType = DeltacatCatalog, *args, **kwargs
 ) -> Catalog:
     from deltacat.catalog.model.catalog import all_catalogs
 
