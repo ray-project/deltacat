@@ -9,10 +9,10 @@ from functools import partial
 import ray
 
 from deltacat import logs
-import deltacat.catalog.main as deltacat_catalog
+import deltacat.catalog.main.impl as deltacat_catalog
 import deltacat.catalog.iceberg as iceberg_catalog
 from deltacat.catalog import CatalogProperties
-from deltacat.catalog.iceberg import IcebergCatalogConfig
+from deltacat.catalog.iceberg.iceberg_catalog_config import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
 
 all_catalogs: Optional[Catalogs] = None

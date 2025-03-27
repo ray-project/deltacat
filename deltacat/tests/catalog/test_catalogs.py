@@ -291,9 +291,11 @@ class TestDefaultCatalogIntegration:
         catalog = Catalog.default(config)
 
         # Initialize DeltaCAT with this catalog
-        init({catalog_name: catalog},
-             ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-             **{"force_reinitialize": True})
+        init(
+            {catalog_name: catalog},
+            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            **{"force_reinitialize": True},
+        )
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
@@ -305,9 +307,13 @@ class TestDefaultCatalogIntegration:
 
         catalog_name = str(uuid.uuid4())
         # Initialize DeltaCAT with this catalog
-        init({catalog_name: Catalog(**{"root": "test_root"})},
-             ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-             **{"force_reinitialization": True})
+        from deltacat.catalog.main import DeltacatCatalog
+
+        init(
+            {catalog_name: Catalog(DeltacatCatalog, **{"root": "test_root"})},
+            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            **{"force_reinitialization": True},
+        )
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)

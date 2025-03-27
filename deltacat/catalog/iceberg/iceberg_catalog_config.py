@@ -4,6 +4,7 @@ from typing import Any, Dict
 from attr import dataclass
 from pyiceberg.catalog import CatalogType
 
+
 @dataclass
 class IcebergCatalogConfig:
     """
@@ -20,5 +21,6 @@ class IcebergCatalogConfig:
         type: The PyIceberg Catalog instance
         properties: Dict of properties passed to pyiceberg load_catalog
     """
+
     type: CatalogType
     properties: Dict[str, Any]
