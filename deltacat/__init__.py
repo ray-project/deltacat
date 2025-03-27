@@ -1,3 +1,4 @@
+import importlib
 import logging
 
 import deltacat.logs  # noqa: F401
@@ -35,7 +36,6 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     get_catalog,
     put_catalog,
 )
-from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage import (
     DistributedDataset,
@@ -57,6 +57,14 @@ from deltacat.storage import (
 from deltacat.storage.rivulet import Dataset, Datatype
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode
+
+__iceberg__ = []
+if importlib.util.find_spec("pyiceberg") is not None:
+    from deltacat.catalog.iceberg import impl as IcebergCatalog
+
+    __iceberg__ = [
+        "IcebergCatalog",
+    ]
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -116,3 +124,5 @@ __all__ = [
     "TableType",
     "TableWriteMode",
 ]
+
+__all__ += __iceberg__
