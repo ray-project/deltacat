@@ -14,7 +14,6 @@ from deltacat.tests.test_utils.pyarrow import (
 )
 from deltacat.types.media import DistributedDatasetType, ContentType
 import deltacat as dc
-import deltacat.catalog.main.impl as DeltacatCatalog
 
 
 class TestReadTable(unittest.TestCase):
@@ -36,11 +35,12 @@ class TestReadTable(unittest.TestCase):
         cls.deltacat_storage_kwargs = {ds.DB_FILE_PATH_ARG: cls.DB_FILE_PATH}
 
         cls.catalog_name = str(uuid.uuid4())
-        catalog_config = CatalogProperties(
-            storage=ds
+        catalog_config = CatalogProperties(storage=ds)
+        dc.put_catalog(
+            cls.catalog_name,
+            catalog=Catalog.default(config=catalog_config),
+            ray_init_args={"ignore_reinit_error": True},
         )
-        dc.put_catalog(cls.catalog_name, catalog=Catalog.default(config=catalog_config),
-                       ray_init_args={"ignore_reinit_error": True})
         super().setUpClass()
 
     @classmethod
@@ -59,7 +59,6 @@ class TestReadTable(unittest.TestCase):
             **self.kwargs,
         )
 
-        catalog_properties = DeltacatCatalog.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
@@ -91,7 +90,6 @@ class TestReadTable(unittest.TestCase):
         )
 
         # action
-        catalog_properties = DeltacatCatalog.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,

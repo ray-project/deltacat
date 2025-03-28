@@ -114,10 +114,10 @@ class TestCatalogsWithRay:
             **{"force_reinitialize": True},
         )
 
-        assert is_initialized()
+        assert is_initialized(**{"namespace": isolated_ray_env})
 
         # Get the default catalog and check it's the same one we initialized with
-        retrieved_catalog = get_catalog()
+        retrieved_catalog = get_catalog(**{"namespace": isolated_ray_env})
         assert retrieved_catalog.impl == MockCatalogImpl
         assert retrieved_catalog.inner["initialized"]
 
@@ -135,14 +135,14 @@ class TestCatalogsWithRay:
             **{"force_reinitialize": True},
         )
 
-        assert is_initialized()
+        assert is_initialized(**{"namespace": isolated_ray_env})
 
         # Get catalogs by name and check they're the same ones we initialized with
-        retrieved_catalog1 = get_catalog("catalog1")
+        retrieved_catalog1 = get_catalog("catalog1", **{"namespace": isolated_ray_env})
         assert retrieved_catalog1.impl == MockCatalogImpl
         assert retrieved_catalog1.inner["kwargs"]["id"] == 1
 
-        retrieved_catalog2 = get_catalog("catalog2")
+        retrieved_catalog2 = get_catalog("catalog2", **{"namespace": isolated_ray_env})
         assert retrieved_catalog2.impl == MockCatalogImpl
         assert retrieved_catalog2.inner["kwargs"]["id"] == 2
 
@@ -162,7 +162,7 @@ class TestCatalogsWithRay:
         )
 
         # Get the default catalog and check it's catalog2
-        default_catalog = get_catalog()
+        default_catalog = get_catalog(**{"namespace": isolated_ray_env})
         assert default_catalog.impl == MockCatalogImpl
         assert default_catalog.inner["kwargs"]["id"] == 2
 
@@ -177,13 +177,15 @@ class TestCatalogsWithRay:
         )
 
         # Add a second catalog
-        put_catalog("catalog2", impl=MockCatalogImpl, id=2)
+        put_catalog(
+            "catalog2", impl=MockCatalogImpl, id=2, **{"namespace": isolated_ray_env}
+        )
 
         # Check both catalogs are available
-        retrieved_catalog1 = get_catalog("catalog1")
+        retrieved_catalog1 = get_catalog("catalog1", **{"namespace": isolated_ray_env})
         assert retrieved_catalog1.inner["kwargs"]["id"] == 1
 
-        retrieved_catalog2 = get_catalog("catalog2")
+        retrieved_catalog2 = get_catalog("catalog2", **{"namespace": isolated_ray_env})
         assert retrieved_catalog2.inner["kwargs"]["id"] == 2
 
     def test_put_catalog_that_already_exists(self, isolated_ray_env):
@@ -198,7 +200,12 @@ class TestCatalogsWithRay:
 
         # Try to add another catalog with the same name
         with pytest.raises(ValueError, match="Catalog test_catalog already exists."):
-            put_catalog("test_catalog", impl=MockCatalogImpl, id=2)
+            put_catalog(
+                "test_catalog",
+                impl=MockCatalogImpl,
+                id=2,
+                **{"namespace": isolated_ray_env},
+            )
 
     def test_get_catalog_nonexistent(self, isolated_ray_env):
         """Test that trying to get a nonexistent catalog raises an error."""
@@ -212,7 +219,7 @@ class TestCatalogsWithRay:
 
         # Try to get a nonexistent catalog
         with pytest.raises(KeyError, match="Catalog 'nonexistent' not found"):
-            get_catalog("nonexistent")
+            get_catalog("nonexistent", **{"namespace": isolated_ray_env})
 
     def test_get_catalog_no_default(self, isolated_ray_env):
         """Test that trying to get the default catalog when none is set raises an error."""
@@ -227,7 +234,7 @@ class TestCatalogsWithRay:
 
         # Try to get the default catalog
         with pytest.raises(KeyError):
-            get_catalog()
+            get_catalog(**{"namespace": isolated_ray_env})
 
 
 class TestIcebergCatalogIntegration:
@@ -257,10 +264,13 @@ class TestIcebergCatalogIntegration:
         catalog = Catalog.iceberg(config)
 
         # Initialize DeltaCAT with this catalog
-        init({catalog_name: catalog}, ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True})
+        init(
+            {catalog_name: catalog},
+            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+        )
 
         # Retrieve the catalog and verify it's the same one
-        retrieved_catalog = get_catalog(catalog_name)
+        retrieved_catalog = get_catalog(catalog_name, **{"namespace": isolated_ray_env})
         assert retrieved_catalog.impl.__name__ == "deltacat.catalog.iceberg.impl"
         assert isinstance(retrieved_catalog.inner, IcebergCatalog)
 
@@ -299,7 +309,7 @@ class TestDefaultCatalogIntegration:
         )
 
         # Retrieve the catalog and verify it's the same one
-        retrieved_catalog = get_catalog(catalog_name)
+        retrieved_catalog = get_catalog(catalog_name, **{"namespace": isolated_ray_env})
         assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main.impl"
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
         assert retrieved_catalog.inner.root == self.temp_dir
@@ -317,7 +327,7 @@ class TestDefaultCatalogIntegration:
         )
 
         # Retrieve the catalog and verify it's the same one
-        retrieved_catalog = get_catalog(catalog_name)
+        retrieved_catalog = get_catalog(catalog_name, **{"namespace": isolated_ray_env})
         assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main.impl"
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
         assert retrieved_catalog.inner.root == "test_root"
