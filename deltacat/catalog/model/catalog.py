@@ -145,7 +145,22 @@ class Catalogs:
 
 
 def is_initialized() -> bool:
-    return all_catalogs is not None
+    """Check if DeltaCAT is initialized with valid Ray actors"""
+    global all_catalogs
+
+    if all_catalogs is None:
+        return False
+
+    # Additional check to verify the Ray actor is still alive
+    # If the ray cluster was shut down (e.g. in between test run invocations), then the global all_catalogs needs to be reset
+    try:
+        # Try a simple operation on the actor - this will fail if the actor is dead
+        ray.get(all_catalogs.names.remote(), timeout=5)
+        return True
+    except (ray.exceptions.RayActorError, ray.exceptions.GetTimeoutError):
+        # The actor is dead or inaccessible, so we're not properly initialized
+        all_catalogs = None  # Reset the global variable since it's invalid
+        return False
 
 
 def init(
@@ -212,18 +227,41 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
 
 
 def put_catalog(
-    name: str, impl: ModuleType = DeltacatCatalog, *args, **kwargs
-) -> Catalog:
+    name: str,
+    *args,
+    impl: ModuleType = DeltacatCatalog,
+    catalog: Catalog = None,
+    ray_init_args: Dict[str, Any] = None,
+    **kwargs) -> Catalog:
+    """
+    Add a named catalog to the global map of named catalogs. Initializes ray if not already initialized.
+
+    You may explicitly provide an initialized Catalog instance, like from the Catalog constructor or
+    from factory methods like Catalog.default or Catalog.iceberg
+
+    Otherwise, this function initializes the catalog by using the catalog implementation provided by `impl`.
+
+    :param name: name of catalog
+    :param catalog: catalog instance to use, if provided
+    :param impl: catalog module to initialize. Only used if `catalog` param not provided
+    :param ray_init_args: ray initialization args (used if ray must be initialized)
+    """
     from deltacat.catalog.model.catalog import all_catalogs
 
-    new_catalog = Catalog(impl, *args, **kwargs)
+    if catalog is None:
+        catalog = Catalog(impl, *args, **kwargs)
+    elif catalog is not None and impl!=DeltacatCatalog:
+        raise ValueError(f"PutCatalog call provided both `impl` and `catalog` parameters"
+                         f"You may only provide one of these parameters")
+
     if is_initialized():
         try:
             get_catalog(name)
             raise ValueError(f"Catalog {name} already exists.")
         except KeyError:
+            # Catalog does not already exist. Add it
             # TODO(pdames): Create dc.put_catalog() helper.
-            ray.get(all_catalogs.put.remote(name, new_catalog))
+            ray.get(all_catalogs.put.remote(name, catalog))
     else:
-        init({name: new_catalog})
-    return new_catalog
+        init({name: catalog}, ray_init_args=ray_init_args)
+    return catalog

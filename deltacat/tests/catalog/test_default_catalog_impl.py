@@ -1,15 +1,20 @@
 import unittest
 import sqlite3
+import uuid
+
 import ray
 import os
 import deltacat.tests.local_deltacat_storage as ds
+from deltacat import Catalog
+from deltacat.catalog import CatalogProperties
 from deltacat.utils.common import current_time_ms
 from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
     commit_delta_to_partition,
 )
 from deltacat.types.media import DistributedDatasetType, ContentType
-from deltacat.catalog import main as dc
+import deltacat as dc
+import deltacat.catalog.main.impl as DeltacatCatalog
 
 
 class TestReadTable(unittest.TestCase):
@@ -30,6 +35,12 @@ class TestReadTable(unittest.TestCase):
         }
         cls.deltacat_storage_kwargs = {ds.DB_FILE_PATH_ARG: cls.DB_FILE_PATH}
 
+        cls.catalog_name = str(uuid.uuid4())
+        catalog_config = CatalogProperties(
+            storage=ds
+        )
+        dc.put_catalog(cls.catalog_name, catalog=Catalog.default(config=catalog_config),
+                       ray_init_args={"ignore_reinit_error": True})
         super().setUpClass()
 
     @classmethod
@@ -48,11 +59,11 @@ class TestReadTable(unittest.TestCase):
             **self.kwargs,
         )
 
-        catalog_properties = dc.initialize(storage=ds)
+        catalog_properties = DeltacatCatalog.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
-            catalog=catalog_properties,
+            catalog=self.catalog_name,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             **self.kwargs,
         )
@@ -80,11 +91,11 @@ class TestReadTable(unittest.TestCase):
         )
 
         # action
-        catalog_properties = dc.initialize(storage=ds)
+        catalog_properties = DeltacatCatalog.initialize(storage=ds)
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
-            catalog=catalog_properties,
+            catalog=self.catalog_name,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             merge_on_read=False,
             **self.kwargs,

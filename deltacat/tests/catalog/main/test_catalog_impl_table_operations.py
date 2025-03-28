@@ -4,7 +4,7 @@ import tempfile
 import pytest
 import pyarrow as pa
 
-import deltacat.catalog.main as catalog
+import deltacat.catalog.main.impl as catalog
 from deltacat.catalog import get_catalog_properties
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder
@@ -34,11 +34,11 @@ def test_namespace(catalog_setup):
     _, catalog_properties = catalog_setup
     namespace_name = "test_table_namespace"
 
-    if not catalog.namespace_exists(namespace_name, catalog=catalog_properties):
+    if not catalog.namespace_exists(namespace_name, inner=catalog_properties):
         catalog.create_namespace(
             namespace=namespace_name,
             properties={"description": "Test Table Namespace"},
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
     return namespace_name, catalog_properties
@@ -94,12 +94,12 @@ class TestCatalogTableOperations:
             description="Test table for unit tests",
             table_properties=table_properties,
             namespace_properties=namespace_properties,
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
         # Verify table was created
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         table = table_definition.table
@@ -126,12 +126,12 @@ class TestCatalogTableOperations:
             name=table_name,
             namespace=namespace_name,
             description="First creation",
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
         # Verify table exists
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Try to create the same table again, should raise TableAlreadyExistsError
@@ -143,7 +143,7 @@ class TestCatalogTableOperations:
                 name=table_name,
                 namespace=namespace_name,
                 description="Second creation attempt",
-                catalog=catalog_properties,
+                inner=catalog_properties,
             )
 
     def test_create_table_already_exists_no_fail(self, test_namespace):
@@ -156,11 +156,11 @@ class TestCatalogTableOperations:
             name=table_name,
             namespace=namespace_name,
             description="Original description",
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Create the same table with fail_if_exists=False
@@ -169,7 +169,7 @@ class TestCatalogTableOperations:
             namespace=namespace_name,
             description="Updated description",
             fail_if_exists=False,
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
         table = table_definition.table
@@ -185,22 +185,22 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name, namespace=namespace_name, catalog=catalog_properties
+            name=table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Verify table exists
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Drop the table
         catalog.drop_table(
-            name=table_name, namespace=namespace_name, catalog=catalog_properties
+            name=table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Verify table no longer exists
         assert not catalog.table_exists(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
     def test_drop_table_not_exists(self, test_namespace):
@@ -209,13 +209,13 @@ class TestCatalogTableOperations:
 
         # Verify table doesn't exist
         assert not catalog.table_exists(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Try to drop the table, should raise TableNotFoundError
         with pytest.raises(TableNotFoundError, match=table_name):
             catalog.drop_table(
-                name=table_name, namespace=namespace_name, catalog=catalog_properties
+                name=table_name, namespace=namespace_name, inner=catalog_properties
             )
 
     def test_rename_table(self, test_namespace):
@@ -228,12 +228,12 @@ class TestCatalogTableOperations:
             name=original_name,
             namespace=namespace_name,
             description="Table to be renamed",
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
         # Verify original table exists
         assert catalog.table_exists(
-            original_name, namespace=namespace_name, catalog=catalog_properties
+            original_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Rename the table
@@ -241,15 +241,15 @@ class TestCatalogTableOperations:
             table=original_name,
             new_name=new_name,
             namespace=namespace_name,
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
         # Verify new table exists and old table doesn't
         assert catalog.table_exists(
-            new_name, namespace=namespace_name, catalog=catalog_properties
+            new_name, namespace=namespace_name, inner=catalog_properties
         )
         assert not catalog.table_exists(
-            original_name, namespace=namespace_name, catalog=catalog_properties
+            original_name, namespace=namespace_name, inner=catalog_properties
         )
 
     def test_rename_table_not_exists(self, test_namespace):
@@ -259,7 +259,7 @@ class TestCatalogTableOperations:
 
         # Verify table doesn't exist
         assert not catalog.table_exists(
-            original_name, namespace=namespace_name, catalog=catalog_properties
+            original_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Try to rename the table, should raise TableNotFoundError
@@ -268,7 +268,7 @@ class TestCatalogTableOperations:
                 table=original_name,
                 new_name=new_name,
                 namespace=namespace_name,
-                catalog=catalog_properties,
+                inner=catalog_properties,
             )
 
     def test_table_exists(self, test_namespace):
@@ -278,17 +278,17 @@ class TestCatalogTableOperations:
 
         # Create a table
         catalog.create_table(
-            name=existing_table, namespace=namespace_name, catalog=catalog_properties
+            name=existing_table, namespace=namespace_name, inner=catalog_properties
         )
 
         # Check existing table
         assert catalog.table_exists(
-            existing_table, namespace=namespace_name, catalog=catalog_properties
+            existing_table, namespace=namespace_name, inner=catalog_properties
         )
 
         # Check non-existing table
         assert not catalog.table_exists(
-            non_existing_table, namespace=namespace_name, catalog=catalog_properties
+            non_existing_table, namespace=namespace_name, inner=catalog_properties
         )
 
     def test_create_table_with_default_namespace(self, catalog_setup):
@@ -297,7 +297,7 @@ class TestCatalogTableOperations:
 
         # Create table with default namespace
         table_definition = catalog.create_table(
-            name=table_name, catalog=catalog_properties
+            name=table_name, inner=catalog_properties
         )
 
         table = table_definition.table
@@ -305,7 +305,7 @@ class TestCatalogTableOperations:
         default_ns = catalog.default_namespace()
         assert table.namespace == default_ns
         assert catalog.table_exists(
-            table_name, namespace=default_ns, catalog=catalog_properties
+            table_name, namespace=default_ns, inner=catalog_properties
         )
 
     def test_create_table_with_missing_namespace(self, catalog_setup):
@@ -314,17 +314,17 @@ class TestCatalogTableOperations:
         new_namespace = "nonexistent_namespace"
 
         # Verify namespace doesn't exist yet
-        assert not catalog.namespace_exists(new_namespace, catalog=catalog_properties)
+        assert not catalog.namespace_exists(new_namespace, inner=catalog_properties)
 
         # Try to create table with non-existent namespace
         catalog.create_table(
-            name=table_name, namespace=new_namespace, catalog=catalog_properties
+            name=table_name, namespace=new_namespace, inner=catalog_properties
         )
 
         assert catalog.table_exists(
-            table_name, namespace=new_namespace, catalog=catalog_properties
+            table_name, namespace=new_namespace, inner=catalog_properties
         )
-        assert catalog.namespace_exists(new_namespace, catalog=catalog_properties)
+        assert catalog.namespace_exists(new_namespace, inner=catalog_properties)
 
     def test_alter_table(self, test_namespace, sample_arrow_schema, sample_sort_keys):
         namespace_name, catalog_properties = test_namespace
@@ -344,13 +344,13 @@ class TestCatalogTableOperations:
             sort_keys=sample_sort_keys,
             description="Initial description",
             table_properties=initial_properties,
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
         old_schema = table.table_version.schema
 
         # Verify table was created with initial properties
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Create updated schema
@@ -377,12 +377,12 @@ class TestCatalogTableOperations:
             schema_updates=new_schema,
             description="Updated description",
             properties=updated_properties,
-            catalog=catalog_properties,
+            inner=catalog_properties,
         )
 
         # Get the updated table definition
         updated_table_def = catalog.get_table(
-            table_name, namespace=namespace_name, catalog=catalog_properties
+            table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         updated_table = updated_table_def.table
@@ -402,7 +402,7 @@ class TestCatalogTableOperations:
 
         # Verify table doesn't exist
         assert not catalog.table_exists(
-            nonexistent_table, namespace=namespace_name, catalog=catalog_properties
+            nonexistent_table, namespace=namespace_name, inner=catalog_properties
         )
 
         # Try to alter the nonexistent table, should raise TableNotFoundError
@@ -411,7 +411,7 @@ class TestCatalogTableOperations:
                 table=nonexistent_table,
                 namespace=namespace_name,
                 description="Updated description",
-                catalog=catalog_properties,
+                inner=catalog_properties,
             )
 
     def test_drop_with_purge_validation(self, test_namespace):
@@ -421,7 +421,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name, namespace=namespace_name, catalog=catalog_properties
+            name=table_name, namespace=namespace_name, inner=catalog_properties
         )
 
         # Try to drop with purge=True, should raise ValidationError
@@ -432,5 +432,5 @@ class TestCatalogTableOperations:
                 name=table_name,
                 namespace=namespace_name,
                 purge=True,
-                catalog=catalog_properties,
+                inner=catalog_properties,
             )

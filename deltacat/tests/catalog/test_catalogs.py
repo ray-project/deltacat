@@ -49,7 +49,7 @@ class TestCatalog(unittest.TestCase):
         """Test the iceberg factory method correctly creates an Iceberg catalog."""
         # Create a mock for the Iceberg catalog module
         with mock.patch(
-            "deltacat.catalog.model.catalog.iceberg_catalog"
+            "deltacat.catalog.model.catalog.IcebergCatalog"
         ) as mock_iceberg_catalog:
             # Configure the mock to return a known value when initialize is called
             mock_iceberg_catalog.initialize.return_value = {"iceberg": True}
@@ -89,6 +89,7 @@ def isolated_ray_env(request):
     if all_catalogs is not None and isinstance(all_catalogs, ray.actor.ActorHandle):
         try:
             ray.kill(all_catalogs)
+            ray.shutdown()
         except Exception:
             pass
 
@@ -256,11 +257,11 @@ class TestIcebergCatalogIntegration:
         catalog = Catalog.iceberg(config)
 
         # Initialize DeltaCAT with this catalog
-        init({catalog_name: catalog}, ray_init_args={"namespace": isolated_ray_env})
+        init({catalog_name: catalog}, ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True})
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
-        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.iceberg"
+        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.iceberg.impl"
         assert isinstance(retrieved_catalog.inner, IcebergCatalog)
 
 
@@ -299,7 +300,7 @@ class TestDefaultCatalogIntegration:
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
-        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main"
+        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main.impl"
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
         assert retrieved_catalog.inner.root == self.temp_dir
 
@@ -307,7 +308,7 @@ class TestDefaultCatalogIntegration:
 
         catalog_name = str(uuid.uuid4())
         # Initialize DeltaCAT with this catalog
-        from deltacat.catalog.main import DeltacatCatalog
+        from deltacat.catalog.main import impl as DeltacatCatalog
 
         init(
             {catalog_name: Catalog(DeltacatCatalog, **{"root": "test_root"})},
@@ -317,6 +318,6 @@ class TestDefaultCatalogIntegration:
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
-        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main"
+        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main.impl"
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
         assert retrieved_catalog.inner.root == "test_root"
