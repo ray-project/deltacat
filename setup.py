@@ -44,7 +44,7 @@ setuptools.setup(
         # any changes here should also be reflected in requirements.txt
         "aws-embedded-metrics == 3.2.0",
         "boto3 ~= 1.34",
-        "getdaft == 0.3.6",
+        "getdaft >= 0.4.8",
         "intervaltree == 3.1.0",
         "numpy == 1.21.5",
         "pandas == 1.3.5",

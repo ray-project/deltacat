@@ -1,0 +1,287 @@
+"""DeltaCAT integration with Daft.
+
+This file provides integration between DeltaCAT catalogs and Daft catalogs.
+"""
+
+from __future__ import annotations
+
+import deltacat
+from deltacat.catalog.model.catalog import Catalog as DCCatalog
+from deltacat.catalog.model.table_definition import TableDefinition
+
+from daft.catalog import Catalog, Identifier, Table, TableSource
+from daft.dataframe import DataFrame
+from daft.logical.schema import Schema
+
+
+class DeltaCATCatalog(Catalog):
+    _inner: DCCatalog
+
+    def __init__(self,
+                 deltacat_catalog: DCCatalog):
+        """
+        Initialize given DeltaCAT catalog.
+
+        This catalog is also registered with DeltaCAT (via deltacat.put_catalog) given the provided Name
+        """
+        self._inner = deltacat_catalog
+
+
+    @staticmethod
+    def _from_obj(obj: object) -> DeltaCATCatalog:
+        """Returns a DeltaCATCatalog instance if the given object can be adapted so."""
+        if isinstance(obj, DCCatalog):
+            c = DeltaCATCatalog.__new__(DeltaCATCatalog)
+            c._inner = obj
+            return c
+        raise ValueError(f"Unsupported DeltaCAT catalog type: {type(obj)}")
+
+    @staticmethod
+    def _from_obj(obj: object) -> DeltaCATCatalog:
+        """Returns a DeltaCATCatalog instance if the given object can be adapted so."""
+        if isinstance(obj, DCCatalog):
+            c = DeltaCATCatalog.__new__(DeltaCATCatalog)
+            c._inner = obj
+            return c
+        raise ValueError(f"Unsupported DeltaCAT catalog type: {type(obj)}")
+
+    @property
+    def name(self) -> str:
+        """Return the catalog name."""
+        # DeltaCAT catalogs don't have a standard name property, so use the class name
+        return "DeltaCATCatalog"
+
+    ###
+    # create_*
+    ###
+
+    def create_namespace(self, identifier: Identifier | str):
+        """Create a new namespace in the catalog."""
+        if isinstance(identifier, Identifier):
+            identifier = str(identifier)
+
+        self._inner.impl.create_namespace(
+            namespace=identifier, inner=self._inner.inner
+        )
+
+    def create_table(self, identifier: Identifier | str, source: TableSource | object) -> Table:
+
+
+        """Create a new table in the catalog."""
+
+        if isinstance(source, DataFrame):
+            return self._create_table_from_df(identifier, source)
+        elif isinstance(source, str):
+            return self._create_table_from_path(identifier, source)
+        elif isinstance(source, Schema):
+            return self._create_table_from_schema(identifier, source)
+        else:
+            raise Exception(f"Unknown table source: {source}")
+
+    def _create_table_from_df(self, ident: Identifier | str, source: DataFrame) -> Table:
+        """Create a table from a DataFrame."""
+        t = self._create_table_from_schema(ident, source.schema())
+        t.append(source)
+        return t
+
+    def _create_table_from_path(self, ident: Identifier | str, source: str) -> Table:
+        """Create a table from a path."""
+        raise ValueError("table from path not yet supported")
+
+    def _create_table_from_schema(self, ident: Identifier | str, source: Schema) -> Table:
+        """Create a table from a schema."""
+        if isinstance(ident, Identifier):
+            namespace = str(ident[0]) if len(ident) > 1 else None
+            table_name = str(ident[-1])
+        else:
+            # Assume string is just the table name and use default namespace
+            namespace = None
+            table_name = str(ident)
+
+        # Convert the Daft schema to a DeltaCAT schema
+        # This is a simplified version, would need to be enhanced for production
+        deltacat_schema = self._convert_schema_to_deltacat(source)
+
+        # Create the table in DeltaCAT
+        table_def = self._inner.impl.create_table(
+            name=table_name,
+            namespace=namespace,
+            schema=deltacat_schema,
+            inner=self._inner.inner,
+        )
+        
+        return DeltaCATTable._from_obj(table_def)
+
+    def _convert_schema_to_deltacat(self, schema: Schema):
+        """Convert Daft schema to DeltaCAT schema.
+        For now, just use PyArrow schema as intermediary
+        TODO look into how enhancements on schema can be propagated between Daft<=>DeltaCAT
+        """
+        from deltacat.storage.model.schema import Schema as DeltaCATSchema, Field
+        return DeltaCATSchema.of(schema=schema.to_pyarrow_schema())
+
+    ###
+    # drop_*
+    ###
+
+    def drop_namespace(self, identifier: Identifier | str):
+        raise NotImplementedError()
+
+    def drop_table(self, identifier: Identifier | str):
+        raise NotImplementedError()
+
+    ###
+    # get_*
+    ###
+
+    def get_table(self, identifier: Identifier | str) -> Table:
+        """Get a table by identifier."""
+        if isinstance(identifier, Identifier):
+            namespace = str(identifier[0]) if len(identifier) > 1 else None
+            table_name = str(identifier[-1])
+        else:
+            # Split the string by dots to get namespace and table
+            parts = str(identifier).split(".")
+            if len(parts) > 1:
+                namespace = parts[0]
+                table_name = parts[-1]
+            else:
+                namespace = None
+                table_name = parts[0]
+                
+        table_def = self._inner.impl.get_table(
+            name=table_name,
+            namespace=namespace,
+            inner=self._inner.inner
+        )
+        
+        if not table_def:
+            raise ValueError(f"Table {identifier} not found")
+            
+        return DeltaCATTable._from_obj(table_def)
+
+    ###
+    # list_*
+    ###
+
+    def list_namespaces(self, pattern: str | None = None) -> list[Identifier]:
+        """List namespaces in the catalog."""
+        # DeltaCAT doesn't have pattern matching, so we ignore the pattern parameter
+        namespaces = self._inner.impl.list_namespaces(inner=self._inner.inner)
+        return [Identifier(ns.name) for ns in namespaces.all_items()]
+
+    def list_tables(self, pattern: str | None = None) -> list[str]:
+        """List tables in the catalog."""
+        # Determine namespace from pattern or use default
+        namespace = None
+        if pattern:
+            # Simple pattern handling: assume pattern is "namespace.*"
+            if pattern.endswith(".*"):
+                namespace = pattern[:-2]
+        
+        tables = self._inner.impl.list_tables(namespace=namespace, inner=self._inner.inner)
+        return [table_def.table.name for table_def in tables.all_items()]
+
+
+class DeltaCATTable(Table):
+    _inner: TableDefinition
+    
+    _read_options = set()
+    _write_options = set()
+
+    def __init__(self, inner: TableDefinition):
+        self._inner = inner
+
+    @property
+    def name(self) -> str:
+        """Return the table name."""
+        return self._inner.table.name
+
+    @staticmethod
+    def _from_obj(obj: object) -> DeltaCATTable:
+        """Returns a DeltaCATTable if the given object can be adapted so."""
+        if isinstance(obj, TableDefinition):
+            t = DeltaCATTable.__new__(DeltaCATTable)
+            t._inner = obj
+            return t
+        raise ValueError(f"Unsupported DeltaCAT table type: {type(obj)}")
+
+    def read(self, **options) -> DataFrame:
+        """Read the table into a DataFrame."""
+        Table._validate_options("DeltaCAT read", options, DeltaCATTable._read_options)
+        
+        # In a real implementation, this would use DeltaCAT's reading capabilities
+        # to fetch the data and convert it to a Daft DataFrame.
+        # For now, we'll just create an empty DataFrame.
+        return DataFrame._from_pylist([])
+
+    def write(self, df: DataFrame | object, mode: str = "append", **options):
+        """Write data to the table."""
+        self._validate_options("DeltaCAT write", options, DeltaCATTable._write_options)
+        
+        # In a real implementation, this would convert the Daft DataFrame
+        # to a format that DeltaCAT can write.
+        # For now, this is just a placeholder.
+        pass
+
+
+# Add monkey patching to extend Daft's Catalog class with from_deltacat method
+def _monkey_patch_daft_catalog():
+    """Monkey patch the Daft Catalog class with DeltaCAT support."""
+    from daft.catalog import Catalog as DaftCatalog
+    
+    # Only add the method if it doesn't exist yet
+    if not hasattr(DaftCatalog, "from_deltacat"):
+        @staticmethod
+        def from_deltacat(catalog: object) -> Catalog:
+            """Creates a Daft Catalog instance from a DeltaCAT catalog.
+            
+            Args:
+                catalog (object): DeltaCAT catalog object
+                
+            Returns:
+                Catalog: new daft catalog instance from the DeltaCAT catalog object.
+            """
+            return DeltaCATCatalog._from_obj(catalog)
+            
+        DaftCatalog.from_deltacat = from_deltacat
+
+    # Also patch the Table class
+    from daft.catalog import Table as DaftTable
+    
+    if not hasattr(DaftTable, "from_deltacat"):
+        @staticmethod
+        def from_deltacat(table: object) -> Table:
+            """Creates a Daft Table instance from a DeltaCAT table.
+            
+            Args:
+                table (object): DeltaCAT table object
+                
+            Returns:
+                Table: new daft table instance from the DeltaCAT table object.
+            """
+            return DeltaCATTable._from_obj(table)
+            
+        DaftTable.from_deltacat = from_deltacat
+
+    # Also update the Catalog._from_obj method to try DeltaCAT as well
+    original_from_obj = DaftCatalog._from_obj
+    
+    @staticmethod
+    def new_from_obj(obj: object) -> Catalog:
+        """Returns a Daft Catalog from a supported object type or raises a ValueError."""
+        try:
+            return original_from_obj(obj)
+        except ValueError:
+            try:
+                return DaftCatalog.from_deltacat(obj)
+            except (ValueError, ImportError):
+                raise ValueError(
+                    f"Unsupported catalog type: {type(obj)}; please ensure all required extra dependencies are installed."
+                )
+    
+    DaftCatalog._from_obj = new_from_obj
+
+
+# Apply the monkey patching when this module is imported
+_monkey_patch_daft_catalog()

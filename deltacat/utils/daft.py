@@ -2,7 +2,6 @@ import logging
 from typing import Optional, List, Any, Dict, Callable
 import daft
 import ray
-from daft.table import read_parquet_into_pyarrow
 from daft import TimeUnit, DataFrame
 from daft.io import IOConfig, S3Config
 import pyarrow as pa
@@ -10,7 +9,7 @@ import pyarrow as pa
 from deltacat import logs
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.schema import coerce_pyarrow_table_to_schema
-
+from daft.recordbatch import read_parquet_into_pyarrow
 from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.aws.constants import (
     BOTO_MAX_RETRIES,
