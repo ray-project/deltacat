@@ -31,7 +31,6 @@ class Catalog:
 
         Note: all initialization configuration MUST be pickle-able. When `Catalog` is pickled, _inner is excluded
           and instead we only pass impl/args/kwargs, which
-
         """
         if not isinstance(self, Catalog):
             # self may contain the tuple returned from __reduce__ (ray pickle bug?)
@@ -228,7 +227,7 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
 
 def put_catalog(
     name: str,
-    *args,
+    *,
     impl: ModuleType = DeltacatCatalog,
     catalog: Catalog = None,
     ray_init_args: Dict[str, Any] = None,
@@ -249,7 +248,7 @@ def put_catalog(
     from deltacat.catalog.model.catalog import all_catalogs
 
     if catalog is None:
-        catalog = Catalog(impl, *args, **kwargs)
+        catalog = Catalog(impl, **kwargs)
     elif catalog is not None and impl!=DeltacatCatalog:
         raise ValueError(f"PutCatalog call provided both `impl` and `catalog` parameters"
                          f"You may only provide one of these parameters")

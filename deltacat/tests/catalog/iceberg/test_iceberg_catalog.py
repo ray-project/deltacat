@@ -46,7 +46,7 @@ class TestIcebergCatalogInitialization:
         )
         # Initialize with the PyIceberg catalog
         deltacat.put_catalog(
-            catalog_name, deltacat.IcebergCatalog, **{"config": config}
+            catalog_name, impl=deltacat.IcebergCatalog, **{"config": config}
         )
 
         table_def = deltacat.create_table(
