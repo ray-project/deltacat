@@ -5,6 +5,8 @@ This file provides integration between DeltaCAT catalogs and Daft catalogs.
 
 from __future__ import annotations
 
+from typing import Tuple, Optional
+
 import deltacat
 from deltacat.catalog.model.catalog import Catalog as DCCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -12,7 +14,7 @@ from deltacat.catalog.model.table_definition import TableDefinition
 from daft.catalog import Catalog, Identifier, Table, TableSource
 from daft.dataframe import DataFrame
 from daft.logical.schema import Schema
-from deltacat.constants import DEFAULT_CATALOG
+from deltacat.constants import DEFAULT_CATALOG, DEFAULT_NAMESPACE
 
 
 class DeltaCATCatalog(Catalog):
@@ -91,16 +93,23 @@ class DeltaCATCatalog(Catalog):
 
         Refer to `deltacat.create_table` for full list of keyword arguments accepted by create_table.
 
+        This implementation is modeled after daft/catalog/_iceberg, in particular that the TableSource
+        input may be either a str/DataFrame/schema
+        
+        TODO (questions to discuss with Daft):
+        1. Can we expect that `identifier` is always populated? 
+            In that case, what is the purpose of `source` being a str?
+        2. Do we expect end users to call this function? Does it make sense to plumb kwargs through to DeltaCAT createTable?
+        3. What format do we expect identifier strings to be in?
+
         :param identifier: Daft table identifier. Sequence of strings of the format (namespace) or (namespace, table)
             or (namespace, table, table version)
-
-        TODO (mccember) support table version in table identifier
+        :param source: a TableSource, either a Daft DataFrame, Daft Schema, or str (expected to be table identifier?)
         """
 
-        """Create a new table in the catalog."""
         if isinstance(source, DataFrame):
             return self._create_table_from_df(identifier, source)
-        elif isinstance(source, str):
+        elif isinstance(source, str) or isinstance(source, Identifier):
             return self._create_table_from_path(identifier, source)
         elif isinstance(source, Schema):
             return self._create_table_from_schema(identifier, source)
@@ -108,9 +117,11 @@ class DeltaCATCatalog(Catalog):
             raise Exception(f"Unknown table source: {source}")
 
     def _create_table_from_df(self, ident: Identifier | str, source: DataFrame, **kwargs) -> Table:
-        """Create a table from a DataFrame."""
+        """
+        Create a table from a DataFrame.
+        """
         t = self._create_table_from_schema(ident, source.schema(), **kwargs)
-        t.append(source)
+        # TODO (mccember) append data upon creation
         return t
 
     def _create_table_from_path(self, ident: Identifier | str, source: str, **kwargs) -> Table:
@@ -118,15 +129,10 @@ class DeltaCATCatalog(Catalog):
         raise ValueError("table from path not yet supported")
 
     def _create_table_from_schema(self, ident: Identifier | str, source: Schema, **kwargs) -> Table:
-        """Create a table from a schema."""
-        # TODO update this code to also accept an identifier of the format (namespace,
-        if isinstance(ident, Identifier):
-            namespace = str(ident[0]) if len(ident) > 1 else None
-            table_name = str(ident[-1])
-        else:
-            # Assume string is just the table name and use default namespace
-            namespace = None
-            table_name = str(ident)
+        """
+        Create a table from a schema.
+        """
+        namespace, name, version = self._extract_namespace_name_version(ident)
 
         # Convert the Daft schema to a DeltaCAT schema
         # This is a simplified version, would need to be enhanced for production
@@ -134,14 +140,39 @@ class DeltaCATCatalog(Catalog):
 
         # Create the table in DeltaCAT
         table_def = self._inner.impl.create_table(
-            name=table_name,
+            name=name,
             namespace=namespace,
+            version=version,
             schema=deltacat_schema,
             inner=self._inner.inner,
             **kwargs
         )
         
         return DeltaCATTable._from_obj(table_def)
+
+    def _extract_namespace_name_version(self, ident: Identifier | str)-> Tuple[str, str, Optional[str]]:
+        """
+        Extract namespace, name,version from identifier
+
+        Returns a 3-tuple. If no namespace is provided, uses DeltaCAT defualt namespace
+        """
+        default_namespace = DEFAULT_NAMESPACE
+        if isinstance(ident, Identifier):
+            if len(ident)==1:
+                return (default_namespace, ident[0], None)
+            elif len(ident)==2:
+                return (ident[0], ident[1], None)
+            elif len(ident)==3:
+                return (ident[0], ident[1], ident[2])
+            else:
+                raise ValueError(f"Expected table identifier to be in format (table) or (namespace, table)"
+                                 f"or (namespace, table, version). Found: {ident}")
+        elif isinstance(ident, str):
+            # TODO (mccember) implement once format of string confirmed with Daft
+            raise ValueError("Usage of str identifier for DeltaCAT Daft tables not currently support")
+        else:
+            raise ValueError(f"Expected identifier for createTable to be either Daft Identifier or str. "
+                             f"Provided identifier was class: {type(ident)}")
 
     def _convert_schema_to_deltacat(self, schema: Schema):
         """Convert Daft schema to DeltaCAT schema.
