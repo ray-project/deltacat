@@ -93,7 +93,7 @@ class Schema(MutableMapping[str, Field]):
                 datatype=Datatype(**field_data["datatype"])
                 if isinstance(field_data["datatype"], dict)
                 else field_data["datatype"],
-                is_merge_key=field_data["is_merge_key"],
+                is_merge_key=field_data.get("is_merge_key", None),
             )
             for field_data in data["fields"]
         ]
