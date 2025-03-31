@@ -10,14 +10,18 @@ from deltacat.utils.filesystem import resolve_path_and_filesystem
 def get_catalog_properties(
     *args,
     catalog: Optional[CatalogProperties] = None,
+    inner: Optional[CatalogProperties] = None,
     **kwargs,
 ) -> CatalogProperties:
     """
-    Helper function to fetch CatalogProperties instance.
+    Helper function to fetch CatalogProperties instance. You are meant to call this by providing your functions
+    kwargs, OR to directly pass through CatalogProperty configuration keys like "root" in kwargs.
 
-    This just passes through to CatalogProperties constructor if `catalog` not specified
+    This will look for a CatalogProperty value in the kwargs "catalog" or "inner". If these are found, it returns
+    the CatalogProperty value under that kwarg. Otherwise, it will pass through kwargs to the CatalogProperties
+    constructor.
     """
-    properties = catalog
+    properties = catalog if catalog is not None else inner
     if properties is not None and isinstance(properties, CatalogProperties):
         return properties
     elif properties is not None and not isinstance(properties, CatalogProperties):
@@ -49,11 +53,14 @@ class CatalogProperties:
             reading/writing files. If None, a filesystem will be inferred from
             the catalog root path.
 
-        storage: Storage class implementation (defaults to default filesystem storage impl)
+        storage: Storage class implementation (overrides default filesystem storage impl)
     """
 
     def __init__(
         self,
+        root: Optional[str] = None,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        storage=None,
         *args,
         **kwargs,
     ):
@@ -68,9 +75,7 @@ class CatalogProperties:
                 against the provided path to ensure compatibility.
         """
         # set root, using precedence rules described in pydoc
-        if kwargs.get("root"):
-            root = kwargs.get("root")
-        else:
+        if root is None:
             # Check environment variables
             # This is set or defaulted in constants.py
             root = DELTACAT_ROOT
@@ -81,11 +86,11 @@ class CatalogProperties:
 
         resolved_root, resolved_filesystem = resolve_path_and_filesystem(
             path=root,
-            filesystem=kwargs.get("filesystem"),
+            filesystem=filesystem,
         )
         self._root = resolved_root
         self._filesystem = resolved_filesystem
-        self._storage = kwargs.get("storage", None)
+        self._storage = storage
 
     @property
     def root(self) -> str:

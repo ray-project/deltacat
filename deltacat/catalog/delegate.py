@@ -45,7 +45,7 @@ def write_to_table(
         namespace=namespace,
         mode=mode,
         content_type=content_type,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -63,7 +63,7 @@ def read_table(
         table,
         *args,
         namespace=namespace,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -93,7 +93,7 @@ def alter_table(
         sort_keys=sort_keys,
         description=description,
         properties=properties,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -132,7 +132,7 @@ def create_table(
         namespace_properties=namespace_properties,
         content_types=content_types,
         fail_if_exists=fail_if_exists,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -155,7 +155,7 @@ def drop_table(
         namespace=namespace,
         table_version=table_version,
         purge=purge,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -173,7 +173,7 @@ def refresh_table(
         table,
         *args,
         namespace=namespace,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -187,7 +187,7 @@ def list_tables(
     return catalog_obj.impl.list_tables(
         *args,
         namespace=namespace,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -210,7 +210,7 @@ def get_table(
         namespace=namespace,
         table_version=table_version,
         stream_format=stream_format,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -228,7 +228,7 @@ def truncate_table(
         table,
         *args,
         namespace=namespace,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -248,7 +248,7 @@ def rename_table(
         new_name,
         *args,
         namespace=namespace,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -266,7 +266,7 @@ def table_exists(
         table,
         *args,
         namespace=namespace,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -279,7 +279,7 @@ def list_namespaces(
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.list_namespaces(
         *args,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -296,7 +296,7 @@ def get_namespace(
     return catalog_obj.impl.get_namespace(
         namespace,
         *args,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -312,7 +312,7 @@ def namespace_exists(
     return catalog_obj.impl.namespace_exists(
         namespace,
         *args,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -331,7 +331,7 @@ def create_namespace(
         namespace,
         *args,
         properties=properties,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -351,7 +351,7 @@ def alter_namespace(
         *args,
         properties=properties,
         new_namespace=new_namespace,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -366,7 +366,7 @@ def drop_namespace(
         namespace,
         *args,
         purge=purge,
-        catalog=catalog_obj.native_object,
+        inner=catalog_obj.inner,
         **kwargs,
     )
 
@@ -374,6 +374,4 @@ def drop_namespace(
 def default_namespace(*args, catalog: Optional[str] = None, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
     catalog_obj = get_catalog(catalog)
-    return catalog_obj.impl.default_namespace(
-        *args, catalog=catalog_obj.native_object, **kwargs
-    )
+    return catalog_obj.impl.default_namespace(*args, inner=catalog_obj.inner, **kwargs)

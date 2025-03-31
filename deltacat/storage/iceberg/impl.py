@@ -52,14 +52,14 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _get_native_catalog(**kwargs) -> Catalog:
-    catalog: Catalog = kwargs.get("catalog")
-    if not isinstance(catalog, Catalog):
+    inner = kwargs.get("inner")
+    if not isinstance(inner, Catalog):
+        inner_type = "None" if inner is None else type(inner).__name__
         err_msg = (
-            f"unsupported `catalog` param type: `{type(Catalog)}`. "
-            f"expected `catalog` param type: {Catalog}"
+            f"Expected `inner` kwarg of type: `{Catalog}`. Found type: `{inner_type}`"
         )
-        raise TypeError(err_msg)
-    return catalog
+        raise ValueError(err_msg)
+    return inner
 
 
 def _to_identifier(namespace: str, table_name: str) -> Identifier:

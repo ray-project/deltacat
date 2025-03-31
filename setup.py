@@ -34,14 +34,17 @@ setuptools.setup(
     url="https://github.com/ray-project/deltacat",
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     extras_require={
-        "iceberg": ["pyiceberg[glue] >= 0.6.0"],
-        # "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
+        "iceberg": [
+            "pyiceberg[glue] >= 0.9.0",
+            "pyiceberg[hive] >= 0.9.0",
+            "pyiceberg[sql-sqlite] >= 0.9.0",
+        ],
     },
     install_requires=[
         # any changes here should also be reflected in requirements.txt
         "aws-embedded-metrics == 3.2.0",
         "boto3 ~= 1.34",
-        "getdaft == 0.3.6",
+        "getdaft >= 0.4.8",
         "intervaltree == 3.1.0",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
