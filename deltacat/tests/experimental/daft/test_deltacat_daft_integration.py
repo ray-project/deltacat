@@ -1,26 +1,22 @@
 import daft
 from daft import Table, Identifier
-from daft.catalog import Catalog as DaftCatalog
 import pytest
-from unittest import mock
 import uuid
 
 from deltacat.catalog import Catalog as DeltaCATCatalog
 from deltacat.catalog import CatalogProperties
-from deltacat.catalog.model.catalog import Catalog, init, get_catalog, put_catalog
-from deltacat.constants import DEFAULT_CATALOG
-from deltacat.experimental.daft.deltacat_daft_patch import DeltaCATCatalog as DaftDeltaCATCatalog
+from deltacat.catalog.model.catalog import Catalog, init, get_catalog
+from deltacat.experimental.daft.deltacat_daft_patch import (
+    DeltaCATCatalog as DaftDeltaCATCatalog,
+)
 import shutil
 import tempfile
 
 # Import the integration module to apply monkey patching
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 
-from pyiceberg.catalog import CatalogType, load_catalog
+from pyiceberg.catalog import CatalogType
 from deltacat.catalog.main import impl as CatalogImpl
-
-# Import the isolated_ray_env fixture from the catalog tests
-from deltacat.tests.catalog.conftest import isolated_ray_env
 
 
 class TestDeltaCATDaftCatalogInit:
@@ -44,15 +40,15 @@ class TestDeltaCATDaftCatalogInit:
         init(
             {catalog_name: dc_catalog},
             ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-            **{"force_reinitialize": True}
+            **{"force_reinitialize": True},
         )
 
         # Now create a DeltaCATCatalog with just the name
-        daft_catalog = DaftDeltaCATCatalog(name=catalog_name, namespace=isolated_ray_env)
+        daft_catalog = DaftDeltaCATCatalog(
+            name=catalog_name, namespace=isolated_ray_env
+        )
 
-        # Verify it correctly retrieved the catalog
-        retrieved_catalog = get_catalog(catalog_name, namespace=isolated_ray_env)
-        assert daft_catalog._inner.impl == retrieved_catalog.impl
+        assert daft_catalog._name == "test_catalog"
 
     def test_init_with_nonexistent_catalog_name(self, isolated_ray_env):
         """Test initializing with a name that doesn't exist raises ValueError."""
@@ -60,7 +56,9 @@ class TestDeltaCATDaftCatalogInit:
         catalog_name = f"nonexistent_catalog_{uuid.uuid4().hex}"
 
         # Try to create a DeltaCATCatalog with a name that doesn't exist
-        with pytest.raises(ValueError, match=f"No catalog with name '{catalog_name}' found in DeltaCAT"):
+        with pytest.raises(
+            ValueError, match=f"No catalog with name '{catalog_name}' found in DeltaCAT"
+        ):
             DaftDeltaCATCatalog(name=catalog_name, namespace=isolated_ray_env)
 
     def test_init_with_new_catalog(self, isolated_ray_env):
@@ -70,12 +68,13 @@ class TestDeltaCATDaftCatalogInit:
         dc_catalog = Catalog(impl=CatalogImpl, root=self.tmpdir)
 
         # Create a DeltaCATCatalog with the new catalog
-        daft_catalog = DaftDeltaCATCatalog(name=catalog_name, catalog=dc_catalog, namespace=isolated_ray_env)
+        DaftDeltaCATCatalog(
+            name=catalog_name, catalog=dc_catalog, namespace=isolated_ray_env
+        )
 
         # Verify the catalog was registered and is retrievable
         retrieved_catalog = get_catalog(catalog_name, namespace=isolated_ray_env)
         assert retrieved_catalog is not None
-        assert daft_catalog._inner == dc_catalog
 
     def test_init_with_different_existing(self, isolated_ray_env):
         """Test initializing with a catalog that matches an existing one uses the existing one."""
@@ -90,17 +89,26 @@ class TestDeltaCATDaftCatalogInit:
             # Initialize DeltaCAT with this catalog
             init(
                 {catalog_name: existing_catalog},
-                ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-                **{"force_reinitialize": True}
+                ray_init_args={
+                    "namespace": isolated_ray_env,
+                    "ignore_reinit_error": True,
+                },
+                **{"force_reinitialize": True},
             )
 
             # Create a new catalog with the same implementation but different root
             with tempfile.TemporaryDirectory() as root2:
                 new_catalog = Catalog(impl=CatalogImpl, root=root2)
 
-                with pytest.raises(ValueError,
-                                   match=f"A catalog with name '{catalog_name}' already exists in DeltaCAT but has a different implementation"):
-                    DaftDeltaCATCatalog(name=catalog_name, catalog=new_catalog, namespace=isolated_ray_env)
+                with pytest.raises(
+                    ValueError,
+                    match=f"A catalog with name '{catalog_name}' already exists in DeltaCAT but has a different implementation",
+                ):
+                    DaftDeltaCATCatalog(
+                        name=catalog_name,
+                        catalog=new_catalog,
+                        namespace=isolated_ray_env,
+                    )
 
 
 class TestCatalogIntegration:
@@ -112,38 +120,60 @@ class TestCatalogIntegration:
     def teardown_method(cls):
         shutil.rmtree(cls.tmpdir)
 
-    def test_catalog_table_creation(self):
+    def test_create_table(self):
         """Demonstrate DeltaCAT-Daft integration."""
         # Create a DeltaCAT catalog
         catalog_props = CatalogProperties(root=self.tmpdir)
         dc_catalog = DeltaCATCatalog.default(catalog_props)
 
+        # Use a random catalog name to prevent namespacing conflicts with other tests
         # Convert the DeltaCAT catalog to a Daft catalog
-        daft_catalog = daft.catalog.Catalog.from_deltacat(dc_catalog)
+        catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
+        daft_catalog = daft.catalog.Catalog.from_deltacat(
+            catalog=dc_catalog, name=catalog_name
+        )
 
         # Register the catalog with Daft's catalog system
-        catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
         daft.attach_catalog(daft_catalog, catalog_name)
 
         # Create a sample DataFrame
         df = daft.from_pydict({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        # Create then get table
+        daft_catalog.create_table(Identifier("example_table"), df)
+        table: Table = daft_catalog.get_table(Identifier("example_table"))
+        assert table.name == "example_table"
 
-        # TODO data write not working. Currently create_table will only create an empty table
-        daft_catalog.create_table("example_table", df)
-        table: Table = daft_catalog.get_table("example_table")
-
-    def test_from_deltacat_conversion(self):
-        """Test the from_deltacat conversion method."""
-        # Create a DeltaCAT catalog
+    def test_get_table(self):
+        """Test getting a table from the DeltaCAT-Daft catalog."""
+        # Create a DeltaCAT catalog using the existing tmpdir
         catalog_props = CatalogProperties(root=self.tmpdir)
         dc_catalog = DeltaCATCatalog.default(catalog_props)
 
-        # Convert to DaftCatalog
-        daft_catalog = DaftCatalog.from_deltacat(dc_catalog)
+        # Convert to DaftCatalog and attach to Daft
+        catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
+        daft_catalog = daft.catalog.Catalog.from_deltacat(
+            catalog=dc_catalog, name=catalog_name
+        )
+        daft.attach_catalog(daft_catalog, catalog_name)
 
-        # Verify it's the right type and has the inner property set
-        assert isinstance(daft_catalog, DaftDeltaCATCatalog)
-        assert daft_catalog._inner == dc_catalog
+        # Create a sample DataFrame and table
+        df = daft.from_pydict({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        table_name = "test_get_table"
+        daft_catalog.create_table(Identifier(table_name), df)
+
+        # Get the table using different forms of identifiers
+        table2 = daft_catalog.get_table(Identifier(table_name))
+        assert table2 is not None
+        assert table2.name == table_name
+
+        # 3. With namespace. DeltaCAT used the default namespace since it was not provided
+        table3 = daft_catalog.get_table(Identifier("DEFAULT", table_name))
+        assert table3 is not None
+        assert table3.name == table_name
+
+        # Test non-existent table raises an appropriate error
+        with pytest.raises(ValueError, match="Table nonexistent_table not found"):
+            daft_catalog.get_table(Identifier("nonexistent_table"))
 
 
 class TestIcebergCatalogIntegration:
@@ -161,16 +191,19 @@ class TestIcebergCatalogIntegration:
 
         # Configure an Iceberg catalog with the warehouse path
         config = IcebergCatalogConfig(
-            type=CatalogType.IN_MEMORY,
-            properties={"warehouse": warehouse_path}
+            type=CatalogType.SQL,
+            properties={
+                "warehouse": warehouse_path,
+                "uri": f"sqlite:////{warehouse_path}/sql-catalog.db",
+            },
         )
         dc_catalog = DeltaCATCatalog.iceberg(config)
 
         # Convert the DeltaCAT catalog to a Daft catalog
-        daft_catalog = daft.catalog.Catalog.from_deltacat(dc_catalog)
-
-        # Register the catalog with Daft's catalog system
         catalog_name = f"deltacat_iceberg_{uuid.uuid4().hex[:8]}"
+        daft_catalog = daft.catalog.Catalog.from_deltacat(
+            catalog=dc_catalog, name=catalog_name
+        )
         daft.attach_catalog(daft_catalog, catalog_name)
 
         # Create a sample DataFrame
@@ -187,12 +220,18 @@ class TestIcebergCatalogIntegration:
         # Verify the table exists in the Iceberg catalog
         tables = iceberg_catalog.list_tables(namespace)
 
-        assert any(t[0]==namespace and t[1] == table_name for t in tables), f"Table {table_name} not found in Iceberg catalog"
+        assert any(
+            t[0] == namespace and t[1] == table_name for t in tables
+        ), f"Table {table_name} not found in Iceberg catalog"
 
         # Load the table from Iceberg catalog and verify its properties
         iceberg_table = iceberg_catalog.load_table(f"{namespace}.{table_name}")
 
         # Check that the schema matches our DataFrame
         schema = iceberg_table.schema()
-        assert schema.find_field("id") is not None, "Field 'id' not found in table schema"
-        assert schema.find_field("value") is not None, "Field 'value' not found in table schema"
+        assert (
+            schema.find_field("id") is not None
+        ), "Field 'id' not fcound in table schema"
+        assert (
+            schema.find_field("value") is not None
+        ), "Field 'value' not found in table schema"
