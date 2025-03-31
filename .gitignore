@@ -29,6 +29,7 @@ MANIFEST
 package-lock.json
 *.db
 pyvenv.cfg
+**/.deltacat
 
 # Generated Files
 **/.riv-meta-*

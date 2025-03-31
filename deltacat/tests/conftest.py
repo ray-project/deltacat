@@ -21,6 +21,7 @@ def isolated_ray_env(request):
 
     # Reset the global catalog registry state for this namespace
     from deltacat.catalog.model.catalog import catalog_registry
+
     if namespace in catalog_registry:
         del catalog_registry[namespace]
 
