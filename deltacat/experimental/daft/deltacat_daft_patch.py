@@ -12,29 +12,50 @@ from deltacat.catalog.model.table_definition import TableDefinition
 from daft.catalog import Catalog, Identifier, Table, TableSource
 from daft.dataframe import DataFrame
 from daft.logical.schema import Schema
+from deltacat.constants import DEFAULT_CATALOG
 
 
 class DeltaCATCatalog(Catalog):
     _inner: DCCatalog
 
     def __init__(self,
-                 deltacat_catalog: DCCatalog):
+                 *,
+                 name: str = DEFAULT_CATALOG,
+                 catalog: DCCatalog = None,
+                 **kwargs):
         """
         Initialize given DeltaCAT catalog.
 
         This catalog is also registered with DeltaCAT (via deltacat.put_catalog) given the provided Name
+
+        :param catalog: DeltaCAT Catalog object. If None, the catalog will be fetched from `deltacat.Catalogs` given the catalog name.
+
+        :param name: Name of DeltaCAT catalog. If the name is not yet registered with `deltacat.Catalogs`, it will be registered upon creation to ensure that the DeltaCAT and Daft catalogs keep in sync.
+
+        :param kwargs: Additional keyword arguments passed to deltacat.get_catalog or deltacat.put_catalog,
+                       such as 'namespace' for tests.
         """
-        self._inner = deltacat_catalog
+        if catalog is None:
+            # Only name is provided, try to get the catalog from DeltaCAT
+            try:
+                self._inner = deltacat.get_catalog(name, **kwargs)
+            except KeyError:
+                raise ValueError(f"No catalog with name '{name}' found in DeltaCAT. Please provide a catalog instance or ensure a catalog with this name exists.")
+        else:
+            # Both name and catalog are provided
+            try:
+                # Check if catalog already exists in DeltaCAT
+                existing_catalog = deltacat.get_catalog(name, **kwargs)
+                # Validate that the existing catalog is equivalent to the provided one
+                if existing_catalog != catalog:
+                    raise ValueError(f"A catalog with name '{name}' already exists in DeltaCAT but has a different implementation.")
+                # Use the existing catalog for consistency
+                self._inner = existing_catalog
+            except KeyError:
+                # Catalog doesn't exist, add it
+                deltacat.put_catalog(name, catalog=catalog, **kwargs)
+                self._inner = catalog
 
-
-    @staticmethod
-    def _from_obj(obj: object) -> DeltaCATCatalog:
-        """Returns a DeltaCATCatalog instance if the given object can be adapted so."""
-        if isinstance(obj, DCCatalog):
-            c = DeltaCATCatalog.__new__(DeltaCATCatalog)
-            c._inner = obj
-            return c
-        raise ValueError(f"Unsupported DeltaCAT catalog type: {type(obj)}")
 
     @staticmethod
     def _from_obj(obj: object) -> DeltaCATCatalog:
@@ -64,11 +85,19 @@ class DeltaCATCatalog(Catalog):
             namespace=identifier, inner=self._inner.inner
         )
 
-    def create_table(self, identifier: Identifier | str, source: TableSource | object) -> Table:
+    def create_table(self, identifier: Identifier | str, source: TableSource | object, **kwargs) -> Table:
+        """
+        Create a DeltaCAT table via Daft catalog API
 
+        Refer to `deltacat.create_table` for full list of keyword arguments accepted by create_table.
+
+        :param identifier: Daft table identifier. Sequence of strings of the format (namespace) or (namespace, table)
+            or (namespace, table, table version)
+
+        TODO (mccember) support table version in table identifier
+        """
 
         """Create a new table in the catalog."""
-
         if isinstance(source, DataFrame):
             return self._create_table_from_df(identifier, source)
         elif isinstance(source, str):
@@ -78,18 +107,19 @@ class DeltaCATCatalog(Catalog):
         else:
             raise Exception(f"Unknown table source: {source}")
 
-    def _create_table_from_df(self, ident: Identifier | str, source: DataFrame) -> Table:
+    def _create_table_from_df(self, ident: Identifier | str, source: DataFrame, **kwargs) -> Table:
         """Create a table from a DataFrame."""
-        t = self._create_table_from_schema(ident, source.schema())
+        t = self._create_table_from_schema(ident, source.schema(), **kwargs)
         t.append(source)
         return t
 
-    def _create_table_from_path(self, ident: Identifier | str, source: str) -> Table:
+    def _create_table_from_path(self, ident: Identifier | str, source: str, **kwargs) -> Table:
         """Create a table from a path."""
         raise ValueError("table from path not yet supported")
 
-    def _create_table_from_schema(self, ident: Identifier | str, source: Schema) -> Table:
+    def _create_table_from_schema(self, ident: Identifier | str, source: Schema, **kwargs) -> Table:
         """Create a table from a schema."""
+        # TODO update this code to also accept an identifier of the format (namespace,
         if isinstance(ident, Identifier):
             namespace = str(ident[0]) if len(ident) > 1 else None
             table_name = str(ident[-1])
@@ -108,6 +138,7 @@ class DeltaCATCatalog(Catalog):
             namespace=namespace,
             schema=deltacat_schema,
             inner=self._inner.inner,
+            **kwargs
         )
         
         return DeltaCATTable._from_obj(table_def)
