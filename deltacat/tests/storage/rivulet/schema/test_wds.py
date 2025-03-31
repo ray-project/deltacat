@@ -18,17 +18,21 @@ def test_schema_values():
 def test_t():
     # cwd = pathlib.Path.cwd()
     # csv_file_path = cwd / "data.csv"
-    tar_path = "./imagenet1k-train-0000.tar"
-
     # ds = Dataset.from_csv(
-    #     name="chat",
-    #     file_uri=tar_path,
-    #     metadata_uri=cwd.as_uri(),
-    #     merge_keys="msg_id"
+        # name="chat",
+        # file_uri=tar_path,
+        # metadata_uri=cwd.as_uri(),
+        # merge_keys="msg_id"
     # )
 
-    s = Schema.from_webdataset_schema(tar_path)
-    for f in s:
-        print(f)
-    assert False
-
+    tar_path = "./imagenet1k-train-0000.tar"
+    dataset = Dataset.from_webdataset(
+        name="test",
+        file_uri=tar_path,
+        merge_keys="filename"
+    )
+    assert "label" in dataset.fields
+    assert "width" in dataset.fields
+    assert "height" in dataset.fields
+    assert "filename" in dataset.fields
+    assert len(dataset.fields) == 4

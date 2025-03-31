@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import itertools
+import math
 import posixpath
+import tarfile
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
 import pyarrow.fs
@@ -480,7 +482,7 @@ class Dataset:
         cls,
         name: str,
         file_uri: str,
-        merge_keys: str | Iterable[str],
+        merge_keys: str | Iterable[str] = None,
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
@@ -494,7 +496,7 @@ class Dataset:
         Args:
             name: Unique identifier for the dataset.
             metadata_uri: Base URI for the dataset, where dataset metadata is stored. If not specified, will be placed in ${file_uri}/riv-meta
-            file_uri: Path to a single JSON file.
+            file_uri: Path to a single webdataset file.
             merge_keys: Fields to specify as merge keys for future 'zipper merge' operations on the dataset.
             schema_mode: Currently ignored as this is for a single file.
 
@@ -517,16 +519,34 @@ class Dataset:
                     "File URI and metadata URI must be on the same filesystem."
                 )
 
-        # Read the JSON file into a PyArrow Table
-        # TODO: adapt this to wds
-        pyarrow_table = pyarrow.json.read_json(file_uri, filesystem=file_fs)
-        pyarrow_schema = pyarrow_table.schema
+        # Start with a blank schema.
+        dataset_schema = Schema()
 
-        # Create the webdataset schema
-        dataset_schema = Schema.from_webdataset_schema(file_uri)
-        # TODO: make sure schema is formatted correctly for dataset creation
+        with tarfile.open(file_uri, "r") as tar:
+            tar_members = tar.getmembers()
+            current_batch = None
+            reading_frame_size = 1 #TODO: made each batch size 1 for now.
+            total_batches = math.ceil(len(tar_members) / reading_frame_size)
 
-        # TODO: Create the Dataset instance
+            for i in range(total_batches):
+                reading_frame_start = i * reading_frame_size
+                reading_frame_end = reading_frame_start + reading_frame_size
+                for member in tar_members[reading_frame_start:reading_frame_end]:
+                    if member.isfile() and member.name.endswith(".json"):
+                        f = tar.extractfile(member)
+                        if f:
+                            try:
+                                # Concat json with current batch.
+                                pyarrow_table = pyarrow.json.read_json(f)
+                                if current_batch is None:
+                                    current_batch = pyarrow_table
+                                else:
+                                    current_batch = pa.concat_tables([current_batch, pyarrow_table])
+                            except Exception as e:
+                                print("error:", e)
+                            
+                            dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))  #convert schema for current pyarrow tables into full webdataset schema
+
         dataset = cls(
             dataset_name=name,
             metadata_uri=metadata_uri,
@@ -534,11 +554,9 @@ class Dataset:
             filesystem=file_fs,
             namespace=namespace,
         )
-
         writer = dataset.writer()
-        writer.write(pyarrow_table.to_batches())
+        writer.write(current_batch.to_batches())
         writer.flush()
-
         return dataset
 
     @classmethod
@@ -781,7 +799,6 @@ class Dataset:
         :return: new dataset writer with a schema at the conjunction of the given schemas
         """
         schema_name = schema_name or ALL
-
         return MemtableDatasetWriter(
             self._file_provider, self.schemas[schema_name], self._locator, file_format
         )
