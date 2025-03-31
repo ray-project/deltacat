@@ -627,5 +627,5 @@ def merge(input: MergeInput) -> MergeResult:
             merge_result[3],
             merge_result[4],
             np.double(emit_metrics_time),
-            merge_result[4],
+            merge_result[6],
         )
