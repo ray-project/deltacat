@@ -7,7 +7,6 @@ from daft import DataFrame
 from deltacat import logs
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.exceptions import TableAlreadyExistsError
-from deltacat.storage.iceberg.impl import _get_native_catalog
 from deltacat.storage.iceberg.model import PartitionSchemeMapper, SchemaMapper
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.storage.model.sort_key import SortScheme
@@ -26,11 +25,36 @@ from deltacat.storage.iceberg import impl as IcebergStorage
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
 from deltacat.constants import DEFAULT_NAMESPACE
+from deltacat.catalog.iceberg.iceberg_catalog_config import IcebergCatalogConfig
 
-from pyiceberg.catalog import load_catalog
+from pyiceberg.catalog import Catalog, load_catalog
 from pyiceberg.transforms import BucketTransform
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+# catalog functions
+def initialize(*args, config: IcebergCatalogConfig, **kwargs) -> Catalog:
+    """
+    Initializes an Iceberg catalog with the given config.
+
+    NOTE: because PyIceberg catalogs are not pickle-able, we cannot accept them as catalog initialization parameters,
+    since catalog initialization parameters are passed to Ray actors (see: :class:`deltacat.catalog.Catalogs`)
+
+    Args:
+        **kwargs: Arguments to be passed to PyIceberg Catalog.
+            If 'catalog' is provided as a PyIceberg Catalog instance, it will be used directly.
+            Otherwise, the arguments will be used to load a catalog via pyiceberg.catalog.load_catalog.
+
+    Returns:
+        IcebergCatalogConfig: Configuration wrapper containing the PyIceberg Catalog.
+    """
+
+    # If no catalog is provided, try to load one with PyIceberg
+
+    load_catalog_args = {"type": config.type.value, **config.properties, **kwargs}
+    catalog = load_catalog(**load_catalog_args)
+    return catalog
 
 
 # table functions
@@ -51,8 +75,6 @@ def write_to_table(
     an existing table, all `alter_table` parameters may be optionally specified
     as additional keyword arguments."""
 
-    catalog = _get_native_catalog(**kwargs)
-
     # TODO (pdames): derive schema automatically from data if not
     #  explicitly specified in kwargs, and table needs to be created
     # kwargs["schema"] = kwargs["schema"] or derived_schema
@@ -60,12 +82,12 @@ def write_to_table(
     table_definition = (
         create_table(
             table,
-            *args,
             namespace=namespace,
+            *args,
             **kwargs,
         )
         if (mode == TableWriteMode.AUTO or mode == TableWriteMode.CREATE)
-        else get_table(table, *args, namespace=namespace, catalog=catalog, **kwargs)
+        else get_table(table, namespace=namespace, *args, **kwargs)
     )
 
     # TODO(pdames): Use native DeltaCAT models to map from Iceberg partitioning to Daft partitioning...
@@ -155,16 +177,13 @@ def create_table(
     fail_if_exists: bool = True,
     **kwargs,
 ) -> TableDefinition:
-    """Create an empty table. Raises an error if the table already exists and
-    `fail_if_exists` is True (default behavior)."""
+    """Create an empty table in the catalog"""
 
     namespace = namespace or default_namespace()
-    catalog = _get_native_catalog(**kwargs)
     existing_table = get_table(
         name,
         *args,
         namespace=namespace,
-        catalog=catalog,
         **kwargs,
     )
     if existing_table:
@@ -179,15 +198,12 @@ def create_table(
             logger.debug(f"Returning existing table: `{namespace}.{name}`")
             return existing_table
 
-    if not IcebergStorage.namespace_exists(
-        namespace,
-        catalog=catalog,
-    ):
+    if not IcebergStorage.namespace_exists(namespace, **kwargs):
         logger.debug(f"Namespace {namespace} doesn't exist. Creating it...")
         IcebergStorage.create_namespace(
             namespace,
             properties=namespace_properties or {},
-            catalog=catalog,
+            **kwargs,
         )
 
     IcebergStorage.create_table_version(
@@ -200,11 +216,11 @@ def create_table(
         table_properties=table_properties,
         **kwargs,
     )
+
     return get_table(
         name,
         *args,
         namespace=namespace,
-        catalog=catalog,
         **kwargs,
     )
 
@@ -243,31 +259,33 @@ def get_table(
     stream_format: StreamFormat = StreamFormat.DELTACAT,
     **kwargs,
 ) -> Optional[TableDefinition]:
-    """Get table definition metadata. Returns None if the given table does not
-    exist."""
+    """Get table definition metadata.
+
+    Args:
+        name: Name of the table to retrieve
+        namespace: Optional namespace of the table. Uses default namespace if not specified.
+        table_version: Optional specific version of the table to retrieve.
+            If not specified, the latest version is used.
+        stream_format: Optional stream format to retrieve
+
+    Returns:
+        Deltacat TableDefinition if the table exists, None otherwise.
+    """
     namespace = namespace or default_namespace()
-    catalog = _get_native_catalog(**kwargs)
-    stream = IcebergStorage.get_stream(
-        namespace=namespace, table_name=name, catalog=catalog
-    )
+    stream = IcebergStorage.get_stream(namespace=namespace, table_name=name, **kwargs)
     if not stream:
         return None
-    table_obj = IcebergStorage.get_table(
-        namespace=namespace, table_name=name, catalog=catalog
-    )
+    table_obj = IcebergStorage.get_table(namespace=namespace, table_name=name, **kwargs)
     if not table_obj:
         return None
     table_version_obj = None
     if table_version:
         table_version_obj = IcebergStorage.get_table_version(
-            namespace=namespace,
-            table_name=name,
-            table_version=table_version,
-            catalog=catalog,
+            namespace=namespace, table_name=name, table_version=table_version, **kwargs
         )
     else:
         table_version_obj = IcebergStorage.get_latest_table_version(
-            namespace=namespace, table_name=name, catalog=catalog
+            namespace=namespace, table_name=name, **kwargs
         )
     if not table_version_obj:
         return None
@@ -296,7 +314,7 @@ def rename_table(
 def table_exists(table: str, *args, namespace: Optional[str] = None, **kwargs) -> bool:
     """Returns True if the given table exists, False if not."""
     namespace = namespace or default_namespace()
-    return IcebergStorage.table_exists(namespace=namespace, table_name=table)
+    return IcebergStorage.table_exists(namespace=namespace, table_name=table, **kwargs)
 
 
 # namespace functions
@@ -308,12 +326,12 @@ def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
 def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
     """Gets table namespace metadata for the specified table namespace. Returns
     None if the given namespace does not exist."""
-    return IcebergStorage.get_namespace(namespace)
+    return IcebergStorage.get_namespace(namespace, **kwargs)
 
 
 def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     """Returns True if the given table namespace exists, False if not."""
-    return IcebergStorage.namespace_exists(namespace)
+    return IcebergStorage.namespace_exists(namespace, **kwargs)
 
 
 def create_namespace(
@@ -344,14 +362,3 @@ def drop_namespace(namespace: str, *args, purge: bool = False, **kwargs) -> None
 def default_namespace(*args, **kwargs) -> str:
     """Returns the default namespace for the catalog."""
     return DEFAULT_NAMESPACE
-
-
-# catalog functions
-def initialize(*args, **kwargs) -> Optional[Any]:
-    """Initializes the data catalog by forwarding the given arguments to
-    :meth:`pyiceberg.catalog.load_catalog`. Returns the Iceberg Catalog."""
-    catalog = load_catalog(
-        name=kwargs.get("name"),
-        **kwargs.get("properties"),
-    )
-    return catalog

@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List, Union
+from typing import Optional, Dict, List, Union, Tuple
 
 import pyarrow as pa
 from pyiceberg.catalog.rest import NAMESPACE_SEPARATOR
@@ -170,7 +170,7 @@ def _resolve_table_version(
 def _get_current_schema_for_meta(meta: TableMetadata) -> IcebergSchema:
     schema_id = meta.current_schema_id
     try:
-        return next(schema for schema in meta.schemas if schema.id == schema_id)
+        return next(schema for schema in meta.schemas if schema.schema_id == schema_id)
     except StopIteration as e:
         err_msg = f"No table schema with ID: {schema_id}"
         raise ValueError(err_msg) from e
@@ -279,7 +279,6 @@ class PartitionKeyMapper(ModelMapper[PartitionField, PartitionKey]):
         field = schema.find_field(name_or_id=obj.source_id)
         return PartitionKey.of(
             key=[field.name],
-            key_types=[str(field.field_type)],
             name=obj.name,
             field_id=obj.field_id,
             transform=TransformMapper.map(obj.transform),
@@ -343,7 +342,9 @@ class PartitionSchemeMapper(ModelMapper[PartitionSpec, PartitionScheme]):
         if not schema:
             err_msg = "Schema is required for Partition Scheme conversion."
             raise ValueError(err_msg)
-        fields = [PartitionKeyMapper.unmap(key, schema, case_sensitive) for key in obj]
+        fields = [
+            PartitionKeyMapper.unmap(key, schema, case_sensitive) for key in obj.keys
+        ]
         return PartitionSpec(
             fields=fields,
             spec_id=int(obj.id),
@@ -486,7 +487,7 @@ class SchemaMapper(ModelMapper[IcebergSchema, Schema]):
         if obj is None:
             return None
         if isinstance(obj.arrow, pa.Schema):
-            schema = pyarrow_to_schema(obj)
+            schema = pyarrow_to_schema(obj.arrow)
             final_fields = []
             for field in obj.field_ids_to_fields.values():
                 iceberg_field = schema.find_field(field.id)
@@ -500,12 +501,13 @@ class SchemaMapper(ModelMapper[IcebergSchema, Schema]):
                     write_default=field.future_default,
                 )
                 final_fields.append(final_field)
+            # TODO (pmingshi): this code was changed as a hack to get schema conversion working
+            # it still needs more testing
             iceberg_schema = IcebergSchema(
                 fields=final_fields,
-                schema_id=obj.linked_schema_ids.get(stream_locator, INITIAL_SCHEMA_ID)
-                if obj.linked_schema_ids is not None
-                else INITIAL_SCHEMA_ID,
-                identifier_field_ids=obj.merge_keys,
+                schema_id=INITIAL_SCHEMA_ID,
+                # identifier_field_ids=obj.merge_keys,
+                identifier_field_ids=[],
             )
         else:
             err_msg = (
@@ -523,13 +525,15 @@ class NamespaceLocatorMapper(
     def map(
         obj: Optional[Union[Identifier, IcebergNamespace]], **kwargs
     ) -> Optional[NamespaceLocator]:
+        namespace = None
         if obj is None:
             return None
-        namespace = (
-            NAMESPACE_SEPARATOR.join(obj.namespace.root[1:])
-            if isinstance(obj, IcebergNamespace)
-            else ".".join(Catalog.namespace_from(obj))
-        )
+        elif isinstance(obj, IcebergNamespace):
+            namespace = NAMESPACE_SEPARATOR.join(obj.namespace.root[1:])
+        elif isinstance(obj, Tuple):
+            # In Iceberg, Tuple identifiers are of the form (namespace) or (namespace, table)
+            # In this case, just take the first element of the tuple
+            namespace = obj[0]
         if not namespace:
             err_msg = f"No namespace in identifier: {obj}"
             raise NamespaceNotFoundError(err_msg)
@@ -597,7 +601,7 @@ class TableMapper(OneWayModelMapper[IcebergTable, Table]):
     ) -> Optional[Table]:
         if obj is None:
             return None
-        locator = TableLocatorMapper.map(obj.identifier)
+        locator = TableLocatorMapper.map(obj.name())
         return Table.of(
             locator=locator,
             description=None,
@@ -615,7 +619,7 @@ class TableVersionLocatorMapper(OneWayModelMapper[IcebergTable, TableVersionLoca
             return None
         table_version = _resolve_table_version(obj.metadata, timestamp)
         return TableVersionLocator.of(
-            table_locator=TableLocatorMapper.map(obj.identifier),
+            table_locator=TableLocatorMapper.map(obj.name()),
             table_version=str(table_version),
         )
 
