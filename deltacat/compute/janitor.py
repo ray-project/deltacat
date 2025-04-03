@@ -10,16 +10,22 @@ from deltacat.constants import (
     CURRENTLY_CLEANING,
     SUCCESSFULLY_CLEANED,
     TIMEOUT_TXN,
-    TXN_DIR_NAME, 
-    RUNNING_TXN_DIR_NAME, 
-    FAILED_TXN_DIR_NAME, 
+    TXN_DIR_NAME,
+    RUNNING_TXN_DIR_NAME,
+    FAILED_TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
 )
+import logging
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def brute_force_search_matching_metafiles(dirty_files_names, filesystem: pyarrow.fs.FileSystem, catalog_root):
+def brute_force_search_matching_metafiles(
+    dirty_files_names, filesystem: pyarrow.fs.FileSystem, catalog_root
+):
     txn_dir_name = TXN_DIR_NAME
-     #collect transaction ids of the files
+    # collect transaction ids of the files
     transaction_ids = []
     for dirty_file in dirty_files_names:
         parts = dirty_file.split(TXN_PART_SEPARATOR)
@@ -32,44 +38,45 @@ def brute_force_search_matching_metafiles(dirty_files_names, filesystem: pyarrow
             selector = FileSelector(path, recursive=False)
             entries = filesystem.get_file_info(selector)
         except Exception as e:
-            print(f"Error listing directory '{path}': {e}")
+            logger.error(f"Error listing directory '{path}': {e}")
             return
-       
+
         for entry in entries:
             base_name = posixpath.basename(entry.path)
             if entry.type == FileType.File:
-                    for transaction_id in transaction_ids:
+                for transaction_id in transaction_ids:
                     # Look for transaction_id in the filename
-                        if transaction_id in base_name:
-                            try:
-                                filesystem.delete_file(entry.path)
-                                print(f"Deleted file: {entry.path}")
-                            except Exception as e:
-                                print(f"Error deleting file '{entry.path}': {e}")
+                    if transaction_id in base_name:
+                        try:
+                            filesystem.delete_file(entry.path)
+                            logger.debug(f"Deleted file: {entry.path}")
+                        except Exception as e:
+                            logger.error(f"Error deleting file '{entry.path}': {e}")
 
             elif entry.type == FileType.Directory:
                 # Skip directories that match txn_dir_name
                 if posixpath.basename(entry.path) == txn_dir_name:
-                    print(f"Skipping directory: {entry.path}")
+                    logger.debug(f"Skipping directory: {entry.path}")
                     continue
                 recursive_search(entry.path)
 
     # Start recursive search from the catalog root
     recursive_search(catalog_root)
 
-    #renaming to successful completion
+    # renaming to successful completion
     for dirty_file in dirty_files_names:
-        failed_txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME, FAILED_TXN_DIR_NAME)
+        failed_txn_log_dir = posixpath.join(
+            catalog_root, TXN_DIR_NAME, FAILED_TXN_DIR_NAME
+        )
         old_log_path = posixpath.join(failed_txn_log_dir, dirty_file)
         if dirty_file.endswith(TIMEOUT_TXN):
             new_filename = dirty_file.replace(TIMEOUT_TXN, SUCCESSFULLY_CLEANED)
             new_log_path = posixpath.join(failed_txn_log_dir, new_filename)
             try:
                 filesystem.move(old_log_path, new_log_path)
-                print(f"Renamed file from {old_log_path} to {new_log_path}")
+                logger.debug(f"Renamed file from {old_log_path} to {new_log_path}")
             except Exception as e:
-                print(f"Error renaming file '{old_log_path}': {e}")
-
+                logger.error(f"Error renaming file '{old_log_path}': {e}")
 
 
 def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
@@ -95,7 +102,6 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
             end_time_str = parts[-1]
             end_time = float(end_time_str)
             current_time = time.time_ns()
-            print(current_time)
             if end_time <= current_time:
                 src_path = running_txn_info.path
                 new_filename = f"{filename}{TXN_PART_SEPARATOR}{TIMEOUT_TXN}"
@@ -111,20 +117,28 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
                 dirty_files.append(new_filename)
 
         except Exception as e:
-            print(f"Error cleaning failed transaction '{running_txn_info.path}': {e}")
+            logger.error(
+                f"Error cleaning failed transaction '{running_txn_info.path}': {e}"
+            )
 
     # Pass catalog_root to the brute force search so it searches from the right place
-    brute_force_search_matching_metafiles(dirty_files, filesystem, catalog_root_normalized)
+    brute_force_search_matching_metafiles(
+        dirty_files, filesystem, catalog_root_normalized
+    )
 
 
-def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.FileSystem = None) -> None:
+def janitor_remove_files_in_failed(
+    catalog_root: str, filesystem: pyarrow.fs.FileSystem = None
+) -> None:
     """
     Cleans up metafiles and locator files associated with failed transactions.
     """
     if filesystem is None:
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(catalog_root)
     else:
-        catalog_root_normalized, filesystem = resolve_path_and_filesystem(catalog_root, filesystem)
+        catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+            catalog_root, filesystem
+        )
 
     txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
     failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
@@ -138,11 +152,11 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
             failed_txn_basename = posixpath.basename(failed_txn_info.path)
             parts = failed_txn_basename.split(TXN_PART_SEPARATOR)
             should_process = True
-            try: 
+            try:
                 if parts[-1] == SUCCESSFULLY_CLEANED:
                     should_process = False
             except Exception as e:
-                print("Could not check attribute")
+                logger.error("Could not check attribute")
             if should_process:
                 # Process if the file is marked as currently cleaning.
                 if parts[-1] == CURRENTLY_CLEANING:
@@ -152,9 +166,7 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
                     operations = txn["operations"]
 
                     known_write_paths = chain.from_iterable(
-                        (
-                            op["metafile_write_paths"] + op["locator_write_paths"]
-                        )
+                        (op["metafile_write_paths"] + op["locator_write_paths"])
                         for op in operations
                     )
 
@@ -162,18 +174,26 @@ def janitor_remove_files_in_failed(catalog_root: str, filesystem: pyarrow.fs.Fil
                         try:
                             filesystem.delete_file(write_path)
                         except Exception as e:
-                            print(f"Failed to delete file '{write_path}': {e}")
+                            logger.error(f"Failed to delete file '{write_path}': {e}")
 
                     new_filename = f"{txnid}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
-                    new_failed_txn_log_file_path = posixpath.join(failed_txn_log_dir, new_filename)
+                    new_failed_txn_log_file_path = posixpath.join(
+                        failed_txn_log_dir, new_filename
+                    )
                     os.rename(failed_txn_info.path, new_failed_txn_log_file_path)
-                    print(f"Cleaned up failed transaction: {failed_txn_basename}")
-                
+                    logger.debug(
+                        f"Cleaned up failed transaction: {failed_txn_basename}"
+                    )
+
                 # If the file is marked with TIMEOUT_TXN (third token), call the brute-force search.
                 if parts[-1] == TIMEOUT_TXN:
-                    brute_force_search_matching_metafiles([failed_txn_basename], filesystem, catalog_root)
+                    brute_force_search_matching_metafiles(
+                        [failed_txn_basename], filesystem, catalog_root
+                    )
         except Exception as e:
-            print(f"Could not read transaction '{failed_txn_info.path}', skipping: {e}")
+            logger.error(
+                f"Could not read transaction '{failed_txn_info.path}', skipping: {e}"
+            )
 
 
 def janitor_job(catalog_root_dir: str) -> None:

@@ -24,7 +24,6 @@ from deltacat.constants import (
     FAILED_TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
     NANOS_PER_SEC,
-
 )
 
 from deltacat.storage.model.list_result import ListResult
@@ -415,11 +414,11 @@ class Transaction(dict):
         Returns the end time of the transaction.
         """
         return self.get("end_time")
-    
+
     def _mark_status(self, status: str) -> None:
         """
-        Marks the status of the transaction. Status can either be failed 
-        but not deleted, successfuly deleted, or timed out. 
+        Marks the status of the transaction. Status can either be failed
+        but not deleted, successfuly deleted, or timed out.
         """
         id = self.id
         parts = id.split(TXN_PART_SEPARATOR)
@@ -428,18 +427,6 @@ class Transaction(dict):
             self.id = id + TXN_PART_SEPARATOR + status
         elif len(parts) == 3:
             self.id = parts[0] + TXN_PART_SEPARATOR + parts[1] + status
-    
-
-    def _mark_start_time(self, time_provider: TransactionTimeProvider) -> int:
-        """
-        Sets the start time of the transaction using the given
-        TransactionTimeProvider. Raises a runtime error if the transaction
-        start time has already been set by a previous commit.
-        """
-        if self.get("start_time"):
-            raise RuntimeError("Cannot restart a previously started transaction.")
-        start_time = self["start_time"] = time_provider.start_time()
-        return start_time
 
     def _mark_end_time(self, time_provider: TransactionTimeProvider) -> int:
         """
@@ -596,15 +583,16 @@ class Transaction(dict):
         filesystem: pyarrow.fs.FileSystem,
         time_provider: TransactionTimeProvider,
     ) -> Tuple[List[str], str]:
-        #TODO: move this dict into a different more suiting place
-        
+        # TODO: move this dict into a different more suiting place
 
         total_time_for_transaction = 0
         for operation in self.operations:
             total_time_for_transaction += OPERATION_TIMEOUTS.get(operation.type, 0)
 
         start_time = float(self.id.split(TXN_PART_SEPARATOR)[0])
-        final_time_heartbeat = start_time + (total_time_for_transaction * NANOS_PER_SEC)  # Convert seconds to nanoseconds
+        final_time_heartbeat = start_time + (
+            total_time_for_transaction * NANOS_PER_SEC
+        )  # Convert seconds to nanoseconds
 
         path_ending = f"{self.id}{TXN_PART_SEPARATOR}{str(final_time_heartbeat)}"
 
@@ -619,7 +607,6 @@ class Transaction(dict):
         locator_write_paths = []
         try:
             for operation in self.operations:
-                total_time_for_transaction += OPERATION_TIMEOUTS[operation.type]
                 operation.dest_metafile.write_txn(
                     catalog_root_dir=catalog_root_normalized,
                     success_txn_log_dir=success_txn_log_dir,
@@ -640,11 +627,7 @@ class Transaction(dict):
         except Exception:
             # write a failed transaction log file entry
             path_ending = f"{self.id}{TXN_PART_SEPARATOR}{CURRENTLY_CLEANING}"
-            failed_txn_log_file_path = posixpath.join(
-                failed_txn_log_dir,
-                path_ending
-            )
-
+            failed_txn_log_file_path = posixpath.join(failed_txn_log_dir, path_ending)
 
             with filesystem.open_output_stream(failed_txn_log_file_path) as file:
                 packed = msgpack.dumps(self.to_serializable())
@@ -663,7 +646,7 @@ class Transaction(dict):
                     for operation in self.operations
                 ]
             )
-            
+
             # TODO(pdames): Add separate janitor job to cleanup files that we
             #  either failed to add to the known write paths, or fail to delete.
             for write_path in known_write_paths:
@@ -673,10 +656,12 @@ class Transaction(dict):
             filesystem.delete_file(running_txn_log_file_path)
             # failed transaction cleanup is now complete
             old_path = failed_txn_log_file_path
-            new_path = posixpath.join(failed_txn_log_dir, f"{self.id}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}")
+            new_path = posixpath.join(
+                failed_txn_log_dir,
+                f"{self.id}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}",
+            )
 
             filesystem.move(old_path, new_path)
-
 
             raise
 
