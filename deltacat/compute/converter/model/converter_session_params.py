@@ -60,7 +60,7 @@ class ConverterSessionParams(dict):
 
     @enforce_primary_key_uniqueness.setter
     def enforce_primary_key_uniqueness(self, enforce_primary_key_uniqueness) -> None:
-        self["compact_small_files"] = enforce_primary_key_uniqueness
+        self["enforce_primary_key_uniqueness"] = enforce_primary_key_uniqueness
 
     @property
     def compact_small_files(self) -> bool:
