@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List, Union
+from typing import Optional, Dict, List, Union, Tuple
 
 import pyarrow as pa
 from pyiceberg.catalog.rest import NAMESPACE_SEPARATOR
@@ -501,6 +501,8 @@ class SchemaMapper(ModelMapper[IcebergSchema, Schema]):
                     write_default=field.future_default,
                 )
                 final_fields.append(final_field)
+            # TODO (pmingshi): this code was changed as a hack to get schema conversion working
+            # it still needs more testing
             iceberg_schema = IcebergSchema(
                 fields=final_fields,
                 schema_id=INITIAL_SCHEMA_ID,
@@ -523,13 +525,15 @@ class NamespaceLocatorMapper(
     def map(
         obj: Optional[Union[Identifier, IcebergNamespace]], **kwargs
     ) -> Optional[NamespaceLocator]:
+        namespace = None
         if obj is None:
             return None
-        namespace = (
-            NAMESPACE_SEPARATOR.join(obj.namespace.root[1:])
-            if isinstance(obj, IcebergNamespace)
-            else ".".join(Catalog.namespace_from(obj))
-        )
+        elif isinstance(obj, IcebergNamespace):
+            namespace = NAMESPACE_SEPARATOR.join(obj.namespace.root[1:])
+        elif isinstance(obj, Tuple):
+            # In Iceberg, Tuple identifiers are of the form (namespace) or (namespace, table)
+            # In this case, just take the first element of the tuple
+            namespace = obj[0]
         if not namespace:
             err_msg = f"No namespace in identifier: {obj}"
             raise NamespaceNotFoundError(err_msg)

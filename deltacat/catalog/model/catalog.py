@@ -9,6 +9,7 @@ from functools import partial
 import ray
 
 from deltacat import logs
+from deltacat.annotations import ExperimentalAPI
 from deltacat.catalog.main import impl as DeltacatCatalog
 from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog import CatalogProperties
@@ -31,8 +32,9 @@ class Catalog:
         are stored in Catalog.inner. Any state which is required (like: metastore root URI, pyiceberg native catalog)
         MUST be returned by initialize.
 
-        Note: all initialization configuration MUST be pickle-able. When `Catalog` is pickled, _inner is excluded
-          and instead we only pass impl/args/kwargs, which
+        Note: all initialization configuration MUST be pickle-able. When `Catalog` is pickled, _inner is excluded.
+        Instead, we only pass impl/args/kwargs, which are pickled and then _inner is re-constituted by calling __init__.
+        See `ray.util.register_serializer` in Catalogs class.
         """
         if not isinstance(self, Catalog):
             # self may contain the tuple returned from __reduce__ (ray pickle bug?)
@@ -49,6 +51,7 @@ class Catalog:
         self._kwargs = kwargs
 
     @classmethod
+    @ExperimentalAPI
     def iceberg(cls, config: IcebergCatalogConfig, *args, **kwargs):
         """
         !!! ICEBERG SUPPORT IS EXPERIMENTAL !!!
@@ -181,16 +184,15 @@ def init(
     """
     Initialize DeltaCAT catalogs.
 
-    :param catalogs: Either a single Catalog instance of a map of string to Catalog instance
+    :param catalogs: Either a single Catalog instance or a map of string to Catalog instance
     :param default_catalog_name: The Catalog to use by default. If only one Catalog is provided, it will
         be set as the default
     :param ray_init_args: kwargs to pass to ray initialization
-
     """
 
     force_reinitialize = kwargs.get("force_reinitialize", False)
 
-    # get namespace from ray_init_args, then kwargs, then default
+    # get namespace from ray_init_args, then default
     if ray_init_args and "namespace" in ray_init_args:
         namespace = ray_init_args["namespace"]
     else:
