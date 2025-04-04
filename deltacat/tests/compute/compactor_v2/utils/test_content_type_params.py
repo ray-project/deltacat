@@ -1,6 +1,4 @@
-import logging
 import ray
-import functools
 from deltacat.compute.compactor_v2.constants import (
     TASK_MAX_PARALLELISM,
     MAX_PARQUET_METADATA_SIZE,
@@ -13,7 +11,7 @@ from deltacat.storage import (
     ManifestEntry,
     interface as unimplemented_deltacat_storage,
 )
-from typing import Dict, Optional, Any
+from typing import Dict, Any
 from deltacat.types.media import TableType
 from deltacat.types.media import ContentType
 from deltacat.types.partial_download import PartialParquetParameters
