@@ -5,6 +5,7 @@ from deltacat.compute.compactor_v2.constants import (
     TASK_MAX_PARALLELISM,
     MAX_PARQUET_METADATA_SIZE,
 )
+from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
 from deltacat import logs
 from deltacat.storage import (
@@ -75,11 +76,16 @@ def _download_parquet_metadata_for_manifest_entry(
     entry_index: int,
     deltacat_storage: unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[Any, Any]] = {},
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
 ) -> Dict[str, Any]:
+    logger.info(
+        f"PDEBUG:_download_parquet_metadata_for_manifest_entry-{deltacat_storage_kwargs=}"
+    )
     pq_file = deltacat_storage.download_delta_manifest_entry(
         delta,
         entry_index=entry_index,
         table_type=TableType.PYARROW_PARQUET,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
         **deltacat_storage_kwargs,
     )
 
@@ -95,6 +101,7 @@ def append_content_type_params(
     delta: Delta,
     task_max_parallelism: int = TASK_MAX_PARALLELISM,
     max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> bool:
@@ -102,6 +109,7 @@ def append_content_type_params(
     This operation appends content type params into the delta entry. Note
     that this operation can be time consuming, hence we cache it in a Ray actor.
     """
+    logger.info(f"PDEBUG:{deltacat_storage_kwargs=}")
 
     if not delta.meta:
         logger.warning(f"Delta with locator {delta.locator} doesn't contain meta.")
@@ -159,6 +167,7 @@ def append_content_type_params(
 
     def input_provider(index, item) -> Dict:
         return {
+            "file_reader_kwargs_provider": file_reader_kwargs_provider,
             "deltacat_storage_kwargs": deltacat_storage_kwargs,
             "deltacat_storage": deltacat_storage,
             "delta": delta,
@@ -166,7 +175,7 @@ def append_content_type_params(
         }
 
     logger.info(
-        f"Downloading parquet meta for {len(entry_indices_to_download)} manifest entries..."
+        f"Downloading parquet meta for {len(entry_indices_to_download)} manifest entries... PDEBUG:{deltacat_storage_kwargs=}"
     )
     pq_files_promise = invoke_parallel(
         entry_indices_to_download,
