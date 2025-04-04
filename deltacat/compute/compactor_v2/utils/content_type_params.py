@@ -106,9 +106,9 @@ def append_content_type_params(
     delta: Delta,
     task_max_parallelism: int = TASK_MAX_PARALLELISM,
     max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
 ) -> bool:
     """
     This operation appends content type params into the delta entry. Note
