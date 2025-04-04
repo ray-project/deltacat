@@ -525,13 +525,14 @@ class Dataset:
         with tarfile.open(file_uri, "r") as tar:
             tar_members = tar.getmembers()
             current_batch = None
-            reading_frame_size = 1 #TODO: made each batch size 1 for now.
+            reading_frame_size = 1 # TODO: Use batch size 1 for now.
             total_batches = math.ceil(len(tar_members) / reading_frame_size)
 
             for i in range(total_batches):
                 reading_frame_start = i * reading_frame_size
                 reading_frame_end = reading_frame_start + reading_frame_size
                 for member in tar_members[reading_frame_start:reading_frame_end]:
+                    # Ignore hidden files from mac if the imported tar isn't cleaned.
                     if member.name.startswith("._"):
                         continue
                     if member.isfile() and member.name.endswith(".json"):
@@ -547,8 +548,8 @@ class Dataset:
                             except Exception as e:
                                 print(f"error with {member.name}:", e)
                             
-                            # dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))  #convert schema for current pyarrow tables into full webdataset schema
-                            # make sure schema is only merged when current_batch has data
+                            # Convert schema for current pyarrow tables into full webdataset schema.
+                            # Make sure schema is only merged when current_batch has data.
                             if current_batch is not None:
                                 try:
                                     dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))
