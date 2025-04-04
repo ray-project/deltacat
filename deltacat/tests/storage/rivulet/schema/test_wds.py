@@ -17,6 +17,7 @@ def test_schema_field_types():
     assert all(isinstance(v, Field) for v in values)
 
 def test_schema_fields():
+    # ---- Example dataset call with csv
     # cwd = pathlib.Path.cwd()
     # csv_file_path = cwd / "data.csv"
     # ds = Dataset.from_csv(
@@ -60,3 +61,60 @@ def test_schema_data():
         assert record["height"] == 429
         assert record["filename"] == "n01443537/n01443537_14753.JPEG"
 
+def test_merge_keys_are_properly_set():
+    tar_path = "../../../test_utils/resources/test_wds.tar"
+    
+    # test with single merge key
+    dataset = Dataset.from_webdataset(
+        name="test",
+        file_uri=tar_path,
+        merge_keys="filename"
+    )
+    assert "filename" in dataset.get_merge_keys()
+    assert len(dataset.get_merge_keys()) == 1
+
+def test_invalid_merge_key_raises_error():
+    tar_path = "../../../test_utils/resources/test_wds.tar"
+    
+    with pytest.raises(ValueError):
+        Dataset.from_webdataset(
+            name="test",
+            file_uri=tar_path,
+            merge_keys="nonexistent_field"
+        )
+
+def test_schema_datatypes():
+    tar_path = "../../../test_utils/resources/test_wds.tar"
+    dataset = Dataset.from_webdataset(
+        name="test",
+        file_uri=tar_path,
+        merge_keys="filename"
+    )
+    
+    # check field types
+    assert dataset.fields["label"].datatype == Datatype.int64()
+    assert dataset.fields["width"].datatype == Datatype.int64()
+    assert dataset.fields["height"].datatype == Datatype.int64()
+    assert dataset.fields["filename"].datatype == Datatype.string()
+
+def test_metadata_directory_creation():
+    tar_path = "../../../test_utils/resources/test_wds.tar"
+    dataset = Dataset.from_webdataset(
+        name="test_meta",
+        file_uri=tar_path,
+        merge_keys="filename"
+    )
+    
+    # verify metadata directory was created
+    # depends on implementation details
+    assert hasattr(dataset, "_metadata_path")
+    assert dataset._metadata_path is not None
+
+def test_field_is_field_object():
+    tar_path = "../../../test_utils/resources/test_wds.tar"
+    dataset = Dataset.from_webdataset(
+        name="test_meta",
+        file_uri=tar_path,
+        merge_keys="filename"
+    )
+    assert isinstance(dataset.fields["filename"], Field)
