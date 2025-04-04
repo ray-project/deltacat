@@ -79,7 +79,7 @@ def _download_parquet_metadata_for_manifest_entry(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
 ) -> Dict[str, Any]:
     logger.info(
-        f"PDEBUG:_download_parquet_metadata_for_manifest_entry-{deltacat_storage_kwargs=}"
+        f"Downloading the parquet metadata for Delta with locator {delta.locator} and entry_index: {entry_index}"
     )
     pq_file = deltacat_storage.download_delta_manifest_entry(
         delta,
@@ -109,7 +109,9 @@ def append_content_type_params(
     This operation appends content type params into the delta entry. Note
     that this operation can be time consuming, hence we cache it in a Ray actor.
     """
-    logger.info(f"PDEBUG:{deltacat_storage_kwargs=}")
+    logger.info(
+        f"Appending the content type params for Delta with locator {delta.locator}..."
+    )
 
     if not delta.meta:
         logger.warning(f"Delta with locator {delta.locator} doesn't contain meta.")
@@ -174,9 +176,6 @@ def append_content_type_params(
             "entry_index": item,
         }
 
-    logger.info(
-        f"Downloading parquet meta for {len(entry_indices_to_download)} manifest entries... PDEBUG:{deltacat_storage_kwargs=}"
-    )
     pq_files_promise = invoke_parallel(
         entry_indices_to_download,
         ray_task=_download_parquet_metadata_for_manifest_entry,

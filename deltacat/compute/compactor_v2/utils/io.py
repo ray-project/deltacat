@@ -101,7 +101,6 @@ def create_uniform_input_deltas(
     delta_manifest_entries_count = 0
     estimated_da_bytes = 0
     input_da_list = []
-    logger.info(f"PDEBUG:create_uniform_input_deltas {deltacat_storage_kwargs=}")
     for delta in input_deltas:
         if (
             compact_partition_params.enable_input_split
@@ -110,7 +109,7 @@ def create_uniform_input_deltas(
             )
         ):
             logger.debug(
-                f"Delta with locator: {delta.locator} requires content type params... PDEBUG:{deltacat_storage_kwargs=}"
+                f"Delta with locator: {delta.locator} requires content type params..."
             )
             append_content_type_params(
                 delta=delta,
