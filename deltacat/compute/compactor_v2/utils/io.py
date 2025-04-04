@@ -101,7 +101,6 @@ def create_uniform_input_deltas(
     delta_manifest_entries_count = 0
     estimated_da_bytes = 0
     input_da_list = []
-
     for delta in input_deltas:
         if (
             compact_partition_params.enable_input_split
@@ -118,6 +117,7 @@ def create_uniform_input_deltas(
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
                 task_max_parallelism=compact_partition_params.task_max_parallelism,
                 max_parquet_meta_size_bytes=compact_partition_params.max_parquet_meta_size_bytes,
+                file_reader_kwargs_provider=compact_partition_params.read_kwargs_provider,
             )
 
         manifest_entries = delta.manifest.entries

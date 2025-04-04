@@ -93,11 +93,29 @@ def _estimate_resources_required_to_process_delta_using_type_params(
                 on_disk_size_bytes=delta.meta.content_length,
             ),
         )
+    file_reader_kwargs_provider = kwargs.get(
+        "file_reader_kwargs_provider"
+    ) or deltacat_storage_kwargs.get("file_reader_kwargs_provider")
 
+    """
+    NOTE: The file_reader_kwargs_provider parameter can be passed in two ways:
+    1. Nested within deltacat_storage_kwargs during resource estimation
+    2. As a top-level attribute of CompactPartitionsParams during compaction
+
+    This creates an inconsistent parameter path between resource estimation and compaction flows.
+    As a long-term solution, this should be unified to use a single consistent path (either always
+    nested in deltacat_storage_kwargs or always as a top-level parameter).
+
+    For now, this implementation handles the resource estimation case by:
+    1. First checking for file_reader_kwargs_provider as a direct kwarg
+    2. Falling back to deltacat_storage_kwargs if not found
+    This approach maintains backward compatibility by not modifying the DELTA_RESOURCE_ESTIMATION_FUNCTIONS signatures.
+    """
     appended = append_content_type_params(
         delta=delta,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
     )
 
     if not appended:
