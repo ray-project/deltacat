@@ -191,3 +191,63 @@ class TestContentTypeParams:
             test_delta.manifest.entries[self.TEST_ENTRY_INDEX].meta.content_type
             == ContentType.PARQUET.value
         )
+
+    def test_download_parquet_metadata_for_manifest_entry_file_reader_kwargs_present_top_level_and_deltacat_storage_kwarg(
+        self, local_deltacat_storage_kwargs, caplog
+    ):
+        from deltacat.compute.compactor_v2.utils.content_type_params import (
+            _download_parquet_metadata_for_manifest_entry,
+        )
+        from deltacat.types.partial_download import PartialParquetParameters
+
+        test_file_reader_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
+
+        local_deltacat_storage_kwargs[
+            "file_reader_kwargs_provider"
+        ] = ReadKwargsProviderPyArrowCsvPureUtf8()
+
+        partition = stage_partition_from_file_paths(
+            self.TEST_NAMESPACE,
+            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            **local_deltacat_storage_kwargs,
+        )
+        test_delta = commit_delta_to_staged_partition(
+            partition,
+            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            **local_deltacat_storage_kwargs,
+        )
+
+        test_entry_index = 0
+        obj_ref = _download_parquet_metadata_for_manifest_entry.remote(
+            test_delta,
+            test_entry_index,
+            ds,
+            local_deltacat_storage_kwargs,
+            test_file_reader_kwargs_provider,
+        )
+        parquet_metadata = ray.get(obj_ref)
+        partial_parquet_params = parquet_metadata["partial_parquet_params"]
+
+        # validate
+        assert isinstance(parquet_metadata, dict)
+        assert "entry_index" in parquet_metadata
+        assert "partial_parquet_params" in parquet_metadata
+        assert parquet_metadata["entry_index"] == test_entry_index
+        assert isinstance(partial_parquet_params, PartialParquetParameters)
+
+        assert partial_parquet_params.row_groups_to_download == [0]
+        assert partial_parquet_params.num_row_groups == 1
+        assert partial_parquet_params.num_rows == 8
+        assert isinstance(partial_parquet_params.in_memory_size_bytes, float)
+        assert partial_parquet_params.in_memory_size_bytes > 0
+
+        pq_metadata = partial_parquet_params.pq_metadata
+        assert pq_metadata.num_columns == 2
+        assert pq_metadata.num_rows == 8
+        assert pq_metadata.num_row_groups == 1
+        assert pq_metadata.format_version == "2.6"
+
+        assert (
+            test_delta.manifest.entries[self.TEST_ENTRY_INDEX].meta.content_type
+            == ContentType.PARQUET.value
+        )
