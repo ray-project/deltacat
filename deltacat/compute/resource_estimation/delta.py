@@ -93,11 +93,12 @@ def _estimate_resources_required_to_process_delta_using_type_params(
                 on_disk_size_bytes=delta.meta.content_length,
             ),
         )
-
+    file_reader_kwargs_provider = kwargs.get("file_reader_kwargs_provider") or deltacat_storage_kwargs.get("file_reader_kwargs_provider")
     appended = append_content_type_params(
         delta=delta,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
     )
 
     if not appended:
