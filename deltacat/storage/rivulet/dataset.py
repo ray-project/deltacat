@@ -489,7 +489,7 @@ class Dataset:
         namespace: str = DEFAULT_NAMESPACE,
     ) -> "Dataset":
         """
-        Create a Dataset from a single JSON file.
+        Create a Dataset from a single webdataset tar file.
 
         TODO: Add support for reading directories with multiple JSON files.
 
@@ -532,6 +532,8 @@ class Dataset:
                 reading_frame_start = i * reading_frame_size
                 reading_frame_end = reading_frame_start + reading_frame_size
                 for member in tar_members[reading_frame_start:reading_frame_end]:
+                    if member.name.startswith("._"):
+                        continue
                     if member.isfile() and member.name.endswith(".json"):
                         f = tar.extractfile(member)
                         if f:
@@ -543,9 +545,15 @@ class Dataset:
                                 else:
                                     current_batch = pa.concat_tables([current_batch, pyarrow_table])
                             except Exception as e:
-                                print("error:", e)
+                                print(f"error with {member.name}:", e)
                             
-                            dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))  #convert schema for current pyarrow tables into full webdataset schema
+                            # dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))  #convert schema for current pyarrow tables into full webdataset schema
+                            # make sure schema is only merged when current_batch has data
+                            if current_batch is not None:
+                                try:
+                                    dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))
+                                except Exception as e:
+                                    print(f"Error merging schema: {e}")
 
         dataset = cls(
             dataset_name=name,
