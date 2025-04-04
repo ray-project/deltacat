@@ -81,7 +81,7 @@ def _download_parquet_metadata_for_manifest_entry(
     logger.info(
         f"Downloading the parquet metadata for Delta with locator {delta.locator} and entry_index: {entry_index}"
     )
-    if deltacat_storage_kwargs.get("file_reader_kwargs_provider") is not None:
+    if "file_reader_kwargs_provider" in deltacat_storage_kwargs:
         logger.info(
             "'file_reader_kwargs_provider' is also present in deltacat_storage_kwargs. Removing to prevent multiple values for keyword argument"
         )
