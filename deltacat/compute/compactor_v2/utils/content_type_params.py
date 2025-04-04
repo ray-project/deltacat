@@ -175,6 +175,10 @@ def append_content_type_params(
             "delta": delta,
             "entry_index": item,
         }
+    
+    logger.info(
+        f"Downloading parquet meta for {len(entry_indices_to_download)} manifest entries..."
+    )
 
     pq_files_promise = invoke_parallel(
         entry_indices_to_download,
