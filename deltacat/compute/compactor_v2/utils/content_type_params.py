@@ -175,7 +175,7 @@ def append_content_type_params(
             "delta": delta,
             "entry_index": item,
         }
-    
+
     logger.info(
         f"Downloading parquet meta for {len(entry_indices_to_download)} manifest entries..."
     )
