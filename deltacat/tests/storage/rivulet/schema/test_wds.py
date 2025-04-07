@@ -33,22 +33,20 @@ def test_schema_fields():
     assert len(dataset.fields) == 4
 
 
-# def test_schema_data():
-#     """Test that data values are correctly extracted from the tar file."""
-#     tar_path = "../../../test_utils/resources/test_wds.tar"
-#     dataset = Dataset.from_webdataset(
-#         name="test",
-#         file_uri=tar_path,
-#         merge_keys="filename"
-#     )
-#     dataset.print()
-#     records = dataset.scan().to_pydict()
-#     print("RECORDS:", records)
-#     for record in itertools.islice(records, 1):
-#         assert record["label"] == 1
-#         assert record["width"] == 500
-#         assert record["height"] == 429
-#         assert record["filename"] == "n01443537/n01443537_14753.TXT"
+def test_schema_data():
+    """Test that data values are correctly extracted from the tar file."""
+    tar_path = "../../../test_utils/resources/test_wds.tar"
+    dataset = Dataset.from_webdataset(
+        name="test",
+        file_uri=tar_path,
+        merge_keys="filename"
+    )
+    records = dataset.scan().to_pydict()
+    for record in itertools.islice(records, 1):
+        assert record["label"] == 1
+        assert record["width"] == 500
+        assert record["height"] == 429
+        assert record["filename"] == "n01443537/n01443537_14753.TXT"
 
 
 def test_merge_keys_are_properly_set():
