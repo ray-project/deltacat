@@ -5,19 +5,80 @@ from urllib.parse import urlparse, urlunparse
 import ray
 
 import deltacat as dc
+from deltacat import Namespace
 from deltacat.catalog import CatalogProperties
 from deltacat.constants import DEFAULT_NAMESPACE
 from deltacat.types.media import DatasourceType
 
 from deltacat.storage import (
     metastore,
+    Delta,
+    DeltaLocator,
     ListResult,
     Metafile,
+    Partition,
     Stream,
     StreamFormat,
     StreamLocator,
     PartitionLocator,
+    TableVersionLocator,
 )
+from storage import TableVersion, Table, TableLocator, NamespaceLocator
+
+
+def _stage_and_commit_stream(
+    stream: Stream,
+    *args,
+    **kwargs,
+) -> Stream:
+    """
+    Helper method to stage and commit a stream (e.g., as part of a copy
+    operation from another catalog). The committed stream will be assigned a
+    different unique ID than the input stream.
+    """
+    stream = metastore.stage_stream(
+        namespace=stream.namespace,
+        table_name=stream.table_name,
+        table_version=stream.table_version,
+        stream_format=stream.stream_format,
+        *args,
+        **kwargs,
+    )
+    return metastore.commit_stream(
+        stream=stream,
+        *args,
+        **kwargs,
+    )
+
+
+def _stage_and_commit_partition(
+    partition: Partition,
+    *args,
+    **kwargs,
+) -> Partition:
+    """
+    Helper method to stage and commit a partition (e.g., as part of a copy
+    operation from another catalog). The committed partition will be assigned a
+    different unique ID than the input partition.
+    """
+    stream = metastore.get_stream(
+        namespace=partition.namespace,
+        table_name=partition.table_name,
+        table_version=partition.table_version,
+        stream_format=partition.stream_format,
+    )
+    partition = metastore.stage_partition(
+        stream=stream,
+        partition_values=partition.partition_values,
+        partition_scheme_id=partition.partition_scheme_id,
+        *args,
+        **kwargs,
+    )
+    return metastore.commit_partition(
+        partition=partition,
+        *args,
+        **kwargs,
+    )
 
 
 class DeltacatUrl:
@@ -92,9 +153,7 @@ class DeltacatUrl:
             raise RuntimeError(
                 "DeltaCAT is not initialized. Please call `dc.init()` and try again."
             )
-        self.unresolved_stream = (
-            self.unresolved_namespace
-        ) = self.unresolved_table_version = None
+        self.namespace = self.table_version = self.stream = None
         if self.catalog_name:
             if self.catalog_name.lower() == DeltacatUrl.DELTACAT_URL_DEFAULT_CATALOG:
                 self.catalog: CatalogProperties = None
@@ -106,24 +165,143 @@ class DeltacatUrl:
                     f"Expected catalog `{self.catalog_name}` to be a DeltaCAT "
                     f"catalog but found: {self.catalog}"
                 )
+        if self.unresolved_namespace:
+            if (
+                self.unresolved_namespace.lower()
+                == DeltacatUrl.DELTACAT_URL_DEFAULT_NAMESPACE
+            ):
+                self.namespace = DEFAULT_NAMESPACE
+            else:
+                self.namespace = self.unresolved_namespace
         if (
-            self.namespace
-            and self.namespace.lower() == DeltacatUrl.DELTACAT_URL_DEFAULT_NAMESPACE
+            self.unresolved_table_version
+            and self.unresolved_table_version.lower()
+            != DeltacatUrl.DELTACAT_URL_DEFAULT_TABLE_VERSION
         ):
-            self.unresolved_namespace = self.namespace
-            self.namespace = DEFAULT_NAMESPACE
-        if (
-            self.table_version
-            and self.table_version.lower()
-            == DeltacatUrl.DELTACAT_URL_DEFAULT_TABLE_VERSION
-        ):
-            self.unresolved_table_version = self.table_version
-            self.table_version = None
-        if self.stream:
-            if self.stream.lower() == DeltacatUrl.DELTACAT_URL_DEFAULT_STREAM:
-                self.unresolved_stream = self.stream
+            self.table_version = self.unresolved_table_version
+        if self.unresolved_stream:
+            if (
+                self.unresolved_stream.lower()
+                == DeltacatUrl.DELTACAT_URL_DEFAULT_STREAM
+            ):
                 self.stream = StreamFormat.DELTACAT
-            self.stream = StreamFormat(self.stream)
+            else:
+                self.stream = StreamFormat(self.stream)
+
+    def _resolve_dc_writer(self) -> Callable:
+        if self.delta:
+            delta: Delta = Metafile.based_on(
+                other=self.metafile,
+                new_id=self.delta,
+            )
+            delta.locator = DeltaLocator.at(
+                namespace=self.namespace,
+                table_name=self.table,
+                table_version=self.table_version,
+                stream_id=None,
+                stream_format=self.stream,
+                partition_values=self.partition,
+                partition_id=None,
+                stream_position=self.delta,
+            )
+            # TODO(pdames): Honor deep vs. shallow copies. Deep copies require
+            #  first ensuring that all files in the source delta manifest are
+            #  staged to the target catalog before commit. For deltas whose
+            #  manifests reference local files, shallow delta copies will be
+            #  invalid in the target catalog, and should be blocked or
+            #  converted to a deep copy automatically.
+            return functools.partial(
+                metastore.commit_delta(
+                    delta=self.delta,
+                    catalog=self.catalog,
+                ),
+            )
+        if self.partition:
+            partition: Partition = self.metafile
+            partition.locator = PartitionLocator.at(
+                namespace=self.namespace,
+                table_name=self.table,
+                table_version=self.table_version,
+                stream_id=None,
+                stream_format=self.stream,
+                partition_values=self.partition,
+            )
+            return functools.partial(
+                _stage_and_commit_partition(
+                    partition=partition,
+                    catalog=self.catalog,
+                ),
+            )
+        if self.unresolved_stream:
+            stream: Stream = self.metafile
+            stream.locator = StreamLocator.at(
+                namespace=self.namespace,
+                table_name=self.table,
+                table_version=self.table_version,
+                stream_id=None,
+                stream_format=self.stream,
+            )
+            return functools.partial(
+                _stage_and_commit_stream(
+                    stream=stream,
+                    catalog=self.catalog,
+                ),
+            )
+        if self.unresolved_table_version:
+            table_version: TableVersion = self.metafile
+            table_version.locator = TableVersionLocator.at(
+                namespace=self.namespace,
+                table_name=self.table,
+                table_version=self.table_version,
+            )
+            return functools.partial(
+                metastore.create_table_version(
+                    namespace=table_version.namespace,
+                    table_name=table_version.table_name,
+                    table_version=table_version.table_version,
+                    schema=table_version.schema,
+                    partition_scheme=table_version.partition_scheme,
+                    sort_keys=table_version.sort_keys,
+                    table_version_description=table_version.table_version_description,
+                    table_version_properties=table_version.table_version_properties,
+                    table_description=table_version.table_description,
+                    table_properties=table_version.table_properties,
+                    supported_content_types=table_version.supported_content_types,
+                    catalog=self.catalog,
+                ),
+            )
+        if self.table:
+            table: Table = self.metafile
+            table.locator = TableLocator.at(
+                namespace=self.namespace,
+                table_name=self.table,
+            )
+            return functools.partial(
+                metastore.create_table_version(
+                    namespace=table.namespace,
+                    table_name=table.table_name,
+                    table_description=table.table_description,
+                    table_properties=table.properties,
+                    catalog=self.catalog,
+                ),
+            )
+        if self.unresolved_namespace:
+            namespace: Namespace = self.metafile
+            namespace.locator = NamespaceLocator.of(
+                namespace=self.namespace,
+            )
+            return functools.partial(
+                metastore.create_namespace,
+                namespace=self.namespace,
+                properties=namespace.properties,
+                catalog=self.catalog,
+            )
+        if self.catalog_name:
+            return functools.partial(
+                dc.put_catalog,
+                name=self.catalog_name,
+            )
+        raise ValueError("No DeltaCAT object to write.")
 
     def _resolve_dc_reader(self) -> Callable:
         if self.delta:
@@ -149,7 +327,7 @@ class DeltacatUrl:
                 partition_values=self.partition,
                 catalog=self.catalog,
             )
-        if self.stream or self.unresolved_stream:
+        if self.unresolved_stream:
             return functools.partial(
                 metastore.get_stream,
                 namespace=self.namespace,
@@ -158,12 +336,7 @@ class DeltacatUrl:
                 stream_format=self.stream,
                 catalog=self.catalog,
             )
-        if self.table_version or self.unresolved_table_version:
-            if (
-                self.table_version.lower()
-                == DeltacatUrl.DELTACAT_URL_DEFAULT_TABLE_VERSION
-            ):
-                self.table_version = None
+        if self.unresolved_table_version:
             return functools.partial(
                 metastore.get_table_version,
                 namespace=self.namespace,
@@ -178,9 +351,7 @@ class DeltacatUrl:
                 table_name=self.table,
                 catalog=self.catalog,
             )
-        if self.namespace or self.unresolved_namespace:
-            if self.namespace.lower() == DeltacatUrl.DELTACAT_URL_DEFAULT_NAMESPACE:
-                self.namespace = DEFAULT_NAMESPACE
+        if self.unresolved_namespace:
             return functools.partial(
                 metastore.get_namespace,
                 namespace=self.namespace,
@@ -218,7 +389,7 @@ class DeltacatUrl:
                 catalog=self.catalog,
             )
             return [(delta_lister, None, None)]
-        if self.stream or self.unresolved_stream:
+        if self.unresolved_stream:
             stream_locator = StreamLocator.at(
                 namespace=self.namespace,
                 table_name=self.table,
@@ -243,7 +414,7 @@ class DeltacatUrl:
                 (partition_lister, None, None),
                 (delta_lister, "partition_like", lambda x: x),
             ]
-        if self.table_version or self.unresolved_table_version:
+        if self.unresolved_table_version:
             stream_lister = functools.partial(
                 metastore.list_streams,
                 namespace=self.namespace,
@@ -291,7 +462,7 @@ class DeltacatUrl:
                 (partition_lister, "stream", lambda x: x),
                 (delta_lister, "partition_like", lambda x: x),
             ]
-        if self.namespace:
+        if self.unresolved_namespace:
             table_lister = functools.partial(
                 metastore.list_tables,
                 namespace=self.namespace,
@@ -383,50 +554,68 @@ class DeltacatUrl:
             raise ValueError(f"Invalid DeltaCAT URL: {url}")
         if self.datasource_type == DatasourceType.DELTACAT:
             self.catalog_name = self._parsed.netloc
-            self.namespace = path_elements[0] if path_elements else None
+            self.unresolved_namespace = path_elements[0] if path_elements else None
             self.table = path_elements[1] if len(path_elements) > 1 else None
-            self.table_version = path_elements[2] if len(path_elements) > 2 else None
-            self.stream = path_elements[3] if len(path_elements) > 3 else None
+            self.unresolved_table_version = (
+                path_elements[2] if len(path_elements) > 2 else None
+            )
+            self.unresolved_stream = (
+                path_elements[3] if len(path_elements) > 3 else None
+            )
             self.partition = path_elements[4] if len(path_elements) > 4 else None
             self.delta = path_elements[5] if len(path_elements) > 5 else None
             self._resolve_deltacat_path_identifiers()
             self.reader = self._resolve_dc_reader()
             self.listers = self._resolve_dc_lister()
+            self.writer = self._resolve_dc_writer()
         elif self.datasource_type == DatasourceType.DELTACAT_NAMESPACE:
             self.catalog_name = DeltacatUrl.DELTACAT_URL_DEFAULT_CATALOG
-            self.namespace = self._parsed.netloc
+            self.unresolved_namespace = self._parsed.netloc
             self.table = path_elements[0] if path_elements else None
-            self.table_version = path_elements[1] if len(path_elements) > 1 else None
-            self.stream = path_elements[2] if len(path_elements) > 2 else None
+            self.unresolved_table_version = (
+                path_elements[1] if len(path_elements) > 1 else None
+            )
+            self.unresolved_stream = (
+                path_elements[2] if len(path_elements) > 2 else None
+            )
             self.partition = path_elements[3] if len(path_elements) > 3 else None
             self.delta = path_elements[4] if len(path_elements) > 4 else None
             self._resolve_deltacat_path_identifiers()
             self.reader = self._resolve_dc_reader()
             self.listers = self._resolve_dc_lister()
+            self.writer = self._resolve_dc_writer()
         elif self.datasource_type == DatasourceType.DELTACAT_TABLE:
-            self.namespace = DeltacatUrl.DELTACAT_URL_DEFAULT_NAMESPACE
+            self.unresolved_namespace = DeltacatUrl.DELTACAT_URL_DEFAULT_NAMESPACE
             self.table = self._parsed.netloc
-            self.table_version = path_elements[0] if path_elements else None
-            self.stream = path_elements[1] if len(path_elements) > 1 else None
+            self.unresolved_table_version = path_elements[0] if path_elements else None
+            self.unresolved_stream = (
+                path_elements[1] if len(path_elements) > 1 else None
+            )
             self.partition = path_elements[2] if len(path_elements) > 2 else None
             self.delta = path_elements[3] if len(path_elements) > 3 else None
             self._resolve_deltacat_path_identifiers()
             self.reader = self._resolve_dc_reader()
             self.listers = self._resolve_dc_lister()
+            self.writer = self._resolve_dc_writer()
         elif self.datasource_type == DatasourceType.AUDIO:
             self.reader = functools.partial(
                 ray.data.read_audio,
                 paths=self.reader_url,
             )
+            self.writer = None
         elif self.datasource_type == DatasourceType.AVRO:
             self.reader = functools.partial(
                 ray.data.read_avro,
                 paths=self.reader_url,
             )
+            self.writer = None
         elif self.datasource_type == DatasourceType.BIGQUERY:
             self.reader = functools.partial(
                 ray.data.read_bigquery,
                 project_id=self._parsed.netloc,
+            )
+            self.writer = functools.partial(
+                ray.data.Dataset.write_bigquery,
             )
         elif self.datasource_type == DatasourceType.BINARY_FILES:
             self.reader = functools.partial(

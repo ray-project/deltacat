@@ -1,9 +1,16 @@
 import shutil
 import tempfile
-import deltacat as dc
 
+import deltacat as dc
+from deltacat.constants import METAFILE_FORMAT_MSGPACK
 from deltacat import Namespace
 from deltacat.types.media import DatasetFormat
+from deltacat.storage import Metafile
+
+from deltacat.io import (
+    METAFILE_TYPE_COLUMN_NAME,
+    METAFILE_DATA_COLUMN_NAME,
+)
 
 
 class TestDeltaCAT:
@@ -60,4 +67,10 @@ class TestDeltaCAT:
             "dc://test_catalog_1",
             dataset_format=DatasetFormat(),
         )
-        dataset.show()
+        actual_namespace = Metafile.deserialize(
+            serialized=dataset.take(1)[0][METAFILE_DATA_COLUMN_NAME],
+            meta_format=METAFILE_FORMAT_MSGPACK,
+        )
+        assert actual_namespace.equivalent_to(namespace_src)
+        namespace_type = dataset.take(1)[0][METAFILE_TYPE_COLUMN_NAME]
+        assert namespace_type == "Namespace"

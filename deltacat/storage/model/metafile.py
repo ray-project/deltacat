@@ -412,7 +412,7 @@ class Metafile(dict):
     @staticmethod
     def based_on(
         other: Optional[Metafile],
-        new_id: Optional[Locator] = None,
+        new_id: Optional[str] = None,
     ) -> Optional[Metafile]:
         """
         Returns a new metafile equivalent to the input metafile, but with a new

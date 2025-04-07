@@ -10,15 +10,12 @@ import numpy as np
 
 import pyarrow as pa
 import pyarrow.fs
-from pyarrow import parquet as pq
 from pyarrow.fs import S3FileSystem
 
 from ray.data import (
     Datasource,
     ReadTask,
 )
-from ray.data._internal.datasource.csv_datasource import CSVDatasource
-from ray.data._internal.datasource.parquet_datasource import ParquetDatasource
 from ray.data.block import BlockMetadata, Block, BlockAccessor
 from ray.data.datasource import (
     FastFileMetadataProvider,
@@ -32,10 +29,8 @@ from deltacat.aws.s3u import (
 )
 from deltacat.types.media import (
     ContentType,
-    DELIMITED_TEXT_CONTENT_TYPES,
 )
 from deltacat.storage import (
-    Delta,
     Manifest,
     ManifestEntryList,
 )
@@ -48,6 +43,9 @@ from deltacat.storage import (
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+METAFILE_DATA_COLUMN_NAME = "metafile_data"
+METAFILE_TYPE_COLUMN_NAME = "metafile_type"
 
 
 class DeltacatReadType(str, Enum):
@@ -266,12 +264,8 @@ def _get_metafile_read_task(
     metafile: Metafile,
 ) -> Iterable[Block]:
     pyarrow_table_dict = {
-        DeltacatDatasource.METAFILE_DATA_COLUMN_NAME: [
-            metafile.serialize(METAFILE_FORMAT_MSGPACK)
-        ],
-        DeltacatDatasource.METAFILE_TYPE_COLUMN_NAME: [
-            Metafile.get_class(metafile).__name__
-        ],
+        METAFILE_DATA_COLUMN_NAME: [metafile.serialize(METAFILE_FORMAT_MSGPACK)],
+        METAFILE_TYPE_COLUMN_NAME: [Metafile.get_class(metafile).__name__],
     }
     yield BlockAccessor.batch_to_arrow_block(pyarrow_table_dict)
 
@@ -286,12 +280,12 @@ def _get_metafile_lister_read_task(
         # TODO(pdames): switch to paginated read
         metafiles.append(metafile_list_result.all_items())
     pyarrow_table_dict = {
-        DeltacatDatasource.METAFILE_DATA_COLUMN_NAME: [
+        METAFILE_DATA_COLUMN_NAME: [
             meta.serialize(METAFILE_FORMAT_MSGPACK)
             for metasublist in metafiles
             for meta in metasublist
         ],
-        DeltacatDatasource.METAFILE_TYPE_COLUMN_NAME: [
+        METAFILE_TYPE_COLUMN_NAME: [
             Metafile.get_class(meta).__name__
             for metasublist in metafiles
             for meta in metasublist
@@ -302,9 +296,6 @@ def _get_metafile_lister_read_task(
 
 class DeltacatDatasource(Datasource):
     """Datasource for reading registered DeltaCAT catalog objects."""
-
-    METAFILE_DATA_COLUMN_NAME = "metafile_data"
-    METAFILE_TYPE_COLUMN_NAME = "metafile_type"
 
     def __init__(
         self,

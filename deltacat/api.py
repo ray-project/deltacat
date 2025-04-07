@@ -234,7 +234,7 @@ def put(path, *args, **kwargs) -> Any:
     if len(parts) == 1:
         # TODO(pdames): Save all catalogs registered from the last session on
         #  disk so that users don't need to re-initialize them every time.
-        # register the given catalog
+        #  register the given catalog
         catalog_name = parts[0]
         # Initialize default catalog using kwargs
         catalog = Catalog(**kwargs)

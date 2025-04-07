@@ -1,42 +1,18 @@
-import json
 import logging
 
 from collections import OrderedDict
-from errno import ENOENT
-from os import strerror
-from typing import Callable, Dict, Any, Optional, Iterable, List
+from typing import Callable, Dict, Any, Optional, List
 
 import pyarrow
 
-import ray
+from ray.data import Datasink
 
-from ray.data._internal.datasource.parquet_datasink import (
-    ParquetDatasink as _ParquetDatasink,
-)
-from ray.data._internal.execution.interfaces import TaskContext
-from ray.data.block import (
-    Block,
-    BlockAccessor,
-)
 from ray.data.datasource.filename_provider import (
     FilenameProvider,
     _DefaultFilenameProvider,
 )
-from ray.types import ObjectRef
-
-from deltacat.aws.s3u import parse_s3_url
-from deltacat.types.media import (
-    ContentType,
-    ContentEncoding,
-)
-from deltacat.storage import (
-    ManifestEntryList,
-    ManifestMeta,
-    ManifestEntry,
-    Manifest,
-)
-from deltacat.utils.filesystem import resolve_paths_and_filesystem
-from deltacat import logs
+from deltacat import logs, DeltacatUrl
+from deltacat.storage import Metafile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -97,14 +73,16 @@ class DeltacatWriteResult:
         self.filesystem = None
 
 
-class DeltacatDatasink(_ParquetDatasink):
+class DeltacatDatasink(Datasink[List[Metafile]]):
     def __init__(
         self,
-        path: str,
+        url: DeltacatUrl,
         *,
+        metadata_only: bool = False,
+        copy_on_write: Optional[bool] = False,
         arrow_parquet_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
         arrow_parquet_args: Optional[Dict[str, Any]] = None,
-        num_rows_per_file: Optional[int] = None,
+        min_rows_per_file: Optional[int] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         try_create_dir: bool = True,
         open_stream_args: Optional[Dict[str, Any]] = None,
@@ -112,10 +90,10 @@ class DeltacatDatasink(_ParquetDatasink):
         dataset_uuid: Optional[str] = None,
     ):
         super().__init__(
-            path,
+            url,
             arrow_parquet_args_fn=arrow_parquet_args_fn,
             arrow_parquet_args=arrow_parquet_args,
-            num_rows_per_file=num_rows_per_file,
+            min_rows_per_file=min_rows_per_file,
             filesystem=filesystem,
             try_create_dir=try_create_dir,
             open_stream_args=open_stream_args,
@@ -123,6 +101,8 @@ class DeltacatDatasink(_ParquetDatasink):
             dataset_uuid=dataset_uuid,
         )
 
+
+"""
     def write(
         self,
         blocks: Iterable[Block],
@@ -192,3 +172,4 @@ class DeltacatDatasink(_ParquetDatasink):
         with result.filesystem.open_output_stream(manifest_path) as f:
             f.write(json.dumps(manifest).encode("utf-8"))
         logger.debug(f"Manifest committed to: {manifest_path}")
+"""

@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Optional, cast
 import pyarrow as pa
 from ray.data import Dataset
 
+from deltacat.utils.url import DeltacatUrl
 from deltacat.io.datasink.deltacat_datasink import DeltacatDatasink
 
 
@@ -18,17 +19,17 @@ class DeltacatDataset(Dataset):
 
     def write_deltacat(
         self,
-        path: str,
+        url: DeltacatUrl,
         *,
-        metadata_only: bool = False,  # if the source dataset only contains DeltaCAT metadata, then only copy the metadata to the destination... if it contains external source file paths, then register them in a new Delta.
-        copy_on_write: Optional[
-            bool
-        ] = False,  # merge all deltas as part of the write operation
+        # if the source dataset only contains DeltaCAT metadata, then only copy the metadata to the destination... if it contains external source file paths, then register them in a new Delta.
+        metadata_only: bool = False,
+        # merge all deltas as part of the write operation
+        copy_on_write: Optional[bool] = False,
         filesystem: Optional[pa.fs.S3FileSystem] = None,
         try_create_dir: bool = True,
         arrow_open_stream_args: Optional[Dict[str, Any]] = None,
         arrow_parquet_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
-        num_rows_per_file: Optional[int] = None,
+        min_rows_per_file: Optional[int] = None,
         ray_remote_args: Dict[str, Any] = None,
         concurrency: Optional[int] = None,
         **arrow_parquet_args,
@@ -51,7 +52,7 @@ class DeltacatDataset(Dataset):
         Time complexity: O(dataset size / parallelism)
 
         Args:
-            path: The path to the root directory where materialized files and
+            url: The path to the root directory where materialized files and
                 DeltaCAT manifest will be written.
             filesystem: The filesystem implementation to write to. This should
                 be either a PyArrow S3FileSystem.
@@ -72,10 +73,12 @@ class DeltacatDataset(Dataset):
                 block to a file.
         """
         datasink = DeltacatDatasink(
-            path,
+            url,
+            metadata_only=metadata_only,
+            copy_on_write=copy_on_write,
             arrow_parquet_args_fn=arrow_parquet_args_fn,
             arrow_parquet_args=arrow_parquet_args,
-            num_rows_per_file=num_rows_per_file,
+            min_rows_per_file=min_rows_per_file,
             filesystem=filesystem,
             try_create_dir=try_create_dir,
             open_stream_args=arrow_open_stream_args,
