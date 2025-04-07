@@ -94,6 +94,7 @@ def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
 FUNCTION scoped fixtures
 """
 
+
 @pytest.mark.parametrize(
     [
         "test_name",

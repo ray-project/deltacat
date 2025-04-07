@@ -20,13 +20,13 @@ from deltacat.tests.compute.test_util_common import (
 
 from dataclasses import dataclass, fields
 import ray
-import os
 from typing import Any, Dict, List, Optional, Tuple
 import deltacat.tests.local_deltacat_storage as ds
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 import pyarrow as pa
+
 
 @dataclass(frozen=True)
 class PrepareDeleteTestCaseParams:

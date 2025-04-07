@@ -1,6 +1,5 @@
 import deltacat.tests.local_deltacat_storage as ds
 from deltacat.types.media import ContentType
-import os
 import pytest
 from deltacat.storage import Delta
 from deltacat.compute.resource_estimation.delta import (

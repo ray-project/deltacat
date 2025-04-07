@@ -136,9 +136,7 @@ class Catalogs:
     def names(self) -> List[str]:
         return list(self.catalogs.keys())
 
-    def put(self, name: str,
-            catalog: Catalog,
-            set_default: bool = False) -> None:
+    def put(self, name: str, catalog: Catalog, set_default: bool = False) -> None:
         self.catalogs[name] = catalog
         if set_default:
             self.default_catalog = catalog
@@ -202,6 +200,7 @@ def init(
         catalogs=catalogs, default_catalog_name=default_catalog_name
     )
 
+
 def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
     """
     Get a catalog by name, or the default catalog if no name is provided.
@@ -226,7 +225,8 @@ def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
         if not catalog:
             available_catalogs = ray.get(all_catalogs.all.remote()).values()
             raise ValueError(
-                f"Catalog '{name}' not found. Available catalogs: " f"{available_catalogs}."
+                f"Catalog '{name}' not found. Available catalogs: "
+                f"{available_catalogs}."
             )
         return catalog
 
@@ -235,9 +235,11 @@ def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
         if not catalog:
             available_catalogs = ray.get(all_catalogs.all.remote()).values()
             raise ValueError(
-                f"Call to get_catalog without name set failed because there is no default Catalog set. Available catalogs: " f"{available_catalogs}."
+                f"Call to get_catalog without name set failed because there is no default Catalog set. Available catalogs: "
+                f"{available_catalogs}."
             )
         return catalog
+
 
 def put_catalog(
     name: str,
@@ -275,9 +277,10 @@ def put_catalog(
     else:
         # NOTE - since we are initializing with a single catalog, it will be set to the default
         if not set_as_default:
-            logger.warning(f"Calling put_catalog with set_as_default=False, "
-                           f"but still setting Catalog {catalog} as default since it is the only catalog.")
+            logger.warning(
+                f"Calling put_catalog with set_as_default=False, "
+                f"but still setting Catalog {catalog} as default since it is the only catalog."
+            )
         init({name: catalog}, ray_init_args=ray_init_args, **kwargs)
 
     return catalog
-

@@ -29,20 +29,21 @@ def local_deltacat_storage_kwargs(temp_dir):
     """
     Fixture that creates a temporary database file for each test function
     and returns storage kwargs dictionary.
-    
+
     Returns:
         dict: A dictionary with db_file_path key pointing to a temporary database file
     """
     # Create a unique database file in the temporary directory
     db_file_path = os.path.join(temp_dir, "db_test.sqlite")
-    
+
     # Return kwargs dictionary ready to use
     kwargs = {"db_file_path": db_file_path}
     yield kwargs
-    
+
     # Cleanup: remove the database file if it exists
     if os.path.exists(db_file_path):
         os.remove(db_file_path)
+
 
 def create_local_deltacat_storage_file() -> Dict[str, str]:
     """
@@ -72,5 +73,3 @@ def clean_up_local_deltacat_storage_file(local_storage_kwargs: Dict[str, str]):
     # Remove the temporary directory if it exists
     if os.path.exists(dir_path):
         shutil.rmtree(dir_path)
-
-

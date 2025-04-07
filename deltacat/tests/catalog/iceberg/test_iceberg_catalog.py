@@ -1,7 +1,6 @@
 import tempfile
 import shutil
 import uuid
-import ray
 import deltacat
 import pytest
 from deltacat import Field, Schema
@@ -54,7 +53,7 @@ class TestIcebergCatalogInitialization:
             catalog_name,
             impl=deltacat.IcebergCatalog,
             **{"config": config},
-            ray_init_args={"ignore_reinit_error": True}
+            ray_init_args={"ignore_reinit_error": True},
         )
 
         table_def = deltacat.create_table(

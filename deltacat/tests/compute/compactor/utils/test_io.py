@@ -1,8 +1,12 @@
 import unittest
 from unittest import mock
 
-from compute.conftest import create_local_deltacat_storage_file, clean_up_local_deltacat_storage_file
+from compute.conftest import (
+    create_local_deltacat_storage_file,
+    clean_up_local_deltacat_storage_file,
+)
 from deltacat.tests.test_utils.constants import TEST_UPSERT_DELTA
+
 
 class TestFitInputDeltas(unittest.TestCase):
     @classmethod

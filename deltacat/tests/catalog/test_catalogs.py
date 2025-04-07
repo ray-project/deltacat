@@ -29,6 +29,7 @@ class MockCatalogImpl:
         # Return some state that the catalog would normally maintain
         return {"initialized": True, "args": args, "kwargs": kwargs}
 
+
 @pytest.fixture(scope="function")
 def reset_catalogs_ray_actor():
     """
@@ -94,6 +95,7 @@ class TestCatalog(unittest.TestCase):
             # Check that the inner state is set to the output of initialize
             self.assertEqual(catalog.inner, {"iceberg": True})
 
+
 class TestCatalogsIntegration:
     """Integration tests for Default catalog functionality."""
 
@@ -105,7 +107,8 @@ class TestCatalogsIntegration:
         # Other tests are going to have initialized ray catalog. Initialize here to ensure
         # that when this test class is run individuall it mimicks running with other tests
         catalog = Catalog(impl=MockCatalogImpl)
-        init(catalog,
+        init(
+            catalog,
             ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
@@ -121,7 +124,8 @@ class TestCatalogsIntegration:
         catalog = Catalog(impl=MockCatalogImpl)
 
         # Initialize with a single catalog and Ray init args including the namespace
-        init(catalog,
+        init(
+            catalog,
             ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
@@ -189,8 +193,7 @@ class TestCatalogsIntegration:
         )
 
         # Add a second catalog
-        put_catalog(
-            "catalog2", impl=MockCatalogImpl, id=2)
+        put_catalog("catalog2", impl=MockCatalogImpl, id=2)
 
         # Check both catalogs are available
         retrieved_catalog1 = get_catalog("catalog1")
@@ -204,7 +207,7 @@ class TestCatalogsIntegration:
             "test_catalog",
             impl=MockCatalogImpl,
             id=1,
-            ray_init_args={"ignore_reinit_error": True}
+            ray_init_args={"ignore_reinit_error": True},
         )
 
         # Try to add another catalog with the same name. Should not error
@@ -212,7 +215,7 @@ class TestCatalogsIntegration:
             "test_catalog",
             impl=MockCatalogImpl,
             id=2,
-            ray_init_args={"ignore_reinit_error": True}
+            ray_init_args={"ignore_reinit_error": True},
         )
 
         retrieved_catalog = get_catalog("test_catalog")
@@ -278,9 +281,11 @@ class TestCatalogsIntegration:
         # Initialize DeltaCAT with this catalog
         from deltacat.catalog.main import impl as DeltacatCatalog
 
-        put_catalog(catalog_name,
-                    Catalog(DeltacatCatalog, **{"root": "test_root"}),
-                    ray_init_args={"ignore_reinit_error": True})
+        put_catalog(
+            catalog_name,
+            Catalog(DeltacatCatalog, **{"root": "test_root"}),
+            ray_init_args={"ignore_reinit_error": True},
+        )
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
