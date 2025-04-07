@@ -1,8 +1,8 @@
 import unittest
 from unittest import mock
-from deltacat.tests.test_utils.constants import TEST_UPSERT_DELTA
-from typing import Any, Dict
 
+from compute.conftest import create_local_deltacat_storage_file, clean_up_local_deltacat_storage_file
+from deltacat.tests.test_utils.constants import TEST_UPSERT_DELTA
 
 class TestFitInputDeltas(unittest.TestCase):
     @classmethod
@@ -14,9 +14,7 @@ class TestFitInputDeltas(unittest.TestCase):
             CompactionSessionAuditInfo,
         )
 
-        cls.kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-            DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-        }
+        cls.kwargs_for_local_deltacat_storage = create_local_deltacat_storage_file()
 
         cls.COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "2.3", "test")
 
@@ -25,6 +23,7 @@ class TestFitInputDeltas(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.module_patcher.stop()
+        clean_up_local_deltacat_storage_file(cls.kwargs_for_local_deltacat_storage)
 
     def test_sanity(self):
         from deltacat.compute.compactor.utils import io
