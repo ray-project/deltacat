@@ -22,21 +22,6 @@ Function scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def local_deltacat_storage_kwargs():
-    DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-        "db_file_path",
-        "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-    )
-    # see deltacat/tests/local_deltacat_storage/README.md for documentation
-    kwargs_for_local_deltacat_storage = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
-
-
-@pytest.fixture(scope="function")
 def parquet_delta_with_manifest(local_deltacat_storage_kwargs):
     """
     These fixtures are function scoped as functions can modify the delta.

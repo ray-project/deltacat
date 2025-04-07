@@ -28,11 +28,6 @@ from deltacat.tests.test_utils.pyarrow import (
 )
 from moto import mock_s3
 
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
-
 
 @pytest.fixture(autouse=True, scope="module")
 def setup_ray_cluster():
@@ -64,16 +59,6 @@ def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
         Bucket=TEST_S3_RCF_BUCKET_NAME,
     )
     yield
-
-
-@pytest.fixture(scope="function")
-def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
-    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 class TestCompactionSession:

@@ -3,11 +3,6 @@ from unittest import mock
 from deltacat.tests.test_utils.constants import TEST_UPSERT_DELTA
 from typing import Any, Dict
 
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
-
 
 class TestFitInputDeltas(unittest.TestCase):
     @classmethod

@@ -1,7 +1,7 @@
 import tempfile
 import shutil
 import uuid
-
+import ray
 import deltacat
 import pytest
 from deltacat import Field, Schema
@@ -42,9 +42,6 @@ class TestIcebergCatalogInitialization:
         catalog_name = str(uuid.uuid4())
 
         config = IcebergCatalogConfig(
-            type=CatalogType.SQL, properties={"warehouse": self.temp_dir}
-        )
-        config = IcebergCatalogConfig(
             type=CatalogType.SQL,
             properties={
                 "warehouse": self.temp_dir,
@@ -54,7 +51,10 @@ class TestIcebergCatalogInitialization:
 
         # Initialize with the PyIceberg catalog
         deltacat.put_catalog(
-            catalog_name, impl=deltacat.IcebergCatalog, **{"config": config}
+            catalog_name,
+            impl=deltacat.IcebergCatalog,
+            **{"config": config},
+            ray_init_args={"ignore_reinit_error": True}
         )
 
         table_def = deltacat.create_table(

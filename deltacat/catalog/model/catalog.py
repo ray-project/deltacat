@@ -16,9 +16,7 @@ from deltacat.catalog import CatalogProperties
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
 
-# registry of namespace to ActorHandle for Catalogs class
-catalog_registry: Dict[str, ray.actor.ActorHandle] = {}
-_default_namespace = "DEFAULT"
+all_catalogs: Optional[ray.actor.ActorHandle] = None
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -138,8 +136,12 @@ class Catalogs:
     def names(self) -> List[str]:
         return list(self.catalogs.keys())
 
-    def put(self, name: str, catalog: Catalog) -> None:
+    def put(self, name: str,
+            catalog: Catalog,
+            set_default: bool = False) -> None:
         self.catalogs[name] = catalog
+        if set_default:
+            self.default_catalog = catalog
 
     def get(self, name) -> Catalog:
         return self.catalogs.get(name)
@@ -151,27 +153,16 @@ class Catalogs:
 def is_initialized(*args, **kwargs) -> bool:
     """
     Check if DeltaCAT is initialized
-
-    Supports initializing in multiple Ray namespaces (for testing) using kwarg "namespace"
     """
-    global catalog_registry
+    import deltacat.catalog.model.catalog as catalog_module
 
-    namespace = kwargs.get("namespace", _default_namespace)
-    if namespace not in catalog_registry:
+    # If ray is not initialized, then Catalogs cannot be initialized
+    if not ray.is_initialized():
+        # Any existing actor reference stored in catalog_module must be stale - reset it
+        catalog_module.all_catalogs = None
         return False
 
-    # Get the catalog actor for this namespace
-    namespaced_catalogs = catalog_registry[namespace]
-
-    try:
-        # Try a simple operation on the actor - this will fail if the actor is dead
-        ray.get(namespaced_catalogs.names.remote(), timeout=5)
-        return True
-    except Exception as e:
-        # The actor is dead or inaccessible, so we're not properly initialized
-        logger.info(f"Actor check for namespace '{namespace}' failed: {e}")
-        catalog_registry.pop(namespace, None)  # Remove from registry
-        return False
+    return catalog_module.all_catalogs is not None
 
 
 def init(
@@ -189,20 +180,14 @@ def init(
         be set as the default
     :param ray_init_args: kwargs to pass to ray initialization
     """
+    import deltacat.catalog.model.catalog as catalog_module
 
     force_reinitialize = kwargs.get("force_reinitialize", False)
 
-    # get namespace from ray_init_args, then default
-    if ray_init_args and "namespace" in ray_init_args:
-        namespace = ray_init_args["namespace"]
-    else:
-        namespace = kwargs.get("namespace", _default_namespace)
-
-    if is_initialized(**{"namespace": namespace}) and not force_reinitialize:
+    if is_initialized() and not force_reinitialize:
         logger.warning("DeltaCAT already initialized.")
         return
-
-    if force_reinitialize or not ray.is_initialized():
+    else:
         if ray_init_args:
             ray.init(**ray_init_args)
         else:
@@ -213,62 +198,53 @@ def init(
     ray.util.register_serializer(
         Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__
     )
-
-    global catalog_registry
-
-    catalog_registry[namespace] = Catalogs.remote(
+    catalog_module.all_catalogs = Catalogs.remote(
         catalogs=catalogs, default_catalog_name=default_catalog_name
     )
 
-
 def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
     """
-    Get a catalog by name or the default catalog if no name is provided.
+    Get a catalog by name, or the default catalog if no name is provided.
 
     Args:
         name: Name of catalog to retrieve (optional, uses default if not provided)
 
     Returns:
-        The requested Catalog, or KeyError if it does not exist
+        The requested Catalog, or ValueError if it does not exist
     """
-    namespace = kwargs.get("namespace", _default_namespace)
+    from deltacat.catalog.model.catalog import all_catalogs
 
-    global catalog_registry
-    if namespace not in catalog_registry:
-        raise KeyError(
-            f"No catalogs available! Call "
+    if not all_catalogs:
+        raise ValueError(
+            "No catalogs available! Call "
             "`deltacat.init(catalogs={...})` to register one or more "
             "catalogs then retry."
         )
 
-    catalog_actor = catalog_registry[namespace]
-
     if name is not None:
-        catalog = ray.get(catalog_actor.get.remote(name))
-    else:
-        default = ray.get(catalog_actor.default.remote())
-        if not default:
-            available_catalogs = ray.get(catalog_actor.all.remote()).values()
-            raise KeyError(
-                f"Call to get_catalog without name failed because no default catalog is configured."
-                f"Available catalogs are: {available_catalogs}"
+        catalog = ray.get(all_catalogs.get.remote(name))
+        if not catalog:
+            available_catalogs = ray.get(all_catalogs.all.remote()).values()
+            raise ValueError(
+                f"Catalog '{name}' not found. Available catalogs: " f"{available_catalogs}."
             )
-        catalog = default
+        return catalog
 
-    if not catalog:
-        available_catalogs = ray.get(catalog_actor.all.remote()).values()
-        raise KeyError(
-            f"Catalog '{name}' not found in namespace '{namespace}'. "
-            f"Available catalogs: {available_catalogs}."
-        )
-    return catalog
-
+    else:
+        catalog = ray.get(all_catalogs.default.remote())
+        if not catalog:
+            available_catalogs = ray.get(all_catalogs.all.remote()).values()
+            raise ValueError(
+                f"Call to get_catalog without name set failed because there is no default Catalog set. Available catalogs: " f"{available_catalogs}."
+            )
+        return catalog
 
 def put_catalog(
     name: str,
+    catalog: Catalog = None,
     *,
     impl: ModuleType = DeltacatCatalog,
-    catalog: Catalog = None,
+    set_as_default: bool = False,
     ray_init_args: Dict[str, Any] = None,
     **kwargs,
 ) -> Catalog:
@@ -277,44 +253,31 @@ def put_catalog(
 
     You may explicitly provide an initialized Catalog instance, like from the Catalog constructor or
     from factory methods like Catalog.default or Catalog.iceberg
-
     Otherwise, this function initializes the catalog by using the catalog implementation provided by `impl`.
+    This function will NOT fail if the catalog already exists. It will overwrite the named catalog
 
     Args:
         name: name of catalog
         catalog: catalog instance to use, if provided
         impl: catalog module to initialize. Only used if `catalog` param not provided
-        ray_init_args: ray initialization args (used if ray must be initialized)
+        set_as_default: whether this catalog should be treated as the default.
+            This will overwrite any existing default.
+            NOTE: Catalogs with one entry will always use the single entry as the default.
+        ray_init_args: ray initialization args (used only if ray not already initialized)
     """
-    # Set namespace to default, or use value in kwargs or ray_init_args
-    if kwargs.get("namespace") is not None:
-        namespace = kwargs.get("namespace")
-        # ensure ray init arg set with this namespace
-        ray_init_args = ray_init_args if ray_init_args is not None else {}
-        ray_init_args["namespace"] = kwargs.get("namespace")
-    elif ray_init_args and "namespace" in ray_init_args:
-        namespace = ray_init_args["namespace"]
-    else:
-        namespace = _default_namespace
+    import deltacat.catalog.model.catalog as catalog_module
 
     if catalog is None:
         catalog = Catalog(impl, **kwargs)
-    elif catalog is not None and impl != DeltacatCatalog:
-        raise ValueError(
-            f"PutCatalog call provided both `impl` and `catalog` parameters. "
-            f"You may only provide one of these parameters"
-        )
 
-    if is_initialized(**{"namespace": namespace}):
-        try:
-            get_catalog(name, namespace=namespace)
-            raise ValueError(
-                f"Catalog {name} already exists in namespace '{namespace}'."
-            )
-        except KeyError:
-            # Catalog does not already exist. Add it
-            global catalog_registry
-            ray.get(catalog_registry[namespace].put.remote(name, catalog))
+    if is_initialized():
+        ray.get(catalog_module.all_catalogs.put.remote(name, catalog, set_as_default))
     else:
-        init({name: catalog}, ray_init_args=ray_init_args, **{"namespace": namespace})
+        # NOTE - since we are initializing with a single catalog, it will be set to the default
+        if not set_as_default:
+            logger.warning(f"Calling put_catalog with set_as_default=False, "
+                           f"but still setting Catalog {catalog} as default since it is the only catalog.")
+        init({name: catalog}, ray_init_args=ray_init_args, **kwargs)
+
     return catalog
+
