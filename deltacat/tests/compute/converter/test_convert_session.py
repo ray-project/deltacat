@@ -249,6 +249,7 @@ def test_converter_drop_duplicates_success(
             position_delete_for_multiple_data_files=True,
             max_parallel_data_file_download=10,
             s3_file_system=s3_file_system,
+            s3_client_kwargs={},
         )
 
     number_partitioned_array_1 = pa.array([0, 0, 0], type=pa.int32())
@@ -418,6 +419,7 @@ def test_converter_pos_delete_read_by_spark_success(
             position_delete_for_multiple_data_files=True,
             max_parallel_data_file_download=10,
             s3_file_system=s3_file_system,
+            s3_client_kwargs={},
         )
 
     primary_key_array_1 = pa.array(["pk1", "pk2", "pk3"])

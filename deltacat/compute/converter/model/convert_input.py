@@ -15,6 +15,7 @@ class ConvertInput(Dict):
         position_delete_for_multiple_data_files,
         max_parallel_data_file_download,
         s3_file_system,
+        s3_client_kwargs,
     ) -> ConvertInput:
 
         result = ConvertInput()
@@ -29,6 +30,7 @@ class ConvertInput(Dict):
         ] = position_delete_for_multiple_data_files
         result["max_parallel_data_file_download"] = max_parallel_data_file_download
         result["s3_file_system"] = s3_file_system
+        result["s3_client_kwargs"] = s3_client_kwargs
 
         return result
 
@@ -67,3 +69,7 @@ class ConvertInput(Dict):
     @property
     def s3_file_system(self):
         return self["s3_file_system"]
+
+    @property
+    def s3_client_kwargs(self):
+        return self["s3_client_kwargs"]

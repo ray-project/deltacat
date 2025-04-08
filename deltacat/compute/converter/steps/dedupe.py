@@ -11,6 +11,7 @@ def dedupe_data_files(
     identify_column_name_concatenated,
     identifier_columns,
     merge_sort_column,
+    s3_client_kwargs,
 ):
     data_file_table = []
 
@@ -27,6 +28,7 @@ def dedupe_data_files(
                 sc._ORDERED_RECORD_IDX_COLUMN_NAME,
             ],
             sequence_number=sequence_number,
+            s3_client_kwargs=s3_client_kwargs,
         )
         data_file_table.append(data_file_to_dedupe_table)
 
