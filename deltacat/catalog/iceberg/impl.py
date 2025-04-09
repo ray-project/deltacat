@@ -9,6 +9,10 @@ from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.exceptions import TableAlreadyExistsError
 from deltacat.storage.iceberg.model import PartitionSchemeMapper, SchemaMapper
 from deltacat.storage.model.partition import PartitionScheme
+from deltacat.storage.model.push_down import Pushdown
+from deltacat.storage.model.scan_plan import ScanPlan
+from deltacat.storage.model.scan_task import FileScanTask, DataFile
+from deltacat.storage.iceberg.impl import _try_load_iceberg_table
 from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
@@ -144,6 +148,18 @@ def read_table(
     """Read a table into a distributed dataset."""
     raise NotImplementedError("read_table not implemented")
 
+def create_scan_plan(
+    table: str,
+    namespace: Optional[str] = None,
+    pushdown: Optional[Pushdown] = None,
+    inner: Optional[str] = None,
+) -> ScanPlan:
+    iceberg_table = _try_load_iceberg_table(inner, namespace, table)
+    file_scan_tasks = []
+    # TODO: implement predicate pushdown to Iceberg
+    for scan_task in iceberg_table.scan().plan_files():
+        file_scan_tasks.append(FileScanTask([DataFile(scan_task.file.file_path)]))
+    return ScanPlan(file_scan_tasks)
 
 def alter_table(
     table: str,

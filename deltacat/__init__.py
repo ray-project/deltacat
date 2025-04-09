@@ -26,6 +26,7 @@ from deltacat.catalog.delegate import (
     table_exists,
     truncate_table,
     write_to_table,
+    create_scan_plan,
 )
 from deltacat.catalog.model.catalog import (  # noqa: F401
     Catalog,
@@ -93,6 +94,7 @@ __all__ = [
     "default_namespace",
     "write_to_table",
     "read_table",
+    "create_scan_plan",
     "get_catalog",
     "put_catalog",
     "is_initialized",

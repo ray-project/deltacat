@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional, Union
 from deltacat.catalog.model.catalog import get_catalog
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.partition import PartitionScheme
+from deltacat.storage.model.push_down import Pushdown
+from deltacat.storage.model.scan_plan import ScanPlan
 from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
@@ -67,6 +69,19 @@ def read_table(
         **kwargs,
     )
 
+def create_scan_plan(
+    table: str,
+    namespace: Optional[str] = None,
+    pushdown: Optional[Pushdown] = None,
+    catalog: Optional[str] = None,
+) -> ScanPlan:
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.create_scan_plan(
+        table,
+        namespace=namespace,
+        inner=catalog_obj.inner,
+        pushdown=pushdown,
+    )
 
 def alter_table(
     table: str,

@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.storage.model.push_down import Pushdown
+from deltacat.storage.model.scan_plan import ScanPlan
 from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
@@ -71,6 +73,10 @@ def read_table(
     """
     raise NotImplementedError("read_table not implemented")
 
+def create_scan_plan(
+    table: str, namespace: Optional[str] = None, pushdown: Optional[Pushdown] = None
+) -> ScanPlan:
+    raise NotImplementedError("create_scan_plan not implemented")
 
 def alter_table(
     table: str,
