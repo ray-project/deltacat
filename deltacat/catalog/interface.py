@@ -76,6 +76,16 @@ def read_table(
 def create_scan_plan(
     table: str, namespace: Optional[str] = None, pushdown: Optional[Pushdown] = None
 ) -> ScanPlan:
+    """Return a ScanPlan for a given DeltaCAT Table after applying pushdown predicates
+
+    Args:
+        table: Name of the table
+        namespace: Optional namespace of the table. Uses default namespace if not specified.
+        pushdown: Pushdown predicates used to filter partitions/data files
+
+    Returns:
+        a ScanPlan object containing list of ScanTasks
+    """
     raise NotImplementedError("create_scan_plan not implemented")
 
 def alter_table(
