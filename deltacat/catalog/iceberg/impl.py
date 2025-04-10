@@ -2,10 +2,13 @@ import logging
 
 from typing import Any, Dict, List, Optional, Union
 
-from daft import DataFrame
+from daft import DataFrame, context
+from daft.daft import ScanOperatorHandle, StorageConfig, PythonStorageConfig, NativeStorageConfig
+from daft.logical.builder import LogicalPlanBuilder
 
 from deltacat import logs
 from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.daft.daft_scan import DeltaCATScanOperator
 from deltacat.exceptions import TableAlreadyExistsError
 from deltacat.storage.iceberg.model import PartitionSchemeMapper, SchemaMapper
 from deltacat.storage.model.partition import PartitionScheme
@@ -146,7 +149,14 @@ def read_table(
     table: str, *args, namespace: Optional[str] = None, **kwargs
 ) -> DistributedDataset:
     """Read a table into a distributed dataset."""
-    raise NotImplementedError("read_table not implemented")
+    io_config = context.get_context().daft_planning_config.default_io_config
+    multithreaded_io = not context.get_context().is_ray_runner
+    storage_config = NativeStorageConfig(multithreaded_io, io_config)
+
+    dc_operator = DeltaCATScanOperator(table, namespace, StorageConfig.native(storage_config))
+    handle = ScanOperatorHandle.from_python_scan_operator(dc_operator)
+    builder = LogicalPlanBuilder.from_tabular_scan(scan_operator=handle)
+    return DataFrame(builder)
 
 def create_scan_plan(
     table: str,
