@@ -12,6 +12,10 @@ from deltacat.compute.converter.utils.s3u import upload_table_with_retry
 from deltacat.compute.converter.utils.io import (
     download_data_table_and_append_iceberg_columns,
 )
+from deltacat.compute.converter.utils.converter_session_utils import (
+    partition_value_record_to_partition_value_string,
+)
+
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -43,9 +47,9 @@ def convert(convert_input: ConvertInput):
         convert_input_files.applicable_equality_delete_files
     )
     all_data_files_for_this_bucket = convert_input_files.all_data_files_for_dedupe
-    # Get string representation of partition value out of Record[partition_value]
-    partition_value_str = (
-        convert_input_files.partition_value.__repr__().split("[", 1)[1].split("]")[0]
+
+    partition_value_str = partition_value_record_to_partition_value_string(
+        convert_input_files.partition_value
     )
     partition_value = convert_input_files.partition_value
     iceberg_table_warehouse_prefix_with_partition = (

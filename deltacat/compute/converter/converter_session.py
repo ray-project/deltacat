@@ -25,8 +25,8 @@ from deltacat.compute.converter.pyiceberg.overrides import (
 from deltacat.compute.converter.utils.converter_session_utils import (
     construct_iceberg_table_prefix,
 )
-from deltacat.compute.converter.pyiceberg.replace_snapshot import (
-    commit_overwrite_snapshot,
+from deltacat.compute.converter.pyiceberg.update_snapshot_overrides import (
+    commit_replace_snapshot,
     commit_append_snapshot,
 )
 from deltacat.compute.converter.pyiceberg.catalog import load_table
@@ -63,7 +63,6 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         table_name=table_name,
         iceberg_namespace=iceberg_namespace,
     )
-    logger.info(f"iceberg_warehouse_bucket_name:{iceberg_warehouse_bucket_name}")
     merge_keys = params.merge_keys
     # Using table identifier fields as merge keys if merge keys not provided
     if not merge_keys:
@@ -136,7 +135,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
             new_position_delete_files=new_position_delete_files,
         )
     else:
-        commit_overwrite_snapshot(
+        commit_replace_snapshot(
             iceberg_table=iceberg_table,
             # equality_delete_files + data file that all rows are deleted
             to_be_deleted_files_list=to_be_deleted_files_list,
