@@ -92,3 +92,16 @@ DEFAULT_NUM_ROUNDS = 1
 SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED = env_bool(
     "SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED", False
 )
+
+# Whether to enable logging if any partition is found
+# to be non-compliant with the bucketing spec.
+ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING = env_bool(
+    "ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING", False
+)
+
+# Whether to fail the job with ValidationError if the
+# current compacted partition is found to be non-compliant
+# with bucketing spec.
+ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION = env_bool(
+    "ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION", False
+)
