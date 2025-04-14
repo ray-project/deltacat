@@ -1,4 +1,4 @@
-from deltacat.utils.common import env_bool, env_integer
+from deltacat.utils.common import env_bool, env_integer, env_string
 
 TOTAL_BYTES_IN_SHA1_HASH = 20
 
@@ -93,15 +93,17 @@ SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED = env_bool(
     "SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED", False
 )
 
-# Whether to enable logging if any partition is found
+# This env variable specifies whether to check bucketing spec
+# compliance of the existing compacted table.
+# PRINT_LOG: Enable logging if any partition is found
 # to be non-compliant with the bucketing spec.
-ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING = env_bool(
-    "ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING", False
+# ASSERT: Fail the job with ValidationError if the
+# current compacted partition is found to be non-compliant
+# with bucketing spec. Note, logging is implicitly enabled
+# in this case.
+BUCKETING_SPEC_COMPLIANCE_PROFILE = env_string(
+    "BUCKETING_SPEC_COMPLIANCE_PROFILE", None
 )
 
-# Whether to fail the job with ValidationError if the
-# current compacted partition is found to be non-compliant
-# with bucketing spec.
-ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION = env_bool(
-    "ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION", False
-)
+BUCKETING_SPEC_COMPLIANCE_PRINT_LOG = "PRINT_LOG"
+BUCKETING_SPEC_COMPLIANCE_ASSERT = "ASSERT"

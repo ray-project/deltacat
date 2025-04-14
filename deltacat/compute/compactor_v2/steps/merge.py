@@ -48,8 +48,9 @@ from deltacat.compute.compactor_v2.constants import (
     MERGE_TIME_IN_SECONDS,
     MERGE_SUCCESS_COUNT,
     MERGE_FAILURE_COUNT,
-    ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING,
-    ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION,
+    BUCKETING_SPEC_COMPLIANCE_PROFILE,
+    BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
 )
 from deltacat.exceptions import (
     categorize_errors,
@@ -200,14 +201,13 @@ def _validate_bucketing_spec_compliance(
     for index, hash_value in enumerate(sc.pk_hash_string_column_np(pki_table)):
         hash_bucket = pk_digest_to_hash_bucket_index(hash_value, rcf.hash_bucket_count)
         if hash_bucket != hb_index:
-            if ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING:
-                logger.info(
-                    f"{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}"
-                    f".{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}"
-                    f".{rcf.compacted_delta_locator.partition_values} has non-compliant bucketing spec. "
-                    f"Expected hash bucket is {hb_index} but found {hash_bucket}."
-                )
-            if ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION:
+            logger.info(
+                f"{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}"
+                f".{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}"
+                f".{rcf.compacted_delta_locator.partition_values} has non-compliant bucketing spec. "
+                f"Expected hash bucket is {hb_index} but found {hash_bucket}."
+            )
+            if BUCKETING_SPEC_COMPLIANCE_PROFILE == BUCKETING_SPEC_COMPLIANCE_ASSERT:
                 raise AssertionError(
                     "Hash bucket drift detected. Expected hash bucket index"
                     f" to be {hb_index} but found {hash_bucket}"
@@ -244,14 +244,14 @@ def _download_compacted_table(
         tables.append(table)
 
     compacted_table = pa.concat_tables(tables)
-    check_bucketing_spec = (
-        ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION
-        or ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING
-    )
+    check_bucketing_spec = BUCKETING_SPEC_COMPLIANCE_PROFILE in [
+        BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
+        BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    ]
 
     logger.debug(
-        f"Value of ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION, ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING:"
-        f" {ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION}, {ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING}"
+        f"Value of BUCKETING_SPEC_COMPLIANCE_PROFILE, check_bucketing_spec:"
+        f" {BUCKETING_SPEC_COMPLIANCE_PROFILE}, {check_bucketing_spec}"
     )
 
     # Bucketing spec compliance isn't required without primary keys

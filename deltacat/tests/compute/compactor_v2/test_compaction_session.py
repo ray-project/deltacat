@@ -96,14 +96,8 @@ def enable_bucketing_spec_validation(monkeypatch):
 
     monkeypatch.setattr(
         deltacat.compute.compactor_v2.steps.merge,
-        "ENABLE_BUCKETING_SPEC_COMPLIANCE_LOGGING",
-        True,
-    )
-
-    monkeypatch.setattr(
-        deltacat.compute.compactor_v2.steps.merge,
-        "ENABLE_BUCKETING_SPEC_COMPLIANCE_ASSERTION",
-        True,
+        "BUCKETING_SPEC_COMPLIANCE_PROFILE",
+        "ASSERT",
     )
 
 
