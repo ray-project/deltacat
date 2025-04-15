@@ -4,7 +4,10 @@ from deltacat.exceptions import RetryableError
 AVERAGE_FILE_PATH_COLUMN_SIZE_BYTES = 80
 AVERAGE_POS_COLUMN_SIZE_BYTES = 4
 XXHASH_BYTE_PER_RECORD = 8
-MEMORY_BUFFER_RATE = 1.2
+MEMORY_BUFFER_RATE = 2
+# TODO: Add audit info to check this number in practice
+# Worst case 2 as no duplicates exists across all pk
+PYARROW_AGGREGATE_MEMORY_MULTIPLIER = 2
 
 
 def estimate_fixed_hash_columns(hash_value_size_bytes_per_record, total_record_count):
@@ -13,8 +16,8 @@ def estimate_fixed_hash_columns(hash_value_size_bytes_per_record, total_record_c
 
 def get_total_record_from_iceberg_files(iceberg_files_list):
     total_record_count = 0
-    for iceberg_files in iceberg_files_list:
-        total_record_count += sum(file.record_count for file in iceberg_files)
+    # file are in form of tuple (sequence_number, DataFile)
+    total_record_count += sum(file[1].record_count for file in iceberg_files_list)
     return total_record_count
 
 
@@ -76,13 +79,38 @@ def _get_task_options(
     return task_opts
 
 
-def convert_resource_options_provider(index, files_for_each_bucket):
-    (
-        data_files_list,
-        equality_delete_files_list,
-        position_delete_files_list,
-    ) = files_for_each_bucket[1]
-    memory_requirement = estimate_convert_remote_option_resources(
-        data_files_list, equality_delete_files_list
+def estimate_dedupe_memory(all_data_files_for_dedupe):
+    dedupe_record_count = get_total_record_from_iceberg_files(all_data_files_for_dedupe)
+    produced_pos_memory_required = estimate_iceberg_pos_delete_additional_columns(
+        ["file_path", "pos"], dedupe_record_count
     )
-    return _get_task_options(memory=memory_requirement)
+    download_pk_memory_required = estimate_fixed_hash_columns(
+        XXHASH_BYTE_PER_RECORD, dedupe_record_count
+    )
+    memory_required_by_dedupe = (
+        produced_pos_memory_required + download_pk_memory_required
+    ) * PYARROW_AGGREGATE_MEMORY_MULTIPLIER
+    memory_with_buffer = memory_required_by_dedupe * MEMORY_BUFFER_RATE
+    return memory_with_buffer
+
+
+def convert_resource_options_provider(index, convert_input_files):
+    applicable_data_files = convert_input_files.applicable_data_files
+    applicable_equality_delete_files = (
+        convert_input_files.applicable_equality_delete_files
+    )
+    all_data_files_for_dedupe = convert_input_files.all_data_files_for_dedupe
+    total_memory_required = 0
+    if applicable_data_files and applicable_equality_delete_files:
+        memory_requirement_for_convert_equality_deletes = (
+            estimate_convert_remote_option_resources(
+                applicable_data_files, applicable_equality_delete_files
+            )
+        )
+        total_memory_required += memory_requirement_for_convert_equality_deletes
+    if all_data_files_for_dedupe:
+        memory_requirement_for_dedupe = estimate_dedupe_memory(
+            all_data_files_for_dedupe
+        )
+        total_memory_required += memory_requirement_for_dedupe
+    return _get_task_options(memory=total_memory_required)

@@ -77,7 +77,7 @@ def upload_table_with_retry(
         s3_file_system = get_s3_file_system(content_type=content_type)
     capture_object = CapturedBlockWritePaths()
     block_write_path_provider = UuidBlockWritePathProvider(
-        capture_object=capture_object
+        capture_object=capture_object, base_path=s3_url_prefix
     )
     s3_table_writer_func = get_table_writer(table)
     table_record_count = get_table_length(table)
