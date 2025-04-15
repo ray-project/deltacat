@@ -29,7 +29,6 @@ def append(table: Table, paths: List[str]) -> None:
                 snapshot_update.append_data_file(data_file)
 
 
-
 def write_file(table: Table, paths: Iterator[str]) -> Iterator[DataFile]:
     data_files = []
     for file_path in paths:

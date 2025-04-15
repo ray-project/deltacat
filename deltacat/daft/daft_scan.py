@@ -1,8 +1,15 @@
 from typing import Iterator
 
 from daft import Schema, DataType
-from daft.daft import StorageConfig, PartitionField, Pushdowns, ScanTask, PartitionTransform, FileFormatConfig, \
-    ParquetSourceConfig
+from daft.daft import (
+    StorageConfig,
+    PartitionField,
+    Pushdowns,
+    ScanTask,
+    PartitionTransform,
+    FileFormatConfig,
+    ParquetSourceConfig,
+)
 from daft.io.scan import ScanOperator, make_partition_field
 from daft.logical.schema import Field
 
@@ -46,14 +53,13 @@ class DeltaCATScanOperator(ScanOperator):
             for data_file in dc_scan_task.data_files():
                 st = ScanTask.catalog_scan_task(
                     file=data_file.file_path,
-                    file_format= file_format_config,
+                    file_format=file_format_config,
                     schema=self._schema._schema,
                     storage_config=self.storage_config,
                     pushdowns=pushdowns,
                 )
                 scan_tasks.append(st)
         return iter(scan_tasks)
-
 
     def can_absorb_filter(self) -> bool:
         return False
@@ -77,4 +83,10 @@ class DeltaCATScanOperator(ScanOperator):
         # TODO: remove hard coding
         partition_field = Field.create(name="symbol_bucket", dtype=DataType.int32())
         source_field = Field.create(name="symbol", dtype=DataType.string())
-        return [make_partition_field(field=partition_field, source_field=source_field, transform=PartitionTransform.iceberg_bucket(2))]
+        return [
+            make_partition_field(
+                field=partition_field,
+                source_field=source_field,
+                transform=PartitionTransform.iceberg_bucket(2),
+            )
+        ]

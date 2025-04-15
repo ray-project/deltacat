@@ -3,7 +3,7 @@ import logging
 from typing import Any, Dict, List, Optional, Union
 
 from daft import DataFrame, context
-from daft.daft import ScanOperatorHandle, StorageConfig, PythonStorageConfig, NativeStorageConfig
+from daft.daft import ScanOperatorHandle, StorageConfig, NativeStorageConfig
 from daft.logical.builder import LogicalPlanBuilder
 
 from deltacat import logs
@@ -153,7 +153,9 @@ def read_table(
     storage_config = NativeStorageConfig(multithreaded_io, io_config)
 
     dc_table = get_table(name=table, namespace=namespace, **kwargs)
-    dc_scan_operator = DeltaCATScanOperator(dc_table, StorageConfig.native(storage_config))
+    dc_scan_operator = DeltaCATScanOperator(
+        dc_table, StorageConfig.native(storage_config)
+    )
     handle = ScanOperatorHandle.from_python_scan_operator(dc_scan_operator)
     builder = LogicalPlanBuilder.from_tabular_scan(scan_operator=handle)
     return DataFrame(builder)
