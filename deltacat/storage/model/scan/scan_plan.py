@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from deltacat.storage.model.scan_task import ScanTask
+from deltacat.storage.model.scan.scan_task import ScanTask
 
 @dataclass
 class ScanPlan:

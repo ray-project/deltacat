@@ -1,9 +1,9 @@
 from typing import Optional
 
 from pyiceberg.catalog import Catalog
-from deltacat.storage.model.push_down import Pushdown
-from deltacat.storage.model.scan_plan import ScanPlan
-from deltacat.storage.model.scan_task import FileScanTask, DataFile
+from deltacat.storage.model.scan.push_down import Pushdown
+from deltacat.storage.model.scan.scan_plan import ScanPlan
+from deltacat.storage.model.scan.scan_task import FileScanTask, DataFile
 from deltacat.storage.util.scan_planner import ScanPlanner
 from deltacat.storage.iceberg.impl import _try_load_iceberg_table
 

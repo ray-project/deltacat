@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import Optional, Any
 
 from deltacat.storage import Stream, Table, TableVersion
-from deltacat.storage.model.push_down import Pushdown
-from deltacat.storage.model.scan_plan import ScanPlan
+from deltacat.storage.model.scan.push_down import Pushdown
+from deltacat.storage.model.scan.scan_plan import ScanPlan
 from deltacat.storage.util.scan_planner import ScanPlanner
 
 

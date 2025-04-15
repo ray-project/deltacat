@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from deltacat.storage.model.push_down import Pushdown
-from deltacat.storage.model.scan_plan import ScanPlan
+from deltacat.storage.model.scan.push_down import Pushdown
+from deltacat.storage.model.scan.scan_plan import ScanPlan
 
 class ScanPlanner(ABC):
 
