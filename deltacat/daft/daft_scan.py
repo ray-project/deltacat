@@ -6,14 +6,13 @@ from daft.daft import StorageConfig, PartitionField, Pushdowns, ScanTask, Partit
 from daft.io.scan import ScanOperator, make_partition_field
 from daft.logical.schema import Field
 
-import deltacat
+from deltacat.catalog.model.table_definition import TableDefinition
 
 
 class DeltaCATScanOperator(ScanOperator):
-    def __init__(self, table_name: str, namespace: str, storage_config: StorageConfig) -> None:
+    def __init__(self, table: TableDefinition, storage_config: StorageConfig) -> None:
         super().__init__()
-        self.table_name = table_name
-        self.namespace = namespace
+        self.table = table
         self._schema = self._infer_schema()
         self.partition_keys = self._infer_partition_keys()
         self.storage_config = storage_config
@@ -22,7 +21,7 @@ class DeltaCATScanOperator(ScanOperator):
         return self._schema
 
     def display_name(self) -> str:
-        return f"DeltaCATScanOperator({self.namespace}.{self.table_name})"
+        return f"DeltaCATScanOperator({self.table.table.namespace}.{self.table.table.table_name})"
 
     def partitioning_keys(self) -> list[PartitionField]:
         return self.partition_keys
@@ -37,7 +36,7 @@ class DeltaCATScanOperator(ScanOperator):
 
     def to_scan_tasks(self, pushdowns: Pushdowns) -> Iterator[ScanTask]:
         # TODO: implement pushdown predicate on DeltaCAT
-        dc_scan_plan = deltacat.create_scan_plan(self.table_name, self.namespace)
+        dc_scan_plan = self.table.create_scan_plan()
         scan_tasks = []
         file_format_config = FileFormatConfig.from_parquet_config(
             # maybe this: ParquetSourceConfig(field_id_mapping=self._field_id_mapping)
