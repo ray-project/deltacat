@@ -29,4 +29,3 @@ class ShardedScanTask(ScanTask):
     """
     def data_files(self) -> list[DataFile]:
         raise NotImplementedError("data_files is not implemented for ShardedScanTask")
-
