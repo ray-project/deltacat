@@ -9,8 +9,6 @@ from deltacat.exceptions import (
     TableVersionNotFoundError,
 )
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.storage.model.push_down import Pushdown
-from deltacat.storage.model.scan_plan import ScanPlan
 from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
@@ -174,13 +172,6 @@ def read_table(
         params=merge_on_read_params, **kwargs
     )
 
-def create_scan_plan(
-    table: str,
-    namespace: Optional[str] = None,
-    pushdown: Optional[Pushdown] = None,
-    catalog: Optional[str] = None,
-) -> ScanPlan:
-    raise NotImplementedError("create_scan_plan not implemented for default catalog")
 
 def alter_table(
     table: str,
