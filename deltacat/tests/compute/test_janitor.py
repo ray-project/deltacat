@@ -1,21 +1,21 @@
 import os
 import time
 import posixpath
-import pyarrow as pa
+from pyarrow.fs import FileSelector
 
 from deltacat.storage import (
     Transaction,
     TransactionOperation,
     TransactionOperationType,
-    TransactionType,
+    TransactionType
 )
+
 from deltacat.constants import (
-    SUCCESSFULLY_CLEANED,
     TXN_DIR_NAME,
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
-    CURRENTLY_CLEANING,
+    SUCCESS_TXN_DIR_NAME
 )
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.tests.test_utils.storage import (
@@ -44,7 +44,7 @@ class TestJanitorJob:
         start_time = time.time_ns() - 1_000_000_000  # 1 second in the past
         txn_id = "test_transaction_id"
         # The file name uses past_end_time as the first token so that it qualifies as timed out.
-        txn_filename = f"{start_time}{txn_id}{TXN_PART_SEPARATOR}{TXN_PART_SEPARATOR}{time.time_ns()}"
+        txn_filename = f"{start_time}{TXN_PART_SEPARATOR}{txn_id}{TXN_PART_SEPARATOR}{time.time_ns()}"
         txn_path = posixpath.join(running_txn_dir, txn_filename)
 
         # Create a mock transaction file in the running directory.
@@ -58,13 +58,20 @@ class TestJanitorJob:
         with open(test_metafile_path, "w") as f:
             f.write("mock metafile content")
 
+        assert os.path.exists(test_metafile_path), "Test metafile was not deleted."
+
+        assert os.path.exists(
+            txn_path
+        ), "Transaction file still exists in running directory."
+
         # Run the janitor job that should:
         # 1. Move the running txn file to the failed directory with TIMEOUT_TXN appended.
         # 2. Invoke brute force search which deletes the metafile and renames the txn log file to use SUCCESSFULLY_CLEANED.
         janitor_delete_timed_out_transaction(temp_dir)
 
         # Expected name: original txn_filename with TIMEOUT_TXN replaced by SUCCESSFULLY_CLEANED.
-        new_txn_file_name = f"{txn_filename}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
+       # new_txn_file_name = f"{txn_filename}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
+        new_txn_file_name = f"{txn_filename}"
         new_failed_txn_path = posixpath.join(failed_txn_dir, new_txn_file_name)
 
         # Verify that the renamed file exists in the failed directory.
@@ -77,50 +84,6 @@ class TestJanitorJob:
         ), "Transaction file still exists in running directory."
         # Verify that the metafile was deleted.
         assert not os.path.exists(test_metafile_path), "Test metafile was not deleted."
-
-    def test_janitor_remove_files_in_failed(self, temp_dir):
-        # Set up test directories and filesystem
-        catalog_root, filesystem = resolve_path_and_filesystem(temp_dir)
-        failed_txn_dir = posixpath.join(catalog_root, TXN_DIR_NAME, FAILED_TXN_DIR_NAME)
-        os.makedirs(failed_txn_dir, exist_ok=True)
-
-        # Create a test transaction with known write paths.
-        namespace = create_test_namespace()
-        table = create_test_table()
-        meta_to_create = [namespace, table]
-        txn_operations = [
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=meta,
-            )
-            for meta in meta_to_create
-        ]
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
-            txn_operations=txn_operations,
-        )
-        # Commit transaction to obtain write paths and a txn log file.
-        write_paths, txn_log_path = transaction.commit(temp_dir)
-
-        # Simulate a failed txn log file with a filename that includes CURRENTLY_CLEANING.
-        new_failed_txn_filename = f"{int(time.time_ns())}{TXN_PART_SEPARATOR}{transaction.id}{TXN_PART_SEPARATOR}{CURRENTLY_CLEANING}"
-        failed_txn_path = posixpath.join(failed_txn_dir, new_failed_txn_filename)
-        os.rename(txn_log_path, failed_txn_path)
-
-        # Verify that the write path files exist before cleanup.
-        for path in write_paths:
-            assert os.path.exists(
-                path
-            ), f"Expected write path {path} to exist before cleanup."
-
-        # Run the cleanup function.
-        janitor_remove_files_in_failed(temp_dir, filesystem)
-
-        # Check that all write paths have been deleted.
-        for path in write_paths:
-            assert not os.path.exists(
-                path
-            ), f"Write path {path} should have been deleted after cleanup."
 
     def test_janitor_handles_empty_directories(self, temp_dir):
         # Set up test directories and filesystem
@@ -197,7 +160,8 @@ class TestJanitorJob:
         # Verify that all transactions were moved to the failed directory with SUCCESSFULLY_CLEANED appended
         for txn_filename, txn_path, test_metafile_path in txn_filenames:
             new_txn_filename = (
-                f"{txn_filename}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
+               # f"{txn_filename}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
+                f"{txn_filename}"
             )
             new_failed_txn_path = posixpath.join(failed_txn_dir, new_txn_filename)
 
@@ -216,5 +180,62 @@ class TestJanitorJob:
                 test_metafile_path
             ), f"Metafile {test_metafile_path} was not deleted."
 
-        # Optionally, print the contents of the failed directory for debugging
-        print("Failed directory contents:", os.listdir(failed_txn_dir))
+
+    def test_janitor_remove_files_failed(self, temp_dir):
+        # Set up test directories and filesystem
+        catalog_root, filesystem = resolve_path_and_filesystem(temp_dir)
+        txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME)
+        failed_txn_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+        running_txn_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
+        success_txn_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
+
+        # Ensure all necessary directories exist
+        for dir_path in [failed_txn_dir, running_txn_dir]:
+            os.makedirs(dir_path, exist_ok=True)
+
+        # Create metadata for the transaction
+        meta_to_create = [
+            create_test_namespace(),
+            create_test_table(),
+        ]
+
+        txn_operations = [
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=meta,
+            ) for meta in meta_to_create
+        ]
+
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=txn_operations,
+        )
+        write_paths, txn_log_path = transaction.commit(temp_dir)
+
+        # Get filename of committed transaction (from success directory)
+        success_file_dir = filesystem.get_file_info(FileSelector(success_txn_dir, recursive=False))
+        success_files = filesystem.get_file_info(FileSelector(success_file_dir[0].path, recursive=False))
+        filename = posixpath.basename(success_file_dir[0].path)
+
+        # Compute destination paths
+        failed_txn_path = posixpath.join(failed_txn_dir, filename)
+        running_txn_path = posixpath.join(running_txn_dir, filename)
+        # Move the file from success to failed to simulate a failed transactions
+
+        filesystem.copy_file(success_files[0].path, failed_txn_path)
+        filesystem.copy_file(success_files[0].path, running_txn_path)
+
+        # Verify that the write path files exist before cleanup.
+        for path in write_paths:
+            assert os.path.exists(
+                path
+            ), f"Expected write path {path} to exist before cleanup."
+
+        # Run the cleanup function.
+        janitor_remove_files_in_failed(temp_dir, filesystem)
+
+        # Check that all write paths have been deleted.
+        for path in write_paths:
+            assert not os.path.exists(
+                path
+            ), f"Write path {path} should have been deleted after cleanup."

@@ -7,13 +7,16 @@ from itertools import chain
 from deltacat.storage.model.transaction import Transaction
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.constants import (
-    CURRENTLY_CLEANING,
-    SUCCESSFULLY_CLEANED,
-    TIMEOUT_TXN,
+    # CURRENTLY_CLEANING,
+    # SUCCESSFULLY_CLEANED,
+    # TIMEOUT_TXN,
     TXN_DIR_NAME,
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
+)
+from deltacat.storage.model.types import (
+    TransactionState
 )
 import logging
 from deltacat import logs
@@ -69,14 +72,14 @@ def brute_force_search_matching_metafiles(
             catalog_root, TXN_DIR_NAME, FAILED_TXN_DIR_NAME
         )
         old_log_path = posixpath.join(failed_txn_log_dir, dirty_file)
-        if dirty_file.endswith(TIMEOUT_TXN):
-            new_filename = dirty_file.replace(TIMEOUT_TXN, SUCCESSFULLY_CLEANED)
-            new_log_path = posixpath.join(failed_txn_log_dir, new_filename)
-            try:
-                filesystem.move(old_log_path, new_log_path)
-                logger.debug(f"Renamed file from {old_log_path} to {new_log_path}")
-            except Exception as e:
-                logger.error(f"Error renaming file '{old_log_path}': {e}")
+
+        # new_filename = dirty_file.replace(TIMEOUT_TXN, SUCCESSFULLY_CLEANED)
+        new_log_path = posixpath.join(failed_txn_log_dir, dirty_file)
+        try:
+            filesystem.move(old_log_path, new_log_path)
+            logger.debug(f"Renamed file from {old_log_path} to {new_log_path}")
+        except Exception as e:
+            logger.error(f"Error renaming file '{old_log_path}': {e}")
 
 
 def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
@@ -89,6 +92,7 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
     txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
     running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
     failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+
 
     dirty_files = []
 
@@ -104,12 +108,14 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
             current_time = time.time_ns()
             if end_time <= current_time:
                 src_path = running_txn_info.path
-                new_filename = f"{filename}{TXN_PART_SEPARATOR}{TIMEOUT_TXN}"
+                #new_filename = f"{filename}{TXN_PART_SEPARATOR}{TIMEOUT_TXN}"
+                new_filename = f"{filename}"
                 dest_path = posixpath.join(failed_txn_log_dir, new_filename)
 
                 # Move the file using copy and delete
                 with filesystem.open_input_file(src_path) as src_file:
                     contents = src_file.read()
+
                 with filesystem.open_output_stream(dest_path) as dest_file:
                     dest_file.write(contents)
                 filesystem.delete_file(src_path)
@@ -142,6 +148,7 @@ def janitor_remove_files_in_failed(
 
     txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
     failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+    running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
     filesystem.create_dir(failed_txn_log_dir, recursive=True)
 
     failed_txn_file_selector = FileSelector(failed_txn_log_dir, recursive=False)
@@ -149,22 +156,23 @@ def janitor_remove_files_in_failed(
 
     for failed_txn_info in failed_txn_info_list:
         try:
+            txn = Transaction.read(failed_txn_info.path, filesystem)
             failed_txn_basename = posixpath.basename(failed_txn_info.path)
-            parts = failed_txn_basename.split(TXN_PART_SEPARATOR)
             should_process = True
             try:
-                if parts[-1] == SUCCESSFULLY_CLEANED:
+                if txn.state(catalog_root_normalized) == TransactionState.PURGED:
                     should_process = False
             except Exception as e:
                 logger.error("Could not check attribute")
             if should_process:
                 # Process if the file is marked as currently cleaning.
-                if parts[-1] == CURRENTLY_CLEANING:
-                    txn = Transaction.read(failed_txn_info.path, filesystem)
+                txnid = txn.id
+
+                if txn.state(catalog_root_normalized) == TransactionState.FAILED:
+
                     txnid = txn.id
 
                     operations = txn["operations"]
-
                     known_write_paths = chain.from_iterable(
                         (op["metafile_write_paths"] + op["locator_write_paths"])
                         for op in operations
@@ -176,20 +184,22 @@ def janitor_remove_files_in_failed(
                         except Exception as e:
                             logger.error(f"Failed to delete file '{write_path}': {e}")
 
-                    new_filename = f"{txnid}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
+                    new_filename = f"{txnid}"
+
                     new_failed_txn_log_file_path = posixpath.join(
                         failed_txn_log_dir, new_filename
                     )
+                    running_txn_log_path = posixpath.join(
+                        running_txn_log_dir, new_filename
+                    )
+
+                    os.delete(running_txn_log_path)
+
                     os.rename(failed_txn_info.path, new_failed_txn_log_file_path)
                     logger.debug(
                         f"Cleaned up failed transaction: {failed_txn_basename}"
                     )
 
-                # If the file is marked with TIMEOUT_TXN (third token), call the brute-force search.
-                if parts[-1] == TIMEOUT_TXN:
-                    brute_force_search_matching_metafiles(
-                        [failed_txn_basename], filesystem, catalog_root
-                    )
         except Exception as e:
             logger.error(
                 f"Could not read transaction '{failed_txn_info.path}', skipping: {e}"
