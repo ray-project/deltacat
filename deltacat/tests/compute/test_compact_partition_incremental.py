@@ -119,6 +119,21 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
         os.remove(DATABASE_FILE_PATH_VALUE)
 
 
+@pytest.fixture(autouse=True, scope="function")
+def enable_bucketing_spec_validation(monkeypatch):
+    """
+    Enable the bucketing spec validation for all tests.
+    This will help catch hash bucket drift in testing.
+    """
+    import deltacat.compute.compactor_v2.steps.merge
+
+    monkeypatch.setattr(
+        deltacat.compute.compactor_v2.steps.merge,
+        "BUCKETING_SPEC_COMPLIANCE_PROFILE",
+        "ASSERT",
+    )
+
+
 @pytest.mark.parametrize(
     [
         "test_name",

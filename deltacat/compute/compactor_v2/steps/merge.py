@@ -32,6 +32,7 @@ from deltacat.utils.resources import (
 )
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
+    pk_digest_to_hash_bucket_index,
 )
 from deltacat.storage import (
     Delta,
@@ -47,6 +48,9 @@ from deltacat.compute.compactor_v2.constants import (
     MERGE_TIME_IN_SECONDS,
     MERGE_SUCCESS_COUNT,
     MERGE_FAILURE_COUNT,
+    BUCKETING_SPEC_COMPLIANCE_PROFILE,
+    BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
 )
 from deltacat.exceptions import (
     categorize_errors,
@@ -188,9 +192,34 @@ def _merge_tables(
     return final_table
 
 
+def _validate_bucketing_spec_compliance(
+    table: pa.Table, rcf: RoundCompletionInfo, hb_index: int, primary_keys: List[str]
+) -> None:
+    pki_table = generate_pk_hash_column(
+        [table], primary_keys=primary_keys, requires_hash=True
+    )[0]
+    for index, hash_value in enumerate(sc.pk_hash_string_column_np(pki_table)):
+        hash_bucket = pk_digest_to_hash_bucket_index(hash_value, rcf.hash_bucket_count)
+        if hash_bucket != hb_index:
+            logger.info(
+                f"{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}"
+                f".{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}"
+                f".{rcf.compacted_delta_locator.partition_values} has non-compliant bucketing spec. "
+                f"Expected hash bucket is {hb_index} but found {hash_bucket}."
+            )
+            if BUCKETING_SPEC_COMPLIANCE_PROFILE == BUCKETING_SPEC_COMPLIANCE_ASSERT:
+                raise AssertionError(
+                    "Hash bucket drift detected. Expected hash bucket index"
+                    f" to be {hb_index} but found {hash_bucket}"
+                )
+            # No further checks necessary
+            break
+
+
 def _download_compacted_table(
     hb_index: int,
     rcf: RoundCompletionInfo,
+    primary_keys: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Optional[dict] = None,
@@ -214,7 +243,23 @@ def _download_compacted_table(
 
         tables.append(table)
 
-    return pa.concat_tables(tables)
+    compacted_table = pa.concat_tables(tables)
+    check_bucketing_spec = BUCKETING_SPEC_COMPLIANCE_PROFILE in [
+        BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
+        BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    ]
+
+    logger.debug(
+        f"Value of BUCKETING_SPEC_COMPLIANCE_PROFILE, check_bucketing_spec:"
+        f" {BUCKETING_SPEC_COMPLIANCE_PROFILE}, {check_bucketing_spec}"
+    )
+
+    # Bucketing spec compliance isn't required without primary keys
+    if primary_keys and check_bucketing_spec:
+        _validate_bucketing_spec_compliance(
+            compacted_table, rcf, hb_index, primary_keys
+        )
+    return compacted_table
 
 
 def _copy_all_manifest_files_from_old_hash_buckets(
@@ -543,6 +588,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 compacted_table = _download_compacted_table(
                     hb_index=merge_file_group.hb_index,
                     rcf=input.round_completion_info,
+                    primary_keys=input.primary_keys,
                     read_kwargs_provider=input.read_kwargs_provider,
                     deltacat_storage=input.deltacat_storage,
                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,

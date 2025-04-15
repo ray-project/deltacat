@@ -4,9 +4,11 @@ import os
 import pyarrow as pa
 import pytest
 import boto3
+import json
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
+from deltacat.exceptions import ValidationError
 from boto3.resources.base import ServiceResource
 import deltacat.tests.local_deltacat_storage as ds
 from deltacat.types.media import ContentType
@@ -85,6 +87,17 @@ def disable_sha1(monkeypatch):
         deltacat.compute.compactor_v2.utils.primary_key_index,
         "SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED",
         True,
+    )
+
+
+@pytest.fixture(scope="function")
+def enable_bucketing_spec_validation(monkeypatch):
+    import deltacat.compute.compactor_v2.steps.merge
+
+    monkeypatch.setattr(
+        deltacat.compute.compactor_v2.steps.merge,
+        "BUCKETING_SPEC_COMPLIANCE_PROFILE",
+        "ASSERT",
     )
 
 
@@ -689,3 +702,307 @@ class TestCompactionSession:
             incremental_rcf.compacted_pyarrow_write_result.pyarrow_bytes >= 2300000000
         )
         assert incremental_rcf.compacted_pyarrow_write_result.records == 4
+
+    def test_compact_partition_when_bucket_spec_validation_fails(
+        self,
+        s3_resource,
+        local_deltacat_storage_kwargs,
+        enable_bucketing_spec_validation,
+    ):
+        """
+        A test case which asserts the bucketing spec validation throws an assertion error
+        when the validation has failed.
+        """
+
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, [self.BACKFILL_FILE_PATH], **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        rcf_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 4,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 1,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                }
+            )
+        )
+
+        backfill_rcf = get_rcf(s3_resource, rcf_url)
+        bucket, backfill_key1, backfill_key2 = rcf_url.strip("s3://").split("/")
+        # Move the records to different hash buckets to simulate a validation failure.
+        backfill_rcf["hbIndexToEntryRange"] = {"1": [0, 3]}
+        s3_resource.Bucket(bucket).put_object(
+            Key=f"{backfill_key1}/{backfill_key2}", Body=json.dumps(backfill_rcf)
+        )
+
+        # Now run an incremental compaction and verify if the previous RCF was read properly.
+        new_source_delta = commit_delta_to_partition(
+            source_delta.partition_locator,
+            [self.INCREMENTAL_FILE_PATH],
+            **local_deltacat_storage_kwargs,
+        )
+
+        new_destination_partition = ds.get_partition(
+            dest_partition.stream_locator, [], **local_deltacat_storage_kwargs
+        )
+
+        with pytest.raises(ValidationError) as excinfo:
+            compact_partition(
+                CompactPartitionParams.of(
+                    {
+                        "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                        "compacted_file_content_type": ContentType.PARQUET,
+                        "dd_max_parallelism_ratio": 1.0,
+                        "deltacat_storage": ds,
+                        "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                        "destination_partition_locator": new_destination_partition.locator,
+                        "drop_duplicates": True,
+                        "hash_bucket_count": 4,
+                        "last_stream_position_to_compact": new_source_delta.stream_position,
+                        "list_deltas_kwargs": {
+                            **local_deltacat_storage_kwargs,
+                            **{"equivalent_table_types": []},
+                        },
+                        "primary_keys": ["pk"],
+                        "rebase_source_partition_locator": None,
+                        "rebase_source_partition_high_watermark": None,
+                        "records_per_compacted_file": 4000,
+                        "s3_client_kwargs": {},
+                        "source_partition_locator": new_source_delta.partition_locator,
+                    }
+                )
+            )
+
+        assert (
+            "Hash bucket drift detected. Expected hash bucket index to be 1 but found 0"
+            in str(excinfo.value)
+        )
+
+    def test_compact_partition_when_bucket_spec_validation_fails_but_env_variable_disabled(
+        self,
+        s3_resource,
+        local_deltacat_storage_kwargs,
+    ):
+        """
+        A test case which asserts even if bucketing spec validation fails, compaction doesn't
+        throw an error if the feature is not enabled.
+        """
+
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, [self.BACKFILL_FILE_PATH], **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        rcf_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 4,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 1,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                }
+            )
+        )
+
+        backfill_rcf = get_rcf(s3_resource, rcf_url)
+        bucket, backfill_key1, backfill_key2 = rcf_url.strip("s3://").split("/")
+        # Move the records to different hash buckets to simulate a validation failure.
+        backfill_rcf["hbIndexToEntryRange"] = {"1": [0, 3]}
+        s3_resource.Bucket(bucket).put_object(
+            Key=f"{backfill_key1}/{backfill_key2}", Body=json.dumps(backfill_rcf)
+        )
+
+        # Now run an incremental compaction and verify if the previous RCF was read properly.
+        new_source_delta = commit_delta_to_partition(
+            source_delta.partition_locator,
+            [self.INCREMENTAL_FILE_PATH],
+            **local_deltacat_storage_kwargs,
+        )
+
+        new_destination_partition = ds.get_partition(
+            dest_partition.stream_locator, [], **local_deltacat_storage_kwargs
+        )
+
+        new_rcf = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": new_destination_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 4,
+                    "last_stream_position_to_compact": new_source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": None,
+                    "rebase_source_partition_high_watermark": None,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": new_source_delta.partition_locator,
+                }
+            )
+        )
+
+        incremental_rcf = get_rcf(s3_resource, new_rcf)
+        assert incremental_rcf.hash_bucket_count == 4
+        assert len(incremental_rcf.hb_index_to_entry_range) == 2
+
+    def test_compact_partition_when_bucket_spec_validation_succeeds(
+        self,
+        s3_resource,
+        local_deltacat_storage_kwargs,
+        enable_bucketing_spec_validation,
+    ):
+        """
+        A test case which asserts the bucketing spec validation does not throw
+        and error when the validation succeeds.
+        """
+
+        # setup
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, [self.BACKFILL_FILE_PATH], **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        rcf_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 4,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 1,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                }
+            )
+        )
+
+        rcf = get_rcf(s3_resource, rcf_url)
+        assert rcf.hash_bucket_count == 4
+
+        # Now run an incremental compaction and verify if the previous RCF was read properly.
+        new_source_delta = commit_delta_to_partition(
+            source_delta.partition_locator,
+            [self.INCREMENTAL_FILE_PATH],
+            **local_deltacat_storage_kwargs,
+        )
+
+        new_destination_partition = ds.get_partition(
+            dest_partition.stream_locator, [], **local_deltacat_storage_kwargs
+        )
+
+        new_uri = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": new_destination_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 4,
+                    "last_stream_position_to_compact": new_source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": None,
+                    "rebase_source_partition_high_watermark": None,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": new_source_delta.partition_locator,
+                }
+            )
+        )
+
+        rcf = get_rcf(s3_resource, new_uri)
+        assert rcf.hash_bucket_count == 4
