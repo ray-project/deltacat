@@ -50,5 +50,12 @@ class TableDefinition(dict):
 
     def create_scan_plan(self, pushdown: Optional[Pushdown] = None) -> ScanPlan:
         if not self.scan_planner:
-            raise RuntimeError(f"ScanPlanner is not initialized for table '{self.table.table_name}' of namespace '{self.table.namespace}'")
-        return self.scan_planner.create_scan_plan(table_name=self.table.table_name, namespace=self.table.namespace, pushdown=pushdown)
+            raise RuntimeError(
+                f"ScanPlanner is not initialized for table '{self.table.table_name}' "
+                f"of namespace '{self.table.namespace}'"
+            )
+        return self.scan_planner.create_scan_plan(
+            table_name=self.table.table_name,
+            namespace=self.table.namespace,
+            pushdown=pushdown,
+        )

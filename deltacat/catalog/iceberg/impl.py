@@ -146,6 +146,7 @@ def read_table(
     """Read a table into a distributed dataset."""
     raise NotImplementedError("read_table not implemented")
 
+
 def alter_table(
     table: str,
     *args,
