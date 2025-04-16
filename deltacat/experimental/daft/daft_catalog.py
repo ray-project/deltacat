@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import Tuple, Optional
 
-import deltacat
 from deltacat.catalog.model.catalog import Catalog as DCCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
 
@@ -25,6 +24,9 @@ class DaftCatalog(Catalog):
 
     The initialization of DeltaCAT and Daft catalogs is managed in `deltacat.catalog.catalog.py`. The user
     is just expected to initialize catalogs through the DeltaCAT public interface (init / put_catalog).
+
+    TODO (mccember) in follow up PR we need to consider how to keep the DeltaCAT Catalogs class and Daft session in sync,
+      and the user-facing entrypoint to get a Daft catalog
     """
     def __init__(
         self, catalog: DCCatalog, name: str):
@@ -54,7 +56,7 @@ class DaftCatalog(Catalog):
         """Create a new namespace in the catalog."""
         if isinstance(identifier, Identifier):
             identifier = str(identifier)
-        self.dc_catalog.inner.create_namespace(namespace=identifier)
+        self.dc_catalog.inner.create_namespace(identifier)
 
     def create_table(
         self, identifier: Identifier | str, source: TableSource | object, **kwargs
@@ -113,7 +115,7 @@ class DaftCatalog(Catalog):
 
         # Create the table in DeltaCAT
         table_def = self.dc_catalog.inner.create_table(
-            name=name,
+            name,
             namespace=namespace,
             version=version,
             schema=deltacat_schema,
@@ -141,7 +143,7 @@ class DaftCatalog(Catalog):
 
         # TODO validate this works with iceberg if stream format not set
         table_def = self.dc_catalog.inner.get_table(
-            name=table,
+            table,
             namespace=namespace,
             table_version=version,
             **kwargs,

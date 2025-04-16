@@ -5,7 +5,6 @@ import uuid
 
 from deltacat.catalog import Catalog as DeltaCATCatalog
 from deltacat.catalog import CatalogProperties
-from deltacat.catalog.model.catalog import Catalog, init, get_catalog
 from deltacat.experimental.daft.daft_catalog import (
     DaftCatalog
 )
@@ -15,100 +14,6 @@ import tempfile
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 
 from pyiceberg.catalog import CatalogType
-from deltacat.catalog.main import impl as CatalogImpl
-
-
-class TestDeltaCATDaftCatalogInit:
-    """Test suite for DeltaCATCatalog initialization logic."""
-
-    @classmethod
-    def setup_method(cls):
-        cls.tmpdir = tempfile.mkdtemp()
-
-    @classmethod
-    def teardown_method(cls):
-        shutil.rmtree(cls.tmpdir)
-
-    def test_init_with_existing_catalog(self, isolated_ray_env):
-        """Test initializing with a name that corresponds to an existing catalog."""
-        # Create a catalog and register it
-        catalog_name = "test_catalog"
-        dc_catalog = Catalog(impl=CatalogImpl, root=self.tmpdir)
-
-        # Initialize deltacat with this catalog
-        init(
-            {catalog_name: dc_catalog},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-            **{"force_reinitialize": True},
-        )
-
-        # Now create a DeltaCATCatalog with just the name
-        daft_catalog = DaftCatalog(
-            name=catalog_name, namespace=isolated_ray_env
-        )
-
-        assert daft_catalog._name == "test_catalog"
-
-    def test_init_with_nonexistent_catalog_name(self, isolated_ray_env):
-        """Test initializing with a name that doesn't exist raises ValueError."""
-        # Make sure the catalog doesn't exist in this namespace
-        catalog_name = f"nonexistent_catalog_{uuid.uuid4().hex}"
-
-        # Try to create a DeltaCATCatalog with a name that doesn't exist
-        with pytest.raises(
-            ValueError, match=f"No catalog with name '{catalog_name}' found in DeltaCAT"
-        ):
-            DaftDeltaCATCatalog(name=catalog_name, namespace=isolated_ray_env)
-
-    def test_init_with_new_catalog(self, isolated_ray_env):
-        """Test initializing with a new catalog registers it."""
-        # Create a catalog but don't register it
-        catalog_name = f"new_catalog_{uuid.uuid4().hex}"
-        dc_catalog = Catalog(impl=CatalogImpl, root=self.tmpdir)
-
-        # Create a DeltaCATCatalog with the new catalog
-        DaftDeltaCATCatalog(
-            name=catalog_name, catalog=dc_catalog, namespace=isolated_ray_env
-        )
-
-        # Verify the catalog was registered and is retrievable
-        retrieved_catalog = get_catalog(catalog_name, namespace=isolated_ray_env)
-        assert retrieved_catalog is not None
-
-    def test_init_with_different_existing(self, isolated_ray_env):
-        """Test initializing with a catalog that matches an existing one uses the existing one."""
-        # Create catalogs with same implementation
-        catalog_name = f"same_impl_catalog_{uuid.uuid4().hex}"
-
-        # Create a catalog with a unique root to identify it
-        with tempfile.TemporaryDirectory() as root1:
-            root1 = tempfile.mkdtemp()
-            existing_catalog = Catalog(impl=CatalogImpl, root=root1)
-
-            # Initialize DeltaCAT with this catalog
-            init(
-                {catalog_name: existing_catalog},
-                ray_init_args={
-                    "namespace": isolated_ray_env,
-                    "ignore_reinit_error": True,
-                },
-                **{"force_reinitialize": True},
-            )
-
-            # Create a new catalog with the same implementation but different root
-            with tempfile.TemporaryDirectory() as root2:
-                new_catalog = Catalog(impl=CatalogImpl, root=root2)
-
-                with pytest.raises(
-                    ValueError,
-                    match=f"A catalog with name '{catalog_name}' already exists in DeltaCAT but has a different implementation",
-                ):
-                    DaftDeltaCATCatalog(
-                        name=catalog_name,
-                        catalog=new_catalog,
-                        namespace=isolated_ray_env,
-                    )
-
 
 class TestCatalogIntegration:
     @classmethod
@@ -152,9 +57,7 @@ class TestCatalogIntegration:
 
         # Convert to DaftCatalog and attach to Daft
         catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
-        daft_catalog = daft.catalog.Catalog.from_deltacat(
-            catalog=dc_catalog, name=catalog_name
-        )
+        daft_catalog = DaftCatalog(dc_catalog, catalog_name)
         daft.attach_catalog(daft_catalog, catalog_name)
 
         # Create a sample DataFrame and table
@@ -202,9 +105,7 @@ class TestIcebergCatalogIntegration:
 
         # Convert the DeltaCAT catalog to a Daft catalog
         catalog_name = f"deltacat_iceberg_{uuid.uuid4().hex[:8]}"
-        daft_catalog = daft.catalog.Catalog.from_deltacat(
-            catalog=dc_catalog, name=catalog_name
-        )
+        daft_catalog = DaftCatalog(dc_catalog,catalog_name)
         daft.attach_catalog(daft_catalog, catalog_name)
 
         # Create a sample DataFrame
