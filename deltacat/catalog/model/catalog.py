@@ -250,10 +250,6 @@ def put_catalog(
     """
     Add a named catalog to the global map of named catalogs. Initializes ray if not already initialized.
 
-    You may explicitly provide an initialized Catalog instance, like from the Catalog constructor or
-    from factory methods like Catalog.default or Catalog.iceberg
-    Otherwise, this function initializes the catalog by using the catalog implementation provided by `impl`.
-
     Args:
         name: name of catalog
         catalog: catalog instance to use, if provided
