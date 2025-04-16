@@ -20,13 +20,18 @@ class DaftCatalog(Catalog):
     """
     Wrapper class to create a Daft catalog from a DeltaCAT catalog.
 
-    This class itself expects a `Catalog` and will invoke the underlying implementation through a protected method
-
     The initialization of DeltaCAT and Daft catalogs is managed in `deltacat.catalog.catalog.py`. The user
     is just expected to initialize catalogs through the DeltaCAT public interface (init / put_catalog).
 
     TODO (mccember) in follow up PR we need to consider how to keep the DeltaCAT Catalogs class and Daft session in sync,
       and the user-facing entrypoint to get a Daft catalog
+
+    This class itself expects a `Catalog` and will invoke the underlying implementation
+    similar to `deltacat.catalog.delegate.py`, like:
+      catalog.impl.create_namespace(namespace, inner=catalog.inner)
+
+    We cannot route calls through the higher level catalog registry / delegate since this wrapper class is at a lower
+     layer and does not manage registering catalogs.
     """
     def __init__(
         self, catalog: DCCatalog, name: str):
@@ -56,7 +61,7 @@ class DaftCatalog(Catalog):
         """Create a new namespace in the catalog."""
         if isinstance(identifier, Identifier):
             identifier = str(identifier)
-        self.dc_catalog.inner.create_namespace(identifier)
+        self.dc_catalog.impl.create_namespace(identifier, inner=self.dc_catalog.inner)
 
     def create_table(
         self, identifier: Identifier | str, source: TableSource | object, **kwargs
@@ -114,11 +119,12 @@ class DaftCatalog(Catalog):
         deltacat_schema = self._convert_schema_to_deltacat(source)
 
         # Create the table in DeltaCAT
-        table_def = self.dc_catalog.inner.create_table(
+        table_def = self.dc_catalog.impl.create_table(
             name,
             namespace=namespace,
             version=version,
             schema=deltacat_schema,
+            inner=self.dc_catalog.inner,
             **kwargs,
         )
 
@@ -142,10 +148,11 @@ class DaftCatalog(Catalog):
         namespace, table, version = self._extract_namespace_name_version(identifier)
 
         # TODO validate this works with iceberg if stream format not set
-        table_def = self.dc_catalog.inner.get_table(
+        table_def = self.dc_catalog.impl.get_table(
             table,
             namespace=namespace,
             table_version=version,
+            inner=self.dc_catalog.inner,
             **kwargs,
         )
 
