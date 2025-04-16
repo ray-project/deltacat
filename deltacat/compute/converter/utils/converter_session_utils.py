@@ -60,18 +60,18 @@ def construct_iceberg_table_prefix(
     return f"{iceberg_warehouse_bucket_name}/{iceberg_namespace}/{table_name}/data"
 
 
+def partition_value_record_to_partition_value_string(partition):
+    # Get string representation of partition value out of Record[partition_value]
+    partition_value_str = partition.__repr__().split("[", 1)[1].split("]")[0]
+    return partition_value_str
+
+
 def group_all_files_to_each_bucket(
     data_file_dict, equality_delete_dict, pos_delete_dict
 ):
     convert_input_files_for_all_buckets = []
     files_for_each_bucket_for_deletes = defaultdict(tuple)
     if equality_delete_dict:
-        # files_for_each_bucket contains the following files list:
-        # {partition_value: [(equality_delete_files_tuple_list, data_files_tuple_list, pos_delete_files_tuple_list)]
-        for k, v in data_file_dict.items():
-            logger.info(f"data_file: k, v:{k, v}")
-        for k, v in equality_delete_dict.items():
-            logger.info(f"equality_delete_file: k, v:{k, v}")
         for partition_value, equality_delete_file_list in equality_delete_dict.items():
             (
                 result_equality_delete_file,
@@ -80,8 +80,6 @@ def group_all_files_to_each_bucket(
                 data_files_list=data_file_dict[partition_value],
                 equality_delete_files_list=equality_delete_dict[partition_value],
             )
-            logger.info(f"result_data_file:{result_data_file}")
-            logger.info(f"result_equality_delete_file:{result_equality_delete_file}")
             files_for_each_bucket_for_deletes[partition_value] = (
                 result_data_file,
                 result_equality_delete_file,
