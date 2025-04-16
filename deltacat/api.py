@@ -2,6 +2,7 @@ from typing import Any
 
 
 import deltacat as dc
+from deltacat.catalog import Catalog
 
 
 def copy(source, destination):
@@ -115,7 +116,9 @@ def put(path, *args, **kwargs) -> Any:
         #  disk so that users don't need to re-initialize them every time.
         # register the given catalog
         catalog_name = parts[0]
-        return dc.put_catalog(catalog_name, *args, **kwargs)
+        # Initialize default catalog using kwargs
+        catalog = Catalog(**kwargs)
+        return dc.put_catalog(catalog_name, catalog)
     elif len(parts) == 2:
         # register the given namespace
         catalog_name = parts[0]

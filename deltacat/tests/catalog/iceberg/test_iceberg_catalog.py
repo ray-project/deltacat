@@ -3,7 +3,7 @@ import shutil
 import uuid
 import deltacat
 import pytest
-from deltacat import Field, Schema
+from deltacat import Field, Schema, Catalog
 from pyiceberg.catalog import CatalogType
 
 import pyarrow as pa
@@ -49,10 +49,10 @@ class TestIcebergCatalogInitialization:
         )
 
         # Initialize with the PyIceberg catalog
+        catalog = Catalog(impl=deltacat.IcebergCatalog, **{"config": config})
         deltacat.put_catalog(
             catalog_name,
-            impl=deltacat.IcebergCatalog,
-            **{"config": config},
+            catalog,
             ray_init_args={"ignore_reinit_error": True},
         )
 
