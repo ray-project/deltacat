@@ -30,6 +30,38 @@ class MockCatalogImpl:
         return {"initialized": True, "args": args, "kwargs": kwargs}
 
 
+@pytest.fixture(scope="function")
+def reset_catalogs_ray_actor():
+    """
+    Setup and teardown for Ray environment for tests.
+
+    This will kill the actor all_catalogs, essentially wiping global state for catalogs
+
+    NOTE: tests using this fixture must be run serially. As of April 7 2025, the unit test suite had various
+      failures if run in parallel, in part because the state of all_catalogs in ray is shared across tests.
+
+    NOTE: when using this fixture, ensure you pass ray_init_args={"ignore_reinit_error": True} into all
+        functions which may re-initialize ray. This is because the production code checks the all_catalogs actor
+        in order to determine whether it needs to initialize Ray
+    """
+    # Reset the global catalog_actor state before each test
+    import deltacat.catalog.model.catalog as catalog_module
+
+    # Initialize Ray if not already initialized
+    if not ray.is_initialized():
+        ray.init(ignore_reinit_error=True)
+    yield
+
+    # Clean up the actor if it exists
+    if catalog_module.all_catalogs is not None:
+        try:
+            ray.kill(catalog_module.all_catalogs)
+        except Exception:
+            pass
+        finally:
+            catalog_module.all_catalogs = None
+
+
 class TestCatalog(unittest.TestCase):
     """Tests for the Catalog class itself, without Ray initialization."""
 
@@ -64,64 +96,48 @@ class TestCatalog(unittest.TestCase):
             self.assertEqual(catalog.inner, {"iceberg": True})
 
 
-@pytest.fixture(scope="function")
-def isolated_ray_env(request):
-    """
-    Setup and teardown an isolated Ray environment for tests.
+class TestCatalogsIntegration:
+    """Integration tests for Default catalog functionality."""
 
-    In order to use this fixture, Ray must be re-initialize providing the namespace and ignoring re-initialization errors
+    temp_dir = None
 
-    Re-initialize ray like:
-    init(catalog,
-        ray_init_args={"namespace": namespace, "ignore_reinit_error": True},
-        **{"force_reinitialize": True})
-    """
+    @classmethod
+    def setup_class(cls):
+        cls.temp_dir = tempfile.mkdtemp()
+        # Other tests are going to have initialized ray catalog. Initialize here to ensure
+        # that when this test class is run individuall it mimicks running with other tests
+        catalog = Catalog(impl=MockCatalogImpl)
+        init(
+            catalog,
+            ray_init_args={"ignore_reinit_error": True},
+            **{"force_reinitialize": True},
+        )
 
-    namespace = f"test_catalogs_{uuid.uuid4().hex}"
+    @classmethod
+    def teardown_class(cls):
+        if cls.temp_dir and os.path.exists(cls.temp_dir):
+            shutil.rmtree(cls.temp_dir)
 
-    # Reset the global all_catalogs state before each test
-    global all_catalogs
-    all_catalogs = None
-
-    yield namespace
-
-    # Clean up the actor in this namespace if it exists
-    if all_catalogs is not None and isinstance(all_catalogs, ray.actor.ActorHandle):
-        try:
-            ray.kill(all_catalogs)
-            ray.shutdown()
-        except Exception:
-            pass
-
-    # Reset all_catalogs to None
-    all_catalogs = None
-
-
-class TestCatalogsWithRay:
-    """
-    Tests for Catalogs and global catalog state which require Ray initialization.
-    """
-
-    def test_init_single_catalog(self, isolated_ray_env):
+    def test_init_single_catalog(self, reset_catalogs_ray_actor):
         """Test initializing a single catalog."""
-        # Create a catalog
+
         catalog = Catalog(impl=MockCatalogImpl)
 
         # Initialize with a single catalog and Ray init args including the namespace
         init(
             catalog,
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
 
-        assert is_initialized(**{"namespace": isolated_ray_env})
+        assert is_initialized()
 
         # Get the default catalog and check it's the same one we initialized with
-        retrieved_catalog = get_catalog(**{"namespace": isolated_ray_env})
+        retrieved_catalog = get_catalog()
         assert retrieved_catalog.impl == MockCatalogImpl
         assert retrieved_catalog.inner["initialized"]
 
-    def test_init_multiple_catalogs(self, isolated_ray_env):
+    def test_init_multiple_catalogs(self, reset_catalogs_ray_actor):
         """Test initializing multiple catalogs."""
         # Create catalogs
         catalog1 = Catalog(impl=MockCatalogImpl, id=1)
@@ -131,22 +147,22 @@ class TestCatalogsWithRay:
         catalogs_dict = {"catalog1": catalog1, "catalog2": catalog2}
         init(
             catalogs_dict,
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
 
-        assert is_initialized(**{"namespace": isolated_ray_env})
+        assert is_initialized()
 
         # Get catalogs by name and check they're the same ones we initialized with
-        retrieved_catalog1 = get_catalog("catalog1", **{"namespace": isolated_ray_env})
+        retrieved_catalog1 = get_catalog("catalog1")
         assert retrieved_catalog1.impl == MockCatalogImpl
         assert retrieved_catalog1.inner["kwargs"]["id"] == 1
 
-        retrieved_catalog2 = get_catalog("catalog2", **{"namespace": isolated_ray_env})
+        retrieved_catalog2 = get_catalog("catalog2")
         assert retrieved_catalog2.impl == MockCatalogImpl
         assert retrieved_catalog2.inner["kwargs"]["id"] == 2
 
-    def test_init_with_default_catalog_name(self, isolated_ray_env):
+    def test_init_with_default_catalog_name(self, reset_catalogs_ray_actor):
         """Test initializing with a specified default catalog name."""
         # Create catalogs
         catalog1 = Catalog(impl=MockCatalogImpl, id=1)
@@ -156,140 +172,96 @@ class TestCatalogsWithRay:
         catalogs_dict = {"catalog1": catalog1, "catalog2": catalog2}
         init(
             catalogs_dict,
-            default_catalog_name="catalog2",
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            default="catalog2",
+            ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
 
         # Get the default catalog and check it's catalog2
-        default_catalog = get_catalog(**{"namespace": isolated_ray_env})
+        default_catalog = get_catalog()
         assert default_catalog.impl == MockCatalogImpl
         assert default_catalog.inner["kwargs"]["id"] == 2
 
-    def test_put_catalog(self, isolated_ray_env):
+    def test_put_catalog(self, reset_catalogs_ray_actor):
         """Test adding a catalog after initialization."""
         # Initialize with a single catalog
         catalog1 = Catalog(impl=MockCatalogImpl, id=1)
+        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
         init(
             {"catalog1": catalog1},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
 
         # Add a second catalog
-        put_catalog(
-            "catalog2", impl=MockCatalogImpl, id=2, **{"namespace": isolated_ray_env}
-        )
+        put_catalog("catalog2", catalog2)
 
         # Check both catalogs are available
-        retrieved_catalog1 = get_catalog("catalog1", **{"namespace": isolated_ray_env})
+        retrieved_catalog1 = get_catalog("catalog1")
         assert retrieved_catalog1.inner["kwargs"]["id"] == 1
 
-        retrieved_catalog2 = get_catalog("catalog2", **{"namespace": isolated_ray_env})
+        retrieved_catalog2 = get_catalog("catalog2")
         assert retrieved_catalog2.inner["kwargs"]["id"] == 2
 
-    def test_put_catalog_that_already_exists(self, isolated_ray_env):
-        """Test that trying to add a catalog with a name that already exists raises an error."""
-        # Initialize with a catalog
+    def test_put_catalog_that_already_exists(self, reset_catalogs_ray_actor):
         catalog = Catalog(impl=MockCatalogImpl, id=1)
-        init(
-            {"test_catalog": catalog},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-            **{"force_reinitialize": True},
+        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
+        put_catalog(
+            "test_catalog",
+            catalog,
+            id=1,
+            ray_init_args={"ignore_reinit_error": True},
         )
 
-        # Try to add another catalog with the same name
-        with pytest.raises(ValueError, match="Catalog test_catalog already exists."):
+        # Try to add another catalog with the same name. Should not error
+        put_catalog(
+            "test_catalog",
+            catalog2,
+            ray_init_args={"ignore_reinit_error": True},
+        )
+
+        retrieved_catalog = get_catalog("test_catalog")
+        assert retrieved_catalog.inner["kwargs"]["id"] == 2
+
+        # If fail_if_exists, put call should fail
+        with pytest.raises(ValueError):
             put_catalog(
                 "test_catalog",
-                impl=MockCatalogImpl,
-                id=2,
-                **{"namespace": isolated_ray_env},
+                catalog,
+                ray_init_args={"ignore_reinit_error": True},
+                fail_if_exists=True,
             )
 
-    def test_get_catalog_nonexistent(self, isolated_ray_env):
+    def test_get_catalog_nonexistent(self, reset_catalogs_ray_actor):
         """Test that trying to get a nonexistent catalog raises an error."""
         # Initialize with a catalog
         catalog = Catalog(impl=MockCatalogImpl)
         init(
             {"test_catalog": catalog},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
 
         # Try to get a nonexistent catalog
-        with pytest.raises(KeyError, match="Catalog 'nonexistent' not found"):
-            get_catalog("nonexistent", **{"namespace": isolated_ray_env})
+        with pytest.raises(ValueError):
+            get_catalog("nonexistent")
 
-    def test_get_catalog_no_default(self, isolated_ray_env):
+    def test_get_catalog_no_default(self, reset_catalogs_ray_actor):
         """Test that trying to get the default catalog when none is set raises an error."""
         # Initialize with multiple catalogs but no default
         catalog1 = Catalog(impl=MockCatalogImpl, id=1)
         catalog2 = Catalog(impl=MockCatalogImpl, id=2)
         init(
             {"catalog1": catalog1, "catalog2": catalog2},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
 
         # Try to get the default catalog
-        with pytest.raises(KeyError):
-            get_catalog(**{"namespace": isolated_ray_env})
+        with pytest.raises(ValueError):
+            get_catalog()
 
-
-class TestIcebergCatalogIntegration:
-    """Integration tests for Iceberg catalog functionality."""
-
-    temp_dir = None
-
-    @classmethod
-    def setup_class(cls):
-        cls.temp_dir = tempfile.mkdtemp()
-
-    @classmethod
-    def teardown_class(cls):
-        if cls.temp_dir and os.path.exists(cls.temp_dir):
-            shutil.rmtree(cls.temp_dir)
-
-    def test_iceberg_catalog_initialization(self, isolated_ray_env):
-        """Test that an Iceberg catalog can be initialized and accessed."""
-        catalog_name = str(uuid.uuid4())
-
-        # Create the Iceberg catalog config
-        config = IcebergCatalogConfig(
-            type=CatalogType.IN_MEMORY, properties={"warehouse": self.temp_dir}
-        )
-
-        # Create the catalog using the factory method
-        catalog = Catalog.iceberg(config)
-
-        # Initialize DeltaCAT with this catalog
-        init(
-            {catalog_name: catalog},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-        )
-
-        # Retrieve the catalog and verify it's the same one
-        retrieved_catalog = get_catalog(catalog_name, **{"namespace": isolated_ray_env})
-        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.iceberg.impl"
-        assert isinstance(retrieved_catalog.inner, IcebergCatalog)
-
-
-class TestDefaultCatalogIntegration:
-    """Integration tests for Default catalog functionality."""
-
-    temp_dir = None
-
-    @classmethod
-    def setup_class(cls):
-        cls.temp_dir = tempfile.mkdtemp()
-
-    @classmethod
-    def teardown_class(cls):
-        if cls.temp_dir and os.path.exists(cls.temp_dir):
-            shutil.rmtree(cls.temp_dir)
-
-    def test_default_catalog_initialization(self, isolated_ray_env):
+    def test_default_catalog_initialization(self, reset_catalogs_ray_actor):
         """Test that a Default catalog can be initialized and accessed using the factory method."""
         from deltacat.catalog.model.properties import CatalogProperties
 
@@ -304,30 +276,49 @@ class TestDefaultCatalogIntegration:
         # Initialize DeltaCAT with this catalog
         init(
             {catalog_name: catalog},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
+            ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
 
         # Retrieve the catalog and verify it's the same one
-        retrieved_catalog = get_catalog(catalog_name, **{"namespace": isolated_ray_env})
+        retrieved_catalog = get_catalog(catalog_name)
         assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main.impl"
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
         assert retrieved_catalog.inner.root == self.temp_dir
 
-    def test_default_catalog_initialization_from_kwargs(self, isolated_ray_env):
+    def test_default_catalog_initialization_from_kwargs(self, reset_catalogs_ray_actor):
 
         catalog_name = str(uuid.uuid4())
         # Initialize DeltaCAT with this catalog
         from deltacat.catalog.main import impl as DeltacatCatalog
 
-        init(
-            {catalog_name: Catalog(DeltacatCatalog, **{"root": "test_root"})},
-            ray_init_args={"namespace": isolated_ray_env, "ignore_reinit_error": True},
-            **{"force_reinitialization": True},
+        put_catalog(
+            catalog_name,
+            Catalog(DeltacatCatalog, **{"root": "test_root"}),
+            ray_init_args={"ignore_reinit_error": True},
         )
 
         # Retrieve the catalog and verify it's the same one
-        retrieved_catalog = get_catalog(catalog_name, **{"namespace": isolated_ray_env})
+        retrieved_catalog = get_catalog(catalog_name)
         assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main.impl"
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
         assert retrieved_catalog.inner.root == "test_root"
+
+    def test_iceberg_catalog_initialization(self, reset_catalogs_ray_actor):
+        """Test that an Iceberg catalog can be initialized and accessed."""
+        catalog_name = str(uuid.uuid4())
+
+        # Create the Iceberg catalog config
+        config = IcebergCatalogConfig(
+            type=CatalogType.IN_MEMORY, properties={"warehouse": self.temp_dir}
+        )
+
+        # Create the catalog using the factory method
+        catalog = Catalog.iceberg(config)
+
+        put_catalog(catalog_name, catalog, ray_init_args={"ignore_reinit_error": True})
+
+        # Retrieve the catalog and verify it's the same one
+        retrieved_catalog = get_catalog(catalog_name)
+        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.iceberg.impl"
+        assert isinstance(retrieved_catalog.inner, IcebergCatalog)
