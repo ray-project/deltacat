@@ -1,19 +1,18 @@
 from typing import Iterator
 
-from daft import Schema, DataType
+from daft import Schema
 from daft.daft import (
     StorageConfig,
     PartitionField,
     Pushdowns,
     ScanTask,
-    PartitionTransform,
     FileFormatConfig,
     ParquetSourceConfig,
 )
-from daft.io.scan import ScanOperator, make_partition_field
-from daft.logical.schema import Field
+from daft.io.scan import ScanOperator
 
 from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.daft.model import DaftPartitionKeyMapper
 
 
 class DeltaCATScanOperator(ScanOperator):
@@ -71,22 +70,41 @@ class DeltaCATScanOperator(ScanOperator):
         return True
 
     def _infer_schema(self) -> Schema:
-        # TODO: remove hard coding
-        fields: list[Field] = [
-            Field.create(name="symbol", dtype=DataType.string()),
-            Field.create(name="bid", dtype=DataType.float64()),
-            Field.create(name="ask", dtype=DataType.float64()),
-        ]
-        return Schema._from_fields(fields=fields)
+
+        if not (
+            self.table
+            and self.table.table_version
+            and self.table.table_version.schema
+            and self.table.table_version.schema.arrow
+        ):
+            raise RuntimeError(
+                f"Failed to infer schema for DeltaCAT Table "
+                f"{self.table.table.namespace}.{self.table.table.table_name}"
+            )
+        return Schema.from_pyarrow_schema(self.table.table_version.schema.arrow)
 
     def _infer_partition_keys(self) -> list[PartitionField]:
-        # TODO: remove hard coding
-        partition_field = Field.create(name="symbol_bucket", dtype=DataType.int32())
-        source_field = Field.create(name="symbol", dtype=DataType.string())
-        return [
-            make_partition_field(
-                field=partition_field,
-                source_field=source_field,
-                transform=PartitionTransform.iceberg_bucket(2),
+        if not (
+            self.table
+            and self.table.table_version
+            and self.table.table_version.partition_scheme
+            and self.table.table_version.schema
+        ):
+            raise RuntimeError(
+                f"Failed to infer partition keys for DeltaCAT Table "
+                f"{self.table.table.namespace}.{self.table.table.table_name}"
             )
-        ]
+
+        schema = self.table.table_version.schema
+        partition_keys = self.table.table_version.partition_scheme.keys
+        if not partition_keys:
+            return []
+
+        partition_fields = []
+        for key in partition_keys:
+            field = DaftPartitionKeyMapper.unmap(key, schema)
+            # Assert that the returned value is not None.
+            assert field is not None, f"Unmapping failed for key {key}"
+            partition_fields.append(field)
+
+        return partition_fields
