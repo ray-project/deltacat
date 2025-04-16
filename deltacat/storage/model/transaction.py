@@ -16,17 +16,23 @@ import msgpack
 import pyarrow.fs
 
 from deltacat.constants import (
+    # CURRENTLY_CLEANING,
+    OPERATION_TIMEOUTS,
+    # SUCCESSFULLY_CLEANED,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
     NANOS_PER_SEC,
+
 )
+
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.types import (
     TransactionOperationType,
     TransactionType,
+    TransactionState
 )
 from deltacat.storage.model.metafile import (
     Metafile,
@@ -145,6 +151,22 @@ class TransactionSystemTimeProvider(TransactionTimeProvider):
         self.last_known_start_times[current_thread_time_key] = current_time
 
         return current_time
+
+    @staticmethod
+    def timeout_time(txn: Transaction) -> str:
+        """
+        Method for calculating Transaction Timeout Time
+        """
+
+        total_time_for_transaction = 0
+        for operation in txn.operations:
+            total_time_for_transaction += OPERATION_TIMEOUTS.get(operation.type, 0)
+
+        start_time = txn.start_time
+        final_time_heartbeat = start_time + (total_time_for_transaction * NANOS_PER_SEC)
+        return final_time_heartbeat
+
+
 
 
 class TransactionOperation(dict):
@@ -366,6 +388,8 @@ class Transaction(dict):
         :param filesystem: File system to use for reading the Transaction file.
         :return: Deserialized object from the Transaction file.
         """
+
+
         if not filesystem:
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path) as file:
@@ -383,6 +407,43 @@ class Transaction(dict):
         if not _id and self.start_time:
             _id = self["id"] = f"{self.start_time}{TXN_PART_SEPARATOR}{uuid.uuid4()}"
         return _id
+
+    def state(self, catalog_root_dir: str, filesystem: pyarrow.fs.FileSystem = None):
+        """
+        Infer the transaction state based on its presence in different directories.
+        """
+
+        txn_name = self.id
+
+        catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+            catalog_root_dir
+        )
+
+        txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+        running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
+        filesystem.create_dir(running_txn_log_dir, recursive=True)
+        failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+        filesystem.create_dir(failed_txn_log_dir, recursive=False)
+        success_txn_log_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
+        filesystem.create_dir(success_txn_log_dir, recursive=False)
+
+        # Check if the transaction file exists in the failed directory
+        in_failed = os.path.exists(os.path.join(failed_txn_log_dir, txn_name))
+
+        # Check if the transaction file exists in the running directory
+        in_running = os.path.exists(os.path.join(running_txn_log_dir, txn_name))
+
+        # Check if the transaction file exists in the success directory
+        in_success = os.path.exists(os.path.join(success_txn_log_dir, txn_name))
+
+        if in_failed and in_running:
+            return TransactionState.FAILED
+        elif in_failed and not in_running:
+            return TransactionState.PURGED
+        elif in_success:
+            return TransactionState.SUCCESS
+        elif in_running:
+            return TransactionState.RUNNING
 
     @property
     def type(self) -> TransactionType:
@@ -635,11 +696,12 @@ class Transaction(dict):
         filesystem: pyarrow.fs.FileSystem,
         time_provider: TransactionTimeProvider,
     ) -> Tuple[List[str], str]:
-        # write the in-progress transaction log file
-        running_txn_log_file_path = posixpath.join(
-            running_txn_log_dir,
-            self.id,
-        )
+        #TODO: move this dict into a different more suiting place
+
+        path_ending = f"{self.id}{TXN_PART_SEPARATOR}{TransactionSystemTimeProvider.timeout_time(self)}"
+
+        # Write the in-progress transaction log file
+        running_txn_log_file_path = posixpath.join(running_txn_log_dir, path_ending)
         with filesystem.open_output_stream(running_txn_log_file_path) as file:
             packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
             file.write(packed)
@@ -668,10 +730,14 @@ class Transaction(dict):
                     )
         except Exception:
             # write a failed transaction log file entry
+            #path_ending = f"{self.id}{TXN_PART_SEPARATOR}{CURRENTLY_CLEANING}"
+            path_ending = f"{self.id}{TXN_PART_SEPARATOR}{TransactionSystemTimeProvider.timeout_time(self)}"
             failed_txn_log_file_path = posixpath.join(
                 failed_txn_log_dir,
-                self.id,
+                path_ending
             )
+
+
             with filesystem.open_output_stream(failed_txn_log_file_path) as file:
                 packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
                 file.write(packed)
@@ -689,6 +755,7 @@ class Transaction(dict):
                     for operation in self.operations
                 ]
             )
+
             # TODO(pdames): Add separate janitor job to cleanup files that we
             #  either failed to add to the known write paths, or fail to delete.
             for write_path in known_write_paths:
@@ -697,12 +764,19 @@ class Transaction(dict):
             # delete the in-progress transaction log file entry
             filesystem.delete_file(running_txn_log_file_path)
             # failed transaction cleanup is now complete
+            old_path = failed_txn_log_file_path
+            #new_path = posixpath.join(failed_txn_log_dir, f"{self.id}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}")
+            new_path = posixpath.join(failed_txn_log_dir, f"{self.id}")
+
+            filesystem.move(old_path, new_path)
+
+
             raise
 
         # record the completed transaction
         success_txn_log_file_dir = posixpath.join(
             success_txn_log_dir,
-            self.id,
+            f"{self.id}",
         )
         filesystem.create_dir(
             success_txn_log_file_dir,
@@ -754,4 +828,6 @@ class Transaction(dict):
         finally:
             # delete the in-progress transaction log file entry
             filesystem.delete_file(running_txn_log_file_path)
+
+
         return metafile_write_paths, success_txn_log_file_path

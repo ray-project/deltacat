@@ -104,3 +104,19 @@ DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
 DEFAULT_PARTITION_ID = "partition"
 DEFAULT_PARTITION_VALUES = ["default"]
+
+# Transaction Status constants
+SUCCESSFULLY_CLEANED = "cleaned"
+CURRENTLY_CLEANING = "cleaning"
+TIMEOUT_TXN = "timedout"
+
+#operation timeout constants
+OPERATION_TIMEOUTS = {
+    "create": 5,
+    "update": 3,
+    "delete": 4,
+    "read_siblings": 2,
+    "read_children": 2,
+    "read_latest": 3,
+    "read_exists": 1,
+}
