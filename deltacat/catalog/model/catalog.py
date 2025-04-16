@@ -103,14 +103,13 @@ class Catalogs:
     def __init__(
         self,
         catalogs: Union[Catalog, Dict[str, Catalog]],
-        default_catalog_name: Optional[str] = None,
+        default: Optional[str] = None,
         *args,
         **kwargs,
     ):
-        if default_catalog_name and default_catalog_name not in catalogs:
+        if default and default not in catalogs:
             raise ValueError(
-                f"Catalog {default_catalog_name} not found "
-                f"in catalogs to register: {catalogs}"
+                f"Catalog {default} not found " f"in catalogs to register: {catalogs}"
             )
         if not catalogs:
             raise ValueError(
@@ -123,8 +122,8 @@ class Catalogs:
             catalogs = {DEFAULT_CATALOG: catalogs}
 
         self.catalogs: Dict[str, Catalog] = catalogs
-        if default_catalog_name:
-            self.default_catalog = self.catalogs[default_catalog_name]
+        if default:
+            self.default_catalog = self.catalogs[default]
         elif len(catalogs) == 1:
             self.default_catalog = list(self.catalogs.values())[0]
         else:
@@ -152,35 +151,35 @@ def is_initialized(*args, **kwargs) -> bool:
     """
     Check if DeltaCAT is initialized
     """
-    import deltacat.catalog.model.catalog as catalog_module
+    global all_catalogs
 
     # If ray is not initialized, then Catalogs cannot be initialized
     if not ray.is_initialized():
         # Any existing actor reference stored in catalog_module must be stale - reset it
-        catalog_module.all_catalogs = None
+        all_catalogs = None
         return False
 
-    return catalog_module.all_catalogs is not None
+    return all_catalogs is not None
 
 
 def init(
     catalogs: Union[Dict[str, Catalog], Catalog],
-    default_catalog_name: Optional[str] = None,
+    default: Optional[str] = None,
     ray_init_args: Dict[str, Any] = None,
     *args,
+    force_reinitialize=False,
     **kwargs,
 ) -> None:
     """
     Initialize DeltaCAT catalogs.
 
     :param catalogs: Either a single Catalog instance or a map of string to Catalog instance
-    :param default_catalog_name: The Catalog to use by default. If only one Catalog is provided, it will
+    :param default: The Catalog to use by default. If only one Catalog is provided, it will
         be set as the default
     :param ray_init_args: kwargs to pass to ray initialization
+    :param force_reinitialize: if True, force the reinitialization of Ray. If false, will do nothing if ray already initialized
     """
-    import deltacat.catalog.model.catalog as catalog_module
-
-    force_reinitialize = kwargs.get("force_reinitialize", False)
+    global all_catalogs
 
     if is_initialized() and not force_reinitialize:
         logger.warning("DeltaCAT already initialized.")
@@ -196,9 +195,7 @@ def init(
     ray.util.register_serializer(
         Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__
     )
-    catalog_module.all_catalogs = Catalogs.remote(
-        catalogs=catalogs, default_catalog_name=default_catalog_name
-    )
+    all_catalogs = Catalogs.remote(catalogs=catalogs, default=default)
 
 
 def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
@@ -211,7 +208,7 @@ def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
     Returns:
         The requested Catalog, or ValueError if it does not exist
     """
-    from deltacat.catalog.model.catalog import all_catalogs
+    global all_catalogs
 
     if not all_catalogs:
         raise ValueError(
@@ -245,42 +242,54 @@ def put_catalog(
     name: str,
     catalog: Catalog = None,
     *,
-    impl: ModuleType = DeltacatCatalog,
-    set_as_default: bool = False,
+    default: bool = False,
     ray_init_args: Dict[str, Any] = None,
+    fail_if_exists: bool = False,
     **kwargs,
-) -> Catalog:
+) -> None:
     """
     Add a named catalog to the global map of named catalogs. Initializes ray if not already initialized.
 
     You may explicitly provide an initialized Catalog instance, like from the Catalog constructor or
     from factory methods like Catalog.default or Catalog.iceberg
     Otherwise, this function initializes the catalog by using the catalog implementation provided by `impl`.
-    This function will NOT fail if the catalog already exists. It will overwrite the named catalog
 
     Args:
         name: name of catalog
         catalog: catalog instance to use, if provided
         impl: catalog module to initialize. Only used if `catalog` param not provided
-        set_as_default: whether this catalog should be treated as the default.
-            This will overwrite any existing default.
-            NOTE: Catalogs with one entry will always use the single entry as the default.
+        default:  Make this the default catalog if multiple catalogs are available.
+            ignored if this is the only catalog available, since it will always be the default catalog.
         ray_init_args: ray initialization args (used only if ray not already initialized)
+        fail_if_exists: if True, raises KeyError if the catalog name already exists. Otherwise, overwrite catalog
     """
-    import deltacat.catalog.model.catalog as catalog_module
+    global all_catalogs
 
-    if catalog is None:
-        catalog = Catalog(impl, **kwargs)
-
-    if is_initialized():
-        ray.get(catalog_module.all_catalogs.put.remote(name, catalog, set_as_default))
-    else:
+    # Initialize, if necessary
+    if not is_initialized():
         # NOTE - since we are initializing with a single catalog, it will be set to the default
-        if not set_as_default:
-            logger.warning(
+        if not default:
+            logger.info(
                 f"Calling put_catalog with set_as_default=False, "
                 f"but still setting Catalog {catalog} as default since it is the only catalog."
             )
-        init({name: catalog}, ray_init_args=ray_init_args, **kwargs)
+        init({name: catalog}, ray_init_args=ray_init_args)
+        return
 
-    return catalog
+    # Fail if fail_if_exists and catalog already exists
+    if fail_if_exists:
+        catalog_already_exists = False
+        try:
+            get_catalog(name)
+            # Note - need to set state catalog_already_exists and throw ValueError later, or else it will be
+            # caught in the except block which is meant to catch the ValueError from get_catalog
+            catalog_already_exists = True
+        except ValueError:
+            pass
+        if catalog_already_exists:
+            raise ValueError(
+                f"Failed to put catalog {name} because it already exists and fail_if_exists=True"
+            )
+
+    # Add the catalog (which may overwrite existing if fail_if_exists=False)
+    ray.get(all_catalogs.put.remote(name, catalog, default))

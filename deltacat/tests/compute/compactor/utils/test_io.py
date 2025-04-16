@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from compute.conftest import (
+from deltacat.tests.compute.conftest import (
     create_local_deltacat_storage_file,
     clean_up_local_deltacat_storage_file,
 )

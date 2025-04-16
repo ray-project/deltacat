@@ -172,7 +172,7 @@ class TestCatalogsIntegration:
         catalogs_dict = {"catalog1": catalog1, "catalog2": catalog2}
         init(
             catalogs_dict,
-            default_catalog_name="catalog2",
+            default="catalog2",
             ray_init_args={"ignore_reinit_error": True},
             **{"force_reinitialize": True},
         )
@@ -186,6 +186,7 @@ class TestCatalogsIntegration:
         """Test adding a catalog after initialization."""
         # Initialize with a single catalog
         catalog1 = Catalog(impl=MockCatalogImpl, id=1)
+        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
         init(
             {"catalog1": catalog1},
             ray_init_args={"ignore_reinit_error": True},
@@ -193,7 +194,7 @@ class TestCatalogsIntegration:
         )
 
         # Add a second catalog
-        put_catalog("catalog2", impl=MockCatalogImpl, id=2)
+        put_catalog("catalog2", catalog2)
 
         # Check both catalogs are available
         retrieved_catalog1 = get_catalog("catalog1")
@@ -203,9 +204,11 @@ class TestCatalogsIntegration:
         assert retrieved_catalog2.inner["kwargs"]["id"] == 2
 
     def test_put_catalog_that_already_exists(self, reset_catalogs_ray_actor):
+        catalog = Catalog(impl=MockCatalogImpl, id=1)
+        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
         put_catalog(
             "test_catalog",
-            impl=MockCatalogImpl,
+            catalog,
             id=1,
             ray_init_args={"ignore_reinit_error": True},
         )
@@ -213,13 +216,21 @@ class TestCatalogsIntegration:
         # Try to add another catalog with the same name. Should not error
         put_catalog(
             "test_catalog",
-            impl=MockCatalogImpl,
-            id=2,
+            catalog2,
             ray_init_args={"ignore_reinit_error": True},
         )
 
         retrieved_catalog = get_catalog("test_catalog")
         assert retrieved_catalog.inner["kwargs"]["id"] == 2
+
+        # If fail_if_exists, put call should fail
+        with pytest.raises(ValueError):
+            put_catalog(
+                "test_catalog",
+                catalog,
+                ray_init_args={"ignore_reinit_error": True},
+                fail_if_exists=True,
+            )
 
     def test_get_catalog_nonexistent(self, reset_catalogs_ray_actor):
         """Test that trying to get a nonexistent catalog raises an error."""
