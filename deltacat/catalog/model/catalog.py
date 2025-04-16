@@ -6,6 +6,8 @@ from types import ModuleType
 
 from typing import Any, Dict, List, Optional, Union
 from functools import partial
+
+import daft
 import ray
 
 from deltacat import logs
@@ -15,6 +17,7 @@ from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog import CatalogProperties
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
+from deltacat.experimental.daft.daft_catalog import DaftCatalog
 
 all_catalogs: Optional[ray.actor.ActorHandle] = None
 
@@ -104,6 +107,7 @@ class Catalogs:
         self,
         catalogs: Union[Catalog, Dict[str, Catalog]],
         default: Optional[str] = None,
+        register_in_daft: bool = True,
         *args,
         **kwargs,
     ):
@@ -128,6 +132,11 @@ class Catalogs:
             self.default_catalog = list(self.catalogs.values())[0]
         else:
             self.default_catalog = None
+
+        if register_in_daft:
+            for name, catalog in self.catalogs.items():
+                daft_catalog = DaftCatalog(catalog, name)
+                daft.attach_catalog(daft_catalog, name)
 
     def all(self) -> Dict[str, Catalog]:
         return self.catalogs
@@ -168,6 +177,7 @@ def init(
     ray_init_args: Dict[str, Any] = None,
     *args,
     force_reinitialize=False,
+    register_in_daft = True,
     **kwargs,
 ) -> None:
     """
@@ -178,6 +188,7 @@ def init(
         be set as the default
     :param ray_init_args: kwargs to pass to ray initialization
     :param force_reinitialize: if True, force the reinitialization of Ray. If false, will do nothing if ray already initialized
+    :param register_in_daft: if True, Catalogs will be added to Daft global session via `attach_catalog`
     """
     global all_catalogs
 
@@ -196,6 +207,7 @@ def init(
         Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__
     )
     all_catalogs = Catalogs.remote(catalogs=catalogs, default=default)
+
 
 
 def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:

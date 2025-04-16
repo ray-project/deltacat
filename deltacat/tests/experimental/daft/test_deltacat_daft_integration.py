@@ -6,13 +6,12 @@ import uuid
 from deltacat.catalog import Catalog as DeltaCATCatalog
 from deltacat.catalog import CatalogProperties
 from deltacat.catalog.model.catalog import Catalog, init, get_catalog
-from deltacat.experimental.daft.deltacat_daft_patch import (
-    DeltaCATCatalog as DaftDeltaCATCatalog,
+from deltacat.experimental.daft.daft_catalog import (
+    DaftCatalog
 )
 import shutil
 import tempfile
 
-# Import the integration module to apply monkey patching
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 
 from pyiceberg.catalog import CatalogType
@@ -44,7 +43,7 @@ class TestDeltaCATDaftCatalogInit:
         )
 
         # Now create a DeltaCATCatalog with just the name
-        daft_catalog = DaftDeltaCATCatalog(
+        daft_catalog = DaftCatalog(
             name=catalog_name, namespace=isolated_ray_env
         )
 
@@ -129,7 +128,9 @@ class TestCatalogIntegration:
         # Use a random catalog name to prevent namespacing conflicts with other tests
         # Convert the DeltaCAT catalog to a Daft catalog
         catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
-        daft_catalog = daft.catalog.Catalog.from_deltacat(
+
+
+        daft_catalog = DaftCatalog(
             catalog=dc_catalog, name=catalog_name
         )
 

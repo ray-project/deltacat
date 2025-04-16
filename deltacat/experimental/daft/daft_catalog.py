@@ -17,15 +17,19 @@ from daft.logical.schema import Schema
 from deltacat.constants import DEFAULT_CATALOG, DEFAULT_NAMESPACE
 
 
-class DeltaCATCatalog(Catalog):
+class DaftCatalog(Catalog):
+    """
+    Wrapper class to create a Daft catalog from a DeltaCAT catalog.
+
+    This class itself expects a `Catalog` and will invoke the underlying implementation through a protected method
+
+    The initialization of DeltaCAT and Daft catalogs is managed in `deltacat.catalog.catalog.py`. The user
+    is just expected to initialize catalogs through the DeltaCAT public interface (init / put_catalog).
+    """
     def __init__(
-        self, *, catalog: DCCatalog = None, name: str = DEFAULT_CATALOG, **kwargs
-    ):
+        self, catalog: DCCatalog, name: str):
         """
         Initialize given DeltaCAT catalog. This catalog is also registered with DeltaCAT (via deltacat.put_catalog) given the provided Name
-
-        NOTE: we do NOT persist the catalog, but rather rely on DeltaCAT's put_catalog/get_catalog capabilities
-            to persist the catalog. This class only persists catalog name
 
         :param catalog: DeltaCAT Catalog object. If None, the catalog will be fetched from `deltacat.Catalogs`
             given the catalog name.
@@ -35,39 +39,12 @@ class DeltaCATCatalog(Catalog):
 
         :param kwargs: Additional keyword arguments passed to deltacat.get_catalog or deltacat.put_catalog,
                        such as 'namespace' for tests.
-
-        TODO (questions for Daft):
-        1. Should we raise a NotImplementedError and move this implementation to _from_obj, to follow pattern
-            of iceberg/unity catalogs in daft?
         """
+        self.dc_catalog = catalog
         self._name = name
-        if catalog is None:
-            # Only name is provided, try to fetch the catalog from DeltaCAT to assert it exists
-            try:
-                deltacat.get_catalog(name, **kwargs)
-            except KeyError:
-                raise ValueError(
-                    f"No catalog with name '{name}' found in DeltaCAT. Please provide a catalog instance or ensure a catalog with this name exists."
-                )
-        else:
-            # Both name and catalog are provided
-            try:
-                # Check if catalog already exists in DeltaCAT and equal to the catalog provided
-                existing_catalog = deltacat.get_catalog(name, **kwargs)
-                # Validate that the existing catalog is equivalent to the provided one
-                if existing_catalog != catalog:
-                    raise ValueError(
-                        f"A catalog with name '{name}' already exists in DeltaCAT but has a different implementation."
-                    )
-            except KeyError:
-                # Catalog doesn't exist, add it
-                deltacat.put_catalog(name, catalog=catalog, **kwargs)
 
     @property
     def name(self) -> str:
-        """
-        Return the catalog name
-        """
         return self._name
 
     ###
@@ -77,7 +54,7 @@ class DeltaCATCatalog(Catalog):
         """Create a new namespace in the catalog."""
         if isinstance(identifier, Identifier):
             identifier = str(identifier)
-        deltacat.create_namespace(namespace=identifier, catalog=self._name)
+        self.dc_catalog.inner.create_namespace(namespace=identifier)
 
     def create_table(
         self, identifier: Identifier | str, source: TableSource | object, **kwargs
@@ -85,25 +62,17 @@ class DeltaCATCatalog(Catalog):
         """
         Create a DeltaCAT table via Daft catalog API
 
-        Refer to `deltacat.create_table` for full list of keyword arguments accepted by create_table.
-
-        This implementation is modeled after daft/catalog/_iceberg, in particular that the TableSource
-        input may be either a str/DataFrame/schema
-
-        TODO (questions to discuss with Daft):
-        1. Can we expect that `identifier` is always populated?
-            In that case, what is the purpose of `source` being a str?
-        2. Do we expect end users to call this function? Does it make sense to plumb kwargs through to DeltaCAT createTable?
-        3. What format do we expect identifier strings to be in?
+        End users calling create_table through the daft table API may provide kwargs which will be plumbed through
+        to deltacat create_table. For full list of keyword arguments accepted by create_table.
 
         :param identifier: Daft table identifier. Sequence of strings of the format (namespace) or (namespace, table)
-            or (namespace, table, table version)
-        :param source: a TableSource, either a Daft DataFrame, Daft Schema, or str (expected to be table identifier?)
-        """
+            or (namespace, table, table version). If this is a string, it is a dot delimited string of the same format.
 
+        :param source: a TableSource, either a Daft DataFrame, Daft Schema, or str (filesystem path)
+        """
         if isinstance(source, DataFrame):
             return self._create_table_from_df(identifier, source)
-        elif isinstance(source, str) or isinstance(source, Identifier):
+        elif isinstance(source, str):
             return self._create_table_from_path(identifier, source)
         elif isinstance(source, Schema):
             return self._create_table_from_schema(identifier, source)
@@ -123,8 +92,12 @@ class DeltaCATCatalog(Catalog):
     def _create_table_from_path(
         self, ident: Identifier | str, source: str, **kwargs
     ) -> Table:
-        """Create a table from a path."""
-        raise ValueError("table from path not yet supported")
+        """
+        Create a table from a path. This will be called from Daft SQL like CREATE TABLE T AS '/path/to/file.parquet'
+
+        As of April 2025 this is not yet supported in Daft
+        """
+        raise ValueError("create_table from path string source not yet supported")
 
     def _create_table_from_schema(
         self, ident: Identifier | str, source: Schema, **kwargs
@@ -139,16 +112,15 @@ class DeltaCATCatalog(Catalog):
         deltacat_schema = self._convert_schema_to_deltacat(source)
 
         # Create the table in DeltaCAT
-        table_def = deltacat.create_table(
+        table_def = self.dc_catalog.inner.create_table(
             name=name,
             namespace=namespace,
             version=version,
             schema=deltacat_schema,
-            catalog=self._name,
             **kwargs,
         )
 
-        return DeltaCATTable._from_obj(table_def)
+        return DaftTable._from_obj(table_def)
 
     ###
     # drop_*
@@ -168,18 +140,17 @@ class DeltaCATCatalog(Catalog):
         namespace, table, version = self._extract_namespace_name_version(identifier)
 
         # TODO validate this works with iceberg if stream format not set
-        table_def = deltacat.get_table(
+        table_def = self.dc_catalog.inner.get_table(
             name=table,
             namespace=namespace,
             table_version=version,
-            catalog=self._name,
             **kwargs,
         )
 
         if not table_def:
             raise ValueError(f"Table {identifier} not found")
 
-        return DeltaCATTable._from_obj(table_def)
+        return DaftTable._from_obj(table_def)
 
     ###
     # list_*
@@ -200,6 +171,10 @@ class DeltaCATCatalog(Catalog):
         Returns a 3-tuple. If no namespace is provided, uses DeltaCAT defualt namespace
         """
         default_namespace = DEFAULT_NAMESPACE
+
+        if isinstance(ident, str):
+            ident = Identifier.from_str(ident)
+
         if isinstance(ident, Identifier):
             if len(ident) == 1:
                 return (default_namespace, ident[0], None)
@@ -212,16 +187,6 @@ class DeltaCATCatalog(Catalog):
                     f"Expected table identifier to be in format (table) or (namespace, table)"
                     f"or (namespace, table, version). Found: {ident}"
                 )
-        elif isinstance(ident, str):
-            # TODO (mccember) implement once format of string confirmed with Daft
-            raise ValueError(
-                "Usage of str identifier for DeltaCAT Daft tables not currently support"
-            )
-        else:
-            raise ValueError(
-                f"Expected identifier for createTable to be either Daft Identifier or str. "
-                f"Provided identifier was class: {type(ident)}"
-            )
 
     def _convert_schema_to_deltacat(self, schema: Schema):
         """Convert Daft schema to DeltaCAT schema.
@@ -229,11 +194,13 @@ class DeltaCATCatalog(Catalog):
         TODO look into how enhancements on schema can be propagated between Daft<=>DeltaCAT
         """
         from deltacat.storage.model.schema import Schema as DeltaCATSchema
-
         return DeltaCATSchema.of(schema=schema.to_pyarrow_schema())
 
 
-class DeltaCATTable(Table):
+class DaftTable(Table):
+    """
+    Wrapper class to create a Daft table from a DeltaCAT table
+    """
     _inner: TableDefinition
 
     _read_options = set()
@@ -248,10 +215,10 @@ class DeltaCATTable(Table):
         return self._inner.table_version.table_name
 
     @staticmethod
-    def _from_obj(obj: object) -> DeltaCATTable:
+    def _from_obj(obj: object) -> DaftTable:
         """Returns a DeltaCATTable if the given object can be adapted so."""
         if isinstance(obj, TableDefinition):
-            t = DeltaCATTable.__new__(DeltaCATTable)
+            t = DaftTable.__new__(DaftTable)
             t._inner = obj
             return t
         raise ValueError(f"Unsupported DeltaCAT table type: {type(obj)}")
@@ -261,67 +228,3 @@ class DeltaCATTable(Table):
 
     def write(self, df: DataFrame | object, mode: str = "append", **options):
         raise NotImplementedError("Not implemented")
-
-
-# Add monkey patching to extend Daft's Catalog class with from_deltacat method
-def _monkey_patch_daft_catalog():
-    """Monkey patch the Daft Catalog class with DeltaCAT support."""
-    from daft.catalog import Catalog as DaftCatalog
-
-    # Only add the method if it doesn't exist yet
-    if not hasattr(DaftCatalog, "from_deltacat"):
-
-        @staticmethod
-        def from_deltacat(catalog: object, name: str = None, **kwargs) -> Catalog:
-            """Creates a Daft Catalog instance from a DeltaCAT catalog.
-
-            Args:
-                catalog (object): DeltaCAT catalog object
-
-            Returns:
-                Catalog: new daft catalog instance from the DeltaCAT catalog object.
-            """
-            return DeltaCATCatalog(catalog=catalog, name=name, **kwargs)
-
-        DaftCatalog.from_deltacat = from_deltacat
-
-    # Also patch the Table class
-    from daft.catalog import Table as DaftTable
-
-    if not hasattr(DaftTable, "from_deltacat"):
-
-        @staticmethod
-        def from_deltacat(table: object) -> Table:
-            """Creates a Daft Table instance from a DeltaCAT table.
-
-            Args:
-                table (object): DeltaCAT table object
-
-            Returns:
-                Table: new daft table instance from the DeltaCAT table object.
-            """
-            return DeltaCATTable._from_obj(table)
-
-        DaftTable.from_deltacat = from_deltacat
-
-    # Also update the Catalog._from_obj method to try DeltaCAT as well
-    original_from_obj = DaftCatalog._from_obj
-
-    @staticmethod
-    def new_from_obj(obj: object) -> Catalog:
-        """Returns a Daft Catalog from a supported object type or raises a ValueError."""
-        try:
-            return original_from_obj(obj)
-        except ValueError:
-            try:
-                return DaftCatalog.from_deltacat(obj)
-            except (ValueError, ImportError):
-                raise ValueError(
-                    f"Unsupported catalog type: {type(obj)}; please ensure all required extra dependencies are installed."
-                )
-
-    DaftCatalog._from_obj = new_from_obj
-
-
-# Apply the monkey patching when this module is imported
-_monkey_patch_daft_catalog()
