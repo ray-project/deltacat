@@ -257,7 +257,6 @@ def put_catalog(
     Args:
         name: name of catalog
         catalog: catalog instance to use, if provided
-        impl: catalog module to initialize. Only used if `catalog` param not provided
         default:  Make this the default catalog if multiple catalogs are available.
             ignored if this is the only catalog available, since it will always be the default catalog.
         ray_init_args: ray initialization args (used only if ray not already initialized)
@@ -288,7 +287,7 @@ def put_catalog(
             pass
         if catalog_already_exists:
             raise ValueError(
-                f"Failed to put catalog {name} because it already exists and fail_if_exists=True"
+                f"Failed to put catalog {name} because it already exists and fail_if_exists={fail_if_exists}"
             )
 
     # Add the catalog (which may overwrite existing if fail_if_exists=False)
