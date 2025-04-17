@@ -195,25 +195,32 @@ def _merge_tables(
 def _validate_bucketing_spec_compliance(
     table: pa.Table, rcf: RoundCompletionInfo, hb_index: int, primary_keys: List[str]
 ) -> None:
+    compacted_table_identifier = f"{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}.{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}.{rcf.compacted_delta_locator.partition_values}"
     pki_table = generate_pk_hash_column(
         [table], primary_keys=primary_keys, requires_hash=True
     )[0]
+    is_not_compliant: bool = False
     for index, hash_value in enumerate(sc.pk_hash_string_column_np(pki_table)):
-        hash_bucket = pk_digest_to_hash_bucket_index(hash_value, rcf.hash_bucket_count)
+        hash_bucket: int = pk_digest_to_hash_bucket_index(
+            hash_value, rcf.hash_bucket_count
+        )
         if hash_bucket != hb_index:
+            is_not_compliant = True
             logger.info(
-                f"{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}"
-                f".{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}"
-                f".{rcf.compacted_delta_locator.partition_values} has non-compliant bucketing spec. "
+                f"{compacted_table_identifier} has non-compliant bucketing spec at index: {index} "
                 f"Expected hash bucket is {hb_index} but found {hash_bucket}."
             )
             if BUCKETING_SPEC_COMPLIANCE_PROFILE == BUCKETING_SPEC_COMPLIANCE_ASSERT:
                 raise AssertionError(
-                    "Hash bucket drift detected. Expected hash bucket index"
+                    f"Hash bucket drift detected at index: {index}. Expected hash bucket index"
                     f" to be {hb_index} but found {hash_bucket}"
                 )
             # No further checks necessary
             break
+    if not is_not_compliant:
+        logger.debug(
+            f"{compacted_table_identifier} has compliant bucketing spec for hb_index: {hb_index}"
+        )
 
 
 def _download_compacted_table(
