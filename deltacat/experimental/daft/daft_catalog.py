@@ -1,8 +1,3 @@
-"""DeltaCAT integration with Daft.
-
-This file provides integration between DeltaCAT catalogs and Daft catalogs.
-"""
-
 from __future__ import annotations
 
 from typing import Tuple, Optional
@@ -147,7 +142,6 @@ class DaftCatalog(Catalog):
     def get_table(self, identifier: Identifier | str, **kwargs) -> Table:
         namespace, table, version = self._extract_namespace_name_version(identifier)
 
-        # TODO validate this works with iceberg if stream format not set
         table_def = self.dc_catalog.impl.get_table(
             table,
             namespace=namespace,

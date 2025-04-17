@@ -709,7 +709,7 @@ def _get_deltas_from_partition_filter(
 
 def _get_storage(**kwargs):
     """
-    Returns the implementation of `deltacat.storage.interface` to use
+    Returns the implementation of `deltacat.storage.interface` to use with this catalog
 
     This is configured in the `CatalogProperties` stored during initialization and passed through `delegate.py`
     """
