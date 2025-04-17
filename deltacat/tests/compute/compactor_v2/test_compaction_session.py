@@ -804,7 +804,7 @@ class TestCompactionSession:
             )
 
         assert (
-            "Hash bucket drift detected. Expected hash bucket index to be 1 but found 0"
+            "Hash bucket drift detected at index: 0. Expected hash bucket index to be 1 but found 0"
             in str(excinfo.value)
         )
 
