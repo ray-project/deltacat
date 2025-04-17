@@ -1,10 +1,9 @@
 import tempfile
 import shutil
 import uuid
-
 import deltacat
 import pytest
-from deltacat import Field, Schema
+from deltacat import Field, Schema, Catalog
 from pyiceberg.catalog import CatalogType
 
 import pyarrow as pa
@@ -42,15 +41,32 @@ class TestIcebergCatalogInitialization:
         catalog_name = str(uuid.uuid4())
 
         config = IcebergCatalogConfig(
-            type=CatalogType.IN_MEMORY, properties={"warehouse": self.temp_dir}
+            type=CatalogType.SQL,
+            properties={
+                "warehouse": self.temp_dir,
+                "uri": f"sqlite:////{self.temp_dir}/sql-catalog.db",
+            },
         )
+
         # Initialize with the PyIceberg catalog
+        catalog = Catalog(impl=deltacat.IcebergCatalog, **{"config": config})
         deltacat.put_catalog(
-            catalog_name, impl=deltacat.IcebergCatalog, **{"config": config}
+            catalog_name,
+            catalog,
+            ray_init_args={"ignore_reinit_error": True},
         )
 
         table_def = deltacat.create_table(
             "test_table", catalog=catalog_name, schema=schema_a
         )
+
+        # Fetch table we just created
+        fetched_table_def = deltacat.get_table("test_table", catalog=catalog_name)
+        assert table_def.table_version == fetched_table_def.table_version
+
         # For now, just check that we created a table version with an equivalent schema
         assert table_def.table_version.schema.equivalent_to(schema_a)
+
+        # Sanity check that list namespaces works
+        namespaces = deltacat.list_namespaces(catalog=catalog_name).all_items()
+        assert table_def.table.namespace in [n.namespace for n in namespaces]
