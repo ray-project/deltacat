@@ -69,14 +69,17 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
     assert (
         params.hash_bucket_count is not None and params.hash_bucket_count >= 1
     ), "hash_bucket_count is a required arg for compactor v2"
+    assert type(params.hash_bucket_count) is int, "Hash bucket count must be an integer"
     if params.num_rounds > 1:
         assert (
             not params.drop_duplicates
         ), "num_rounds > 1, drop_duplicates must be False but is True"
 
-    with memray.Tracker(
-        "compaction_partition.bin"
-    ) if params.enable_profiler else nullcontext():
+    with (
+        memray.Tracker("compaction_partition.bin")
+        if params.enable_profiler
+        else nullcontext()
+    ):
         execute_compaction_result: ExecutionCompactionResult = _execute_compaction(
             params,
             **kwargs,

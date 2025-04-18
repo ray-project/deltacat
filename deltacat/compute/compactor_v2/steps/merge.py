@@ -62,6 +62,10 @@ if importlib.util.find_spec("memray"):
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
+_EXISTING_VARIANT_LOG_PREFIX = "Existing variant "
+_INCREMENTAL_TABLE_LOG_PREFIX = "Incremental table "
+
+
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
     return table.append_column(
         sc._DELTA_TYPE_COLUMN_FIELD,
@@ -112,6 +116,8 @@ def _merge_tables(
     table: pa.Table,
     primary_keys: List[str],
     can_drop_duplicates: bool,
+    hb_index: int,
+    num_buckets: int,
     compacted_table: Optional[pa.Table] = None,
 ) -> pa.Table:
     """
@@ -129,6 +135,20 @@ def _merge_tables(
         all_tables.append(compacted_table)
 
     all_tables.append(table)
+
+    check_bucketing_spec = BUCKETING_SPEC_COMPLIANCE_PROFILE in [
+        BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
+        BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    ]
+
+    if primary_keys and check_bucketing_spec:
+        _validate_bucketing_spec_compliance(
+            table=all_tables[incremental_idx],
+            num_buckets=num_buckets,
+            primary_keys=primary_keys,
+            hb_index=hb_index,
+            log_prefix=_INCREMENTAL_TABLE_LOG_PREFIX,
+        )
 
     if not primary_keys or not can_drop_duplicates:
         logger.info(
@@ -193,21 +213,27 @@ def _merge_tables(
 
 
 def _validate_bucketing_spec_compliance(
-    table: pa.Table, rcf: RoundCompletionInfo, hb_index: int, primary_keys: List[str]
+    table: pa.Table,
+    num_buckets: int,
+    hb_index: int,
+    primary_keys: List[str],
+    rcf: RoundCompletionInfo = None,
+    log_prefix=None,
 ) -> None:
-    compacted_table_identifier = f"{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}.{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}.{rcf.compacted_delta_locator.partition_values}"
+    if rcf is not None:
+        message_prefix = f"{log_prefix}{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}.{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}.{rcf.compacted_delta_locator.partition_values}"
+    else:
+        message_prefix = f"{log_prefix}"
     pki_table = generate_pk_hash_column(
         [table], primary_keys=primary_keys, requires_hash=True
     )[0]
     is_not_compliant: bool = False
     for index, hash_value in enumerate(sc.pk_hash_string_column_np(pki_table)):
-        hash_bucket: int = pk_digest_to_hash_bucket_index(
-            hash_value, rcf.hash_bucket_count
-        )
+        hash_bucket: int = pk_digest_to_hash_bucket_index(hash_value, num_buckets)
         if hash_bucket != hb_index:
             is_not_compliant = True
             logger.info(
-                f"{compacted_table_identifier} has non-compliant bucketing spec at index: {index} "
+                f"{message_prefix} has non-compliant bucketing spec at index: {index} "
                 f"Expected hash bucket is {hb_index} but found {hash_bucket}."
             )
             if BUCKETING_SPEC_COMPLIANCE_PROFILE == BUCKETING_SPEC_COMPLIANCE_ASSERT:
@@ -219,7 +245,7 @@ def _validate_bucketing_spec_compliance(
             break
     if not is_not_compliant:
         logger.debug(
-            f"{compacted_table_identifier} has compliant bucketing spec for hb_index: {hb_index}"
+            f"{message_prefix} has compliant bucketing spec for hb_index: {hb_index}"
         )
 
 
@@ -264,7 +290,12 @@ def _download_compacted_table(
     # Bucketing spec compliance isn't required without primary keys
     if primary_keys and check_bucketing_spec:
         _validate_bucketing_spec_compliance(
-            compacted_table, rcf, hb_index, primary_keys
+            compacted_table,
+            rcf.hash_bucket_count,
+            hb_index,
+            primary_keys,
+            rcf=rcf,
+            log_prefix=_EXISTING_VARIANT_LOG_PREFIX,
         )
     return compacted_table
 
@@ -469,12 +500,12 @@ def _compact_tables(
         _group_sequence_by_delta_type(reordered_all_dfes)
     ):
         if delta_type is DeltaType.UPSERT:
-            (
-                table,
-                incremental_len,
-                deduped_records,
-                merge_time,
-            ) = _apply_upserts(input, delta_type_sequence, hb_idx, table)
+            (table, incremental_len, deduped_records, merge_time,) = _apply_upserts(
+                input=input,
+                dfe_list=delta_type_sequence,
+                hb_idx=hb_idx,
+                prev_table=table,
+            )
             logger.info(
                 f" [Merge task index {input.merge_task_index}] Merged"
                 f" record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
@@ -533,6 +564,8 @@ def _apply_upserts(
         primary_keys=input.primary_keys,
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=prev_table,
+        hb_index=hb_idx,
+        num_buckets=input.hash_bucket_count,
     )
     deduped_records = hb_table_record_count - len(table)
     return table, incremental_len, deduped_records, merge_time

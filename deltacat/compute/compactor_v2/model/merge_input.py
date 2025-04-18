@@ -48,6 +48,7 @@ class MergeInput(Dict):
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
         memory_logs_enabled: Optional[bool] = None,
         disable_copy_by_reference: Optional[bool] = None,
+        hash_bucket_count: Optional[int] = None,
     ) -> MergeInput:
 
         result = MergeInput()
@@ -71,6 +72,7 @@ class MergeInput(Dict):
         result["deltacat_storage_kwargs"] = deltacat_storage_kwargs or {}
         result["memory_logs_enabled"] = memory_logs_enabled
         result["disable_copy_by_reference"] = disable_copy_by_reference
+        result["hash_bucket_count"] = hash_bucket_count
         return result
 
     @property
@@ -154,3 +156,7 @@ class MergeInput(Dict):
     @property
     def disable_copy_by_reference(self) -> bool:
         return self["disable_copy_by_reference"]
+
+    @property
+    def hash_bucket_count(self) -> int:
+        return self["hash_bucket_count"]

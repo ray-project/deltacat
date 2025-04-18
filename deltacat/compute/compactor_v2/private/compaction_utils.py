@@ -438,6 +438,7 @@ def _merge(
                 delete_file_envelopes=delete_file_envelopes,
                 memory_logs_enabled=params.memory_logs_enabled,
                 disable_copy_by_reference=params.disable_copy_by_reference,
+                hash_bucket_count=params.hash_bucket_count,
             )
         }
 
