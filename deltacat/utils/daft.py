@@ -72,7 +72,7 @@ def s3_files_to_dataframe(
     )
 
     df, latency = timed_invocation(
-        daft.read_parquet, path=uris, io_config=io_config, use_native_downloader=True
+        daft.read_parquet, path=uris, io_config=io_config
     )
 
     logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
