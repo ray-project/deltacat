@@ -1,0 +1,139 @@
+import daft
+from daft import Table, Identifier
+import pytest
+import uuid
+
+from deltacat.catalog import Catalog as DeltaCATCatalog
+from deltacat.catalog import CatalogProperties
+from deltacat.experimental.daft.daft_catalog import (
+    DaftCatalog
+)
+import shutil
+import tempfile
+
+from deltacat.catalog.iceberg import IcebergCatalogConfig
+
+from pyiceberg.catalog import CatalogType
+
+class TestCatalogIntegration:
+    @classmethod
+    def setup_method(cls):
+        cls.tmpdir = tempfile.mkdtemp()
+
+    @classmethod
+    def teardown_method(cls):
+        shutil.rmtree(cls.tmpdir)
+
+    def test_create_table(self):
+        """Demonstrate DeltaCAT-Daft integration."""
+        # Create a DeltaCAT catalog
+        catalog_props = CatalogProperties(root=self.tmpdir)
+        dc_catalog = DeltaCATCatalog.default(catalog_props)
+
+        # Use a random catalog name to prevent namespacing conflicts with other tests
+        # Convert the DeltaCAT catalog to a Daft catalog
+        catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
+
+
+        daft_catalog = DaftCatalog(
+            catalog=dc_catalog, name=catalog_name
+        )
+
+        # Register the catalog with Daft's catalog system
+        daft.attach_catalog(daft_catalog, catalog_name)
+
+        # Create a sample DataFrame
+        df = daft.from_pydict({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        # Create then get table
+        daft_catalog.create_table(Identifier("example_table"), df)
+        table: Table = daft_catalog.get_table(Identifier("example_table"))
+        assert table.name == "example_table"
+
+    def test_get_table(self):
+        """Test getting a table from the DeltaCAT-Daft catalog."""
+        # Create a DeltaCAT catalog using the existing tmpdir
+        catalog_props = CatalogProperties(root=self.tmpdir)
+        dc_catalog = DeltaCATCatalog.default(catalog_props)
+
+        # Convert to DaftCatalog and attach to Daft
+        catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
+        daft_catalog = DaftCatalog(dc_catalog, catalog_name)
+        daft.attach_catalog(daft_catalog, catalog_name)
+
+        # Create a sample DataFrame and table
+        df = daft.from_pydict({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        table_name = "test_get_table"
+        daft_catalog.create_table(Identifier(table_name), df)
+
+        # Get the table using different forms of identifiers
+        table2 = daft_catalog.get_table(Identifier(table_name))
+        assert table2 is not None
+        assert table2.name == table_name
+
+        # 3. With namespace. DeltaCAT used the default namespace since it was not provided
+        table3 = daft_catalog.get_table(Identifier("DEFAULT", table_name))
+        assert table3 is not None
+        assert table3.name == table_name
+
+        # Test non-existent table raises an appropriate error
+        with pytest.raises(ValueError, match="Table nonexistent_table not found"):
+            daft_catalog.get_table(Identifier("nonexistent_table"))
+
+
+class TestIcebergCatalogIntegration:
+    @classmethod
+    def setup_method(cls):
+        cls.tmpdir = tempfile.mkdtemp()
+
+    @classmethod
+    def teardown_method(cls):
+        shutil.rmtree(cls.tmpdir)
+
+    def test_iceberg_catalog_integration(self):
+        # Create a unique warehouse path for this test
+        warehouse_path = self.tmpdir
+
+        # Configure an Iceberg catalog with the warehouse path
+        config = IcebergCatalogConfig(
+            type=CatalogType.SQL,
+            properties={
+                "warehouse": warehouse_path,
+                "uri": f"sqlite:////{warehouse_path}/sql-catalog.db",
+            },
+        )
+        dc_catalog = DeltaCATCatalog.iceberg(config)
+
+        # Convert the DeltaCAT catalog to a Daft catalog
+        catalog_name = f"deltacat_iceberg_{uuid.uuid4().hex[:8]}"
+        daft_catalog = DaftCatalog(dc_catalog,catalog_name)
+        daft.attach_catalog(daft_catalog, catalog_name)
+
+        # Create a sample DataFrame
+        df = daft.from_pydict({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+
+        # Create a table with the Daft catalog
+        table_name = "example_table"
+        namespace = "example_namespace"
+        daft_catalog.create_table(Identifier(namespace, table_name), df)
+
+        # Query that Iceberg table exists using PyIceberg
+        iceberg_catalog = dc_catalog.inner
+
+        # Verify the table exists in the Iceberg catalog
+        tables = iceberg_catalog.list_tables(namespace)
+
+        assert any(
+            t[0] == namespace and t[1] == table_name for t in tables
+        ), f"Table {table_name} not found in Iceberg catalog"
+
+        # Load the table from Iceberg catalog and verify its properties
+        iceberg_table = iceberg_catalog.load_table(f"{namespace}.{table_name}")
+
+        # Check that the schema matches our DataFrame
+        schema = iceberg_table.schema()
+        assert (
+            schema.find_field("id") is not None
+        ), "Field 'id' not fcound in table schema"
+        assert (
+            schema.find_field("value") is not None
+        ), "Field 'value' not found in table schema"
