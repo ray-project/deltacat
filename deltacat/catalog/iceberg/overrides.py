@@ -5,12 +5,11 @@ from typing import Iterator, List
 from pyarrow.fs import FileSystem
 
 from pyiceberg.io.pyarrow import (
-    fill_parquet_file_metadata,
+    data_file_statistics_from_parquet_metadata,
     compute_statistics_plan,
     parquet_path_to_id_mapping,
 )
-from pyiceberg.table import Table, _MergingSnapshotProducer
-from pyiceberg.table.snapshots import Operation
+from pyiceberg.table import Table
 from pyiceberg.manifest import DataFile, DataFileContent, FileFormat
 from pyiceberg.types import StructType, NestedField, IntegerType
 from pyiceberg.typedef import Record
@@ -24,11 +23,10 @@ def append(table: Table, paths: List[str]) -> None:
     #    raise ValueError("Cannot write to tables with a sort-order")
 
     data_files = write_file(table, paths)
-    merge = _MergingSnapshotProducer(operation=Operation.APPEND, table=table)
-    for data_file in data_files:
-        merge.append_data_file(data_file)
-
-    merge.commit()
+    with table.transaction() as txn:
+        with txn.update_snapshot().fast_append() as snapshot_update:
+            for data_file in data_files:
+                snapshot_update.append_data_file(data_file)
 
 
 def write_file(table: Table, paths: Iterator[str]) -> Iterator[DataFile]:
@@ -41,6 +39,11 @@ def write_file(table: Table, paths: Iterator[str]) -> Iterator[DataFile]:
         fs_path = fs_tuple[1]
         with fs.open_input_file(fs_path) as native_file:
             parquet_metadata = pq.read_metadata(native_file)
+            statistics = data_file_statistics_from_parquet_metadata(
+                parquet_metadata=parquet_metadata,
+                stats_columns=compute_statistics_plan(table.schema(), table.properties),
+                parquet_column_mapping=parquet_path_to_id_mapping(table.schema()),
+            )
             data_file = DataFile(
                 content=DataFileContent.DATA,
                 file_path=file_path,
@@ -63,12 +66,7 @@ def write_file(table: Table, paths: Iterator[str]) -> Iterator[DataFile]:
                 spec_id=table.spec().spec_id,
                 equality_ids=None,
                 key_metadata=None,
-            )
-            fill_parquet_file_metadata(
-                data_file=data_file,
-                parquet_metadata=parquet_metadata,
-                stats_columns=compute_statistics_plan(table.schema(), table.properties),
-                parquet_column_mapping=parquet_path_to_id_mapping(table.schema()),
+                **statistics.to_serialized_dict(),
             )
             data_files.append(data_file)
     return data_files
