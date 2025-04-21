@@ -8,7 +8,7 @@ from daft.logical.builder import LogicalPlanBuilder
 
 from deltacat import logs
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.daft.daft_scan import DeltaCATScanOperator
+from deltacat.daft.daft_scan import DeltaCatScanOperator
 from deltacat.exceptions import TableAlreadyExistsError
 from deltacat.storage.iceberg.iceberg_scan_planner import IcebergScanPlanner
 from deltacat.storage.iceberg.model import PartitionSchemeMapper, SchemaMapper
@@ -153,7 +153,7 @@ def read_table(
     storage_config = NativeStorageConfig(multithreaded_io, io_config)
 
     dc_table = get_table(name=table, namespace=namespace, **kwargs)
-    dc_scan_operator = DeltaCATScanOperator(
+    dc_scan_operator = DeltaCatScanOperator(
         dc_table, StorageConfig.native(storage_config)
     )
     handle = ScanOperatorHandle.from_python_scan_operator(dc_scan_operator)

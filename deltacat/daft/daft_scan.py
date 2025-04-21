@@ -15,7 +15,7 @@ from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.daft.model import DaftPartitionKeyMapper
 
 
-class DeltaCATScanOperator(ScanOperator):
+class DeltaCatScanOperator(ScanOperator):
     def __init__(self, table: TableDefinition, storage_config: StorageConfig) -> None:
         super().__init__()
         self.table = table
@@ -72,15 +72,13 @@ class DeltaCATScanOperator(ScanOperator):
     def _infer_schema(self) -> Schema:
 
         if not (
-            self.table
-            and self.table.table_version
-            and self.table.table_version.schema
-            and self.table.table_version.schema.arrow
+            self.table and self.table.table_version and self.table.table_version.schema
         ):
             raise RuntimeError(
                 f"Failed to infer schema for DeltaCAT Table "
                 f"{self.table.table.namespace}.{self.table.table.table_name}"
             )
+
         return Schema.from_pyarrow_schema(self.table.table_version.schema.arrow)
 
     def _infer_partition_keys(self) -> list[PartitionField]:

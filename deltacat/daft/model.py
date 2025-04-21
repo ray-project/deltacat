@@ -66,7 +66,6 @@ class DaftFieldMapper(ModelMapper[DaftField, PaField]):
         if obj is None:
             return None
 
-        # Create Daft field with same name and nullable property
         return DaftField.create(
             name=obj.name,
             dtype=DataType.from_arrow_type(obj.type),  # type: ignore
