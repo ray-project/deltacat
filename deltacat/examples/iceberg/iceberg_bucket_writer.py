@@ -1,11 +1,15 @@
 import os
 import logging
 
+import uuid
 import daft
+from pyiceberg.catalog import CatalogType
+
 import deltacat as dc
 
 from deltacat import logs
 from deltacat import IcebergCatalog
+from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.examples.common.fixtures import (
     store_cli_args_in_os_environ,
 )
@@ -30,6 +34,24 @@ driver_logger = logs.configure_application_logger(logging.getLogger(__name__))
 
 
 def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
+    """
+    This is an e2e example that
+        1. creates a DeltaCAT Table (backed by an Iceberg Table) in Glue
+        2. writes data into the DeltaCAT Table
+        3. reads data from the DeltaCAT Table using Daft
+
+    To run the script:
+        1. prepare an AWS Account
+            1. prepare a S3 location where the data will be written to, which will be used in Step 3.
+            2. prepare an IAM Role that has access to the S3 location and Glue
+        2. retrieve the IAM Role AWS Credential and cache locally in ~/.aws/credentials
+        3. run below command to execute the example
+        ```
+        make venv && source venv/bin/activate
+        python -m deltacat.examples.iceberg.iceberg_bucket_writer --warehouse=s3://<YOUR_S3_LOCATION>
+        ```
+
+    """
     # create any runtime environment required to run the example
     runtime_env = create_ray_runtime_environment()
 
@@ -38,6 +60,7 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
     # Only the `iceberg` data catalog is provided so it will become the default.
     # If initializing multiple catalogs, use the `default_catalog_name` param
     # to specify which catalog should be the default.
+
     dc.init(
         catalogs={
             # the name of the DeltaCAT catalog is "iceberg"
@@ -49,11 +72,13 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
                 name="example-iceberg-catalog",
                 # for additional properties see:
                 # https://py.iceberg.apache.org/configuration/
-                properties={
-                    "type": "glue",
-                    "region_name": "us-east-1",
-                    "warehouse": warehouse,
-                },
+                config=IcebergCatalogConfig(
+                    type=CatalogType.GLUE,
+                    properties={
+                        "warehouse": warehouse,
+                        "region_name": "us-east-1",
+                    },
+                ),
             )
         },
         # pass the runtime environment into ray.init()
@@ -89,10 +114,10 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
         }
     )
 
-    # write to a table named `test_namespace.test_table_bucketed`
+    # write to a table named `test_namespace.test_table_bucketed-<SUFFIX>`
     # we don't need to specify which catalog to create this table in since
     # only the "iceberg" catalog is available
-    table_name = "test_table_bucketed"
+    table_name = f"test_table_bucketed-{uuid.uuid4().hex[:8]}"
     namespace = "test_namespace"
     print(f"Creating Glue Table: {namespace}.{table_name}")
     dc.write_to_table(
@@ -106,8 +131,39 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
     )
 
     print(f"Getting Glue Table: {namespace}.{table_name}")
-    table_definition = dc.get_table(table_name, namespace)
+    table_definition = dc.get_table(name=table_name, namespace=namespace)
     print(f"Retrieved Glue Table: {table_definition}")
+
+    # Read Data from DeltaCAT Table (backed by Iceberg) using Daft
+    daft_dataframe = dc.read_table(table=table_name, namespace=namespace)
+
+    daft_dataframe.where(df["bid"] > 200.0).show()
+    # Expected result:
+    # ╭────────┬─────────┬─────────╮
+    # │ symbol ┆ bid     ┆ ask     │
+    # │ ---    ┆ ---     ┆ ---     │
+    # │ Utf8   ┆ Float64 ┆ Float64 │
+    # ╞════════╪═════════╪═════════╡
+    # │ meta   ┆ 392.03  ┆ 392.09  │
+    # ├╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌┤
+    # │ msft   ┆ 403.25  ┆ 403.27  │
+    # ╰────────┴─────────┴─────────╯
+
+    daft_dataframe.select("symbol").show()
+    # Expected result:
+    # ╭────────╮
+    # │ symbol │
+    # │ ---    │
+    # │ Utf8   │
+    # ╞════════╡
+    # │ meta   │
+    # ├╌╌╌╌╌╌╌╌┤
+    # │ amzn   │
+    # ├╌╌╌╌╌╌╌╌┤
+    # │ goog   │
+    # ├╌╌╌╌╌╌╌╌┤
+    # │ msft   │
+    # ╰────────╯
 
 
 if __name__ == "__main__":
@@ -118,15 +174,6 @@ if __name__ == "__main__":
             ],
             {
                 "help": "S3 path for Iceberg file storage.",
-                "type": str,
-            },
-        ),
-        (
-            [
-                "--STAGE",
-            ],
-            {
-                "help": "Example runtime environment stage (e.g. dev, alpha, beta, prod).",
                 "type": str,
             },
         ),
