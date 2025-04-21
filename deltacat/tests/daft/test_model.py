@@ -1,25 +1,16 @@
-import logging
 import pytest
 import pyarrow as pa
-from daft import DataType, Schema, TimeUnit
-from daft.daft import PartitionTransform as DaftTransform
+from daft import DataType, TimeUnit
 from daft.logical.schema import Field as DaftField
-from daft.io.scan import make_partition_field
 
-from deltacat.storage.model.transform import (
-    TransformName, BucketTransform, BucketTransformParameters,
-    HourTransform, DayTransform, MonthTransform, YearTransform,
-    IdentityTransform, TruncateTransform, TruncateTransformParameters,
-    VoidTransform
-)
+from deltacat.storage.model.transform import IdentityTransform
 from deltacat.storage.model.partition import PartitionKey
-from deltacat.daft.model import DaftTransformMapper, DaftPartitionKeyMapper, DaftFieldMapper
+from deltacat.daft.model import DaftPartitionKeyMapper, DaftFieldMapper
 
-from deltacat.daft.model import DaftPartitionKeyMapper
 from deltacat.storage.model.schema import Field, Schema
 
-class TestDaftFieldMapper:
 
+class TestDaftFieldMapper:
     def test_field_mapper_basic_types(self):
         """Test mapping basic data types between Daft and PyArrow fields"""
         test_cases = [
@@ -31,7 +22,7 @@ class TestDaftFieldMapper:
             (DataType.bool(), pa.bool_()),
             (DataType.binary(), pa.large_binary()),
             (DataType.date(), pa.date32()),
-            (DataType.timestamp(TimeUnit.ns()), pa.timestamp('ns')),
+            (DataType.timestamp(TimeUnit.ns()), pa.timestamp("ns")),
         ]
 
         for daft_type, pa_type in test_cases:
@@ -45,7 +36,7 @@ class TestDaftFieldMapper:
             pa_field = DaftFieldMapper.map(daft_field)
             assert pa_field is not None
             assert pa_field.name == "test_field"
-            assert pa_field.type == pa_type # type: ignore
+            assert pa_field.type == pa_type  # type: ignore
             assert pa_field.nullable is True
 
             # PyArrow to Daft
@@ -54,8 +45,8 @@ class TestDaftFieldMapper:
             assert daft_field_back.name == daft_field.name
             assert daft_field_back.dtype == daft_field.dtype
 
-class TestDaftPartitionKeyMapper:
 
+class TestDaftPartitionKeyMapper:
     def test_unmap(self):
         """
         Test unmap method of DaftPartitionKeyMapper when obj is not None, schema is provided,
@@ -66,23 +57,19 @@ class TestDaftPartitionKeyMapper:
         """
         # Create a mock schema
         schema = Schema.of(schema=[Field.of(pa.field("test_field", pa.int32()))])
-
         # Create a PartitionKey object
-        partition_key = PartitionKey(key=["test_field"], transform=IdentityTransform())
+        partition_key = PartitionKey(
+            key=["test_field"], transform=IdentityTransform(), name="partition_field"
+        )
 
-        # Call the unmap method
         result = DaftPartitionKeyMapper.unmap(obj=partition_key, schema=schema)
-
-        # Assert that the result is a DaftPartitionField
         assert result is not None
-
-        # Assert that the field name matches
-        assert result.field.name() == "test_field"
+        assert result.field.name() == "partition_field"
         assert DataType._from_pydatatype(result.field.dtype()) == DataType.int32()
 
     def test_unmap_no_field_locator(self):
         schema = Schema.of(schema=[Field.of(pa.field("test_field", pa.int32()))])
-        partition_key = PartitionKey(key=[])
+        partition_key = PartitionKey(key=[], name="partition_field")
 
         with pytest.raises(ValueError) as excinfo:
             DaftPartitionKeyMapper.unmap(partition_key, schema)
@@ -91,9 +78,20 @@ class TestDaftPartitionKeyMapper:
 
     def test_unmap_partition_key_not_found(self):
         schema = Schema.of(schema=[Field.of(pa.field("test_field", pa.int32()))])
-        partition_key = PartitionKey(key=["test_field_2"], transform=IdentityTransform())
+        partition_key = PartitionKey(
+            key=["test_field_2"], transform=IdentityTransform(), name="partition_field"
+        )
 
         with pytest.raises(KeyError) as excinfo:
             DaftPartitionKeyMapper.unmap(partition_key, schema)
 
         assert "Column test_field_2 does not exist in schema" in str(excinfo.value)
+
+    def test_unmap_partition_name_not_defined(self):
+        schema = Schema.of(schema=[Field.of(pa.field("test_field", pa.int32()))])
+        partition_key = PartitionKey(key=[])
+
+        with pytest.raises(ValueError) as excinfo:
+            DaftPartitionKeyMapper.unmap(partition_key, schema)
+
+        assert "Name is required for PartitionKey conversion" in str(excinfo.value)
