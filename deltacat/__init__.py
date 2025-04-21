@@ -59,7 +59,7 @@ from deltacat.types.tables import TableWriteMode
 
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
-    from deltacat.catalog.iceberg import impl as IcebergCatalog
+    from deltacat.catalog.iceberg import impl as IcebergCatalog  # noqa: F401
 
     __iceberg__ = [
         "IcebergCatalog",
