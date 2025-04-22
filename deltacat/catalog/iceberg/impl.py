@@ -154,9 +154,7 @@ def read_table(
     storage_config = StorageConfig(multithreaded_io, io_config)
 
     dc_table = get_table(name=table, namespace=namespace, **kwargs)
-    dc_scan_operator = DeltaCatScanOperator(
-        dc_table, storage_config
-    )
+    dc_scan_operator = DeltaCatScanOperator(dc_table, storage_config)
     handle = ScanOperatorHandle.from_python_scan_operator(dc_scan_operator)
     builder = LogicalPlanBuilder.from_tabular_scan(scan_operator=handle)
     return DataFrame(builder)
