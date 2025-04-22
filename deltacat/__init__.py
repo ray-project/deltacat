@@ -59,7 +59,7 @@ from deltacat.types.tables import TableWriteMode
 
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
-    from deltacat.catalog.iceberg import impl as IcebergCatalog
+    from deltacat.catalog.iceberg import impl as IcebergCatalog  # noqa: F401
 
     __iceberg__ = [
         "IcebergCatalog",
@@ -67,7 +67,7 @@ if importlib.util.find_spec("pyiceberg") is not None:
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "2.0"
+__version__ = "2.0.0b3"
 
 
 __all__ = [
@@ -104,7 +104,6 @@ __all__ = [
     "Dataset",
     "Datatype",
     "Field",
-    "IcebergCatalog",
     "LifecycleState",
     "ListResult",
     "LocalDataset",
