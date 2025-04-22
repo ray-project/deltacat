@@ -5,10 +5,10 @@ from typing import Tuple, Optional
 from deltacat.catalog.model.catalog import Catalog as DCCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
 
-from daft.catalog import Catalog, Identifier, Table, TableSource
+from daft.catalog import Catalog, Identifier, Table
 from daft.dataframe import DataFrame
 from daft.logical.schema import Schema
-from deltacat.constants import DEFAULT_CATALOG, DEFAULT_NAMESPACE
+from deltacat.constants import DEFAULT_NAMESPACE
 
 
 class DaftCatalog(Catalog):
@@ -28,8 +28,8 @@ class DaftCatalog(Catalog):
     We cannot route calls through the higher level catalog registry / delegate since this wrapper class is at a lower
      layer and does not manage registering catalogs.
     """
-    def __init__(
-        self, catalog: DCCatalog, name: str):
+
+    def __init__(self, catalog: DCCatalog, name: str):
         """
         Initialize given DeltaCAT catalog. This catalog is also registered with DeltaCAT (via deltacat.put_catalog) given the provided Name
 
@@ -59,7 +59,7 @@ class DaftCatalog(Catalog):
         self.dc_catalog.impl.create_namespace(identifier, inner=self.dc_catalog.inner)
 
     def create_table(
-        self, identifier: Identifier | str, source: TableSource | object, **kwargs
+        self, identifier: Identifier | str, source: Schema | DataFrame, **kwargs
     ) -> Table:
         """
         Create a DeltaCAT table via Daft catalog API
@@ -67,19 +67,23 @@ class DaftCatalog(Catalog):
         End users calling create_table through the daft table API may provide kwargs which will be plumbed through
         to deltacat create_table. For full list of keyword arguments accepted by create_table.
 
+        Note: as of 4/22, Daft create_table does not yet support kwargs. Tracked at: https://github.com/Eventual-Inc/Daft/issues/4195
+
         :param identifier: Daft table identifier. Sequence of strings of the format (namespace) or (namespace, table)
             or (namespace, table, table version). If this is a string, it is a dot delimited string of the same format.
+            Identifiers can be created either like Identifier("namespace", "table", "version") OR
+                Identifier.from_str("namespace.table.version")
 
         :param source: a TableSource, either a Daft DataFrame, Daft Schema, or str (filesystem path)
         """
         if isinstance(source, DataFrame):
             return self._create_table_from_df(identifier, source)
-        elif isinstance(source, str):
-            return self._create_table_from_path(identifier, source)
         elif isinstance(source, Schema):
             return self._create_table_from_schema(identifier, source)
         else:
-            raise Exception(f"Unknown table source: {source}")
+            raise Exception(
+                f"Expected table source to be Schema or DataFrame. Found: {type(source)}"
+            )
 
     def _create_table_from_df(
         self, ident: Identifier | str, source: DataFrame, **kwargs
@@ -90,16 +94,6 @@ class DaftCatalog(Catalog):
         t = self._create_table_from_schema(ident, source.schema(), **kwargs)
         # TODO (mccember) append data upon creation
         return t
-
-    def _create_table_from_path(
-        self, ident: Identifier | str, source: str, **kwargs
-    ) -> Table:
-        """
-        Create a table from a path. This will be called from Daft SQL like CREATE TABLE T AS '/path/to/file.parquet'
-
-        As of April 2025 this is not yet supported in Daft
-        """
-        raise ValueError("create_table from path string source not yet supported")
 
     def _create_table_from_schema(
         self, ident: Identifier | str, source: Schema, **kwargs
@@ -197,6 +191,7 @@ class DaftCatalog(Catalog):
         TODO look into how enhancements on schema can be propagated between Daft<=>DeltaCAT
         """
         from deltacat.storage.model.schema import Schema as DeltaCATSchema
+
         return DeltaCATSchema.of(schema=schema.to_pyarrow_schema())
 
 
@@ -204,6 +199,7 @@ class DaftTable(Table):
     """
     Wrapper class to create a Daft table from a DeltaCAT table
     """
+
     _inner: TableDefinition
 
     _read_options = set()

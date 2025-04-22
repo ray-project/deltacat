@@ -44,14 +44,15 @@ setuptools.setup(
         # any changes here should also be reflected in requirements.txt
         "aws-embedded-metrics == 3.2.0",
         "boto3 ~= 1.34",
-        "getdaft >= 0.4.8",
+        "getdaft >= 0.4.11",
         "intervaltree == 3.1.0",
         "numpy == 1.21.5",
         "pandas == 1.3.5",
         # upgrade to pyarrow 18.0.0 causes test
         # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
         # due to input_inflation exceeding 1e-5
-        "pyarrow == 17.0.0",
+        # Daft requires pyarrow == 16.00. TODO discuss upgrade with Daft
+        "pyarrow == 16.0.0",
         "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
         "pymemcache == 4.0.0",
         "ray >= 2.20.0",

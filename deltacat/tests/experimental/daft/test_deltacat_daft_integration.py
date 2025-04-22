@@ -5,15 +5,14 @@ import uuid
 
 from deltacat.catalog import Catalog as DeltaCATCatalog
 from deltacat.catalog import CatalogProperties
-from deltacat.experimental.daft.daft_catalog import (
-    DaftCatalog
-)
+from deltacat.experimental.daft.daft_catalog import DaftCatalog
 import shutil
 import tempfile
 
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 
 from pyiceberg.catalog import CatalogType
+
 
 class TestCatalogIntegration:
     @classmethod
@@ -34,10 +33,7 @@ class TestCatalogIntegration:
         # Convert the DeltaCAT catalog to a Daft catalog
         catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
 
-
-        daft_catalog = DaftCatalog(
-            catalog=dc_catalog, name=catalog_name
-        )
+        daft_catalog = DaftCatalog(catalog=dc_catalog, name=catalog_name)
 
         # Register the catalog with Daft's catalog system
         daft.attach_catalog(daft_catalog, catalog_name)
@@ -105,7 +101,7 @@ class TestIcebergCatalogIntegration:
 
         # Convert the DeltaCAT catalog to a Daft catalog
         catalog_name = f"deltacat_iceberg_{uuid.uuid4().hex[:8]}"
-        daft_catalog = DaftCatalog(dc_catalog,catalog_name)
+        daft_catalog = DaftCatalog(dc_catalog, catalog_name)
         daft.attach_catalog(daft_catalog, catalog_name)
 
         # Create a sample DataFrame
