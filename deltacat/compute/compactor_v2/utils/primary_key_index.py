@@ -79,7 +79,6 @@ def _append_table_by_hash_bucket(
     )
 
     hb_pk_grouped_by = hb_pk_grouped_by.sort_by(sc._HASH_BUCKET_IDX_COLUMN_NAME)
-
     group_count_array = hb_pk_grouped_by[f"{sc._HASH_BUCKET_IDX_COLUMN_NAME}_count"]
     hb_group_array = hb_pk_grouped_by[sc._HASH_BUCKET_IDX_COLUMN_NAME]
 
@@ -92,7 +91,9 @@ def _append_table_by_hash_bucket(
             pyarrow_table
         ), f"Group count {group_count_py} not equal to {len(pyarrow_table)}"
         all_buckets = pc.unique(pyarrow_table[sc._HASH_BUCKET_IDX_COLUMN_NAME])
-        assert len(all_buckets) == 1, "Only one hash bucket is "
+        assert (
+            len(all_buckets) == 1
+        ), f"Only one hash bucket is allowed by found {len(all_buckets)}"
         assert (
             all_buckets[0].as_py() == hb_idx
         ), f"Hash bucket not equal, {all_buckets[0]} and {hb_idx}"
