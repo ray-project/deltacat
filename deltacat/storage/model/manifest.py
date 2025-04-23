@@ -11,6 +11,8 @@ from deltacat import logs
 
 from deltacat.storage.model.schema import FieldLocator
 
+import json
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
@@ -193,6 +195,20 @@ class Manifest(dict):
         return manifest
 
     @staticmethod
+    def from_json(json_string: str) -> Manifest:
+        parsed_dict = json.loads(json_string)
+        return Manifest.of(
+            entries=ManifestEntryList.of(
+                [
+                    ManifestEntry.from_dict(entry)
+                    for entry in parsed_dict.get("entries", [])
+                ]
+            ),
+            author=ManifestAuthor.from_dict(parsed_dict.get("author", {})),
+            uuid=parsed_dict.get("id"),
+        )
+
+    @staticmethod
     def merge_manifests(
         manifests: List[Manifest], author: Optional[ManifestAuthor] = None
     ) -> Manifest:
@@ -263,6 +279,21 @@ class ManifestMeta(dict):
         if entry_params is not None:
             manifest_meta["entry_params"] = entry_params
         return manifest_meta
+
+    @staticmethod
+    def from_dict(obj: dict) -> ManifestMeta:
+
+        return ManifestMeta.of(
+            record_count=obj.get("record_count"),
+            content_length=obj.get("content_length"),
+            content_type=obj.get("content_type"),
+            content_encoding=obj.get("content_encoding"),
+            source_content_length=obj.get("source_content_length"),
+            credentials=obj.get("credentials"),
+            content_type_parameters=obj.get("content_type_parameters"),
+            entry_type=obj.get("entry_type"),
+            entry_params=obj.get("entry_params"),
+        )
 
     @property
     def record_count(self) -> Optional[int]:
@@ -358,6 +389,16 @@ class ManifestEntry(dict):
         manifest_entry = ManifestEntry.of(url, manifest_entry_meta)
         return manifest_entry
 
+    @staticmethod
+    def from_dict(obj: dict) -> ManifestEntry:
+        return ManifestEntry.of(
+            url=obj.get("url"),
+            uri=obj.get("uri"),
+            meta=ManifestMeta.from_dict(obj.get("meta", {})),
+            mandatory=obj.get("mandatory", True),
+            uuid=obj.get("id"),
+        )
+
     @property
     def uri(self) -> Optional[str]:
         return self.get("uri")
@@ -391,6 +432,10 @@ class ManifestAuthor(dict):
         if version is not None:
             manifest_author["version"] = version
         return manifest_author
+
+    @staticmethod
+    def from_dict(obj: dict) -> ManifestAuthor:
+        return ManifestAuthor.of(obj.get("name"), obj.get("version"))
 
     @property
     def name(self) -> Optional[str]:
