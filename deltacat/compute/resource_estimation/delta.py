@@ -170,6 +170,10 @@ def _estimate_resources_required_to_process_delta_using_file_sampling(
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Number of rows can only be estimated for PYARROW_DOWNLOAD operation"
 
+    if not estimate_resources_params.max_files_to_sample:
+        # we cannot calculate if we cannot sample
+        return None
+
     if not delta.manifest:
         delta.manifest = deltacat_storage.get_delta_manifest(
             delta.locator,
@@ -185,10 +189,6 @@ def _estimate_resources_required_to_process_delta_using_file_sampling(
                 on_disk_size_bytes=delta.meta.content_length,
             ),
         )
-
-    if not estimate_resources_params.max_files_to_sample:
-        # we cannot calculate if we cannot sample
-        return None
 
     sampled_in_memory_size = 0.0
     sampled_on_disk_size = 0.0
@@ -249,6 +249,10 @@ RESOURCE_ESTIMATION_METHOD_TO_DELTA_RESOURCE_ESTIMATION_FUNCTIONS = {
     ],
     ResourceEstimationMethod.DEFAULT_V2: [
         _estimate_resources_required_to_process_delta_using_type_params,
+        _estimate_resources_required_to_process_delta_using_file_sampling,
+        _estimate_resources_required_to_process_delta_using_previous_inflation,
+    ],
+    ResourceEstimationMethod.FILE_SAMPLING_WITH_PREVIOUS_INFLATION: [
         _estimate_resources_required_to_process_delta_using_file_sampling,
         _estimate_resources_required_to_process_delta_using_previous_inflation,
     ],
