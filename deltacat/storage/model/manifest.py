@@ -204,7 +204,7 @@ class Manifest(dict):
                     for entry in parsed_dict.get("entries", [])
                 ]
             ),
-            author=ManifestAuthor.from_dict(parsed_dict.get("author", {})),
+            author=ManifestAuthor.from_dict(parsed_dict.get("author")),
             uuid=parsed_dict.get("id"),
         )
 
@@ -281,7 +281,9 @@ class ManifestMeta(dict):
         return manifest_meta
 
     @staticmethod
-    def from_dict(obj: dict) -> ManifestMeta:
+    def from_dict(obj: dict) -> Optional[ManifestMeta]:
+        if obj is None:
+            return None
 
         return ManifestMeta.of(
             record_count=obj.get("record_count"),
@@ -394,7 +396,7 @@ class ManifestEntry(dict):
         return ManifestEntry.of(
             url=obj.get("url"),
             uri=obj.get("uri"),
-            meta=ManifestMeta.from_dict(obj.get("meta", {})),
+            meta=ManifestMeta.from_dict(obj.get("meta")),
             mandatory=obj.get("mandatory", True),
             uuid=obj.get("id"),
         )
@@ -434,7 +436,9 @@ class ManifestAuthor(dict):
         return manifest_author
 
     @staticmethod
-    def from_dict(obj: dict) -> ManifestAuthor:
+    def from_dict(obj: dict) -> Optional[ManifestAuthor]:
+        if obj is None:
+            return None
         return ManifestAuthor.of(obj.get("name"), obj.get("version"))
 
     @property
