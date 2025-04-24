@@ -26,6 +26,9 @@ class DeltaCatScanOperator(ScanOperator):
     def schema(self) -> Schema:
         return self._schema
 
+    def name(self) -> str:
+        return "DeltaCatScanOperator"
+
     def display_name(self) -> str:
         return f"DeltaCATScanOperator({self.table.table.namespace}.{self.table.table.table_name})"
 

@@ -149,7 +149,7 @@ def read_table(
     """Read a table into a distributed dataset."""
     # TODO: more proper IO configuration
     io_config = context.get_context().daft_planning_config.default_io_config
-    multithreaded_io = not context.get_context().is_ray_runner
+    multithreaded_io = context.get_context().get_or_create_runner().name != "ray"
 
     storage_config = StorageConfig(multithreaded_io, io_config)
 
