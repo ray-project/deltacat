@@ -485,6 +485,7 @@ class Dataset:
         merge_keys: str | Iterable[str] = None,
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
+        batch_size: Optional[int] = 1,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         namespace: str = DEFAULT_NAMESPACE,
     ) -> "Dataset":
@@ -525,7 +526,7 @@ class Dataset:
         with tarfile.open(file_uri, "r") as tar:
             tar_members = tar.getmembers()
             current_batch = None
-            reading_frame_size = 1 # TODO: Use batch size 1 for now.
+            reading_frame_size = batch_size # TODO: Use batch size 1 for now.
             total_batches = math.ceil(len(tar_members) / reading_frame_size)
 
             for i in range(total_batches):
