@@ -93,7 +93,7 @@ def _append_table_by_hash_bucket(
         all_buckets = pc.unique(pyarrow_table[sc._HASH_BUCKET_IDX_COLUMN_NAME])
         assert (
             len(all_buckets) == 1
-        ), f"Only one hash bucket is allowed by found {len(all_buckets)}"
+        ), f"Only one hash bucket is allowed but found {len(all_buckets)}"
         assert (
             all_buckets[0].as_py() == hb_idx
         ), f"Hash bucket not equal, {all_buckets[0]} and {hb_idx}"
@@ -153,7 +153,6 @@ def _optimized_group_record_batches_by_hash_bucket(
         record_batches.append(record_batch)
 
     if record_batches:
-        print(f"{len(record_batches)} -- END")
         appended_len, append_latency = timed_invocation(
             _append_table_by_hash_bucket,
             pa.Table.from_batches(record_batches),
