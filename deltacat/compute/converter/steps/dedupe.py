@@ -4,11 +4,14 @@ import deltacat.compute.converter.utils.iceberg_columns as sc
 from deltacat.compute.converter.utils.io import (
     download_data_table_and_append_iceberg_columns,
 )
+import logging
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def dedupe_data_files(
     data_file_to_dedupe,
-    identify_column_name_concatenated,
     identifier_columns,
     merge_sort_column,
     s3_client_kwargs,
@@ -34,6 +37,8 @@ def dedupe_data_files(
 
     final_data_to_dedupe = pa.concat_tables(data_file_table)
 
+    logger.info(f"Length of pyarrow table to dedupe:{len(final_data_to_dedupe)}")
+
     record_idx_iterator = iter(range(len(final_data_to_dedupe)))
 
     # Append global record index to used as aggregate column
@@ -42,7 +47,7 @@ def dedupe_data_files(
     )
 
     final_data_table_indices = final_data_to_dedupe.group_by(
-        identify_column_name_concatenated, use_threads=False
+        sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME, use_threads=False
     ).aggregate([(sc._GLOBAL_RECORD_IDX_COLUMN_NAME, "max")])
 
     pos_delete_indices = pc.invert(
@@ -57,6 +62,6 @@ def dedupe_data_files(
     final_data_table_to_delete = final_data_to_dedupe.filter(pos_delete_indices)
 
     final_data_table_to_delete = final_data_table_to_delete.drop(
-        [identify_column_name_concatenated, sc._GLOBAL_RECORD_IDX_COLUMN_NAME]
+        [sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME, sc._GLOBAL_RECORD_IDX_COLUMN_NAME]
     )
     return final_data_table_to_delete

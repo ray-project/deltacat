@@ -71,7 +71,8 @@ def _get_task_options(
         task_opts["resources"] = ray_custom_resources
 
     task_opts["max_retries"] = 3
-
+    task_opts["num_cpus"] = 1
+    task_opts["resources"] = {"convert_task": 1}
     # List of possible botocore exceptions are available at
     # https://github.com/boto/botocore/blob/develop/botocore/exceptions.py
     task_opts["retry_exceptions"] = [RetryableError]

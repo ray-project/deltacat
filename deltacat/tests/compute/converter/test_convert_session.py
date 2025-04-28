@@ -12,14 +12,13 @@ from pyiceberg.types import (
 from pyiceberg.partitioning import PartitionSpec, PartitionField
 from pyiceberg.transforms import IdentityTransform
 import pyarrow as pa
+import daft
 
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
 from deltacat.compute.converter.pyiceberg.overrides import (
     fetch_all_bucket_files,
-    parquet_files_dict_to_iceberg_data_files,
 )
-from collections import defaultdict
 from deltacat.compute.converter.utils.converter_session_utils import (
     group_all_files_to_each_bucket,
 )
@@ -244,6 +243,8 @@ def test_converter_drop_duplicates_success(
             convert_task_index=i,
             iceberg_table_warehouse_prefix="warehouse/default",
             identifier_fields=["primary_key"],
+            table_io=tbl.io,
+            table_metadata=tbl.metadata,
             compact_small_files=False,
             enforce_primary_key_uniqueness=True,
             position_delete_for_multiple_data_files=True,
@@ -273,38 +274,31 @@ def test_converter_drop_duplicates_success(
         [number_partitioned_array_3, primary_key_array_3], names=names
     )
 
+    daft_df_1 = daft.from_arrow(data_table_1)
+    daft_df_2 = daft.from_arrow(data_table_2)
+    daft_df_3 = daft.from_arrow(data_table_3)
+
     download_data_mock = mocker.patch(
-        "deltacat.compute.converter.utils.io.download_parquet_with_daft_hash_applied"
+        "deltacat.compute.converter.utils.io.daft_read_parquet"
     )
-    download_data_mock.side_effect = (data_table_1, data_table_2, data_table_3)
+    download_data_mock.side_effect = (daft_df_1, daft_df_2, daft_df_3)
 
     convert_ref = convert.remote(convert_input)
 
     to_be_deleted_files_list = []
-    to_be_added_files_dict_list = []
+
     convert_result = ray.get(convert_ref)
 
-    partition_value = convert_input.convert_input_files.partition_value
-
+    to_be_added_files_list = []
+    # Check if there're files to delete
     if convert_result[0]:
         to_be_deleted_files_list.extend(convert_result[0].values())
+    if convert_result[1]:
+        to_be_added_files_list.extend(convert_result[1])
 
-    file_location = convert_result[1][partition_value][0]
-    to_be_added_files = f"s3://{file_location}"
-
-    to_be_added_files_dict = defaultdict()
-    to_be_added_files_dict[partition_value] = [to_be_added_files]
-    to_be_added_files_dict_list.append(to_be_added_files_dict)
-
-    # 4. Commit position delete, delete equality deletes from table
-    new_position_delete_files = parquet_files_dict_to_iceberg_data_files(
-        io=tbl.io,
-        table_metadata=tbl.metadata,
-        files_dict_list=to_be_added_files_dict_list,
-    )
     commit_append_snapshot(
         iceberg_table=tbl,
-        new_position_delete_files=new_position_delete_files,
+        new_position_delete_files=to_be_added_files_list,
     )
     tbl.refresh()
 
@@ -414,6 +408,8 @@ def test_converter_pos_delete_read_by_spark_success(
             convert_task_index=i,
             iceberg_table_warehouse_prefix="warehouse/default",
             identifier_fields=["primary_key"],
+            table_io=tbl.io,
+            table_metadata=tbl.metadata,
             compact_small_files=False,
             enforce_primary_key_uniqueness=True,
             position_delete_for_multiple_data_files=True,
@@ -434,39 +430,30 @@ def test_converter_pos_delete_read_by_spark_success(
     names = ["primary_key"]
     data_table_3 = pa.Table.from_arrays([primary_key_array_3], names=names)
 
+    daft_df_1 = daft.from_arrow(data_table_1)
+    daft_df_2 = daft.from_arrow(data_table_2)
+    daft_df_3 = daft.from_arrow(data_table_3)
+
     download_data_mock = mocker.patch(
-        "deltacat.compute.converter.utils.io.download_parquet_with_daft_hash_applied"
+        "deltacat.compute.converter.utils.io.daft_read_parquet"
     )
-    download_data_mock.side_effect = (data_table_1, data_table_2, data_table_3)
+    download_data_mock.side_effect = (daft_df_1, daft_df_2, daft_df_3)
 
     convert_ref = convert.remote(convert_input)
 
     to_be_deleted_files_list = []
-    to_be_added_files_dict_list = []
+    to_be_added_files_list = []
     convert_result = ray.get(convert_ref)
-
-    partition_value = convert_input.convert_input_files.partition_value
 
     if convert_result[0]:
         to_be_deleted_files_list.extend(convert_result[0].values())
-
-    file_location = convert_result[1][partition_value][0]
-    to_be_added_files = f"s3://{file_location}"
-
-    to_be_added_files_dict = defaultdict()
-    to_be_added_files_dict[partition_value] = [to_be_added_files]
-    to_be_added_files_dict_list.append(to_be_added_files_dict)
+    if convert_result[1]:
+        to_be_added_files_list.extend(convert_result[1])
 
     # 4. Commit position delete, delete equality deletes from table
-    new_position_delete_files = parquet_files_dict_to_iceberg_data_files(
-        io=tbl.io,
-        table_metadata=tbl.metadata,
-        files_dict_list=to_be_added_files_dict_list,
-    )
-
     commit_append_snapshot(
         iceberg_table=tbl,
-        new_position_delete_files=new_position_delete_files,
+        new_position_delete_files=to_be_added_files_list,
     )
     tbl.refresh()
 
@@ -478,3 +465,177 @@ def test_converter_pos_delete_read_by_spark_success(
     ]
     all_pk_sorted = sorted(all_pk)
     assert all_pk_sorted == ["pk1", "pk2", "pk3", "pk4"]
+
+
+@pytest.mark.integration
+def test_converter_pos_delete_multiple_identifier_fields_success(
+    spark, session_catalog: RestCatalog, setup_ray_cluster, mocker
+) -> None:
+    """
+    Test for convert compute remote function happy case. Download file results are mocked.
+    """
+
+    # 1. Create Iceberg table
+    namespace = "default"
+    table_name = "table_converter_ray_pos_delete_multiple_identifier_fields"
+
+    identifier = f"{namespace}.{table_name}"
+
+    schema = Schema(
+        NestedField(
+            field_id=1, name="number_partitioned", field_type=LongType(), required=False
+        ),
+        NestedField(
+            field_id=2, name="primary_key1", field_type=StringType(), required=False
+        ),
+        NestedField(
+            field_id=3, name="primary_key2", field_type=LongType(), required=False
+        ),
+        schema_id=0,
+    )
+
+    partition_field_identity = PartitionField(
+        source_id=1,
+        field_id=101,
+        transform=IdentityTransform(),
+        name="number_partitioned",
+    )
+    partition_spec = PartitionSpec(partition_field_identity)
+
+    properties = dict()
+    properties["write.format.default"] = "parquet"
+    properties["write.delete.mode"] = "merge-on-read"
+    properties["write.update.mode"] = "merge-on-read"
+    properties["write.merge.mode"] = "merge-on-read"
+    properties["format-version"] = "2"
+
+    drop_table_if_exists(identifier, session_catalog)
+    session_catalog.create_table(
+        identifier,
+        schema=schema,
+        partition_spec=partition_spec,
+        properties=properties,
+    )
+
+    # 2. Use Spark to generate initial data files
+    tbl = session_catalog.load_table(identifier)
+
+    run_spark_commands(
+        spark,
+        [
+            f"""
+               INSERT INTO {identifier} VALUES (0, "pk1", 1), (0, "pk2", 2), (0, "pk3", 3)
+               """
+        ],
+    )
+    run_spark_commands(
+        spark,
+        [
+            f"""
+               INSERT INTO {identifier} VALUES (0, "pk1", 1), (0, "pk2", 2), (0, "pk3", 3)
+               """
+        ],
+    )
+    run_spark_commands(
+        spark,
+        [
+            f"""
+               INSERT INTO {identifier} VALUES (0, "pk4", 1), (0, "pk2", 3), (0, "pk3", 4)
+               """
+        ],
+    )
+    tbl.refresh()
+
+    # 3. Use convert.remote() function to compute position deletes
+    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(tbl)
+
+    convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
+        data_file_dict=data_file_dict,
+        equality_delete_dict=equality_delete_dict,
+        pos_delete_dict=pos_delete_dict,
+    )
+
+    s3_file_system = get_s3_file_system()
+    for i, one_bucket_files in enumerate(convert_input_files_for_all_buckets):
+        convert_input = ConvertInput.of(
+            convert_input_files=one_bucket_files,
+            convert_task_index=i,
+            iceberg_table_warehouse_prefix="warehouse/default",
+            identifier_fields=["primary_key1", "primary_key2"],
+            table_io=tbl.io,
+            table_metadata=tbl.metadata,
+            compact_small_files=False,
+            enforce_primary_key_uniqueness=True,
+            position_delete_for_multiple_data_files=True,
+            max_parallel_data_file_download=10,
+            s3_file_system=s3_file_system,
+            s3_client_kwargs={},
+        )
+
+    names = ["primary_key1", "primary_key2"]
+
+    primary_key1_array_1 = pa.array(["pk1", "pk2", "pk3"])
+    primary_key2_array_1 = pa.array([1, 2, 3])
+    data_table_1 = pa.Table.from_arrays(
+        [primary_key1_array_1, primary_key2_array_1], names=names
+    )
+
+    primary_key1_array_2 = pa.array(["pk1", "pk2", "pk3"])
+    primary_key2_array_2 = pa.array([1, 2, 3])
+    data_table_2 = pa.Table.from_arrays(
+        [primary_key1_array_2, primary_key2_array_2], names=names
+    )
+
+    primary_key1_array_3 = pa.array(["pk4", "pk2", "pk3"])
+    primary_key2_array_3 = pa.array([1, 3, 4])
+    data_table_3 = pa.Table.from_arrays(
+        [primary_key1_array_3, primary_key2_array_3], names=names
+    )
+
+    daft_df_1 = daft.from_arrow(data_table_1)
+    daft_df_2 = daft.from_arrow(data_table_2)
+    daft_df_3 = daft.from_arrow(data_table_3)
+
+    download_data_mock = mocker.patch(
+        "deltacat.compute.converter.utils.io.daft_read_parquet"
+    )
+    download_data_mock.side_effect = (daft_df_1, daft_df_2, daft_df_3)
+
+    convert_ref = convert.remote(convert_input)
+
+    to_be_deleted_files_list = []
+    to_be_added_files_list = []
+    convert_result = ray.get(convert_ref)
+
+    if convert_result[0]:
+        to_be_deleted_files_list.extend(convert_result[0].values())
+    if convert_result[1]:
+        to_be_added_files_list.extend(convert_result[1])
+
+    # 4. Commit position delete, delete equality deletes from table
+
+    commit_append_snapshot(
+        iceberg_table=tbl,
+        new_position_delete_files=to_be_added_files_list,
+    )
+    tbl.refresh()
+
+    # 5. Result assertion: Expected unique primary keys to be kept
+    pyiceberg_scan_table_rows = tbl.scan().to_arrow().to_pydict()
+    expected_result_tuple_list = [
+        ("pk1", 1),
+        ("pk2", 2),
+        ("pk2", 3),
+        ("pk3", 3),
+        ("pk3", 4),
+        ("pk4", 1),
+    ]
+    pk_combined_res = []
+    for pk1, pk2 in zip(
+        pyiceberg_scan_table_rows["primary_key1"],
+        pyiceberg_scan_table_rows["primary_key2"],
+    ):
+        pk_combined_res.append((pk1, pk2))
+
+    # Assert elements are same disregard ordering in list
+    assert sorted(pk_combined_res) == sorted(expected_result_tuple_list)

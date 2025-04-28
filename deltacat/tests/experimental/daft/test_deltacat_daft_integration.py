@@ -67,7 +67,7 @@ class TestCatalogIntegration:
         assert table2.name == table_name
 
         # 3. With namespace. DeltaCAT used the default namespace since it was not provided
-        table3 = daft_catalog.get_table(Identifier("DEFAULT", table_name))
+        table3 = daft_catalog.get_table(Identifier("default", table_name))
         assert table3 is not None
         assert table3.name == table_name
 

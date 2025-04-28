@@ -98,8 +98,8 @@ TXN_PART_SEPARATOR = "_"
 # Storage interface defaults
 # These defaults should be applied in catalog interface implementations
 # Storage interface implementations should be agnostic to defaults and require full information
-DEFAULT_CATALOG = "DEFAULT"
-DEFAULT_NAMESPACE = "DEFAULT"
+DEFAULT_CATALOG = "default"
+DEFAULT_NAMESPACE = "default"
 DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
 DEFAULT_PARTITION_ID = "partition"

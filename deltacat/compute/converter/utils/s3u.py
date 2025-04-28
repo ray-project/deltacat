@@ -11,7 +11,7 @@ from deltacat.types.tables import (
     get_table_length,
     TABLE_CLASS_TO_SLICER_FUNC,
 )
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from deltacat.exceptions import RetryableError
 from deltacat.storage import (
     DistributedDataset,
@@ -59,7 +59,7 @@ def upload_table_with_retry(
     max_records_per_file: Optional[int] = 4000000,
     s3_file_system=None,
     **s3_client_kwargs,
-) -> List[str]:
+):
     """
     Writes the given table to 1 or more S3 files and return Redshift
     manifest entries describing the uploaded files.
@@ -110,7 +110,16 @@ def upload_table_with_retry(
             )
     del block_write_path_provider
     write_paths = capture_object.write_paths()
-    return write_paths
+    s3_write_paths = []
+    for path in write_paths:
+        s3_write_path = construct_s3_url(path)
+        s3_write_paths.append(s3_write_path)
+    return s3_write_paths
+
+
+def construct_s3_url(path):
+    if path:
+        return f"s3://{path}"
 
 
 def upload_table(

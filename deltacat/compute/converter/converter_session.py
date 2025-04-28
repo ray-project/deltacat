@@ -19,7 +19,6 @@ from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
 from deltacat.compute.converter.pyiceberg.overrides import (
     fetch_all_bucket_files,
-    parquet_files_dict_to_iceberg_data_files,
 )
 from deltacat.compute.converter.utils.converter_session_utils import (
     construct_iceberg_table_prefix,
@@ -62,6 +61,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
         iceberg_table
     )
+
     convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
         data_file_dict=data_file_dict,
         equality_delete_dict=equality_delete_dict,
@@ -83,10 +83,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         identifier_fields = list(identifier_fields_set)
     else:
         identifier_fields = merge_keys
-    if len(identifier_fields) > 1:
-        raise NotImplementedError(
-            f"Multiple identifier fields lookup not supported yet."
-        )
+
     convert_options_provider = functools.partial(
         task_resource_options_provider,
         resource_amount_provider=convert_resource_options_provider,
@@ -107,6 +104,8 @@ def converter_session(params: ConverterSessionParams, **kwargs):
                 iceberg_table_warehouse_prefix=iceberg_table_warehouse_prefix,
                 identifier_fields=identifier_fields,
                 compact_small_files=compact_small_files,
+                table_io=iceberg_table.io,
+                table_metadata=iceberg_table.metadata,
                 enforce_primary_key_uniqueness=enforce_primary_key_uniqueness,
                 position_delete_for_multiple_data_files=position_delete_for_multiple_data_files,
                 max_parallel_data_file_download=max_parallel_data_file_download,
@@ -115,8 +114,8 @@ def converter_session(params: ConverterSessionParams, **kwargs):
             )
         }
 
+    logger.info((f"Getting remote convert tasks..."))
     # Ray remote task: convert
-    # Assuming that memory consume by each bucket doesn't exceed one node's memory limit.
     # TODO: Add split mechanism to split large buckets
     convert_tasks_pending = invoke_parallel(
         items=convert_input_files_for_all_buckets,
@@ -125,28 +124,27 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         options_provider=convert_options_provider,
         kwargs_provider=convert_input_provider,
     )
+
     to_be_deleted_files_list = []
-    to_be_added_files_dict_list = []
+    logger.info(f"Finished invoking {len(convert_tasks_pending)} convert tasks.")
+
     convert_results = ray.get(convert_tasks_pending)
+    logger.info(f"Got {len(convert_tasks_pending)} convert tasks.")
+
+    to_be_added_files_list = []
     for convert_result in convert_results:
         to_be_deleted_files_list.extend(convert_result[0].values())
-        to_be_added_files_dict_list.append(convert_result[1])
-
-    new_position_delete_files = parquet_files_dict_to_iceberg_data_files(
-        io=iceberg_table.io,
-        table_metadata=iceberg_table.metadata,
-        files_dict_list=to_be_added_files_dict_list,
-    )
+        to_be_added_files_list.extend(convert_result[1])
 
     if not to_be_deleted_files_list:
         commit_append_snapshot(
             iceberg_table=iceberg_table,
-            new_position_delete_files=new_position_delete_files,
+            new_position_delete_files=to_be_added_files_list,
         )
     else:
         commit_replace_snapshot(
             iceberg_table=iceberg_table,
-            # equality_delete_files + data file that all rows are deleted
             to_be_deleted_files_list=to_be_deleted_files_list,
-            new_position_delete_files=new_position_delete_files,
+            new_position_delete_files=to_be_added_files_list,
         )
+    logger.info(f"Committed new Iceberg snapshot.")

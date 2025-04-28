@@ -17,7 +17,6 @@ from deltacat.compute.converter.utils.iceberg_columns import (
     ICEBERG_RESERVED_FIELD_ID_FOR_POS_COLUMN,
 )
 from pyiceberg.io.pyarrow import (
-    _check_pyarrow_schema_compatible,
     compute_statistics_plan,
 )
 from pyiceberg.manifest import (
@@ -25,16 +24,13 @@ from pyiceberg.manifest import (
     DataFileContent,
     FileFormat,
 )
-from pyiceberg.expressions.visitors import _InclusiveMetricsEvaluator
-from pyiceberg.types import (
-    strtobool,
-)
 from pyiceberg.table import _min_sequence_number, _open_manifest
 from pyiceberg.utils.concurrent import ExecutorFactory
 from itertools import chain
 from pyiceberg.typedef import (
     KeyDefaultDict,
 )
+
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -159,41 +155,39 @@ def data_file_statistics_from_parquet_metadata(
     )
 
 
-def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict_list):
+def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict):
     data_file_content_type = DataFileContent.POSITION_DELETES
     iceberg_files = []
     schema = table_metadata.schema()
-    for files_dict in files_dict_list:
-        for partition_value, file_paths in files_dict.items():
-            for file_path in file_paths:
-                input_file = io.new_input(file_path)
-                with input_file.open() as input_stream:
-                    parquet_metadata = pq.read_metadata(input_stream)
-                _check_pyarrow_schema_compatible(
-                    schema, parquet_metadata.schema.to_arrow_schema()
-                )
+    for partition_value, file_paths in files_dict.items():
+        for file_path in file_paths:
+            input_file = io.new_input(file_path)
+            with input_file.open() as input_stream:
+                parquet_metadata = pq.read_metadata(input_stream)
 
-                statistics = data_file_statistics_from_parquet_metadata(
-                    parquet_metadata=parquet_metadata,
-                    stats_columns=compute_statistics_plan(
-                        schema, table_metadata.properties
-                    ),
-                    parquet_column_mapping=parquet_path_to_id_mapping_override(schema),
-                )
+            # Removed _check_pyarrow_schema_compatible() here since reserved columns does not comply to all rules.
 
-                data_file = DataFile(
-                    content=data_file_content_type,
-                    file_path=file_path,
-                    file_format=FileFormat.PARQUET,
-                    partition=partition_value,
-                    file_size_in_bytes=len(input_file),
-                    sort_order_id=None,
-                    spec_id=table_metadata.default_spec_id,
-                    equality_ids=None,
-                    key_metadata=None,
-                    **statistics.to_serialized_dict(),
-                )
-                iceberg_files.append(data_file)
+            statistics = data_file_statistics_from_parquet_metadata(
+                parquet_metadata=parquet_metadata,
+                stats_columns=compute_statistics_plan(
+                    schema, table_metadata.properties
+                ),
+                parquet_column_mapping=parquet_path_to_id_mapping_override(schema),
+            )
+
+            data_file = DataFile(
+                content=data_file_content_type,
+                file_path=file_path,
+                file_format=FileFormat.PARQUET,
+                partition=partition_value,
+                file_size_in_bytes=len(input_file),
+                sort_order_id=None,
+                spec_id=table_metadata.default_spec_id,
+                equality_ids=None,
+                key_metadata=None,
+                **statistics.to_serialized_dict(),
+            )
+            iceberg_files.append(data_file)
     return iceberg_files
 
 
@@ -216,13 +210,7 @@ def fetch_all_bucket_files(table):
     # step 2: filter the data files in each manifest
     # this filter depends on the partition spec used to write the manifest file
     partition_evaluators = KeyDefaultDict(data_scan._build_partition_evaluator)
-    metrics_evaluator = _InclusiveMetricsEvaluator(
-        data_scan.table_metadata.schema(),
-        data_scan.row_filter,
-        data_scan.case_sensitive,
-        strtobool(data_scan.options.get("include_empty_files", "false")),
-    ).eval
-
+    residual_evaluators = KeyDefaultDict(data_scan._build_residual_evaluator)
     min_sequence_number = _min_sequence_number(manifests)
 
     # {"bucket_index": List[DataFile]}
@@ -239,7 +227,8 @@ def fetch_all_bucket_files(table):
                     data_scan.io,
                     manifest,
                     partition_evaluators[manifest.partition_spec_id],
-                    metrics_evaluator,
+                    residual_evaluators[manifest.partition_spec_id],
+                    data_scan._build_metrics_evaluator(),
                 )
                 for manifest in manifests
                 if data_scan._check_sequence_number(min_sequence_number, manifest)

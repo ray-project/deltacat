@@ -80,3 +80,8 @@ def append_global_record_idx_column(
         pa.array(ordered_record_indices, _GLOBAL_RECORD_IDX_COLUMN_TYPE),
     )
     return table
+
+
+_IDENTIFIER_COLUMNS_HASH_COLUMN_NAME = _get_iceberg_col_name(
+    "identifier_columns_hashed"
+)
