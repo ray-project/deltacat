@@ -4,7 +4,7 @@ from deltacat.exceptions import RetryableError
 AVERAGE_FILE_PATH_COLUMN_SIZE_BYTES = 80
 AVERAGE_POS_COLUMN_SIZE_BYTES = 4
 XXHASH_BYTE_PER_RECORD = 8
-MEMORY_BUFFER_RATE = 4
+MEMORY_BUFFER_RATE = 2
 # TODO: Add audit info to check this number in practice
 # Worst case 2 as no duplicates exists across all pk
 PYARROW_AGGREGATE_MEMORY_MULTIPLIER = 2

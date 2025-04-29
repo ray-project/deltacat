@@ -34,8 +34,6 @@ from deltacat.compute.converter.utils.converter_session_utils import (
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-ray.init()
-
 
 def converter_session(params: ConverterSessionParams, **kwargs):
     """
