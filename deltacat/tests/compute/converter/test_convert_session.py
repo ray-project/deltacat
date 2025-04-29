@@ -245,7 +245,7 @@ def test_converter_drop_duplicates_success(
             identifier_fields=["primary_key"],
             table_io=tbl.io,
             table_metadata=tbl.metadata,
-            compact_small_files=False,
+            compact_previous_position_delete_files=False,
             enforce_primary_key_uniqueness=True,
             position_delete_for_multiple_data_files=True,
             max_parallel_data_file_download=10,
@@ -291,10 +291,10 @@ def test_converter_drop_duplicates_success(
 
     to_be_added_files_list = []
     # Check if there're files to delete
-    if convert_result[0]:
-        to_be_deleted_files_list.extend(convert_result[0].values())
-    if convert_result[1]:
-        to_be_added_files_list.extend(convert_result[1])
+    if convert_result.to_be_deleted_files:
+        to_be_deleted_files_list.extend(convert_result.to_be_deleted_files.values())
+    if convert_result.to_be_added_files:
+        to_be_added_files_list.extend(convert_result.to_be_added_files)
 
     commit_append_snapshot(
         iceberg_table=tbl,
@@ -410,7 +410,7 @@ def test_converter_pos_delete_read_by_spark_success(
             identifier_fields=["primary_key"],
             table_io=tbl.io,
             table_metadata=tbl.metadata,
-            compact_small_files=False,
+            compact_previous_position_delete_files=False,
             enforce_primary_key_uniqueness=True,
             position_delete_for_multiple_data_files=True,
             max_parallel_data_file_download=10,
@@ -445,10 +445,10 @@ def test_converter_pos_delete_read_by_spark_success(
     to_be_added_files_list = []
     convert_result = ray.get(convert_ref)
 
-    if convert_result[0]:
-        to_be_deleted_files_list.extend(convert_result[0].values())
-    if convert_result[1]:
-        to_be_added_files_list.extend(convert_result[1])
+    if convert_result.to_be_deleted_files:
+        to_be_deleted_files_list.extend(convert_result.to_be_deleted_files.values())
+    if convert_result.to_be_added_files:
+        to_be_added_files_list.extend(convert_result.to_be_added_files)
 
     # 4. Commit position delete, delete equality deletes from table
     commit_append_snapshot(
@@ -564,7 +564,7 @@ def test_converter_pos_delete_multiple_identifier_fields_success(
             identifier_fields=["primary_key1", "primary_key2"],
             table_io=tbl.io,
             table_metadata=tbl.metadata,
-            compact_small_files=False,
+            compact_previous_position_delete_files=False,
             enforce_primary_key_uniqueness=True,
             position_delete_for_multiple_data_files=True,
             max_parallel_data_file_download=10,
@@ -607,10 +607,10 @@ def test_converter_pos_delete_multiple_identifier_fields_success(
     to_be_added_files_list = []
     convert_result = ray.get(convert_ref)
 
-    if convert_result[0]:
-        to_be_deleted_files_list.extend(convert_result[0].values())
-    if convert_result[1]:
-        to_be_added_files_list.extend(convert_result[1])
+    if convert_result.to_be_deleted_files:
+        to_be_deleted_files_list.extend(convert_result.to_be_deleted_files.values())
+    if convert_result.to_be_added_files:
+        to_be_added_files_list.extend(convert_result.to_be_added_files)
 
     # 4. Commit position delete, delete equality deletes from table
 

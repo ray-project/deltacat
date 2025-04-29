@@ -161,6 +161,7 @@ def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict):
     schema = table_metadata.schema()
     for partition_value, file_paths in files_dict.items():
         for file_path in file_paths:
+            logger.info(f"DEBUG_file_path:{file_path}")
             input_file = io.new_input(file_path)
             with input_file.open() as input_stream:
                 parquet_metadata = pq.read_metadata(input_stream)
@@ -239,9 +240,10 @@ def fetch_all_bucket_files(table):
         file_sequence_number = manifest_entry.sequence_number
         data_file_tuple = (file_sequence_number, data_file)
         partition_value = data_file.partition
+
         if data_file.content == DataFileContent.DATA:
             data_entries[partition_value].append(data_file_tuple)
-        if data_file.content == DataFileContent.POSITION_DELETES:
+        elif data_file.content == DataFileContent.POSITION_DELETES:
             positional_delete_entries[partition_value].append(data_file_tuple)
         elif data_file.content == DataFileContent.EQUALITY_DELETES:
             equality_data_entries[partition_value].append(data_file_tuple)

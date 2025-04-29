@@ -12,7 +12,7 @@ class ConvertInput(Dict):
         identifier_fields,
         table_io,
         table_metadata,
-        compact_small_files,
+        compact_previous_position_delete_files,
         enforce_primary_key_uniqueness,
         position_delete_for_multiple_data_files,
         max_parallel_data_file_download,
@@ -27,7 +27,9 @@ class ConvertInput(Dict):
         result["iceberg_table_warehouse_prefix"] = iceberg_table_warehouse_prefix
         result["table_io"] = table_io
         result["table_metadata"] = table_metadata
-        result["compact_small_files"] = compact_small_files
+        result[
+            "compact_previous_position_delete_files"
+        ] = compact_previous_position_delete_files
         result["enforce_primary_key_uniqueness"] = enforce_primary_key_uniqueness
         result[
             "position_delete_for_multiple_data_files"
@@ -63,8 +65,8 @@ class ConvertInput(Dict):
         return self["table_metadata"]
 
     @property
-    def compact_small_files(self) -> bool:
-        return self["compact_small_files"]
+    def compact_previous_position_delete_files(self) -> bool:
+        return self["compact_previous_position_delete_files"]
 
     @property
     def enforce_primary_key_uniqueness(self) -> bool:
