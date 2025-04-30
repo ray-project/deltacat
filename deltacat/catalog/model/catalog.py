@@ -111,6 +111,7 @@ class Catalogs:
             raise ValueError(
                 f"Catalog {default} not found " f"in catalogs to register: {catalogs}"
             )
+<<<<<<< HEAD
         if not catalogs:
             raise ValueError(
                 f"No catalogs given to register. "
@@ -121,6 +122,10 @@ class Catalogs:
         if isinstance(catalogs, Catalog):
             catalogs = {DEFAULT_CATALOG: catalogs}
 
+=======
+        if catalogs is None:
+            raise ValueError(f"Catalogs cannot be None.")
+>>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
         self.catalogs: Dict[str, Catalog] = catalogs
         if default:
             self.default_catalog = self.catalogs[default]
@@ -140,7 +145,7 @@ class Catalogs:
         if set_default:
             self.default_catalog = catalog
 
-    def get(self, name) -> Catalog:
+    def get(self, name) -> Optional[Catalog]:
         return self.catalogs.get(name)
 
     def default(self) -> Optional[Catalog]:
@@ -172,8 +177,13 @@ def ensure_initialized():
 
 
 def init(
+<<<<<<< HEAD
     catalogs: Union[Dict[str, Catalog], Catalog],
     default: Optional[str] = None,
+=======
+    catalogs: Dict[str, Catalog] = {},
+    default_catalog_name: Optional[str] = None,
+>>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
     ray_init_args: Dict[str, Any] = None,
     *args,
     force_reinitialize=False,
@@ -225,15 +235,27 @@ def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
             "`deltacat.init(catalogs={...})` to register one or more "
             "catalogs then retry."
         )
+<<<<<<< HEAD
 
     if name is not None:
         catalog = ray.get(all_catalogs.get.remote(name))
         if not catalog:
             available_catalogs = ray.get(all_catalogs.all.remote()).values()
+=======
+    catalog = (
+        ray.get(all_catalogs.get.remote(name))
+        if name
+        else ray.get(all_catalogs.default.remote())
+    )
+    if not catalog:
+        available_catalogs = ray.get(all_catalogs.all.remote()).values()
+        if name:
+>>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
             raise ValueError(
                 f"Catalog '{name}' not found. Available catalogs: "
                 f"{available_catalogs}."
             )
+<<<<<<< HEAD
         return catalog
 
     else:
@@ -245,6 +267,15 @@ def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
                 f"{available_catalogs}."
             )
         return catalog
+=======
+        else:
+            raise ValueError(
+                f"Call to get_catalog without name set failed because there "
+                f"is no default Catalog set. Available catalogs: "
+                f"{available_catalogs}."
+            )
+    return catalog
+>>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
 
 
 def put_catalog(

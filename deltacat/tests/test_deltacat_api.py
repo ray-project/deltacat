@@ -4,7 +4,6 @@ import tempfile
 import deltacat as dc
 from deltacat.constants import METAFILE_FORMAT_MSGPACK
 from deltacat import Namespace
-from deltacat.types.media import DatasetFormat
 from deltacat.storage import Metafile
 
 from deltacat.io import (
@@ -32,8 +31,8 @@ class TestDeltaCAT:
         # When a namespace is copied across catalogs.
         namespace_src = dc.put("test_catalog_1/test_namespace")
         namespace_dst = dc.copy(
-            "test_catalog_1/test_namespace",
-            "test_catalog_2",
+            "dc://test_catalog_1/test_namespace",
+            "dc://test_catalog_2",
         )
         # Expect the catalog namespace created in each catalog
         # method to be equivalent and equal to the source namespace.
@@ -63,10 +62,7 @@ class TestDeltaCAT:
         # When a namespace is put in the catalog.
         namespace_src: Namespace = dc.put("test_catalog_1/test_namespace")
         # Expect the namespace to be listed.
-        dataset = dc.list(
-            "dc://test_catalog_1",
-            dataset_format=DatasetFormat(),
-        )
+        dataset = dc.list("dc://test_catalog_1")
         actual_namespace = Metafile.deserialize(
             serialized=dataset.take(1)[0][METAFILE_DATA_COLUMN_NAME],
             meta_format=METAFILE_FORMAT_MSGPACK,

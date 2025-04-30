@@ -539,6 +539,14 @@ class Metafile(dict):
                 f"${serialized_dict}"
             )
 
+    @staticmethod
+    def get_type_name(serialized_dict: dict):
+        """
+        Given a serialized dictionary of Metafile data, gets the type name of
+        the metafile class.
+        """
+        return Metafile.get_class(serialized_dict).__name__
+
     @classmethod
     def deserialize(
         cls,

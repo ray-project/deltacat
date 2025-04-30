@@ -35,7 +35,7 @@ from deltacat.storage import (
     ManifestEntryList,
 )
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.url import DeltacatUrl
+from deltacat.utils.url import DeltaCatUrl, DeltaCatUrlReader
 from deltacat.storage import (
     Metafile,
     ListResult,
@@ -44,8 +44,8 @@ from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-METAFILE_DATA_COLUMN_NAME = "metafile_data"
-METAFILE_TYPE_COLUMN_NAME = "metafile_type"
+METAFILE_DATA_COLUMN_NAME = "deltacat_metafile_data"
+METAFILE_TYPE_COLUMN_NAME = "deltacat_metafile_type"
 
 
 class DeltacatReadType(str, Enum):
@@ -265,7 +265,7 @@ def _get_metafile_read_task(
 ) -> Iterable[Block]:
     pyarrow_table_dict = {
         METAFILE_DATA_COLUMN_NAME: [metafile.serialize(METAFILE_FORMAT_MSGPACK)],
-        METAFILE_TYPE_COLUMN_NAME: [Metafile.get_class(metafile).__name__],
+        METAFILE_TYPE_COLUMN_NAME: [Metafile.get_type_name(metafile)],
     }
     yield BlockAccessor.batch_to_arrow_block(pyarrow_table_dict)
 
@@ -294,18 +294,19 @@ def _get_metafile_lister_read_task(
     yield BlockAccessor.batch_to_arrow_block(pyarrow_table_dict)
 
 
-class DeltacatDatasource(Datasource):
+class DeltaCatDatasource(Datasource):
     """Datasource for reading registered DeltaCAT catalog objects."""
 
     def __init__(
         self,
-        url: DeltacatUrl,
+        url: DeltaCatUrl,
         deltacat_read_type: DeltacatReadType = DeltacatReadType.DATA,
         timestamp_as_of: Optional[int] = None,
         merge_on_read: Optional[bool] = False,
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ):
         self._url = url
+        self._reader = DeltaCatUrlReader(url)
         self._deltacat_read_type = deltacat_read_type
         self._timestamp_as_of = timestamp_as_of
         self._merge_on_read = merge_on_read
@@ -330,7 +331,7 @@ class DeltacatDatasource(Datasource):
             A list of read tasks that can be executed to read blocks from the
             datasource in parallel.
         """
-        kwargs = self._read_kwargs_provider(self._url.datasource_type, {})
+        kwargs = self._read_kwargs_provider(self._url.datastore_type, {})
         if self._deltacat_read_type == DeltacatReadType.METADATA:
             # do a shallow read of the top-level DeltaCAT metadata
             empty_block_metadata = BlockMetadata(
@@ -340,7 +341,7 @@ class DeltacatDatasource(Datasource):
                 input_files=None,
                 exec_stats=None,
             )
-            metafile = self._url.reader(**kwargs)
+            metafile = self._reader.read(**kwargs)
             read_tasks = [
                 ReadTask(
                     lambda: _get_metafile_read_task(metafile),
@@ -349,8 +350,8 @@ class DeltacatDatasource(Datasource):
             ]
         elif self._deltacat_read_type == DeltacatReadType.METADATA_LIST:
             # do a shallow read of the top-level DeltaCAT metadata
-            print(f"listers: {self._url.listers}")
-            listers = copy.deepcopy(self._url.listers)
+            print(f"listers: {self._reader.listers}")
+            listers = copy.deepcopy(self._reader.listers)
             listers = [listers[0]]
             read_tasks = self._list_all_metafiles_read_tasks(
                 parallelism=parallelism,
@@ -360,6 +361,7 @@ class DeltacatDatasource(Datasource):
         elif self._deltacat_read_type == DeltacatReadType.METADATA_LIST_RECURSIVE:
             read_tasks = self._list_all_metafiles_read_tasks(
                 parallelism=parallelism,
+                listers=copy.deepcopy(self._reader.listers),
                 **kwargs,
             )
 
@@ -487,7 +489,7 @@ class DeltacatDatasource(Datasource):
                     )
                 )
         else:
-            # first lister is the last lister
+            # first lister is also the last lister (i.e., shallow listing)
             read_tasks = [
                 ReadTask(
                     read_fn=functools.partial(

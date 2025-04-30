@@ -6,20 +6,20 @@ from typing import Any, Callable, Dict, Optional, cast
 import pyarrow as pa
 from ray.data import Dataset
 
-from deltacat.utils.url import DeltacatUrl
-from deltacat.io.datasink.deltacat_datasink import DeltacatDatasink
+from deltacat.utils.url import DeltaCatUrl
+from deltacat.io.datasink.deltacat_datasink import DeltaCatDatasink
 
 
-class DeltacatDataset(Dataset):
+class DeltaCatDataset(Dataset):
     @staticmethod
-    def from_dataset(dataset: Dataset) -> DeltacatDataset:
+    def from_dataset(dataset: Dataset) -> DeltaCatDataset:
         # cast to DeltacatDataset in-place since it only adds new methods
-        dataset.__class__ = DeltacatDataset
-        return cast(DeltacatDataset, dataset)
+        dataset.__class__ = DeltaCatDataset
+        return cast(DeltaCatDataset, dataset)
 
     def write_deltacat(
         self,
-        url: DeltacatUrl,
+        url: DeltaCatUrl,
         *,
         # if the source dataset only contains DeltaCAT metadata, then only copy the metadata to the destination... if it contains external source file paths, then register them in a new Delta.
         metadata_only: bool = False,
@@ -72,7 +72,7 @@ class DeltacatDataset(Dataset):
                 pyarrow.parquet.write_table(), which is used to write out each
                 block to a file.
         """
-        datasink = DeltacatDatasink(
+        datasink = DeltaCatDatasink(
             url,
             metadata_only=metadata_only,
             copy_on_write=copy_on_write,

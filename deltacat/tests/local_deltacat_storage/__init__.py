@@ -7,6 +7,7 @@ import sqlite3
 from sqlite3 import Cursor, Connection
 import uuid
 import ray
+
 import io
 
 from deltacat.tests.test_utils.storage import create_empty_delta

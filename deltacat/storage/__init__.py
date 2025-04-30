@@ -78,6 +78,7 @@ from deltacat.storage.model.transform import (
 )
 from deltacat.storage.model.types import (
     CommitState,
+    Dataset,
     DeltaType,
     DistributedDataset,
     LifecycleState,
@@ -102,6 +103,7 @@ __all__ = [
     "BucketTransform",
     "BucketTransformParameters",
     "CommitState",
+    "Dataset",
     "DayTransform",
     "Delta",
     "DeltaLocator",

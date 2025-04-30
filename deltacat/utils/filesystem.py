@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import re
 from typing import Optional, Tuple, Union, List
+from datetime import timedelta
 
 import sys
 import urllib
 import pathlib
 
-import pyarrow
 import pyarrow as pa
 from pyarrow.fs import (
     _resolve_filesystem_and_path,
@@ -17,6 +17,7 @@ from pyarrow.fs import (
     FileSystem,
     FSSpecHandler,
     PyFileSystem,
+    GcsFileSystem,
 )
 
 _LOCAL_SCHEME = "local"
@@ -24,8 +25,8 @@ _LOCAL_SCHEME = "local"
 
 def resolve_paths_and_filesystem(
     paths: Union[str, List[str]],
-    filesystem: pyarrow.fs.FileSystem = None,
-) -> Tuple[List[str], pyarrow.fs.FileSystem]:
+    filesystem: FileSystem = None,
+) -> Tuple[List[str], FileSystem]:
     """
     Resolves and normalizes all provided paths, infers a filesystem from the
     paths or validates the provided filesystem against the paths and ensures
@@ -113,19 +114,26 @@ def resolve_paths_and_filesystem(
             else:
                 raise
         if filesystem is None:
-            filesystem = resolved_filesystem
+            if isinstance(resolved_filesystem, GcsFileSystem):
+                # Configure a retry time limit for GcsFileSystem so that it
+                # doesn't hang forever trying to get file info (e.g., when
+                # trying to get a public file w/o anonymous=True).
+                filesystem = GcsFileSystem(
+                    retry_time_limit=timedelta(seconds=60),
+                )
+            else:
+                filesystem = resolved_filesystem
         elif need_unwrap_path_protocol:
             resolved_path = _unwrap_protocol(resolved_path)
         resolved_path = filesystem.normalize_path(resolved_path)
         resolved_paths.append(resolved_path)
-
     return resolved_paths, filesystem
 
 
 def resolve_path_and_filesystem(
     path: str,
-    filesystem: Optional[pyarrow.fs.FileSystem] = None,
-) -> Tuple[str, pyarrow.fs.FileSystem]:
+    filesystem: Optional[FileSystem] = None,
+) -> Tuple[str, FileSystem]:
     """
     Resolves and normalizes the provided path, infers a filesystem from the
     path or validates the provided filesystem against the path.
@@ -148,7 +156,7 @@ def resolve_path_and_filesystem(
 
 def list_directory(
     path: str,
-    filesystem: pyarrow.fs.FileSystem,
+    filesystem: FileSystem,
     exclude_prefixes: Optional[List[str]] = None,
     ignore_missing_path: bool = False,
     recursive: bool = False,
@@ -199,7 +207,7 @@ def list_directory(
 
 def get_file_info(
     path: str,
-    filesystem: pyarrow.fs.FileSystem,
+    filesystem: FileSystem,
     ignore_missing_path: bool = False,
 ) -> FileInfo:
     """Get the file info for the provided path."""
@@ -227,6 +235,9 @@ def _handle_read_os_error(
         r"(?:(.*)AWS Error ACCESS_DENIED during HeadObject operation: No response "
         r"body\.(.*))$"
     )
+    gcp_error_pattern = (
+        r"^(?:(.*)google::cloud::Status\(UNAVAILABLE:(.*?)Couldn't resolve host name)"
+    )
     if re.match(aws_error_pattern, str(error)):
         # Specially handle AWS error when reading files, to give a clearer error
         # message to avoid confusing users. The real issue is most likely that the AWS
@@ -243,9 +254,28 @@ def _handle_read_os_error(
                 "You can also run AWS CLI command to get more detailed error message "
                 "(e.g., aws s3 ls <file-name>). "
                 "See https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3/index.html "  # noqa
+                "and https://arrow.apache.org/docs/python/generated/pyarrow.fs.S3FileSystem.html "
                 "for more information."
             )
         )
+    elif re.match(gcp_error_pattern, str(error)):
+        # Special handling for GCP errors (e.g., handling the special case of
+        # requiring the filesystem to be instantiated with anonymous access to
+        # read public files).
+        if isinstance(paths, str):
+            paths = f'"{paths}"'
+        raise OSError(
+            (
+                f"Failing to read GCP GS file(s): {paths}. "
+                "Please check that file exists and has properly configured access. "
+                "If this is a public file, please instantiate a filesystem with "
+                "anonymous access via `pyarrow.fs.GcsFileSystem(anonymous=True)` "
+                "to read it. See https://google.aip.dev/auth/4110 and "
+                "https://arrow.apache.org/docs/python/generated/pyarrow.fs.GcsFileSystem.html"  # noqa
+                "for more information."
+            )
+        )
+
     else:
         raise error
 

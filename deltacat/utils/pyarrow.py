@@ -13,11 +13,14 @@ from deltacat.exceptions import ContentTypeValidationError
 import pyarrow as pa
 import numpy as np
 import pyarrow.compute as pc
+import pyarrow.fs as pafs
+
 from fsspec import AbstractFileSystem
 from pyarrow import csv as pacsv
 from pyarrow import feather as paf
 from pyarrow import json as pajson
 from pyarrow import parquet as papq
+from pyarrow import orc as paorc
 from ray.data.datasource import FilenameProvider
 from deltacat.utils.s3fs import create_s3_file_system
 
@@ -40,7 +43,9 @@ from deltacat.utils.arguments import (
     sanitize_kwargs_to_callable,
     sanitize_kwargs_by_supported_kwargs,
 )
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 from functools import lru_cache
+
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -103,6 +108,82 @@ def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
         raise e
 
 
+# TODO(pdames): Remove deprecated S3-only readers.
+def read_csv(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **read_kwargs,
+) -> pa.Table:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            return pacsv.read_csv(f, **read_kwargs)
+    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+        return pacsv.read_csv(f, **read_kwargs)
+
+
+def read_feather(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **read_kwargs,
+) -> pa.Table:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            return paf.read_feather(f, **read_kwargs)
+    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+        return paf.read_feather(f, **read_kwargs)
+
+
+def read_json(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **read_kwargs,
+) -> pa.Table:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            return pajson.read_json(f, **read_kwargs)
+    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+        return pajson.read_json(f, **read_kwargs)
+
+
+def read_orc(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **read_kwargs,
+) -> pa.Table:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            return paorc.read_table(f, **read_kwargs)
+    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+        return paorc.read_table(f, **read_kwargs)
+
+
+def read_parquet(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **read_kwargs,
+) -> pa.Table:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            return papq.read_table(f, **read_kwargs)
+    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+        return papq.read_table(f, **read_kwargs)
+
+
 CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
     ContentType.UNESCAPED_TSV.value: pyarrow_read_csv,
     ContentType.TSV.value: pyarrow_read_csv,
@@ -118,24 +199,78 @@ CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
 
 
 def write_feather(
-    table: pa.Table, path: str, *, filesystem: AbstractFileSystem, **kwargs
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
 ) -> None:
-
-    with filesystem.open(path, "wb") as f:
-        paf.write_feather(table, f, **kwargs)
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            paf.write_feather(table, f, **write_kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            paf.write_feather(table, f, **write_kwargs)
 
 
 def write_csv(
-    table: pa.Table, path: str, *, filesystem: AbstractFileSystem, **kwargs
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
 ) -> None:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            pacsv.write_csv(table, f, **write_kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            # TODO (pdames): Add support for client-specified compression types.
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                if write_kwargs.get("write_options") is None:
+                    # column names are kept in table metadata, so omit header
+                    write_kwargs["write_options"] = pacsv.WriteOptions(
+                        include_header=False
+                    )
+                pacsv.write_csv(table, out, **write_kwargs)
 
-    with filesystem.open(path, "wb") as f:
-        # TODO (pdames): Add support for client-specified compression types.
-        with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-            if kwargs.get("write_options") is None:
-                # column names are kept in table metadata, so omit header
-                kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
-            pacsv.write_csv(table, out, **kwargs)
+
+def write_orc(
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
+) -> None:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            paorc.write_table(table, f, **write_kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            paorc.write_table(table, f, **write_kwargs)
+
+
+def write_parquet(
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
+) -> None:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            papq.write_table(table, f, **write_kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            papq.write_table(table, f, **write_kwargs)
 
 
 CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
@@ -143,7 +278,8 @@ CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
     #  pyarrow adds support for custom delimiters, escaping, and None value
     #  representations to pyarrow.csv.WriteOptions.
     ContentType.CSV.value: write_csv,
-    ContentType.PARQUET.value: papq.write_table,
+    ContentType.ORC.value: write_orc,
+    ContentType.PARQUET.value: write_parquet,
     ContentType.FEATHER.value: write_feather,
 }
 
@@ -180,7 +316,7 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
 ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
     ContentEncoding.GZIP.value: partial(gzip.open, mode="rb"),
     ContentEncoding.BZIP2.value: partial(bz2.open, mode="rb"),
-    ContentEncoding.IDENTITY.value: lambda s3_file: s3_file,
+    ContentEncoding.IDENTITY.value: lambda file_path: file_path,
 }
 
 
@@ -522,7 +658,7 @@ def parquet_file_size(table: papq.ParquetFile) -> int:
 def table_to_file(
     table: pa.Table,
     base_path: str,
-    file_system: AbstractFileSystem,
+    file_system: Optional[AbstractFileSystem],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,

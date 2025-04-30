@@ -38,7 +38,12 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     put_catalog,
 )
 from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.compute import (
+    job_client,
+    local_job_client,
+)
 from deltacat.storage import (
+    Dataset,
     DistributedDataset,
     Field,
     LifecycleState,
@@ -55,10 +60,24 @@ from deltacat.storage import (
     SortScheme,
     NullOrder,
 )
-from deltacat.storage.rivulet import Dataset, Datatype
-from deltacat.types.media import ContentEncoding, ContentType, TableType
+from deltacat.storage.rivulet import Dataset as RivDataset, Datatype as RivDatatype
+from deltacat.types.media import (
+    ContentEncoding,
+    ContentType,
+    DatasetType,
+    DatastoreType,
+)
+
 from deltacat.types.tables import TableWriteMode
-from deltacat.utils.url import DeltacatUrl
+from deltacat.utils.url import DeltaCatUrl
+
+__iceberg__ = []
+if importlib.util.find_spec("pyiceberg") is not None:
+    from deltacat.catalog.iceberg import impl as IcebergCatalog  # noqa: F401
+
+    __iceberg__ = [
+        "IcebergCatalog",
+    ]
 
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
@@ -75,6 +94,8 @@ __version__ = "2.0.0b9"
 
 __all__ = [
     "__version__",
+    "job_client",
+    "local_job_client",
     "copy",
     "get",
     "list",
@@ -105,10 +126,13 @@ __all__ = [
     "Catalog",
     "ContentType",
     "ContentEncoding",
-    "DeltacatUrl",
-    "DistributedDataset",
     "Dataset",
-    "Datatype",
+    "DatasetType",
+    "DatastoreType",
+    "DeltaCatUrl",
+    "DistributedDataset",
+    "RivDataset",
+    "RivDatatype",
     "Field",
     "LifecycleState",
     "ListResult",
@@ -124,7 +148,6 @@ __all__ = [
     "SortOrder",
     "SortScheme",
     "TableDefinition",
-    "TableType",
     "TableWriteMode",
 ]
 

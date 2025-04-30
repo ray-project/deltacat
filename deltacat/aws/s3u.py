@@ -48,7 +48,7 @@ from deltacat.types.media import (
 )
 from deltacat.types.tables import (
     TABLE_CLASS_TO_SIZE_FUNC,
-    TABLE_TYPE_TO_READER_FUNC,
+    TABLE_TYPE_TO_S3_READER_FUNC,
     TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS,
     DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC,
     get_table_length,
@@ -261,7 +261,7 @@ def read_file(
     **s3_client_kwargs,
 ) -> LocalTable:
 
-    reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
+    reader = TABLE_TYPE_TO_S3_READER_FUNC[table_type.value]
     try:
         table = reader(
             s3_url,

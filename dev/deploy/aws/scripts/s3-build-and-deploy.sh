@@ -73,11 +73,23 @@ done
 # upload the new deltacat wheel to s3 and create a presigned URL for it
 info "uploading $UNIQUE_WHEEL to $S3_PACKAGE_BUCKET_URL"
 aws s3 cp "$UNIQUE_WHEEL" "$S3_PACKAGE_BUCKET_URL"
+EXPIRY_SECONDS=604800
 DELTACAT_PRESIGNED_URL=$(aws s3 presign "$S3_PACKAGE_BUCKET_URL/$UNIQUE_WHEEL" --expires-in 604800)
-yay "=== SUCCESS ==="
-echo "DELTACAT_PRESIGNED_URL=$DELTACAT_PRESIGNED_URL"
+yay "=== INSTALL LOCALLY ==="
+EXPIRY_DAYS=$((EXPIRY_SECONDS / 86400))
+info "presigned package url (expires in $EXPIRY_DAYS days):"
+echo "$DELTACAT_PRESIGNED_URL"
 info "to install run:"
 cli "pip install deltacat @ $DELTACAT_PRESIGNED_URL"
+yay "=== INSTALL ON RAY CLUSTER ==="
+info "add this to your ray cluster launcher config:"
+echo "setup_commands:"
+echo "  - pip uninstall -y deltacat; pip install '$DELTACAT_PRESIGNED_URL'"
+info "to install/reinstall run:"
+cli "ray submit --start ./my-cluster-launcher-config.yaml ./deltacat/examples/hello_world.py"
+info "to skip reinstall run:"
+cli "ray submit --no-config-cache ./my-cluster-launcher-config.yaml ./deltacat/examples/hello_world.py"
+
 # cleanup workspace changes and temporary artifacts
 cleanup
 popd # dist

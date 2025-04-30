@@ -3,10 +3,10 @@ from typing import List, Optional, Union, Dict, Any
 from ray.data import Dataset as RayDataset
 from ray.data import read_datasource
 
-from deltacat.io.datasource.deltacat_datasource import DeltacatDatasource
-from deltacat.io.dataset.deltacat_dataset import DeltacatDataset
+from deltacat.io.datasource.deltacat_datasource import DeltaCatDatasource
+from deltacat.io.dataset.deltacat_dataset import DeltaCatDataset
 from deltacat.utils.common import ReadKwargsProvider
-from deltacat.utils.url import DeltacatUrl
+from deltacat.utils.url import DeltaCatUrl, DeltaCatUrlReader
 from deltacat.io.datasource.deltacat_datasource import DeltacatReadType
 
 
@@ -20,13 +20,13 @@ class EmptyReadKwargsProvider(ReadKwargsProvider):
 
 
 def read_deltacat(
-    urls: Union[DeltacatUrl, List[DeltacatUrl]],
+    urls: Union[DeltaCatUrl, List[DeltaCatUrl]],
     *,
     deltacat_read_type: DeltacatReadType = DeltacatReadType.DATA,
     timestamp_as_of: Optional[int] = None,
     merge_on_read: Optional[bool] = False,
     read_kwargs_provider: Optional[ReadKwargsProvider] = EmptyReadKwargsProvider(),
-) -> DeltacatDataset:
+) -> DeltaCatDataset:
     """Reads the given DeltaCAT URLs into a Ray Dataset. DeltaCAT URLs can
     either reference objects registered in a DeltaCAT catalog, or unregistered
     external objects that are readable into a Ray Dataset.
@@ -147,15 +147,16 @@ def read_deltacat(
     #   all datasources in `estimate_inmemory_data_size()`.
     dataset: RayDataset = None
     for url in urls:
-        if not url.catalog_name:
+        if not url.is_deltacat_catalog_url():
             # this URL points to an external unregistered Ray Datasource
             # TODO(pdames): Honor metadata only reads of external datasources
             #  by registering only file paths & metadata in delta manifests.
-            next_ds = url.reader(read_kwargs_provider(url.datasource_type, {}))
+            reader = DeltaCatUrlReader(url)
+            next_ds = reader.read(read_kwargs_provider(url.datastore_type, {}))
         else:
             # this URL points to a registered DeltaCAT object
             next_ds = read_datasource(
-                DeltacatDatasource(
+                DeltaCatDatasource(
                     url=url,
                     deltacat_read_type=deltacat_read_type,
                     timestamp_as_of=timestamp_as_of,
@@ -168,4 +169,4 @@ def read_deltacat(
             dataset = next_ds
         else:
             dataset.union(next_ds)
-    return DeltacatDataset.from_dataset(dataset)
+    return DeltaCatDataset.from_dataset(dataset)

@@ -1,18 +1,26 @@
 import logging
 
 from collections import OrderedDict
-from typing import Callable, Dict, Any, Optional, List
-
-import pyarrow
+from typing import Dict, Any, Optional, List, Iterable
 
 from ray.data import Datasink
+from ray.data._internal.execution.interfaces import TaskContext
+from ray.data.block import Block, BlockAccessor
+from ray.data.datasource import WriteResult
 
 from ray.data.datasource.filename_provider import (
     FilenameProvider,
-    _DefaultFilenameProvider,
 )
-from deltacat import logs, DeltacatUrl
+
+from deltacat import logs
+
+from deltacat.constants import METAFILE_FORMAT_MSGPACK
 from deltacat.storage import Metafile
+from deltacat.io.datasource.deltacat_datasource import (
+    METAFILE_DATA_COLUMN_NAME,
+    METAFILE_TYPE_COLUMN_NAME,
+)
+from deltacat.utils.url import DeltaCatUrl, DeltaCatUrlWriter
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -62,7 +70,7 @@ class CapturingBlockWritePathProvider(FilenameProvider):
         return write_path
 
 
-class DeltacatWriteResult:
+class DeltaCatWriteResult:
     def __init__(self):
         self.metadata = None
         self.path = None
@@ -73,33 +81,57 @@ class DeltacatWriteResult:
         self.filesystem = None
 
 
-class DeltacatDatasink(Datasink[List[Metafile]]):
+class DeltaCatDatasink(Datasink[List[Metafile]]):
     def __init__(
         self,
-        url: DeltacatUrl,
+        url: DeltaCatUrl,
         *,
         metadata_only: bool = False,
         copy_on_write: Optional[bool] = False,
-        arrow_parquet_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
-        arrow_parquet_args: Optional[Dict[str, Any]] = None,
-        min_rows_per_file: Optional[int] = None,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        try_create_dir: bool = True,
-        open_stream_args: Optional[Dict[str, Any]] = None,
-        filename_provider: Optional[FilenameProvider] = _DefaultFilenameProvider(),
-        dataset_uuid: Optional[str] = None,
     ):
-        super().__init__(
-            url,
-            arrow_parquet_args_fn=arrow_parquet_args_fn,
-            arrow_parquet_args=arrow_parquet_args,
-            min_rows_per_file=min_rows_per_file,
-            filesystem=filesystem,
-            try_create_dir=try_create_dir,
-            open_stream_args=open_stream_args,
-            filename_provider=CapturingBlockWritePathProvider(filename_provider),
-            dataset_uuid=dataset_uuid,
-        )
+        self._url = url
+        self._metadata_only = metadata_only
+        self._copy_on_write = copy_on_write
+
+    def on_write_start(self) -> None:
+        pass
+
+    def write(
+        self,
+        blocks: Iterable[Block],
+        ctx: TaskContext,
+    ) -> List[Metafile]:
+        for block in blocks:
+            pa_table = BlockAccessor.for_block(block).to_arrow()
+            if (
+                METAFILE_DATA_COLUMN_NAME in pa_table.column_names
+                and METAFILE_TYPE_COLUMN_NAME in pa_table.column_names
+            ):
+                for pa_scalar in pa_table[METAFILE_DATA_COLUMN_NAME]:
+                    metafile_msgpack_bytes = pa_scalar.as_py()
+                    metafile = Metafile.deserialize(
+                        serialized=metafile_msgpack_bytes,
+                        meta_format=METAFILE_FORMAT_MSGPACK,
+                    )
+                    # TODO(pdames): Add `metafile` to writer as a kwarg instead
+                    #  of constructing a new URL with the metafile as input.
+                    writer_url = DeltaCatUrlWriter(self._url, metafile=metafile)
+                    # TODO(pdames): Run writes in order from catalog -> delta
+                    #  by truncating the URL down to just dc://{catalog-name}
+                    #  and rebuilding all path elements from there.
+                    writer_url.write(metafile)
+            else:
+                raise NotImplementedError(
+                    f"Expected {METAFILE_DATA_COLUMN_NAME} and "
+                    f"{METAFILE_TYPE_COLUMN_NAME} columns in the input block, "
+                    f"but found {pa_table.column_names}."
+                )
+
+    def on_write_complete(
+        self,
+        write_result: WriteResult[List[Metafile]],
+    ):
+        pass
 
 
 """

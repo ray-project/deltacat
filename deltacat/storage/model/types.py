@@ -6,7 +6,7 @@ from typing import List, Union
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from ray.data.dataset import Dataset
+from ray.data.dataset import Dataset as RayDataset
 from daft import DataFrame as DaftDataFrame
 
 
@@ -16,13 +16,15 @@ LocalTable = Union[
     np.ndarray,
     pa.parquet.ParquetFile,
 ]
-LocalDataset = List[LocalTable]
-DistributedDataset = Union[Dataset, DaftDataFrame]
+LocalDataset = Union[LocalTable, List[LocalTable]]
+DistributedDataset = Union[RayDataset, DaftDataFrame]
+Dataset = Union[LocalDataset, DistributedDataset]
 
 
 class StreamFormat(str, Enum):
     DELTACAT = "deltacat"
     ICEBERG = "iceberg"
+    HIVE = "hive"
     HUDI = "hudi"
     DELTA_LAKE = "delta_lake"
     SQLITE3 = "SQLITE3"  # used by tests
