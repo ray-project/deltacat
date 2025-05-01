@@ -485,6 +485,7 @@ class Dataset:
         merge_keys: str | Iterable[str] = None,
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
+        batch_size: Optional[int] = 1,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         namespace: str = DEFAULT_NAMESPACE,
     ) -> "Dataset":
@@ -502,9 +503,9 @@ class Dataset:
 
         Returns:
             Dataset: New dataset instance with the schema automatically inferred
-                     from the JSON file.
+                     from the tar file.
         """
-        # TODO: integrate this with filesystem from deltacat catalog
+        # TODO: Integrate this with filesystem from deltacat catalog
         file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
         if metadata_uri is None:
             metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
@@ -513,106 +514,72 @@ class Dataset:
                 metadata_uri, filesystem=filesystem
             )
 
-            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            # TODO: When integrating deltacat consider if we can support multiple filesystems
             if file_fs.type_name != metadata_fs.type_name:
                 raise ValueError(
                     "File URI and metadata URI must be on the same filesystem."
                 )
-
-        # Start with a blank schema.
         dataset_schema = Schema()
         image_binaries = []
 
         with tarfile.open(file_uri, "r") as tar:
             tar_members = tar.getmembers()
             current_batch = None
-            reading_frame_size = 1 # TODO: Use batch size 1 for now.
+            reading_frame_size = batch_size # TODO: Use batch size 1 for now.
             total_batches = math.ceil(len(tar_members) / reading_frame_size)
 
             for i in range(total_batches):
                 reading_frame_start = i * reading_frame_size
                 reading_frame_end = reading_frame_start + reading_frame_size
                 for member in tar_members[reading_frame_start:reading_frame_end]:
-                    # Ignore hidden files from mac if the imported tar isn't cleaned.
+                    # Ignore hidden files if the imported tar isn't cleaned.
                     if member.name.startswith("._"):
                         continue
                     if member.isfile() and member.name.endswith(".json"):
                         f = tar.extractfile(member)
                         if f:
                             try:
-                                merge_key = merge_keys # first merge key
+                                merge_key = merge_keys
 
-                                # Concat json with current batch.
                                 pyarrow_table = pyarrow.json.read_json(f)
+                                image_filename = pyarrow_table[merge_key][0].as_py() 
 
-                                image_filename = pyarrow_table[merge_key][0].as_py() # get image filename
-                                # print('==============', image_filename)
-                                # print(tar_members)
                                 truncated_filename = image_filename[image_filename.index('/') + 1:].lower()
-                                # print(type(x))
-
-                                # print('stop point')
-                                # print('x', x)
-                                # print('tar member name obj', tar_members[3].name)
-
-                                # print(tar_members[3].name == x)
-                                # print('Tar Members Names:', [t.name for t in tar_members])
-                                # print(x in [t.name for t in tar_members])
 
                                 if truncated_filename in [t.name for t in tar_members]:
-                                    print('image_filename', image_filename)
                                     image_member = next((t for t in tar_members if t.name == truncated_filename), None)
                                     if image_member:
                                         fi = tar.extractfile(image_member)
                                         if fi:
                                             image_binary = fi.read()
-                                            print("HHHread it")
                                             image_binaries.extend([image_binary])
-                                    # with open(image_filename, 'r') as f:
-                                    #     image_path = f.read().strip()  # Read path and strip whitespace/newlines
-                                    #     print('finish strip')
-
-                                    # with open(image_path, 'rb') as fi:
-                                    #     image_binary = fi.read()
-
-                                    # image_binaries.append(image_binary)
-                                    # print('finished reading')
-
-
-                                    # with open(image_filename, 'rb') as fi:
-                                    #     image_binary = fi.read()
-                                    #     print("HHHread it")
-                                    # image_binaries.extend([image_binary])
+  
                                 if current_batch is None:
                                     current_batch = pyarrow_table
                                 else:
                                     current_batch = pa.concat_tables([current_batch, pyarrow_table])
                             except Exception as e:
-                                print(f"error with {member.name}:", e)
+                                print(f"Error with {member.name}:", e)
                             
-                            # Convert schema for current pyarrow tables into full webdataset schema.
-                            # Make sure schema is only merged when current_batch has data.
                             if current_batch is not None:
                                 try:
                                     dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))
                                 except Exception as e:
                                     print(f"Error merging schema: {e}")
-            # if current_batch is not None and image_binaries:
-            #     image_column = pyarrow.array(image_binaries)
-            #     current_batch = current_batch.add_column(len(current_batch.schema), 'image_binary', image_column)
+
             if current_batch is not None and image_binaries:
                 if len(image_binaries) == current_batch.num_rows:
-                    print('hi')
-                    image_column = pyarrow.array(image_binaries, type=pyarrow.binary())
-                    current_batch = current_batch.add_column(
-                        len(current_batch.schema),
-                        'image_binary',
-                        image_column
-                    )
-                # edit dataset_schema to have image_binaries as a field object
-                    dataset_schema.add_field(Field('image_binary', Datatype.binary(image_filename[image_filename.index('.') + 1:].lower())))
-                else:
-                    print("Mismatch between image binaries and batch rows!") #throw error
+                    try: 
+                        image_column = pyarrow.array(image_binaries, type=pyarrow.binary())
+                        current_batch = current_batch.add_column(
+                            len(current_batch.schema),
+                            'image_binary',
+                            image_column
+                        )
+                        # edit dataset_schema to have image_binaries as a field object
+                        dataset_schema.add_field(Field('image_binary', Datatype.binary(image_filename[image_filename.index('.') + 1:].lower())))
+                    except Exception as e:
+                        print(f"Mismatch between image binaries and batch rows: {e}")
         
 
         dataset = cls(
@@ -622,8 +589,6 @@ class Dataset:
             filesystem=file_fs,
             namespace=namespace,
         )
-        print('search')
-        print('Dataset schema', dataset_schema.to_dict())
         writer = dataset.writer()
         writer.write(current_batch.to_batches())
         writer.flush()
