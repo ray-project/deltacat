@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Union
 from functools import partial
 import ray
 
+import json
+
 from deltacat import logs
 from deltacat.annotations import ExperimentalAPI
 from deltacat.catalog.main import impl as DeltacatCatalog
@@ -15,6 +17,7 @@ from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog import CatalogProperties
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
+from pathlib import Path
 
 all_catalogs: Optional[ray.actor.ActorHandle] = None
 
@@ -195,6 +198,34 @@ def init(
     ray.util.register_serializer(
         Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__
     )
+
+    # Define config path
+    config_dir = Path("codebase-deltacat/deltacat/catalog/model")
+    config_dir.mkdir(parents=True, exist_ok=True)  # Ensure directories exist
+    config_path = config_dir / "catalog_config.json"
+
+    # Convert Catalog objects into serializable config data
+    if isinstance(catalogs, Catalog):
+        catalog_dict = {default or "default": catalogs}
+    else:
+        catalog_dict = catalogs
+
+    catalog_config = {
+        name: {
+            "source": getattr(cat, "source", None),
+            "description": getattr(cat, "description", None),
+            # Add other simple serializable fields here
+        }
+        for name, cat in catalog_dict.items()
+    }
+
+    config_data = {
+        "catalogs": catalog_config,
+        "default": default or next(iter(catalog_config))
+    }
+
+    config_path.write_text(json.dumps(config_data, indent=4))
+
     all_catalogs = Catalogs.remote(catalogs=catalogs, default=default)
 
 

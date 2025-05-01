@@ -93,6 +93,7 @@ REVISION_DIR_NAME: str = "rev"
 TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"
+PAUSED_TXN_DIR_NAME: str = "paused"
 SUCCESS_TXN_DIR_NAME: str = "success"
 TXN_PART_SEPARATOR = "_"
 # Storage interface defaults
