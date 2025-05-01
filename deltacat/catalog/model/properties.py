@@ -45,7 +45,7 @@ class CatalogProperties:
     Attributes:
         root (str): URI string The root path where catalog metadata and data
             files are stored. Root is determined (in prededence order) by:
-            1. check kwargs for "root"
+            1. check "root" input argument
             2. check env variable "DELTACAT_ROOT"
             3. default to ${cwd}/.deltacat
 
@@ -61,8 +61,6 @@ class CatalogProperties:
         root: Optional[str] = None,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         storage=None,
-        *args,
-        **kwargs,
     ):
         """
         Initialize a CatalogProperties instance.

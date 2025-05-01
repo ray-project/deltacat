@@ -41,7 +41,7 @@ setuptools.setup(
         ],
         # separate s3fs from other AWS dependencies due to vastly increased
         # installation times when included (due to boto version conflicts)
-        "s3fs": ["s3fs == 2024.5.0"],
+        "s3fs": ["s3fs == 2025.3.2"],
     },
     install_requires=[
         # any changes here should also be reflected in requirements.txt

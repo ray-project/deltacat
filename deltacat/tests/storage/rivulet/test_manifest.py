@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from deltacat import Dataset
+from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet.fs.file_store import FileStore
 from deltacat.storage.rivulet.schema.datatype import Datatype
 from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO

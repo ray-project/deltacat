@@ -10,7 +10,7 @@ import ray
 
 from deltacat import logs
 from deltacat.annotations import ExperimentalAPI
-from deltacat.catalog.main import impl as DeltacatCatalog
+from deltacat.catalog.main import impl as DeltaCatCatalog
 from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog import CatalogProperties
 from deltacat.catalog.iceberg import IcebergCatalogConfig
@@ -22,17 +22,14 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class Catalog:
-    def __init__(self, impl: ModuleType = DeltacatCatalog, *args, **kwargs):
+    def __init__(self, impl: ModuleType = DeltaCatCatalog, *args, **kwargs):
         """
         Constructor for a Catalog.
 
-        The args and kwargs here will be plumbed through to the catalog initialize function, and the results
-        are stored in Catalog.inner. Any state which is required (like: metastore root URI, pyiceberg native catalog)
-        MUST be returned by initialize.
-
-        Note: all initialization configuration MUST be pickle-able. When `Catalog` is pickled, _inner is excluded.
-        Instead, we only pass impl/args/kwargs, which are pickled and then _inner is re-constituted by calling __init__.
-        See `ray.util.register_serializer` in Catalogs class.
+        Invokes `impl.initialize(*args, **kwargs)` and stores its return value
+        in the `inner` property, which captures all state required to
+        deterministically reconstruct this Catalog instance on any node (and
+        must therefore be pickleable by Ray cloudpickle).
         """
         if not isinstance(self, Catalog):
             # self may contain the tuple returned from __reduce__ (ray pickle bug?)
@@ -68,7 +65,7 @@ class Catalog:
 
         Uses CatalogProperties as configuration
         """
-        return cls(impl=DeltacatCatalog, *args, **{"config": config, **kwargs})
+        return cls(impl=DeltaCatCatalog, *args, **{"config": config, **kwargs})
 
     @property
     def impl(self):
@@ -111,21 +108,16 @@ class Catalogs:
             raise ValueError(
                 f"Catalog {default} not found " f"in catalogs to register: {catalogs}"
             )
-<<<<<<< HEAD
         if not catalogs:
             raise ValueError(
                 f"No catalogs given to register. "
                 f"Please specify one or more catalogs."
             )
 
-        # if user only provides single Catalog, override it to be a map with default key
+        # assign the default catalog name to single unnamed catalogs
         if isinstance(catalogs, Catalog):
             catalogs = {DEFAULT_CATALOG: catalogs}
 
-=======
-        if catalogs is None:
-            raise ValueError(f"Catalogs cannot be None.")
->>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
         self.catalogs: Dict[str, Catalog] = catalogs
         if default:
             self.default_catalog = self.catalogs[default]
@@ -177,26 +169,21 @@ def ensure_initialized():
 
 
 def init(
-<<<<<<< HEAD
-    catalogs: Union[Dict[str, Catalog], Catalog],
+    catalogs: Union[Dict[str, Catalog], Catalog] = {},
     default: Optional[str] = None,
-=======
-    catalogs: Dict[str, Catalog] = {},
-    default_catalog_name: Optional[str] = None,
->>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
     ray_init_args: Dict[str, Any] = None,
-    *args,
+    *,
     force_reinitialize=False,
-    **kwargs,
 ) -> None:
     """
     Initialize DeltaCAT catalogs.
 
-    :param catalogs: Either a single Catalog instance or a map of string to Catalog instance
-    :param default: The Catalog to use by default. If only one Catalog is provided, it will
-        be set as the default
-    :param ray_init_args: kwargs to pass to ray initialization
-    :param force_reinitialize: if True, force the reinitialization of Ray. If false, will do nothing if ray already initialized
+    :param catalogs: A single Catalog instance or a map of catalog names to
+        Catalog instances.
+    :param default: The name of the default Catalog. If only one Catalog is
+        provided, it will always be the default.
+    :param ray_init_args: Keyword arguments to pass to `ray.init()`.
+    :param force_reinitialize: Whether to force Ray reinitialization.
     """
     global all_catalogs
 
@@ -235,47 +222,24 @@ def get_catalog(name: Optional[str] = None, **kwargs) -> Catalog:
             "`deltacat.init(catalogs={...})` to register one or more "
             "catalogs then retry."
         )
-<<<<<<< HEAD
-
     if name is not None:
         catalog = ray.get(all_catalogs.get.remote(name))
         if not catalog:
             available_catalogs = ray.get(all_catalogs.all.remote()).values()
-=======
-    catalog = (
-        ray.get(all_catalogs.get.remote(name))
-        if name
-        else ray.get(all_catalogs.default.remote())
-    )
-    if not catalog:
-        available_catalogs = ray.get(all_catalogs.all.remote()).values()
-        if name:
->>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
             raise ValueError(
                 f"Catalog '{name}' not found. Available catalogs: "
                 f"{available_catalogs}."
             )
-<<<<<<< HEAD
-        return catalog
-
     else:
         catalog = ray.get(all_catalogs.default.remote())
         if not catalog:
             available_catalogs = ray.get(all_catalogs.all.remote()).values()
-            raise ValueError(
-                f"Call to get_catalog without name set failed because there is no default Catalog set. Available catalogs: "
-                f"{available_catalogs}."
-            )
-        return catalog
-=======
-        else:
             raise ValueError(
                 f"Call to get_catalog without name set failed because there "
                 f"is no default Catalog set. Available catalogs: "
                 f"{available_catalogs}."
             )
     return catalog
->>>>>>> 2bc5f5c (Cross cloud/dataset/datastore DeltaCAT job runner and example indexer job. Add Polars support.)
 
 
 def put_catalog(
@@ -291,21 +255,32 @@ def put_catalog(
     Add a named catalog to the global map of named catalogs. Initializes ray if not already initialized.
 
     Args:
-        name: name of catalog
-        catalog: catalog instance to use, if provided
-        default:  Make this the default catalog if multiple catalogs are available.
-            ignored if this is the only catalog available, since it will always be the default catalog.
-        ray_init_args: ray initialization args (used only if ray not already initialized)
-        fail_if_exists: if True, raises KeyError if the catalog name already exists. Otherwise, overwrite catalog
+        name: Name of the catalog.
+        catalog: Catalog instance to use. If none is provided, then all
+            additional keyword arguments will be forwarded to
+            `CatalogProperties` for a default DeltaCAT native Catalog.
+        default:  Make this the default catalog if multiple catalogs are
+            available. If only one catalog is available, it will always be the
+            default.
+        ray_init_args: Ray initialization args (used only if ray not already
+            initialized)
+        fail_if_exists: if True, raises an error if a catalog with the given
+            name already exists. If False, inserts or replaces the given
+            catalog name.
+        kwargs: Additional keyword arguments to forward to `CatalogProperties`
+            for a default DeltaCAT native Catalog.
 
     Returns:
         The catalog put in the named catalog map.
     """
     global all_catalogs
 
+    if not catalog:
+        catalog = Catalog(**kwargs)
+
     # Initialize, if necessary
     if not is_initialized():
-        # NOTE - since we are initializing with a single catalog, it will be set to the default
+        # We are initializing a single catalog - make it the default
         if not default:
             logger.info(
                 f"Calling put_catalog with set_as_default=False, "

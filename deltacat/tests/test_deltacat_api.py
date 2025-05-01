@@ -3,7 +3,7 @@ import tempfile
 
 import deltacat as dc
 from deltacat.constants import METAFILE_FORMAT_MSGPACK
-from deltacat import Namespace
+from deltacat import Namespace, DeltaCatUrl, DatasetType
 from deltacat.storage import Metafile
 
 from deltacat.io import (
@@ -18,8 +18,9 @@ class TestDeltaCAT:
         cls.temp_dir_1 = tempfile.mkdtemp()
         cls.temp_dir_2 = tempfile.mkdtemp()
         # Initialize DeltaCAT with two local catalogs.
-        dc.put("test_catalog_1", root=cls.temp_dir_1)
-        dc.put("test_catalog_2", root=cls.temp_dir_2)
+        dc.init()
+        dc.put(DeltaCatUrl("dc://test_catalog_1"), root=cls.temp_dir_1)
+        dc.put(DeltaCatUrl("dc://test_catalog_2"), root=cls.temp_dir_2)
 
     @classmethod
     def teardown_method(cls):
@@ -29,10 +30,10 @@ class TestDeltaCAT:
     def test_cross_catalog_namespace_copy(self):
         # Given two empty DeltaCAT catalogs.
         # When a namespace is copied across catalogs.
-        namespace_src = dc.put("test_catalog_1/test_namespace")
+        namespace_src = dc.put(DeltaCatUrl("dc://test_catalog_1/test_namespace"))
         namespace_dst = dc.copy(
-            "dc://test_catalog_1/test_namespace",
-            "dc://test_catalog_2",
+            DeltaCatUrl("dc://test_catalog_1/test_namespace"),
+            DeltaCatUrl("dc://test_catalog_2/test_namespace"),
         )
         # Expect the catalog namespace created in each catalog
         # method to be equivalent and equal to the source namespace.
@@ -42,27 +43,34 @@ class TestDeltaCAT:
         # When each catalog namespace is fetched explicitly
         # Expect them to be equivalent but not equal
         # (due to different metafile IDs).
-        actual_namespace_src = dc.get("dc://test_catalog_1/test_namespace")
-        actual_namespace_dst = dc.get("dc://test_catalog_2/test_namespace")
+        actual_namespace_src = dc.get(DeltaCatUrl("dc://test_catalog_1/test_namespace"))
+        actual_namespace_dst = dc.get(DeltaCatUrl("dc://test_catalog_2/test_namespace"))
         assert actual_namespace_src.equivalent_to(actual_namespace_dst)
         assert not actual_namespace_src == actual_namespace_dst
 
     def test_catalog_listing_shallow_local_metafiles(self):
         # Given two empty DeltaCAT catalogs.
         # When a namespace is put in the catalog.
-        namespace_src: Namespace = dc.put("test_catalog_1/test_namespace")
+        namespace_src: Namespace = dc.put(
+            DeltaCatUrl("dc://test_catalog_1/test_namespace")
+        )
         # Expect the namespace to be listed.
         assert any(
             namespace_src.equivalent_to(other)
-            for other in dc.list("dc://test_catalog_1")
+            for other in dc.list(DeltaCatUrl("dc://test_catalog_1"))
         )
 
     def test_catalog_listing_shallow_ray_dataset(self):
         # Given two empty DeltaCAT catalogs.
         # When a namespace is put in the catalog.
-        namespace_src: Namespace = dc.put("test_catalog_1/test_namespace")
+        namespace_src: Namespace = dc.put(
+            DeltaCatUrl("dc://test_catalog_1/test_namespace")
+        )
         # Expect the namespace to be listed.
-        dataset = dc.list("dc://test_catalog_1")
+        dataset = dc.list(
+            DeltaCatUrl("dc://test_catalog_1"),
+            dataset_type=DatasetType.RAY_DATASET,
+        )
         actual_namespace = Metafile.deserialize(
             serialized=dataset.take(1)[0][METAFILE_DATA_COLUMN_NAME],
             meta_format=METAFILE_FORMAT_MSGPACK,

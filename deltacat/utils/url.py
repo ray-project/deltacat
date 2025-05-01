@@ -718,14 +718,7 @@ class DeltaCatUrl:
     def is_deltacat_catalog_url(self):
         return bool(self.catalog_name)
 
-    def _resolve_deltacat_path_identifiers(self):
-        if not dc.is_initialized():
-            # TODO(pdames): Re-initialize DeltaCAT with all catalogs from the
-            #  last session.
-            raise RuntimeError(
-                "DeltaCAT is not initialized. Please call `dc.init()` and try again."
-            )
-        self.namespace = self.table_version = self.stream = None
+    def resolve_catalog(self):
         if self.catalog_name:
             if self.catalog_name.lower() == DeltaCatUrl.DELTACAT_URL_DEFAULT_CATALOG:
                 self.catalog = None
@@ -737,6 +730,15 @@ class DeltaCatUrl:
                     f"Expected catalog `{self.catalog_name}` to be a DeltaCAT "
                     f"catalog but found: {self.catalog}"
                 )
+
+    def _resolve_deltacat_path_identifiers(self):
+        if not dc.is_initialized():
+            # TODO(pdames): Re-initialize DeltaCAT with all catalogs from the
+            #  last session.
+            raise RuntimeError(
+                "DeltaCAT is not initialized. Please call `dc.init()` and try again."
+            )
+        self.namespace = self.table_version = self.stream = None
         if self.unresolved_namespace:
             if (
                 self.unresolved_namespace.lower()
@@ -775,8 +777,9 @@ class DeltaCatUrlReader:
     ):
         self._url = url
         if url.is_deltacat_catalog_url():
+            url.resolve_catalog()
             self._reader = DeltaCatUrlReader.resolve_dc_reader(url)
-            self._listers = DeltaCatUrlReader.resolve_dc_listers()
+            self._listers = DeltaCatUrlReader.resolve_dc_listers(url)
         else:
             self._reader = DeltaCatUrlReader.dataset_and_datastore_type_to_reader(
                 dataset_type,
@@ -800,7 +803,10 @@ class DeltaCatUrlReader:
         return self._listers
 
     def read(self, *args, **kwargs) -> Dataset:
-        return self._reader(self._url)(*args, **kwargs)
+        if self._url.is_deltacat_catalog_url():
+            return self._reader(*args, **kwargs)
+        else:
+            return self._reader(self._url)(*args, **kwargs)
 
     @staticmethod
     def resolve_dc_reader(url: DeltaCatUrl) -> Callable:
@@ -1116,12 +1122,14 @@ class DeltaCatUrlWriter:
         self,
         url: DeltaCatUrl,
         dataset_type: DatasetType = DatasetType.RAY_DATASET,
-        metafile: Metafile = None,
+        metafile: Optional[Metafile] = None,
     ):
         self._url = url
         self._metafile = metafile
         if url.is_deltacat_catalog_url():
-            self._writer = DeltaCatUrlWriter.resolve_dc_writer(url, metafile)
+            if url.path_elements:
+                url.resolve_catalog()
+            self._writer = DeltaCatUrlWriter.resolve_dc_writer(url, metafile or {})
         else:
             self._writer = DeltaCatUrlWriter.dataset_and_datastore_type_to_writer(
                 dataset_type,
@@ -1136,10 +1144,13 @@ class DeltaCatUrlWriter:
     def metafile(self) -> Metafile:
         return self._metafile
 
-    def write(self, suffix: str = "", *args, **kwargs) -> str:
-        dest_url = DeltaCatUrl(f"{self._url.url}{suffix}")
-        self._writer(dest_url)(*args, **kwargs)
-        return dest_url.url_path
+    def write(self, suffix: str = "", *args, **kwargs) -> Union[Metafile, str]:
+        if self._url.is_deltacat_catalog_url():
+            return self._writer(*args, **kwargs)
+        else:
+            dest_url = DeltaCatUrl(f"{self._url.url}{suffix}")
+            self._writer(dest_url)(*args, **kwargs)
+            return dest_url.url_path
 
     @staticmethod
     def resolve_dc_writer(
@@ -1147,9 +1158,11 @@ class DeltaCatUrlWriter:
         metafile: Metafile,
     ) -> Callable:
         if url.delta:
-            delta: Delta = Metafile.based_on(
-                other=metafile,
-                new_id=url.delta,
+            delta: Delta = Delta(
+                Metafile.based_on(
+                    other=metafile,
+                    new_id=url.delta,
+                )
             )
             delta.locator = DeltaLocator.at(
                 namespace=url.namespace,
@@ -1173,7 +1186,7 @@ class DeltaCatUrlWriter:
                 catalog=url.catalog,
             )
         if url.partition:
-            partition: Partition = metafile
+            partition: Partition = Partition(metafile)
             partition.locator = PartitionLocator.at(
                 namespace=url.namespace,
                 table_name=url.table,
@@ -1188,7 +1201,7 @@ class DeltaCatUrlWriter:
                 catalog=url.catalog,
             )
         if url.unresolved_stream:
-            stream: Stream = metafile
+            stream: Stream = Stream(metafile)
             stream.locator = StreamLocator.at(
                 namespace=url.namespace,
                 table_name=url.table,
@@ -1202,7 +1215,7 @@ class DeltaCatUrlWriter:
                 catalog=url.catalog,
             )
         if url.unresolved_table_version:
-            table_version: TableVersion = metafile
+            table_version: TableVersion = TableVersion(metafile)
             table_version.locator = TableVersionLocator.at(
                 namespace=url.namespace,
                 table_name=url.table,
@@ -1224,7 +1237,7 @@ class DeltaCatUrlWriter:
                 catalog=url.catalog,
             )
         if url.table:
-            table: Table = metafile
+            table: Table = Table(metafile)
             table.locator = TableLocator.at(
                 namespace=url.namespace,
                 table_name=url.table,
@@ -1238,7 +1251,7 @@ class DeltaCatUrlWriter:
                 catalog=url.catalog,
             )
         if url.unresolved_namespace:
-            namespace: Namespace = metafile
+            namespace: Namespace = Namespace(metafile)
             namespace.locator = NamespaceLocator.of(
                 namespace=url.namespace,
             )

@@ -39,12 +39,13 @@ from deltacat.storage import metastore as storage_impl
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 """
-This is the default implementation for the Catalog interface, using DeltaCAT native storage
+Default Catalog interface implementation using DeltaCAT native storage.
 
-Note that, when this catalog implementation gets called through the normal pattern of `delegate.py`, all functions
-will be called the kwarg "inner" equal to the `CatalogProperties` this was initialized with.
+When this is used by `delegate.py` the `Catalog` implementation `inner` 
+property will be set to the value returned from `intialize`.
 
-`CatalogProperties` has all state required to implement catalog functions, such as metastore root URI
+`CatalogProperties` has all state required to implement catalog functions, 
+such as metastore root URI.
 """
 
 
@@ -56,6 +57,10 @@ def initialize(config: CatalogProperties = None, *args, **kwargs) -> CatalogProp
     returns CatalogProperties as the "inner" state value for a DC native catalog
     """
     if config is not None:
+        if not isinstance(config, CatalogProperties):
+            raise ValueError(
+                f"Expected `CatalogProperties` but found `{type(config)}`."
+            )
         return config
     else:
         return CatalogProperties(*args, **kwargs)

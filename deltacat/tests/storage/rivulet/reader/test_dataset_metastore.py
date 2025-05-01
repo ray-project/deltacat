@@ -3,7 +3,8 @@ import os
 
 from deltacat.storage.rivulet.metastore.delta import DeltacatManifestIO
 from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
-from deltacat import Datatype, Dataset
+from deltacat.storage.rivulet.schema.datatype import Datatype
+from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet import Schema
 
 
