@@ -1,10 +1,13 @@
 import pytest
+import os
 
 from deltacat.storage import (
     Transaction,
     TransactionOperation,
     TransactionType,
     TransactionOperationType,
+    Namespace,
+    NamespaceLocator,
 )
 from deltacat.storage.model.metafile import (
     Metafile,
@@ -306,3 +309,98 @@ class TestAbsToRelative:
             assert (
                 transaction_operation.metafile_write_paths == expected_paths
             ), f"Failed for transaction type {txn_type} and operation type {op_type}"
+
+
+class TestTransactionPersistence:
+    # TODO: Setup mocker and tests with mock filesystem
+
+    # tests creation
+    def test_create_iterative_transaction(self):
+        txn_1 = Transaction.of(txn_type=TransactionType.READ, txn_operations=[])
+        txn_2 = Transaction.of(txn_type=TransactionType.READ, txn_operations=None)
+        op = TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=Metafile({"id": "dummy_metafile_id"}),
+        )
+        txn_3 = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[op, op])
+        assert (
+            txn_1.interactive
+        )  # check if constructor detect empty list --> interactive transaction
+        assert (
+            txn_2.interactive
+        )  # check if we can initialize with no list --> interactive transaction
+        assert (
+            not txn_3.interactive
+        )  # check that valid operations_list --> not interactive transaction
+
+    def test_commit_iterative_transaction(self, temp_dir):
+        # Create two simple namespaces
+        namespace_locator1 = NamespaceLocator.of(namespace="test_ns_1")
+        namespace_locator2 = NamespaceLocator.of(namespace="test_ns_2")
+        ns1 = Namespace.of(locator=namespace_locator1)
+        ns2 = Namespace.of(locator=namespace_locator2)
+        # Start with an empty transaction (interactive)
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[],
+        )
+        txn = transaction.start(temp_dir)
+        # Build operations manually and step them in
+        op1 = TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=ns1,
+        )
+        op2 = TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=ns2,
+        )
+        # steps
+        txn.step(op1)
+        txn.step(op2)
+
+        # commit_all()
+        write_paths, success_log_path = txn.commit_all()
+
+        # Check output files exist and are valid
+        deserialized_ns1 = Namespace.read(write_paths[0])
+        deserialized_ns2 = Namespace.read(write_paths[1])
+        print("write_paths ns1: " + str(deserialized_ns1))
+        print("write_paths ns2: " + str(deserialized_ns2))
+        print(deserialized_ns1)
+
+        assert ns1.equivalent_to(deserialized_ns1)
+        assert ns2.equivalent_to(deserialized_ns2)
+        assert success_log_path.endswith(str(txn.end_time))
+
+    def test_commit_iterative_file_creation(self, temp_dir):
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="check_writes"))
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+        txn.step(op)
+        write_paths, success_log_path = txn.commit_all()
+
+        # check the files were created
+        for path in write_paths:
+            abs_path = os.path.join(temp_dir, path)
+            assert os.path.exists(abs_path)
+            assert os.path.getsize(abs_path) > 0
+
+        # check the success log exists
+        assert os.path.exists(success_log_path)
+        assert os.path.getsize(success_log_path) > 0
+
+    # def test_commit_writes_to_local_filesystem(self, temp_dir):
+    #     fs = LocalFileSystem()
+    #     ns = Namespace.of(locator=NamespaceLocator.of(namespace="mocked_fs"))
+    #     txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(temp_dir, filesystem=fs)
+    #     op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+    #     txn.step(op)
+    #     write_paths, success_log_path = txn.commit_all()
+
+    #     # Verify that output files exist
+    #     for path in write_paths:
+    #         abs_path = os.path.join(temp_dir, path)
+    #         assert os.path.exists(abs_path)
+    #         assert os.path.getsize(abs_path) > 0
