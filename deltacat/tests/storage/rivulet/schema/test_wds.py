@@ -31,7 +31,8 @@ def test_schema_fields(tmp_path):
     assert "width" in dataset.fields
     assert "height" in dataset.fields
     assert "filename" in dataset.fields
-    assert len(dataset.fields) == 4
+    assert "image_binary" in dataset.fields
+    assert len(dataset.fields) == 5
 
 
 def test_schema_data(tmp_path):
@@ -67,7 +68,7 @@ def test_merge_keys_are_properly_set(tmp_path):
 def test_invalid_merge_key_raises_error(tmp_path):
     """Test that specifying a non-existent field as merge key raises an error."""
     tar_path = "../../../test_utils/resources/test_wds.tar"
-    with pytest.raises(ValueError):
+    with pytest.raises(AttributeError):
         Dataset.from_webdataset(
             name="test_webdataset",
             file_uri=tar_path,
@@ -130,3 +131,17 @@ def test_inconsistent_tar_fields(tmp_path):
     assert "filename" in dataset.fields
     assert "extra" in dataset.fields
     assert len(dataset.fields) == 5
+
+def test_image_binary(tmp_path):
+    tar_path = "../../../test_utils/resources/test_wds.tar"
+    dataset = Dataset.from_webdataset(
+        name="test_webdataset",
+        file_uri=tar_path,
+        metadata_uri=tmp_path,
+        merge_keys="filename"
+    )
+    assert "label" in dataset.fields
+    assert "width" in dataset.fields
+    assert "height" in dataset.fields
+    assert "filename" in dataset.fields
+    assert "image_binary" in dataset.fields

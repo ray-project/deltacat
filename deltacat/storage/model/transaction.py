@@ -5,6 +5,7 @@ import copy
 import time
 import uuid
 import posixpath
+from pathlib import PosixPath
 import threading
 from collections import defaultdict
 
@@ -247,6 +248,14 @@ class TransactionOperation(dict):
             locator_write_paths = self["locator_write_paths"] = []
         locator_write_paths.append(write_path)
 
+    @metafile_write_paths.setter
+    def metafile_write_paths(self, write_paths: List[str]) -> None:
+        self["metafile_write_paths"] = write_paths
+
+    @locator_write_paths.setter
+    def locator_write_paths(self, write_paths: List[str]):
+        self["locator_write_paths"] = write_paths
+
 
 class TransactionOperationList(List[TransactionOperation]):
     @staticmethod
@@ -436,7 +445,54 @@ class Transaction(dict):
         end_time = self["end_time"] = time_provider.end_time()
         return end_time
 
-    def to_serializable(self) -> Transaction:
+    @staticmethod
+    def _abs_txn_meta_path_to_relative(root: str, target: str) -> str:
+        """
+        Takes an absolute root directory path and target absolute path to
+        relativize with respect to the root directory. Returns the target
+        path relative to the root directory path. Raises an error if the
+        target path is not contained in the given root directory path, if
+        either path is not an absolute path, or if the target path is equal
+        to the root directory path.
+        """
+        root_path = PosixPath(root)
+        target_path = PosixPath(target)
+        # TODO (martinezdavid): Check why is_absolute() fails for certain Delta paths
+        # if not root_path.is_absolute() or not target_path.is_absolute():
+        #     raise ValueError("Both root and target must be absolute paths.")
+        if root_path == target_path:
+            raise ValueError(
+                "Target and root are identical, but expected target to be a child of root."
+            )
+        try:
+            relative_path = target_path.relative_to(root_path)
+        except ValueError:
+            raise ValueError("Expected target to be a child of root.")
+        return str(relative_path)
+
+    def relativize_operation_paths(
+        self, operation: TransactionOperation, catalog_root: str
+    ) -> None:
+        """
+        Converts all absolute paths in an operation to relative paths
+        with respect to the catalog root directory.
+        """
+        # handle metafile paths
+        if operation.metafile_write_paths:
+            metafile_write_paths = [
+                Transaction._abs_txn_meta_path_to_relative(catalog_root, path)
+                for path in operation.metafile_write_paths
+            ]
+            operation.metafile_write_paths = metafile_write_paths
+        # handle locator paths
+        if operation.locator_write_paths:
+            locator_write_paths = [
+                Transaction._abs_txn_meta_path_to_relative(catalog_root, path)
+                for path in operation.locator_write_paths
+            ]
+            operation.locator_write_paths = locator_write_paths
+
+    def to_serializable(self, catalog_root) -> Transaction:
         """
         Prepare the object for serialization by converting any non-serializable
         types to serializable types. May also run any required pre-write
@@ -459,6 +515,8 @@ class Transaction(dict):
                     f"Transaction operation ${operation} src metafile does "
                     f"not have ID: ${operation.src_metafile}"
                 )
+            # relativize after checking that dest and src metafiles are valid
+            self.relativize_operation_paths(operation, catalog_root)
             operation.dest_metafile = {
                 "id": operation.dest_metafile.id,
                 "locator": operation.dest_metafile.locator,
@@ -583,7 +641,7 @@ class Transaction(dict):
             self.id,
         )
         with filesystem.open_output_stream(running_txn_log_file_path) as file:
-            packed = msgpack.dumps(self.to_serializable())
+            packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
             file.write(packed)
 
         # write each metafile associated with the transaction
@@ -615,7 +673,7 @@ class Transaction(dict):
                 self.id,
             )
             with filesystem.open_output_stream(failed_txn_log_file_path) as file:
-                packed = msgpack.dumps(self.to_serializable())
+                packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
                 file.write(packed)
 
             ###################################################################
@@ -656,7 +714,7 @@ class Transaction(dict):
             str(end_time),
         )
         with filesystem.open_output_stream(success_txn_log_file_path) as file:
-            packed = msgpack.dumps(self.to_serializable())
+            packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
             file.write(packed)
         try:
             Transaction._validate_txn_log_file(

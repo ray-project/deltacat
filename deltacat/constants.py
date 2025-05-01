@@ -38,8 +38,9 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
     "DELTACAT_LOGGER_USE_SINGLE_HANDLER",
     False,
 )
-DELTACAT_CATALOG_PROPERTY_ROOT = os.environ.get(
-    "DELTACAT_ROOT", os.path.join(os.getcwd(), ".deltacat")
+DELTACAT_ROOT = env_string(
+    "DELTACAT_ROOT",
+    os.path.join(os.getcwd(), ".deltacat"),
 )
 
 # CLI Args
@@ -97,6 +98,7 @@ TXN_PART_SEPARATOR = "_"
 # Storage interface defaults
 # These defaults should be applied in catalog interface implementations
 # Storage interface implementations should be agnostic to defaults and require full information
+DEFAULT_CATALOG = "DEFAULT"
 DEFAULT_NAMESPACE = "DEFAULT"
 DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"

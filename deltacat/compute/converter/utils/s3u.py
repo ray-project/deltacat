@@ -57,6 +57,7 @@ def upload_table_with_retry(
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
     content_type: ContentType = ContentType.PARQUET,
     max_records_per_file: Optional[int] = 4000000,
+    s3_file_system=None,
     **s3_client_kwargs,
 ) -> List[str]:
     """
@@ -72,9 +73,12 @@ def upload_table_with_retry(
     if s3_table_writer_kwargs is None:
         s3_table_writer_kwargs = {}
 
-    s3_file_system = get_s3_file_system(content_type=content_type)
+    if not s3_file_system:
+        s3_file_system = get_s3_file_system(content_type=content_type)
     capture_object = CapturedBlockWritePaths()
-    block_write_path_provider = UuidBlockWritePathProvider(capture_object)
+    block_write_path_provider = UuidBlockWritePathProvider(
+        capture_object=capture_object
+    )
     s3_table_writer_func = get_table_writer(table)
     table_record_count = get_table_length(table)
     if max_records_per_file is None or not table_record_count:

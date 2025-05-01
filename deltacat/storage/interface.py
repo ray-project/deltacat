@@ -408,6 +408,36 @@ def delete_stream(
     raise NotImplementedError("delete_stream not implemented")
 
 
+def delete_table(
+    namespace: str,
+    name: str,
+    purge: bool = False,
+    *args,
+    **kwargs,
+) -> None:
+    """
+    Drops the given table and all its contents (table versions, streams, partitions,
+    and deltas). If purge is True, also removes all data files associated with the table.
+    Raises an error if the given table does not exist.
+    """
+    raise NotImplementedError("delete_table not implemented")
+
+
+def delete_namespace(
+    namespace: str,
+    purge: bool = False,
+    *args,
+    **kwargs,
+) -> None:
+    """
+    Drops a table namespace and all its contents. If purge is True, then all
+    tables, table versions, and deltas will be deleted. Otherwise, the namespace
+    will be dropped only if it is empty. Raises an error if the given namespace
+    does not exist.
+    """
+    raise NotImplementedError("drop_namespace not implemented")
+
+
 def get_stream_by_id(
     table_version_locator: TableVersionLocator,
     stream_id: str,
@@ -439,8 +469,29 @@ def get_stream(
     raise NotImplementedError("get_stream not implemented")
 
 
+def stream_exists(
+    namespace: str,
+    table_name: str,
+    table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
+    *args,
+    **kwargs,
+) -> bool:
+    """
+    Returns True if the given Stream exists, False if not.
+    Resolves to the latest active table version if no table version is given.
+    Resolves to the DeltaCAT stream format if no stream format is given.
+    Returns None if the table version or stream format does not exist.
+    """
+    raise NotImplementedError("stream_exists not implemented")
+
+
 def stage_partition(
-    stream: Stream, partition_values: Optional[PartitionValues] = None, *args, **kwargs
+    stream: Stream,
+    partition_values: Optional[PartitionValues] = None,
+    partition_scheme_id: Optional[str] = None,
+    *args,
+    **kwargs,
 ) -> Partition:
     """
     Stages a new partition for the given stream and partition values. Returns
@@ -513,6 +564,7 @@ def get_partition_by_id(
 def get_partition(
     stream_locator: StreamLocator,
     partition_values: Optional[PartitionValues] = None,
+    partition_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Optional[Partition]:

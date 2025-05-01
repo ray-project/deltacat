@@ -22,4 +22,4 @@ def keep_temp_dir():
 
 @pytest.fixture
 def temp_catalog(temp_dir):
-    return CatalogProperties(temp_dir)
+    return CatalogProperties(root=temp_dir)

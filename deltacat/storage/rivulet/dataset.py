@@ -485,7 +485,6 @@ class Dataset:
         merge_keys: str | Iterable[str] = None,
         metadata_uri: Optional[str] = None,
         schema_mode: str = "union",
-        batch_size: Optional[int] = 1,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         namespace: str = DEFAULT_NAMESPACE,
     ) -> "Dataset":
@@ -522,11 +521,12 @@ class Dataset:
 
         # Start with a blank schema.
         dataset_schema = Schema()
+        image_binaries = []
 
         with tarfile.open(file_uri, "r") as tar:
             tar_members = tar.getmembers()
             current_batch = None
-            reading_frame_size = batch_size # TODO: Use batch size 1 for now.
+            reading_frame_size = 1 # TODO: Use batch size 1 for now.
             total_batches = math.ceil(len(tar_members) / reading_frame_size)
 
             for i in range(total_batches):
@@ -540,8 +540,49 @@ class Dataset:
                         f = tar.extractfile(member)
                         if f:
                             try:
+                                merge_key = merge_keys # first merge key
+
                                 # Concat json with current batch.
                                 pyarrow_table = pyarrow.json.read_json(f)
+
+                                image_filename = pyarrow_table[merge_key][0].as_py() # get image filename
+                                # print('==============', image_filename)
+                                # print(tar_members)
+                                truncated_filename = image_filename[image_filename.index('/') + 1:].lower()
+                                # print(type(x))
+
+                                # print('stop point')
+                                # print('x', x)
+                                # print('tar member name obj', tar_members[3].name)
+
+                                # print(tar_members[3].name == x)
+                                # print('Tar Members Names:', [t.name for t in tar_members])
+                                # print(x in [t.name for t in tar_members])
+
+                                if truncated_filename in [t.name for t in tar_members]:
+                                    print('image_filename', image_filename)
+                                    image_member = next((t for t in tar_members if t.name == truncated_filename), None)
+                                    if image_member:
+                                        fi = tar.extractfile(image_member)
+                                        if fi:
+                                            image_binary = fi.read()
+                                            print("HHHread it")
+                                            image_binaries.extend([image_binary])
+                                    # with open(image_filename, 'r') as f:
+                                    #     image_path = f.read().strip()  # Read path and strip whitespace/newlines
+                                    #     print('finish strip')
+
+                                    # with open(image_path, 'rb') as fi:
+                                    #     image_binary = fi.read()
+
+                                    # image_binaries.append(image_binary)
+                                    # print('finished reading')
+
+
+                                    # with open(image_filename, 'rb') as fi:
+                                    #     image_binary = fi.read()
+                                    #     print("HHHread it")
+                                    # image_binaries.extend([image_binary])
                                 if current_batch is None:
                                     current_batch = pyarrow_table
                                 else:
@@ -556,6 +597,23 @@ class Dataset:
                                     dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))
                                 except Exception as e:
                                     print(f"Error merging schema: {e}")
+            # if current_batch is not None and image_binaries:
+            #     image_column = pyarrow.array(image_binaries)
+            #     current_batch = current_batch.add_column(len(current_batch.schema), 'image_binary', image_column)
+            if current_batch is not None and image_binaries:
+                if len(image_binaries) == current_batch.num_rows:
+                    print('hi')
+                    image_column = pyarrow.array(image_binaries, type=pyarrow.binary())
+                    current_batch = current_batch.add_column(
+                        len(current_batch.schema),
+                        'image_binary',
+                        image_column
+                    )
+                # edit dataset_schema to have image_binaries as a field object
+                    dataset_schema.add_field(Field('image_binary', Datatype.binary(image_filename[image_filename.index('.') + 1:].lower())))
+                else:
+                    print("Mismatch between image binaries and batch rows!") #throw error
+        
 
         dataset = cls(
             dataset_name=name,
@@ -564,6 +622,8 @@ class Dataset:
             filesystem=file_fs,
             namespace=namespace,
         )
+        print('search')
+        print('Dataset schema', dataset_schema.to_dict())
         writer = dataset.writer()
         writer.write(current_batch.to_batches())
         writer.flush()

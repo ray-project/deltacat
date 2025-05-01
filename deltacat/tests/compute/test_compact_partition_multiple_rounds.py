@@ -48,12 +48,6 @@ from deltacat.utils.placement import (
     PlacementGroupManager,
 )
 
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
-
-
 """
 MODULE scoped fixtures
 """
@@ -76,13 +70,6 @@ def mock_aws_credential():
     yield
 
 
-@pytest.fixture(autouse=True, scope="module")
-def cleanup_the_database_file_after_all_compaction_session_package_tests_complete():
-    # make sure the database file is deleted after all the compactor package tests are completed
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
-
-
 @pytest.fixture(scope="module")
 def s3_resource(mock_aws_credential):
     with mock_s3():
@@ -96,22 +83,6 @@ def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
         Bucket=TEST_S3_RCF_BUCKET_NAME,
     )
     yield
-
-
-"""
-FUNCTION scoped fixtures
-"""
-
-
-@pytest.fixture(scope="function")
-def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
-    # see deltacat/tests/local_deltacat_storage/README.md for documentation
-    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 @pytest.mark.parametrize(

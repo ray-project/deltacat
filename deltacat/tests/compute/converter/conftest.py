@@ -1,6 +1,7 @@
 import pytest
 from pyspark.sql import SparkSession
 import os
+import ray
 from pyiceberg.catalog import Catalog, load_catalog
 
 
@@ -70,3 +71,10 @@ def session_catalog() -> Catalog:
             "s3.secret-access-key": "password",
         },
     )
+
+
+@pytest.fixture(autouse=True, scope="module")
+def setup_ray_cluster():
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    yield
+    ray.shutdown()

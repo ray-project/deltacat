@@ -20,18 +20,12 @@ from deltacat.tests.compute.test_util_common import (
 
 from dataclasses import dataclass, fields
 import ray
-import os
 from typing import Any, Dict, List, Optional, Tuple
 import deltacat.tests.local_deltacat_storage as ds
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 import pyarrow as pa
-
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
 
 
 @dataclass(frozen=True)
@@ -56,17 +50,6 @@ def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
     ray.shutdown()
-
-
-@pytest.fixture(scope="function")
-def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
-    # see deltacat/tests/local_deltacat_storage/README.md for documentation
-    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 TEST_CASES_PREPARE_DELETE = {

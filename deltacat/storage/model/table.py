@@ -14,7 +14,7 @@ from deltacat.storage.model.namespace import (
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
 from deltacat.constants import TXN_DIR_NAME
 
-TableProperties = Dict[str, Any]
+TableProperties = dict[str, Any]
 
 
 class Table(Metafile):
@@ -119,6 +119,12 @@ class Table(Metafile):
         if table_locator:
             return table_locator.table_name
         return None
+
+    @table_name.setter
+    def table_name(self, table_name: Optional[str]) -> None:
+        table_locator = self.locator
+        if table_locator:
+            table_locator.table_name = table_name
 
     def to_serializable(self) -> Table:
         serializable = self

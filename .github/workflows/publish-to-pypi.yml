@@ -28,7 +28,7 @@ jobs:
                   if [ -f dev-requirements.txt ]; then pip install -r dev-requirements.txt; fi
             - name: Run unit tests
               run: >-
-                  python -m pytest "not integration"
+                  python -m pytest -m "not integration"
             - name: Echo release tag
               run: echo ${{ github.ref_name }}
             - name: Build a binary wheel and a source tarball

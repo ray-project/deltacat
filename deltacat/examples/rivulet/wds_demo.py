@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import AutoFeatureExtractor, AutoModelForImageClassification
+#rom transformers import AutoFeatureExtractor, AutoModelForImageClassification
 from deltacat.storage.rivulet import Dataset
 import pyarrow as pa
 from typing import List
@@ -8,7 +8,7 @@ from PIL import Image
 import io
 import pathlib
 from deltacat.storage.rivulet.schema.schema import Datatype
-from transformers import AutoImageProcessor, AutoModelForImageClassification
+#from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 
 tar_path = "deltacat/tests/test_utils/resources/imagenet1k-train-0000.tar"

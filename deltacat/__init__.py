@@ -1,6 +1,12 @@
+import importlib
 import logging
 
 import deltacat.logs  # noqa: F401
+from deltacat.api import (
+    copy,
+    get,
+    put,
+)
 from deltacat.catalog.delegate import (
     alter_namespace,
     alter_table,
@@ -24,11 +30,11 @@ from deltacat.catalog.delegate import (
 from deltacat.catalog.model.catalog import (  # noqa: F401
     Catalog,
     Catalogs,
-    all_catalogs,
+    is_initialized,
     init,
     get_catalog,
+    put_catalog,
 )
-from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage import (
     DistributedDataset,
@@ -51,14 +57,24 @@ from deltacat.storage.rivulet import Dataset, Datatype
 from deltacat.types.media import ContentEncoding, ContentType, TableType
 from deltacat.types.tables import TableWriteMode
 
+__iceberg__ = []
+if importlib.util.find_spec("pyiceberg") is not None:
+    from deltacat.catalog.iceberg import impl as IcebergCatalog  # noqa: F401
+
+    __iceberg__ = [
+        "IcebergCatalog",
+    ]
+
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "2.0"
+__version__ = "2.0.0b7"
 
 
 __all__ = [
     "__version__",
-    "all_catalogs",
+    "copy",
+    "get",
+    "put",
     "alter_table",
     "create_table",
     "drop_table",
@@ -78,6 +94,8 @@ __all__ = [
     "write_to_table",
     "read_table",
     "get_catalog",
+    "put_catalog",
+    "is_initialized",
     "init",
     "Catalog",
     "ContentType",
@@ -86,7 +104,6 @@ __all__ = [
     "Dataset",
     "Datatype",
     "Field",
-    "IcebergCatalog",
     "LifecycleState",
     "ListResult",
     "LocalDataset",
@@ -104,3 +121,5 @@ __all__ = [
     "TableType",
     "TableWriteMode",
 ]
+
+__all__ += __iceberg__

@@ -39,6 +39,7 @@ def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict_list
                     ),
                     parquet_column_mapping=parquet_path_to_id_mapping(schema),
                 )
+
                 data_file = DataFile(
                     content=data_file_content_type,
                     file_path=file_path,

@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.catalog import get_catalog_properties
 from deltacat.constants import DEFAULT_TABLE_VERSION
+from deltacat.exceptions import TableNotFoundError
 from deltacat.storage.model.manifest import (
     EntryParams,
     ManifestAuthor,
@@ -64,6 +65,7 @@ from deltacat.storage.model.metafile import (
 from deltacat.storage.model.transaction import (
     TransactionOperation,
     Transaction,
+    TransactionOperationList,
 )
 from deltacat.storage.model.manifest import Manifest
 from deltacat.types.media import (
@@ -899,7 +901,7 @@ def update_table(
         **kwargs,
     )
     if not old_table:
-        raise ValueError(f"Table `{namespace}.{table_name}` does not exist.")
+        raise TableNotFoundError(f"Table `{namespace}.{table_name}` does not exist.")
     new_table: Table = Metafile.update_for(old_table)
     new_table.description = description or old_table.description
     new_table.properties = properties or old_table.properties
@@ -1305,6 +1307,84 @@ def delete_stream(
             TransactionOperation.of(
                 operation_type=TransactionOperationType.DELETE,
                 dest_metafile=stream_to_delete,
+            )
+        ],
+    )
+    catalog_properties = get_catalog_properties(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
+    )
+
+
+def delete_table(
+    namespace: str,
+    name: str,
+    purge: bool = False,
+    *args,
+    **kwargs,
+) -> None:
+    """
+    Drops the given table and all its contents (table versions, streams, partitions,
+    and deltas). If purge is True, also removes all data files associated with the table.
+    Raises an error if the given table does not exist.
+
+    TODO: Honor purge once garbage collection is implemented.
+    """
+    table: Optional[Table] = get_table(
+        *args,
+        namespace=namespace,
+        table_name=name,
+        **kwargs,
+    )
+
+    if not table:
+        raise TableNotFoundError(f"Table `{namespace}.{name}` does not exist.")
+
+    transaction = Transaction.of(
+        txn_type=TransactionType.DELETE,
+        txn_operations=TransactionOperationList.of(
+            [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.DELETE,
+                    dest_metafile=table,
+                )
+            ]
+        ),
+    )
+
+    catalog_properties = get_catalog_properties(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
+    )
+
+
+def delete_namespace(
+    namespace: str,
+    purge: bool = False,
+    *args,
+    **kwargs,
+) -> None:
+    """
+    Drops the given table namespace and all its contents. Raises an error if the
+    given namespace does not exist.
+    """
+    namespace: Optional[Namespace] = get_namespace(
+        *args,
+        namespace=namespace,
+        **kwargs,
+    )
+
+    if not namespace:
+        raise ValueError(f"Namespace `{namespace}` does not exist.")
+
+    transaction = Transaction.of(
+        txn_type=TransactionType.DELETE,
+        txn_operations=[
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.DELETE,
+                dest_metafile=namespace,
             )
         ],
     )
