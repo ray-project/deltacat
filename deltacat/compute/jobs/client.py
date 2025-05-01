@@ -120,7 +120,7 @@ class DeltaCatJobClient(JobSubmissionClient):
         start_dashboard: bool = True,
         restart_ray: bool = False,
         head_node_ip: str = None,
-        dashboard_wait_time_seconds: int = 15,
+        dashboard_wait_time_seconds: int = 30,
         port: Union[int, str] = "8265",
     ):
         job_submission_client_url = None
