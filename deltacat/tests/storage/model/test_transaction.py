@@ -67,7 +67,7 @@ class TestAbsToRelative:
             Transaction._abs_txn_meta_path_to_relative("/lorem/ipsum/", "")
 
     # Test cases for the relativize_operation_paths function
-    def test_relativize_metafile_write_paths(self):
+    def test_relativizemetafile_write_paths(self):
         catalog_root = "/catalog/root"
         absolute_paths = [
             "/catalog/root/path/to/metafile1.mpk",
@@ -344,7 +344,7 @@ class TestTransactionPersistence:
             txn_type=TransactionType.APPEND,
             txn_operations=[],
         )
-        txn = transaction.start(temp_dir)
+        txn = transaction.start(temp_dir)  # operate on deep-copy
         # Build operations manually and step them in
         op1 = TransactionOperation.of(
             operation_type=TransactionOperationType.CREATE,
@@ -391,16 +391,56 @@ class TestTransactionPersistence:
         assert os.path.exists(success_log_path)
         assert os.path.getsize(success_log_path) > 0
 
-    # def test_commit_writes_to_local_filesystem(self, temp_dir):
-    #     fs = LocalFileSystem()
-    #     ns = Namespace.of(locator=NamespaceLocator.of(namespace="mocked_fs"))
-    #     txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(temp_dir, filesystem=fs)
-    #     op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
-    #     txn.step(op)
-    #     write_paths, success_log_path = txn.commit_all()
+    def test_transaction_pause_and_resume_roundtrip(self, temp_dir):
+        # Create a test namespace
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="paused_resume_ns"))
 
-    #     # Verify that output files exist
-    #     for path in write_paths:
-    #         abs_path = os.path.join(temp_dir, path)
-    #         assert os.path.exists(abs_path)
-    #         assert os.path.getsize(abs_path) > 0
+        # Start interactive transaction
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+
+        txn.step(op)
+
+        # Pause transaction (writes to paused/)
+        txn.pause()
+
+        # Resume transaction (reads from paused/)
+        txn.resume()
+
+        # Commit resumed transaction
+        write_paths, success_log_path = txn.commit_all()
+
+        # Validate outputs
+        deserialized = Namespace.read(write_paths[0])
+        assert ns.equivalent_to(deserialized)
+        assert os.path.exists(success_log_path)
+        assert success_log_path.endswith(str(txn.end_time))
+
+    def test_resume_preserves_state_after_pause(self, temp_dir):
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))
+
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+
+        txn.step(op)
+        txn_id_before = txn.id
+
+        txn.pause()
+        txn.resume()
+
+        # Ensure the ID and provider are still valid
+        assert txn.id == txn_id_before
+        assert txn._time_provider is not None
+        assert hasattr(txn, "metafile_write_paths")
+        assert len(txn.metafile_write_paths) == 1
+
+        # Still able to commit after resuming
+        write_paths, success_log_path = txn.commit_all()
+        assert os.path.exists(success_log_path)
+
+    # TODO test_ops_pause_resume_ops_commit
+    # TODO: test other combinations of these operations and such

@@ -432,6 +432,13 @@ class Transaction(dict):
         return self.get("start_time")
 
     @property
+    def pause_time(self) -> Optional[int]:
+        """
+        Returns the last pause time of the transaction.
+        """
+        return self.get("pause_time")
+
+    @property
     def end_time(self) -> Optional[int]:
         """
         Returns the end time of the transaction.
@@ -462,6 +469,20 @@ class Transaction(dict):
             raise RuntimeError("Cannot end a completed transaction.")
         end_time = self["end_time"] = time_provider.end_time()
         return end_time
+
+    def _mark_pause_time(self, time_provider: TransactionTimeProvider) -> int:
+        """
+        Sets the end time of the transaction using the given
+        TransactionTimeProvider. Raises a runtime error if the transaction end
+        time has already been set by a previous commit, or if the transaction
+        start time has not been set.
+        """
+        if not self.get("start_time"):
+            raise RuntimeError("Cannot end an unstarted transaction.")
+        if self.get("end_time"):
+            raise RuntimeError("Cannot end a completed transaction.")
+        pause_time = self["pause_time"] = time_provider.end_time()
+        return pause_time
 
     @staticmethod
     def _abs_txn_meta_path_to_relative(root: str, target: str) -> str:
@@ -548,6 +569,8 @@ class Transaction(dict):
                 }
         # TODO(pdames): Ensure that all file paths recorded are relative to the
         #  catalog root.
+
+        # TODO: check if we care about order or exact time stamps --> pickling time_provider?
         # serializable.pop("_time_provider", None)
         serializable["_time_provider"] = None
         return serializable
@@ -626,15 +649,15 @@ class Transaction(dict):
         txn: "Transaction" = copy.deepcopy(self)
         txn._time_provider = TransactionSystemTimeProvider()
         txn._mark_start_time(txn._time_provider)  # start time on deep_copy
-
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(
             catalog_root_dir, filesystem
         )
         txn._catalog_root_normalized = catalog_root_normalized
         txn._filesystem = filesystem  # keep for pause/resume
-        txn._running_log_written = False  # internal flags
-        txn._all_write_paths: List[str] = []
-        txn._metafile_write_paths: List[str] = []  # meta only (for return value
+        txn.running_log_written = False  # internal flags
+        # TODO: might have to change these to properties
+        txn.metafile_write_paths: List[str] = []  # meta only (for return value
+        txn.locator_write_paths: List[str] = []
         txn._list_results: List[ListResult[Metafile]] = []
 
         # make sure txn/ directories exist (idempotent)
@@ -680,7 +703,7 @@ class Transaction(dict):
         # (b) WRITE txn
         # First operation? -> create running log so an external janitor can
         # see that a txn is in-flight.
-        if not self._running_log_written:
+        if not self.running_log_written:
             self._write_running_log(running_txn_log_file_path)
 
         try:
@@ -692,15 +715,17 @@ class Transaction(dict):
                 current_txn_id=self.id,
                 filesystem=filesystem,
             )
-
-            # collect provisional files for later conflict checks / cleanup
-            self._all_write_paths.extend(
-                operation.metafile_write_paths + operation.locator_write_paths
-            )
-            self._metafile_write_paths.extend(operation.metafile_write_paths)
-
-            # conflict detection (same timing as original impl.)
-            for path in self._all_write_paths:
+            self.metafile_write_paths.extend(operation.metafile_write_paths)
+            self.locator_write_paths.extend(operation.locator_write_paths)
+            for path in self.metafile_write_paths:
+                MetafileRevisionInfo.check_for_concurrent_txn_conflict(
+                    success_txn_log_dir=posixpath.join(
+                        txn_log_dir, SUCCESS_TXN_DIR_NAME
+                    ),
+                    current_txn_revision_file_path=path,
+                    filesystem=filesystem,
+                )
+            for path in self.locator_write_paths:
                 MetafileRevisionInfo.check_for_concurrent_txn_conflict(
                     success_txn_log_dir=posixpath.join(
                         txn_log_dir, SUCCESS_TXN_DIR_NAME
@@ -717,10 +742,39 @@ class Transaction(dict):
             )
             raise  # surface original error
 
-    def pause(self) -> None:
-        # if self.type == TransactionType.READ:
-        #     raise RuntimeError("Pause is only meaningful for WRITE transactions")
+    # PAUSE AND RESUME WITH JUST MOVING, NO SERIALIZE
+    # def pause(self) -> None:
+    #     # if self.type == TransactionType.READ:
+    #     #     raise RuntimeError("Pause is only meaningful for WRITE transactions")
 
+    #     fs = self._filesystem
+    #     root = self._catalog_root_normalized
+    #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
+    #     # TODO: make sure it is only moving current transaction and not all logs
+    #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
+    #     paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
+
+    #     fs.create_dir(posixpath.dirname(paused_path), recursive=True)
+    #     # atomic move is safer than separate write/delete
+    #     # TODO: serialize info before??
+    #     self._mark_pause_time(self._time_provider)
+
+    #     fs.move(src=running_path, dest=paused_path)
+
+    # def resume(self) -> None:
+    #     # if self.type == TransactionType.READ:
+    #     #     raise RuntimeError("Resume is only meaningful for WRITE transactions")
+
+    #     fs = self._filesystem
+    #     root = self._catalog_root_normalized
+    #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
+
+    #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
+    #     paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
+    #     fs.move(src=paused_path, dest=running_path)
+    #     # TODO: unserialize ?
+
+    def pause(self) -> None:
         fs = self._filesystem
         root = self._catalog_root_normalized
         txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
@@ -729,13 +783,20 @@ class Transaction(dict):
         paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
 
         fs.create_dir(posixpath.dirname(paused_path), recursive=True)
-        # atomic move is safer than separate write/delete
-        fs.move(src=running_path, dest=paused_path)
+
+        # Record pause time (e.g., for time consistency guarantees)
+        self._mark_pause_time(self._time_provider)
+
+        # Serialize current transaction state into paused/txn_id
+        with fs.open_output_stream(paused_path) as f:
+            f.write(msgpack.dumps(self.to_serializable(root)))
+
+        # Clean up original running log
+        fs.delete_file(running_path)
+
+    # reinitialize runtime variables --> we have to see if this is enough or are we losing info
 
     def resume(self) -> None:
-        # if self.type == TransactionType.READ:
-        #     raise RuntimeError("Resume is only meaningful for WRITE transactions")
-
         fs = self._filesystem
         root = self._catalog_root_normalized
         txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
@@ -743,7 +804,21 @@ class Transaction(dict):
         running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
         paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
 
-        fs.move(src=paused_path, dest=running_path)
+        # Load serialized transaction state
+        with fs.open_input_stream(paused_path) as f:
+            loaded_txn_data = msgpack.loads(f.readall())
+
+        # Restore relevant fields
+        restored_txn = Transaction(**loaded_txn_data)
+        self.__dict__.update(
+            restored_txn.__dict__
+        )  # make curr txn the same as restored (fill vars and stuff)
+
+        # Move back to running state
+        fs.create_dir(posixpath.dirname(running_path), recursive=True)
+        with fs.open_output_stream(running_path) as f:
+            f.write(msgpack.dumps(self.to_serializable(root)))
+        fs.delete_file(paused_path)
 
     def commit_all(
         self,
@@ -766,7 +841,7 @@ class Transaction(dict):
         success_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
 
         # If no operations ever succeeded we still need a running log.
-        if not self._running_log_written:
+        if not self.running_log_written:
             self._write_running_log(running_path)
         success_log_path = None
         try:
@@ -794,13 +869,13 @@ class Transaction(dict):
 
         else:
             fs.delete_file(running_path)
-            return self._metafile_write_paths, success_log_path
+            return self.metafile_write_paths, success_log_path
 
     #  Helper: write or overwrite the running/ID file exactly once
     def _write_running_log(self, running_log_path: str) -> None:
         with self._filesystem.open_output_stream(running_log_path) as f:
             f.write(msgpack.dumps(self.to_serializable(self._catalog_root_normalized)))
-        self._running_log_written = True
+        self.running_log_written = True
 
     #  Helper: mark txn FAILED and clean partial output
     def _fail_and_cleanup(
@@ -817,7 +892,12 @@ class Transaction(dict):
             f.write(msgpack.dumps(self.to_serializable(self._catalog_root_normalized)))
 
         # 2. delete all provisional files
-        for path in self._all_write_paths:
+        for path in self.metafile_write_paths:
+            try:
+                fs.delete_file(path)
+            except Exception:
+                pass  # best-effort; janitor job will catch leftovers
+        for path in self.locator_write_paths:
             try:
                 fs.delete_file(path)
             except Exception:

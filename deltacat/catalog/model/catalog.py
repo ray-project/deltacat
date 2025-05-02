@@ -221,7 +221,7 @@ def init(
 
     config_data = {
         "catalogs": catalog_config,
-        "default": default or next(iter(catalog_config))
+        "default": default or next(iter(catalog_config)),
     }
 
     config_path.write_text(json.dumps(config_data, indent=4))
