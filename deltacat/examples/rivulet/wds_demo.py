@@ -1,6 +1,6 @@
 import os
 import torch
-#rom transformers import AutoFeatureExtractor, AutoModelForImageClassification
+from transformers import AutoFeatureExtractor, AutoModelForImageClassification
 from deltacat.storage.rivulet import Dataset
 import pyarrow as pa
 from typing import List
@@ -8,10 +8,11 @@ from PIL import Image
 import io
 import pathlib
 from deltacat.storage.rivulet.schema.schema import Datatype
-#from transformers import AutoImageProcessor, AutoModelForImageClassification
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 
-tar_path = "deltacat/tests/test_utils/resources/imagenet1k-train-0000.tar"
+#tar_path = "deltacat/tests/test_utils/resources/imagenet1k-train-0000.tar"
+tar_path = "deltacat/tests/test_utils/resources/nestedjson.tar"
 ds = Dataset.from_webdataset(
    name="bird_species_test",
    file_uri=tar_path,
@@ -28,8 +29,22 @@ model.eval()
 
 
 def compute_bird_species(batch: pa.RecordBatch) -> List[str]:
-   image_column = batch.column("filename").to_pylist()
-   pil_images = [Image.open(str(tar_path[:-4] + '/' + img_bytes.split('/')[1].replace("JPEG","jpg"))).convert("RGB") for img_bytes in image_column if "JPEG" in img_bytes]
+   #image_column = batch.column("filename").to_pylist()
+   #pil_images = [Image.open(str(tar_path[:-4] + '/' + img_bytes.split('/')[1].replace("JPEG","jpg"))).convert("RGB") for img_bytes in image_column if "JPEG" in img_bytes]
+   image_column = batch.column("image_binary").to_pylist()
+   pil_images = []
+   for img_binary in image_column:
+    try:
+        img = Image.open(io.BytesIO(img_binary)).convert("RGB")
+        pil_images.append(img)
+    except Exception as e:
+        print(f"Error reading image: {e}")
+
+   if pil_images:
+       inputs = processor(images=pil_images, return_tensors="pt")
+       with torch.no_grad():
+           outputs = model(**inputs)
+
    if pil_images:
        inputs = processor(images=pil_images, return_tensors="pt")
        with torch.no_grad():
@@ -39,6 +54,8 @@ def compute_bird_species(batch: pa.RecordBatch) -> List[str]:
        predicted_ids = torch.argmax(outputs.logits, dim=1).tolist()
        predicted_labels = [model.config.id2label[idx] for idx in predicted_ids]
        return predicted_labels
+   else:
+       return []
    
 ds.add_fields([
    ("filename", Datatype.string()),
