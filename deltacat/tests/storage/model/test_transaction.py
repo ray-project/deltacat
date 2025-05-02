@@ -1,5 +1,8 @@
 import pytest
 import os
+import pyarrow
+import msgpack
+import posixpath
 
 from deltacat.storage import (
     Transaction,
@@ -11,6 +14,12 @@ from deltacat.storage import (
 )
 from deltacat.storage.model.metafile import (
     Metafile,
+)
+
+from deltacat.constants import (
+    TXN_DIR_NAME,
+    RUNNING_TXN_DIR_NAME,
+    PAUSED_TXN_DIR_NAME,
 )
 
 
@@ -444,3 +453,42 @@ class TestTransactionPersistence:
 
     # TODO test_ops_pause_resume_ops_commit
     # TODO: test other combinations of these operations and such
+
+    def test_pause_moves_running_to_paused(self, temp_dir):
+        # Set up a transaction and a single operation
+        locator = NamespaceLocator.of(namespace="pause_test")
+        ns = Namespace.of(locator=locator)
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+        txn.step(op)
+
+        fs = pyarrow.fs.LocalFileSystem()
+        txn_id = txn.id
+        txn_log_dir = posixpath.join(temp_dir, TXN_DIR_NAME)
+
+        running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, txn_id)
+        paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, txn_id)
+
+        print("running path: " + str(running_path))
+        print("paused path: " + str(running_path))
+        # Sanity check: file should be in running/
+        assert fs.get_file_info(running_path).type == pyarrow.fs.FileType.File
+
+        # Pause transaction
+        txn.pause()
+        print(fs.get_file_info(running_path))
+        # Ensure the running file is deleted
+        assert fs.get_file_info(running_path).type == pyarrow.fs.FileType.NotFound
+
+        # Ensure the paused file exists and contains valid msgpack
+        paused_info = fs.get_file_info(paused_path)
+        assert paused_info.type == pyarrow.fs.FileType.File
+        with fs.open_input_stream(paused_path) as f:
+            data = f.readall()
+            txn_loaded = msgpack.loads(data)
+            print(txn_loaded)
+            assert "type" in txn_loaded
+            assert "operations" in txn_loaded

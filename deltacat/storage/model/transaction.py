@@ -412,6 +412,39 @@ class Transaction(dict):
         self["operations"] = operations
 
     @property
+    def metafile_write_paths(self) -> List[str]:
+        """
+        Returns the metafile_write_paths for this transaction.
+        """
+        return self.get("metafile_write_paths")
+
+    @metafile_write_paths.setter
+    def metafile_write_paths(self, paths: List[str]):
+        self["metafile_write_paths"] = paths
+
+    @property
+    def locator_write_paths(self) -> List[str]:
+        """
+        Returns the locator_write_paths for this transaction.
+        """
+        return self.get("locator_write_paths")
+
+    @locator_write_paths.setter
+    def locator_write_paths(self, paths: List[str]):
+        self["locator_write_paths"] = paths
+
+    @property
+    def catalog_root_normalized(self) -> str:
+        """
+        Returns the catalog_root_normalized for this transaction.
+        """
+        return self.get("catalog_root_normalized")
+
+    @catalog_root_normalized.setter
+    def catalog_root_normalized(self, path: str):
+        self["catalog_root_normalized"] = path
+
+    @property
     def _time_provider(self) -> TransactionSystemTimeProvider:
         """
         Returns the time_provider of the transaction.
@@ -652,13 +685,13 @@ class Transaction(dict):
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(
             catalog_root_dir, filesystem
         )
-        txn._catalog_root_normalized = catalog_root_normalized
+        txn.catalog_root_normalized = catalog_root_normalized
         txn._filesystem = filesystem  # keep for pause/resume
         txn.running_log_written = False  # internal flags
         # TODO: might have to change these to properties
-        txn.metafile_write_paths: List[str] = []  # meta only (for return value
-        txn.locator_write_paths: List[str] = []
-        txn._list_results: List[ListResult[Metafile]] = []
+        txn.metafile_write_paths = []  # meta only (for return value
+        txn.locator_write_paths = []
+        txn._list_results = []
 
         # make sure txn/ directories exist (idempotent)
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
@@ -679,7 +712,7 @@ class Transaction(dict):
         operation: "TransactionOperation",
     ) -> None:
 
-        catalog_root_normalized = self._catalog_root_normalized
+        catalog_root_normalized = self.catalog_root_normalized
         filesystem = self._filesystem
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
 
@@ -748,7 +781,7 @@ class Transaction(dict):
     #     #     raise RuntimeError("Pause is only meaningful for WRITE transactions")
 
     #     fs = self._filesystem
-    #     root = self._catalog_root_normalized
+    #     root = self.catalog_root_normalized
     #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
     #     # TODO: make sure it is only moving current transaction and not all logs
     #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
@@ -766,7 +799,7 @@ class Transaction(dict):
     #     #     raise RuntimeError("Resume is only meaningful for WRITE transactions")
 
     #     fs = self._filesystem
-    #     root = self._catalog_root_normalized
+    #     root = self.catalog_root_normalized
     #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
 
     #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
@@ -776,7 +809,7 @@ class Transaction(dict):
 
     def pause(self) -> None:
         fs = self._filesystem
-        root = self._catalog_root_normalized
+        root = self.catalog_root_normalized
         txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
 
         running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
@@ -798,7 +831,7 @@ class Transaction(dict):
 
     def resume(self) -> None:
         fs = self._filesystem
-        root = self._catalog_root_normalized
+        root = self.catalog_root_normalized
         txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
 
         running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
@@ -813,6 +846,16 @@ class Transaction(dict):
         self.__dict__.update(
             restored_txn.__dict__
         )  # make curr txn the same as restored (fill vars and stuff)
+        new_provider = (
+            TransactionSystemTimeProvider()
+        )  # set new _time_provider since unserializable
+        new_provider.start_time()
+        self._time_provider = new_provider  # start time should be preserved
+        now = time.time_ns()
+        if now < self.pause_time:
+            raise RuntimeError(
+                f"System clock {now} is behind paused transaction time {self._pause_time}"
+            )
 
         # Move back to running state
         fs.create_dir(posixpath.dirname(running_path), recursive=True)
@@ -828,7 +871,7 @@ class Transaction(dict):
         For WRITE → returns (written_paths, success_log_path).
         """
         fs = self._filesystem
-        root = self._catalog_root_normalized
+        root = self.catalog_root_normalized
         txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
         end_time = self._mark_end_time(self._time_provider)
 
@@ -874,7 +917,7 @@ class Transaction(dict):
     #  Helper: write or overwrite the running/ID file exactly once
     def _write_running_log(self, running_log_path: str) -> None:
         with self._filesystem.open_output_stream(running_log_path) as f:
-            f.write(msgpack.dumps(self.to_serializable(self._catalog_root_normalized)))
+            f.write(msgpack.dumps(self.to_serializable(self.catalog_root_normalized)))
         self.running_log_written = True
 
     #  Helper: mark txn FAILED and clean partial output
@@ -889,7 +932,7 @@ class Transaction(dict):
         # 1. write failed/ID
         failed_log_path = posixpath.join(failed_txn_log_dir, self.id)
         with fs.open_output_stream(failed_log_path) as f:
-            f.write(msgpack.dumps(self.to_serializable(self._catalog_root_normalized)))
+            f.write(msgpack.dumps(self.to_serializable(self.catalog_root_normalized)))
 
         # 2. delete all provisional files
         for path in self.metafile_write_paths:
