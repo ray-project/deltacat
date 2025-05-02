@@ -5,7 +5,7 @@
 # In short, if you change it here, PLEASE also change it in setup.py.
 aws-embedded-metrics == 3.2.0
 boto3 ~= 1.34
-getdaft >= 0.4.11
+daft >= 0.4.13
 intervaltree == 3.1.0
 msgpack ~= 1.0.7
 
