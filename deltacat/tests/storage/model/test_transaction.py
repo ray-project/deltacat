@@ -451,9 +451,6 @@ class TestTransactionPersistence:
         write_paths, success_log_path = txn.commit_all()
         assert os.path.exists(success_log_path)
 
-    # TODO test_ops_pause_resume_ops_commit
-    # TODO: test other combinations of these operations and such
-
     def test_pause_moves_running_to_paused(self, temp_dir):
         # Set up a transaction and a single operation
         locator = NamespaceLocator.of(namespace="pause_test")
@@ -492,3 +489,94 @@ class TestTransactionPersistence:
             print(txn_loaded)
             assert "type" in txn_loaded
             assert "operations" in txn_loaded
+            
+    def test_transaction_pause_and_resume_roundtrip_complex(self, temp_dir):
+        fs = pyarrow.fs.LocalFileSystem()
+
+        # Step 0: Create an empty interactive transaction
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(temp_dir)
+
+        # Step 1: Add first namespace, pause
+        ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))
+        op1 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns1)
+        txn.step(op1)
+        txn.pause()
+
+        # Step 2: Resume, add second namespace, pause
+        txn.resume()
+        ns2 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_2"))
+        op2 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns2)
+        txn.step(op2)
+        txn.pause()
+
+        # Step 3: Resume again, add third namespace, commit
+        txn.resume()
+        ns3 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_3"))
+        op3 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns3)
+        txn.step(op3)
+
+        # Final commit
+        write_paths, success_log_path = txn.commit_all()
+
+        # Read and verify written namespaces
+        for i, ns in enumerate([ns1, ns2, ns3]):
+            written_path = write_paths[i]
+            deserialized_ns = Namespace.read(written_path)
+            assert ns.equivalent_to(deserialized_ns), f"Mismatch in ns{i+1}: {ns} != {deserialized_ns}"
+            assert os.path.exists(written_path), f"Missing file: {written_path}"
+            assert os.path.getsize(written_path) > 0
+
+        # Check success log exists and is correct
+        assert os.path.exists(success_log_path)
+        assert success_log_path.endswith(str(txn.end_time))
+    def test_transaction_pause_and_resume_roundtrip_complex_2(self, temp_dir):
+        fs = pyarrow.fs.LocalFileSystem()
+
+        # Step 0: Create an empty interactive transaction
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(temp_dir)
+
+        # Step 1: Add first namespace, pause
+        ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))
+        op1 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns1)
+        txn.step(op1)
+        txn.pause()
+
+        # Step 2: Resume, add second namespace, pause
+        txn.resume()
+        ns2 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_2"))
+        op2 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns2)
+        txn.step(op2)
+        txn.pause()
+
+        # Step 3: Resume again, add third namespace, commit
+        txn.resume()
+        ns3 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_3"))
+        op3 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns3)
+        txn.step(op3)
+
+        # Final commit
+        write_paths, success_log_path = txn.commit_all()
+        
+        print("\nstart time: " + str(txn.start_time))
+        print("end time: " + str(txn.end_time))
+        assert txn.start_time < txn.end_time
+        
+        # Read and verify written namespaces
+        for i, ns in enumerate([ns1, ns2, ns3]):
+            written_path = write_paths[i]
+
+            # Confirm file was created and is non-empty
+            assert os.path.exists(written_path), f"Missing file: {written_path}"
+            assert os.path.getsize(written_path) > 0, f"Empty file: {written_path}"
+
+            # Deserialize and verify content
+            deserialized_ns = Namespace.read(written_path)
+            assert ns.equivalent_to(deserialized_ns), f"Namespace mismatch at index {i}"
+            assert ns.locator.namespace == deserialized_ns.locator.namespace
+            assert ns.locator_alias == deserialized_ns.locator_alias
+            assert ns.properties == deserialized_ns.properties
+
+        # Verify success log
+        assert os.path.exists(success_log_path)
+        assert success_log_path.endswith(str(txn.end_time))
+
