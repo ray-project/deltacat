@@ -775,38 +775,6 @@ class Transaction(dict):
             )
             raise  # surface original error
 
-    # PAUSE AND RESUME WITH JUST MOVING, NO SERIALIZE
-    # def pause(self) -> None:
-    #     # if self.type == TransactionType.READ:
-    #     #     raise RuntimeError("Pause is only meaningful for WRITE transactions")
-
-    #     fs = self._filesystem
-    #     root = self.catalog_root_normalized
-    #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
-    #     # TODO: make sure it is only moving current transaction and not all logs
-    #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
-    #     paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
-
-    #     fs.create_dir(posixpath.dirname(paused_path), recursive=True)
-    #     # atomic move is safer than separate write/delete
-    #     # TODO: serialize info before??
-    #     self._mark_pause_time(self._time_provider)
-
-    #     fs.move(src=running_path, dest=paused_path)
-
-    # def resume(self) -> None:
-    #     # if self.type == TransactionType.READ:
-    #     #     raise RuntimeError("Resume is only meaningful for WRITE transactions")
-
-    #     fs = self._filesystem
-    #     root = self.catalog_root_normalized
-    #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
-
-    #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
-    #     paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
-    #     fs.move(src=paused_path, dest=running_path)
-    #     # TODO: unserialize ?
-
     def pause(self) -> None:
         fs = self._filesystem
         root = self.catalog_root_normalized
@@ -849,14 +817,16 @@ class Transaction(dict):
         new_provider = (
             TransactionSystemTimeProvider()
         )  # set new _time_provider since unserializable
-        new_provider.start_time()
+        
+        # evaluate system clock
+        now = new_provider.start_time()
         self._time_provider = new_provider  # start time should be preserved
-        now = time.time_ns()
         if now < self.pause_time:
             raise RuntimeError(
                 f"System clock {now} is behind paused transaction time {self._pause_time}"
             )
-
+            # TODO: set new start time or keep error if clock is off?
+            
         # Move back to running state
         fs.create_dir(posixpath.dirname(running_path), recursive=True)
         with fs.open_output_stream(running_path) as f:
@@ -956,3 +926,37 @@ class Transaction(dict):
                 fs.delete_file(success_log_path)
             except Exception:
                 pass
+            
+    # Legacy Code
+    # PAUSE AND RESUME WITH JUST MOVING, NO SERIALIZE
+    # def pause(self) -> None:
+    #     # if self.type == TransactionType.READ:
+    #     #     raise RuntimeError("Pause is only meaningful for WRITE transactions")
+
+    #     fs = self._filesystem
+    #     root = self.catalog_root_normalized
+    #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
+    #     # TODO: make sure it is only moving current transaction and not all logs
+    #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
+    #     paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
+
+    #     fs.create_dir(posixpath.dirname(paused_path), recursive=True)
+    #     # atomic move is safer than separate write/delete
+    #     # TODO: serialize info before??
+    #     self._mark_pause_time(self._time_provider)
+
+    #     fs.move(src=running_path, dest=paused_path)
+
+    # def resume(self) -> None:
+    #     # if self.type == TransactionType.READ:
+    #     #     raise RuntimeError("Resume is only meaningful for WRITE transactions")
+
+    #     fs = self._filesystem
+    #     root = self.catalog_root_normalized
+    #     txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
+
+    #     running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
+    #     paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
+    #     fs.move(src=paused_path, dest=running_path)
+    #     # TODO: unserialize ?
+

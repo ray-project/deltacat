@@ -321,8 +321,7 @@ class TestAbsToRelative:
 
 
 class TestTransactionPersistence:
-    # TODO: Setup mocker and tests with mock filesystem
-
+    
     # Verifies that transactions initialized with empty or None operations are marked interactive, 
     # while valid operations are not
     def test_create_iterative_transaction(self):
