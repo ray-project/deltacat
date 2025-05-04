@@ -1,4 +1,3 @@
-# from pyiceberg.typedef import EMPTY_DICT, Identifier, Properties
 from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
     task_resource_options_provider,
@@ -48,6 +47,18 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     table_name = params.iceberg_table_name
     iceberg_table = load_table(catalog, table_name)
     enforce_primary_key_uniqueness = params.enforce_primary_key_uniqueness
+    iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
+    iceberg_namespace = params.iceberg_namespace
+    merge_keys = params.merge_keys
+    compact_small_files = params.compact_small_files
+    task_max_parallelism = params.task_max_parallelism
+    s3_client_kwargs = params.s3_client_kwargs
+    s3_file_system = params.s3_file_system
+    location_provider_prefix_override = params.location_provider_prefix_override
+    position_delete_for_multiple_data_files = (
+        params.position_delete_for_multiple_data_files
+    )
+
     data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
         iceberg_table
     )
@@ -56,14 +67,16 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         equality_delete_dict=equality_delete_dict,
         pos_delete_dict=pos_delete_dict,
     )
-    iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
-    iceberg_namespace = params.iceberg_namespace
-    iceberg_table_warehouse_prefix = construct_iceberg_table_prefix(
-        iceberg_warehouse_bucket_name=iceberg_warehouse_bucket_name,
-        table_name=table_name,
-        iceberg_namespace=iceberg_namespace,
-    )
-    merge_keys = params.merge_keys
+
+    if not location_provider_prefix_override:
+        iceberg_table_warehouse_prefix = construct_iceberg_table_prefix(
+            iceberg_warehouse_bucket_name=iceberg_warehouse_bucket_name,
+            table_name=table_name,
+            iceberg_namespace=iceberg_namespace,
+        )
+    else:
+        iceberg_table_warehouse_prefix = location_provider_prefix_override
+
     # Using table identifier fields as merge keys if merge keys not provided
     if not merge_keys:
         identifier_fields_set = iceberg_table.schema().identifier_field_names()
@@ -86,16 +99,10 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     #  Note that approach 2 will ideally require shared object store to avoid download equality delete files * number of child tasks times.
     max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 
-    compact_small_files = params.compact_small_files
-    position_delete_for_multiple_data_files = (
-        params.position_delete_for_multiple_data_files
-    )
-    task_max_parallelism = params.task_max_parallelism
-
     def convert_input_provider(index, item):
         return {
             "convert_input": ConvertInput.of(
-                files_for_each_bucket=item,
+                convert_input_files=item,
                 convert_task_index=index,
                 iceberg_table_warehouse_prefix=iceberg_table_warehouse_prefix,
                 identifier_fields=identifier_fields,
@@ -103,6 +110,8 @@ def converter_session(params: ConverterSessionParams, **kwargs):
                 enforce_primary_key_uniqueness=enforce_primary_key_uniqueness,
                 position_delete_for_multiple_data_files=position_delete_for_multiple_data_files,
                 max_parallel_data_file_download=max_parallel_data_file_download,
+                s3_client_kwargs=s3_client_kwargs,
+                s3_file_system=s3_file_system,
             )
         }
 
@@ -110,7 +119,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     # Assuming that memory consume by each bucket doesn't exceed one node's memory limit.
     # TODO: Add split mechanism to split large buckets
     convert_tasks_pending = invoke_parallel(
-        items=convert_input_files_for_all_buckets.items(),
+        items=convert_input_files_for_all_buckets,
         ray_task=convert,
         max_parallelism=task_max_parallelism,
         options_provider=convert_options_provider,

@@ -33,6 +33,7 @@ def convert(convert_input: ConvertInput):
     )
     max_parallel_data_file_download = convert_input.max_parallel_data_file_download
     s3_file_system = convert_input.s3_file_system
+    s3_client_kwargs = convert_input.s3_client_kwargs
     if not position_delete_for_multiple_data_files:
         raise NotImplementedError(
             f"Distributed file level position delete compute is not supported yet"
@@ -52,9 +53,14 @@ def convert(convert_input: ConvertInput):
         convert_input_files.partition_value
     )
     partition_value = convert_input_files.partition_value
-    iceberg_table_warehouse_prefix_with_partition = (
-        f"{iceberg_table_warehouse_prefix}/{partition_value_str}"
-    )
+    if partition_value_str:
+        iceberg_table_warehouse_prefix_with_partition = (
+            f"{iceberg_table_warehouse_prefix}/{partition_value_str}"
+        )
+    else:
+        iceberg_table_warehouse_prefix_with_partition = (
+            f"{iceberg_table_warehouse_prefix}"
+        )
     enforce_primary_key_uniqueness = convert_input.enforce_primary_key_uniqueness
     total_pos_delete_table = []
     if applicable_equality_delete_files:
@@ -67,6 +73,7 @@ def convert(convert_input: ConvertInput):
             iceberg_table_warehouse_prefix_with_partition=iceberg_table_warehouse_prefix_with_partition,
             max_parallel_data_file_download=max_parallel_data_file_download,
             s3_file_system=s3_file_system,
+            s3_client_kwargs=s3_client_kwargs,
         )
         if pos_delete_after_converting_equality_delete:
             total_pos_delete_table.append(pos_delete_after_converting_equality_delete)
@@ -81,10 +88,12 @@ def convert(convert_input: ConvertInput):
             identify_column_name_concatenated=identifier_fields[0],
             identifier_columns=identifier_fields,
             merge_sort_column=sc._ORDERED_RECORD_IDX_COLUMN_NAME,
+            s3_client_kwargs=s3_client_kwargs,
         )
         total_pos_delete_table.append(pos_delete_after_dedupe)
 
     total_pos_delete = pa.concat_tables(total_pos_delete_table)
+
     to_be_added_files_list = upload_table_with_retry(
         table=total_pos_delete,
         s3_url_prefix=iceberg_table_warehouse_prefix_with_partition,
@@ -168,6 +177,7 @@ def compute_pos_delete_with_limited_parallelism(
     iceberg_table_warehouse_prefix_with_partition,
     max_parallel_data_file_download,
     s3_file_system,
+    s3_client_kwargs,
 ):
     for data_files, equality_delete_files in zip(
         data_files_list, equality_delete_files_list
@@ -182,6 +192,7 @@ def compute_pos_delete_with_limited_parallelism(
                     sc._ORDERED_RECORD_IDX_COLUMN_NAME,
                 ],
                 sequence_number=data_file[0],
+                s3_client_kwargs=s3_client_kwargs,
             )
             data_table_total.append(data_table)
         data_table_total = pa.concat_tables(data_table_total)
@@ -191,6 +202,7 @@ def compute_pos_delete_with_limited_parallelism(
             equality_delete_table = download_data_table_and_append_iceberg_columns(
                 data_files=equality_delete[1],
                 columns_to_download=identifier_columns,
+                s3_client_kwargs=s3_client_kwargs,
             )
             equality_delete_table_total.append(equality_delete_table)
         equality_delete_table_total = pa.concat_tables(equality_delete_table_total)
@@ -201,6 +213,7 @@ def compute_pos_delete_with_limited_parallelism(
         iceberg_table_warehouse_prefix_with_partition=iceberg_table_warehouse_prefix_with_partition,
         identifier_columns=identifier_columns,
         s3_file_system=s3_file_system,
+        s3_client_kwargs=s3_client_kwargs,
     )
     if not new_pos_delete_table:
         logger.info("No records deleted based on equality delete converstion")

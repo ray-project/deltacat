@@ -1,13 +1,20 @@
 import deltacat.compute.converter.utils.iceberg_columns as sc
 import daft
+from deltacat.utils.daft import _get_s3_io_config
+from daft import TimeUnit
 
 
 def download_data_table_and_append_iceberg_columns(
-    file, columns_to_download, additional_columns_to_append, sequence_number
+    file,
+    columns_to_download,
+    additional_columns_to_append,
+    sequence_number,
+    s3_client_kwargs,
 ):
-    # TODO; add S3 client kwargs
     table = download_parquet_with_daft_hash_applied(
-        identify_columns=columns_to_download, file=file, s3_client_kwargs={}
+        identify_columns=columns_to_download,
+        file=file,
+        s3_client_kwargs=s3_client_kwargs,
     )
     if sc._FILE_PATH_COLUMN_NAME in additional_columns_to_append:
         table = sc.append_file_path_column(table, file.file_path)
@@ -20,7 +27,6 @@ def download_data_table_and_append_iceberg_columns(
 def download_parquet_with_daft_hash_applied(
     identify_columns, file, s3_client_kwargs, **kwargs
 ):
-    from daft import TimeUnit
 
     # TODO: Add correct read kwargs as in:
     #  https://github.com/ray-project/deltacat/blob/383855a4044e4dfe03cf36d7738359d512a517b4/deltacat/utils/daft.py#L97
@@ -28,8 +34,6 @@ def download_parquet_with_daft_hash_applied(
     coerce_int96_timestamp_unit = TimeUnit.from_str(
         kwargs.get("coerce_int96_timestamp_unit", "ms")
     )
-
-    from deltacat.utils.daft import _get_s3_io_config
 
     # TODO: Use Daft SHA1 hash instead to minimize probably of data corruption
     io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
