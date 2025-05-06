@@ -5,9 +5,9 @@ import os
 import time
 import re
 
-from dataclasses import dataclass
+import deltacat as dc
 
-import ray
+from dataclasses import dataclass
 
 from typing import Set, Optional, Dict, Any, Union
 
@@ -335,10 +335,10 @@ def local_job_client(*args, **kwargs) -> DeltaCatJobClient:
     Raises:
         RuntimeError: If a local Ray Job Server cannot be found.
     """
-    if not ray.is_initialized():
-        context = ray.init(*args, **kwargs)
+    if not dc.is_initialized():
+        context = dc.init(*args, **kwargs)
     else:
-        context = ray.init(ignore_reinit_error=True)
+        context = dc.init(ray_init_args={"ignore_reinit_error": True})
     if context.dashboard_url:
         head_node_ip, port = context.dashboard_url.split(":")
     else:
