@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 
+import deltacat as dc
+
 from deltacat.catalog import CatalogProperties
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
@@ -34,17 +36,16 @@ from deltacat.types.tables import TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
-from deltacat.storage import metastore as storage_impl
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 """
 Default Catalog interface implementation using DeltaCAT native storage.
 
-When this is used by `delegate.py` the `Catalog` implementation `inner` 
+When this is used by `delegate.py` the `Catalog` implementation `inner`
 property will be set to the value returned from `intialize`.
 
-`CatalogProperties` has all state required to implement catalog functions, 
+`CatalogProperties` has all state required to implement catalog functions,
 such as metastore root URI.
 """
 
@@ -722,4 +723,4 @@ def _get_storage(**kwargs):
     if properties is not None and properties.storage is not None:
         return properties.storage
     else:
-        return storage_impl
+        return dc.storage.metastore

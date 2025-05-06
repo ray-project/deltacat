@@ -101,25 +101,17 @@ class Catalogs:
         self,
         catalogs: Union[Catalog, Dict[str, Catalog]],
         default: Optional[str] = None,
-        *args,
-        **kwargs,
     ):
-        if default and default not in catalogs:
-            raise ValueError(
-                f"Catalog {default} not found " f"in catalogs to register: {catalogs}"
-            )
-        if not catalogs:
-            raise ValueError(
-                f"No catalogs given to register. "
-                f"Please specify one or more catalogs."
-            )
-
-        # assign the default catalog name to single unnamed catalogs
         if isinstance(catalogs, Catalog):
             catalogs = {DEFAULT_CATALOG: catalogs}
-
+        elif not isinstance(catalogs, dict):
+            raise ValueError(f"Expected Catalog or dict, but found: {catalogs}")
         self.catalogs: Dict[str, Catalog] = catalogs
         if default:
+            if default not in catalogs:
+                raise ValueError(
+                    f"Default catalog `{default}` not found in: {catalogs}"
+                )
             self.default_catalog = self.catalogs[default]
         elif len(catalogs) == 1:
             self.default_catalog = list(self.catalogs.values())[0]

@@ -722,9 +722,7 @@ class DeltaCatUrl:
         if self.catalog_name:
             if self.catalog_name.lower() == DeltaCatUrl.DELTACAT_URL_DEFAULT_CATALOG:
                 self.catalog = None
-            self.catalog: CatalogProperties = dc.get_catalog(
-                self.catalog_name
-            ).native_object
+            self.catalog: CatalogProperties = dc.get_catalog(self.catalog_name).inner
             if not isinstance(self.catalog, CatalogProperties):
                 raise ValueError(
                     f"Expected catalog `{self.catalog_name}` to be a DeltaCAT "
