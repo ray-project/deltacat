@@ -2,6 +2,8 @@ import os
 import deltacat
 import logging
 
+import ray
+
 from deltacat import logs
 from deltacat.constants import DELTACAT_APP_LOG_DIR, DELTACAT_SYS_LOG_DIR
 from deltacat.examples.common.fixtures import (
