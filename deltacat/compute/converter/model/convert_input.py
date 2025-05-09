@@ -10,6 +10,8 @@ class ConvertInput(Dict):
         convert_task_index,
         iceberg_table_warehouse_prefix,
         identifier_fields,
+        table_io,
+        table_metadata,
         compact_small_files,
         enforce_primary_key_uniqueness,
         position_delete_for_multiple_data_files,
@@ -23,6 +25,8 @@ class ConvertInput(Dict):
         result["convert_task_index"] = convert_task_index
         result["identifier_fields"] = identifier_fields
         result["iceberg_table_warehouse_prefix"] = iceberg_table_warehouse_prefix
+        result["table_io"] = table_io
+        result["table_metadata"] = table_metadata
         result["compact_small_files"] = compact_small_files
         result["enforce_primary_key_uniqueness"] = enforce_primary_key_uniqueness
         result[
@@ -49,6 +53,14 @@ class ConvertInput(Dict):
     @property
     def iceberg_table_warehouse_prefix(self) -> str:
         return self["iceberg_table_warehouse_prefix"]
+
+    @property
+    def table_io(self):
+        return self["table_io"]
+
+    @property
+    def table_metadata(self):
+        return self["table_metadata"]
 
     @property
     def compact_small_files(self) -> bool:

@@ -2,8 +2,8 @@ from __future__ import annotations
 from typing import Optional, Dict
 from deltacat.compute.converter.constants import (
     DEFAULT_CONVERTER_TASK_MAX_PARALLELISM,
-    DEFAULT_ICEBERG_NAMESPACE,
 )
+from deltacat.constants import DEFAULT_NAMESPACE
 from fsspec import AbstractFileSystem
 
 
@@ -24,9 +24,7 @@ class ConverterSessionParams(dict):
         ), "iceberg_warehouse_bucket_name is a required arg"
         result = ConverterSessionParams(params)
 
-        result.iceberg_namespace = params.get(
-            "iceberg_namespace", DEFAULT_ICEBERG_NAMESPACE
-        )
+        result.iceberg_namespace = params.get("iceberg_namespace", DEFAULT_NAMESPACE)
         result.enforce_primary_key_uniqueness = params.get(
             "enforce_primary_key_uniqueness", False
         )

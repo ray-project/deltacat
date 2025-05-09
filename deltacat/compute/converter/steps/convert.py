@@ -15,7 +15,9 @@ from deltacat.compute.converter.utils.io import (
 from deltacat.compute.converter.utils.converter_session_utils import (
     partition_value_record_to_partition_value_string,
 )
-
+from deltacat.compute.converter.pyiceberg.overrides import (
+    parquet_files_dict_to_iceberg_data_files,
+)
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -27,6 +29,8 @@ def convert(convert_input: ConvertInput):
     convert_task_index = convert_input.convert_task_index
     iceberg_table_warehouse_prefix = convert_input.iceberg_table_warehouse_prefix
     identifier_fields = convert_input.identifier_fields
+    table_io = convert_input.table_io
+    table_metadata = convert_input.table_metadata
     compact_small_files = convert_input.compact_small_files
     position_delete_for_multiple_data_files = (
         convert_input.position_delete_for_multiple_data_files
@@ -83,9 +87,9 @@ def convert(convert_input: ConvertInput):
             all_data_files=all_data_files_for_this_bucket,
             data_files_downloaded=applicable_data_files,
         )
+        logger.info(f"Got {len(data_files_to_dedupe)} files to dedupe.")
         pos_delete_after_dedupe = dedupe_data_files(
             data_file_to_dedupe=data_files_to_dedupe,
-            identify_column_name_concatenated=identifier_fields[0],
             identifier_columns=identifier_fields,
             merge_sort_column=sc._ORDERED_RECORD_IDX_COLUMN_NAME,
             s3_client_kwargs=s3_client_kwargs,
@@ -93,12 +97,25 @@ def convert(convert_input: ConvertInput):
         total_pos_delete_table.append(pos_delete_after_dedupe)
 
     total_pos_delete = pa.concat_tables(total_pos_delete_table)
+    logger.info(f"Total position delete produced:{len(total_pos_delete)}")
 
-    to_be_added_files_list = upload_table_with_retry(
+    to_be_added_files_list_parquet = upload_table_with_retry(
         table=total_pos_delete,
         s3_url_prefix=iceberg_table_warehouse_prefix_with_partition,
         s3_table_writer_kwargs={},
         s3_file_system=s3_file_system,
+    )
+
+    to_be_added_files_dict = defaultdict()
+    to_be_added_files_dict[partition_value] = to_be_added_files_list_parquet
+
+    logger.info(
+        f"Produced {len(to_be_added_files_list_parquet)} position delete files."
+    )
+    to_be_added_files_list = parquet_files_dict_to_iceberg_data_files(
+        io=table_io,
+        table_metadata=table_metadata,
+        files_dict=to_be_added_files_dict,
     )
 
     to_be_delete_files_dict = defaultdict()
@@ -107,9 +124,8 @@ def convert(convert_input: ConvertInput):
             equality_delete_file[1]
             for equality_delete_file in applicable_equality_delete_files
         ]
-    to_be_added_files_dict = defaultdict()
-    to_be_added_files_dict[partition_value] = to_be_added_files_list
-    return (to_be_delete_files_dict, to_be_added_files_dict)
+
+    return (to_be_delete_files_dict, to_be_added_files_list)
 
 
 def get_additional_applicable_data_files(all_data_files, data_files_downloaded):
@@ -129,8 +145,6 @@ def filter_rows_to_be_deleted(
             equality_delete_table[identifier_column],
         )
         position_delete_table = data_file_table.filter(equality_deletes)
-        logger.info(f"positional_delete_table:{position_delete_table.to_pydict()}")
-        logger.info(f"data_file_table:{data_file_table.to_pydict()}")
         logger.info(
             f"length_pos_delete_table, {len(position_delete_table)}, length_data_table:{len(data_file_table)}"
         )
@@ -216,7 +230,7 @@ def compute_pos_delete_with_limited_parallelism(
         s3_client_kwargs=s3_client_kwargs,
     )
     if not new_pos_delete_table:
-        logger.info("No records deleted based on equality delete converstion")
+        logger.info("No records deleted based on equality delete convertion")
 
     logger.info(
         f"Number of records to delete based on equality delete convertion:{len(new_pos_delete_table)}"
