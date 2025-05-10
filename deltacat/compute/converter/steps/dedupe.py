@@ -18,6 +18,7 @@ def dedupe_data_files(
 ):
     data_file_table = []
 
+    downloaded_data_file_record_count = 0
     # Sort data files by file sequence number first
     data_file_to_dedupe = sorted(data_file_to_dedupe, key=lambda f: f[0])
     for file_tuple in data_file_to_dedupe:
@@ -33,9 +34,15 @@ def dedupe_data_files(
             sequence_number=sequence_number,
             s3_client_kwargs=s3_client_kwargs,
         )
+        downloaded_data_file_record_count += len(data_file_to_dedupe_table)
         data_file_table.append(data_file_to_dedupe_table)
 
     final_data_to_dedupe = pa.concat_tables(data_file_table)
+
+    assert len(final_data_to_dedupe) == downloaded_data_file_record_count, (
+        f"Mismatch record count while performing table concat, Got {len(final_data_to_dedupe)} in final table, "
+        f"while input table length is: {downloaded_data_file_record_count}"
+    )
 
     logger.info(f"Length of pyarrow table to dedupe:{len(final_data_to_dedupe)}")
 
@@ -64,4 +71,11 @@ def dedupe_data_files(
     final_data_table_to_delete = final_data_table_to_delete.drop(
         [sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME, sc._GLOBAL_RECORD_IDX_COLUMN_NAME]
     )
-    return final_data_table_to_delete
+    logger.info(
+        f"Deduped {len(final_data_table_to_delete)} Records based off identifier columns."
+    )
+    return (
+        final_data_table_to_delete,
+        len(final_data_to_dedupe),
+        int(final_data_to_dedupe.nbytes),
+    )

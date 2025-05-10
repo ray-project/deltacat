@@ -28,7 +28,9 @@ class ConverterSessionParams(dict):
         result.enforce_primary_key_uniqueness = params.get(
             "enforce_primary_key_uniqueness", False
         )
-        result.compact_small_files = params.get("compact_small_files", False)
+        result.compact_previous_position_delete_files = params.get(
+            "compact_previous_position_delete_files", False
+        )
 
         # For Iceberg v3 spec, option to produce delete vector that can establish 1:1 mapping with data files.
         result.position_delete_for_multiple_data_files = params.get(
@@ -73,12 +75,16 @@ class ConverterSessionParams(dict):
         self["enforce_primary_key_uniqueness"] = enforce_primary_key_uniqueness
 
     @property
-    def compact_small_files(self) -> bool:
-        return self["compact_small_files"]
+    def compact_previous_position_delete_files(self) -> bool:
+        return self["compact_previous_position_delete_files"]
 
-    @compact_small_files.setter
-    def compact_small_files(self, compact_small_files) -> None:
-        self["compact_small_files"] = compact_small_files
+    @compact_previous_position_delete_files.setter
+    def compact_previous_position_delete_files(
+        self, compact_previous_position_delete_files
+    ) -> None:
+        self[
+            "compact_previous_position_delete_files"
+        ] = compact_previous_position_delete_files
 
     @property
     def position_delete_for_multiple_data_files(self) -> bool:

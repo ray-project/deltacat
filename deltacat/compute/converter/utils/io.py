@@ -53,6 +53,7 @@ def download_parquet_with_daft_hash_applied(
         io_config=io_config,
         coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
     )
+
     hash_column = concatenate_hashed_identifier_columns(
         df=df, identifier_columns=identifier_columns
     )
@@ -75,17 +76,39 @@ def daft_read_parquet(path, io_config, coerce_int96_timestamp_unit):
 
 def concatenate_hashed_identifier_columns(df, identifier_columns):
     pk_hash_columns = []
-
+    previous_hash_column_length = None
     for i in range(len(identifier_columns)):
         pk_hash_column = df.select(daft.col(identifier_columns[i]).hash())
         pk_hash_column_arrow = pk_hash_column.to_arrow()
-        # Converted int16 to string here
-        pk_hash_columns.append(
-            sliced_string_cast(pk_hash_column_arrow[identifier_columns[i]])
+
+        # Assert that each hash column downloaded are same length to ensure we don't create mismatch between columns.
+        if not previous_hash_column_length:
+            previous_hash_column_length = len(pk_hash_column_arrow)
+        else:
+            assert previous_hash_column_length == len(pk_hash_column_arrow), (
+                f"Identifier column Length mismatch: {identifier_columns[i]} has length {len(pk_hash_column_arrow)} "
+                f"but expected {previous_hash_column_length}."
+            )
+            previous_hash_column_length = len(pk_hash_column_arrow)
+
+        # Convert identifier from different datatypes to string here
+        pk_hash_column_str = sliced_string_cast(
+            pk_hash_column_arrow[identifier_columns[i]]
         )
+        assert len(pk_hash_column_str) == previous_hash_column_length, (
+            f"Casting column Length mismatch: {identifier_columns[i]} has length {len(pk_hash_column_str)} after casting, "
+            f"before casting length: {previous_hash_column_length}."
+        )
+
+        pk_hash_columns.append(pk_hash_column_str)
+
     pk_hash_columns.append(IDENTIFIER_FIELD_DELIMITER)
     pk_hash_columns_concatenated = pc.binary_join_element_wise(
         *pk_hash_columns, null_handling="replace"
+    )
+    assert len(pk_hash_columns_concatenated) == previous_hash_column_length, (
+        f"Concatenated column Length mismatch: Final concatenated identifier column has length {len(pk_hash_columns_concatenated)}, "
+        f"before concatenating length: {previous_hash_column_length}."
     )
 
     return pk_hash_columns_concatenated

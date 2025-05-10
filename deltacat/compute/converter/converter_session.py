@@ -49,7 +49,9 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
     iceberg_namespace = params.iceberg_namespace
     merge_keys = params.merge_keys
-    compact_small_files = params.compact_small_files
+    compact_previous_position_delete_files = (
+        params.compact_previous_position_delete_files
+    )
     task_max_parallelism = params.task_max_parallelism
     s3_client_kwargs = params.s3_client_kwargs
     s3_file_system = params.s3_file_system
@@ -103,7 +105,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
                 convert_task_index=index,
                 iceberg_table_warehouse_prefix=iceberg_table_warehouse_prefix,
                 identifier_fields=identifier_fields,
-                compact_small_files=compact_small_files,
+                compact_previous_position_delete_files=compact_previous_position_delete_files,
                 table_io=iceberg_table.io,
                 table_metadata=iceberg_table.metadata,
                 enforce_primary_key_uniqueness=enforce_primary_key_uniqueness,
@@ -114,7 +116,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
             )
         }
 
-    logger.info((f"Getting remote convert tasks..."))
+    logger.info(f"Getting remote convert tasks...")
     # Ray remote task: convert
     # TODO: Add split mechanism to split large buckets
     convert_tasks_pending = invoke_parallel(
@@ -131,12 +133,36 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     convert_results = ray.get(convert_tasks_pending)
     logger.info(f"Got {len(convert_tasks_pending)} convert tasks.")
 
+    total_position_delete_record_count = sum(
+        convert_result.position_delete_record_count
+        for convert_result in convert_results
+    )
+    total_input_data_file_record_count = sum(
+        convert_result.input_data_files_record_count
+        for convert_result in convert_results
+    )
+    total_data_file_hash_columns_in_memory_sizes = sum(
+        convert_result.input_data_files_hash_columns_in_memory_sizes
+        for convert_result in convert_results
+    )
+    total_position_delete_file_in_memory_sizes = sum(
+        convert_result.position_delete_in_memory_sizes
+        for convert_result in convert_results
+    )
+    total_position_delete_on_disk_sizes = sum(
+        convert_result.position_delete_on_disk_sizes
+        for convert_result in convert_results
+    )
+
     to_be_added_files_list = []
     for convert_result in convert_results:
-        to_be_deleted_files_list.extend(convert_result[0].values())
-        to_be_added_files_list.extend(convert_result[1])
+        to_be_added_files = convert_result.to_be_added_files
+        to_be_deleted_files = convert_result.to_be_deleted_files
 
-    if not to_be_deleted_files_list:
+        to_be_deleted_files_list.extend(to_be_deleted_files.values())
+        to_be_added_files_list.extend(to_be_added_files)
+
+    if not to_be_deleted_files_list and to_be_added_files_list:
         commit_append_snapshot(
             iceberg_table=iceberg_table,
             new_position_delete_files=to_be_added_files_list,
@@ -147,4 +173,13 @@ def converter_session(params: ConverterSessionParams, **kwargs):
             to_be_deleted_files_list=to_be_deleted_files_list,
             new_position_delete_files=to_be_added_files_list,
         )
+    logger.info(
+        f"Aggregated stats for {table_name}: "
+        f"total position delete record count: {total_position_delete_record_count}, "
+        f"total input data file record_count: {total_input_data_file_record_count}, "
+        f"total data file hash columns in memory sizes: {total_data_file_hash_columns_in_memory_sizes}, "
+        f"total position delete file in memory sizes: {total_position_delete_file_in_memory_sizes}, "
+        f"total position delete file on disk sizes: {total_position_delete_on_disk_sizes}."
+    )
+
     logger.info(f"Committed new Iceberg snapshot.")
