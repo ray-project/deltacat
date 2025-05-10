@@ -730,12 +730,7 @@ class DeltaCatUrl:
                 )
 
     def _resolve_deltacat_path_identifiers(self):
-        if not dc.is_initialized():
-            # TODO(pdames): Re-initialize DeltaCAT with all catalogs from the
-            #  last session.
-            raise RuntimeError(
-                "DeltaCAT is not initialized. Please call `dc.init()` and try again."
-            )
+        dc.raise_if_not_initialized()
         self.namespace = self.table_version = self.stream = None
         if self.unresolved_namespace:
             if (

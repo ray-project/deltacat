@@ -94,10 +94,7 @@ def _copy_dc(
     src_parts = [part for part in src_parts if part]
     dst_parts = destination.url.split("/")
     dst_parts = [part for part in dst_parts if part]
-    if not dc.is_initialized():
-        raise ValueError(
-            "DeltaCAT is not initialized. Run `deltacat.init()` to initialize."
-        )
+    dc.raise_if_not_initialized()
     if len(src_parts) != len(dst_parts):
         # TODO(pdames): Better error message.
         raise ValueError(

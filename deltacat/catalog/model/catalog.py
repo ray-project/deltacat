@@ -138,7 +138,7 @@ class Catalogs:
 
 def is_initialized(*args, **kwargs) -> bool:
     """
-    Check if DeltaCAT is initialized
+    Check if DeltaCAT is initialized.
     """
     global all_catalogs
 
@@ -151,13 +151,18 @@ def is_initialized(*args, **kwargs) -> bool:
     return all_catalogs is not None
 
 
-def ensure_initialized():
+def raise_if_not_initialized(
+    err_msg: str = "DeltaCAT is not initialized. Please call `deltacat.init()` and try again.",
+) -> None:
+    """
+    Raises a RuntimeError with the given error message if DeltaCAT is not
+    initialized.
+
+    :param err_msg: Custom error message to raise if DeltaCAT is not
+    initialized. If unspecified, the default error message is used.
+    """
     if not is_initialized():
-        # TODO(pdames): Re-initialize DeltaCAT with all catalogs from the
-        #  last session.
-        raise RuntimeError(
-            "DeltaCAT is not initialized. Please call `dc.init()` and try again."
-        )
+        raise RuntimeError(err_msg)
 
 
 def init(
@@ -193,6 +198,8 @@ def init(
     ray.util.register_serializer(
         Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__
     )
+    # TODO(pdames): If no catalogs are provided then re-initialize DeltaCAT
+    #  with all catalogs from the last session
     all_catalogs = Catalogs.remote(catalogs=catalogs, default=default)
 
 
