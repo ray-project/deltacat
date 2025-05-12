@@ -98,7 +98,7 @@ if __name__ == "__main__":
     Example 2: Submit this script as a local Ray job using a local job client:
     >>> from deltacat import local_job_client
     >>> client = local_job_client()
-    >>> # read the source json or json.gz file as line-delimited text (i.e., jsonl format w/o parsing)
+    >>> # read the source file as line-delimited text
     >>> src = "text+s3://openalex-mag-format/data_dump_v1/2022-07-08/nlp/PaperAbstractsInvertedIndex.txt_part31"
     >>> # write to the destination file using the default DeltaCAT Parquet writer (i.e., polars.DataFrame.write_parquet)
     >>> dst = "parquet+s3://deltacat-example-output/openalex/PaperAbstractsInvertedIndex.part31.parquet"
@@ -123,11 +123,11 @@ if __name__ == "__main__":
     >>> # automatically launches the cluster if it doesn't exist or has died
     >>> # automatically forwards the ray cluster's dashboard for viewing in a web browser @ http://localhost:8265
     >>> client = job_client()
-    >>> # >>> follow the same steps as above to submit a synchronous indexer job >>>
+    >>> # ... follow the same steps as above to submit a synchronous indexer job ...
     >>>
     >>> # OR use an explicit cluster launcher config file path
     >>> client = job_client("/Users/pdames/workspace/deltacat.yaml")
-    >>> # >>> follow the same steps as above to submit a synchronous indexer job >>>
+    >>> # ... follow the same steps as above to submit a synchronous indexer job ...
     """
     script_args = [
         (
