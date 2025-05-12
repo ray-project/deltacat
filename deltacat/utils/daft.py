@@ -2,8 +2,8 @@ import logging
 from typing import Optional, List, Any, Dict, Callable
 import daft
 import ray
-from daft.recordbatch import read_parquet_into_pyarrow
 from daft import TimeUnit, DataFrame
+from daft.recordbatch import read_parquet_into_pyarrow
 from daft.io import IOConfig, S3Config
 import pyarrow as pa
 
@@ -51,7 +51,7 @@ def s3_files_to_dataframe(
     ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
 
     if not ray.is_initialized():
-        ray.init(address="auto", ignore_reinit_error=True, **ray_init_options)
+        ray.init(ignore_reinit_error=True, **ray_init_options)
 
     daft.context.set_runner_ray(noop_if_initialized=True)
 

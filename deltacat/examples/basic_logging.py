@@ -1,6 +1,8 @@
 import os
-import ray
+import deltacat
 import logging
+
+import ray
 
 from deltacat import logs
 from deltacat.constants import DELTACAT_APP_LOG_DIR, DELTACAT_SYS_LOG_DIR
@@ -94,8 +96,8 @@ if __name__ == "__main__":
     # create any runtime environment required to run the example
     runtime_env = create_ray_runtime_environment()
 
-    # initialize ray
-    ray.init(runtime_env=runtime_env)
+    # initialize deltacat
+    deltacat.init(ray_init_args={"runtime_env": runtime_env})
 
     # run the example using os.environ as kwargs
     run(**os.environ)

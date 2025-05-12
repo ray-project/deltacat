@@ -1,0 +1,95 @@
+# Unique identifier for the head node and workers of this cluster.
+cluster_name: indexer
+
+provider:
+  type: gcp
+  region: us-central1-a
+  availability_zone: us-central1-a
+  # keep stopped nodes in cache for faster startup
+  cache_stopped_nodes: true
+
+# Tell the autoscaler the allowed node types and the resources they provide.
+# The key is the name of the node type, which is just for debugging purposes.
+# The node config specifies the launch config and physical instance type.
+available_node_types:
+  ray.head.default:
+    # to improve cluster stability, only use 7 of 16 head node CPUs for worker tasks
+    resources: {"CPU": 7}
+    # Provider-specific config for the head node, e.g. instance type. By default
+    # Ray will auto-configure unspecified fields such as subnets and ssh-keys.
+    # For more documentation on available fields, see:
+    # https://cloud.google.com/compute/docs/reference/rest/v1/instances/insert
+    node_config:
+      machineType: e2-highmem-16
+      disks:
+        - boot: true
+          autoDelete: true
+          type: PERSISTENT
+          initializeParams:
+            diskSizeGb: 50
+            # See https://cloud.google.com/compute/docs/images for more images
+            sourceImage: projects/deeplearning-platform-release/global/images/common-cpu-v20240922
+
+          # Additional options can be found in in the compute docs at
+          # https://cloud.google.com/compute/docs/reference/rest/v1/instances/insert
+
+          # If the network interface is specified as below in both head and worker
+          # nodes, the manual network config is used.  Otherwise an existing subnet is
+          # used.  To use a shared subnet, ask the subnet owner to grant permission
+          # for 'compute.subnetworks.use' to the ray autoscaler account...
+          # networkInterfaces:
+          #   - kind: compute#networkInterface
+          #     subnetwork: path/to/subnet
+          #     aliasIpRanges: []
+  ray.worker.default:
+    # The minimum number of worker nodes of this type to launch.
+    # This number should be >= 0.
+    min_workers: 0
+    # The maximum number of worker nodes of this type to launch.
+    # This takes precedence over min_workers.
+    max_workers: 200
+    # Provider-specific config for the worker node, e.g. instance type.
+    node_config:
+      machineType: e2-highmem-2
+      disks:
+        - boot: true
+          autoDelete: true
+          type: PERSISTENT
+          initializeParams:
+            diskSizeGb: 50
+            # See https://cloud.google.com/compute/docs/images for more images
+            sourceImage: projects/deeplearning-platform-release/global/images/common-cpu-v20240922
+      # Workers run on on-demand instances by default.
+      # Uncomment this to use cheaper preemptible instances.
+      # scheduling:
+      #  - preemptible: true
+
+# Maximum number of workers nodes to launch in addition to the head node
+max_workers: 200
+
+# Specify the node type of the head node (as configured above).
+head_node_type: ray.head.default
+
+# Commands to start ray on the head node.
+# This job type runs purely on heap memory and requires minimal object store memory, so we:
+#  1. Resize the head and worker node shared memory at /dev/shm down to 2% of the total node's memory.
+#  2. Set aside only 1% of the total node's memory (half of shared memory) for Ray's object store.
+head_start_ray_commands:
+    - ray stop
+    # resize shared memory at /dev/shm
+    - SHARED_MEM_GIB=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 2 / 1024 / 1024 / 100)) && sudo mount -o remount,size="${SHARED_MEM_GIB}G" /dev/shm
+    # bump the file descriptor limit up to 65536 to support more intranode connections,
+    # and reconfigure Ray's object store size when starting Ray
+    - ulimit -n 65536; OBJ_STORE_BYTES=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 1 * 1024 / 100)) && ray start --head --port=6379 --object-manager-port=8076 --object-store-memory="$OBJ_STORE_BYTES" --autoscaling-config=~/ray_bootstrap_config.yaml
+
+worker_start_ray_commands:
+    - ray stop
+    # resize shared memory at /dev/shm
+    - SHARED_MEM_GIB=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 2 / 1024 / 1024 / 100)) && sudo mount -o remount,size="${SHARED_MEM_GIB}G" /dev/shm
+    # bump the file descriptor limit up to 65536 to support more intranode connections,
+    # and reconfigure Ray's object store size when starting Ray
+    - ulimit -n 65536; OBJ_STORE_BYTES=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 1 * 1024 / 100)) && ray start --address=$RAY_HEAD_IP:6379 --object-store-memory="$OBJ_STORE_BYTES" --object-manager-port=8076
+
+setup_commands:
+  # install the lateset version of deltacat
+  - pip uninstall -y deltacat; pip install 'pip install deltacat @ git+https://github.com/pdames/deltacat.git@indexer'

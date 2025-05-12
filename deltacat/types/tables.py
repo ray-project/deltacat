@@ -3,9 +3,10 @@ from typing import Callable, Dict, Type, Union
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as papq
-from ray.data.dataset import Dataset
+from ray.data.dataset import Dataset as RayDataset
 from ray.data.read_api import (
     from_arrow,
     from_arrow_refs,
@@ -18,11 +19,12 @@ import deltacat.storage as dcs
 from deltacat.types.media import TableType, DistributedDatasetType
 from deltacat.utils import numpy as np_utils
 from deltacat.utils import pandas as pd_utils
+from deltacat.utils import polars as pl_utils
 from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils import daft as daft_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
 
-TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+TABLE_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
     TableType.PYARROW_PARQUET.value: pa_utils.s3_file_to_parquet,
     TableType.PYARROW.value: pa_utils.s3_file_to_table,
     TableType.PANDAS.value: pd_utils.s3_file_to_dataframe,
@@ -34,8 +36,9 @@ TABLE_CLASS_TO_WRITER_FUNC: Dict[
 ] = {
     pa.Table: pa_utils.table_to_file,
     pd.DataFrame: pd_utils.dataframe_to_file,
+    pl.DataFrame: pl_utils.dataframe_to_file,
     np.ndarray: np_utils.ndarray_to_file,
-    Dataset: ds_utils.dataset_to_file,
+    RayDataset: ds_utils.dataset_to_file,
 }
 
 TABLE_CLASS_TO_SLICER_FUNC: Dict[
@@ -43,8 +46,9 @@ TABLE_CLASS_TO_SLICER_FUNC: Dict[
 ] = {
     pa.Table: pa_utils.slice_table,
     pd.DataFrame: pd_utils.slice_dataframe,
+    pl.DataFrame: pl_utils.slice_table,
     np.ndarray: np_utils.slice_ndarray,
-    Dataset: ds_utils.slice_dataset,
+    RayDataset: ds_utils.slice_dataset,
 }
 
 TABLE_CLASS_TO_SIZE_FUNC: Dict[
@@ -53,13 +57,27 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     pa.Table: pa_utils.table_size,
     papq.ParquetFile: pa_utils.parquet_file_size,
     pd.DataFrame: pd_utils.dataframe_size,
+    pl.DataFrame: pl_utils.dataframe_size,
     np.ndarray: np_utils.ndarray_size,
-    Dataset: ds_utils.dataset_size,
+    RayDataset: ds_utils.dataset_size,
+}
+
+TABLE_CLASS_TO_PYARROW_FUNC: Dict[
+    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable
+] = {
+    pa.Table: lambda table, **kwargs: table,
+    papq.ParquetFile: lambda table, **kwargs: table.read(**kwargs),
+    pd.DataFrame: lambda table, **kwargs: pa.Table.from_pandas(table, **kwargs),
+    pl.DataFrame: lambda table, **kwargs: pl.DataFrame.to_arrow(table, **kwargs),
+    np.ndarray: lambda table, **kwargs: pa.Table.from_arrays(
+        [pa.array(table[:, i]) for i in range(table.shape[1])]
+    ),
 }
 
 TABLE_CLASS_TO_TABLE_TYPE: Dict[Type[dcs.LocalTable], str] = {
     pa.Table: TableType.PYARROW.value,
     papq.ParquetFile: TableType.PYARROW_PARQUET.value,
+    pl.DataFrame: TableType.POLARS.value,
     pd.DataFrame: TableType.PANDAS.value,
     np.ndarray: TableType.NUMPY.value,
 }
@@ -77,7 +95,6 @@ TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
     TableType.NUMPY.value: from_numpy,
     TableType.PANDAS.value: from_pandas_refs,
 }
-
 
 DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
     DistributedDatasetType.DAFT.value: daft_utils.s3_files_to_dataframe
@@ -106,7 +123,18 @@ class TableWriteMode(str, Enum):
 
 
 def get_table_length(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> int:
-    return len(table) if not isinstance(table, Dataset) else table.count()
+    return len(table) if not isinstance(table, RayDataset) else table.count()
+
+
+def get_table_size(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> int:
+    table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
+    if table_size_func is None:
+        msg = (
+            f"No size function found for table type: {type(table)}.\n"
+            f"Known table types: {TABLE_CLASS_TO_SIZE_FUNC.keys}"
+        )
+        raise ValueError(msg)
+    return table_size_func(table)
 
 
 def get_table_writer(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> Callable:

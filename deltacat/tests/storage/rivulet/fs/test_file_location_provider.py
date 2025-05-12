@@ -2,7 +2,8 @@ import pytest
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from deltacat import Datatype, Dataset
+from deltacat.storage.rivulet.schema.datatype import Datatype
+from deltacat.storage.rivulet.dataset import Dataset
 from deltacat.storage.rivulet import Schema, Field
 from deltacat.utils.metafile_locator import _find_partition_path
 

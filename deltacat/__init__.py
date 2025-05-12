@@ -5,6 +5,7 @@ import deltacat.logs  # noqa: F401
 from deltacat.api import (
     copy,
     get,
+    list,
     put,
 )
 from deltacat.catalog.delegate import (
@@ -30,13 +31,19 @@ from deltacat.catalog.delegate import (
 from deltacat.catalog.model.catalog import (  # noqa: F401
     Catalog,
     Catalogs,
+    raise_if_not_initialized,
     is_initialized,
     init,
     get_catalog,
     put_catalog,
 )
 from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.compute import (
+    job_client,
+    local_job_client,
+)
 from deltacat.storage import (
+    Dataset,
     DistributedDataset,
     Field,
     LifecycleState,
@@ -53,9 +60,16 @@ from deltacat.storage import (
     SortScheme,
     NullOrder,
 )
-from deltacat.storage.rivulet import Dataset, Datatype
-from deltacat.types.media import ContentEncoding, ContentType, TableType
+from deltacat.storage.rivulet import Dataset as RivDataset, Datatype as RivDatatype
+from deltacat.types.media import (
+    ContentEncoding,
+    ContentType,
+    DatasetType,
+    DatastoreType,
+)
+
 from deltacat.types.tables import TableWriteMode
+from deltacat.utils.url import DeltaCatUrl
 
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
@@ -67,13 +81,16 @@ if importlib.util.find_spec("pyiceberg") is not None:
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "2.0.0b9"
+__version__ = "2.0.0b10"
 
 
 __all__ = [
     "__version__",
+    "job_client",
+    "local_job_client",
     "copy",
     "get",
+    "list",
     "put",
     "alter_table",
     "create_table",
@@ -95,14 +112,19 @@ __all__ = [
     "read_table",
     "get_catalog",
     "put_catalog",
+    "raise_if_not_initialized",
     "is_initialized",
     "init",
     "Catalog",
     "ContentType",
     "ContentEncoding",
-    "DistributedDataset",
     "Dataset",
-    "Datatype",
+    "DatasetType",
+    "DatastoreType",
+    "DeltaCatUrl",
+    "DistributedDataset",
+    "RivDataset",
+    "RivDatatype",
     "Field",
     "LifecycleState",
     "ListResult",
@@ -118,7 +140,6 @@ __all__ = [
     "SortOrder",
     "SortScheme",
     "TableDefinition",
-    "TableType",
     "TableWriteMode",
 ]
 
