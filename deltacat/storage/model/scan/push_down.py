@@ -33,14 +33,14 @@ class Pushdown:
 
     @staticmethod
     def of(
-        row_filter: Optional[RowFilter], 
+        row_filter: Optional[RowFilter],
         column_filter: Optional[ColumnFilter],
         partition_filter: Optional[PartitionFilter],
-        limit: Optional[int]
+        limit: Optional[int],
     ) -> Pushdown:
         return Pushdown(
             row_filter=row_filter,
             column_filter=column_filter,
             partition_filter=partition_filter,
-            limit=limit
+            limit=limit,
         )

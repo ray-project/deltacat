@@ -14,7 +14,6 @@ from daft.io.scan import ScanOperator, ScanPushdowns
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.daft.model import DaftPartitionKeyMapper
 from deltacat.daft.translator import translate_pushdown
-from deltacat.storage.model import schema
 
 
 class DeltaCatScanOperator(ScanOperator):
@@ -46,7 +45,9 @@ class DeltaCatScanOperator(ScanOperator):
         ]
 
     def to_scan_tasks(self, pushdowns: Pushdowns) -> Iterator[ScanTask]:
-        daft_pushdowns = ScanPushdowns._from_pypushdowns(pushdowns, schema=self.schema())
+        daft_pushdowns = ScanPushdowns._from_pypushdowns(
+            pushdowns, schema=self.schema()
+        )
         dc_pushdown = translate_pushdown(daft_pushdowns)
         dc_scan_plan = self.table.create_scan_plan(pushdown=dc_pushdown)
         scan_tasks = []

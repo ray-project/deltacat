@@ -5,28 +5,22 @@ from deltacat.expression.expression import (
     BooleanExpression,
     Reference,
     Literal,
-    
     Equal,
     NotEqual,
     GreaterThan,
     LessThan,
     GreaterThanEqual,
     LessThanEqual,
-    
     And,
     Or,
     Not,
-    
     In,
     Between,
     Like,
     IsNull,
 )
 
-from deltacat.expression.visitor import (
-    ExpressionVisitor,
-    DisplayVisitor
-)
+from deltacat.expression.visitor import ExpressionVisitor, DisplayVisitor
 
 __all__ = [
     "Expression",
@@ -35,23 +29,19 @@ __all__ = [
     "BooleanExpression",
     "Reference",
     "Literal",
-    
     "Equal",
     "NotEqual",
     "GreaterThan",
     "LessThan",
     "GreaterThanEqual",
     "LessThanEqual",
-    
     "And",
     "Or",
     "Not",
-    
     "In",
     "Between",
     "Like",
     "IsNull",
-
     "ExpressionVisitor",
     "DisplayVisitor",
 ]
