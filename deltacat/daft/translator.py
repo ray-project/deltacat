@@ -8,7 +8,7 @@ from daft.io.pushdowns import (
     TermVisitor,
 )
 
-from deltacat.expression import (
+from deltacat.storage.model.expression import (
     Expression,
     Reference,
     Literal,

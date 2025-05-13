@@ -27,7 +27,7 @@ class Expression(ABC):
         Returns:
             str: A string representation of the expression.
         """
-        from deltacat.expression.visitor import DisplayVisitor
+        from deltacat.storage.model.expression.visitor import DisplayVisitor
 
         return DisplayVisitor().visit(self, None)
 

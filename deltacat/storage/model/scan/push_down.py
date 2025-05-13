@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from deltacat.expression import Expression
+from deltacat.storage.model.expression import Expression
 
 
 class RowFilter:

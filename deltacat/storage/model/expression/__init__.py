@@ -1,4 +1,4 @@
-from deltacat.expression.expression import (
+from deltacat.storage.model.expression.expression import (
     Expression,
     UnaryExpression,
     BinaryExpression,
@@ -20,7 +20,7 @@ from deltacat.expression.expression import (
     IsNull,
 )
 
-from deltacat.expression.visitor import ExpressionVisitor, DisplayVisitor
+from deltacat.storage.model.expression.visitor import ExpressionVisitor, DisplayVisitor
 
 __all__ = [
     "Expression",

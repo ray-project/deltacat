@@ -3,7 +3,7 @@ from typing import Dict, Generic, TypeVar, Callable, Optional
 from functools import singledispatchmethod
 import re
 
-from deltacat.expression import (
+from deltacat.storage.model.expression import (
     Expression,
     Reference,
     Literal,
@@ -228,30 +228,16 @@ class DisplayVisitor(ExpressionVisitor[Expression, str]):
         "LessThan": lambda left, right: f"{left} < {right}",
         "GreaterThanEqual": lambda left, right: f"{left} >= {right}",
         "LessThanEqual": lambda left, right: f"{left} <= {right}",
-        "And": lambda left, right: f"{left} AND {right}",
-        "Or": lambda left, right: f"{left} OR {right}",
+        "And": lambda left, right: f"({left} AND {right})",
+        "Or": lambda left, right: f"({left} OR {right})",
         # Unary operations
-        "Not": lambda operand: f"NOT {operand}",
-        "IsNull": lambda operand: f"{operand} IS NULL",
+        "Not": lambda operand: f"NOT ({operand})",
+        "IsNull": lambda operand: f"({operand}) IS NULL",
         # Special operations
         "In": lambda value, values: f"{value} IN ({', '.join(values)})",
         "Between": lambda value, lower, upper: f"{value} BETWEEN {lower} AND {upper}",
         "Like": lambda value, pattern: f"{value} LIKE {pattern}",
     }
-
-    def _apply_binary(self, proc, left, right):
-        """Override apply_binary procedure with proper parentheses as needed."""
-        left_parenthesized = (
-            f"({left})"
-            if " " in left and not (left.startswith("(") and left.endswith(")"))
-            else left
-        )
-        right_parenthesized = (
-            f"({right})"
-            if " " in right and not (right.startswith("(") and right.endswith(")"))
-            else right
-        )
-        return proc(left_parenthesized, right_parenthesized)
 
     def visit_reference(self, expr: Reference, context=None) -> str:
         """Format a field reference."""
