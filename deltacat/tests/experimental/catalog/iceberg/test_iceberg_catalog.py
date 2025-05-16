@@ -3,7 +3,7 @@ import shutil
 import uuid
 import deltacat
 import pytest
-from deltacat import Field, Schema, Catalog
+from deltacat import Field, Schema
 from pyiceberg.catalog import CatalogType
 
 import pyarrow as pa
