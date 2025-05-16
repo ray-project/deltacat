@@ -3,7 +3,7 @@ import logging
 
 import deltacat as dc
 
-from deltacat.catalog import CatalogProperties
+from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
     StreamNotFoundError,

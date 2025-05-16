@@ -323,12 +323,12 @@ class DeltaCatJobClient(JobSubmissionClient):
 
 def local_job_client(*args, **kwargs) -> DeltaCatJobClient:
     """
-    Create a Ray Job Client that can be used to submit jobs to a local Ray
+    Create a DeltaCAT Job Client that can be used to submit jobs to a local Ray
     cluster. Initializes Ray if it's not already running.
 
     Args:
-        *args: Positional arguments to pass to `ray.init()`.
-        **kwargs: Keyword arguments to pass to `ray.init()`.
+        *args: Positional arguments to pass to `deltacat.init()`.
+        **kwargs: Keyword arguments to pass to `deltacat.init()`.
     Returns:
         DeltaCatJobClient: A client instance that can be used to submit and
             manage local Ray jobs.
@@ -339,7 +339,7 @@ def local_job_client(*args, **kwargs) -> DeltaCatJobClient:
     if not dc.is_initialized():
         context = dc.init(*args, **kwargs)
     else:
-        context = dc.init(ray_init_args={"ignore_reinit_error": True})
+        context = dc.init()
     if context.dashboard_url:
         head_node_ip, port = context.dashboard_url.split(":")
     else:
@@ -368,7 +368,8 @@ def job_client(
     port: Union[str, int] = "8265",
 ) -> DeltaCatJobClient:
     """
-    Create a DeltaCAT Job Client that can be used to submit jobs to a remote Ray cluster.
+    Create a DeltaCAT Job Client that can be used to submit jobs to a remote
+    Ray cluster.
 
     Args:
         cluster_cfg_file_path: Path to the Ray Cluster Launcher

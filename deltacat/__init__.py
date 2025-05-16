@@ -8,7 +8,7 @@ from deltacat.api import (
     list,
     put,
 )
-from deltacat.catalog.delegate import (
+from deltacat.catalog import (  # noqa: F401
     alter_namespace,
     alter_table,
     create_namespace,
@@ -27,17 +27,18 @@ from deltacat.catalog.delegate import (
     table_exists,
     truncate_table,
     write_to_table,
-)
-from deltacat.catalog.model.catalog import (  # noqa: F401
-    Catalog,
-    Catalogs,
-    raise_if_not_initialized,
-    is_initialized,
     init,
+    is_initialized,
+    clear_catalogs,
     get_catalog,
+    get_catalog_properties,
+    pop_catalog,
     put_catalog,
+    raise_if_not_initialized,
+    Catalog,
+    CatalogProperties,
+    TableDefinition,
 )
-from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.compute import (
     job_client,
     local_job_client,
@@ -111,12 +112,16 @@ __all__ = [
     "default_namespace",
     "write_to_table",
     "read_table",
+    "init",
+    "is_initialized",
+    "clear_catalogs",
     "get_catalog",
+    "get_catalog_properties",
+    "pop_catalog",
     "put_catalog",
     "raise_if_not_initialized",
-    "is_initialized",
-    "init",
     "Catalog",
+    "CatalogProperties",
     "ContentType",
     "ContentEncoding",
     "Dataset",

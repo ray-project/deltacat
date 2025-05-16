@@ -3,7 +3,7 @@ import shutil
 import uuid
 import deltacat
 import pytest
-from deltacat import Field, Schema
+from deltacat import Field, Schema, Catalog
 from pyiceberg.catalog import CatalogType
 
 import pyarrow as pa
@@ -37,7 +37,7 @@ class TestIcebergCatalogInitialization:
 
     def test_iceberg_catalog_and_table_create(self, schema_a):
 
-        # Note - we're using the global Catalog context here (shared across tests), so generating a random catalog name
+        # Register a random catalog name to avoid concurrent test conflicts
         catalog_name = str(uuid.uuid4())
 
         config = IcebergCatalogConfig(
@@ -50,10 +50,9 @@ class TestIcebergCatalogInitialization:
 
         # Initialize with the PyIceberg catalog
         catalog = deltacat.IcebergCatalog.from_config(config)
-        deltacat.put_catalog(
-            catalog_name,
-            catalog,
-            ray_init_args={"ignore_reinit_error": True},
+        deltacat.init(
+            {catalog_name: catalog},
+            force=True,
         )
 
         table_def = deltacat.create_table(

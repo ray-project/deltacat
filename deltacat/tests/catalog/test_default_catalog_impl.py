@@ -39,7 +39,6 @@ class TestReadTable(unittest.TestCase):
         dc.put_catalog(
             cls.catalog_name,
             catalog=Catalog(catalog_config),
-            ray_init_args={"ignore_reinit_error": True},
         )
         super().setUpClass()
 
