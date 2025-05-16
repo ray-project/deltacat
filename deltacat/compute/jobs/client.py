@@ -70,6 +70,7 @@ def _get_head_node_ip(cluster_cfg: str) -> str:
         check=True,
     )
     # the head node IP should be the last line printed to stdout
+    # TODO(pdames): add IPv6 support
     head_node_ip = proc.stdout.splitlines()[-1]
     if not re.match(
         r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$",

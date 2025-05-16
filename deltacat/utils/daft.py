@@ -1,13 +1,47 @@
 import logging
-from typing import Optional, List, Any, Dict, Callable
+from typing import Optional, List, Any, Dict, Callable, Iterator
+
+from daft.daft import (
+    StorageConfig,
+    PartitionField,
+    Pushdowns as DaftPyPushdowns,
+    ScanTask,
+    FileFormatConfig,
+    ParquetSourceConfig,
+    PartitionTransform as DaftTransform,
+    PartitionField as DaftPartitionField,
+)
+from pyarrow import Field as PaField
+
 import daft
 import ray
-from daft import TimeUnit, DataFrame
+from daft import (
+    TimeUnit,
+    DataFrame,
+    Schema as DaftSchema,
+    DataType,
+)
+from daft.logical.schema import Field as DaftField
 from daft.recordbatch import read_parquet_into_pyarrow
-from daft.io import IOConfig, S3Config
+from daft.io import (
+    IOConfig,
+    S3Config,
+)
+from daft.io.pushdowns import (
+    Expr as DaftExpr,
+    Literal as DaftLiteral,
+    Reference as DaftReference,
+    TermVisitor,
+)
+from daft.io.scan import (
+    ScanOperator,
+    make_partition_field,
+)
+from daft.io.pushdowns import Pushdowns as DaftPushdowns
 import pyarrow as pa
 
 from deltacat import logs
+from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.schema import coerce_pyarrow_table_to_schema
 from deltacat.types.media import ContentType, ContentEncoding
@@ -22,9 +56,132 @@ from deltacat.utils.performance import timed_invocation
 from deltacat.types.partial_download import (
     PartialFileDownloadParams,
 )
-
+from deltacat.storage import (
+    Transform,
+    IdentityTransform,
+    HourTransform,
+    DayTransform,
+    MonthTransform,
+    YearTransform,
+    BucketTransform,
+    BucketingStrategy,
+    TruncateTransform,
+    PartitionKey,
+    Schema,
+)
+from deltacat.storage.model.interop import ModelMapper
+from deltacat.storage.model.expression import (
+    Expression,
+    Reference,
+    Literal,
+    Equal,
+    NotEqual,
+    GreaterThan,
+    LessThan,
+    GreaterThanEqual,
+    LessThanEqual,
+    And,
+    Or,
+    Not,
+    IsNull,
+)
+from deltacat.storage.model.scan.push_down import (
+    PartitionFilter,
+    Pushdown as DeltaCatPushdown,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+def translate_pushdown(pushdown: DaftPushdowns) -> DeltaCatPushdown:
+    """
+    Helper method to translate a Daft Pushdowns object into a Deltacat Pushdown.
+    Args:
+        pushdown: Daft Daft Pushdowns object
+    Returns:
+        Pushdown: Deltacat Pushdown object with translated filters
+    """
+    translator = DaftToDeltacatExpressionTranslator()
+    partition_filter = None
+
+    if pushdown.predicate:
+        predicate = translator.visit(pushdown.predicate, None)
+        partition_filter = PartitionFilter.of(predicate)
+
+    # TODO: translate other pushdown filters
+    return DeltaCatPushdown.of(
+        row_filter=None,
+        column_filter=None,
+        partition_filter=partition_filter,
+        limit=None,
+    )
+
+
+class DaftToDeltacatExpressionTranslator(TermVisitor[None, Expression]):
+    """
+    This visitor implementation traverses a Daft expression tree and produces
+    an equivalent Deltacat expression tree for use in Deltacat's query pushdown
+    system.
+    """
+
+    _PROCEDURES: Dict[str, Callable[..., Expression]] = {
+        # Comparison predicates
+        "=": Equal.of,
+        "!=": NotEqual.of,
+        "<": LessThan.of,
+        ">": GreaterThan.of,
+        "<=": LessThanEqual.of,
+        ">=": GreaterThanEqual.of,
+        # Logical predicates
+        "and": And.of,
+        "or": Or.of,
+        "not": Not.of,
+        # Special operations
+        "is_null": IsNull.of,
+    }
+
+    def visit_reference(self, term: DaftReference, context: None) -> Expression:
+        """
+        Convert Daft Reference to Deltacat Reference.
+        Args:
+            term: A Daft Reference expression representing a field or column.
+            context: Not used in this visitor implementation.
+        Returns:
+            DeltacatExpression: A Deltacat Reference expression for the same field.
+        """
+        return Reference(term.path)
+
+    def visit_literal(self, term: DaftLiteral, context: None) -> Expression:
+        """
+        Convert Daft Literal to Deltacat Literal.
+        Args:
+            term: A Daft Literal expression representing a constant value.
+            context: Not used in this visitor implementation.
+        Returns:
+            DeltacatExpression: A Deltacat Literal expression wrapping the same value as a PyArrow scalar.
+        """
+        return Literal(pa.scalar(term.value))
+
+    def visit_expr(self, term: DaftExpr, context: None) -> Expression:
+        """
+        This method handles the translation of procedure calls (operations) from
+        Daft to Deltacat, including special cases for IN, BETWEEN, and LIKE.
+        Args:
+            term: A Daft Expr expression representing an operation.
+            context: Not used in this visitor implementation.
+        Returns:
+            DeltacatExpression: An equivalent Deltacat expression.
+        Raises:
+            ValueError: If the operation has an invalid number of arguments or
+                if the operation is not supported by Deltacat.
+        """
+        proc = term.proc
+        args = [self.visit(arg.term, context) for arg in term.args]
+
+        if proc not in self._PROCEDURES:
+            raise ValueError(f"Deltacat does not support procedure '{proc}'.")
+
+        return self._PROCEDURES[proc](*args)
 
 
 def s3_files_to_dataframe(
@@ -167,3 +324,334 @@ def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
             read_timeout_ms=10_000,  # Timeout for first byte from server
         )
     )
+
+
+class DeltaCatScanOperator(ScanOperator):
+    def __init__(self, table: TableDefinition, storage_config: StorageConfig) -> None:
+        super().__init__()
+        self.table = table
+        self._schema = self._infer_schema()
+        self.partition_keys = self._infer_partition_keys()
+        self.storage_config = storage_config
+
+    def schema(self) -> Schema:
+        return self._schema
+
+    def name(self) -> str:
+        return "DeltaCatScanOperator"
+
+    def display_name(self) -> str:
+        return f"DeltaCATScanOperator({self.table.table.namespace}.{self.table.table.table_name})"
+
+    def partitioning_keys(self) -> list[PartitionField]:
+        return self.partition_keys
+
+    def multiline_display(self) -> list[str]:
+        return [
+            self.display_name(),
+            f"Schema = {self._schema}",
+            f"Partitioning keys = {self.partitioning_keys}",
+            f"Storage config = {self.storage_config}",
+        ]
+
+    def to_scan_tasks(self, pushdowns: DaftPyPushdowns) -> Iterator[ScanTask]:
+        daft_pushdowns = DaftPushdowns._from_pypushdowns(
+            pushdowns, schema=self.schema()
+        )
+        dc_pushdown = translate_pushdown(daft_pushdowns)
+        dc_scan_plan = self.table.create_scan_plan(pushdown=dc_pushdown)
+        scan_tasks = []
+        file_format_config = FileFormatConfig.from_parquet_config(
+            # maybe this: ParquetSourceConfig(field_id_mapping=self._field_id_mapping)
+            ParquetSourceConfig()
+        )
+        for dc_scan_task in dc_scan_plan.scan_tasks:
+            for data_file in dc_scan_task.data_files():
+                st = ScanTask.catalog_scan_task(
+                    file=data_file.file_path,
+                    file_format=file_format_config,
+                    schema=self._schema._schema,
+                    storage_config=self.storage_config,
+                    pushdowns=pushdowns,
+                )
+                scan_tasks.append(st)
+        return iter(scan_tasks)
+
+    def can_absorb_filter(self) -> bool:
+        return False
+
+    def can_absorb_limit(self) -> bool:
+        return False
+
+    def can_absorb_select(self) -> bool:
+        return True
+
+    def _infer_schema(self) -> Schema:
+
+        if not (
+            self.table and self.table.table_version and self.table.table_version.schema
+        ):
+            raise RuntimeError(
+                f"Failed to infer schema for DeltaCAT Table "
+                f"{self.table.table.namespace}.{self.table.table.table_name}"
+            )
+
+        return Schema.from_pyarrow_schema(self.table.table_version.schema.arrow)
+
+    def _infer_partition_keys(self) -> list[PartitionField]:
+        if not (
+            self.table
+            and self.table.table_version
+            and self.table.table_version.partition_scheme
+            and self.table.table_version.schema
+        ):
+            raise RuntimeError(
+                f"Failed to infer partition keys for DeltaCAT Table "
+                f"{self.table.table.namespace}.{self.table.table.table_name}"
+            )
+
+        schema = self.table.table_version.schema
+        partition_keys = self.table.table_version.partition_scheme.keys
+        if not partition_keys:
+            return []
+
+        partition_fields = []
+        for key in partition_keys:
+            field = DaftPartitionKeyMapper.unmap(key, schema)
+            # Assert that the returned value is not None.
+            assert field is not None, f"Unmapping failed for key {key}"
+            partition_fields.append(field)
+
+        return partition_fields
+
+
+class DaftFieldMapper(ModelMapper[DaftField, PaField]):
+    @staticmethod
+    def map(
+        obj: Optional[DaftField],
+        **kwargs,
+    ) -> Optional[PaField]:
+        """Convert Daft Field to PyArrow Field.
+
+        Args:
+            obj: The Daft Field to convert
+            **kwargs: Additional arguments
+
+        Returns:
+            Converted PyArrow Field object
+        """
+        if obj is None:
+            return None
+
+        return pa.field(
+            name=obj.name,
+            type=obj.dtype.to_arrow_dtype(),
+        )
+
+    @staticmethod
+    def unmap(
+        obj: Optional[PaField],
+        **kwargs,
+    ) -> Optional[DaftField]:
+        """Convert PyArrow Field to Daft Field.
+
+        Args:
+            obj: The PyArrow Field to convert
+            **kwargs: Additional arguments
+
+        Returns:
+            Converted Daft Field object
+        """
+        if obj is None:
+            return None
+
+        return DaftField.create(
+            name=obj.name,
+            dtype=DataType.from_arrow_type(obj.type),  # type: ignore
+        )
+
+
+class DaftTransformMapper(ModelMapper[DaftTransform, Transform]):
+    @staticmethod
+    def map(
+        obj: Optional[DaftTransform],
+        **kwargs,
+    ) -> Optional[Transform]:
+        """Convert DaftTransform to DeltaCAT Transform.
+
+        Args:
+            obj: The DaftTransform to convert
+            **kwargs: Additional arguments
+
+        Returns:
+            Converted Transform object
+        """
+
+        # daft.PartitionTransform doesn't have a Python interface for accessing its attributes,
+        # thus conversion is not possible.
+        # TODO: request Daft to expose Python friendly interface for daft.PartitionTransform
+        raise NotImplementedError(
+            "Converting transform from Daft to DeltaCAT is not supported"
+        )
+
+    @staticmethod
+    def unmap(
+        obj: Optional[Transform],
+        **kwargs,
+    ) -> Optional[DaftTransform]:
+        """Convert DeltaCAT Transform to DaftTransform.
+
+        Args:
+            obj: The Transform to convert
+            **kwargs: Additional arguments
+
+        Returns:
+            Converted DaftTransform object
+        """
+        if obj is None:
+            return None
+
+        # Map DeltaCAT transforms to Daft transforms using isinstance
+
+        if isinstance(obj, IdentityTransform):
+            return DaftTransform.identity()
+        elif isinstance(obj, HourTransform):
+            return DaftTransform.hour()
+        elif isinstance(obj, DayTransform):
+            return DaftTransform.day()
+        elif isinstance(obj, MonthTransform):
+            return DaftTransform.month()
+        elif isinstance(obj, YearTransform):
+            return DaftTransform.year()
+        elif isinstance(obj, BucketTransform):
+            if obj.parameters.bucketing_strategy == BucketingStrategy.ICEBERG:
+                return DaftTransform.iceberg_bucket(obj.parameters.num_buckets)
+            else:
+                raise ValueError(
+                    f"Unsupported Bucketing Strategy: {obj.parameters.bucketing_strategy}"
+                )
+        elif isinstance(obj, TruncateTransform):
+            return DaftTransform.iceberg_truncate(obj.parameters.width)
+
+        raise ValueError(f"Unsupported Transform: {obj}")
+
+
+class DaftPartitionKeyMapper(ModelMapper[DaftPartitionField, PartitionKey]):
+    @staticmethod
+    def map(
+        obj: Optional[DaftPartitionField],
+        schema: Optional[DaftSchema] = None,
+        **kwargs,
+    ) -> Optional[PartitionKey]:
+        """Convert DaftPartitionField to PartitionKey.
+
+        Args:
+            obj: The DaftPartitionField to convert
+            schema: The Daft schema containing field information
+            **kwargs: Additional arguments
+
+        Returns:
+            Converted PartitionKey object
+        """
+        # Daft PartitionField only exposes 1 attribute `field` which is not enough
+        # to convert to DeltaCAT PartitionKey
+        # TODO: request Daft to expose more Python friendly interface for PartitionField
+        raise NotImplementedError(
+            f"Converting Daft PartitionField to DeltaCAT PartitionKey is not supported"
+        )
+
+    @staticmethod
+    def unmap(
+        obj: Optional[PartitionKey],
+        schema: Optional[Schema] = None,
+        **kwargs,
+    ) -> Optional[DaftPartitionField]:
+        """Convert PartitionKey to DaftPartitionField.
+
+        Args:
+            obj: The DeltaCAT PartitionKey to convert
+            schema: The Schema containing field information
+            **kwargs: Additional arguments
+
+        Returns:
+            Converted DaftPartitionField object
+        """
+        if obj is None:
+            return None
+        if obj.name is None:
+            raise ValueError("Name is required for PartitionKey conversion")
+        if not schema:
+            raise ValueError("Schema is required for PartitionKey conversion")
+        if len(obj.key) < 1:
+            raise ValueError(
+                f"At least 1 PartitionKey FieldLocator is expected, instead got {len(obj.key)}. FieldLocators: {obj.key}."
+            )
+
+        # Get the source field from schema - FieldLocator in PartitionKey.key points to the source field of partition field
+        dc_source_field = schema.field(obj.key[0]).arrow
+        daft_source_field = DaftFieldMapper.unmap(obj=dc_source_field)
+        # Convert transform if present
+        daft_transform = DaftTransformMapper.unmap(obj.transform)
+        daft_partition_field = DaftPartitionKeyMapper.get_daft_partition_field(
+            partition_field_name=obj.name,
+            daft_source_field=daft_source_field,
+            dc_transform=obj.transform,
+        )
+
+        # Create DaftPartitionField
+        return make_partition_field(
+            field=daft_partition_field,
+            source_field=daft_source_field,
+            transform=daft_transform,
+        )
+
+    @staticmethod
+    def get_daft_partition_field(
+        partition_field_name: str,
+        daft_source_field: Optional[DaftField],
+        # TODO: replace DeltaCAT transform with Daft Transform for uniformality
+        # We cannot use Daft Transform here because Daft Transform doesn't have a Python interface for us to
+        # access its attributes.
+        # TODO: request Daft to provide a more python friendly interface for Daft Tranform
+        dc_transform: Optional[Transform],
+    ) -> DaftField:
+        """Generate Daft Partition Field given partition field name, source field and transform.
+        Partition field type is inferred using source field type and transform.
+
+        Args:
+            partition_field_name (str): the specified result field name
+            daft_source_field (DaftField): the source field of the partition field
+            daft_transform (DaftTransform): transform applied on the source field to create partition field
+
+        Returns:
+            DaftField: Daft Field representing the partition field
+        """
+        if daft_source_field is None:
+            raise ValueError("Source field is required for PartitionField conversion")
+        if dc_transform is None:
+            raise ValueError("Transform is required for PartitionField conversion")
+
+        result_type = None
+        # Below type conversion logic references Daft - Iceberg conversion logic:
+        # https://github.com/Eventual-Inc/Daft/blob/7f2e9b5fb50fdfe858be17572f132b37dd6e5ab2/daft/iceberg/iceberg_scan.py#L61-L85
+        if isinstance(dc_transform, IdentityTransform):
+            result_type = daft_source_field.dtype
+        elif isinstance(dc_transform, YearTransform):
+            result_type = DataType.int32()
+        elif isinstance(dc_transform, MonthTransform):
+            result_type = DataType.int32()
+        elif isinstance(dc_transform, DayTransform):
+            result_type = DataType.int32()
+        elif isinstance(dc_transform, HourTransform):
+            result_type = DataType.int32()
+        elif isinstance(dc_transform, BucketTransform):
+            result_type = DataType.int32()
+        elif isinstance(dc_transform, TruncateTransform):
+            result_type = daft_source_field.dtype
+        else:
+            raise ValueError(f"Unsupported transform: {dc_transform}")
+
+        return DaftField.create(
+            name=partition_field_name,
+            dtype=result_type,
+        )

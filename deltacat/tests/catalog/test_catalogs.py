@@ -8,7 +8,8 @@ from unittest import mock
 import os
 
 from deltacat.catalog import CatalogProperties
-from pyiceberg.catalog import Catalog as IcebergCatalog
+from deltacat.experimental.catalog.iceberg import impl as IcebergCatalog
+from pyiceberg.catalog import Catalog as PyIcebergCatalog
 
 from deltacat.catalog.model.catalog import (
     Catalog,
@@ -17,7 +18,7 @@ from deltacat.catalog.model.catalog import (
     put_catalog,
     is_initialized,
 )
-from deltacat.catalog.iceberg.iceberg_catalog_config import IcebergCatalogConfig
+from deltacat.experimental.catalog.iceberg import IcebergCatalogConfig
 
 from pyiceberg.catalog import CatalogType
 
@@ -25,9 +26,14 @@ from pyiceberg.catalog import CatalogType
 # Test module to mock a catalog implementation
 class MockCatalogImpl:
     @staticmethod
-    def initialize(*args, **kwargs):
+    def initialize(config, *args, **kwargs):
         # Return some state that the catalog would normally maintain
-        return {"initialized": True, "args": args, "kwargs": kwargs}
+        return {
+            "initialized": True,
+            "config": config,
+            "args": args,
+            "kwargs": kwargs,
+        }
 
 
 @pytest.fixture(scope="function")
@@ -74,6 +80,7 @@ class TestCatalog(unittest.TestCase):
         # Check that inner state was correctly initialized
         # This just asserts that kwargs were plumbed through from Catalog constructor
         self.assertTrue(catalog.inner["initialized"])
+        self.assertIsNone(catalog.inner["config"])
         self.assertEqual(catalog.inner["args"], ())
         self.assertEqual(catalog.inner["kwargs"], {})
 
@@ -81,16 +88,18 @@ class TestCatalog(unittest.TestCase):
         """Test the iceberg factory method correctly creates an Iceberg catalog."""
         # Create a mock for the Iceberg catalog module
         with mock.patch(
-            "deltacat.catalog.model.catalog.IcebergCatalog"
+            "deltacat.experimental.catalog.iceberg.impl.IcebergCatalog"
         ) as mock_iceberg_catalog:
             # Configure the mock to return a known value when initialize is called
             mock_iceberg_catalog.initialize.return_value = {"iceberg": True}
 
             # Create an Iceberg catalog config and invoke iceberg factory method
             config = IcebergCatalogConfig(type=CatalogType.IN_MEMORY, properties={})
-            catalog = Catalog.iceberg(config)
+            catalog = IcebergCatalog.from_config(config)
 
             # Check that the implementation is set to iceberg_catalog
+            print(f"catalog.impl: {catalog.impl}")
+            print(f"mock_iceberg_catalog: {mock_iceberg_catalog}")
             self.assertEqual(catalog.impl, mock_iceberg_catalog)
             # Check that the inner state is set to the output of initialize
             self.assertEqual(catalog.inner, {"iceberg": True})
@@ -270,8 +279,8 @@ class TestCatalogsIntegration:
         # Create the catalog properties
         config = CatalogProperties(root=self.temp_dir)
 
-        # Create the catalog using the factory method
-        catalog = Catalog.default(config)
+        # Create the catalog
+        catalog = Catalog(config)
 
         # Initialize DeltaCAT with this catalog
         init(
@@ -290,11 +299,10 @@ class TestCatalogsIntegration:
 
         catalog_name = str(uuid.uuid4())
         # Initialize DeltaCAT with this catalog
-        from deltacat.catalog.main import impl as DeltacatCatalog
 
         put_catalog(
             catalog_name,
-            Catalog(DeltacatCatalog, **{"root": "test_root"}),
+            Catalog(root="test_root"),
             ray_init_args={"ignore_reinit_error": True},
         )
 
@@ -314,11 +322,14 @@ class TestCatalogsIntegration:
         )
 
         # Create the catalog using the factory method
-        catalog = Catalog.iceberg(config)
+        catalog = IcebergCatalog.from_config(config)
 
         put_catalog(catalog_name, catalog, ray_init_args={"ignore_reinit_error": True})
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
-        assert retrieved_catalog.impl.__name__ == "deltacat.catalog.iceberg.impl"
-        assert isinstance(retrieved_catalog.inner, IcebergCatalog)
+        assert (
+            retrieved_catalog.impl.__name__
+            == "deltacat.experimental.catalog.iceberg.impl"
+        )
+        assert isinstance(retrieved_catalog.inner, PyIcebergCatalog)

@@ -60,7 +60,6 @@ from deltacat.storage import (
     SortScheme,
     NullOrder,
 )
-from deltacat.storage.rivulet import Dataset as RivDataset, Datatype as RivDatatype
 from deltacat.types.media import (
     ContentEncoding,
     ContentType,
@@ -73,7 +72,9 @@ from deltacat.utils.url import DeltaCatUrl
 
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
-    from deltacat.catalog.iceberg import impl as IcebergCatalog  # noqa: F401
+    from deltacat.experimental.catalog.iceberg import (  # noqa: F401
+        impl as IcebergCatalog,
+    )
 
     __iceberg__ = [
         "IcebergCatalog",
@@ -123,8 +124,6 @@ __all__ = [
     "DatastoreType",
     "DeltaCatUrl",
     "DistributedDataset",
-    "RivDataset",
-    "RivDatatype",
     "Field",
     "LifecycleState",
     "ListResult",

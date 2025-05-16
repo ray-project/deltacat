@@ -148,9 +148,9 @@ class DatastoreType(str, Enum):
     writer for that data store. Note that, although some overlap exists between
     enum values here and in :class:`deltacat.types.media.ContentType`, each
     enum serve a different purpose. The purpose of
-    :class:`deltacat.types.media.ContentType` is to resolve the MIME type for
-    specific types of files, and may be used together with multi-content-type
-    datastore types to describe the specific file types read/written to that
+    :class:`deltacat.types.media.ContentType` is to resolve a file's MIME type,
+    and may be used together with datastores that support storing different
+    file types to describe the specific file type read/written from/to that
     datastore (e.g., Iceberg, Hudi, Delta Lake, Audio, Images, Video, etc.)
     """
 

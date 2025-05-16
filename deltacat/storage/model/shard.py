@@ -1,7 +1,9 @@
 from abc import abstractmethod
 from typing import Iterable, Optional, Protocol, TypeVar, Union
 
-from deltacat.storage.rivulet.reader.dataset_metastore import DatasetMetastore
+from deltacat.experimental.storage.rivulet.reader.dataset_metastore import (
+    DatasetMetastore,
+)
 
 # TODO: Add type validation in dataset/schema classes
 T = TypeVar("T", bound=Union[int, str])
@@ -34,7 +36,9 @@ class ShardingStrategy(Protocol):
         return: ShardingStrategy class.
         """
         if strategy == "range":
-            from deltacat.storage.rivulet.shard.range_shard import RangeShardingStrategy
+            from deltacat.experimental.storage.rivulet.shard.range_shard import (
+                RangeShardingStrategy,
+            )
 
             return RangeShardingStrategy()
         else:

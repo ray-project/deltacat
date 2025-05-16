@@ -5,7 +5,7 @@ from daft.logical.schema import Field as DaftField
 
 from deltacat.storage.model.transform import IdentityTransform
 from deltacat.storage.model.partition import PartitionKey
-from deltacat.daft.model import DaftPartitionKeyMapper, DaftFieldMapper
+from deltacat.utils.daft import DaftFieldMapper, DaftPartitionKeyMapper
 
 from deltacat.storage.model.schema import Field, Schema
 

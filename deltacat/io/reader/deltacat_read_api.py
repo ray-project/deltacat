@@ -97,7 +97,7 @@ def read_deltacat(
         >>> # Read the Iceberg stream of the latest active DeltaCAT table version,
         >>> import deltacat as dc
         >>> dc.io.read_deltacat("dc://my_catalog/my_namespace/my_table/default/iceberg")
-        >>> # Or, if `my_catalog is the default catalog, this is equivalent to:
+        >>> # Or, if `my_catalog` is the default catalog, this is equivalent to:
         >>> dc.io.read_deltacat("namespace://my_namespace/my_table/default/iceberg")
         >>> # Or, if `my_namespace` is the default namespace, this is equivalent to:
         >>> dc.io.read_deltacat("table://my_table/default/iceberg")

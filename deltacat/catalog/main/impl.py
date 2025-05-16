@@ -42,20 +42,30 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 """
 Default Catalog interface implementation using DeltaCAT native storage.
 
-When this is used by `delegate.py` the `Catalog` implementation `inner`
-property will be set to the value returned from `intialize`.
+The functions here should not be invoked directly, but should instead be
+invoked through `delegate.py` (e.g., to support passing catalog's by name, and
+to ensure that each initialized `Catalog` implementation has its `inner`
+property set to the `CatalogProperties` returned from `initialize()`).
 
-`CatalogProperties` has all state required to implement catalog functions,
-such as metastore root URI.
+The `CatalogProperties` instance returned by `initialize()` contains all
+durable state required to deterministically reconstruct the associated DeltaCAT
+native `Catalog` implementation (e.g., the root URI for the catalog metastore).
 """
 
 
 # catalog functions
-def initialize(config: CatalogProperties = None, *args, **kwargs) -> CatalogProperties:
+def initialize(
+    config: Optional[CatalogProperties] = None,
+    *args,
+    **kwargs,
+) -> CatalogProperties:
     """
-    Initializes the data catalog with the given arguments.
+    Performs any required one-time initialization and validation of this
+    catalog implementation based on the input configuration. If no config
+    instance is given, a new `CatalogProperties` instance is constructed
+    using the given keyword arguments.
 
-    returns CatalogProperties as the "inner" state value for a DC native catalog
+    Returns the input config if given, and the newly created config otherwise.
     """
     if config is not None:
         if not isinstance(config, CatalogProperties):

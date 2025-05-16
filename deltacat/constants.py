@@ -2,7 +2,6 @@ from __future__ import annotations
 
 
 from deltacat.utils.common import env_string, env_bool
-import os
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -40,7 +39,7 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
 )
 DELTACAT_ROOT = env_string(
     "DELTACAT_ROOT",
-    os.path.join(os.getcwd(), ".deltacat"),
+    "",
 )
 
 # CLI Args

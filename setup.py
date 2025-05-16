@@ -51,6 +51,8 @@ setuptools.setup(
         # GCP
         "google-cloud-storage",
         "gcsfs == 2025.3.2",
+        # Misc
+        "daft == 0.4.15",
         "intervaltree == 3.1.0",
         "numpy == 1.22.4",
         "pandas == 2.2.3",
@@ -62,7 +64,7 @@ setuptools.setup(
         "pyarrow == 16.0.0",
         "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
         "pymemcache == 4.0.0",
-        "ray[default] == 2.43.0",
+        "ray[default] == 2.46.0",
         "tenacity == 8.2.3",
         "typing-extensions == 4.6.1",
         "redis == 4.6.0",

@@ -21,6 +21,4 @@ DeltaCAT provides four high-level components:
 
 DeltaCAT is rapidly evolving. Usage instructions will be posted here soon!
 
-For now, feel free to peruse some of our examples:
-* https://github.com/ray-project/deltacat/tree/2.0/deltacat/examples/rivulet
-* https://github.com/ray-project/deltacat/tree/2.0/deltacat/examples/iceberg
+For now, feel free to peruse some of our [examples](https://github.com/ray-project/deltacat/tree/2.0/deltacat/examples/).

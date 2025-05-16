@@ -59,8 +59,8 @@ def run(
             "use_pyarrow": True,  # use the native pyarrow reader
         },
         # writer arguments to pass to the default writer (polars)
-        # for the given parquet-based datasink, it accepts the same
-        # arguments as polars.DataFrame.write_parquet except for `file`
+        # for the given parquet-based datasink, it generally accepts the same
+        # arguments as polars.DataFrame.write_{dest-type} except for `file`
         writer_args={
             "compression": "lz4",  # faster compression & decompression
             # "compression": "zstd",  # better compression ratio
@@ -92,6 +92,7 @@ if __name__ == "__main__":
     """
     Example 1: Run this script locally using Ray:
     $ python indexer.py \
+    #  amazonq-ignore-next-line
     $   --source 'text+s3://openalex-mag-format/data_dump_v1/2022-07-08/nlp/PaperAbstractsInvertedIndex.txt_part31' \
     $   --dest 'parquet+s3://deltacat-example-output/openalex/PaperAbstractsInvertedIndex.part31.parquet'
 

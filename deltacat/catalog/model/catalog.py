@@ -9,11 +9,8 @@ from functools import partial
 import ray
 
 from deltacat import logs
-from deltacat.annotations import ExperimentalAPI
 from deltacat.catalog.main import impl as DeltaCatCatalog
-from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog import CatalogProperties
-from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
 
 all_catalogs: Optional[ray.actor.ActorHandle] = None
@@ -22,14 +19,20 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 class Catalog:
-    def __init__(self, impl: ModuleType = DeltaCatCatalog, *args, **kwargs):
+    def __init__(
+        self,
+        config: Optional[Union[CatalogProperties, Any]] = None,
+        impl: ModuleType = DeltaCatCatalog,
+        *args,
+        **kwargs,
+    ):
         """
         Constructor for a Catalog.
 
-        Invokes `impl.initialize(*args, **kwargs)` and stores its return value
-        in the `inner` property, which captures all state required to
-        deterministically reconstruct this Catalog instance on any node (and
-        must therefore be pickleable by Ray cloudpickle).
+        Invokes `impl.initialize(config, *args, **kwargs)` and stores its
+        return value in the `inner` property. This captures all state required
+        to deterministically reconstruct this Catalog instance on any node, and
+        must be pickleable by Ray cloudpickle.
         """
         if not isinstance(self, Catalog):
             # self may contain the tuple returned from __reduce__ (ray pickle bug?)
@@ -40,32 +43,15 @@ class Catalog:
                 err_msg = f"Expected `self` to be {Catalog}, but found: {self}"
                 raise RuntimeError(err_msg)
 
+        self._config = config
         self._impl = impl
-        self._inner = self._impl.initialize(*args, **kwargs)
+        self._inner = self._impl.initialize(config, *args, **kwargs)
         self._args = args
         self._kwargs = kwargs
 
-    @classmethod
-    @ExperimentalAPI
-    def iceberg(cls, config: IcebergCatalogConfig, *args, **kwargs):
-        """
-        !!! ICEBERG SUPPORT IS EXPERIMENTAL !!!
-
-        Factory method to construct a catalog from Iceberg catalog params
-
-        This method is just a wrapper around __init__ with stronger typing. You may still call __init__,
-        plumbing __params__ through as kwargs
-        """
-        return cls(impl=IcebergCatalog, *args, **{"config": config, **kwargs})
-
-    @classmethod
-    def default(cls, config: CatalogProperties, *args, **kwargs):
-        """
-        Factory method to construct a catalog with the default implementation
-
-        Uses CatalogProperties as configuration
-        """
-        return cls(impl=DeltaCatCatalog, *args, **{"config": config, **kwargs})
+    @property
+    def config(self):
+        return self._config
 
     @property
     def impl(self):
@@ -79,7 +65,11 @@ class Catalog:
     def __reduce__(self):
         # instantiated catalogs may fail to pickle, so exclude _inner
         # (e.g. Iceberg catalog w/ unserializable SSLContext from boto3 client)
-        return partial(self.__class__, **self._kwargs), (self._impl, *self._args)
+        return partial(self.__class__, **self._kwargs), (
+            self._config,
+            self._impl,
+            *self._args,
+        )
 
     def __str__(self):
         string_rep = f"{self.__class__.__name__}("
@@ -251,7 +241,8 @@ def put_catalog(
     **kwargs,
 ) -> Catalog:
     """
-    Add a named catalog to the global map of named catalogs. Initializes ray if not already initialized.
+    Add a named catalog to the global map of named catalogs. Initializes ray
+    if not already initialized.
 
     Args:
         name: Name of the catalog.
@@ -261,8 +252,8 @@ def put_catalog(
         default:  Make this the default catalog if multiple catalogs are
             available. If only one catalog is available, it will always be the
             default.
-        ray_init_args: Ray initialization args (used only if ray not already
-            initialized)
+        ray_init_args: Ray initialization args (used only if ray is not already
+            initialized).
         fail_if_exists: if True, raises an error if a catalog with the given
             name already exists. If False, inserts or replaces the given
             catalog name.
@@ -276,6 +267,8 @@ def put_catalog(
 
     if not catalog:
         catalog = Catalog(**kwargs)
+    if name is None:
+        raise ValueError("Catalog name cannot be None")
 
     # Initialize, if necessary
     if not is_initialized():
@@ -283,25 +276,22 @@ def put_catalog(
         if not default:
             logger.info(
                 f"Calling put_catalog with set_as_default=False, "
-                f"but still setting Catalog {catalog} as default since it is the only catalog."
+                f"but still setting Catalog {catalog} as default since it is "
+                f"the only catalog."
             )
         init({name: catalog}, ray_init_args=ray_init_args)
-        return
+        return catalog
 
     # Fail if fail_if_exists and catalog already exists
     if fail_if_exists:
-        catalog_already_exists = False
         try:
             get_catalog(name)
-            # Note - need to set state catalog_already_exists and throw ValueError later, or else it will be
-            # caught in the except block which is meant to catch the ValueError from get_catalog
-            catalog_already_exists = True
         except ValueError:
             pass
-        if catalog_already_exists:
-            raise ValueError(
-                f"Failed to put catalog {name} because it already exists and fail_if_exists={fail_if_exists}"
-            )
+        raise ValueError(
+            f"Failed to put catalog {name} because it already exists and "
+            f"fail_if_exists={fail_if_exists}"
+        )
 
     # Add the catalog (which may overwrite existing if fail_if_exists=False)
     ray.get(all_catalogs.put.remote(name, catalog, default))

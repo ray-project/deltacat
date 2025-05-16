@@ -7,7 +7,9 @@ def test_sharding_strategy_from_string_range():
     """
     Tests that from_string('range') returns an instance of RangeShardingStrategy.
     """
-    from deltacat.storage.rivulet.shard.range_shard import RangeShardingStrategy
+    from deltacat.experimental.storage.rivulet.shard.range_shard import (
+        RangeShardingStrategy,
+    )
 
     strategy = ShardingStrategy.from_string("range")
     assert isinstance(strategy, RangeShardingStrategy)
