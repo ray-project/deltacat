@@ -92,7 +92,6 @@ if __name__ == "__main__":
     """
     Example 1: Run this script locally using Ray:
     $ python indexer.py \
-    #  amazonq-ignore-next-line
     $   --source 'text+s3://openalex-mag-format/data_dump_v1/2022-07-08/nlp/PaperAbstractsInvertedIndex.txt_part31' \
     $   --dest 'parquet+s3://deltacat-example-output/openalex/PaperAbstractsInvertedIndex.part31.parquet'
 
