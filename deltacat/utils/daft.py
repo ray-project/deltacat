@@ -4,13 +4,15 @@ from typing import Optional, List, Any, Dict, Callable, Iterator
 from daft.daft import (
     StorageConfig,
     PartitionField,
-    Pushdowns as DaftPyPushdowns,
+    Pushdowns as DaftRustPushdowns,
     ScanTask,
     FileFormatConfig,
     ParquetSourceConfig,
     PartitionTransform as DaftTransform,
     PartitionField as DaftPartitionField,
 )
+from daft.expressions import Expression as DaftExpression
+from daft.expressions.visitor import PredicateVisitor
 from pyarrow import Field as PaField
 
 import daft
@@ -27,17 +29,10 @@ from daft.io import (
     IOConfig,
     S3Config,
 )
-from daft.io.pushdowns import (
-    Expr as DaftExpr,
-    Literal as DaftLiteral,
-    Reference as DaftReference,
-    TermVisitor,
-)
 from daft.io.scan import (
     ScanOperator,
     make_partition_field,
 )
-from daft.io.pushdowns import Pushdowns as DaftPushdowns
 import pyarrow as pa
 
 from deltacat import logs
@@ -93,7 +88,7 @@ from deltacat.storage.model.scan.push_down import (
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def translate_pushdown(pushdown: DaftPushdowns) -> DeltaCatPushdown:
+def translate_pushdown(pushdown: DaftRustPushdowns) -> DeltaCatPushdown:
     """
     Helper method to translate a Daft Pushdowns object into a Deltacat Pushdown.
     Args:
@@ -101,87 +96,119 @@ def translate_pushdown(pushdown: DaftPushdowns) -> DeltaCatPushdown:
     Returns:
         Pushdown: Deltacat Pushdown object with translated filters
     """
-    translator = DaftToDeltacatExpressionTranslator()
-    partition_filter = None
+    translator = DaftToDeltacatVisitor()
 
-    if pushdown.predicate:
-        predicate = translator.visit(pushdown.predicate, None)
-        partition_filter = PartitionFilter.of(predicate)
+    partition_filters = None
+    if pushdown.partition_filters is not None:
+        daft_expr = DaftExpression._from_pyexpr(pushdown.partition_filters)
+        partition_filters = PartitionFilter.of(translator.visit(daft_expr))
 
-    # TODO: translate other pushdown filters
+    filters = None
+    if pushdown.filters is not None:
+        daft_expr = DaftExpression._from_pyexpr(pushdown.filters)
+        # TODO: support deltacat row filters
+        # filters = RowFilter.of(translator.visit(daft_expr))
+
+    columns = None
+    limit = None
+
     return DeltaCatPushdown.of(
-        row_filter=None,
-        column_filter=None,
-        partition_filter=partition_filter,
-        limit=None,
+        partition_filter=partition_filters,
+        column_filter=columns,
+        row_filter=filters,
+        limit=limit,
     )
 
 
-class DaftToDeltacatExpressionTranslator(TermVisitor[None, Expression]):
-    """
-    This visitor implementation traverses a Daft expression tree and produces
-    an equivalent Deltacat expression tree for use in Deltacat's query pushdown
-    system.
-    """
+class DaftToDeltacatVisitor(PredicateVisitor[Expression]):
+    """PredicateVisitor implementation to translate Daft Expressions into Deltacat Expressions"""
 
-    _PROCEDURES: Dict[str, Callable[..., Expression]] = {
-        # Comparison predicates
-        "=": Equal.of,
-        "!=": NotEqual.of,
-        "<": LessThan.of,
-        ">": GreaterThan.of,
-        "<=": LessThanEqual.of,
-        ">=": GreaterThanEqual.of,
-        # Logical predicates
-        "and": And.of,
-        "or": Or.of,
-        "not": Not.of,
-        # Special operations
-        "is_null": IsNull.of,
-    }
+    def visit_col(self, name: str) -> Expression:
+        return Reference.of(name)
 
-    def visit_reference(self, term: DaftReference, context: None) -> Expression:
-        """
-        Convert Daft Reference to Deltacat Reference.
-        Args:
-            term: A Daft Reference expression representing a field or column.
-            context: Not used in this visitor implementation.
-        Returns:
-            DeltacatExpression: A Deltacat Reference expression for the same field.
-        """
-        return Reference(term.path)
+    def visit_lit(self, value: Any) -> Expression:
+        return Literal.of(value)
 
-    def visit_literal(self, term: DaftLiteral, context: None) -> Expression:
-        """
-        Convert Daft Literal to Deltacat Literal.
-        Args:
-            term: A Daft Literal expression representing a constant value.
-            context: Not used in this visitor implementation.
-        Returns:
-            DeltacatExpression: A Deltacat Literal expression wrapping the same value as a PyArrow scalar.
-        """
-        return Literal(pa.scalar(term.value))
+    def visit_cast(self, expr: DaftExpression, dtype: DataType) -> Expression:
+        # deltacat expressions do not support explicit casting
+        # pyarrow should handle any type casting 
+        return self.visit(expr)
 
-    def visit_expr(self, term: DaftExpr, context: None) -> Expression:
-        """
-        This method handles the translation of procedure calls (operations) from
-        Daft to Deltacat, including special cases for IN, BETWEEN, and LIKE.
-        Args:
-            term: A Daft Expr expression representing an operation.
-            context: Not used in this visitor implementation.
-        Returns:
-            DeltacatExpression: An equivalent Deltacat expression.
-        Raises:
-            ValueError: If the operation has an invalid number of arguments or
-                if the operation is not supported by Deltacat.
-        """
-        proc = term.proc
-        args = [self.visit(arg.term, context) for arg in term.args]
+    def visit_alias(self, expr: DaftExpression, alias: str) -> Expression:
+        return self.visit(expr)
 
-        if proc not in self._PROCEDURES:
-            raise ValueError(f"Deltacat does not support procedure '{proc}'.")
+    def visit_function(self, name: str, args: List[DaftExpression]) -> Expression:
+        # TODO: Add Deltacat expression function support
+        raise ValueError("Function not supported")
 
-        return self._PROCEDURES[proc](*args)
+    def visit_and(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit an 'and' expression."""
+        return And.of(self.visit(left), self.visit(right))
+
+    def visit_or(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit an 'or' expression."""
+        return Or.of(self.visit(left), self.visit(right))
+
+    def visit_not(self, expr: DaftExpression) -> Expression:
+        """Visit a 'not' expression."""
+        return Not.of(self.visit(expr))
+
+    def visit_equal(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit an 'equals' comparison predicate."""
+        return Equal.of(self.visit(left), self.visit(right))
+
+    def visit_not_equal(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit a 'not equals' comparison predicate."""
+        return NotEqual.of(self.visit(left), self.visit(right))
+
+    def visit_less_than(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit a 'less than' comparison predicate."""
+        return LessThan.of(self.visit(left), self.visit(right))
+
+    def visit_less_than_or_equal(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit a 'less than or equal' comparison predicate."""
+        return LessThanEqual.of(self.visit(left), self.visit(right))
+
+    def visit_greater_than(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit a 'greater than' comparison predicate."""
+        return GreaterThan.of(self.visit(left), self.visit(right))
+
+    def visit_greater_than_or_equal(self, left: DaftExpression, right: DaftExpression) -> Expression:
+        """Visit a 'greater than or equal' comparison predicate."""
+        return GreaterThanEqual.of(self.visit(left), self.visit(right))
+
+    def visit_between(self, expr: DaftExpression, lower: DaftExpression, upper: DaftExpression) -> Expression:
+        """Visit a 'between' predicate."""
+        # Implement BETWEEN as lower <= expr <= upper
+        lower_bound = LessThanEqual.of(self.visit(lower), self.visit(expr))
+        upper_bound = LessThanEqual.of(self.visit(expr), self.visit(upper))
+        return And.of(lower_bound, upper_bound)
+
+    def visit_is_in(self, expr: DaftExpression, items: list[DaftExpression]) -> Expression:
+        """Visit an 'is_in' predicate."""
+        # For empty list, return false literal
+        if not items:
+            return Literal(pa.scalar(False))
+        
+        # Implement IN as a series of equality checks combined with OR
+        visited_expr = self.visit(expr)
+        equals_exprs = [Equal.of(visited_expr, self.visit(item)) for item in items]
+        
+        # Combine with OR
+        result = equals_exprs[0]
+        for eq_expr in equals_exprs[1:]:
+            result = Or.of(result, eq_expr)
+        
+        return result
+
+    def visit_is_null(self, expr: DaftExpression) -> Expression:
+        """Visit an 'is_null' predicate."""
+        return IsNull.of(self.visit(expr))
+
+    def visit_not_null(self, expr: DaftExpression) -> Expression:
+        """Visit an 'not_null' predicate."""
+        # NOT NULL is implemented as NOT(IS NULL)
+        return Not.of(IsNull.of(self.visit(expr)))
 
 
 def s3_files_to_dataframe(
@@ -334,7 +361,7 @@ class DeltaCatScanOperator(ScanOperator):
         self.partition_keys = self._infer_partition_keys()
         self.storage_config = storage_config
 
-    def schema(self) -> Schema:
+    def schema(self) -> DaftSchema:
         return self._schema
 
     def name(self) -> str:
@@ -354,11 +381,8 @@ class DeltaCatScanOperator(ScanOperator):
             f"Storage config = {self.storage_config}",
         ]
 
-    def to_scan_tasks(self, pushdowns: DaftPyPushdowns) -> Iterator[ScanTask]:
-        daft_pushdowns = DaftPushdowns._from_pypushdowns(
-            pushdowns, schema=self.schema()
-        )
-        dc_pushdown = translate_pushdown(daft_pushdowns)
+    def to_scan_tasks(self, pushdowns: DaftRustPushdowns) -> Iterator[ScanTask]:
+        dc_pushdown = translate_pushdown(pushdowns)
         dc_scan_plan = self.table.create_scan_plan(pushdown=dc_pushdown)
         scan_tasks = []
         file_format_config = FileFormatConfig.from_parquet_config(
@@ -386,7 +410,7 @@ class DeltaCatScanOperator(ScanOperator):
     def can_absorb_select(self) -> bool:
         return True
 
-    def _infer_schema(self) -> Schema:
+    def _infer_schema(self) -> DaftSchema:
 
         if not (
             self.table and self.table.table_version and self.table.table_version.schema
@@ -396,7 +420,7 @@ class DeltaCatScanOperator(ScanOperator):
                 f"{self.table.table.namespace}.{self.table.table.table_name}"
             )
 
-        return Schema.from_pyarrow_schema(self.table.table_version.schema.arrow)
+        return DaftSchema.from_pyarrow_schema(self.table.table_version.schema.arrow)
 
     def _infer_partition_keys(self) -> list[PartitionField]:
         if not (
