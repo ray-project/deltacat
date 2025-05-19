@@ -632,7 +632,7 @@ class DeltaCatUrl:
     Note that, for reads, each of the above URLs typically resolves directly
     to the equivalent :class:`deltacat.types.media.DatasetType` reader. For
     example, if Ray Data is the dataset type then the equivalent
-    ray.data.read_{} API is used. For example, a read referencing a URL of the
+    ray.data.read_{} API is used. In this case, a read referencing a URL of the
     form "audio+file:///my/audio.mp4" would resolve to a call to
     ray.data.read_audio("/my/audio.mp4").
     """

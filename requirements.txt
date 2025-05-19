@@ -9,7 +9,7 @@ aws-embedded-metrics == 3.2.0
 boto3 ~= 1.34
 
 # General
-daft >= 0.4.13
+daft == 0.4.15
 gcsfs == 2025.3.2
 
 # GCP
@@ -38,7 +38,7 @@ pyiceberg[glue] == 0.9.0
 # any changes here should also be reflected in setup.py "extras_require"
 
 pymemcache == 4.0.0
-ray[default] == 2.43.0
+ray[default] == 2.46.0
 redis == 4.6.0
 
 # setup.py extras_require

@@ -6,9 +6,7 @@ import ray
 
 from deltacat import logs
 from deltacat.constants import DELTACAT_APP_LOG_DIR, DELTACAT_SYS_LOG_DIR
-from deltacat.examples.common.fixtures import (
-    store_cli_args_in_os_environ,
-)
+from env import store_cli_args_in_os_environ
 from deltacat.env import create_ray_runtime_environment
 
 # initialize the driver logger

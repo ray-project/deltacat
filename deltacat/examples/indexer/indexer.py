@@ -59,8 +59,8 @@ def run(
             "use_pyarrow": True,  # use the native pyarrow reader
         },
         # writer arguments to pass to the default writer (polars)
-        # for the given parquet-based datasink, it accepts the same
-        # arguments as polars.DataFrame.write_parquet except for `file`
+        # for the given parquet-based datasink, it generally accepts the same
+        # arguments as polars.DataFrame.write_{dest-type} except for `file`
         writer_args={
             "compression": "lz4",  # faster compression & decompression
             # "compression": "zstd",  # better compression ratio

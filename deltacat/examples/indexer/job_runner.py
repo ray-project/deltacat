@@ -64,8 +64,7 @@ def run_sync(
     cluster_cfg_file_path = working_dir.joinpath(cloud).joinpath("deltacat.yaml")
     client = job_client(cluster_cfg_file_path, restart_ray=restart_ray)
     job_number = 0
-    while jobs_to_submit > 0:
-        jobs_to_submit -= 1
+    while job_number < jobs_to_submit:
         job_dest = dest + f".{job_number}"
         job_run_result = client.run_job(
             # Entrypoint shell command to execute

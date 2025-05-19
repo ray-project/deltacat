@@ -9,7 +9,8 @@ from deltacat.experimental.daft.daft_catalog import DaftCatalog
 import shutil
 import tempfile
 
-from deltacat.catalog.iceberg import IcebergCatalogConfig
+from deltacat.experimental.catalog.iceberg import impl as IcebergCatalog
+from deltacat.experimental.catalog.iceberg import IcebergCatalogConfig
 
 from pyiceberg.catalog import CatalogType
 
@@ -27,7 +28,7 @@ class TestCatalogIntegration:
         """Demonstrate DeltaCAT-Daft integration."""
         # Create a DeltaCAT catalog
         catalog_props = CatalogProperties(root=self.tmpdir)
-        dc_catalog = DeltaCATCatalog.default(catalog_props)
+        dc_catalog = DeltaCATCatalog(catalog_props)
 
         # Use a random catalog name to prevent namespacing conflicts with other tests
         # Convert the DeltaCAT catalog to a Daft catalog
@@ -49,7 +50,7 @@ class TestCatalogIntegration:
         """Test getting a table from the DeltaCAT-Daft catalog."""
         # Create a DeltaCAT catalog using the existing tmpdir
         catalog_props = CatalogProperties(root=self.tmpdir)
-        dc_catalog = DeltaCATCatalog.default(catalog_props)
+        dc_catalog = DeltaCATCatalog(catalog_props)
 
         # Convert to DaftCatalog and attach to Daft
         catalog_name = f"deltacat_{uuid.uuid4().hex[:8]}"
@@ -97,7 +98,7 @@ class TestIcebergCatalogIntegration:
                 "uri": f"sqlite:////{warehouse_path}/sql-catalog.db",
             },
         )
-        dc_catalog = DeltaCATCatalog.iceberg(config)
+        dc_catalog = IcebergCatalog.from_config(config)
 
         # Convert the DeltaCAT catalog to a Daft catalog
         catalog_name = f"deltacat_iceberg_{uuid.uuid4().hex[:8]}"
