@@ -131,7 +131,7 @@ class DaftToDeltacatVisitor(PredicateVisitor[Expression]):
 
     def visit_cast(self, expr: DaftExpression, dtype: DataType) -> Expression:
         # deltacat expressions do not support explicit casting
-        # pyarrow should handle any type casting 
+        # pyarrow should handle any type casting
         return self.visit(expr)
 
     def visit_alias(self, expr: DaftExpression, alias: str) -> Expression:
@@ -157,48 +157,62 @@ class DaftToDeltacatVisitor(PredicateVisitor[Expression]):
         """Visit an 'equals' comparison predicate."""
         return Equal.of(self.visit(left), self.visit(right))
 
-    def visit_not_equal(self, left: DaftExpression, right: DaftExpression) -> Expression:
+    def visit_not_equal(
+        self, left: DaftExpression, right: DaftExpression
+    ) -> Expression:
         """Visit a 'not equals' comparison predicate."""
         return NotEqual.of(self.visit(left), self.visit(right))
 
-    def visit_less_than(self, left: DaftExpression, right: DaftExpression) -> Expression:
+    def visit_less_than(
+        self, left: DaftExpression, right: DaftExpression
+    ) -> Expression:
         """Visit a 'less than' comparison predicate."""
         return LessThan.of(self.visit(left), self.visit(right))
 
-    def visit_less_than_or_equal(self, left: DaftExpression, right: DaftExpression) -> Expression:
+    def visit_less_than_or_equal(
+        self, left: DaftExpression, right: DaftExpression
+    ) -> Expression:
         """Visit a 'less than or equal' comparison predicate."""
         return LessThanEqual.of(self.visit(left), self.visit(right))
 
-    def visit_greater_than(self, left: DaftExpression, right: DaftExpression) -> Expression:
+    def visit_greater_than(
+        self, left: DaftExpression, right: DaftExpression
+    ) -> Expression:
         """Visit a 'greater than' comparison predicate."""
         return GreaterThan.of(self.visit(left), self.visit(right))
 
-    def visit_greater_than_or_equal(self, left: DaftExpression, right: DaftExpression) -> Expression:
+    def visit_greater_than_or_equal(
+        self, left: DaftExpression, right: DaftExpression
+    ) -> Expression:
         """Visit a 'greater than or equal' comparison predicate."""
         return GreaterThanEqual.of(self.visit(left), self.visit(right))
 
-    def visit_between(self, expr: DaftExpression, lower: DaftExpression, upper: DaftExpression) -> Expression:
+    def visit_between(
+        self, expr: DaftExpression, lower: DaftExpression, upper: DaftExpression
+    ) -> Expression:
         """Visit a 'between' predicate."""
         # Implement BETWEEN as lower <= expr <= upper
         lower_bound = LessThanEqual.of(self.visit(lower), self.visit(expr))
         upper_bound = LessThanEqual.of(self.visit(expr), self.visit(upper))
         return And.of(lower_bound, upper_bound)
 
-    def visit_is_in(self, expr: DaftExpression, items: list[DaftExpression]) -> Expression:
+    def visit_is_in(
+        self, expr: DaftExpression, items: list[DaftExpression]
+    ) -> Expression:
         """Visit an 'is_in' predicate."""
         # For empty list, return false literal
         if not items:
             return Literal(pa.scalar(False))
-        
+
         # Implement IN as a series of equality checks combined with OR
         visited_expr = self.visit(expr)
         equals_exprs = [Equal.of(visited_expr, self.visit(item)) for item in items]
-        
+
         # Combine with OR
         result = equals_exprs[0]
         for eq_expr in equals_exprs[1:]:
             result = Or.of(result, eq_expr)
-        
+
         return result
 
     def visit_is_null(self, expr: DaftExpression) -> Expression:
