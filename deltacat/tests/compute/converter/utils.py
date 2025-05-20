@@ -20,9 +20,6 @@ def get_s3_file_system():
         secret_key="password",
         endpoint_override="http://localhost:9000",
     )
-    #        'region="us-east-1", proxy_options={'scheme': 'http', 'host': 'localhost',
-    # 'port': 9000, 'username': 'admin',
-    # 'password': 'password'})
 
 
 def write_equality_data_table(
@@ -125,11 +122,6 @@ def commit_equality_delete_to_table(
         file_content_type=DataFileContent.EQUALITY_DELETES,
     )
 
-    # add_equality_data_files(
-    #     file_paths=data_files, partition_value=partition_value, table=table
-    # )
-    # equality_delete_files = parquet_files_dict_to_iceberg_data_files
-    # commit_append_snapshot(iceberg_table=table, new_position_delete_files=equality_file_list)
     return equality_file_list
 
 
