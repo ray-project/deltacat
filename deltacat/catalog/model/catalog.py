@@ -45,7 +45,7 @@ class Catalog:
 
         self._config = config
         self._impl = impl
-        self._inner = self._impl.initialize(config, *args, **kwargs)
+        self._inner = self._impl.initialize(config=config, *args, **kwargs)
         self._args = args
         self._kwargs = kwargs
 
