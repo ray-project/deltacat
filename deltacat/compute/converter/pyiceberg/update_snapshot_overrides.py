@@ -1,4 +1,5 @@
-from typing import Optional, List
+from typing import List, Dict
+from collections import defaultdict
 import uuid
 from pyiceberg.table.snapshots import (
     Operation,
@@ -13,71 +14,114 @@ from pyiceberg.manifest import (
 )
 import itertools
 from pyiceberg.utils.concurrent import ExecutorFactory
-from pyiceberg.table.update.snapshot import UpdateSnapshot, _SnapshotProducer
+from pyiceberg.table.update.snapshot import _SnapshotProducer
 
 
-class _ReplaceFiles(_SnapshotProducer["_ReplaceFiles"]):
-    """Overwrites data from the table. This will produce an OVERWRITE snapshot.
+def replace_delete_files_override(update_snapshot):
+    commit_uuid = uuid.uuid4()
+    return _ReplaceDeleteFilesOverride(
+        commit_uuid=commit_uuid,
+        operation=Operation.OVERWRITE,
+        transaction=update_snapshot._transaction,
+        io=update_snapshot._io,
+        snapshot_properties=update_snapshot._snapshot_properties,
+    )
 
-    Data and delete files were added and removed in a logical overwrite operation.
-    """
+
+class _ReplaceDeleteFilesOverride(_SnapshotProducer):
+    def _manifests(self):
+        def _write_added_manifest():
+            if self._added_data_files:
+                with write_manifest(
+                    format_version=self._transaction.table_metadata.format_version,
+                    spec=self._transaction.table_metadata.spec(),
+                    schema=self._transaction.table_metadata.schema(),
+                    output_file=self.new_manifest_output(),
+                    snapshot_id=self._snapshot_id,
+                ) as writer:
+                    for data_file in self._added_data_files:
+                        writer.add(
+                            ManifestEntry(
+                                status=ManifestEntryStatus.ADDED,
+                                snapshot_id=self._snapshot_id,
+                                sequence_number=None,
+                                file_sequence_number=None,
+                                data_file=data_file,
+                            )
+                        )
+                        writer.content = self.writer_content
+                return [writer.to_manifest_file()]
+            else:
+                return []
+
+        def _write_delete_manifest() -> List[ManifestFile]:
+            # Check if we need to mark the files as deleted
+            deleted_entries = self._deleted_entries()
+            if len(deleted_entries) > 0:
+                deleted_manifests = []
+                partition_groups: Dict[int, List[ManifestEntry]] = defaultdict(list)
+                for deleted_entry in deleted_entries:
+                    partition_groups[deleted_entry.data_file.spec_id].append(
+                        deleted_entry
+                    )
+                for spec_id, entries in partition_groups.items():
+                    with write_manifest(
+                        format_version=self._transaction.table_metadata.format_version,
+                        spec=self._transaction.table_metadata.specs()[spec_id],
+                        schema=self._transaction.table_metadata.schema(),
+                        output_file=self.new_manifest_output(),
+                        snapshot_id=self._snapshot_id,
+                    ) as writer:
+                        for entry in entries:
+                            writer.add_entry(entry)
+                    deleted_manifests.append(writer.to_manifest_file())
+                return deleted_manifests
+            else:
+                return []
+
+        executor = ExecutorFactory.get_or_create()
+
+        added_manifests = executor.submit(_write_added_manifest)
+        existing_manifests = executor.submit(self._existing_manifests)
+        delete_manifests = executor.submit(_write_delete_manifest)
+        return self._process_manifests(
+            added_manifests.result()
+            + existing_manifests.result()
+            + delete_manifests.result()
+        )
+
+    def writer_content(self):
+        return ManifestContent.DELETES
 
     def _existing_manifests(self) -> List[ManifestFile]:
-        """Determine if there are any existing manifest files."""
-        existing_files = []
-        snapshot = self._transaction.table_metadata.current_snapshot()
-        if snapshot:
-            for manifest_file in snapshot.manifests(io=self._io):
-                entries = manifest_file.fetch_manifest_entry(
-                    io=self._io, discard_deleted=True
+        """To determine if there are any existing manifest files.
+
+        A fast append will add another ManifestFile to the ManifestList.
+        All the existing manifest files are considered existing.
+        """
+        existing_manifests = []
+
+        if self._parent_snapshot_id is not None:
+            previous_snapshot = self._transaction.table_metadata.snapshot_by_id(
+                self._parent_snapshot_id
+            )
+
+            if previous_snapshot is None:
+                raise ValueError(
+                    f"Snapshot could not be found: {self._parent_snapshot_id}"
                 )
 
-                found_deleted_data_files = [
-                    entry.data_file
-                    for entry in entries
-                    if entry.data_file in self._deleted_data_files
-                ]
+            for manifest in previous_snapshot.manifests(io=self._io):
+                if (
+                    manifest.has_added_files()
+                    or manifest.has_existing_files()
+                    or manifest.added_snapshot_id == self._snapshot_id
+                ):
+                    existing_manifests.append(manifest)
 
-                if len(found_deleted_data_files) == 0:
-                    existing_files.append(manifest_file)
-                else:
-                    # We have to replace the manifest file without the deleted data files
-                    if any(
-                        entry.data_file not in found_deleted_data_files
-                        for entry in entries
-                    ):
-                        with write_manifest(
-                            format_version=self._transaction.table_metadata.format_version,
-                            spec=self._transaction.table_metadata.specs()[
-                                manifest_file.partition_spec_id
-                            ],
-                            schema=self._transaction.table_metadata.schema(),
-                            output_file=self.new_manifest_output(),
-                            snapshot_id=self._snapshot_id,
-                        ) as writer:
-                            [
-                                writer.add_entry(
-                                    ManifestEntry(
-                                        status=ManifestEntryStatus.EXISTING,
-                                        snapshot_id=entry.snapshot_id,
-                                        sequence_number=entry.sequence_number,
-                                        file_sequence_number=entry.file_sequence_number,
-                                        data_file=entry.data_file,
-                                    )
-                                )
-                                for entry in entries
-                                if entry.data_file not in found_deleted_data_files
-                            ]
-                        existing_files.append(writer.to_manifest_file())
-        return existing_files
+        return existing_manifests
 
     def _deleted_entries(self) -> List[ManifestEntry]:
-        """To determine if we need to record any deleted entries.
-
-        With a full overwrite all the entries are considered deleted.
-        With partial overwrites we have to use the predicate to evaluate
-        which entries are affected.
-        """
         if self._parent_snapshot_id is not None:
             previous_snapshot = self._transaction.table_metadata.snapshot_by_id(
                 self._parent_snapshot_id
@@ -102,7 +146,7 @@ class _ReplaceFiles(_SnapshotProducer["_ReplaceFiles"]):
                     for entry in manifest.fetch_manifest_entry(
                         self._io, discard_deleted=True
                     )
-                    if entry.data_file.content == DataFileContent.DATA
+                    if entry.data_file.content == DataFileContent.EQUALITY_DELETES
                     and entry.data_file in self._deleted_data_files
                 ]
 
@@ -114,42 +158,19 @@ class _ReplaceFiles(_SnapshotProducer["_ReplaceFiles"]):
             return []
 
 
-def replace(
-    self,
-    commit_uuid: Optional[uuid.UUID] = None,
-    using_starting_sequence: Optional[bool] = False,
-) -> _ReplaceFiles:
-    return _ReplaceFiles(
-        commit_uuid=commit_uuid,
-        operation=Operation.REPLACE
-        if self._transaction.table_metadata.current_snapshot() is not None
-        else Operation.APPEND,
-        transaction=self._transaction,
-        io=self._io,
-        snapshot_properties=self._snapshot_properties,
-        using_starting_sequence=using_starting_sequence,
-    )
-
-
-UpdateSnapshot.replace = replace
-
-
-def commit_replace_snapshot(
-    iceberg_table, to_be_deleted_files_list, new_position_delete_files
-):
-    tx = iceberg_table.transaction()
-    snapshot_properties = {}
-    commit_uuid = uuid.uuid4()
-    update_snapshot = tx.update_snapshot(snapshot_properties=snapshot_properties)
-    replace_snapshot = replace(
-        self=update_snapshot, commit_uuid=commit_uuid, using_starting_sequence=False
-    )
-    for to_be_deleted_file in to_be_deleted_files_list:
-        replace_snapshot.append_data_file(to_be_deleted_file)
-    for to_be_added_file in new_position_delete_files:
-        replace_snapshot.delete_data_file(to_be_added_file)
-    replace_snapshot._commit()
-    tx.commit_transaction()
+def commit_append_snapshot(iceberg_table, new_position_delete_files):
+    with iceberg_table.transaction() as tx:
+        if iceberg_table.metadata.name_mapping() is None:
+            tx.set_properties(
+                **{
+                    "schema.name-mapping.default": tx.table_metadata.schema().name_mapping.model_dump_json()
+                }
+            )
+        with append_delete_files_override(tx.update_snapshot()) as append_snapshot:
+            if new_position_delete_files:
+                for data_file in new_position_delete_files:
+                    print(f"debug_append_snapshot_data_file:{data_file}")
+                    append_snapshot.append_data_file(data_file)
 
 
 def append_delete_files_override(update_snapshot):
@@ -237,7 +258,9 @@ class _AppendDeleteFilesOverride(_SnapshotProducer):
         return []
 
 
-def commit_append_snapshot(iceberg_table, new_position_delete_files):
+def commit_replace_snapshot(
+    iceberg_table, new_position_delete_files, to_be_deleted_files
+):
     with iceberg_table.transaction() as tx:
         if iceberg_table.metadata.name_mapping() is None:
             tx.set_properties(
@@ -245,7 +268,13 @@ def commit_append_snapshot(iceberg_table, new_position_delete_files):
                     "schema.name-mapping.default": tx.table_metadata.schema().name_mapping.model_dump_json()
                 }
             )
-        with append_delete_files_override(tx.update_snapshot()) as append_snapshot:
+        with replace_delete_files_override(
+            tx.update_snapshot()
+        ) as replace_delete_snapshot:
             if new_position_delete_files:
                 for data_file in new_position_delete_files:
-                    append_snapshot.append_data_file(data_file)
+                    replace_delete_snapshot.append_data_file(data_file)
+            if to_be_deleted_files:
+                for delete_file in to_be_deleted_files:
+                    print(f"debug_delete_file_snapshot:{delete_file}")
+                    replace_delete_snapshot.delete_data_file(delete_file)

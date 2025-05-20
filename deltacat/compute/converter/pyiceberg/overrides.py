@@ -155,13 +155,13 @@ def data_file_statistics_from_parquet_metadata(
     )
 
 
-def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict):
-    data_file_content_type = DataFileContent.POSITION_DELETES
+def parquet_files_dict_to_iceberg_data_files(
+    io, table_metadata, files_dict, file_content_type
+):
     iceberg_files = []
     schema = table_metadata.schema()
     for partition_value, file_paths in files_dict.items():
         for file_path in file_paths:
-            logger.info(f"DEBUG_file_path:{file_path}")
             input_file = io.new_input(file_path)
             with input_file.open() as input_stream:
                 parquet_metadata = pq.read_metadata(input_stream)
@@ -177,7 +177,7 @@ def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict):
             )
 
             data_file = DataFile(
-                content=data_file_content_type,
+                content=file_content_type,
                 file_path=file_path,
                 file_format=FileFormat.PARQUET,
                 partition=partition_value,

@@ -1,6 +1,12 @@
 import uuid
 import logging
+from collections import defaultdict
+
 from pyiceberg.exceptions import NoSuchTableError
+from pyiceberg.manifest import DataFileContent
+from deltacat.compute.converter.pyiceberg.overrides import (
+    parquet_files_dict_to_iceberg_data_files,
+)
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -110,10 +116,21 @@ def commit_equality_delete_to_table(
         )
     ]
 
-    add_equality_data_files(
-        file_paths=data_files, partition_value=partition_value, table=table
+    equality_delete_dict_list = defaultdict()
+    equality_delete_dict_list[partition_value] = data_files
+    equality_file_list = parquet_files_dict_to_iceberg_data_files(
+        io=table.io,
+        table_metadata=table.metadata,
+        files_dict=equality_delete_dict_list,
+        file_content_type=DataFileContent.EQUALITY_DELETES,
     )
-    return data_files
+
+    # add_equality_data_files(
+    #     file_paths=data_files, partition_value=partition_value, table=table
+    # )
+    # equality_delete_files = parquet_files_dict_to_iceberg_data_files
+    # commit_append_snapshot(iceberg_table=table, new_position_delete_files=equality_file_list)
+    return equality_file_list
 
 
 def drop_table_if_exists(table, catalog):

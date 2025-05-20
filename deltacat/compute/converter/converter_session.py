@@ -170,7 +170,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     else:
         commit_replace_snapshot(
             iceberg_table=iceberg_table,
-            to_be_deleted_files_list=to_be_deleted_files_list,
+            to_be_deleted_files=to_be_deleted_files_list,
             new_position_delete_files=to_be_added_files_list,
         )
     logger.info(
