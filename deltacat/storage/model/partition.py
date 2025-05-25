@@ -175,6 +175,7 @@ class Partition(Metafile):
         partition_locator = self.locator
         if partition_locator:
             return partition_locator.partition_values
+        return None
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:

@@ -1,5 +1,7 @@
 import shutil
 import tempfile
+import uuid
+import os
 
 import pytest
 import copy
@@ -14,6 +16,8 @@ from deltacat.storage import (
     Metafile,
     Namespace,
     NamespaceLocator,
+    Partition,
+    PartitionLocator,
     TableVersion,
     TableVersionLocator,
     Schema,
@@ -21,6 +25,11 @@ from deltacat.storage import (
     SortScheme,
     Stream,
     StreamFormat,
+    PartitionSchemeList,
+    Transaction,
+    TransactionOperation,
+    TransactionOperationType,
+    TransactionType,
 )
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
@@ -1268,13 +1277,15 @@ class TestStream:
         assert stream is None
 
     def test_list_stream_partitions_empty(self):
-        # no partitions yet
+        # Given a stream with no partitions
+        # When we list the partitions
         list_result = metastore.list_stream_partitions(
-            self.default_stream,
+            stream=self.stream,
             catalog=self.catalog,
         )
-        partitions = list_result.all_items()
-        assert len(partitions) == 0
+        # Then we should get an empty list
+        all_streams = list_result.all_items()
+        assert len(all_streams) == 0
 
     def test_delete_stream(self):
         # Given a directive to delete the default stream
@@ -1397,3 +1408,239 @@ class TestStream:
                 deprecated_default_stream.state = CommitState.DEPRECATED
                 assert stream.equivalent_to(deprecated_default_stream)
         assert len(streams) == 2
+
+
+class TestPartition:
+    @classmethod
+    def setup_method(cls):
+        cls.tmpdir = tempfile.mkdtemp()
+        cls.catalog = CatalogProperties(root=cls.tmpdir)
+        # Create a namespace and table version with a stream to attach partitions to
+        cls.namespace = metastore.create_namespace(
+            namespace="test_partition_ns",
+            catalog=cls.catalog,
+        )
+        # Create a partition scheme
+        cls.partition_scheme = PartitionScheme.of(
+            keys=[
+                PartitionKey.of(
+                    key=["col1"],
+                    transform=IdentityTransform.of(),
+                )
+            ],
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id",
+        )
+        # Create a table version with a schema and partition scheme
+        cls.table, cls.tv, cls.stream = metastore.create_table_version(
+            namespace="test_partition_ns",
+            table_name="mypartitiontable",
+            table_version="v.1",
+            schema=Schema.of(
+                schema=pa.schema(
+                    [
+                        ("col1", pa.int32()),
+                        ("col2", pa.string()),
+                    ]
+                ),
+            ),
+            partition_scheme=cls.partition_scheme,
+            catalog=cls.catalog,
+        )
+        # Verify that the partition scheme was properly set up
+        assert cls.tv.partition_scheme is not None
+        assert cls.tv.partition_scheme.equivalent_to(cls.partition_scheme)
+        assert cls.stream.partition_scheme is not None
+        assert cls.stream.partition_scheme.equivalent_to(cls.partition_scheme)
+
+    @classmethod
+    def teardown_method(cls):
+        shutil.rmtree(cls.tmpdir)
+
+    def test_stage_partition(self):
+        # Given a partition scheme and values
+        partition_values = [123, "abc"]
+        # When we stage a partition
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        # Then the partition should be staged correctly
+        assert staged_partition is not None
+        assert staged_partition.partition_values == partition_values
+        assert staged_partition.partition_scheme_id == self.tv.partition_scheme.id
+
+    def test_commit_partition(self):
+        # Given a staged partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        # When we commit the partition
+        committed_partition = metastore.commit_partition(
+            partition=staged_partition,
+            catalog=self.catalog,
+        )
+        # Then the partition should be committed correctly
+        assert committed_partition is not None
+        assert committed_partition.partition_values == partition_values
+        assert committed_partition.partition_scheme_id == self.tv.partition_scheme.id
+
+    def test_get_partition(self):
+        # Given a committed partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition = metastore.commit_partition(
+            partition=staged_partition,
+            catalog=self.catalog,
+        )
+        # When we get the partition
+        retrieved_partition = metastore.get_partition(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        # Then we should get the correct partition
+        assert retrieved_partition is not None
+        assert retrieved_partition.partition_values == partition_values
+        assert retrieved_partition.partition_scheme_id == self.tv.partition_scheme.id
+
+    def test_get_partition_not_exists(self):
+        # Given a partition scheme and values that don't exist
+        partition_values = [456, "def"]
+        # When we try to get a non-existent partition
+        # Then we should get None
+        assert (
+            metastore.get_partition(
+                stream_locator=self.stream.locator,
+                partition_values=partition_values,
+                partition_scheme_id=self.tv.partition_scheme.id,
+                catalog=self.catalog,
+            )
+            is None
+        )
+
+    def test_list_stream_partitions(self):
+        # Given two committed partitions
+        partition_values1 = [123, "abc"]
+        partition_values2 = [456, "def"]
+        staged_partition1 = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values1,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition1 = metastore.commit_partition(
+            partition=staged_partition1,
+            catalog=self.catalog,
+        )
+        staged_partition2 = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values2,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition2 = metastore.commit_partition(
+            partition=staged_partition2,
+            catalog=self.catalog,
+        )
+        # When we list the partitions
+        list_result = metastore.list_stream_partitions(
+            stream=self.stream,
+            catalog=self.catalog,
+        )
+        # Then we should get both partitions in a proper ListResult
+        partitions_list = list_result.all_items()
+        assert len(partitions_list) == 2
+
+        # Verify partition values are correct
+        partition_values = [p.partition_values for p in partitions_list]
+        assert partition_values1 in partition_values
+        assert partition_values2 in partition_values
+
+        # Verify all returned partitions are committed
+        for p in partitions_list:
+            assert p.state == CommitState.COMMITTED
+            assert p.partition_scheme_id == self.tv.partition_scheme.id
+
+    def test_partition_replacement(self):
+        # Given an initial committed partition
+        partition_values = [123, "abc"]
+        staged_partition1 = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition1 = metastore.commit_partition(
+            partition=staged_partition1,
+            catalog=self.catalog,
+        )
+        # When we stage and commit a new partition with the same values
+        staged_partition2 = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition2 = metastore.commit_partition(
+            partition=staged_partition2,
+            catalog=self.catalog,
+        )
+        # Then the new partition should replace the old one
+        assert committed_partition2.previous_partition_id == committed_partition1.id
+        retrieved_partition = metastore.get_partition(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        assert retrieved_partition.id == committed_partition2.id
+
+    def test_stage_partition_bad_scheme_id(self):
+        # Given a partition scheme ID that doesn't exist
+        partition_values = [123, "abc"]
+        bad_scheme_id = "nonexistent_scheme_id"
+        # When we try to stage a partition with a bad scheme ID
+        # Then we should get a ValueError
+        with pytest.raises(ValueError):
+            metastore.stage_partition(
+                stream=self.stream,
+                partition_values=partition_values,
+                partition_scheme_id=bad_scheme_id,
+                catalog=self.catalog,
+            )
+
+    def test_commit_partition_without_staging(self):
+        # Given a partition that hasn't been staged
+        partition_values = [123, "abc"]
+        partition_locator = PartitionLocator.of(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_id=str(uuid.uuid4()),
+        )
+        partition = Partition.of(
+            locator=partition_locator,
+            schema=None,
+            content_types=None,
+            state=CommitState.STAGED,
+            partition_scheme_id=self.tv.partition_scheme.id,
+        )
+        # When we try to commit the partition without staging
+        # Then we should get a ValueError
+        with pytest.raises(ValueError):
+            metastore.commit_partition(
+                partition=partition,
+                catalog=self.catalog,
+            )

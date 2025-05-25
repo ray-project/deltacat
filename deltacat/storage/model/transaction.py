@@ -655,6 +655,7 @@ class Transaction(dict):
                     current_txn_op=operation,
                     current_txn_start_time=self.start_time,
                     current_txn_id=self.id,
+                    current_txn_type=self.type,
                     filesystem=filesystem,
                 )
                 metafile_write_paths.extend(operation.metafile_write_paths)

@@ -609,6 +609,7 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
+        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> None:
         """
@@ -620,6 +621,7 @@ class Metafile(dict):
         :param current_txn_op: Transaction operation for this write.
         :param current_txn_start_time: Transaction start time for this write.
         :param current_txn_id: Transaction ID for this write.
+        :param current_txn_type: Transaction type for this write.
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
@@ -635,6 +637,7 @@ class Metafile(dict):
             current_txn_op=current_txn_op,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
+            current_txn_type=current_txn_type,
             filesystem=filesystem,
         )
 
@@ -1175,6 +1178,7 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
+        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         """
@@ -1209,35 +1213,47 @@ class Metafile(dict):
         if mutable_dest_locator:
             # the locator name is mutable, so we need to persist a mapping
             # from the locator back to its immutable metafile ID
-            if (
-                current_txn_op.type == TransactionOperationType.UPDATE
-                and mutable_src_locator is not None
-                and mutable_src_locator != mutable_dest_locator
-            ):
-                # this update includes a rename
-                # mark the source metafile mapping as deleted
-                current_txn_op.src_metafile._write_locator_to_id_map_file(
-                    locator=mutable_src_locator,
-                    success_txn_log_dir=success_txn_log_dir,
-                    parent_obj_path=parent_obj_path,
-                    current_txn_op=current_txn_op,
-                    current_txn_op_type=TransactionOperationType.DELETE,
-                    current_txn_start_time=current_txn_start_time,
-                    current_txn_id=current_txn_id,
-                    filesystem=filesystem,
-                )
-                # mark the dest metafile mapping as created
-                self._write_locator_to_id_map_file(
-                    locator=mutable_dest_locator,
-                    success_txn_log_dir=success_txn_log_dir,
-                    parent_obj_path=parent_obj_path,
-                    current_txn_op=current_txn_op,
-                    current_txn_op_type=TransactionOperationType.CREATE,
-                    current_txn_start_time=current_txn_start_time,
-                    current_txn_id=current_txn_id,
-                    filesystem=filesystem,
-                )
+            is_alter_update_txn_op = (
+                current_txn_type
+                == deltacat.storage.model.transaction.TransactionType.ALTER
+                and current_txn_op.type == TransactionOperationType.UPDATE
+            )
+            if is_alter_update_txn_op:
+                # mutable locator alter updates are used to either transition
+                # staged streams/partitions (which have no locator alias) to
+                # committed (and create the locator alias) or to rename an
+                # existing mutable locator
+                if mutable_src_locator != mutable_dest_locator:
+                    if mutable_src_locator is not None:
+                        # this update includes a rename
+                        # mark the source metafile mapping as deleted
+                        current_txn_op.src_metafile._write_locator_to_id_map_file(
+                            locator=mutable_src_locator,
+                            success_txn_log_dir=success_txn_log_dir,
+                            parent_obj_path=parent_obj_path,
+                            current_txn_op=current_txn_op,
+                            current_txn_op_type=TransactionOperationType.DELETE,
+                            current_txn_start_time=current_txn_start_time,
+                            current_txn_id=current_txn_id,
+                            filesystem=filesystem,
+                        )
+                    # mark the dest metafile mapping as created
+                    self._write_locator_to_id_map_file(
+                        locator=mutable_dest_locator,
+                        success_txn_log_dir=success_txn_log_dir,
+                        parent_obj_path=parent_obj_path,
+                        current_txn_op=current_txn_op,
+                        current_txn_op_type=TransactionOperationType.CREATE,
+                        current_txn_start_time=current_txn_start_time,
+                        current_txn_id=current_txn_id,
+                        filesystem=filesystem,
+                    )
+                # else this is a mutable locator no-op update - do nothing
             else:
+                # this is either a create/delete operation or an
+                # update operation that is part of an overwrite/restate
+                # transaction (e.g. committing a staged replacement for a
+                # previously committed stream/partition).
                 self._write_locator_to_id_map_file(
                     locator=mutable_dest_locator,
                     success_txn_log_dir=success_txn_log_dir,

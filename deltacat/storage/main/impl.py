@@ -1107,7 +1107,6 @@ def stage_stream(
     Returns the staged stream. Raises an error if the table version does not
     exist.
     """
-    # TODO(pdames): Support retrieving previously staged streams by ID.
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
             *args,
@@ -1537,13 +1536,17 @@ def stage_partition(
             f"in parent table version `{stream.namespace}.{stream.table_name}"
             f".{table_version.table_version}` partition scheme IDs)."
         )
-    if stream.partition_scheme.id not in table_version.partition_schemes:
+    if stream.partition_scheme.id not in [
+        ps.id for ps in table_version.partition_schemes
+    ]:
         # this should never happen, but just in case
         raise ValueError(
             f"Invalid stream partition scheme ID `{stream.partition_scheme.id}`"
-            f"in parent table version `{stream.namespace}.{stream.table_name}"
+            f" (not found in parent table version "
+            f"`{stream.namespace}.{stream.table_name}"
             f".{table_version.table_version}` partition scheme IDs)."
         )
+    # TODO(pdames): Validate partition values against partition scheme.
     locator = PartitionLocator.of(
         stream_locator=stream.locator,
         partition_values=partition_values,
@@ -1555,7 +1558,6 @@ def stage_partition(
         content_types=table_version.content_types,
         state=CommitState.STAGED,
         previous_stream_position=None,
-        partition_values=partition_values,
         previous_partition_id=None,
         stream_position=None,
         partition_scheme_id=partition_scheme_id,
@@ -1647,7 +1649,7 @@ def commit_partition(
     prev_committed_partition = get_partition(
         *args,
         stream_locator=partition.stream_locator,
-        partition_value=partition.partition_values,
+        partition_values=partition.partition_values,
         partition_scheme_id=partition.partition_scheme_id,
         **kwargs,
     )
