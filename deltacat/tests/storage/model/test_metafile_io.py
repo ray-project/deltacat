@@ -2267,7 +2267,7 @@ class TestMetafileIO:
             PartitionKey.of(
                 key=["some_string", "some_int32"],
                 name="test_partition_key",
-                field_id="test_field_id",
+                field_id=1,
                 transform=bucket_transform,
             )
         ]
@@ -2338,7 +2338,7 @@ class TestMetafileIO:
             PartitionKey.of(
                 key=["some_string", "some_int32"],
                 name="test_partition_key",
-                field_id="test_field_id",
+                field_id=1,
                 transform=bucket_transform,
             )
         ]

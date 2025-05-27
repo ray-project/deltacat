@@ -36,6 +36,7 @@ from deltacat.storage.model.partition import (
     PartitionLocator,
     PartitionScheme,
     PartitionValues,
+    UNPARTITIONED_SCHEME,
     UNPARTITIONED_SCHEME_ID,
     PartitionLocatorAlias,
 )
@@ -44,6 +45,7 @@ from deltacat.storage.model.schema import (
 )
 from deltacat.storage.model.sort_key import (
     SortScheme,
+    UNSORTED_SCHEME,
 )
 from deltacat.storage.model.stream import (
     Stream,
@@ -745,6 +747,35 @@ def update_namespace(
     return namespace
 
 
+def _validate_schemes_against_schema(
+    schema: Optional[Schema],
+    partition_scheme: Optional[PartitionScheme],
+    sort_scheme: Optional[SortScheme],
+) -> None:
+    """
+    Validates partition and sort schemes against a schema, ensuring all referenced fields exist.
+    If schema is None, validation is skipped.
+    """
+    if schema is None:
+        return
+
+    schema_fields = set(field.name for field in schema.arrow)
+
+    # Validate partition scheme
+    if partition_scheme is not None and partition_scheme.keys is not None:
+        for key in partition_scheme.keys:
+            if key.key[0] not in schema_fields:
+                raise ValueError(
+                    f"Partition key field '{key.key[0]}' not found in schema"
+                )
+
+    # Validate sort scheme
+    if sort_scheme is not None and sort_scheme.keys is not None:
+        for key in sort_scheme.keys:
+            if key.key[0] not in schema_fields:
+                raise ValueError(f"Sort key field '{key.key[0]}' not found in schema")
+
+
 def create_table_version(
     namespace: str,
     table_name: str,
@@ -777,6 +808,14 @@ def create_table_version(
         **kwargs,
     ):
         raise ValueError(f"Namespace {namespace} does not exist")
+
+    # Validate schemes against schema
+    _validate_schemes_against_schema(schema, partition_scheme, sort_keys)
+
+    # coerce unspecified partition schemes to the unpartitioned scheme
+    partition_scheme = partition_scheme or UNPARTITIONED_SCHEME
+    # coerce unspecified sort schemes to the unsorted scheme
+    sort_keys = sort_keys or UNSORTED_SCHEME
     # check if a parent table and/or previous table version already exist
     prev_table_version = None
     prev_table = get_table(
@@ -837,8 +876,8 @@ def create_table_version(
         watermark=None,
         lifecycle_state=LifecycleState.CREATED,
         schemas=[schema] if schema else None,
-        partition_schemes=[partition_scheme] if partition_scheme else None,
-        sort_schemes=[sort_keys] if sort_keys else None,
+        partition_schemes=[partition_scheme],
+        sort_schemes=[sort_keys],
         previous_table_version=prev_table_version,
     )
     # create the table version's default deltacat stream in this transaction
@@ -944,6 +983,11 @@ def update_table_version(
     this table version by default (i.e., when the client does not explicitly
     specify a different table version). Raises an error if the given table
     version does not exist.
+
+    Note that, to transition a table version from partitioned to unpartitioned,
+    partition_scheme must be explicitly set to UNPARTITIONED_SCHEME. Similarly
+    to transition a table version from sorted to unsorted, sort_keys must be
+    explicitly set to UNSORTED_SCHEME.
     """
     # TODO(pdames): Wrap get & update within a single txn.
     old_table_version = get_table_version(
@@ -958,6 +1002,12 @@ def update_table_version(
             f"Table version `{table_version}` does not exist for "
             f"table `{namespace}.{table_name}`."
         )
+
+    # If schema is not provided but partition_scheme or sort_keys are,
+    # validate against the existing schema
+    schema_to_validate = schema or old_table_version.schema
+    _validate_schemes_against_schema(schema_to_validate, partition_scheme, sort_keys)
+
     new_table_version: TableVersion = Metafile.update_for(old_table_version)
     new_table_version.state = lifecycle_state or old_table_version.state
     # TODO(pdames): Use schema patch to check for backwards incompatible changes.
@@ -1338,6 +1388,7 @@ def delete_table(
     )
 
     if not table:
+        # TODO(pdames): Refactor this so that it doesn't initialize Ray
         raise TableNotFoundError(f"Table `{namespace}.{name}` does not exist.")
 
     transaction = Transaction.of(
@@ -1528,6 +1579,14 @@ def stage_partition(
             f"Table version not found: {stream.namespace}.{stream.table_name}."
             f"{stream.table_version}."
         )
+    # Set partition_scheme_id to UNPARTITIONED_SCHEME_ID when partition_values
+    # is None or empty
+    if not partition_values:
+        partition_scheme_id = UNPARTITIONED_SCHEME_ID
+    # Use stream's partition scheme ID if none provided and partition_values
+    # are specified
+    elif partition_scheme_id is None:
+        partition_scheme_id = stream.partition_scheme.id
     if not table_version.partition_schemes or partition_scheme_id not in [
         ps.id for ps in table_version.partition_schemes
     ]:
@@ -1717,6 +1776,7 @@ def delete_partition(
         partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
+    print(f"partition_to_delete: {partition_to_delete}")
     if not partition_to_delete:
         raise ValueError(
             f"Partition with values {partition_values} and scheme "
@@ -1729,7 +1789,7 @@ def delete_partition(
         txn_operations=[
             TransactionOperation.of(
                 operation_type=TransactionOperationType.DELETE,
-                src_metafile=partition_to_delete,
+                dest_metafile=partition_to_delete,
             )
         ],
     )

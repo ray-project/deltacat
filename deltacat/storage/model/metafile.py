@@ -1348,7 +1348,7 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 ignore_missing_revision=True,
             )
-            if mri.exists():
+            if mri.exists() and mri.txn_op_type != TransactionOperationType.DELETE:
                 item = self.read(
                     path=mri.path,
                     filesystem=filesystem,

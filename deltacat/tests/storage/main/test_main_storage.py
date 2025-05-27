@@ -1,13 +1,13 @@
 import shutil
 import tempfile
 import uuid
-import os
 
 import pytest
 import copy
 import pyarrow as pa
 
 from deltacat import PartitionKey, PartitionScheme
+from deltacat.exceptions import TableNotFoundError
 from deltacat.storage import (
     metastore,
     CommitState,
@@ -23,13 +23,20 @@ from deltacat.storage import (
     Schema,
     SortKey,
     SortScheme,
-    Stream,
     StreamFormat,
-    PartitionSchemeList,
-    Transaction,
-    TransactionOperation,
-    TransactionOperationType,
-    TransactionType,
+    StreamLocator,
+    SortOrder,
+    NullOrder,
+)
+from deltacat.storage.model.partition import (
+    UNPARTITIONED_SCHEME,
+    UNPARTITIONED_SCHEME_ID,
+    UNPARTITIONED_SCHEME_NAME,
+)
+from deltacat.storage.model.sort_key import (
+    UNSORTED_SCHEME,
+    UNSORTED_SCHEME_ID,
+    UNSORTED_SCHEME_NAME,
 )
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
@@ -177,6 +184,116 @@ class TestTable:
             table_name="no_such_table",
             catalog=self.catalog,
         )
+
+    def test_delete_table(self):
+        # Given a table with table versions
+        assert metastore.table_exists(
+            namespace=self.test_namespace.namespace,
+            table_name=self.test_table1.table_name,
+            catalog=self.catalog,
+        )
+        # When we delete the table
+        metastore.delete_table(
+            namespace=self.test_namespace.namespace,
+            name=self.test_table1.table_name,
+            catalog=self.catalog,
+        )
+        # Then the table should not exist anymore
+        assert not metastore.table_exists(
+            namespace=self.test_namespace.namespace,
+            table_name=self.test_table1.table_name,
+            catalog=self.catalog,
+        )
+        # And it should not be listed in tables
+        list_result = metastore.list_tables(
+            namespace=self.test_namespace.namespace,
+            catalog=self.catalog,
+        )
+        tables = list_result.all_items()
+        assert len(tables) == 1  # Only table2 should remain
+        assert tables[0].equivalent_to(self.test_table2)
+
+    def test_delete_table_with_purge(self):
+        # Given a table with table versions
+        assert metastore.table_exists(
+            namespace=self.test_namespace.namespace,
+            table_name=self.test_table1.table_name,
+            catalog=self.catalog,
+        )
+        # When we delete the table with purge=True
+        metastore.delete_table(
+            namespace=self.test_namespace.namespace,
+            name=self.test_table1.table_name,
+            purge=True,
+            catalog=self.catalog,
+        )
+        # Then the table should not exist anymore
+        assert not metastore.table_exists(
+            namespace=self.test_namespace.namespace,
+            table_name=self.test_table1.table_name,
+            catalog=self.catalog,
+        )
+        # And it should not be listed in tables
+        list_result = metastore.list_tables(
+            namespace=self.test_namespace.namespace,
+            catalog=self.catalog,
+        )
+        tables = list_result.all_items()
+        assert len(tables) == 1  # Only table2 should remain
+        assert tables[0].equivalent_to(self.test_table2)
+
+    def test_delete_table_not_exists(self):
+        # When we try to delete a non-existent table
+        # Then we should get a TableNotFoundError
+        with pytest.raises(TableNotFoundError):
+            metastore.delete_table(
+                namespace=self.test_namespace.namespace,
+                name="non_existent_table",
+                catalog=self.catalog,
+            )
+
+    def test_delete_table_bad_namespace(self):
+        # When we try to delete a table with a non-existent namespace
+        # Then we should get a TableNotFoundError
+        with pytest.raises(TableNotFoundError):
+            metastore.delete_table(
+                namespace="non_existent_namespace",
+                name=self.test_table1.table_name,
+                catalog=self.catalog,
+            )
+
+    def test_delete_table_operations_after_delete(self):
+        # Given a table that we delete
+        table_name = self.test_table1.table_name
+        metastore.delete_table(
+            namespace=self.test_namespace.namespace,
+            name=table_name,
+            catalog=self.catalog,
+        )
+        # When we try to create a new table with the same name
+        table, tv, stream = metastore.create_table_version(
+            namespace=self.test_namespace.namespace,
+            table_name=table_name,
+            table_version="v.1",
+            catalog=self.catalog,
+        )
+        # Then the new table should be created successfully
+        assert table is not None
+        assert tv is not None
+        assert stream is not None
+        assert metastore.table_exists(
+            namespace=self.test_namespace.namespace,
+            table_name=table_name,
+            catalog=self.catalog,
+        )
+        # And we should be able to get the table
+        retrieved_table = metastore.get_table(
+            namespace=self.test_namespace.namespace,
+            table_name=table_name,
+            catalog=self.catalog,
+        )
+        assert retrieved_table is not None
+        assert retrieved_table.equivalent_to(table)
 
 
 class TestTableVersion:
@@ -516,7 +633,7 @@ class TestTableVersion:
             PartitionKey.of(
                 key=["some_string", "some_int32"],
                 name="test_partition_key",
-                field_id="test_field_id",
+                field_id=1,
                 transform=identity_transform,
             )
         ]
@@ -562,7 +679,7 @@ class TestTableVersion:
             PartitionKey.of(
                 key=["some_string", "some_int32"],
                 name="test_partition_key",
-                field_id="test_field_id",
+                field_id=1,
                 transform=identity_transform,
             )
         ]
@@ -1145,6 +1262,226 @@ class TestTableVersion:
                 catalog=self.catalog,
             )
 
+    def test_update_table_version_to_unpartitioned(self):
+        # Given a table version with a partition scheme
+        assert self.tv1.partition_scheme is not None
+        assert not self.tv1.partition_scheme.equivalent_to(UNPARTITIONED_SCHEME)
+
+        # When we update it to use UNPARTITIONED_SCHEME
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            partition_scheme=UNPARTITIONED_SCHEME,
+            catalog=self.catalog,
+        )
+
+        # Then the table version should be updated to use UNPARTITIONED_SCHEME
+        updated_tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        assert updated_tv.partition_scheme is not None
+        assert updated_tv.partition_scheme.equivalent_to(UNPARTITIONED_SCHEME)
+        assert updated_tv.partition_scheme.id == UNPARTITIONED_SCHEME_ID
+        assert updated_tv.partition_scheme.name == UNPARTITIONED_SCHEME_NAME
+        assert updated_tv.partition_scheme.keys is None
+
+        # Verify the partition scheme history is updated correctly
+        assert len(updated_tv.partition_schemes) == 2
+        assert updated_tv.partition_schemes[0].equivalent_to(self.tv1.partition_scheme)
+        assert updated_tv.partition_schemes[1].equivalent_to(UNPARTITIONED_SCHEME)
+
+    def test_update_table_version_to_unsorted(self):
+        # Given a table version with a sort scheme
+        assert self.tv1.sort_scheme is not None
+
+        # When we update it to use UNSORTED_SCHEME
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            sort_keys=UNSORTED_SCHEME,
+            catalog=self.catalog,
+        )
+
+        # Then the table version should be updated to use UNSORTED_SCHEME
+        updated_tv = metastore.get_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.table_version.table_version,
+            catalog=self.catalog,
+        )
+        assert updated_tv.sort_scheme is not None
+        assert updated_tv.sort_scheme.equivalent_to(UNSORTED_SCHEME)
+        assert updated_tv.sort_scheme.id == UNSORTED_SCHEME_ID
+        assert updated_tv.sort_scheme.name == UNSORTED_SCHEME_NAME
+        assert updated_tv.sort_scheme.keys is None
+
+        # Verify the sort scheme history is updated correctly
+        assert len(updated_tv.sort_schemes) == 2
+        assert updated_tv.sort_schemes[0].equivalent_to(self.tv1.sort_scheme)
+        assert updated_tv.sort_schemes[1].equivalent_to(UNSORTED_SCHEME)
+
+    def test_create_table_version_validates_partition_scheme(self):
+        # Test that creating a table version validates partition scheme fields exist in schema
+        schema = Schema.of(
+            schema=pa.schema(
+                [
+                    ("col1", pa.int32()),
+                    ("col2", pa.string()),
+                ]
+            ),
+        )
+        partition_scheme = PartitionScheme.of(
+            keys=[
+                PartitionKey.of(
+                    key=["non_existent_field"],  # Field that doesn't exist in schema
+                    transform=IdentityTransform.of(),
+                )
+            ],
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id",
+        )
+
+        # Expect error when field doesn't exist in schema
+        with pytest.raises(
+            ValueError,
+            match="Partition key field 'non_existent_field' not found in schema",
+        ):
+            metastore.create_table_version(
+                namespace=self.table.namespace,
+                table_name="validation_test_table",
+                table_version="v.1",
+                schema=schema,
+                partition_scheme=partition_scheme,
+                catalog=self.catalog,
+            )
+
+    def test_create_table_version_validates_sort_scheme(self):
+        # Test that creating a table version validates sort scheme fields exist in schema
+        schema = Schema.of(
+            schema=pa.schema(
+                [
+                    ("col1", pa.int32()),
+                    ("col2", pa.string()),
+                ]
+            ),
+        )
+        sort_scheme = SortScheme.of(
+            keys=[
+                SortKey.of(
+                    key=["non_existent_field"],  # Field that doesn't exist in schema
+                    sort_order=SortOrder.ASCENDING,
+                    null_order=NullOrder.AT_END,
+                )
+            ],
+            name="test_sort_scheme",
+            scheme_id="test_sort_scheme_id",
+        )
+
+        # Expect error when field doesn't exist in schema
+        with pytest.raises(
+            ValueError, match="Sort key field 'non_existent_field' not found in schema"
+        ):
+            metastore.create_table_version(
+                namespace=self.table.namespace,
+                table_name="validation_test_table",
+                table_version="v.1",
+                schema=schema,
+                sort_keys=sort_scheme,
+                catalog=self.catalog,
+            )
+
+    def test_update_table_version_validates_partition_scheme(self):
+        # Test that updating a table version validates partition scheme fields exist in schema
+        partition_scheme = PartitionScheme.of(
+            keys=[
+                PartitionKey.of(
+                    key=["non_existent_field"],  # Field that doesn't exist in schema
+                    transform=IdentityTransform.of(),
+                )
+            ],
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id_2",
+        )
+
+        # Expect error when field doesn't exist in schema
+        with pytest.raises(
+            ValueError,
+            match="Partition key field 'non_existent_field' not found in schema",
+        ):
+            metastore.update_table_version(
+                namespace=self.table.namespace,
+                table_name=self.table.table_name,
+                table_version=self.table_version.table_version,
+                partition_scheme=partition_scheme,
+                catalog=self.catalog,
+            )
+
+    def test_update_table_version_validates_sort_scheme(self):
+        # Test that updating a table version validates sort scheme fields exist in schema
+        sort_scheme = SortScheme.of(
+            keys=[
+                SortKey.of(
+                    key=["non_existent_field"],  # Field that doesn't exist in schema
+                    sort_order=SortOrder.ASCENDING,
+                    null_order=NullOrder.AT_END,
+                )
+            ],
+            name="test_sort_scheme",
+            scheme_id="test_sort_scheme_id_2",
+        )
+
+        # Expect error when field doesn't exist in schema
+        with pytest.raises(
+            ValueError, match="Sort key field 'non_existent_field' not found in schema"
+        ):
+            metastore.update_table_version(
+                namespace=self.table.namespace,
+                table_name=self.table.table_name,
+                table_version=self.table_version.table_version,
+                sort_keys=sort_scheme,
+                catalog=self.catalog,
+            )
+
+    def test_validation_skipped_if_schema_none(self):
+        # Test that validation is skipped if schema is None
+        partition_scheme = PartitionScheme.of(
+            keys=[
+                PartitionKey.of(
+                    key=["any_field"],  # Can be any field since schema is None
+                    transform=IdentityTransform.of(),
+                )
+            ],
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id",
+        )
+        sort_scheme = SortScheme.of(
+            keys=[
+                SortKey.of(
+                    key=["any_field"],  # Can be any field since schema is None
+                    sort_order=SortOrder.ASCENDING,
+                    null_order=NullOrder.AT_END,
+                )
+            ],
+            name="test_sort_scheme",
+            scheme_id="test_sort_scheme_id",
+        )
+
+        # Should not raise error even with non-existent fields
+        metastore.create_table_version(
+            namespace=self.table.namespace,
+            table_name="validation_test_table",
+            table_version="v.1",
+            schema=None,
+            partition_scheme=partition_scheme,
+            sort_keys=sort_scheme,
+            catalog=self.catalog,
+        )
+
 
 class TestStream:
     @classmethod
@@ -1397,17 +1734,9 @@ class TestStream:
             catalog=self.catalog,
         )
         streams = list_result.all_items()
-        # This will list the default stream and the newly committed stream
-        for stream in streams:
-            if stream.id == committed_stream.id:
-                assert stream.equivalent_to(committed_stream)
-            else:
-                deprecated_default_stream: Stream = Metafile.update_for(
-                    self.default_stream
-                )
-                deprecated_default_stream.state = CommitState.DEPRECATED
-                assert stream.equivalent_to(deprecated_default_stream)
-        assert len(streams) == 2
+        # Only the newly committed stream should be listed
+        assert len(streams) == 1
+        assert streams[0].equivalent_to(committed_stream)
 
 
 class TestPartition:
@@ -1452,10 +1781,35 @@ class TestPartition:
         assert cls.tv.partition_scheme.equivalent_to(cls.partition_scheme)
         assert cls.stream.partition_scheme is not None
         assert cls.stream.partition_scheme.equivalent_to(cls.partition_scheme)
+        # Create an unpartitioned table version
+        (
+            cls.unpartitioned_table,
+            cls.unpartitioned_tv,
+            cls.unpartitioned_stream,
+        ) = metastore.create_table_version(
+            namespace="test_partition_ns",
+            table_name="myunpartitionedtable",
+            table_version="v.1",
+            schema=Schema.of(
+                schema=pa.schema(
+                    [
+                        ("col1", pa.int32()),
+                        ("col2", pa.string()),
+                    ]
+                ),
+            ),
+            catalog=cls.catalog,
+        )
+        # Verify that the unpartitioned table version has UNPARTITIONED_SCHEME
+        assert cls.unpartitioned_tv.partition_scheme is not None
+        assert cls.unpartitioned_tv.partition_scheme.equivalent_to(UNPARTITIONED_SCHEME)
+        assert cls.unpartitioned_tv.partition_scheme.id == UNPARTITIONED_SCHEME_ID
+        assert cls.unpartitioned_tv.partition_scheme.name == UNPARTITIONED_SCHEME_NAME
 
     @classmethod
     def teardown_method(cls):
-        shutil.rmtree(cls.tmpdir)
+        pass
+        # shutil.rmtree(cls.tmpdir)
 
     def test_stage_partition(self):
         # Given a partition scheme and values
@@ -1504,6 +1858,16 @@ class TestPartition:
             partition=staged_partition,
             catalog=self.catalog,
         )
+
+        # Validate the committed partition
+        assert committed_partition is not None
+        assert committed_partition.state == CommitState.COMMITTED
+        assert committed_partition.partition_values == partition_values
+        assert committed_partition.partition_scheme_id == self.tv.partition_scheme.id
+        assert committed_partition.previous_partition_id is None
+        assert committed_partition.locator is not None
+        assert committed_partition.locator.stream_locator == self.stream.locator
+
         # When we get the partition
         retrieved_partition = metastore.get_partition(
             stream_locator=self.stream.locator,
@@ -1511,10 +1875,110 @@ class TestPartition:
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
+
         # Then we should get the correct partition
         assert retrieved_partition is not None
+        assert retrieved_partition == committed_partition
+
+    def test_get_partition_by_id(self):
+        # Given a committed partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition = metastore.commit_partition(
+            partition=staged_partition,
+            catalog=self.catalog,
+        )
+
+        # When we get the partition by ID
+        retrieved_partition = metastore.get_partition_by_id(
+            stream_locator=self.stream.locator,
+            partition_id=committed_partition.partition_id,
+            catalog=self.catalog,
+        )
+
+        # Then we should get the correct partition
+        assert retrieved_partition is not None
+        assert retrieved_partition == committed_partition
+        assert retrieved_partition.partition_id == committed_partition.partition_id
+        assert retrieved_partition.state == CommitState.COMMITTED
         assert retrieved_partition.partition_values == partition_values
         assert retrieved_partition.partition_scheme_id == self.tv.partition_scheme.id
+
+    def test_get_partition_by_id_not_exists(self):
+        # When we try to get a partition with a non-existent ID
+        non_existent_id = "non_existent_partition_id"
+        retrieved_partition = metastore.get_partition_by_id(
+            stream_locator=self.stream.locator,
+            partition_id=non_existent_id,
+            catalog=self.catalog,
+        )
+
+        # Then we should get None
+        assert retrieved_partition is None
+
+    def test_get_partition_by_id_staged(self):
+        # Given a staged partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+
+        # When we get the partition by ID
+        retrieved_partition = metastore.get_partition_by_id(
+            stream_locator=self.stream.locator,
+            partition_id=staged_partition.partition_id,
+            catalog=self.catalog,
+        )
+
+        # Then we should get the staged partition
+        assert retrieved_partition is not None
+        assert retrieved_partition.equivalent_to(staged_partition)
+        assert retrieved_partition.partition_id == staged_partition.partition_id
+        assert retrieved_partition.state == CommitState.STAGED
+        assert retrieved_partition.partition_values == partition_values
+        assert retrieved_partition.partition_scheme_id == self.tv.partition_scheme.id
+
+    def test_get_partition_by_id_bad_stream_locator(self):
+        # Given a committed partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition = metastore.commit_partition(
+            partition=staged_partition,
+            catalog=self.catalog,
+        )
+
+        # Create a bad stream locator
+        bad_stream_locator = StreamLocator.of(
+            table_version_locator=TableVersionLocator.at(
+                namespace="non_existent_namespace",
+                table_name="non_existent_table",
+                table_version="v.1",
+            ),
+            stream_id="non_existent_stream",
+            stream_format=StreamFormat.DELTACAT,
+        )
+
+        # When we try to get the partition using a bad stream locator
+        # Then we should get None
+        retrieved_partition = metastore.get_partition_by_id(
+            stream_locator=bad_stream_locator,
+            partition_id=committed_partition.partition_id,
+            catalog=self.catalog,
+        )
+        assert retrieved_partition is None
 
     def test_get_partition_not_exists(self):
         # Given a partition scheme and values that don't exist
@@ -1587,6 +2051,19 @@ class TestPartition:
             partition=staged_partition1,
             catalog=self.catalog,
         )
+        # Validate the first committed partition
+        assert committed_partition1.state == CommitState.COMMITTED
+        assert committed_partition1.partition_values == partition_values
+        assert committed_partition1.partition_scheme_id == self.tv.partition_scheme.id
+        assert committed_partition1.previous_partition_id is None
+        # Verify it can be retrieved directly
+        retrieved_partition1 = metastore.get_partition(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        assert retrieved_partition1.equivalent_to(committed_partition1)
         # When we stage and commit a new partition with the same values
         staged_partition2 = metastore.stage_partition(
             stream=self.stream,
@@ -1607,6 +2084,128 @@ class TestPartition:
             catalog=self.catalog,
         )
         assert retrieved_partition.id == committed_partition2.id
+
+    def test_delete_partition(self):
+        # Given a committed partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition = metastore.commit_partition(
+            partition=staged_partition,
+            catalog=self.catalog,
+        )
+
+        # When we delete the partition
+        metastore.delete_partition(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+
+        # Then the partition should not be retrievable
+        retrieved_partition = metastore.get_partition(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        assert retrieved_partition is None
+
+        # And it should not be listed in stream partitions
+        list_result = metastore.list_stream_partitions(
+            stream=self.stream,
+            catalog=self.catalog,
+        )
+        assert committed_partition not in list_result.all_items()
+
+    def test_delete_partition_not_exists(self):
+        # When we try to delete a non-existent partition
+        partition_values = [456, "def"]
+        # Then we should get a ValueError
+        with pytest.raises(ValueError):
+            metastore.delete_partition(
+                stream_locator=self.stream.locator,
+                partition_values=partition_values,
+                partition_scheme_id=self.tv.partition_scheme.id,
+                catalog=self.catalog,
+            )
+
+    def test_delete_partition_staged(self):
+        # Given a staged partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+
+        # When we try to delete the staged partition
+        # Then we should get a ValueError since only committed partitions
+        # can be deleted
+        with pytest.raises(ValueError):
+            metastore.delete_partition(
+                stream_locator=self.stream.locator,
+                partition_values=partition_values,
+                partition_scheme_id=self.tv.partition_scheme.id,
+                catalog=self.catalog,
+            )
+
+    def test_delete_partition_operations_after_delete(self):
+        # Given a committed partition
+        partition_values = [123, "abc"]
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition = metastore.commit_partition(
+            partition=staged_partition,
+            catalog=self.catalog,
+        )
+
+        # When we delete the partition
+        metastore.delete_partition(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+
+        # Then trying to stage a new partition with the same values should work
+        new_staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        assert new_staged_partition is not None
+        assert new_staged_partition.partition_values == partition_values
+
+        # And committing the new partition should work
+        new_committed_partition = metastore.commit_partition(
+            partition=new_staged_partition,
+            catalog=self.catalog,
+        )
+        assert new_committed_partition is not None
+        assert new_committed_partition.state == CommitState.COMMITTED
+        assert new_committed_partition.partition_values == partition_values
+
+        # And the new partition should be retrievable
+        retrieved_partition = metastore.get_partition(
+            stream_locator=self.stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        assert retrieved_partition is not None
+        assert retrieved_partition.equivalent_to(new_committed_partition)
 
     def test_stage_partition_bad_scheme_id(self):
         # Given a partition scheme ID that doesn't exist
@@ -1644,3 +2243,29 @@ class TestPartition:
                 partition=partition,
                 catalog=self.catalog,
             )
+
+    def test_stage_partition_none_values(self):
+        # Given None partition values
+        staged_partition = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=None,
+            catalog=self.catalog,
+        )
+        # Then the partition should be staged with None values and
+        # UNPARTITIONED_SCHEME_ID
+        assert staged_partition is not None
+        assert staged_partition.partition_values is None
+        assert staged_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+
+    def test_stage_partition_empty_values(self):
+        # Given empty partition values list
+        staged_partition = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=[],
+            catalog=self.catalog,
+        )
+        # Then the partition should be staged with empty values and
+        # UNPARTITIONED_SCHEME_ID
+        assert staged_partition is not None
+        assert staged_partition.partition_values == []
+        assert staged_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID

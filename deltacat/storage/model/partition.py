@@ -39,6 +39,7 @@ An ordered list of partition values. Partition values are typically derived
 by applying one or more transforms to a table's fields.
 """
 PartitionValues = List[Any]
+UNPARTITIONED_SCHEME_NAME = "unpartitioned_scheme"
 UNPARTITIONED_SCHEME_ID = "deadbeef-7277-49a4-a195-fdc8ed235d42"
 
 
@@ -546,6 +547,19 @@ class PartitionScheme(dict):
         scheme_id: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionScheme:
+        # Validate keys if provided
+        if keys is not None:
+            # Check for empty keys list
+            if len(keys) == 0:
+                raise ValueError("Partition scheme cannot have empty keys list")
+
+            # Check for duplicate keys
+            key_names = []
+            for key in keys:
+                if key.key[0] in key_names:
+                    raise ValueError(f"Duplicate partition key found: {key.key[0]}")
+                key_names.append(key.key[0])
+
         return PartitionScheme(
             {
                 "keys": keys,
@@ -566,6 +580,15 @@ class PartitionScheme(dict):
             return False
         if not isinstance(other, PartitionScheme):
             other = PartitionScheme(other)
+        # If both have None keys, they are equivalent (for unpartitioned schemes)
+        if self.keys is None and other.keys is None:
+            return not check_identifiers or (
+                self.name == other.name and self.id == other.id
+            )
+        # If only one has None keys, they are not equivalent
+        if self.keys is None or other.keys is None:
+            return False
+        # Compare keys if both have them
         for i in range(len(self.keys)):
             if not self.keys[i].equivalent_to(other.keys[i], check_identifiers):
                 return False
@@ -591,6 +614,13 @@ class PartitionScheme(dict):
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
+
+
+UNPARTITIONED_SCHEME = PartitionScheme.of(
+    keys=None,
+    name=UNPARTITIONED_SCHEME_NAME,
+    scheme_id=UNPARTITIONED_SCHEME_ID,
+)
 
 
 class PartitionSchemeList(List[PartitionScheme]):
@@ -640,8 +670,8 @@ class PartitionLocatorAlias(Locator, dict):
                     ),
                 }
             )
-            if parent_partition.state == CommitState.COMMITTED
-            else None  # only committed partitions can be resolved by alias
+            if parent_partition.state != CommitState.STAGED
+            else None  # staged partitions cannot be resolved by alias
         )
 
     @property

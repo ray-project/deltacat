@@ -25,12 +25,16 @@ from deltacat.storage import (
     NullOrder,
     Partition,
     PartitionKey,
+    PartitionKeyList,
     PartitionLocator,
     PartitionScheme,
+    PartitionSchemeList,
     Schema,
     SchemaList,
     SortScheme,
+    SortSchemeList,
     SortKey,
+    SortKeyList,
     SortOrder,
     StreamLocator,
     StreamFormat,
@@ -59,7 +63,10 @@ def create_empty_delta(
     manifest_entry_id: Optional[str] = None,
 ) -> Delta:
     stream_position = current_time_ms()
-    delta_locator = DeltaLocator.of(partition.locator, stream_position=stream_position)
+    delta_locator = DeltaLocator.of(
+        partition.locator,
+        stream_position=stream_position,
+    )
 
     if manifest_entry_id:
         manifest = Manifest.of(
@@ -131,12 +138,12 @@ def create_test_table_version():
         PartitionKey.of(
             key=["some_string", "some_int32"],
             name="test_partition_key",
-            field_id="test_field_id",
+            field_id=1,
             transform=bucket_transform,
         )
     ]
     partition_scheme = PartitionScheme.of(
-        keys=partition_keys,
+        keys=PartitionKeyList.of(partition_keys),
         name="test_partition_scheme",
         scheme_id="test_partition_scheme_id",
     )
@@ -151,7 +158,7 @@ def create_test_table_version():
         )
     ]
     sort_scheme = SortScheme.of(
-        keys=sort_keys,
+        keys=SortKeyList(sort_keys),
         name="test_sort_scheme",
         scheme_id="test_sort_scheme_id",
     )
@@ -166,8 +173,8 @@ def create_test_table_version():
         watermark=None,
         lifecycle_state=LifecycleState.CREATED,
         schemas=SchemaList.of([schema]),
-        partition_schemes=[partition_scheme],
-        sort_schemes=[sort_scheme],
+        partition_schemes=PartitionSchemeList([partition_scheme]),
+        sort_schemes=SortSchemeList([sort_scheme]),
     )
 
 
@@ -189,12 +196,12 @@ def create_test_stream():
         PartitionKey.of(
             key=["some_string", "some_int32"],
             name="test_partition_key",
-            field_id="test_field_id",
+            field_id=1,
             transform=bucket_transform,
         )
     ]
     partition_scheme = PartitionScheme.of(
-        keys=partition_keys,
+        keys=PartitionKeyList(partition_keys),
         name="test_partition_scheme",
         scheme_id="test_partition_scheme_id",
     )
@@ -274,12 +281,14 @@ def create_test_delta():
         entry_params=manifest_entry_params,
     )
     manifest = Manifest.of(
-        entries=[
-            ManifestEntry.of(
-                url="s3://test/url",
-                meta=manifest_meta,
-            )
-        ],
+        entries=ManifestEntryList(
+            [
+                ManifestEntry.of(
+                    url="s3://test/url",
+                    meta=manifest_meta,
+                )
+            ]
+        ),
         author=ManifestAuthor.of(
             name="deltacat",
             version="2.0",
