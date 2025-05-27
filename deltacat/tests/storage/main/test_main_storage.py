@@ -205,6 +205,25 @@ class TestNamespace:
                 catalog=self.catalog,
             )
 
+        # But we should be able to recreate the namespace
+        recreated_namespace = metastore.create_namespace(
+            namespace=namespace,
+            catalog=self.catalog,
+        )
+        assert metastore.namespace_exists(
+            namespace=namespace,
+            catalog=self.catalog,
+        )
+        # And it should be listed in namespaces
+        list_result = metastore.list_namespaces(catalog=self.catalog)
+        namespaces = list_result.all_items()
+        assert (
+            len(namespaces) == 2
+        )  # Both namespace2 and recreated namespace1 should exist
+        namespaces_by_name = {n.locator.namespace: n for n in namespaces}
+        assert namespace in namespaces_by_name
+        assert namespaces_by_name[namespace].equivalent_to(recreated_namespace)
+
 
 class TestTable:
     @classmethod
@@ -364,16 +383,59 @@ class TestTable:
     def test_delete_table_operations_after_delete(self):
         # Given a table that we delete
         table_name = self.test_table1.table_name
+        table_version = self.tv1.table_version
         metastore.delete_table(
             namespace=self.test_namespace.namespace,
             name=table_name,
             catalog=self.catalog,
         )
+
+        # When we update the table version's description
+        # This should fail with ValueError since the table no longer exists
+        with pytest.raises(ValueError):
+            metastore.update_table_version(
+                namespace=self.test_namespace.namespace,
+                table_name=table_name,
+                table_version=table_version,
+                description="new description",
+                catalog=self.catalog,
+            )
+
+        # When we create a stream under the deleted table version
+        # This should fail with ValueError since the table no longer exists
+        with pytest.raises(ValueError):
+            metastore.stage_stream(
+                namespace=self.test_namespace.namespace,
+                table_name=table_name,
+                table_version=table_version,
+                catalog=self.catalog,
+            )
+
+        # When we create a stream under the deleted table, but omit the table
+        # version to force resolution of the latest active table version.
+        # This should fail with ValueError since the table no longer exists.
+        with pytest.raises(ValueError):
+            metastore.stage_stream(
+                namespace=self.test_namespace.namespace,
+                table_name=table_name,
+                catalog=self.catalog,
+            )
+
+        # When we stage a partition to the deleted table version's stream
+        # This should fail with ValueError since the table no longer exists
+        with pytest.raises(ValueError):
+            metastore.stage_partition(
+                stream=self.stream1,
+                partition_values=[123, "abc"],
+                partition_scheme_id=self.tv1.partition_scheme.id,
+                catalog=self.catalog,
+            )
+
         # When we try to create a new table with the same name
         table, tv, stream = metastore.create_table_version(
             namespace=self.test_namespace.namespace,
             table_name=table_name,
-            table_version="v.1",
+            table_version=table_version,
             catalog=self.catalog,
         )
         # Then the new table should be created successfully
@@ -1753,6 +1815,63 @@ class TestStream:
             namespace="test_stream_ns",
             table_name="mystreamtable",
             table_version="v.1",
+            catalog=self.catalog,
+        )
+        # When we try to get the last committed stream
+        stream = metastore.get_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
+            table_version="v.1",
+            catalog=self.catalog,
+        )
+        # Expect nothing to be returned
+        assert stream is None
+
+        # Even when we try to get the last committed stream by ID
+        stream = metastore.get_stream_by_id(
+            table_version_locator=TableVersionLocator.at(
+                namespace="test_stream_ns",
+                table_name="mystreamtable",
+                table_version="v.1",
+            ),
+            stream_id=self.default_stream.id,
+            catalog=self.catalog,
+        )
+        # Expect nothing to be returned
+        assert stream is None
+        # TODO(pdames): Add new getter method for deleted but not GC'd streams?
+
+    def test_delete_stream_latest_table_version(self):
+        # Given an update to make table version 1 active
+        metastore.update_table_version(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            table_version=self.tv.table_version,
+            lifecycle_state=LifecycleState.ACTIVE,
+            catalog=self.catalog,
+        )
+        # Ensure that a stream under the latest active table version exists
+        latest_active_stream_exists = metastore.stream_exists(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            catalog=self.catalog,
+        )
+        assert latest_active_stream_exists
+
+        # Ensure that we can get the stream under the latest active table version
+        latest_active_stream = metastore.get_stream(
+            namespace=self.table.namespace,
+            table_name=self.table.table_name,
+            catalog=self.catalog,
+        )
+        assert latest_active_stream is not None
+        assert latest_active_stream.equivalent_to(self.default_stream)
+
+        # Given a directive to delete the default stream from the latest
+        # active table version.
+        metastore.delete_stream(
+            namespace="test_stream_ns",
+            table_name="mystreamtable",
             catalog=self.catalog,
         )
         # When we try to get the last committed stream

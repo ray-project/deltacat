@@ -197,8 +197,8 @@ def _resolve_partition_locator_alias(
 def _resolve_latest_active_table_version_id(
     namespace: str,
     table_name: str,
-    fail_if_no_active_table_version: True,
     *args,
+    fail_if_no_active_table_version: bool = True,
     **kwargs,
 ) -> Optional[str]:
     table = get_table(
@@ -1171,6 +1171,10 @@ def stage_stream(
         table_version=table_version,
         **kwargs,
     )
+    if not table_version_meta:
+        raise ValueError(
+            f"Table version not found: {namespace}.{table_name}.{table_version}."
+        )
     locator = StreamLocator.at(
         namespace=namespace,
         table_name=table_name,
@@ -2017,7 +2021,10 @@ def get_latest_table_version(
 
 
 def get_latest_active_table_version(
-    namespace: str, table_name: str, *args, **kwargs
+    namespace: str,
+    table_name: str,
+    *args,
+    **kwargs,
 ) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest active version of the specified
