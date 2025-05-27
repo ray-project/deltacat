@@ -224,6 +224,101 @@ class TestNamespace:
         assert namespace in namespaces_by_name
         assert namespaces_by_name[namespace].equivalent_to(recreated_namespace)
 
+    def test_update_namespace_properties(self):
+        # Given a namespace with no properties
+        namespace = "namespace1"
+        assert metastore.namespace_exists(
+            namespace=namespace,
+            catalog=self.catalog,
+        )
+        original_namespace = metastore.get_namespace(
+            namespace=namespace,
+            catalog=self.catalog,
+        )
+        assert original_namespace.properties is None
+
+        # When we update the namespace properties
+        new_properties = {"description": "Test Namespace", "owner": "test-user"}
+        metastore.update_namespace(
+            namespace=namespace,
+            properties=new_properties,
+            catalog=self.catalog,
+        )
+
+        # Then the namespace should have the new properties
+        updated_namespace = metastore.get_namespace(
+            namespace=namespace,
+            catalog=self.catalog,
+        )
+        assert updated_namespace.properties == new_properties
+        # And the namespace name should remain unchanged
+        assert updated_namespace.namespace == namespace
+
+    def test_update_namespace_rename(self):
+        # Given a namespace that exists
+        old_name = "namespace1"
+        new_name = "renamed_namespace"
+        assert metastore.namespace_exists(
+            namespace=old_name,
+            catalog=self.catalog,
+        )
+
+        # When we rename the namespace
+        metastore.update_namespace(
+            namespace=old_name,
+            new_namespace=new_name,
+            catalog=self.catalog,
+        )
+
+        # Then the namespace should exist with the new name
+        assert metastore.namespace_exists(
+            namespace=new_name,
+            catalog=self.catalog,
+        )
+        # And should not exist with the old name
+        assert not metastore.namespace_exists(
+            namespace=old_name,
+            catalog=self.catalog,
+        )
+
+        # And we should be able to get the namespace with the new name
+        renamed_namespace = metastore.get_namespace(
+            namespace=new_name,
+            catalog=self.catalog,
+        )
+        assert renamed_namespace.namespace == new_name
+
+    def test_update_namespace_not_exists(self):
+        # When we try to update a non-existent namespace
+        with pytest.raises(ValueError):
+            metastore.update_namespace(
+                namespace="non_existent_namespace",
+                properties={"description": "Test"},
+                catalog=self.catalog,
+            )
+
+    def test_update_namespace_rename_to_existing(self):
+        # Given two existing namespaces
+        namespace1 = "namespace1"
+        namespace2 = "namespace2"
+        assert metastore.namespace_exists(
+            namespace=namespace1,
+            catalog=self.catalog,
+        )
+        assert metastore.namespace_exists(
+            namespace=namespace2,
+            catalog=self.catalog,
+        )
+
+        # When we try to rename namespace1 to namespace2
+        # Then it should fail since namespace2 already exists
+        with pytest.raises(ValueError):
+            metastore.update_namespace(
+                namespace=namespace1,
+                new_namespace=namespace2,
+                catalog=self.catalog,
+            )
+
 
 class TestTable:
     @classmethod
@@ -455,6 +550,29 @@ class TestTable:
         )
         assert retrieved_table is not None
         assert retrieved_table.equivalent_to(table)
+
+    def test_update_table_rename_to_existing(self):
+        # Given two existing tables
+        assert metastore.table_exists(
+            namespace=self.test_namespace.namespace,
+            table_name=self.test_table1.table_name,
+            catalog=self.catalog,
+        )
+        assert metastore.table_exists(
+            namespace=self.test_namespace.namespace,
+            table_name=self.test_table2.table_name,
+            catalog=self.catalog,
+        )
+
+        # When we try to rename table1 to table2's name
+        # Then it should fail since table2 already exists
+        with pytest.raises(ValueError):
+            metastore.update_table(
+                namespace=self.test_namespace.namespace,
+                table_name=self.test_table1.table_name,
+                new_table_name=self.test_table2.table_name,
+                catalog=self.catalog,
+            )
 
 
 class TestTableVersion:

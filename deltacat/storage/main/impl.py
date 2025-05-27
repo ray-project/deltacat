@@ -123,7 +123,7 @@ def _exists(
     metafile: Metafile,
     *args,
     **kwargs,
-) -> Optional[Metafile]:
+) -> Optional[bool]:
     list_results = _list(
         *args,
         metafile=metafile,
@@ -232,6 +232,35 @@ def _resolve_latest_table_version_id(
     if fail_if_no_active_table_version and not table.latest_table_version:
         raise ValueError(f"Table has no table version: {namespace}.{table_name}")
     return table.latest_table_version
+
+
+def _validate_schemes_against_schema(
+    schema: Optional[Schema],
+    partition_scheme: Optional[PartitionScheme],
+    sort_scheme: Optional[SortScheme],
+) -> None:
+    """
+    Validates partition and sort schemes against a schema, ensuring all referenced fields exist.
+    If schema is None, validation is skipped.
+    """
+    if schema is None:
+        return
+
+    schema_fields = set(field.name for field in schema.arrow)
+
+    # Validate partition scheme
+    if partition_scheme is not None and partition_scheme.keys is not None:
+        for key in partition_scheme.keys:
+            if key.key[0] not in schema_fields:
+                raise ValueError(
+                    f"Partition key field '{key.key[0]}' not found in schema"
+                )
+
+    # Validate sort scheme
+    if sort_scheme is not None and sort_scheme.keys is not None:
+        for key in sort_scheme.keys:
+            if key.key[0] not in schema_fields:
+                raise ValueError(f"Sort key field '{key.key[0]}' not found in schema")
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
@@ -422,7 +451,7 @@ def list_deltas(
         partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
-    locator = DeltaLocator.of(locator=partition_locator_alias)
+    locator = DeltaLocator.of(partition_locator=partition_locator_alias)
     delta = Delta.of(
         locator=locator,
         delta_type=None,
@@ -532,7 +561,7 @@ def get_delta(
         **kwargs,
     )
     locator = DeltaLocator.of(
-        locator=partition_locator_alias,
+        partition_locator=partition_locator_alias,
         stream_position=stream_position,
     )
     delta = Delta.of(
@@ -583,7 +612,7 @@ def get_latest_delta(
         partition_scheme_id=partition_scheme_id,
     )
     locator = DeltaLocator.of(
-        locator=partition.locator,
+        partition_locator=partition.locator,
         stream_position=partition.stream_position,
     )
     delta = Delta.of(
@@ -668,7 +697,7 @@ def get_delta_manifest(
         properties=None,
         manifest=None,
     )
-    latest_delta = _latest(
+    latest_delta: Delta = _latest(
         metafile=delta,
         *args,
         **kwargs,
@@ -720,22 +749,30 @@ def update_namespace(
     Updates a table namespace's name and/or properties. Raises an error if the
     given namespace does not exist.
     """
-    # TODO(pdames): Wrap get & update within a single txn.
-    old_namespace = get_namespace(
+    # Check if the namespace exists
+    old_namespace_meta = get_namespace(
         *args,
         namespace=namespace,
         **kwargs,
     )
-    new_namespace: Namespace = Metafile.update_for(old_namespace)
-    new_namespace.namespace = namespace
-    new_namespace.properties = properties
+    if not old_namespace_meta:
+        raise ValueError(f"Namespace {namespace} does not exist")
+
+    # Create new namespace metadata
+    new_namespace_meta: Namespace = Metafile.update_for(old_namespace_meta)
+    if new_namespace:
+        new_namespace_meta.locator.namespace = new_namespace
+    if properties is not None:
+        new_namespace_meta.properties = properties
+
+    # Commit the update
     transaction = Transaction.of(
         txn_type=TransactionType.ALTER,
         txn_operations=[
             TransactionOperation.of(
                 operation_type=TransactionOperationType.UPDATE,
-                dest_metafile=new_namespace,
-                src_metafile=old_namespace,
+                dest_metafile=new_namespace_meta,
+                src_metafile=old_namespace_meta,
             )
         ],
     )
@@ -744,36 +781,6 @@ def update_namespace(
         catalog_root_dir=catalog_properties.root,
         filesystem=catalog_properties.filesystem,
     )
-    return namespace
-
-
-def _validate_schemes_against_schema(
-    schema: Optional[Schema],
-    partition_scheme: Optional[PartitionScheme],
-    sort_scheme: Optional[SortScheme],
-) -> None:
-    """
-    Validates partition and sort schemes against a schema, ensuring all referenced fields exist.
-    If schema is None, validation is skipped.
-    """
-    if schema is None:
-        return
-
-    schema_fields = set(field.name for field in schema.arrow)
-
-    # Validate partition scheme
-    if partition_scheme is not None and partition_scheme.keys is not None:
-        for key in partition_scheme.keys:
-            if key.key[0] not in schema_fields:
-                raise ValueError(
-                    f"Partition key field '{key.key[0]}' not found in schema"
-                )
-
-    # Validate sort scheme
-    if sort_scheme is not None and sort_scheme.keys is not None:
-        for key in sort_scheme.keys:
-            if key.key[0] not in schema_fields:
-                raise ValueError(f"Sort key field '{key.key[0]}' not found in schema")
 
 
 def create_table_version(
