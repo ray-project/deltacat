@@ -32,11 +32,13 @@ from deltacat.storage.model.partition import (
     UNPARTITIONED_SCHEME,
     UNPARTITIONED_SCHEME_ID,
     UNPARTITIONED_SCHEME_NAME,
+    PartitionKeyList,
 )
 from deltacat.storage.model.sort_key import (
     UNSORTED_SCHEME,
     UNSORTED_SCHEME_ID,
     UNSORTED_SCHEME_NAME,
+    SortKeyList,
 )
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
@@ -429,7 +431,7 @@ class TestTableVersion:
         )
         # expect it to have the correct default table version ID assigned
         table_version.previous_table_version = self.table_version2.table_version
-        table_version_default_id: TableVersion = Metafile.update_for(self.table_version)
+        table_version_default_id = TableVersion(Metafile.update_for(self.table_version))
         table_version_default_id.locator.table_version = DEFAULT_TABLE_VERSION
         assert table_version.equivalent_to(table_version)
 
@@ -638,7 +640,7 @@ class TestTableVersion:
             )
         ]
         new_scheme = PartitionScheme.of(
-            keys=partition_keys,
+            keys=PartitionKeyList.of(partition_keys),
             name="test_partition_scheme",
             scheme_id="test_partition_scheme_id_2",
         )
@@ -684,7 +686,7 @@ class TestTableVersion:
             )
         ]
         new_scheme = PartitionScheme.of(
-            keys=partition_keys,
+            keys=PartitionKeyList.of(partition_keys),
             name="new_partition_scheme_name",
             scheme_id="test_partition_scheme_id",
         )
@@ -805,7 +807,7 @@ class TestTableVersion:
             )
         ]
         new_scheme = SortScheme.of(
-            keys=sort_keys,
+            keys=SortKeyList.of(sort_keys),
             name="test_sort_scheme",
             scheme_id="test_sort_scheme_id_2",
         )
@@ -848,7 +850,7 @@ class TestTableVersion:
             )
         ]
         new_scheme = SortScheme.of(
-            keys=sort_keys,
+            keys=SortKeyList.of(sort_keys),
             name="new_sort_scheme_name",
             scheme_id="test_sort_scheme_id",
         )
@@ -1128,7 +1130,9 @@ class TestTableVersion:
             catalog=self.catalog,
         )
         # expect it to be table version 1
-        active_table_version: TableVersion = Metafile.update_for(self.table_version)
+        active_table_version = TableVersion(
+            Metafile.update_for(self.table_version),
+        )
         active_table_version.state = LifecycleState.ACTIVE
         assert tv.equivalent_to(active_table_version)
         # given an update to make table version 2 active
@@ -1146,7 +1150,9 @@ class TestTableVersion:
             catalog=self.catalog,
         )
         # expect it to be table version 2
-        active_table_version2: TableVersion = Metafile.update_for(self.table_version2)
+        active_table_version2 = TableVersion(
+            Metafile.update_for(self.table_version2),
+        )
         active_table_version2.state = LifecycleState.ACTIVE
         assert tv.equivalent_to(active_table_version2)
 
@@ -1336,12 +1342,16 @@ class TestTableVersion:
             ),
         )
         partition_scheme = PartitionScheme.of(
-            keys=[
-                PartitionKey.of(
-                    key=["non_existent_field"],  # Field that doesn't exist in schema
-                    transform=IdentityTransform.of(),
-                )
-            ],
+            keys=PartitionKeyList.of(
+                [
+                    PartitionKey.of(
+                        key=[
+                            "non_existent_field"
+                        ],  # Field that doesn't exist in schema
+                        transform=IdentityTransform.of(),
+                    )
+                ]
+            ),
             name="test_partition_scheme",
             scheme_id="test_partition_scheme_id",
         )
@@ -1371,13 +1381,17 @@ class TestTableVersion:
             ),
         )
         sort_scheme = SortScheme.of(
-            keys=[
-                SortKey.of(
-                    key=["non_existent_field"],  # Field that doesn't exist in schema
-                    sort_order=SortOrder.ASCENDING,
-                    null_order=NullOrder.AT_END,
-                )
-            ],
+            keys=SortKeyList.of(
+                [
+                    SortKey.of(
+                        key=[
+                            "non_existent_field"
+                        ],  # Field that doesn't exist in schema
+                        sort_order=SortOrder.ASCENDING,
+                        null_order=NullOrder.AT_END,
+                    )
+                ]
+            ),
             name="test_sort_scheme",
             scheme_id="test_sort_scheme_id",
         )
@@ -1398,12 +1412,16 @@ class TestTableVersion:
     def test_update_table_version_validates_partition_scheme(self):
         # Test that updating a table version validates partition scheme fields exist in schema
         partition_scheme = PartitionScheme.of(
-            keys=[
-                PartitionKey.of(
-                    key=["non_existent_field"],  # Field that doesn't exist in schema
-                    transform=IdentityTransform.of(),
-                )
-            ],
+            keys=PartitionKeyList.of(
+                [
+                    PartitionKey.of(
+                        key=[
+                            "non_existent_field"
+                        ],  # Field that doesn't exist in schema
+                        transform=IdentityTransform.of(),
+                    )
+                ]
+            ),
             name="test_partition_scheme",
             scheme_id="test_partition_scheme_id_2",
         )
@@ -1424,13 +1442,17 @@ class TestTableVersion:
     def test_update_table_version_validates_sort_scheme(self):
         # Test that updating a table version validates sort scheme fields exist in schema
         sort_scheme = SortScheme.of(
-            keys=[
-                SortKey.of(
-                    key=["non_existent_field"],  # Field that doesn't exist in schema
-                    sort_order=SortOrder.ASCENDING,
-                    null_order=NullOrder.AT_END,
-                )
-            ],
+            keys=SortKeyList.of(
+                [
+                    SortKey.of(
+                        key=[
+                            "non_existent_field"
+                        ],  # Field that doesn't exist in schema
+                        sort_order=SortOrder.ASCENDING,
+                        null_order=NullOrder.AT_END,
+                    )
+                ]
+            ),
             name="test_sort_scheme",
             scheme_id="test_sort_scheme_id_2",
         )
@@ -1450,23 +1472,27 @@ class TestTableVersion:
     def test_validation_skipped_if_schema_none(self):
         # Test that validation is skipped if schema is None
         partition_scheme = PartitionScheme.of(
-            keys=[
-                PartitionKey.of(
-                    key=["any_field"],  # Can be any field since schema is None
-                    transform=IdentityTransform.of(),
-                )
-            ],
+            keys=PartitionKeyList.of(
+                [
+                    PartitionKey.of(
+                        key=["any_field"],  # Can be any field since schema is None
+                        transform=IdentityTransform.of(),
+                    )
+                ]
+            ),
             name="test_partition_scheme",
             scheme_id="test_partition_scheme_id",
         )
         sort_scheme = SortScheme.of(
-            keys=[
-                SortKey.of(
-                    key=["any_field"],  # Can be any field since schema is None
-                    sort_order=SortOrder.ASCENDING,
-                    null_order=NullOrder.AT_END,
-                )
-            ],
+            keys=SortKeyList.of(
+                [
+                    SortKey.of(
+                        key=["any_field"],  # Can be any field since schema is None
+                        sort_order=SortOrder.ASCENDING,
+                        null_order=NullOrder.AT_END,
+                    )
+                ]
+            ),
             name="test_sort_scheme",
             scheme_id="test_sort_scheme_id",
         )
@@ -1751,12 +1777,14 @@ class TestPartition:
         )
         # Create a partition scheme
         cls.partition_scheme = PartitionScheme.of(
-            keys=[
-                PartitionKey.of(
-                    key=["col1"],
-                    transform=IdentityTransform.of(),
-                )
-            ],
+            keys=PartitionKeyList.of(
+                [
+                    PartitionKey.of(
+                        key=["col1"],
+                        transform=IdentityTransform.of(),
+                    )
+                ]
+            ),
             name="test_partition_scheme",
             scheme_id="test_partition_scheme_id",
         )
@@ -2033,10 +2061,15 @@ class TestPartition:
         assert partition_values1 in partition_values
         assert partition_values2 in partition_values
 
-        # Verify all returned partitions are committed
+        # Verify all returned partitions are committed and equivalent to the original committed partitions
         for p in partitions_list:
             assert p.state == CommitState.COMMITTED
             assert p.partition_scheme_id == self.tv.partition_scheme.id
+            # Find the corresponding original committed partition
+            if p.partition_values == partition_values1:
+                assert p.equivalent_to(committed_partition1)
+            else:
+                assert p.equivalent_to(committed_partition2)
 
     def test_partition_replacement(self):
         # Given an initial committed partition
@@ -2165,7 +2198,7 @@ class TestPartition:
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        committed_partition = metastore.commit_partition(
+        metastore.commit_partition(
             partition=staged_partition,
             catalog=self.catalog,
         )
@@ -2178,7 +2211,7 @@ class TestPartition:
             catalog=self.catalog,
         )
 
-        # Then trying to stage a new partition with the same values should work
+        # Then staging a new partition with the same values should work
         new_staged_partition = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values,

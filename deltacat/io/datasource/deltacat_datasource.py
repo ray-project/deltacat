@@ -350,7 +350,6 @@ class DeltaCatDatasource(Datasource):
             ]
         elif self._deltacat_read_type == DeltacatReadType.METADATA_LIST:
             # do a shallow read of the top-level DeltaCAT metadata
-            print(f"listers: {self._reader.listers}")
             listers = copy.deepcopy(self._reader.listers)
             listers = [listers[0]]
             read_tasks = self._list_all_metafiles_read_tasks(

@@ -158,7 +158,7 @@ def create_test_table_version():
         )
     ]
     sort_scheme = SortScheme.of(
-        keys=SortKeyList(sort_keys),
+        keys=SortKeyList.of(sort_keys),
         name="test_sort_scheme",
         scheme_id="test_sort_scheme_id",
     )
@@ -173,8 +173,8 @@ def create_test_table_version():
         watermark=None,
         lifecycle_state=LifecycleState.CREATED,
         schemas=SchemaList.of([schema]),
-        partition_schemes=PartitionSchemeList([partition_scheme]),
-        sort_schemes=SortSchemeList([sort_scheme]),
+        partition_schemes=PartitionSchemeList.of([partition_scheme]),
+        sort_schemes=SortSchemeList.of([sort_scheme]),
     )
 
 
@@ -201,7 +201,7 @@ def create_test_stream():
         )
     ]
     partition_scheme = PartitionScheme.of(
-        keys=PartitionKeyList(partition_keys),
+        keys=PartitionKeyList.of(partition_keys),
         name="test_partition_scheme",
         scheme_id="test_partition_scheme_id",
     )

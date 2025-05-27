@@ -1776,7 +1776,6 @@ def delete_partition(
         partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
-    print(f"partition_to_delete: {partition_to_delete}")
     if not partition_to_delete:
         raise ValueError(
             f"Partition with values {partition_values} and scheme "
