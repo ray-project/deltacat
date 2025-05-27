@@ -108,6 +108,103 @@ class TestNamespace:
             catalog=self.catalog,
         )
 
+    def test_delete_namespace(self):
+        # Given a namespace that exists
+        assert metastore.namespace_exists(
+            namespace="namespace1",
+            catalog=self.catalog,
+        )
+
+        # When we delete the namespace
+        metastore.delete_namespace(
+            namespace="namespace1",
+            catalog=self.catalog,
+        )
+
+        # Then the namespace should not exist anymore
+        assert not metastore.namespace_exists(
+            namespace="namespace1",
+            catalog=self.catalog,
+        )
+
+        # And it should not be listed in namespaces
+        list_result = metastore.list_namespaces(catalog=self.catalog)
+        namespaces = list_result.all_items()
+        assert len(namespaces) == 1  # Only namespace2 should remain
+        assert namespaces[0].equivalent_to(self.namespace2)
+
+    def test_delete_namespace_not_exists(self):
+        # When we try to delete a non-existent namespace
+        # Then we should get a ValueError
+        with pytest.raises(ValueError):
+            metastore.delete_namespace(
+                namespace="non_existent_namespace",
+                catalog=self.catalog,
+            )
+
+    def test_delete_namespace_with_purge(self):
+        # Given a namespace that exists
+        assert metastore.namespace_exists(
+            namespace="namespace1",
+            catalog=self.catalog,
+        )
+
+        # When we delete the namespace with purge=True
+        metastore.delete_namespace(
+            namespace="namespace1",
+            purge=True,
+            catalog=self.catalog,
+        )
+
+        # Then the namespace should not exist anymore
+        assert not metastore.namespace_exists(
+            namespace="namespace1",
+            catalog=self.catalog,
+        )
+
+        # And it should not be listed in namespaces
+        list_result = metastore.list_namespaces(catalog=self.catalog)
+        namespaces = list_result.all_items()
+        assert len(namespaces) == 1  # Only namespace2 should remain
+        assert namespaces[0].equivalent_to(self.namespace2)
+
+    def test_delete_namespace_operations_after_delete(self):
+        # Given a namespace that exists
+        namespace = "namespace1"
+        assert metastore.namespace_exists(
+            namespace=namespace,
+            catalog=self.catalog,
+        )
+
+        # When we delete the namespace
+        metastore.delete_namespace(
+            namespace=namespace,
+            catalog=self.catalog,
+        )
+
+        # Then trying to create a table in the deleted namespace should fail
+        with pytest.raises(ValueError):
+            metastore.create_table_version(
+                namespace=namespace,
+                table_name="test_table",
+                table_version="v.1",
+                catalog=self.catalog,
+            )
+
+        # And trying to list tables in the deleted namespace should fail
+        with pytest.raises(ValueError):
+            metastore.list_tables(
+                namespace=namespace,
+                catalog=self.catalog,
+            )
+
+        # And trying to delete the namespace again should fail
+        with pytest.raises(ValueError):
+            metastore.delete_namespace(
+                namespace=namespace,
+                catalog=self.catalog,
+            )
+
 
 class TestTable:
     @classmethod
