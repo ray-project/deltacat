@@ -42,6 +42,7 @@ from deltacat.storage.model.partition import (
 )
 from deltacat.storage.model.schema import (
     Schema,
+    Field,
 )
 from deltacat.storage.model.sort_key import (
     SortScheme,
@@ -77,6 +78,7 @@ from deltacat.types.media import (
     TableType,
 )
 from deltacat.utils.common import ReadKwargsProvider
+import pyarrow as pa
 
 
 def _list(
@@ -261,6 +263,72 @@ def _validate_schemes_against_schema(
         for key in sort_scheme.keys:
             if key.key[0] not in schema_fields:
                 raise ValueError(f"Sort key field '{key.key[0]}' not found in schema")
+
+
+def _validate_partition_values_against_scheme(
+    partition_values: Optional[PartitionValues],
+    partition_scheme: PartitionScheme,
+    schema: Optional[Schema],
+) -> None:
+    """
+    Validates that partition values match the data types of the partition key fields in the schema.
+
+    Args:
+        partition_values: List of partition values to validate
+        partition_scheme: The partition scheme containing the keys to validate against
+        schema: The schema containing the field types to validate against
+
+    Raises:
+        ValueError: If validation fails
+    """
+    if not partition_values:
+        return
+
+    if not schema:
+        raise ValueError(
+            "Table version must have a schema to validate partition values"
+        )
+
+    if len(partition_values) != len(partition_scheme.keys):
+        raise ValueError(
+            f"Number of partition values ({len(partition_values)}) does not match "
+            f"number of partition keys ({len(partition_scheme.keys)})"
+        )
+
+    # Validate each partition value against its corresponding field type
+    for i in range(len(partition_scheme.keys)):
+        field_type = partition_scheme.keys[i].transform.return_type
+        partition_value = partition_values[i]
+        if field_type is None:
+            # the transform returns the same type as the source schema type
+            # (which also implies that it is a single-key transform)
+            field_type = schema.field(partition_scheme.keys[i].key[0]).arrow.type
+        try:
+            # Try to convert the value to PyArrow to validate its type
+            pa.array([partition_value], type=field_type)
+            # If successful, the type is valid
+        except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError) as e:
+            raise ValueError(
+                f"Partition value {partition_value} (type {type(partition_value)}) "
+                f"incompatible with partition transform return type {field_type}"
+            ) from e
+
+
+def _ensure_value_coercible_to_pyarrow_type(
+    value: Any,
+    field_type: pa.DataType,
+) -> None:
+    """
+    Ensures that a single value can be converted to the given pyarrow data type.
+
+    Args:
+        value: The partition value to validate
+        field_type: The pyarrow field type that the partition value should be
+            convertible to.
+
+    Raises:
+        ValueError: If validation fails
+    """
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
@@ -1616,7 +1684,22 @@ def stage_partition(
             f"`{stream.namespace}.{stream.table_name}"
             f".{table_version.table_version}` partition scheme IDs)."
         )
-    # TODO(pdames): Validate partition values against partition scheme.
+
+    if partition_values:
+        if partition_scheme_id == UNPARTITIONED_SCHEME_ID:
+            raise ValueError(
+                "Partition values cannot be specified for unpartitioned tables"
+            )
+        # Validate partition values against partition scheme
+        partition_scheme = next(
+            ps for ps in table_version.partition_schemes if ps.id == partition_scheme_id
+        )
+        _validate_partition_values_against_scheme(
+            partition_values=partition_values,
+            partition_scheme=partition_scheme,
+            schema=table_version.schema,
+        )
+
     locator = PartitionLocator.of(
         stream_locator=stream.locator,
         partition_values=partition_values,

@@ -910,11 +910,17 @@ class TestTableVersion:
         identity_transform = IdentityTransform.of()
         partition_keys = [
             PartitionKey.of(
-                key=["some_string", "some_int32"],
-                name="test_partition_key",
+                key=["some_string"],
+                name="test_partition_key_string",
                 field_id=1,
                 transform=identity_transform,
-            )
+            ),
+            PartitionKey.of(
+                key=["some_int32"],
+                name="test_partition_key_int32",
+                field_id=1,
+                transform=identity_transform,
+            ),
         ]
         new_scheme = PartitionScheme.of(
             keys=PartitionKeyList.of(partition_keys),
@@ -956,11 +962,17 @@ class TestTableVersion:
         identity_transform = IdentityTransform.of()
         partition_keys = [
             PartitionKey.of(
-                key=["some_string", "some_int32"],
-                name="test_partition_key",
+                key=["some_string"],
+                name="test_partition_key_string",
                 field_id=1,
                 transform=identity_transform,
-            )
+            ),
+            PartitionKey.of(
+                key=["some_int32"],
+                name="test_partition_key_int32",
+                field_id=1,
+                transform=identity_transform,
+            ),
         ]
         new_scheme = PartitionScheme.of(
             keys=PartitionKeyList.of(partition_keys),
@@ -2116,7 +2128,11 @@ class TestPartition:
                     PartitionKey.of(
                         key=["col1"],
                         transform=IdentityTransform.of(),
-                    )
+                    ),
+                    PartitionKey.of(
+                        key=["col2"],
+                        transform=IdentityTransform.of(),
+                    ),
                 ]
             ),
             name="test_partition_scheme",

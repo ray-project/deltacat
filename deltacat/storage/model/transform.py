@@ -1,6 +1,11 @@
 from __future__ import annotations
+
+import base64
 from enum import Enum
 from typing import Dict, Any, Optional
+import pyarrow as pa
+
+from deltacat.constants import METAFILE_FORMAT, METAFILE_FORMAT_JSON
 
 
 class TransformName(str, Enum):
@@ -112,10 +117,44 @@ class Transform(dict):
     ) -> None:
         NAME_TO_TRANSFORM[self.name].parameters = parameters
 
+    @property
+    def return_type(self) -> Optional[pa.DataType]:
+        """
+        The PyArrow data type that this transform returns.
+        A return value of "None" indicates that the return type is the same
+        as the source type. Transforms that always return null return pa.null().
+        """
+        return_type = self.get("return_type")
+        if return_type is not None:
+            schema_bytes = (
+                base64.b64decode(return_type)
+                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
+                else return_type
+            )
+            return_type = pa.ipc.read_schema(
+                pa.py_buffer(schema_bytes),
+            )[0].type
+        return return_type
+
+    @return_type.setter
+    def return_type(self, return_type: pa.Schema) -> None:
+        """
+        Set the PyArrow data type that this transform returns.
+        """
+        self["return_type"] = return_type.serialize().to_pybytes()
+
+    @property
+    def is_multi_field_transform(self) -> bool:
+        """
+        Whether this transform is a multi-field transform.
+        """
+        return False
+
 
 class BucketTransform(Transform):
     """
     A transform that hashes field values into a fixed number of buckets.
+    Returns a PyArrow int32 type.
     """
 
     @staticmethod
@@ -123,6 +162,7 @@ class BucketTransform(Transform):
         transform = BucketTransform()
         transform.name = TransformName.BUCKET
         transform.parameters = parameters
+        transform.return_type = pa.schema([("return_type", pa.decimal128(38, 0))])
         return transform
 
     @property
@@ -139,10 +179,15 @@ class BucketTransform(Transform):
     ) -> None:
         self["parameters"] = parameters
 
+    @property
+    def is_multi_field_transform(self) -> bool:
+        return True
+
 
 class TruncateTransform(Transform):
     """
     A transform that truncates field values to a fixed width.
+    Returns the same type as the input field.
     """
 
     @staticmethod
@@ -170,6 +215,7 @@ class TruncateTransform(Transform):
 class IdentityTransform(Transform):
     """
     A no-op transform that returns unmodified field values.
+    Returns the same PyArrow type as the input.
     """
 
     @staticmethod
@@ -182,60 +228,70 @@ class IdentityTransform(Transform):
 class HourTransform(Transform):
     """
     A transform that returns the hour of a datetime value.
+    Returns a PyArrow int32 type representing the hour (0-23).
     """
 
     @staticmethod
     def of() -> HourTransform:
         transform = HourTransform()
         transform.name = TransformName.HOUR
+        transform.return_type = pa.schema([("return_type", pa.int64())])
         return transform
 
 
 class DayTransform(Transform):
     """
     A transform that returns the day of a datetime value.
+    Returns a PyArrow int32 type representing the day (1-31).
     """
 
     @staticmethod
     def of() -> DayTransform:
         transform = DayTransform()
         transform.name = TransformName.DAY
+        transform.return_type = pa.schema([("return_type", pa.int64())])
         return transform
 
 
 class MonthTransform(Transform):
     """
     A transform that returns the month of a datetime value.
+    Returns a PyArrow int32 type representing the month (1-12).
     """
 
     @staticmethod
     def of() -> MonthTransform:
         transform = MonthTransform()
         transform.name = TransformName.MONTH
+        transform.return_type = pa.schema([("return_type", pa.int64())])
         return transform
 
 
 class YearTransform(Transform):
     """
     A transform that returns the year of a datetime value.
+    Returns a PyArrow int32 type representing the year.
     """
 
     @staticmethod
     def of() -> YearTransform:
         transform = YearTransform()
         transform.name = TransformName.YEAR
+        transform.return_type = pa.schema([("return_type", pa.int64())])
         return transform
 
 
 class VoidTransform(Transform):
     """
     A transform that coerces all field values to None.
+    Returns a PyArrow null type.
     """
 
     @staticmethod
     def of() -> VoidTransform:
         transform = VoidTransform()
         transform.name = TransformName.VOID
+        transform.return_type = pa.schema([("return_type", pa.null())])
         return transform
 
 
