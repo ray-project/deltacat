@@ -169,7 +169,6 @@ def commit_append_snapshot(iceberg_table, new_position_delete_files):
         with append_delete_files_override(tx.update_snapshot()) as append_snapshot:
             if new_position_delete_files:
                 for data_file in new_position_delete_files:
-                    print(f"debug_append_snapshot_data_file:{data_file}")
                     append_snapshot.append_data_file(data_file)
 
 
@@ -276,5 +275,4 @@ def commit_replace_snapshot(
                     replace_delete_snapshot.append_data_file(data_file)
             if to_be_deleted_files:
                 for delete_file in to_be_deleted_files:
-                    print(f"debug_delete_file_snapshot:{delete_file}")
                     replace_delete_snapshot.delete_data_file(delete_file)
