@@ -27,6 +27,16 @@ from deltacat.storage import (
     StreamLocator,
     SortOrder,
     NullOrder,
+    BucketTransform,
+    BucketTransformParameters,
+    BucketingStrategy,
+    YearTransform,
+    MonthTransform,
+    DayTransform,
+    HourTransform,
+    TruncateTransform,
+    TruncateTransformParameters,
+    VoidTransform,
 )
 from deltacat.storage.model.partition import (
     UNPARTITIONED_SCHEME,
@@ -2657,7 +2667,7 @@ class TestPartition:
         """Test that partition values must match the schema types of partition keys."""
         # Given valid partition values matching schema types (col1: int32, col2: string)
         valid_values = [42, "test"]
-        
+
         # When staging with valid values
         staged_partition = metastore.stage_partition(
             stream=self.stream,
@@ -2665,22 +2675,26 @@ class TestPartition:
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        
+
         # Then the partition should be staged successfully
         assert staged_partition is not None
         assert staged_partition.partition_values == valid_values
-        
+
         # When trying to stage with invalid type for col1 (string instead of int32)
-        with pytest.raises(ValueError, match="incompatible with partition transform return type int32"):
+        with pytest.raises(
+            ValueError, match="incompatible with partition transform return type int32"
+        ):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=["not_an_int", "test"],
                 partition_scheme_id=self.tv.partition_scheme.id,
                 catalog=self.catalog,
             )
-            
+
         # When trying to stage with invalid type for col2 (int instead of string)
-        with pytest.raises(ValueError, match="incompatible with partition transform return type string"):
+        with pytest.raises(
+            ValueError, match="incompatible with partition transform return type string"
+        ):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=[42, 123],
@@ -2698,7 +2712,7 @@ class TestPartition:
                 partition_scheme_id=self.tv.partition_scheme.id,
                 catalog=self.catalog,
             )
-            
+
         # When trying to stage with too many values
         with pytest.raises(ValueError, match="does not match number of partition keys"):
             metastore.stage_partition(
@@ -2717,11 +2731,11 @@ class TestPartition:
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        
+
         # Then the partition should be staged successfully
         assert staged_partition is not None
         assert staged_partition.partition_values == [None, "test"]
-        
+
         # Also verify None values are allowed for string fields
         staged_partition = metastore.stage_partition(
             stream=self.stream,
@@ -2729,7 +2743,166 @@ class TestPartition:
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        
+
         # Then the partition should be staged successfully
         assert staged_partition is not None
         assert staged_partition.partition_values == [42, None]
+
+    def test_stage_partition_multiple_transform_types(self):
+        """Test partition scheme with multiple transform types and their type validation."""
+        # Create a schema with fields for different transform types
+        schema = Schema.of(
+            pa.schema(
+                [
+                    ("user_id", pa.string()),
+                    ("product_id", pa.int32()),
+                    ("timestamp", pa.timestamp("ns")),
+                    ("amount", pa.decimal128(38, 2)),
+                    ("category", pa.string()),
+                ]
+            )
+        )
+
+        # Create partition keys with different transform types
+        partition_keys = [
+            # Multi-field bucket transform on user_id and product_id
+            PartitionKey.of(
+                key=["user_id", "product_id"],
+                transform=BucketTransform.of(
+                    BucketTransformParameters.of(
+                        num_buckets=100,
+                        bucketing_strategy=BucketingStrategy.DEFAULT,
+                    )
+                ),
+            ),
+            # Year transform on timestamp
+            PartitionKey.of(
+                key=["timestamp"],
+                transform=YearTransform.of(),
+            ),
+            # Month transform on timestamp
+            PartitionKey.of(
+                key=["timestamp"],
+                transform=MonthTransform.of(),
+            ),
+            # Day transform on timestamp
+            PartitionKey.of(
+                key=["timestamp"],
+                transform=DayTransform.of(),
+            ),
+            # Hour transform on timestamp
+            PartitionKey.of(
+                key=["timestamp"],
+                transform=HourTransform.of(),
+            ),
+            # Truncate transform on category
+            PartitionKey.of(
+                key=["category"],
+                transform=TruncateTransform.of(TruncateTransformParameters.of(width=3)),
+            ),
+            # Void transform (always returns None)
+            PartitionKey.of(
+                key=["amount"],
+                transform=VoidTransform.of(),
+            ),
+        ]
+
+        partition_scheme = PartitionScheme.of(
+            keys=PartitionKeyList.of(partition_keys),
+            name="multi_transform_scheme",
+            scheme_id="multi_transform_scheme_id",
+        )
+
+        # Create a new table version with this schema and partition scheme
+        _, tv, stream = metastore.create_table_version(
+            namespace=self.namespace.namespace,
+            table_name="multi_transform_table",
+            table_version="v.1",
+            schema=schema,
+            partition_scheme=partition_scheme,
+            catalog=self.catalog,
+        )
+
+        # Test valid partition values
+        valid_values = [
+            5,  # Bucket transform result for user_id + product_id
+            2024,  # Year
+            3,  # Month
+            14,  # Day
+            15,  # Hour
+            "foo",  # Truncated category
+            None,  # Void transform result
+        ]
+
+        # When staging with valid values
+        staged_partition = metastore.stage_partition(
+            stream=stream,
+            partition_values=valid_values,
+            partition_scheme_id=partition_scheme.id,
+            catalog=self.catalog,
+        )
+
+        # Then the partition should be staged successfully
+        assert staged_partition is not None
+        assert staged_partition.partition_values == valid_values
+
+        # Test invalid bucket transform value type
+        invalid_bucket_values = [
+            "not_an_int",  # Should be decimal128(38, 0) from bucket transform
+            2024,
+            3,
+            14,
+            15,
+            "foo",
+            None,
+        ]
+        with pytest.raises(
+            ValueError,
+            match="incompatible with partition transform return type decimal128\\(38, 0\\)",
+        ):
+            metastore.stage_partition(
+                stream=stream,
+                partition_values=invalid_bucket_values,
+                partition_scheme_id=partition_scheme.id,
+                catalog=self.catalog,
+            )
+
+        # Test invalid year transform value type
+        invalid_year_values = [
+            5,  # Valid bucket transform value
+            "not_an_int",  # Should be int64 from year transform
+            3,
+            14,
+            15,
+            "foo",
+            None,
+        ]
+        with pytest.raises(
+            ValueError, match="incompatible with partition transform return type int64"
+        ):
+            metastore.stage_partition(
+                stream=stream,
+                partition_values=invalid_year_values,
+                partition_scheme_id=partition_scheme.id,
+                catalog=self.catalog,
+            )
+
+        # Test invalid month transform value type
+        invalid_month_values = [
+            5,
+            2024,
+            "not_an_int",  # Should be int64 from month transform
+            14,
+            15,
+            "foo",
+            None,
+        ]
+        with pytest.raises(
+            ValueError, match="incompatible with partition transform return type int64"
+        ):
+            metastore.stage_partition(
+                stream=stream,
+                partition_values=invalid_month_values,
+                partition_scheme_id=partition_scheme.id,
+                catalog=self.catalog,
+            )

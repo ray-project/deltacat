@@ -154,7 +154,7 @@ class Transform(dict):
 class BucketTransform(Transform):
     """
     A transform that hashes field values into a fixed number of buckets.
-    Returns a PyArrow int32 type.
+    Returns a PyArrow decimal128(38, 0) type.
     """
 
     @staticmethod

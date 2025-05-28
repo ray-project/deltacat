@@ -555,12 +555,12 @@ class PartitionScheme(dict):
             if len(keys) == 0:
                 raise ValueError("Partition scheme cannot have empty keys list")
 
-            # Check for duplicate keys
+            # Check for duplicate key names
             key_names = []
             for key in keys:
-                if key.key[0] in key_names:
-                    raise ValueError(f"Duplicate partition key found: {key.key[0]}")
-                key_names.append(key.key[0])
+                if key.name is not None and key.name in key_names:
+                    raise ValueError(f"Duplicate partition key name found: {key.name}")
+                key_names.append(key.name)
 
         return PartitionScheme(
             {
