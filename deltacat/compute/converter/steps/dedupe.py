@@ -4,6 +4,9 @@ import deltacat.compute.converter.utils.iceberg_columns as sc
 from deltacat.compute.converter.utils.io import (
     download_data_table_and_append_iceberg_columns,
 )
+from deltacat.compute.converter.utils.converter_session_utils import (
+    sort_data_files_maintaining_order,
+)
 import logging
 from deltacat import logs
 
@@ -21,9 +24,10 @@ def dedupe_data_files(
     if remaining_data_table_after_convert:
         data_file_table.append(remaining_data_table_after_convert)
 
+    data_file_to_dedupe = sort_data_files_maintaining_order(
+        data_files=data_file_to_dedupe
+    )
     downloaded_data_file_record_count = 0
-    # Sort data files by file sequence number first
-    data_file_to_dedupe = sorted(data_file_to_dedupe, key=lambda f: f[0])
     for file_tuple in data_file_to_dedupe:
         data_file = file_tuple[1]
         data_file_to_dedupe_table = download_data_table_and_append_iceberg_columns(

@@ -14,6 +14,7 @@ from deltacat.compute.converter.utils.io import (
 )
 from deltacat.compute.converter.utils.converter_session_utils import (
     partition_value_record_to_partition_value_string,
+    sort_data_files_maintaining_order,
 )
 from deltacat.compute.converter.pyiceberg.overrides import (
     parquet_files_dict_to_iceberg_data_files,
@@ -71,6 +72,7 @@ def convert(convert_input: ConvertInput):
         iceberg_table_warehouse_prefix_with_partition = (
             f"{iceberg_table_warehouse_prefix}"
         )
+
     enforce_primary_key_uniqueness = convert_input.enforce_primary_key_uniqueness
     total_pos_delete_table = []
     data_table_after_converting_equality_delete = []
@@ -182,8 +184,8 @@ def convert(convert_input: ConvertInput):
 def get_additional_applicable_data_files(all_data_files, data_files_downloaded):
     data_file_to_dedupe = []
     assert len(set(all_data_files)) >= len(set(data_files_downloaded)), (
-        f"Length of all data files list: {len(set(all_data_files))} should be greater than"
-        f"Length of corresponding data files list: {len(set(data_files_downloaded))}"
+        f"Length of all data files ({len(set(all_data_files))}) should never be less than "
+        f"the length of candidate equality delete data files ({len(set(data_files_downloaded))})"
     )
     if data_files_downloaded:
         # set1.difference(set2) returns elements in set1 but not in set2
@@ -219,9 +221,8 @@ def filter_rows_to_be_deleted(
         assert len(position_delete_table) + len(remaining_data_table) == len(
             data_file_table
         ), (
-            f"Length of data file table remaining plus length of pos delete table should match origin data file table length"
-            f"But got {len(position_delete_table)} pos delete, {len(remaining_data_table)} equality delete, "
-            f"doesn't equal to original data table length: {len(data_file_table)}"
+            f"Expected undeleted data file record count plus length of pos deletes to match original data file record count of {len(data_file_table)}, "
+            f"but found {len(position_delete_table)} pos deletes + {len(remaining_data_table)} equality deletes."
         )
 
     return position_delete_table, remaining_data_table
@@ -271,8 +272,9 @@ def compute_pos_delete_with_limited_parallelism(
     ):
         data_table_total = []
 
-        # Sort by file sequence number to make sure the data file table are appended maintaining order
-        data_files = sorted(data_files, key=lambda f: f[0])
+        # Sort data files by file sequence number first, then file path to
+        # make sure files having same sequence number are deterministically sorted
+        data_files = sort_data_files_maintaining_order(data_files=data_files)
 
         for data_file in data_files:
             data_table = download_data_table_and_append_iceberg_columns(

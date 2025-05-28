@@ -100,3 +100,14 @@ def group_all_files_to_each_bucket(
             )
         convert_input_files_for_all_buckets.append(convert_input_file)
     return convert_input_files_for_all_buckets
+
+
+def sort_data_files_maintaining_order(data_files):
+    """
+    Sort data files deterministically based on two criterias:
+    1. Sequence number: Newly added files will have a higher sequence number
+    2. File path: If file sequence is the same, files are guaranteed to be returned in a deterministic order since file path is unique.
+    """
+    if data_files:
+        data_files = sorted(data_files, key=lambda f: (f[0], f[1].file_path))
+    return data_files
