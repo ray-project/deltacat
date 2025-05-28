@@ -2652,3 +2652,84 @@ class TestPartition:
         assert staged_partition is not None
         assert staged_partition.partition_values == []
         assert staged_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+
+    def test_stage_partition_type_validation(self):
+        """Test that partition values must match the schema types of partition keys."""
+        # Given valid partition values matching schema types (col1: int32, col2: string)
+        valid_values = [42, "test"]
+        
+        # When staging with valid values
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=valid_values,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        
+        # Then the partition should be staged successfully
+        assert staged_partition is not None
+        assert staged_partition.partition_values == valid_values
+        
+        # When trying to stage with invalid type for col1 (string instead of int32)
+        with pytest.raises(ValueError, match="incompatible with partition transform return type int32"):
+            metastore.stage_partition(
+                stream=self.stream,
+                partition_values=["not_an_int", "test"],
+                partition_scheme_id=self.tv.partition_scheme.id,
+                catalog=self.catalog,
+            )
+            
+        # When trying to stage with invalid type for col2 (int instead of string)
+        with pytest.raises(ValueError, match="incompatible with partition transform return type string"):
+            metastore.stage_partition(
+                stream=self.stream,
+                partition_values=[42, 123],
+                partition_scheme_id=self.tv.partition_scheme.id,
+                catalog=self.catalog,
+            )
+
+    def test_stage_partition_wrong_number_of_values(self):
+        """Test that the number of partition values must match the number of partition keys."""
+        # When trying to stage with too few values
+        with pytest.raises(ValueError, match="does not match number of partition keys"):
+            metastore.stage_partition(
+                stream=self.stream,
+                partition_values=[42],  # Missing second value
+                partition_scheme_id=self.tv.partition_scheme.id,
+                catalog=self.catalog,
+            )
+            
+        # When trying to stage with too many values
+        with pytest.raises(ValueError, match="does not match number of partition keys"):
+            metastore.stage_partition(
+                stream=self.stream,
+                partition_values=[42, "test", "extra"],
+                partition_scheme_id=self.tv.partition_scheme.id,
+                catalog=self.catalog,
+            )
+
+    def test_stage_partition_null_values(self):
+        """Test that None values are allowed for partition key fields."""
+        # When staging with None values
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=[None, "test"],
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        
+        # Then the partition should be staged successfully
+        assert staged_partition is not None
+        assert staged_partition.partition_values == [None, "test"]
+        
+        # Also verify None values are allowed for string fields
+        staged_partition = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=[42, None],
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        
+        # Then the partition should be staged successfully
+        assert staged_partition is not None
+        assert staged_partition.partition_values == [42, None]
