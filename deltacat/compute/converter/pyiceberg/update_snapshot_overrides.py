@@ -1,10 +1,12 @@
 from typing import List, Dict
 from collections import defaultdict
 import uuid
+from pyiceberg.table import Table
 from pyiceberg.table.snapshots import (
     Operation,
 )
 from pyiceberg.manifest import (
+    DataFile,
     DataFileContent,
     ManifestContent,
     ManifestEntry,
@@ -14,10 +16,12 @@ from pyiceberg.manifest import (
 )
 import itertools
 from pyiceberg.utils.concurrent import ExecutorFactory
-from pyiceberg.table.update.snapshot import _SnapshotProducer
+from pyiceberg.table.update.snapshot import _SnapshotProducer, UpdateSnapshot
 
 
-def replace_delete_files_override(update_snapshot):
+def replace_delete_files_override(
+    update_snapshot: UpdateSnapshot,
+) -> "_ReplaceDeleteFilesOverride":
     commit_uuid = uuid.uuid4()
     return _ReplaceDeleteFilesOverride(
         commit_uuid=commit_uuid,
@@ -29,8 +33,8 @@ def replace_delete_files_override(update_snapshot):
 
 
 class _ReplaceDeleteFilesOverride(_SnapshotProducer):
-    def _manifests(self):
-        def _write_added_manifest():
+    def _manifests(self) -> List[ManifestFile]:
+        def _write_added_manifest() -> List[ManifestFile]:
             if self._added_data_files:
                 with write_manifest(
                     format_version=self._transaction.table_metadata.format_version,
@@ -90,7 +94,7 @@ class _ReplaceDeleteFilesOverride(_SnapshotProducer):
             + delete_manifests.result()
         )
 
-    def writer_content(self):
+    def writer_content(self) -> ManifestContent:
         return ManifestContent.DELETES
 
     def _existing_manifests(self) -> List[ManifestFile]:
@@ -158,7 +162,9 @@ class _ReplaceDeleteFilesOverride(_SnapshotProducer):
             return []
 
 
-def commit_append_snapshot(iceberg_table, new_position_delete_files):
+def commit_append_snapshot(
+    iceberg_table: Table, new_position_delete_files: List[DataFile]
+) -> None:
     with iceberg_table.transaction() as tx:
         if iceberg_table.metadata.name_mapping() is None:
             tx.set_properties(
@@ -172,7 +178,9 @@ def commit_append_snapshot(iceberg_table, new_position_delete_files):
                     append_snapshot.append_data_file(data_file)
 
 
-def append_delete_files_override(update_snapshot):
+def append_delete_files_override(
+    update_snapshot: UpdateSnapshot,
+) -> "_AppendDeleteFilesOverride":
     commit_uuid = uuid.uuid4()
     return _AppendDeleteFilesOverride(
         commit_uuid=commit_uuid,
@@ -184,8 +192,8 @@ def append_delete_files_override(update_snapshot):
 
 
 class _AppendDeleteFilesOverride(_SnapshotProducer):
-    def _manifests(self):
-        def _write_added_manifest():
+    def _manifests(self) -> List[ManifestFile]:
+        def _write_added_manifest() -> List[ManifestFile]:
             if self._added_data_files:
                 with write_manifest(
                     format_version=self._transaction.table_metadata.format_version,
@@ -218,7 +226,7 @@ class _AppendDeleteFilesOverride(_SnapshotProducer):
             added_manifests.result() + existing_manifests.result()
         )
 
-    def writer_content(self):
+    def writer_content(self) -> ManifestContent:
         return ManifestContent.DELETES
 
     def _existing_manifests(self) -> List[ManifestFile]:
@@ -258,8 +266,10 @@ class _AppendDeleteFilesOverride(_SnapshotProducer):
 
 
 def commit_replace_snapshot(
-    iceberg_table, new_position_delete_files, to_be_deleted_files
-):
+    iceberg_table: Table,
+    new_position_delete_files: List[DataFile],
+    to_be_deleted_files: List[DataFile],
+) -> None:
     with iceberg_table.transaction() as tx:
         if iceberg_table.metadata.name_mapping() is None:
             tx.set_properties(

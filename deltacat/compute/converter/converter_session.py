@@ -12,8 +12,7 @@ from deltacat import logs
 from deltacat.compute.converter.model.converter_session_params import (
     ConverterSessionParams,
 )
-
-
+from typing import Dict, List, Any, Callable
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
@@ -31,11 +30,13 @@ from deltacat.compute.converter.pyiceberg.catalog import load_table
 from deltacat.compute.converter.utils.converter_session_utils import (
     group_all_files_to_each_bucket,
 )
+from deltacat.compute.converter.model.convert_result import ConvertResult
+from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def converter_session(params: ConverterSessionParams, **kwargs):
+def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     """
     Convert equality deletes to position deletes with option to enforce primary key uniqueness.
     """
@@ -84,7 +85,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     else:
         identifier_fields = merge_keys
 
-    convert_options_provider = functools.partial(
+    convert_options_provider: Callable = functools.partial(
         task_resource_options_provider,
         resource_amount_provider=convert_resource_options_provider,
     )
@@ -96,7 +97,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     #  Note that approach 2 will ideally require shared object store to avoid download equality delete files * number of child tasks times.
     max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 
-    def convert_input_provider(index, item):
+    def convert_input_provider(index: int, item: Any) -> Dict[str, ConvertInput]:
         return {
             "convert_input": ConvertInput.of(
                 convert_input_files=item,
@@ -125,10 +126,10 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         kwargs_provider=convert_input_provider,
     )
 
-    to_be_deleted_files_list = []
+    to_be_deleted_files_list: List[List[DataFile]] = []
     logger.info(f"Finished invoking {len(convert_tasks_pending)} convert tasks.")
 
-    convert_results = ray.get(convert_tasks_pending)
+    convert_results: List[ConvertResult] = ray.get(convert_tasks_pending)
     logger.info(f"Got {len(convert_tasks_pending)} convert tasks.")
 
     total_position_delete_record_count = sum(
@@ -152,7 +153,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         for convert_result in convert_results
     )
 
-    to_be_added_files_list = []
+    to_be_added_files_list: List[DataFile] = []
     for convert_result in convert_results:
         to_be_added_files = convert_result.to_be_added_files
         to_be_deleted_files = convert_result.to_be_deleted_files

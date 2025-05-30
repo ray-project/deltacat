@@ -2,11 +2,16 @@ from collections import defaultdict
 import logging
 from deltacat import logs
 from deltacat.compute.converter.model.convert_input_files import ConvertInputFiles
+from typing import List, Dict, Tuple, Any
+from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def check_data_files_sequence_number(data_files_list, equality_delete_files_list):
+def check_data_files_sequence_number(
+    data_files_list: List[Tuple[int, DataFile]],
+    equality_delete_files_list: List[Tuple[int, DataFile]],
+) -> Tuple[List[List[Tuple[int, DataFile]]], List[List[Tuple[int, DataFile]]]]:
     # Sort by file sequence number
     data_files_list.sort(key=lambda file_tuple: file_tuple[0])
     equality_delete_files_list.sort(key=lambda file_tuple: file_tuple[0])
@@ -54,20 +59,22 @@ def check_data_files_sequence_number(data_files_list, equality_delete_files_list
 
 
 def construct_iceberg_table_prefix(
-    iceberg_warehouse_bucket_name, table_name, iceberg_namespace
-):
+    iceberg_warehouse_bucket_name: str, table_name: str, iceberg_namespace: str
+) -> str:
     return f"{iceberg_warehouse_bucket_name}/{iceberg_namespace}/{table_name}/data"
 
 
-def partition_value_record_to_partition_value_string(partition):
+def partition_value_record_to_partition_value_string(partition: Any) -> str:
     # Get string representation of partition value out of Record[partition_value]
     partition_value_str = partition.__repr__().split("[", 1)[1].split("]")[0]
     return partition_value_str
 
 
 def group_all_files_to_each_bucket(
-    data_file_dict, equality_delete_dict, pos_delete_dict
-):
+    data_file_dict: Dict[Any, List[Tuple[int, DataFile]]],
+    equality_delete_dict: Dict[Any, List[Tuple[int, DataFile]]],
+    pos_delete_dict: Dict[Any, List[Tuple[int, DataFile]]],
+) -> List[ConvertInputFiles]:
     convert_input_files_for_all_buckets = []
     files_for_each_bucket_for_deletes = defaultdict(tuple)
     if equality_delete_dict:
@@ -102,7 +109,9 @@ def group_all_files_to_each_bucket(
     return convert_input_files_for_all_buckets
 
 
-def sort_data_files_maintaining_order(data_files):
+def sort_data_files_maintaining_order(
+    data_files: List[Tuple[int, DataFile]]
+) -> List[Tuple[int, DataFile]]:
     """
     Sort data files deterministically based on two criterias:
     1. Sequence number: Newly added files will have a higher sequence number
