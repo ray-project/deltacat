@@ -5,6 +5,7 @@ import daft
 from deltacat.utils.daft import _get_s3_io_config
 from daft import TimeUnit
 import pyarrow as pa
+from typing import Optional, List, Dict
 from deltacat.utils.pyarrow import sliced_string_cast
 from deltacat.compute.converter.constants import IDENTIFIER_FIELD_DELIMITER
 
@@ -16,9 +17,8 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def download_data_table_and_append_iceberg_columns(
     file,
     columns_to_download,
-    additional_columns_to_append,
-    sequence_number,
-    s3_client_kwargs,
+    additional_columns_to_append: Optional[List[str]] = [],
+    s3_client_kwargs: Optional[Dict] = None,
 ):
     table = download_parquet_with_daft_hash_applied(
         identifier_columns=columns_to_download,

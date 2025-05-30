@@ -117,7 +117,7 @@ def read_csv(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             return pacsv.read_csv(f, **read_kwargs)
     with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -132,7 +132,7 @@ def read_feather(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             return paf.read_feather(f, **read_kwargs)
     with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -147,7 +147,7 @@ def read_json(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             return pajson.read_json(f, **read_kwargs)
     with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -162,7 +162,7 @@ def read_orc(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             return paorc.read_table(f, **read_kwargs)
     with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -177,7 +177,7 @@ def read_parquet(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             return papq.read_table(f, **read_kwargs)
     with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -207,7 +207,7 @@ def write_feather(
     **write_kwargs,
 ) -> None:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             paf.write_feather(table, f, **write_kwargs)
     else:
@@ -224,7 +224,7 @@ def write_csv(
     **write_kwargs,
 ) -> None:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             pacsv.write_csv(table, f, **write_kwargs)
     else:
@@ -248,7 +248,7 @@ def write_orc(
     **write_kwargs,
 ) -> None:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             paorc.write_table(table, f, **write_kwargs)
     else:
@@ -265,7 +265,7 @@ def write_parquet(
     **write_kwargs,
 ) -> None:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             papq.write_table(table, f, **write_kwargs)
     else:
