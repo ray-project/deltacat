@@ -3008,7 +3008,7 @@ class TestDelta:
         entry = delta.manifest.entries[0]
         assert entry.meta.record_count == 3
         assert entry.meta.content_type == ContentType.CSV.value
-        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
 
     def test_stage_delta_with_polars_json(self):
         # Create a sample Polars DataFrame
@@ -3039,7 +3039,7 @@ class TestDelta:
         entry = delta.manifest.entries[0]
         assert entry.meta.record_count == 3
         assert entry.meta.content_type == ContentType.JSON.value
-        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
 
     def test_stage_delta_with_polars_avro(self):
         # Create a sample Polars DataFrame
@@ -3070,4 +3070,681 @@ class TestDelta:
         entry = delta.manifest.entries[0]
         assert entry.meta.record_count == 3
         assert entry.meta.content_type == ContentType.AVRO.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_pandas(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.PARQUET.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_pandas_csv(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as CSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.CSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.CSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    def test_stage_delta_with_pandas_json(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as JSON
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.JSON,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.JSON.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    def test_stage_delta_with_pandas_avro(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as AVRO
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.AVRO,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.AVRO.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_pandas_feather(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as Feather
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.FEATHER,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.FEATHER.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pandas_tsv(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as TSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.TSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.TSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pandas_psv(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as PSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.PSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pandas_unescaped_tsv(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as UNESCAPED_TSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.UNESCAPED_TSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.UNESCAPED_TSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_polars_tsv(self):
+        # Create a sample polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the polars DataFrame as TSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.TSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.TSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_polars_psv(self):
+        # Create a sample polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the polars DataFrame as PSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.PSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_polars_unescaped_tsv(self):
+        # Create a sample polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the polars DataFrame as UNESCAPED_TSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.UNESCAPED_TSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.UNESCAPED_TSV.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pyarrow_tsv(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as TSV
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.TSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.TSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pyarrow_psv(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as PSV
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.PSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pyarrow_unescaped_tsv(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as UNESCAPED_TSV
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.UNESCAPED_TSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.UNESCAPED_TSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pyarrow_csv(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as CSV
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.CSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.CSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pyarrow_orc(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.Table.from_pydict(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as ORC
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            content_type=ContentType.ORC,
+        )
+
+        # Verify the delta was staged correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) == 1
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.ORC.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_pyarrow_parquet(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as Parquet
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.PARQUET.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pyarrow_feather(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as Feather
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.FEATHER,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.FEATHER.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_pyarrow_json(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as JSON
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.JSON,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.JSON.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    def test_stage_delta_with_pyarrow_avro(self):
+        # Create a sample PyArrow Table
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the PyArrow Table as AVRO
+        delta = metastore.stage_delta(
+            data=table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.AVRO,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.AVRO.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_pandas_orc(self):
+        # Create a sample pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame as ORC
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            content_type=ContentType.ORC,
+        )
+
+        # Verify the delta was staged correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) == 1
+
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.ORC.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_polars_orc(self):
+        # Create a sample polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the polars DataFrame as ORC
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            content_type=ContentType.ORC,
+        )
+
+        # Verify the delta was staged correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) == 1
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.ORC.value
         assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value

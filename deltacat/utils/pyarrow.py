@@ -191,9 +191,6 @@ CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
     ContentType.PSV.value: pyarrow_read_csv,
     ContentType.PARQUET.value: papq.read_table,
     ContentType.FEATHER.value: paf.read_table,
-    # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
-    # https://issues.apache.org/jira/browse/ARROW-7811
-    # ContentType.ORC.value: paorc.ContentType.ORCFile,
     ContentType.JSON.value: pajson.read_json,
 }
 
@@ -272,15 +269,115 @@ def write_parquet(
             papq.write_table(table, f, **write_kwargs)
 
 
+def write_json(
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
+) -> None:
+    """
+    Write a PyArrow Table to a JSON file by delegating to polars implementation.
+    """
+    import polars as pl
+    from deltacat.utils.polars import write_json as polars_write_json
+
+    # Convert PyArrow Table to polars DataFrame
+    pl_df = pl.from_arrow(table)
+
+    # Delegate to polars write_json implementation with GZIP compression
+    polars_write_json(
+        pl_df,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        **write_kwargs,
+    )
+
+
+def write_avro(
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
+) -> None:
+    """
+    Write a PyArrow Table to an AVRO file by delegating to polars implementation.
+    """
+    import polars as pl
+    from deltacat.utils.polars import write_avro as polars_write_avro
+
+    # Convert PyArrow Table to polars DataFrame
+    pl_df = pl.from_arrow(table)
+
+    # Delegate to polars write_avro implementation
+    polars_write_avro(
+        pl_df,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        **write_kwargs,
+    )
+
+
 CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
-    # TODO (pdames): add support for other delimited text content types as
-    #  pyarrow adds support for custom delimiters, escaping, and None value
-    #  representations to pyarrow.csv.WriteOptions.
+    ContentType.UNESCAPED_TSV.value: write_csv,
+    ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
-    ContentType.ORC.value: write_orc,
+    ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: write_parquet,
     ContentType.FEATHER.value: write_feather,
+    ContentType.JSON.value: write_json,
+    ContentType.AVRO.value: write_avro,
+    ContentType.ORC.value: write_orc,
 }
+
+
+def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
+    """
+    Returns writer kwargs for the given content type when writing with pyarrow.
+    """
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(
+                delimiter="\t", 
+                include_header=False, 
+                quoting_style="none",
+            )
+        }
+    if content_type == ContentType.TSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(
+                include_header=False,
+                delimiter="\t"
+            )
+        }
+    if content_type == ContentType.CSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(
+                include_header=False,
+                delimiter=","
+            )
+        }
+    if content_type == ContentType.PSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(
+                include_header=False,
+                delimiter="|"
+            )
+        }
+    if content_type in {
+        ContentType.PARQUET.value,
+        ContentType.FEATHER.value,
+        ContentType.JSON.value,
+        ContentType.AVRO.value,
+        ContentType.ORC.value,
+    }:
+        return {}
+    raise ValueError(f"Unsupported content type: {content_type}")
 
 
 def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
@@ -673,8 +770,10 @@ def table_to_file(
             f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}"
         )
     path = block_path_provider(base_path)
-    logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
-    writer(table, path, filesystem=filesystem, **kwargs)
+    writer_kwargs = content_type_to_writer_kwargs(content_type)
+    writer_kwargs.update(kwargs)
+    logger.debug(f"Writing table: {table} with kwargs: {writer_kwargs} to path: {path}")
+    writer(table, path, filesystem=filesystem, **writer_kwargs)
 
 
 class RecordBatchTables:

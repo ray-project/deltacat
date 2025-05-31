@@ -42,6 +42,8 @@ from deltacat.types.media import (
     TableType,
     DistributedDatasetType,
     ContentType,
+    EXPLICIT_COMPRESSION_CONTENT_TYPES,
+    ContentEncoding,
 )
 from deltacat.utils import numpy as np_utils
 from deltacat.utils import pandas as pd_utils
@@ -287,17 +289,19 @@ def write_table(
     write_paths = capture_object.write_paths()
     metadata = get_block_metadata(table, write_paths, block_refs)
     manifest_entries = ManifestEntryList()
+    content_encoding = None
+    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
+        # TODO(pdames): Support other user-specified encodings at write time.
+        content_encoding = ContentEncoding.GZIP
     for block_idx, path in enumerate(write_paths):
         try:
-            # TODO(pdames): Standardize content encodings applied implicitly or
-            #  explicitly across different table and content type writers, then
-            #  provide the known content encoding as input below.
             manifest_entry = ManifestEntry.from_path(
                 path=path,
                 filesystem=filesystem,
                 record_count=metadata[block_idx].num_rows,
                 source_content_length=metadata[block_idx].size_bytes,
                 content_type=content_type.value,
+                content_encoding=content_encoding,
                 entry_type=entry_type,
                 entry_params=entry_params,
             )

@@ -36,27 +36,63 @@ def write_json(
                 table.write_ndjson(out, **write_kwargs)
 
 
+def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
+    """
+    Returns writer kwargs for the given content type when writing with polars.
+    """
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "separator": "\t",
+            "has_header": False,
+            "null_values": [""],
+            "quote_char": None,  # Equivalent to QUOTE_NONE in pandas
+        }
+    if content_type == ContentType.TSV.value:
+        return {
+            "separator": "\t",
+            "has_header": False,
+        }
+    if content_type == ContentType.CSV.value:
+        return {
+            "separator": ",",
+            "has_header": False,
+        }
+    if content_type == ContentType.PSV.value:
+        return {
+            "separator": "|",
+            "has_header": False,
+        }
+    if content_type in {
+        ContentType.PARQUET.value,
+        ContentType.FEATHER.value,
+        ContentType.JSON.value,
+        ContentType.AVRO.value,
+        ContentType.ORC.value,
+    }:
+        return {}
+    raise ValueError(f"Unsupported content type: {content_type}")
+
+
 def write_csv(
     table: pl.DataFrame,
     path: str,
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
-    **write_kwargs,
+    **kwargs,
 ) -> None:
-    # column names are kept in table metadata, so omit header
-    if write_kwargs.get("include_header") is None:
-        write_kwargs["include_header"] = False
+    """
+    Write a polars DataFrame to a CSV file (or other delimited text format).
+    """
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_csv(out, **write_kwargs)
+                table.write_csv(out, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            # TODO (pdames): Add support for client-specified compression types.
             with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_csv(out, **write_kwargs)
+                table.write_csv(out, **kwargs)
 
 
 def write_avro(
@@ -93,14 +129,62 @@ def write_parquet(
             table.write_parquet(f, **write_kwargs)
 
 
+def write_feather(
+    table: pl.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
+) -> None:
+    """
+    Write a polars DataFrame to a Feather file.
+    """
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            table.write_ipc(f, **kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            table.write_ipc(f, **kwargs)
+
+
+def write_orc(
+    table: pl.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
+) -> None:
+    """
+    Write a polars DataFrame to an ORC file by delegating to PyArrow implementation.
+    """
+    from deltacat.utils.pyarrow import write_orc as pyarrow_write_orc
+
+    # Convert polars DataFrame to PyArrow Table
+    pa_table = table.to_arrow()
+
+    # Delegate to PyArrow write_orc implementation
+    pyarrow_write_orc(
+        pa_table,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        **write_kwargs,
+    )
+
+
 CONTENT_TYPE_TO_PL_WRITE_FUNC: Dict[str, Callable] = {
-    # TODO (pdames): add support for other delimited text content types as
-    #  pyarrow adds support for custom delimiters, escaping, and None value
-    #  representations to pyarrow.csv.WriteOptions.
-    ContentType.AVRO.value: write_avro,
+    ContentType.UNESCAPED_TSV.value: write_csv,
+    ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
+    ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: write_parquet,
+    ContentType.FEATHER.value: write_feather,
     ContentType.JSON.value: write_json,
+    ContentType.AVRO.value: write_avro,
+    ContentType.ORC.value: write_orc,
 }
 
 
@@ -146,3 +230,27 @@ def dataframe_to_file(
     path = block_path_provider(base_path)
     logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
     writer(table, path, filesystem=filesystem, **kwargs)
+
+
+def write_table(
+    table: pl.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_type: str = ContentType.PARQUET.value,
+    **kwargs,
+) -> None:
+    """
+    Write a polars DataFrame to a file in the specified format.
+    """
+    writer = CONTENT_TYPE_TO_PL_WRITE_FUNC.get(content_type)
+    writer_kwargs = content_type_to_writer_kwargs(content_type)
+    writer_kwargs.update(kwargs)
+    if not writer:
+        raise NotImplementedError(
+            f"Polars writer for content type '{content_type}' not "
+            f"implemented. Known content types: "
+            f"{CONTENT_TYPE_TO_PL_WRITE_FUNC.keys()}"
+        )
+    writer(table, path, filesystem=filesystem, fs_open_kwargs=fs_open_kwargs, **writer_kwargs)

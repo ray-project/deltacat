@@ -253,14 +253,64 @@ def write_json(
                 dataframe.to_json(out, **kwargs)
 
 
+def write_avro(
+    dataframe: pd.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
+) -> None:
+    """
+    Write a pandas DataFrame to an AVRO file by delegating to polars implementation.
+    """
+    import polars as pl
+    from deltacat.utils.polars import write_avro as polars_write_avro
+
+    # Convert pandas DataFrame to polars
+    include_index = kwargs.pop("index", False)
+    pl_df = pl.from_pandas(dataframe, include_index=include_index)
+
+    # Remove pandas-specific kwargs before passing to polars
+    polars_kwargs = {k: v for k, v in kwargs.items() if k not in ["index"]}
+
+    # Delegate to polars write_avro implementation
+    polars_write_avro(
+        pl_df,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        **polars_kwargs,
+    )
+
+
+def write_orc(
+    dataframe: pd.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
+) -> None:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            dataframe.to_orc(f, **kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            dataframe.to_orc(f, **kwargs)
+
+
 CONTENT_TYPE_TO_PD_WRITE_FUNC: Dict[str, Callable] = {
-    ContentType.UNESCAPED_TSV: write_csv,
+    ContentType.UNESCAPED_TSV.value: write_csv,
     ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
     ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: write_parquet,
     ContentType.FEATHER.value: write_feather,
     ContentType.JSON.value: write_json,
+    ContentType.AVRO.value: write_avro,
+    ContentType.ORC.value: write_orc,
 }
 
 
@@ -270,7 +320,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
             "sep": "\t",
             "header": False,
             "na_rep": [""],
-            "line_terminator": "\n",
+            "lineterminator": "\n",
             "quoting": csv.QUOTE_NONE,
             "index": False,
         }
@@ -278,21 +328,21 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
         return {
             "sep": "\t",
             "header": False,
-            "line_terminator": "\n",
+            "lineterminator": "\n",
             "index": False,
         }
     if content_type == ContentType.CSV.value:
         return {
             "sep": ",",
             "header": False,
-            "line_terminator": "\n",
+            "lineterminator": "\n",
             "index": False,
         }
     if content_type == ContentType.PSV.value:
         return {
             "sep": "|",
             "header": False,
-            "line_terminator": "\n",
+            "lineterminator": "\n",
             "index": False,
         }
     if content_type == ContentType.PARQUET.value:
@@ -300,6 +350,10 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
     if content_type == ContentType.FEATHER.value:
         return {}
     if content_type == ContentType.JSON.value:
+        return {"index": False}
+    if content_type == ContentType.AVRO.value:
+        return {"index": False}
+    if content_type == ContentType.ORC.value:
         return {"index": False}
     raise ValueError(f"Unsupported content type: {content_type}")
 
