@@ -123,6 +123,7 @@ def copy(
         "gz": 35,
         "bz2": 35,
         "zip": 35,
+        "zst": 35,
         "7z": 35,
         "*": 2.5,
     },
@@ -135,11 +136,10 @@ def copy(
     Copies data from the source datastore to the destination datastore. By
     default, this method launches one parallel Ray process to read/transform
     each input file found in the source followed by one parallel Ray process
-    to write each output file to the destination. Files written to the
-    destination are split or combined to contain uniform record counts. To
-    ensure that adequate resources are available to complete the operation,
-    you may optionally specify minimum cluster and/or worker CPUs to wait for
-    before starting parallel processing.
+    to write each output file to the destination. To ensure that adequate
+    resources are available to complete the operation, you may optionally
+    specify minimum cluster and/or worker CPUs to wait for before starting
+    parallel processing.
 
     Args:
         src: DeltaCAT URL of the source datastore to read.
@@ -351,6 +351,7 @@ def _copy_external_ray(
         "gz": 35,
         "bz2": 35,
         "zip": 35,
+        "zst": 35,
         "7z": 35,
         "*": 2.5,
     },

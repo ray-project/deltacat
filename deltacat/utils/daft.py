@@ -44,8 +44,8 @@ from deltacat.aws.constants import (
     BOTO_MAX_RETRIES,
     DAFT_MAX_S3_CONNECTIONS_PER_FILE,
     AWS_REGION,
-    DEFAULT_FILE_READ_TIMEOUT_MS,
 )
+from deltacat.constants import DEFAULT_FILE_READ_TIMEOUT_MS
 from deltacat.utils.performance import timed_invocation
 
 from deltacat.types.partial_download import (

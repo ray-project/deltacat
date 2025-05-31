@@ -38,6 +38,10 @@ from deltacat.storage import (
     TruncateTransformParameters,
     VoidTransform,
 )
+from deltacat.types.media import (
+    ContentType,
+    ContentEncoding,
+)
 from deltacat.storage.model.partition import (
     UNPARTITIONED_SCHEME,
     UNPARTITIONED_SCHEME_ID,
@@ -2906,3 +2910,71 @@ class TestPartition:
                 partition_scheme_id=partition_scheme.id,
                 catalog=self.catalog,
             )
+
+
+class TestDelta:
+    @classmethod
+    def setup_method(cls):
+        cls.tmpdir = tempfile.mkdtemp()
+        cls.catalog = CatalogProperties(root=cls.tmpdir)
+
+        # Create and commit namespace
+        cls.namespace = create_test_namespace()
+        metastore.create_namespace(
+            namespace=cls.namespace.locator.namespace,
+            catalog=cls.catalog,
+        )
+
+        # Create and commit table version
+        _, cls.table_version, cls.stream = metastore.create_table_version(
+            namespace=cls.namespace.locator.namespace,
+            table_name="test_table",
+            table_version="v.1",
+            catalog=cls.catalog,
+        )
+
+        # Stage and commit partition
+        cls.partition = metastore.stage_partition(
+            stream=cls.stream,
+            catalog=cls.catalog,
+        )
+        metastore.commit_partition(
+            partition=cls.partition,
+            catalog=cls.catalog,
+        )
+
+    @classmethod
+    def teardown_method(cls):
+        # shutil.rmtree(cls.tmpdir)
+        pass
+
+    def test_stage_delta_with_polars(self):
+        # Create a sample Polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the Polars DataFrame
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.PARQUET.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value

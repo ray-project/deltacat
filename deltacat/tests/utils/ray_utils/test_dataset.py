@@ -40,7 +40,7 @@ class TestDatasetToFile:
         dataset_to_file(
             mock_dataset,
             self.BASE_PATH,
-            file_system=fs,
+            filesystem=fs,
             block_path_provider=mock_filename_provider,
         )
 
@@ -56,7 +56,7 @@ class TestDatasetToFile:
         dataset_to_file(
             mock_dataset,
             self.BASE_PATH,
-            file_system=fs,
+            filesystem=fs,
             block_path_provider=mock_filename_provider,
             content_type=ContentType.CSV.value,
         )

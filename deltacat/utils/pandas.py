@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.fs as pafs
 from fsspec import AbstractFileSystem
 from ray.data.datasource import FilenameProvider
 
@@ -19,6 +20,7 @@ from deltacat.types.media import (
 )
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -176,35 +178,79 @@ def dataframe_size(dataframe: pd.DataFrame) -> int:
 
 
 def write_csv(
-    dataframe: pd.DataFrame, path: str, *, filesystem: AbstractFileSystem, **kwargs
+    dataframe: pd.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
 ) -> None:
-    with filesystem.open(path, "wb") as f:
-        # TODO (pdames): Add support for client-specified compression types.
-        with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-            dataframe.to_csv(out, **kwargs)
+    # TODO (pdames): Add support for client-specified compression types.
+    if kwargs.get("header") is None:
+        kwargs["header"] = False
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                dataframe.to_csv(out, **kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                dataframe.to_csv(out, **kwargs)
 
 
 def write_parquet(
-    dataframe: pd.DataFrame, path: str, *, filesystem: AbstractFileSystem, **kwargs
+    dataframe: pd.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
 ) -> None:
-    with filesystem.open(path, "wb") as f:
-        dataframe.to_parquet(f, **kwargs)
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            dataframe.to_parquet(f, **kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            dataframe.to_parquet(f, **kwargs)
 
 
 def write_feather(
-    dataframe: pd.DataFrame, path: str, *, filesystem: AbstractFileSystem, **kwargs
+    dataframe: pd.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
 ) -> None:
-    with filesystem.open(path, "wb") as f:
-        dataframe.to_feather(f, **kwargs)
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            dataframe.to_feather(f, **kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            dataframe.to_feather(f, **kwargs)
 
 
 def write_json(
-    dataframe: pd.DataFrame, path: str, *, filesystem: AbstractFileSystem, **kwargs
+    dataframe: pd.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
 ) -> None:
-    with filesystem.open(path, "wb") as f:
-        # TODO (pdames): Add support for client-specified compression types.
-        with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-            dataframe.to_json(out, **kwargs)
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                dataframe.to_json(out, **kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            # TODO (pdames): Add support for client-specified compression types.
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                dataframe.to_json(out, **kwargs)
 
 
 CONTENT_TYPE_TO_PD_WRITE_FUNC: Dict[str, Callable] = {
@@ -261,7 +307,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
 def dataframe_to_file(
     dataframe: pd.DataFrame,
     base_path: str,
-    file_system: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
@@ -279,4 +325,4 @@ def dataframe_to_file(
             f"{CONTENT_TYPE_TO_PD_WRITE_FUNC.keys}"
         )
     path = block_path_provider(base_path)
-    writer(dataframe, path, filesystem=file_system, **writer_kwargs)
+    writer(dataframe, path, filesystem=filesystem, **writer_kwargs)

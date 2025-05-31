@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.storage import (
     EntryParams,
+    EntryType,
     Delta,
     DeltaLocator,
     DeltaProperties,
@@ -586,23 +587,17 @@ def stage_delta(
     max_records_per_entry: Optional[int] = None,
     author: Optional[ManifestAuthor] = None,
     properties: Optional[DeltaProperties] = None,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
     *args,
     **kwargs,
 ) -> Delta:
     """
-    Writes the given table to 1 or more S3 files. Returns an unregistered
+    Writes the given dataset to 1 or more files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
     schema consistency policies configured for the parent table version.
-
-    The partition spec will be used to split the input table into
-    multiple files. Optionally, partition_values can be provided to avoid
-    this method to recompute partition_values from the provided data.
-
-    Raises an error if the provided data does not conform to a unique ordered
-    list of partition_values
     """
     raise NotImplementedError("stage_delta not implemented")
 

@@ -3,6 +3,7 @@ from typing import List, Optional, Callable, Union
 import numpy as np
 import pyarrow as pa
 from fsspec import AbstractFileSystem
+import pyarrow.fs as pafs
 
 from ray.data.datasource import FilenameProvider
 from deltacat.types.media import ContentType
@@ -51,7 +52,7 @@ def ndarray_size(np_array: np.ndarray) -> int:
 def ndarray_to_file(
     np_array: np.ndarray,
     path: str,
-    file_system: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[FilenameProvider, Callable],
     content_type: str = ContentType.PARQUET.value,
     **kwargs
@@ -65,7 +66,7 @@ def ndarray_to_file(
     pa_utils.table_to_file(
         pa.table({"data": np_arrays}),
         path,
-        file_system,
+        filesystem,
         block_path_provider,
         content_type,
         **kwargs

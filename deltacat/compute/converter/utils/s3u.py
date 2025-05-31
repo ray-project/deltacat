@@ -5,7 +5,10 @@ from tenacity import (
     wait_random_exponential,
 )
 from typing import Union
-from deltacat.aws.s3u import CapturedBlockWritePaths, UuidBlockWritePathProvider
+from deltacat.types.tables import (
+    CapturedBlockWritePaths,
+    UuidBlockWritePathProvider,
+)
 from deltacat.types.tables import (
     get_table_writer,
     get_table_length,
@@ -21,7 +24,7 @@ from deltacat.types.media import (
     ContentEncoding,
     ContentType,
 )
-from deltacat.aws.s3u import UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY
+from deltacat.constants import UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY
 import s3fs
 
 

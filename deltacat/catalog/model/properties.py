@@ -76,6 +76,7 @@ class CatalogProperties:
                 reading these files. If None, a filesystem will be inferred.
                 If provided, this will be validated for compatibility with the
                 catalog root path.
+            storage: DeltaCAT storage implementation override.
         """
         # set root, using precedence rules described in pydoc
         if root is None:

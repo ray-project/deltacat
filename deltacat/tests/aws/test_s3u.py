@@ -2,9 +2,8 @@ import unittest
 
 import botocore
 
-from deltacat.aws.constants import RETRYABLE_TRANSIENT_ERRORS
-from deltacat.aws.s3u import UuidBlockWritePathProvider, CapturedBlockWritePaths
-
+from deltacat.constants import RETRYABLE_TRANSIENT_ERRORS
+from deltacat.types.tables import CapturedBlockWritePaths, UuidBlockWritePathProvider
 
 import os
 from unittest import mock

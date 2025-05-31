@@ -2,13 +2,16 @@ import logging
 from typing import Optional, List, Dict, Callable, Union
 
 import polars as pl
+import pyarrow as pa
+import pyarrow.fs as pafs
 
 from fsspec import AbstractFileSystem
 from ray.data.datasource import FilenameProvider
 
 from deltacat import logs
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 
-from deltacat.types.media import ContentType
+from deltacat.types.media import ContentType, ContentEncoding
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -17,42 +20,57 @@ def write_json(
     table: pl.DataFrame,
     path: str,
     *,
-    filesystem: Optional[AbstractFileSystem] = None,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
-    if not filesystem:
-        table.write_ndjson(path, **write_kwargs)
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                table.write_ndjson(out, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            table.write_ndjson(f, **write_kwargs)
+            # TODO (pdames): Add support for client-specified compression types.
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                table.write_ndjson(out, **write_kwargs)
 
 
 def write_csv(
     table: pl.DataFrame,
     path: str,
     *,
-    filesystem: Optional[AbstractFileSystem] = None,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
-    if not filesystem:
-        table.write_csv(path, **write_kwargs)
+    # column names are kept in table metadata, so omit header
+    if write_kwargs.get("include_header") is None:
+        write_kwargs["include_header"] = False
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                table.write_csv(out, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            table.write_csv(f, **write_kwargs)
+            # TODO (pdames): Add support for client-specified compression types.
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                table.write_csv(out, **write_kwargs)
 
 
 def write_avro(
     table: pl.DataFrame,
     path: str,
     *,
-    filesystem: Optional[AbstractFileSystem] = None,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
-    if not filesystem:
-        table.write_avro(path, **write_kwargs)
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            table.write_avro(f, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
             table.write_avro(f, **write_kwargs)
@@ -62,12 +80,14 @@ def write_parquet(
     table: pl.DataFrame,
     path: str,
     *,
-    filesystem: Optional[AbstractFileSystem] = None,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
-    if not filesystem:
-        table.write_parquet(path, **write_kwargs)
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            table.write_parquet(f, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
             table.write_parquet(f, **write_kwargs)
@@ -108,7 +128,7 @@ def dataframe_size(table: pl.DataFrame) -> int:
 def dataframe_to_file(
     table: pl.DataFrame,
     base_path: str,
-    file_system: Optional[AbstractFileSystem],
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
@@ -125,4 +145,4 @@ def dataframe_to_file(
         )
     path = block_path_provider(base_path)
     logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
-    writer(table, path, filesystem=file_system, **kwargs)
+    writer(table, path, filesystem=filesystem, **kwargs)

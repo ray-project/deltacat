@@ -1,13 +1,16 @@
 import uuid
+import posixpath
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.catalog import get_catalog_properties
-from deltacat.constants import DEFAULT_TABLE_VERSION
+from deltacat.constants import DEFAULT_TABLE_VERSION, DATA_FILE_DIR_NAME
 from deltacat.exceptions import TableNotFoundError
 from deltacat.storage.model.manifest import (
     EntryParams,
+    EntryType,
     ManifestAuthor,
+    ManifestEntryList,
 )
 from deltacat.storage.model.delta import (
     Delta,
@@ -79,6 +82,12 @@ from deltacat.types.media import (
 )
 from deltacat.utils.common import ReadKwargsProvider
 import pyarrow as pa
+
+from deltacat.types.tables import (
+    get_table_writer,
+    get_table_slicer,
+    write_sliced_table,
+)
 
 
 def _list(
@@ -1966,6 +1975,88 @@ def get_partition(
     )
 
 
+def _write_table_slices(
+    table: Union[LocalTable, LocalDataset, DistributedDataset],
+    partition_id: str,
+    max_records_per_entry: Optional[int],
+    table_writer_fn: Callable,
+    table_slicer_fn: Callable,
+    content_type: ContentType = ContentType.PARQUET,
+    entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> ManifestEntryList:
+    catalog_properties = get_catalog_properties(**kwargs)
+    manifest_entries = ManifestEntryList()
+    # LocalDataset is a special case to upload iteratively
+    tables = [t for t in table] if isinstance(table, list) else [table]
+    filesystem = catalog_properties.filesystem
+    data_dir_path = posixpath.join(
+        catalog_properties.root,
+        DATA_FILE_DIR_NAME,
+        partition_id,
+    )
+    filesystem.create_dir(data_dir_path, recursive=True)
+    for t in tables:
+        manifest_entries.extend(
+            write_sliced_table(
+                t,
+                data_dir_path,
+                filesystem,
+                max_records_per_entry,
+                table_writer_fn,
+                table_slicer_fn,
+                table_writer_kwargs,
+                content_type,
+                entry_params,
+                entry_type,
+            )
+        )
+    return manifest_entries
+
+
+def _write_table(
+    partition_id: str,
+    table: Union[LocalTable, LocalDataset, DistributedDataset],
+    max_records_per_entry: Optional[int] = None,
+    author: Optional[ManifestAuthor] = None,
+    content_type: ContentType = ContentType.PARQUET,
+    entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
+    write_table_slices_fn: Optional[Callable] = _write_table_slices,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> Manifest:
+    """
+    Writes the given table to 1 or more files and returns a
+    Redshift manifest pointing to the uploaded files.
+    """
+    table_writer_fn = get_table_writer(table)
+    table_slicer_fn = get_table_slicer(table)
+
+    manifest_entries = write_table_slices_fn(
+        table,
+        partition_id,
+        max_records_per_entry,
+        table_writer_fn,
+        table_slicer_fn,
+        content_type,
+        entry_params,
+        entry_type,
+        table_writer_kwargs,
+        **kwargs,
+    )
+    manifest = Manifest.of(
+        entries=manifest_entries,
+        author=author,
+        uuid=str(uuid.uuid4()),
+        entry_type=entry_type,
+        entry_params=entry_params,
+    )
+    return manifest
+
+
 def stage_delta(
     data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
     partition: Partition,
@@ -1973,25 +2064,50 @@ def stage_delta(
     max_records_per_entry: Optional[int] = None,
     author: Optional[ManifestAuthor] = None,
     properties: Optional[DeltaProperties] = None,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
+    write_table_slices_fn: Optional[Callable] = _write_table_slices,
     *args,
     **kwargs,
 ) -> Delta:
     """
-    Writes the given table to 1 or more S3 files. Returns an unregistered
+    Writes the given dataset to 1 or more files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
     schema consistency policies configured for the parent table version.
-
-    The partition spec will be used to split the input table into
-    multiple files. Optionally, partition_values can be provided to avoid
-    this method to recompute partition_values from the provided data.
-
-    Raises an error if the provided data does not conform to a unique ordered
-    list of partition_values
     """
-    raise NotImplementedError("stage_delta not implemented")
+    if not partition.is_supported_content_type(content_type):
+        raise ValueError(
+            f"Content type {content_type} is not supported by "
+            f"partition: {partition}"
+        )
+    if partition.state == CommitState.DEPRECATED:
+        raise ValueError(
+            f"Cannot stage delta to {partition.state} partition: {partition}",
+        )
+    previous_stream_position: Optional[int] = partition.stream_position
+    manifest: Manifest = _write_table(
+        partition.partition_id,
+        data,
+        max_records_per_entry,
+        author,
+        content_type,
+        entry_params,
+        entry_type,
+        write_table_slices_fn,
+        table_writer_kwargs,
+        **kwargs,
+    )
+    delta_cairns: Delta = Delta.of(
+        locator=DeltaLocator.of(partition.locator, None),
+        delta_type=delta_type,
+        meta=manifest.meta,
+        properties=properties,
+        manifest=manifest,
+        previous_stream_position=previous_stream_position,
+    )
+    return delta_cairns
 
 
 def commit_delta(delta: Delta, *args, **kwargs) -> Delta:

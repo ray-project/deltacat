@@ -88,7 +88,7 @@ def dataset_size(dataset: Dataset) -> int:
 def dataset_to_file(
     table: Dataset,
     base_path: str,
-    file_system: AbstractFileSystem,
+    filesystem: AbstractFileSystem,
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
@@ -106,7 +106,7 @@ def dataset_to_file(
     writer(
         table,
         base_path,
-        filesystem=file_system,
+        filesystem=filesystem,
         block_path_provider=block_path_provider,
         **kwargs,
     )

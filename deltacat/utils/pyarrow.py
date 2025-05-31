@@ -223,19 +223,18 @@ def write_csv(
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
+    if write_kwargs.get("write_options") is None:
+        # column names are kept in table metadata, so omit header
+        write_kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            pacsv.write_csv(table, f, **write_kwargs)
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                pacsv.write_csv(table, out, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
             # TODO (pdames): Add support for client-specified compression types.
             with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                if write_kwargs.get("write_options") is None:
-                    # column names are kept in table metadata, so omit header
-                    write_kwargs["write_options"] = pacsv.WriteOptions(
-                        include_header=False
-                    )
                 pacsv.write_csv(table, out, **write_kwargs)
 
 
@@ -658,7 +657,7 @@ def parquet_file_size(table: papq.ParquetFile) -> int:
 def table_to_file(
     table: pa.Table,
     base_path: str,
-    file_system: Optional[AbstractFileSystem],
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
@@ -675,7 +674,7 @@ def table_to_file(
         )
     path = block_path_provider(base_path)
     logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
-    writer(table, path, filesystem=file_system, **kwargs)
+    writer(table, path, filesystem=filesystem, **kwargs)
 
 
 class RecordBatchTables:

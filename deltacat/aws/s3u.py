@@ -2,26 +2,24 @@ import logging
 import multiprocessing
 from functools import partial
 from typing import Any, Callable, Dict, Generator, List, Optional, Union
-from uuid import uuid4
 from botocore.config import Config
 from deltacat.aws.constants import (
     BOTO_MAX_RETRIES,
-    UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY,
     BOTO_THROTTLING_ERROR_CODES,
-    RETRYABLE_TRANSIENT_ERRORS,
     BOTO_TIMEOUT_ERROR_CODES,
+)
+from deltacat.constants import (
+    UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY,
     UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY,
     DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY,
+    RETRYABLE_TRANSIENT_ERRORS,
 )
 
-import pyarrow.fs
 import ray
 import s3fs
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
-from ray.data.block import Block, BlockAccessor, BlockMetadata
-from ray.data.datasource import FilenameProvider
 from ray.types import ObjectRef
 from tenacity import (
     Retrying,
@@ -47,7 +45,6 @@ from deltacat.types.media import (
     DistributedDatasetType,
 )
 from deltacat.types.tables import (
-    TABLE_CLASS_TO_SIZE_FUNC,
     TABLE_TYPE_TO_S3_READER_FUNC,
     TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS,
     DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC,
@@ -67,103 +64,13 @@ from deltacat.exceptions import (
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.exceptions import categorize_errors
+from deltacat.types.tables import (
+    CapturedBlockWritePaths,
+    UuidBlockWritePathProvider,
+)
+from deltacat.types.tables import get_block_metadata
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-
-class CapturedBlockWritePaths:
-    def __init__(self):
-        self._write_paths: List[str] = []
-        self._block_refs: List[ObjectRef[Block]] = []
-
-    def extend(self, write_paths: List[str], block_refs: List[ObjectRef[Block]]):
-        try:
-            iter(write_paths)
-        except TypeError:
-            pass
-        else:
-            self._write_paths.extend(write_paths)
-        try:
-            iter(block_refs)
-        except TypeError:
-            pass
-        else:
-            self._block_refs.extend(block_refs)
-
-    def write_paths(self) -> List[str]:
-        return self._write_paths
-
-    def block_refs(self) -> List[ObjectRef[Block]]:
-        return self._block_refs
-
-
-class UuidBlockWritePathProvider(FilenameProvider):
-    """Block write path provider implementation that writes each
-    dataset block out to a file of the form: {base_path}/{uuid}
-    """
-
-    def __init__(
-        self, capture_object: CapturedBlockWritePaths, base_path: Optional[str] = None
-    ):
-        self.base_path = base_path
-        self.write_paths: List[str] = []
-        self.block_refs: List[ObjectRef[Block]] = []
-        self.capture_object = capture_object
-
-    def __del__(self):
-        if self.write_paths or self.block_refs:
-            self.capture_object.extend(
-                self.write_paths,
-                self.block_refs,
-            )
-
-    def get_filename_for_block(
-        self, block: Any, task_index: int, block_index: int
-    ) -> str:
-        if self.base_path is None:
-            raise ValueError(
-                "Base path must be provided to UuidBlockWritePathProvider",
-            )
-        return self._get_write_path_for_block(
-            base_path=self.base_path,
-            block=block,
-            block_index=block_index,
-        )
-
-    def _get_write_path_for_block(
-        self,
-        base_path: str,
-        *,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        dataset_uuid: Optional[str] = None,
-        block: Optional[ObjectRef[Block]] = None,
-        block_index: Optional[int] = None,
-        file_format: Optional[str] = None,
-    ) -> str:
-        write_path = f"{base_path}/{str(uuid4())}"
-        self.write_paths.append(write_path)
-        if block:
-            self.block_refs.append(block)
-        return write_path
-
-    def __call__(
-        self,
-        base_path: str,
-        *,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        dataset_uuid: Optional[str] = None,
-        block: Optional[ObjectRef[Block]] = None,
-        block_index: Optional[int] = None,
-        file_format: Optional[str] = None,
-    ) -> str:
-        return self._get_write_path_for_block(
-            base_path,
-            filesystem=filesystem,
-            dataset_uuid=dataset_uuid,
-            block=block,
-            block_index=block_index,
-            file_format=file_format,
-        )
 
 
 class S3Url:
@@ -384,7 +291,7 @@ def upload_table(
     del block_write_path_provider
     block_refs = capture_object.block_refs()
     write_paths = capture_object.write_paths()
-    metadata = _get_metadata(table, write_paths, block_refs)
+    metadata = get_block_metadata(table, write_paths, block_refs)
     manifest_entries = ManifestEntryList()
     for block_idx, s3_url in enumerate(write_paths):
         try:
@@ -690,14 +597,6 @@ def _download_manifest_entries(
     ]
 
 
-@ray.remote
-def _block_metadata(block: Block) -> BlockMetadata:
-    return BlockAccessor.for_block(block).get_metadata(
-        input_files=None,
-        exec_stats=None,
-    )
-
-
 def _get_s3_client_kwargs_from_token(token_holder) -> Dict[Any, Any]:
     conf = Config(retries={"max_attempts": BOTO_MAX_RETRIES, "mode": "adaptive"})
     return (
@@ -710,51 +609,6 @@ def _get_s3_client_kwargs_from_token(token_holder) -> Dict[Any, Any]:
         if token_holder
         else {"config": conf}
     )
-
-
-def _get_metadata(
-    table: Union[LocalTable, DistributedDataset],
-    write_paths: List[str],
-    block_refs: List[ObjectRef[Block]],
-) -> List[BlockMetadata]:
-    metadata: List[BlockMetadata] = []
-    if not block_refs:
-        # this must be a local table - ensure it was written to only 1 file
-        assert len(write_paths) == 1, (
-            f"Expected table of type '{type(table)}' to be written to 1 "
-            f"file, but found {len(write_paths)} files."
-        )
-        table_size = None
-        table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
-        if table_size_func:
-            table_size = table_size_func(table)
-        else:
-            logger.warning(f"Unable to estimate '{type(table)}' table size.")
-        metadata.append(
-            BlockMetadata(
-                num_rows=get_table_length(table),
-                size_bytes=table_size,
-                schema=None,
-                input_files=None,
-                exec_stats=None,
-            )
-        )
-    else:
-        # TODO(pdames): Expose BlockList metadata getter from Ray Dataset?
-        # ray 1.10
-        # metadata = dataset._blocks.get_metadata()
-        # ray 2.0.0dev
-        metadata = table._plan.execute().get_metadata()
-        if (
-            not metadata
-            or metadata[0].size_bytes is None
-            or metadata[0].num_rows is None
-        ):
-            metadata_futures = [
-                _block_metadata.remote(block_ref) for block_ref in block_refs
-            ]
-            metadata = ray.get(metadata_futures)
-    return metadata
 
 
 def _download_manifest_entries_ray_data_distributed(

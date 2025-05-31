@@ -4,14 +4,24 @@ import logging
 import itertools
 
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable, Union, Tuple
 from uuid import uuid4
 
 from deltacat import logs
 
 from deltacat.storage.model.schema import FieldLocator
+from deltacat.types.media import (
+    ContentType,
+    ContentEncoding,
+    EXT_TO_CONTENT_TYPE,
+    EXT_TO_CONTENT_ENCODING,
+)
 
 import json
+import pyarrow as pa
+import posixpath
+
+from deltacat.utils.filesystem import get_file_info
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -375,6 +385,10 @@ class ManifestEntry(dict):
         url: str,
         record_count: int,
         source_content_length: Optional[int] = None,
+        credentials: Optional[Dict[str, str]] = None,
+        content_type_parameters: Optional[List[Dict[str, str]]] = None,
+        entry_type: Optional[EntryType] = None,
+        entry_params: Optional[EntryParams] = None,
         **s3_client_kwargs,
     ) -> ManifestEntry:
         from deltacat.aws import s3u as s3_utils
@@ -387,6 +401,10 @@ class ManifestEntry(dict):
             content_type=s3_obj["ContentType"],
             content_encoding=s3_obj["ContentEncoding"],
             source_content_length=source_content_length,
+            credentials=credentials,
+            content_type_parameters=content_type_parameters,
+            entry_type=entry_type,
+            entry_params=entry_params,
         )
         manifest_entry = ManifestEntry.of(url, manifest_entry_meta)
         return manifest_entry
@@ -400,6 +418,106 @@ class ManifestEntry(dict):
             mandatory=obj.get("mandatory", True),
             uuid=obj.get("id"),
         )
+
+    @staticmethod
+    def from_path(
+        path: str,
+        filesystem: pa.fs.FileSystem,
+        record_count: int,
+        source_content_length: Optional[int] = None,
+        content_type: Optional[str] = None,
+        content_encoding: Optional[str] = None,
+        credentials: Optional[Dict[str, str]] = None,
+        content_type_parameters: Optional[List[Dict[str, str]]] = None,
+        entry_type: Optional[EntryType] = None,
+        entry_params: Optional[EntryParams] = None,
+    ) -> ManifestEntry:
+        """
+        Creates a manifest entry from a path using a pyarrow filesystem.
+
+        Args:
+            path: Path to the file
+            filesystem: PyArrow filesystem to use for accessing the file
+            record_count: Number of records in the file
+            source_content_length: Optional original content length in-memory
+                before writing to disk.
+            content_type: Optional content type override. If not provided, will
+                be derived from file extension.
+            content_encoding: Optional content encoding override. If not
+                provided, will be derived from file extension.
+
+        Returns:
+            A ManifestEntry instance
+        """
+        file_info = get_file_info(path, filesystem)
+        if file_info.type != pa.fs.FileType.File:
+            raise FileNotFoundError(f"Path does not point to a file: {path}")
+
+        # Extract extensions from right to left
+        # First split will get potential encoding extension
+        base_path, ext1 = posixpath.splitext(path)
+
+        # Initialize with defaults for no extensions
+        derived_content_type = ContentType.BINARY
+        derived_content_encoding = ContentEncoding.IDENTITY
+
+        # Only proceed with extension checks if we found at least one extension
+        if ext1:
+            # Check if the first extension is a known encoding
+            derived_content_encoding = EXT_TO_CONTENT_ENCODING.get(
+                ext1,
+                ContentEncoding.IDENTITY,
+            )
+
+            # Get second extension only if first was an encoding
+            if derived_content_encoding != ContentEncoding.IDENTITY:
+                # Second split will get potential content type extension
+                _, ext2 = posixpath.splitext(base_path)
+                if ext2:
+                    derived_content_type = EXT_TO_CONTENT_TYPE.get(
+                        ext2,
+                        ContentType.BINARY,
+                    )
+            else:
+                # First extension wasn't an encoding, check if it's a
+                # content type
+                derived_content_type = EXT_TO_CONTENT_TYPE.get(
+                    ext1,
+                    ContentType.BINARY,
+                )
+
+        if (
+            derived_content_type == ContentType.BINARY
+            and derived_content_encoding != ContentEncoding.IDENTITY
+        ):
+            logger.debug(
+                f"Found encoding {derived_content_encoding.value} but no "
+                f"content type for {path}, assuming binary"
+            )
+
+        # Use provided values if available, otherwise use derived values
+        final_content_type = (
+            content_type if content_type is not None else derived_content_type.value
+        )
+        final_content_encoding = (
+            content_encoding
+            if content_encoding is not None
+            else derived_content_encoding.value
+        )
+
+        manifest_entry_meta = ManifestMeta.of(
+            record_count=record_count,
+            content_length=file_info.size,
+            content_type=final_content_type,
+            content_encoding=final_content_encoding,
+            source_content_length=source_content_length,
+            credentials=credentials,
+            content_type_parameters=content_type_parameters,
+            entry_type=entry_type,
+            entry_params=entry_params,
+        )
+        manifest_entry = ManifestEntry.of(path, manifest_entry_meta)
+        return manifest_entry
 
     @property
     def uri(self) -> Optional[str]:
