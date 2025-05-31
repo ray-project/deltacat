@@ -2978,3 +2978,96 @@ class TestDelta:
         assert entry.meta.record_count == 3
         assert entry.meta.content_type == ContentType.PARQUET.value
         assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_polars_csv(self):
+        # Create a sample Polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the Polars DataFrame as CSV
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.CSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.CSV.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_polars_json(self):
+        # Create a sample Polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the Polars DataFrame as JSON
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.JSON,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.JSON.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_polars_avro(self):
+        # Create a sample Polars DataFrame
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the Polars DataFrame as AVRO
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.AVRO,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) > 0
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.AVRO.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
