@@ -38,6 +38,7 @@ from deltacat.storage import (
     TruncateTransform,
     TruncateTransformParameters,
     VoidTransform,
+    DeltaType,
 )
 from deltacat.types.media import (
     ContentType,
@@ -2939,8 +2940,15 @@ class TestDelta:
             stream=cls.stream,
             catalog=cls.catalog,
         )
-        metastore.commit_partition(
+        cls.partition = metastore.commit_partition(
             partition=cls.partition,
+            catalog=cls.catalog,
+        )
+
+        # Get the committed partition to ensure we have the latest state
+        cls.partition = metastore.get_partition_by_id(
+            stream_locator=cls.partition.stream_locator,
+            partition_id=cls.partition.partition_id,
             catalog=cls.catalog,
         )
 
@@ -4016,3 +4024,502 @@ class TestDelta:
         assert entry.meta.record_count == 3
         assert entry.meta.content_type == ContentType.JSON.value
         assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    # ========== COMMIT DELTA TESTS ==========
+
+    def test_commit_delta_basic_upsert(self):
+        # Given a staged delta with pandas DataFrame
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Stage the delta using the pandas DataFrame
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        # Verify the delta is staged initially
+        assert staged_delta is not None
+        assert staged_delta.type == DeltaType.UPSERT
+        assert staged_delta.manifest is not None
+        assert len(staged_delta.manifest.entries) > 0
+
+        # Commit the staged delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly
+        assert committed_delta is not None
+        assert committed_delta.type == DeltaType.UPSERT
+        assert committed_delta.manifest is not None
+        assert len(committed_delta.manifest.entries) > 0
+        assert committed_delta.locator.stream_locator == self.stream.locator
+        assert committed_delta.locator.partition_locator == self.partition.locator
+        
+        # Verify the committed delta has stream position assigned
+        assert committed_delta.locator.stream_position is not None
+        assert committed_delta.locator.stream_position >= 1
+
+        # Verify manifest entry metadata
+        entry = committed_delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.PARQUET.value
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_commit_delta_basic_append(self):
+        # Given a staged delta with append type
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "id": [4, 5, 6],
+                "name": ["David", "Eva", "Frank"],
+                "age": [40, 45, 50],
+            }
+        )
+
+        # Stage the delta as APPEND type
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.APPEND,
+        )
+
+        # Verify staging
+        assert staged_delta.type == DeltaType.APPEND
+
+        # Commit the staged delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly
+        assert committed_delta is not None
+        assert committed_delta.type == DeltaType.APPEND
+        assert committed_delta.locator.stream_position is not None
+        assert committed_delta.locator.stream_position >= 1
+
+        # Verify manifest entry metadata
+        entry = committed_delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.PARQUET.value
+
+    def test_commit_delta_basic_delete(self):
+        # Given a staged delete delta
+        import pyarrow as pa
+
+        # Create a delete delta with records to delete
+        delete_table = pa.Table.from_pylist([
+            {"id": 1},  # Delete record with id=1
+            {"id": 2},  # Delete record with id=2
+        ])
+
+        # Stage the delta as DELETE type
+        staged_delta = metastore.stage_delta(
+            data=delete_table,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.DELETE,
+        )
+
+        # Verify staging
+        assert staged_delta.type == DeltaType.DELETE
+
+        # Commit the delete delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly
+        assert committed_delta is not None
+        assert committed_delta.type == DeltaType.DELETE
+        assert committed_delta.locator.stream_position is not None
+        assert committed_delta.locator.stream_position >= 1
+
+        # Verify manifest entry metadata
+        entry = committed_delta.manifest.entries[0]
+        assert entry.meta.record_count == 2
+        assert entry.meta.content_type == ContentType.PARQUET.value
+
+    def test_commit_delta_with_different_content_types(self):
+        # Test committing deltas with different content types
+        import pandas as pd
+
+        test_data = pd.DataFrame({
+            "id": [1, 2],
+            "value": ["test1", "test2"],
+        })
+
+        content_types_to_test = [
+            ContentType.PARQUET,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.JSON,
+            ContentType.FEATHER,
+            ContentType.AVRO,
+        ]
+
+        committed_deltas = []
+        
+        for content_type in content_types_to_test:
+            # Stage delta with specific content type
+            staged_delta = metastore.stage_delta(
+                data=test_data,
+                partition=self.partition,
+                catalog=self.catalog,
+                content_type=content_type,
+                delta_type=DeltaType.UPSERT,
+            )
+
+            # Commit the delta
+            committed_delta = metastore.commit_delta(
+                delta=staged_delta,
+                catalog=self.catalog,
+            )
+
+            # Verify the delta was committed correctly
+            assert committed_delta is not None
+            assert committed_delta.type == DeltaType.UPSERT
+            assert committed_delta.locator.stream_position is not None
+            
+            # Verify content type in manifest entry
+            entry = committed_delta.manifest.entries[0]
+            assert entry.meta.content_type == content_type.value
+            assert entry.meta.record_count == 2
+            
+            committed_deltas.append(committed_delta)
+
+        # Verify all deltas have unique stream positions
+        stream_positions = [d.locator.stream_position for d in committed_deltas]
+        assert len(set(stream_positions)) == len(stream_positions), "Stream positions should be unique"
+
+    def test_commit_delta_sequential_stream_positions(self):
+        # Test that sequential delta commits get incrementing stream positions
+        import pandas as pd
+
+        base_data = pd.DataFrame({
+            "id": [1, 2],
+            "value": ["base1", "base2"],
+        })
+
+        committed_deltas = []
+        
+        # Commit multiple deltas in sequence
+        for i in range(5):
+            test_data = base_data.copy()
+            test_data["batch"] = i
+            
+            # Stage delta
+            staged_delta = metastore.stage_delta(
+                data=test_data,
+                partition=self.partition,
+                catalog=self.catalog,
+                content_type=ContentType.PARQUET,
+                delta_type=DeltaType.UPSERT,
+            )
+
+            # Commit the delta
+            committed_delta = metastore.commit_delta(
+                delta=staged_delta,
+                catalog=self.catalog,
+            )
+
+            # Verify the delta was committed correctly
+            assert committed_delta is not None
+            assert committed_delta.type == DeltaType.UPSERT
+            assert committed_delta.locator.stream_position is not None
+            
+            committed_deltas.append(committed_delta)
+
+        # Verify stream positions are increasing
+        stream_positions = [d.locator.stream_position for d in committed_deltas]
+        for i in range(1, len(stream_positions)):
+            assert stream_positions[i] > stream_positions[i-1], "Stream positions should be increasing"
+
+        # Verify all positions are unique
+        assert len(set(stream_positions)) == len(stream_positions), "Stream positions should be unique"
+
+    def test_commit_delta_with_properties(self):
+        # Test committing delta with custom properties
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "data": ["a", "b", "c"],
+        })
+
+        # Stage delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Define custom properties
+        custom_properties = {
+            "batch_id": "batch_001",
+            "source_system": "test_system",
+            "processing_timestamp": "2024-01-01T00:00:00Z",
+        }
+
+        # Commit delta with properties
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            properties=custom_properties,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly
+        assert committed_delta is not None
+        assert committed_delta.properties == custom_properties
+        assert committed_delta.locator.stream_position is not None
+
+    def test_commit_delta_with_author_metadata(self):
+        # Test committing delta with author metadata
+        from deltacat.storage.model.manifest import ManifestAuthor
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2],
+            "author_test": ["data1", "data2"],
+        })
+
+        # Create manifest author
+        author = ManifestAuthor.of(
+            name="test_author", 
+            version="1.0"
+        )
+
+        # Stage delta with author
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            author=author,
+        )
+
+        # Commit the delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly
+        assert committed_delta is not None
+        assert committed_delta.manifest is not None
+        # Author information should be preserved in the manifest
+        assert committed_delta.manifest.author is not None
+        assert committed_delta.manifest.author.name == "test_author"
+        assert committed_delta.manifest.author.version == "1.0"
+
+    def test_commit_delta_error_handling_invalid_partition(self):
+        # Test error handling when committing delta with invalid partition
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2],
+            "data": ["test1", "test2"],
+        })
+
+        # Stage delta normally
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Modify the delta to have an invalid partition ID by updating the locator
+        staged_delta.locator.partition_locator.partition_id = "invalid_partition_id"
+
+        # Attempt to commit should raise an error
+        with pytest.raises(ValueError) as exc_info:
+            metastore.commit_delta(
+                delta=staged_delta,
+                catalog=self.catalog,
+            )
+        
+        assert "Partition not found" in str(exc_info.value)
+
+    def test_commit_delta_default_type_assignment(self):
+        # Test that delta type defaults to UPSERT when not specified
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "default_type": ["a", "b", "c"],
+        })
+
+        # Stage delta without specifying type (should default to UPSERT)
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify staging defaults to UPSERT
+        assert staged_delta.type == DeltaType.UPSERT
+
+        # Commit the delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly with UPSERT type
+        assert committed_delta is not None
+        assert committed_delta.type == DeltaType.UPSERT
+        assert committed_delta.locator.stream_position is not None
+
+    def test_commit_delta_large_dataset(self):
+        # Test committing a larger dataset to verify performance and handling
+        import pandas as pd
+
+        # Create a larger dataset
+        large_data = pd.DataFrame({
+            "id": range(1000),
+            "name": [f"user_{i}" for i in range(1000)],
+            "value": [i * 1.5 for i in range(1000)],
+            "category": [f"cat_{i % 10}" for i in range(1000)],
+        })
+
+        # Stage the large delta
+        staged_delta = metastore.stage_delta(
+            data=large_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.APPEND,
+        )
+
+        # Commit the delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly
+        assert committed_delta is not None
+        assert committed_delta.type == DeltaType.APPEND
+        assert committed_delta.locator.stream_position is not None
+
+        # Verify manifest entry metadata for large dataset
+        entry = committed_delta.manifest.entries[0]
+        assert entry.meta.record_count == 1000
+        assert entry.meta.content_type == ContentType.PARQUET.value
+
+    def test_commit_delta_with_ray_dataset(self):
+        # Test committing delta created from Ray Dataset
+        import ray.data
+        import pandas as pd
+
+        # Create Ray Dataset
+        df = pd.DataFrame({
+            "id": [1, 2, 3, 4, 5],
+            "ray_data": ["a", "b", "c", "d", "e"],
+        })
+        ray_dataset = ray.data.from_pandas(df)
+
+        # Stage delta with Ray Dataset
+        staged_delta = metastore.stage_delta(
+            data=ray_dataset,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        # Commit the delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was committed correctly
+        assert committed_delta is not None
+        assert committed_delta.type == DeltaType.UPSERT
+        assert committed_delta.locator.stream_position is not None
+
+        # Verify manifest entry metadata
+        entry = committed_delta.manifest.entries[0]
+        assert entry.meta.record_count == 5
+        assert entry.meta.content_type == ContentType.PARQUET.value
+
+    def test_commit_delta_stream_position_consistency(self):
+        # Test that stream positions are managed correctly across multiple commits
+        import pandas as pd
+
+        # Get initial partition state
+        initial_partition = metastore.get_partition_by_id(
+            stream_locator=self.partition.stream_locator,
+            partition_id=self.partition.partition_id,
+            catalog=self.catalog,
+        )
+        initial_stream_position = initial_partition.stream_position or 0
+
+        test_data = pd.DataFrame({
+            "id": [1, 2],
+            "stream_test": ["data1", "data2"],
+        })
+
+        # Stage and commit first delta
+        staged_delta_1 = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        committed_delta_1 = metastore.commit_delta(
+            delta=staged_delta_1,
+            catalog=self.catalog,
+        )
+
+        # Verify first delta stream position
+        assert committed_delta_1.locator.stream_position == initial_stream_position + 1
+        assert committed_delta_1.previous_stream_position == initial_stream_position
+
+        # Stage and commit second delta
+        staged_delta_2 = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        committed_delta_2 = metastore.commit_delta(
+            delta=staged_delta_2,
+            catalog=self.catalog,
+        )
+
+        # Verify second delta stream position
+        assert committed_delta_2.locator.stream_position == initial_stream_position + 2
+        assert committed_delta_2.previous_stream_position == initial_stream_position + 1
+
+        # Verify that partition's stream position is updated
+        updated_partition = metastore.get_partition_by_id(
+            stream_locator=self.partition.stream_locator,
+            partition_id=self.partition.partition_id,
+            catalog=self.catalog,
+        )
+        assert updated_partition.stream_position == initial_stream_position + 2

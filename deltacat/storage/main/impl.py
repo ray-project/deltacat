@@ -43,10 +43,7 @@ from deltacat.storage.model.partition import (
     UNPARTITIONED_SCHEME_ID,
     PartitionLocatorAlias,
 )
-from deltacat.storage.model.schema import (
-    Schema,
-    Field,
-)
+from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import (
     SortScheme,
     UNSORTED_SCHEME,
@@ -2077,6 +2074,8 @@ def stage_delta(
     delta whose manifest entries point to the uploaded files. Applies any
     schema consistency policies configured for the parent table version.
     """
+    # TODO(pdames): Validate that equality delete entry types either have
+    #  entry params specified, or are being added to a table with merge keys.
     if not partition.is_supported_content_type(content_type):
         raise ValueError(
             f"Content type {content_type} is not supported by "
@@ -2119,7 +2118,64 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     stream position is specified, it must be greater than the latest stream
     position in the target partition.
     """
-    raise NotImplementedError("commit_delta not implemented")
+    delta: Delta = Metafile.update_for(delta)
+    delta_type: Optional[DeltaType] = delta.type
+    resolved_delta_type = delta_type if delta_type is not None else DeltaType.UPSERT
+    delta.type = resolved_delta_type
+    delta.properties = kwargs.get("properties") or delta.properties
+
+    parent_partition = get_partition_by_id(
+        stream_locator=delta.stream_locator,
+        partition_id=delta.partition_id,
+        *args,
+        **kwargs,
+    )
+    if not parent_partition:
+        raise ValueError(
+            f"Partition not found: {delta.stream_locator} {delta.partition_id}"
+        )
+    # resolve the delta's stream position
+    delta.previous_stream_position = parent_partition.stream_position or 0
+    if delta.stream_position is not None:
+        if delta.stream_position <= delta.previous_stream_position:
+            # manually specified delta stream positions must be greater than the
+            # previous stream position
+            raise ValueError(
+                f"Delta stream position {delta.stream_position} must be "
+                f"greater than previous stream position "
+                f"{delta.previous_stream_position}"
+            )
+    else:
+        delta.locator.stream_position = delta.previous_stream_position + 1
+
+    # update the parent partition's stream position
+    new_parent_partition: Partition = Metafile.update_for(parent_partition)
+    new_parent_partition.stream_position = delta.locator.stream_position
+
+    txn_type = TransactionType.ALTER
+    txn_ops = [
+        # the 1st operation creates the delta
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=delta,
+        ),
+        # the 2nd operation alters the stream position of the partition
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.UPDATE,
+            dest_metafile=new_parent_partition,
+            src_metafile=parent_partition,
+        ),
+    ]
+    transaction = Transaction.of(
+        txn_type=txn_type,
+        txn_operations=txn_ops,
+    )
+    catalog_properties = get_catalog_properties(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
+    )
+    return delta
 
 
 def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
