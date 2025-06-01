@@ -4523,3 +4523,490 @@ class TestDelta:
             catalog=self.catalog,
         )
         assert updated_partition.stream_position == initial_stream_position + 2
+
+    # ========== GET DELTA TESTS ==========
+
+    def test_get_delta_basic_retrieval(self):
+        # Test basic delta retrieval after commit
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "age": [25, 30, 35],
+        })
+
+        # Stage and commit delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=True,
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta matches the committed one
+        assert retrieved_delta is not None, f"Failed to retrieve delta at stream position {committed_delta.locator.stream_position}"
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert retrieved_delta.type == committed_delta.type
+        assert retrieved_delta.type == DeltaType.UPSERT
+
+        # Verify manifest integrity
+        assert retrieved_delta.manifest is not None
+        assert len(retrieved_delta.manifest.entries) == len(committed_delta.manifest.entries)
+
+    def test_get_delta_different_types(self):
+        # Test retrieving deltas with different delta types
+        import pandas as pd
+
+        test_data = pd.DataFrame({
+            "id": [1, 2],
+            "value": ["test1", "test2"],
+        })
+
+        delta_types_to_test = [
+            DeltaType.UPSERT,
+            DeltaType.APPEND, 
+            DeltaType.DELETE,
+        ]
+
+        for delta_type in delta_types_to_test:
+            # Stage and commit delta with specific type
+            staged_delta = metastore.stage_delta(
+                data=test_data,
+                partition=self.partition,
+                catalog=self.catalog,
+                content_type=ContentType.PARQUET,
+                delta_type=delta_type,
+            )
+
+            committed_delta = metastore.commit_delta(
+                delta=staged_delta,
+                catalog=self.catalog,
+            )
+
+            # Retrieve the committed delta
+            retrieved_delta = metastore.get_delta(
+                namespace=self.namespace.locator.namespace,
+                table_name="test_table",
+                stream_position=committed_delta.locator.stream_position,
+                partition_values=None,  # Using None for unpartitioned table
+                table_version="v.1",
+                include_manifest=True,
+                partition_scheme_id=self.partition.partition_scheme_id,
+                catalog=self.catalog,
+            )
+
+            # Verify the retrieved delta matches the committed one
+            assert retrieved_delta is not None, f"Failed to retrieve {delta_type} delta at stream position {committed_delta.locator.stream_position}"
+            assert retrieved_delta.type == delta_type
+            assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+
+    def test_get_delta_with_properties(self):
+        # Test retrieving delta with custom properties
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "prop_test": ["a", "b", "c"],
+        })
+
+        # Stage delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Define custom properties
+        custom_properties = {
+            "batch_id": "batch_retrieve_001",
+            "source_system": "test_retrieval_system",
+            "processing_timestamp": "2024-01-01T12:00:00Z",
+        }
+
+        # Commit delta with properties
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            properties=custom_properties,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=True,
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta preserves custom properties
+        assert retrieved_delta is not None, f"Failed to retrieve delta with properties at stream position {committed_delta.locator.stream_position}"
+        assert retrieved_delta.properties == custom_properties
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+
+    def test_get_delta_without_manifest(self):
+        # Test retrieving delta without manifest for performance
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "perf_test": ["x", "y", "z"],
+        })
+
+        # Stage and commit delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta WITHOUT manifest
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=False,  # Do not include manifest
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta but without manifest
+        assert retrieved_delta is not None, f"Failed to retrieve delta without manifest at stream position {committed_delta.locator.stream_position}"
+        assert retrieved_delta.type == DeltaType.UPSERT
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert retrieved_delta.manifest is None  # Should be None when include_manifest=False
+
+    def test_get_delta_not_exists(self):
+        # Test error handling when trying to retrieve non-existent delta
+        # Attempt to retrieve non-existent delta
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=999999,  # Non-existent stream position
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=True,
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Should return None for non-existent delta
+        assert retrieved_delta is None
+
+    def test_get_delta_invalid_namespace(self):
+        # Test error handling when trying to retrieve delta with invalid namespace
+        # Attempt to retrieve delta with invalid namespace
+        with pytest.raises(ValueError):
+            metastore.get_delta(
+                namespace="non_existent_namespace",
+                table_name="test_table",
+                stream_position=1,
+                partition_values=None,  # Using None for unpartitioned table
+                table_version="v.1",
+                include_manifest=True,
+                partition_scheme_id=self.partition.partition_scheme_id,
+                catalog=self.catalog,
+            )
+
+    def test_get_delta_large_dataset_retrieval(self):
+        # Test retrieving a delta with a large dataset
+        import pandas as pd
+
+        # Create a larger dataset
+        large_data = pd.DataFrame({
+            "id": range(500),
+            "name": [f"user_{i}" for i in range(500)],
+            "value": [i * 2.5 for i in range(500)],
+            "category": [f"cat_{i % 5}" for i in range(500)],
+        })
+
+        # Stage the large delta
+        staged_delta = metastore.stage_delta(
+            data=large_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.APPEND,
+        )
+
+        # Commit the delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=True,
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta for large dataset
+        assert retrieved_delta is not None
+        assert retrieved_delta.type == DeltaType.APPEND
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert retrieved_delta.manifest is not None
+
+        # Verify manifest entry metadata for large dataset
+        entry = retrieved_delta.manifest.entries[0]
+        assert entry.meta.record_count == 500
+        assert entry.meta.content_type == ContentType.PARQUET.value
+
+    def test_get_delta_with_ray_dataset_retrieval(self):
+        # Test retrieving delta originally created from Ray Dataset
+        import ray.data
+        import pandas as pd
+
+        # Create Ray Dataset
+        df = pd.DataFrame({
+            "id": [1, 2, 3, 4, 5],
+            "ray_retrieve": ["a", "b", "c", "d", "e"],
+        })
+        ray_dataset = ray.data.from_pandas(df)
+
+        # Stage delta with Ray Dataset
+        staged_delta = metastore.stage_delta(
+            data=ray_dataset,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        # Commit the delta
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=True,
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta
+        assert retrieved_delta is not None
+        assert retrieved_delta.type == DeltaType.UPSERT
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert retrieved_delta.manifest is not None
+
+        # Verify manifest entry metadata
+        entry = retrieved_delta.manifest.entries[0]
+        assert entry.meta.record_count == 5
+        assert entry.meta.content_type == ContentType.PARQUET.value
+
+    def test_get_delta_manifest_consistency(self):
+        # Test that retrieved delta manifest is consistent with committed delta
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3, 4],
+            "consistency_test": ["w", "x", "y", "z"],
+            "metadata": [10, 20, 30, 40],
+        })
+
+        # Stage and commit delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.CSV,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=True,
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify complete manifest consistency
+        assert retrieved_delta is not None
+        assert retrieved_delta.manifest is not None
+        assert committed_delta.manifest is not None
+
+        # Check manifest metadata
+        retrieved_meta = retrieved_delta.manifest.meta
+        committed_meta = committed_delta.manifest.meta
+        assert retrieved_meta.record_count == committed_meta.record_count
+        assert retrieved_meta.content_type == committed_meta.content_type
+        assert retrieved_meta.content_encoding == committed_meta.content_encoding
+
+        # Check manifest entries
+        assert len(retrieved_delta.manifest.entries) == len(committed_delta.manifest.entries)
+        
+        for i, (retrieved_entry, committed_entry) in enumerate(zip(
+            retrieved_delta.manifest.entries, 
+            committed_delta.manifest.entries
+        )):
+            assert retrieved_entry.uri == committed_entry.uri
+            assert retrieved_entry.meta.record_count == committed_entry.meta.record_count
+            assert retrieved_entry.meta.content_type == committed_entry.meta.content_type
+            assert retrieved_entry.meta.content_length == committed_entry.meta.content_length
+
+        # Verify stream position and locator consistency
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert retrieved_delta.locator.partition_locator.partition_id == committed_delta.locator.partition_locator.partition_id
+        assert retrieved_delta.previous_stream_position == committed_delta.previous_stream_position
+
+    def test_get_delta_without_manifest(self):
+        # Test retrieving delta without manifest for performance
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "perf_test": ["x", "y", "z"],
+        })
+
+        # Stage and commit delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta WITHOUT manifest
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.1",
+            include_manifest=False,  # Do not include manifest
+            partition_scheme_id=self.partition.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta but without manifest
+        assert retrieved_delta is not None, f"Failed to retrieve delta without manifest at stream position {committed_delta.locator.stream_position}"
+        assert retrieved_delta.type == DeltaType.UPSERT
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert retrieved_delta.manifest is None  # Should be None when include_manifest=False
+
+    def test_get_delta_with_different_table_versions(self):
+        # Test retrieving deltas from different table versions
+        import pandas as pd
+
+        # Create another table version
+        _, table_version_2, stream_2 = metastore.create_table_version(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            table_version="v.2",
+            catalog=self.catalog,
+        )
+
+        # Stage and commit partition for new table version
+        partition_2 = metastore.stage_partition(
+            stream=stream_2,
+            catalog=self.catalog,
+        )
+        partition_2 = metastore.commit_partition(
+            partition=partition_2,
+            catalog=self.catalog,
+        )
+
+        df = pd.DataFrame({
+            "id": [1, 2],
+            "version_test": ["v2_data1", "v2_data2"],
+        })
+
+        # Stage and commit delta to v.2
+        staged_delta_v2 = metastore.stage_delta(
+            data=df,
+            partition=partition_2,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta_v2 = metastore.commit_delta(
+            delta=staged_delta_v2,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the committed delta from v.2
+        retrieved_delta_v2 = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta_v2.locator.stream_position,
+            partition_values=None,  # Using None for unpartitioned table
+            table_version="v.2",
+            include_manifest=True,
+            partition_scheme_id=partition_2.partition_scheme_id,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta from v.2
+        assert retrieved_delta_v2 is not None
+        assert retrieved_delta_v2.type == DeltaType.UPSERT
+        assert retrieved_delta_v2.locator.stream_position == committed_delta_v2.locator.stream_position
+        assert retrieved_delta_v2.locator.stream_locator.table_version_locator.table_version == "v.2"
+        assert retrieved_delta_v2.manifest is not None
+
+        # Verify manifest entry metadata
+        entry = retrieved_delta_v2.manifest.entries[0]
+        assert entry.meta.record_count == 2
+        assert entry.meta.content_type == ContentType.PARQUET.value
