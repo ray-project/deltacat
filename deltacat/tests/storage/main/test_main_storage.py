@@ -3748,3 +3748,69 @@ class TestDelta:
         assert entry.meta.record_count == 3
         assert entry.meta.content_type == ContentType.ORC.value
         assert entry.meta.content_encoding == ContentEncoding.IDENTITY.value
+
+    def test_stage_delta_with_ray_dataset_parquet(self):
+        """Test staging a delta using a Ray Dataset with Parquet format."""
+        # Create a sample Ray Dataset
+        import ray
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+        ds = ray.data.from_pandas(df)
+
+        # Stage the delta using the Ray Dataset as Parquet
+        delta = metastore.stage_delta(
+            data=ds,
+            partition=self.partition,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify the delta was staged correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) == 1
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.PARQUET
+        assert entry.meta.content_encoding == ContentEncoding.IDENTITY
+        assert entry.meta.record_count == 3
+
+    def test_stage_delta_with_ray_dataset_csv(self):
+        """Test staging a delta using a Ray Dataset with CSV format."""
+        # Create a sample Ray Dataset
+        import ray
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+        ds = ray.data.from_pandas(df)
+
+        # Stage the delta using the Ray Dataset as CSV
+        delta = metastore.stage_delta(
+            data=ds,
+            partition=self.partition,
+            content_type=ContentType.CSV,
+        )
+
+        # Verify the delta was staged correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) == 1
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.CSV
+        assert entry.meta.content_encoding == ContentEncoding.GZIP
+        assert entry.meta.record_count == 3

@@ -114,7 +114,7 @@ class TestDownloadUpload(unittest.TestCase):
         mock_get_metadata.return_value = [mock.MagicMock()]
         cbwp = CapturedBlockWritePaths()
         cbwp._write_paths = ["s3_write_path"]
-        cbwp._block_refs = [mock.MagicMock()]
+        cbwp._blocks = [mock.MagicMock()]
         mock_captured_block_write_paths.return_value = cbwp
         with pytest.raises(RetryError):
             s3u.upload_sliced_table(

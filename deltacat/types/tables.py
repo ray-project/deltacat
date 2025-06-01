@@ -11,7 +11,7 @@ import pyarrow.fs
 import pyarrow.parquet as papq
 import ray
 from ray.data.block import Block, BlockMetadata, BlockAccessor
-from ray.data.dataset import Dataset as RayDataset
+from ray.data.dataset import Dataset as RayDataset, MaterializedDataset
 from ray.data.datasource import FilenameProvider
 from ray.data.read_api import (
     from_arrow,
@@ -81,6 +81,7 @@ TABLE_CLASS_TO_WRITER_FUNC: Dict[
     pl.DataFrame: pl_utils.dataframe_to_file,
     np.ndarray: np_utils.ndarray_to_file,
     RayDataset: ds_utils.dataset_to_file,
+    MaterializedDataset: ds_utils.dataset_to_file,
 }
 
 TABLE_CLASS_TO_SLICER_FUNC: Dict[
@@ -91,6 +92,7 @@ TABLE_CLASS_TO_SLICER_FUNC: Dict[
     pl.DataFrame: pl_utils.slice_table,
     np.ndarray: np_utils.slice_ndarray,
     RayDataset: ds_utils.slice_dataset,
+    MaterializedDataset: ds_utils.slice_dataset,
 }
 
 TABLE_CLASS_TO_SIZE_FUNC: Dict[
@@ -102,6 +104,7 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     pl.DataFrame: pl_utils.dataframe_size,
     np.ndarray: np_utils.ndarray_size,
     RayDataset: ds_utils.dataset_size,
+    MaterializedDataset: ds_utils.dataset_size,
 }
 
 TABLE_CLASS_TO_PYARROW_FUNC: Dict[
@@ -164,7 +167,9 @@ class TableWriteMode(str, Enum):
     MERGE = "merge"
 
 
-def get_table_length(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> int:
+def get_table_length(
+    table: Union[dcs.LocalTable, dcs.DistributedDataset, BlockAccessor]
+) -> int:
     return len(table) if not isinstance(table, RayDataset) else table.count()
 
 
@@ -273,8 +278,16 @@ def write_table(
     if table_writer_kwargs is None:
         table_writer_kwargs = {}
 
-    capture_object = CapturedBlockWritePaths()
-    block_write_path_provider = UuidBlockWritePathProvider(capture_object)
+    wrapped_obj = (
+        CapturedBlockWritePathsActor.remote()
+        if isinstance(table, RayDataset)
+        else CapturedBlockWritePathsBase()
+    )
+    capture_object = CapturedBlockWritePaths(wrapped_obj)
+    block_write_path_provider = UuidBlockWritePathProvider(
+        capture_object,
+        base_path=base_path,
+    )
     table_writer_fn(
         table,
         base_path,
@@ -285,9 +298,9 @@ def write_table(
     )
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
-    block_refs = capture_object.block_refs()
+    blocks = capture_object.blocks()
     write_paths = capture_object.write_paths()
-    metadata = get_block_metadata(table, write_paths, block_refs)
+    metadata = get_block_metadata_list(table, write_paths, blocks)
     manifest_entries = ManifestEntryList()
     content_encoding = None
     if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
@@ -321,12 +334,27 @@ def write_table(
     return manifest_entries
 
 
-class CapturedBlockWritePaths:
+@ray.remote
+class CapturedBlockWritePathsActor:
+    def __init__(self):
+        self._wrapped = CapturedBlockWritePathsBase()
+
+    def extend(self, write_paths: List[str], blocks: List[Block]) -> None:
+        self._wrapped.extend(write_paths, blocks)
+
+    def write_paths(self) -> List[str]:
+        return self._wrapped.write_paths()
+
+    def blocks(self) -> List[Block]:
+        return self._wrapped.blocks()
+
+
+class CapturedBlockWritePathsBase:
     def __init__(self):
         self._write_paths: List[str] = []
-        self._block_refs: List[ObjectRef[Block]] = []
+        self._blocks: List[Block] = []
 
-    def extend(self, write_paths: List[str], block_refs: List[ObjectRef[Block]]):
+    def extend(self, write_paths: List[str], blocks: List[Block]) -> None:
         try:
             iter(write_paths)
         except TypeError:
@@ -334,17 +362,43 @@ class CapturedBlockWritePaths:
         else:
             self._write_paths.extend(write_paths)
         try:
-            iter(block_refs)
+            iter(blocks)
         except TypeError:
             pass
         else:
-            self._block_refs.extend(block_refs)
+            self._blocks.extend(blocks)
 
     def write_paths(self) -> List[str]:
         return self._write_paths
 
-    def block_refs(self) -> List[ObjectRef[Block]]:
-        return self._block_refs
+    def blocks(self) -> List[Block]:
+        return self._blocks
+
+
+class CapturedBlockWritePaths:
+    def __init__(self, wrapped=CapturedBlockWritePathsBase()):
+        self._wrapped = wrapped
+
+    def extend(self, write_paths: List[str], blocks: List[Block]) -> None:
+        return (
+            self._wrapped.extend(write_paths, blocks)
+            if isinstance(self._wrapped, CapturedBlockWritePathsBase)
+            else ray.get(self._wrapped.extend.remote(write_paths, blocks))
+        )
+
+    def write_paths(self) -> List[str]:
+        return (
+            self._wrapped.write_paths()
+            if isinstance(self._wrapped, CapturedBlockWritePathsBase)
+            else ray.get(self._wrapped.write_paths.remote())
+        )
+
+    def blocks(self) -> List[Block]:
+        return (
+            self._wrapped.blocks()
+            if isinstance(self._wrapped, CapturedBlockWritePathsBase)
+            else ray.get(self._wrapped.blocks.remote())
+        )
 
 
 class UuidBlockWritePathProvider(FilenameProvider):
@@ -353,22 +407,27 @@ class UuidBlockWritePathProvider(FilenameProvider):
     """
 
     def __init__(
-        self, capture_object: CapturedBlockWritePaths, base_path: Optional[str] = None
+        self,
+        capture_object: CapturedBlockWritePaths,
+        base_path: Optional[str] = None,
     ):
         self.base_path = base_path
         self.write_paths: List[str] = []
-        self.block_refs: List[ObjectRef[Block]] = []
+        self.blocks: List[Block] = []
         self.capture_object = capture_object
 
     def __del__(self):
-        if self.write_paths or self.block_refs:
+        if self.write_paths or self.blocks:
             self.capture_object.extend(
                 self.write_paths,
-                self.block_refs,
+                self.blocks,
             )
 
     def get_filename_for_block(
-        self, block: Any, task_index: int, block_index: int
+        self,
+        block: Block,
+        task_index: int,
+        block_index: int,
     ) -> str:
         if self.base_path is None:
             raise ValueError(
@@ -384,16 +443,13 @@ class UuidBlockWritePathProvider(FilenameProvider):
         self,
         base_path: str,
         *,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        dataset_uuid: Optional[str] = None,
-        block: Optional[ObjectRef[Block]] = None,
-        block_index: Optional[int] = None,
-        file_format: Optional[str] = None,
+        block: Optional[Block] = None,
+        **kwargs,
     ) -> str:
         write_path = f"{base_path}/{str(uuid4())}"
         self.write_paths.append(write_path)
-        if block:
-            self.block_refs.append(block)
+        if block is not None:
+            self.blocks.append(block)
         return write_path
 
     def __call__(
@@ -402,7 +458,7 @@ class UuidBlockWritePathProvider(FilenameProvider):
         *,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         dataset_uuid: Optional[str] = None,
-        block: Optional[ObjectRef[Block]] = None,
+        block: Optional[Block] = None,
         block_index: Optional[int] = None,
         file_format: Optional[str] = None,
     ) -> str:
@@ -416,52 +472,44 @@ class UuidBlockWritePathProvider(FilenameProvider):
         )
 
 
-def get_block_metadata(
-    table: Union[LocalTable, DistributedDataset],
+def get_block_metadata_list(
+    table: LocalTable,
     write_paths: List[str],
-    block_refs: List[ObjectRef[Block]],
+    blocks: List[Block],
 ) -> List[BlockMetadata]:
-    metadata: List[BlockMetadata] = []
-    if not block_refs:
+    block_meta_list: List[BlockMetadata] = []
+    if not blocks:
         # this must be a local table - ensure it was written to only 1 file
         assert len(write_paths) == 1, (
             f"Expected table of type '{type(table)}' to be written to 1 "
             f"file, but found {len(write_paths)} files."
         )
-        table_size = None
-        table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
-        if table_size_func:
-            table_size = table_size_func(table)
-        else:
-            logger.warning(f"Unable to estimate '{type(table)}' table size.")
-        metadata.append(
-            BlockMetadata(
-                num_rows=get_table_length(table),
-                size_bytes=table_size,
-                schema=None,
-                input_files=None,
-                exec_stats=None,
-            )
-        )
+        blocks = [table]
+    for block in blocks:
+        block_meta_list.append(get_block_metadata(block))
+    return block_meta_list
+
+
+def get_block_metadata(
+    table: Union[LocalTable, DistributedDataset, BlockAccessor],
+) -> BlockMetadata:
+    table_size = None
+    table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
+    if table_size_func:
+        table_size = table_size_func(table)
     else:
-        # TODO(pdames): Expose BlockList metadata getter from Ray Dataset?
-        # ray 1.10
-        # metadata = dataset._blocks.get_metadata()
-        # ray 2.0.0dev
-        metadata = table._plan.execute().get_block_metadata()
-        if (
-            not metadata
-            or metadata[0].size_bytes is None
-            or metadata[0].num_rows is None
-        ):
-            metadata_futures = [
-                block_metadata.remote(block_ref) for block_ref in block_refs
-            ]
-            metadata = ray.get(metadata_futures)
-    return metadata
+        logger.warning(f"Unable to estimate '{type(table)}' table size.")
+    if isinstance(table, BlockAccessor):
+        table = table.to_block()
+    return BlockMetadata(
+        num_rows=get_table_length(table),
+        size_bytes=table_size,
+        schema=None,
+        input_files=None,
+        exec_stats=None,
+    )
 
 
-@ray.remote
 def block_metadata(block: Block) -> BlockMetadata:
     return BlockAccessor.for_block(block).get_metadata(
         input_files=None,

@@ -49,6 +49,9 @@ from deltacat.types.tables import (
     TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS,
     DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC,
     get_table_length,
+    CapturedBlockWritePathsActor,
+    CapturedBlockWritePathsBase,
+    RayDataset,
 )
 from deltacat.exceptions import (
     RetryableError,
@@ -68,7 +71,7 @@ from deltacat.types.tables import (
     CapturedBlockWritePaths,
     UuidBlockWritePathProvider,
 )
-from deltacat.types.tables import get_block_metadata
+from deltacat.types.tables import get_block_metadata_list
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -220,7 +223,8 @@ def upload_sliced_table(
     content_type: ContentType = ContentType.PARQUET,
     **s3_client_kwargs,
 ) -> ManifestEntryList:
-
+    # TODO(pdames): Remove in favor of deltacat.types.tables.write_sliced_table
+    #  after deprecating s3fs dependency.
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
@@ -274,11 +278,21 @@ def upload_table(
     Writes the given table to 1 or more S3 files and return
     manifest entries describing the uploaded files.
     """
+    # TODO(pdames): Remove in favor of deltacat.types.tables.write_table
+    #  after deprecating s3fs dependency.
     if s3_table_writer_kwargs is None:
         s3_table_writer_kwargs = {}
 
-    capture_object = CapturedBlockWritePaths()
-    block_write_path_provider = UuidBlockWritePathProvider(capture_object)
+    wrapped_obj = (
+        CapturedBlockWritePathsActor.remote()
+        if isinstance(table, RayDataset)
+        else CapturedBlockWritePathsBase()
+    )
+    capture_object = CapturedBlockWritePaths(wrapped_obj)
+    block_write_path_provider = UuidBlockWritePathProvider(
+        capture_object,
+        base_path=s3_base_url,
+    )
     s3_table_writer_func(
         table,
         s3_base_url,
@@ -289,9 +303,9 @@ def upload_table(
     )
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
-    block_refs = capture_object.block_refs()
+    block_refs = capture_object.blocks()
     write_paths = capture_object.write_paths()
-    metadata = get_block_metadata(table, write_paths, block_refs)
+    metadata = get_block_metadata_list(table, write_paths, block_refs)
     manifest_entries = ManifestEntryList()
     for block_idx, s3_url in enumerate(write_paths):
         try:
