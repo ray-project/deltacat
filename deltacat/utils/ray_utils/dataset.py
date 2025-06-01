@@ -67,12 +67,35 @@ def write_csv(
     )
 
 
+def write_json(
+    dataset: Dataset,
+    base_path: str,
+    *,
+    filesystem: AbstractFileSystem,
+    block_path_provider: Union[Callable, FilenameProvider],
+    **kwargs,
+) -> None:
+    """
+    Write a Ray Dataset to a JSON file using Ray's native JSON writer.
+    """
+    pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
+    dataset.write_json(
+        base_path,
+        arrow_open_stream_args=pa_open_stream_args,
+        filesystem=filesystem,
+        try_create_dir=False,
+        filename_provider=block_path_provider,
+        **kwargs,
+    )
+
+
 CONTENT_TYPE_TO_DATASET_WRITE_FUNC: Dict[str, Callable] = {
     ContentType.UNESCAPED_TSV.value: write_csv,
     ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
     ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: write_parquet,
+    ContentType.JSON.value: write_json,
 }
 
 
@@ -101,7 +124,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
             "delimiter": "|",
             "include_header": False,
         }
-    if content_type == ContentType.PARQUET.value:
+    if content_type in {ContentType.PARQUET.value, ContentType.JSON.value}:
         return {}
     raise ValueError(f"Unsupported content type: {content_type}")
 
