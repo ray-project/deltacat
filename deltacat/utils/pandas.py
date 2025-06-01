@@ -216,6 +216,23 @@ def write_parquet(
             dataframe.to_parquet(f, **kwargs)
 
 
+def write_orc(
+    dataframe: pd.DataFrame,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **kwargs,
+) -> None:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
+            dataframe.to_orc(f, **kwargs)
+    else:
+        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
+            dataframe.to_orc(f, **kwargs)
+
+
 def write_feather(
     dataframe: pd.DataFrame,
     path: str,
@@ -284,25 +301,8 @@ def write_avro(
     )
 
 
-def write_orc(
-    dataframe: pd.DataFrame,
-    path: str,
-    *,
-    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
-    fs_open_kwargs: Dict[str, any] = {},
-    **kwargs,
-) -> None:
-    if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            dataframe.to_orc(f, **kwargs)
-    else:
-        with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            dataframe.to_orc(f, **kwargs)
-
-
 CONTENT_TYPE_TO_PD_WRITE_FUNC: Dict[str, Callable] = {
-    ContentType.UNESCAPED_TSV.value: write_csv,
+    ContentType.UNESCAPED_TSV: write_csv,
     ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
     ContentType.PSV.value: write_csv,
@@ -335,6 +335,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
         return {
             "sep": ",",
             "header": False,
+            "index": False,
             "lineterminator": "\n",
             "index": False,
         }
@@ -342,15 +343,15 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
         return {
             "sep": "|",
             "header": False,
-            "lineterminator": "\n",
             "index": False,
+            "lineterminator": "\n",
         }
     if content_type == ContentType.PARQUET.value:
         return {"index": False}
     if content_type == ContentType.FEATHER.value:
         return {}
     if content_type == ContentType.JSON.value:
-        return {"index": False}
+        return {"index": False, "orient": "records"}
     if content_type == ContentType.AVRO.value:
         return {"index": False}
     if content_type == ContentType.ORC.value:

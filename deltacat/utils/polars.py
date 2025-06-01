@@ -43,24 +43,24 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
     if content_type == ContentType.UNESCAPED_TSV.value:
         return {
             "separator": "\t",
-            "has_header": False,
-            "null_values": [""],
-            "quote_char": None,  # Equivalent to QUOTE_NONE in pandas
+            "include_header": False,
+            "null_value": "",
+            "quote_style": "never",  # Equivalent to QUOTE_NONE in pandas
         }
     if content_type == ContentType.TSV.value:
         return {
             "separator": "\t",
-            "has_header": False,
+            "include_header": False,
         }
     if content_type == ContentType.CSV.value:
         return {
             "separator": ",",
-            "has_header": False,
+            "include_header": False,
         }
     if content_type == ContentType.PSV.value:
         return {
             "separator": "|",
-            "has_header": False,
+            "include_header": False,
         }
     if content_type in {
         ContentType.PARQUET.value,
@@ -218,18 +218,20 @@ def dataframe_to_file(
     **kwargs,
 ) -> None:
     """
-    Writes the given Pyarrow Table to a file.
+    Writes the given Polars DataFrame to a file.
     """
     writer = CONTENT_TYPE_TO_PL_WRITE_FUNC.get(content_type)
+    writer_kwargs = content_type_to_writer_kwargs(content_type)
+    writer_kwargs.update(kwargs)
     if not writer:
         raise NotImplementedError(
-            f"Pyarrow writer for content type '{content_type}' not "
+            f"Polars writer for content type '{content_type}' not "
             f"implemented. Known content types: "
-            f"{CONTENT_TYPE_TO_PL_WRITE_FUNC.keys}"
+            f"{CONTENT_TYPE_TO_PL_WRITE_FUNC.keys()}"
         )
     path = block_path_provider(base_path)
-    logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
-    writer(table, path, filesystem=filesystem, **kwargs)
+    logger.debug(f"Writing table: {table} with kwargs: {writer_kwargs} to path: {path}")
+    writer(table, path, filesystem=filesystem, **writer_kwargs)
 
 
 def write_table(
