@@ -184,6 +184,33 @@ def read_parquet(
         return papq.read_table(f, **read_kwargs)
 
 
+def read_avro(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **read_kwargs,
+) -> pa.Table:
+    """
+    Read an Avro file using polars and convert to PyArrow.
+    """
+    import polars as pl
+    
+    # If path is a file-like object, read directly
+    if hasattr(path, 'read'):
+        pl_df = pl.read_avro(path, **read_kwargs)
+        return pl_df.to_arrow()
+    
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            pl_df = pl.read_avro(f, **read_kwargs)
+            return pl_df.to_arrow()
+    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+        pl_df = pl.read_avro(f, **read_kwargs)
+        return pl_df.to_arrow()
+
+
 CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
     ContentType.UNESCAPED_TSV.value: pyarrow_read_csv,
     ContentType.TSV.value: pyarrow_read_csv,
@@ -192,6 +219,8 @@ CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
     ContentType.PARQUET.value: papq.read_table,
     ContentType.FEATHER.value: paf.read_table,
     ContentType.JSON.value: pajson.read_json,
+    ContentType.ORC.value: paorc.read_table,
+    ContentType.AVRO.value: read_avro,
 }
 
 
@@ -399,12 +428,10 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
         ContentType.PARQUET.value,
         ContentType.FEATHER.value,
         ContentType.JSON.value,
+        ContentType.ORC.value,
+        ContentType.AVRO.value,
     }:
         return {}
-    # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
-    # https://issues.apache.org/jira/browse/ARROW-7811
-    # if DataTypes.ContentType.ORC:
-    #   return {},
     raise ValueError(f"Unsupported content type: {content_type}")
 
 
@@ -1044,3 +1071,80 @@ def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
         array = pa.chunked_array(all_chunks, type=dtype)
 
     return pc.cast(array, pa.string())
+
+
+def file_to_table(
+    path: str,
+    content_type: str,
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    **kwargs,
+) -> pa.Table:
+    """
+    Read a file into a PyArrow Table using any filesystem.
+    
+    Args:
+        path: The file path to read
+        content_type: The content type of the file (e.g., ContentType.CSV.value)
+        content_encoding: The content encoding (default: IDENTITY)
+        filesystem: The filesystem to use (if None, will be inferred from path)
+        column_names: Optional column names to assign
+        include_columns: Optional columns to include in the result
+        pa_read_func_kwargs_provider: Optional kwargs provider for customization
+        fs_open_kwargs: Optional kwargs for filesystem open operations
+        **kwargs: Additional kwargs passed to the reader function
+        
+    Returns:
+        pa.Table: The loaded PyArrow Table
+    """
+    logger.debug(
+        f"Reading {path} to PyArrow. Content type: {content_type}. "
+        f"Encoding: {content_encoding}"
+    )
+    
+    # Resolve filesystem and path
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+    
+    pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC.get(content_type)
+    if not pa_read_func:
+        raise NotImplementedError(
+            f"PyArrow reader for content type '{content_type}' not "
+            f"implemented. Known content types: "
+            f"{list(CONTENT_TYPE_TO_PA_READ_FUNC.keys())}"
+        )
+    
+    reader_kwargs = content_type_to_reader_kwargs(content_type)
+    _add_column_kwargs(content_type, column_names, include_columns, reader_kwargs)
+    
+    # Merge with provided kwargs
+    reader_kwargs.update(kwargs)
+    
+    if pa_read_func_kwargs_provider:
+        reader_kwargs = pa_read_func_kwargs_provider(content_type, reader_kwargs)
+    
+    logger.debug(f"Reading {path} via {pa_read_func} with kwargs: {reader_kwargs}")
+    
+    # Handle different filesystem types and compression
+    def _read_file():
+        if isinstance(filesystem, pafs.FileSystem):
+            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+                # Handle compression
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    return pa_read_func(input_file, **reader_kwargs)
+        else:
+            # fsspec AbstractFileSystem
+            with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+                # Handle compression
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    return pa_read_func(input_file, **reader_kwargs)
+    
+    table, latency = timed_invocation(_read_file)
+    logger.debug(f"Time to read {path} into PyArrow Table: {latency}s")
+    return table

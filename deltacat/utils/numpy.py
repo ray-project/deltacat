@@ -1,15 +1,20 @@
-from typing import List, Optional, Callable, Union
+from typing import List, Optional, Callable, Union, Dict, Any
 
 import numpy as np
 import pyarrow as pa
 from fsspec import AbstractFileSystem
 import pyarrow.fs as pafs
+import logging
 
 from ray.data.datasource import FilenameProvider
-from deltacat.types.media import ContentType
+from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.utils import pandas as pd_utils
 from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.common import ReadKwargsProvider
+from deltacat import logs
+from deltacat.utils.performance import timed_invocation
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def slice_ndarray(np_array: np.ndarray, max_len: Optional[int]) -> List[np.ndarray]:
@@ -43,6 +48,62 @@ def s3_file_to_ndarray(
         **s3_client_kwargs
     )
     return dataframe.to_numpy()
+
+
+def file_to_ndarray(
+    path: str,
+    content_type: str,
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    **kwargs,
+) -> np.ndarray:
+    """
+    Read a file into a NumPy ndarray using any filesystem.
+    
+    This function delegates to the pandas file_to_dataframe function and converts
+    the resulting DataFrame to a NumPy ndarray.
+    
+    Args:
+        path: The file path to read
+        content_type: The content type of the file (e.g., ContentType.CSV.value)
+        content_encoding: The content encoding (default: IDENTITY)
+        filesystem: The filesystem to use (if None, will be inferred from path)
+        column_names: Optional column names to assign
+        include_columns: Optional columns to include in the result
+        pd_read_func_kwargs_provider: Optional kwargs provider for customization
+        fs_open_kwargs: Optional kwargs for filesystem open operations
+        **kwargs: Additional kwargs passed to the reader function
+        
+    Returns:
+        np.ndarray: The loaded data as a NumPy ndarray
+    """
+    logger.debug(
+        f"Reading {path} to NumPy ndarray. Content type: {content_type}. "
+        f"Encoding: {content_encoding}"
+    )
+    
+    def _read_to_ndarray():
+        # Delegate to pandas implementation and convert to ndarray
+        dataframe = pd_utils.file_to_dataframe(
+            path=path,
+            content_type=content_type,
+            content_encoding=content_encoding,
+            filesystem=filesystem,
+            column_names=column_names,
+            include_columns=include_columns,
+            pd_read_func_kwargs_provider=pd_read_func_kwargs_provider,
+            fs_open_kwargs=fs_open_kwargs,
+            **kwargs,
+        )
+        return dataframe.to_numpy()
+    
+    ndarray, latency = timed_invocation(_read_to_ndarray)
+    logger.debug(f"Time to read {path} into NumPy ndarray: {latency}s")
+    return ndarray
 
 
 def ndarray_size(np_array: np.ndarray) -> int:

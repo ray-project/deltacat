@@ -10,6 +10,7 @@ from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.utils.polars import (
     dataframe_to_file,
     s3_file_to_dataframe,
+    file_to_dataframe,
     content_type_to_reader_kwargs,
     _add_column_kwargs,
     ReadKwargsProviderPolarsStringTypes,
@@ -439,9 +440,9 @@ class TestPolarsReaders(TestCase):
         # Apply string types
         result_kwargs = provider._get_kwargs(ContentType.CSV.value, kwargs)
         
-        # Should add dtypes for string type inference
-        assert "dtypes" in result_kwargs
-        assert result_kwargs["dtypes"] == pl.Utf8
+        # Should add infer_schema=False for string type inference
+        assert "infer_schema" in result_kwargs
+        assert result_kwargs["infer_schema"] == False
 
     def test_concat_dataframes(self):
         # Test concatenation of multiple dataframes
@@ -524,4 +525,196 @@ class TestPolarsReaders(TestCase):
                 
                 assert len(result) == 2
                 assert list(result.columns) == ['col1', 'col2', 'col3']
-                assert result['col1'].to_list() == ['test1', 'test2'] 
+                assert result['col1'].to_list() == ['test1', 'test2']
+
+    def test_file_to_dataframe_csv(self):
+        # Test reading CSV with file_to_dataframe
+        csv_path = f"{self.base_path}/test.csv"
+        
+        result = file_to_dataframe(
+            csv_path,
+            ContentType.CSV.value,
+            ContentEncoding.GZIP.value,
+            filesystem=self.fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        assert result['col1'].to_list() == ['a,b\tc|d', 'e,f\tg|h', 'test']
+
+    def test_file_to_dataframe_tsv(self):
+        # Test reading TSV with file_to_dataframe
+        tsv_path = f"{self.base_path}/test.tsv"
+        
+        result = file_to_dataframe(
+            tsv_path,
+            ContentType.TSV.value,
+            ContentEncoding.GZIP.value,
+            filesystem=self.fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        assert result['col1'].to_list() == ['a,b\tc|d', 'e,f\tg|h', 'test']
+
+    def test_file_to_dataframe_parquet(self):
+        # Test reading Parquet with file_to_dataframe
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        result = file_to_dataframe(
+            parquet_path,
+            ContentType.PARQUET.value,
+            filesystem=self.fs
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        assert result.equals(self.df)
+
+    def test_file_to_dataframe_feather(self):
+        # Test reading Feather with file_to_dataframe
+        feather_path = f"{self.base_path}/test.feather"
+        
+        result = file_to_dataframe(
+            feather_path,
+            ContentType.FEATHER.value,
+            filesystem=self.fs
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        assert result.equals(self.df)
+
+    def test_file_to_dataframe_json(self):
+        # Test reading JSON with file_to_dataframe
+        json_path = f"{self.base_path}/test.json"
+        
+        result = file_to_dataframe(
+            json_path,
+            ContentType.JSON.value,
+            ContentEncoding.GZIP.value,
+            filesystem=self.fs
+        )
+        
+        assert len(result) == 3
+        assert set(result.columns) == {'col1', 'col2', 'col3'}
+        assert result['col1'].to_list() == ['a,b\tc|d', 'e,f\tg|h', 'test']
+
+    def test_file_to_dataframe_avro(self):
+        # Test reading Avro with file_to_dataframe
+        avro_path = f"{self.base_path}/test.avro"
+        
+        result = file_to_dataframe(
+            avro_path,
+            ContentType.AVRO.value,
+            filesystem=self.fs
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        assert result.equals(self.df)
+
+    def test_file_to_dataframe_orc(self):
+        # Test reading ORC with file_to_dataframe
+        orc_path = f"{self.base_path}/test.orc"
+        
+        result = file_to_dataframe(
+            orc_path,
+            ContentType.ORC.value,
+            filesystem=self.fs
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        # Convert both to pandas for comparison due to potential type differences
+        pd.testing.assert_frame_equal(result.to_pandas(), self.df.to_pandas())
+
+    def test_file_to_dataframe_with_column_selection(self):
+        # Test reading with column selection
+        csv_path = f"{self.base_path}/test.csv"
+        
+        # When has_header=False and we specify columns, we need to use column indices or 
+        # not provide new_columns. Let's test by just specifying the first 2 columns by index
+        result = file_to_dataframe(
+            csv_path,
+            ContentType.CSV.value,
+            ContentEncoding.GZIP.value,
+            filesystem=self.fs,
+            include_columns=[0, 1]  # Select first two columns by index
+        )
+        
+        assert len(result) == 3
+        assert len(result.columns) == 2  # Should only have 2 columns
+        # With auto-generated column names when has_header=False
+        assert list(result.columns) == ['column_1', 'column_2']
+
+    def test_file_to_dataframe_with_kwargs_provider(self):
+        # Test reading with kwargs provider
+        csv_path = f"{self.base_path}/test.csv"
+        provider = ReadKwargsProviderPolarsStringTypes(include_columns=['column_1', 'column_2', 'column_3'])
+        
+        result = file_to_dataframe(
+            csv_path,
+            ContentType.CSV.value,
+            ContentEncoding.GZIP.value,
+            filesystem=self.fs,
+            pl_read_func_kwargs_provider=provider
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['column_1', 'column_2', 'column_3']
+        # With string types provider, all columns should be strings
+        assert all(result[col].dtype == pl.Utf8 for col in result.columns)
+
+    def test_file_to_dataframe_filesystem_inference(self):
+        # Test filesystem inference when no filesystem is provided
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        result = file_to_dataframe(
+            parquet_path,
+            ContentType.PARQUET.value
+            # No filesystem provided - should be inferred
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        assert result.equals(self.df)
+
+    def test_file_to_dataframe_unsupported_content_type(self):
+        # Test error handling for unsupported content type
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        with self.assertRaises(NotImplementedError) as context:
+            file_to_dataframe(
+                parquet_path,
+                "unsupported/content-type",
+                filesystem=self.fs
+            )
+        
+        assert "not implemented" in str(context.exception)
+
+    def test_file_to_dataframe_bzip2_compression(self):
+        # Test BZIP2 compression handling
+        import bz2
+        
+        # Create a BZIP2 compressed CSV file
+        csv_content = '"a,b\tc|d",1,1.1\n"e,f\tg|h",2,2.2\ntest,3,3.3\n'
+        compressed_content = bz2.compress(csv_content.encode('utf-8'))
+        
+        bz2_path = f"{self.base_path}/test.csv.bz2"
+        with self.fs.open(bz2_path, "wb") as f:
+            f.write(compressed_content)
+        
+        result = file_to_dataframe(
+            bz2_path,
+            ContentType.CSV.value,
+            ContentEncoding.BZIP2.value,
+            filesystem=self.fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        
+        assert len(result) == 3
+        assert list(result.columns) == ['col1', 'col2', 'col3']
+        assert result['col1'].to_list() == ['a,b\tc|d', 'e,f\tg|h', 'test'] 

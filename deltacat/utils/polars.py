@@ -294,11 +294,11 @@ class ReadKwargsProviderPolarsStringTypes(ContentTypeKwargsProvider):
                 self.include_columns if self.include_columns else kwargs.get("columns")
             )
             if not include_columns:
-                # read all columns as strings - polars uses dtypes dict
-                kwargs["dtypes"] = pl.Utf8
+                # read all columns as strings - disable schema inference
+                kwargs["infer_schema"] = False
             else:
                 # read only the included columns as strings
-                kwargs["dtypes"] = {column_name: pl.Utf8 for column_name in include_columns}
+                kwargs["schema_overrides"] = {column_name: pl.Utf8 for column_name in include_columns}
         return kwargs
 
 
@@ -385,7 +385,14 @@ def s3_file_to_dataframe(
         logger.debug(f"Time to read {s3_url} into Polars DataFrame via pandas")
         return dataframe
     
-    pl_read_func = CONTENT_TYPE_TO_PL_READ_FUNC[content_type]
+    pl_read_func = CONTENT_TYPE_TO_PL_READ_FUNC.get(content_type)
+    if not pl_read_func:
+        raise NotImplementedError(
+            f"Polars reader for content type '{content_type}' not "
+            f"implemented. Known content types: "
+            f"{list(CONTENT_TYPE_TO_PL_READ_FUNC.keys())}"
+        )
+    
     kwargs = content_type_to_reader_kwargs(content_type)
     _add_column_kwargs(content_type, column_names, include_columns, kwargs)
 
@@ -414,4 +421,122 @@ def s3_file_to_dataframe(
      
     dataframe, latency = timed_invocation(pl_read_func, source, **kwargs)
     logger.debug(f"Time to read {s3_url} into Polars DataFrame: {latency}s")
+    return dataframe
+
+
+def file_to_dataframe(
+    path: str,
+    content_type: str,
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pl_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    **kwargs,
+) -> pl.DataFrame:
+    """
+    Read a file into a Polars DataFrame using any filesystem.
+    
+    Args:
+        path: The file path to read
+        content_type: The content type of the file (e.g., ContentType.CSV.value)
+        content_encoding: The content encoding (default: IDENTITY)
+        filesystem: The filesystem to use (if None, will be inferred from path)
+        column_names: Optional column names to assign
+        include_columns: Optional columns to include in the result
+        pl_read_func_kwargs_provider: Optional kwargs provider for customization
+        fs_open_kwargs: Optional kwargs for filesystem open operations
+        **kwargs: Additional kwargs passed to the reader function
+        
+    Returns:
+        pl.DataFrame: The loaded DataFrame
+    """
+    logger.debug(
+        f"Reading {path} to Polars. Content type: {content_type}. "
+        f"Encoding: {content_encoding}"
+    )
+    
+    # Resolve filesystem and path
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+    
+    # Handle ORC files specially since polars doesn't have native support
+    if content_type == ContentType.ORC.value:
+        # Use pandas to read ORC and convert to polars
+        import pandas as pd
+        if isinstance(filesystem, pafs.FileSystem):
+            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+                pd_df = pd.read_orc(f, **kwargs)
+        else:
+            with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+                pd_df = pd.read_orc(f, **kwargs)
+        dataframe = pl.from_pandas(pd_df)
+        logger.debug(f"Time to read {path} into Polars DataFrame via pandas")
+        return dataframe
+    
+    pl_read_func = CONTENT_TYPE_TO_PL_READ_FUNC.get(content_type)
+    if not pl_read_func:
+        raise NotImplementedError(
+            f"Polars reader for content type '{content_type}' not "
+            f"implemented. Known content types: "
+            f"{list(CONTENT_TYPE_TO_PL_READ_FUNC.keys())}"
+        )
+    
+    reader_kwargs = content_type_to_reader_kwargs(content_type)
+    _add_column_kwargs(content_type, column_names, include_columns, reader_kwargs)
+    
+    # Merge with provided kwargs
+    reader_kwargs.update(kwargs)
+    
+    if pl_read_func_kwargs_provider:
+        reader_kwargs = pl_read_func_kwargs_provider(content_type, reader_kwargs)
+    
+    logger.debug(f"Reading {path} via {pl_read_func} with kwargs: {reader_kwargs}")
+    
+    # Handle different filesystem types and compression
+    def _read_file():
+        if isinstance(filesystem, pafs.FileSystem):
+            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+                # Handle compression for explicit compression content types
+                if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
+                    if content_encoding == ContentEncoding.GZIP.value:
+                        import gzip
+                        with gzip.GzipFile(fileobj=f) as gz:
+                            source = io.BytesIO(gz.read())
+                        return pl_read_func(source, **reader_kwargs)
+                    elif content_encoding == ContentEncoding.BZIP2.value:
+                        import bz2
+                        data = bz2.decompress(f.read())
+                        source = io.BytesIO(data)
+                        return pl_read_func(source, **reader_kwargs)
+                    else:
+                        return pl_read_func(f, **reader_kwargs)
+                else:
+                    return pl_read_func(f, **reader_kwargs)
+        else:
+            # fsspec AbstractFileSystem
+            mode = "rb"
+            with filesystem.open(path, mode, **fs_open_kwargs) as f:
+                # Handle compression for explicit compression content types
+                if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
+                    if content_encoding == ContentEncoding.GZIP.value:
+                        import gzip
+                        with gzip.GzipFile(fileobj=f) as gz:
+                            source = io.BytesIO(gz.read())
+                        return pl_read_func(source, **reader_kwargs)
+                    elif content_encoding == ContentEncoding.BZIP2.value:
+                        import bz2
+                        data = bz2.decompress(f.read())
+                        source = io.BytesIO(data)
+                        return pl_read_func(source, **reader_kwargs)
+                    else:
+                        source = io.BytesIO(f.read())
+                        return pl_read_func(source, **reader_kwargs)
+                else:
+                    source = io.BytesIO(f.read())
+                    return pl_read_func(source, **reader_kwargs)
+    
+    dataframe, latency = timed_invocation(_read_file)
+    logger.debug(f"Time to read {path} into Polars DataFrame: {latency}s")
     return dataframe
