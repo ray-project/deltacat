@@ -2,7 +2,10 @@ import logging
 from typing import Callable, Dict, List, Optional, Union
 
 from fsspec import AbstractFileSystem
+
 from pyarrow import csv as pacsv
+import pyarrow.fs as pafs
+
 from ray.data import Dataset
 from ray.data.datasource import FilenameProvider
 
@@ -16,7 +19,7 @@ def write_parquet(
     dataset: Dataset,
     base_path: str,
     *,
-    filesystem: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
@@ -34,7 +37,7 @@ def write_csv(
     dataset: Dataset,
     base_path: str,
     *,
-    filesystem: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
@@ -71,7 +74,7 @@ def write_json(
     dataset: Dataset,
     base_path: str,
     *,
-    filesystem: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
@@ -156,7 +159,7 @@ def dataset_size(dataset: Dataset) -> int:
 def dataset_to_file(
     table: Dataset,
     base_path: str,
-    filesystem: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,

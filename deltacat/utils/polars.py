@@ -1,5 +1,6 @@
 import logging
-from typing import Optional, List, Dict, Callable, Union
+import io
+from typing import Optional, List, Dict, Callable, Union, Iterable, Any
 
 import polars as pl
 import pyarrow as pa
@@ -10,8 +11,16 @@ from ray.data.datasource import FilenameProvider
 
 from deltacat import logs
 from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
+from deltacat.utils.performance import timed_invocation
 
-from deltacat.types.media import ContentType, ContentEncoding
+from deltacat.types.media import (
+    ContentType, 
+    ContentEncoding,
+    DELIMITED_TEXT_CONTENT_TYPES,
+    EXPLICIT_COMPRESSION_CONTENT_TYPES,
+    TABULAR_CONTENT_TYPES,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -256,3 +265,153 @@ def write_table(
             f"{CONTENT_TYPE_TO_PL_WRITE_FUNC.keys()}"
         )
     writer(table, path, filesystem=filesystem, fs_open_kwargs=fs_open_kwargs, **writer_kwargs)
+
+
+CONTENT_TYPE_TO_PL_READ_FUNC: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: pl.read_csv,
+    ContentType.TSV.value: pl.read_csv,
+    ContentType.CSV.value: pl.read_csv,
+    ContentType.PSV.value: pl.read_csv,
+    ContentType.PARQUET.value: pl.read_parquet,
+    ContentType.FEATHER.value: pl.read_ipc,
+    ContentType.JSON.value: pl.read_ndjson,
+    ContentType.AVRO.value: pl.read_avro,
+}
+
+
+class ReadKwargsProviderPolarsStringTypes(ContentTypeKwargsProvider):
+    """ReadKwargsProvider impl that reads columns of delimited text files
+    as UTF-8 strings (i.e. disables type inference). Useful for ensuring
+    lossless reads of UTF-8 delimited text datasets and improving read
+    performance in cases where type casting is not required."""
+
+    def __init__(self, include_columns: Optional[Iterable[str]] = None):
+        self.include_columns = include_columns
+
+    def _get_kwargs(self, content_type: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        if content_type in DELIMITED_TEXT_CONTENT_TYPES:
+            include_columns = (
+                self.include_columns if self.include_columns else kwargs.get("columns")
+            )
+            if not include_columns:
+                # read all columns as strings - polars uses dtypes dict
+                kwargs["dtypes"] = pl.Utf8
+            else:
+                # read only the included columns as strings
+                kwargs["dtypes"] = {column_name: pl.Utf8 for column_name in include_columns}
+        return kwargs
+
+
+def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "separator": "\t",
+            "has_header": False,
+            "null_values": [""],
+        }
+    if content_type == ContentType.TSV.value:
+        return {"separator": "\t", "has_header": False}
+    if content_type == ContentType.CSV.value:
+        return {"separator": ",", "has_header": False}
+    if content_type == ContentType.PSV.value:
+        return {"separator": "|", "has_header": False}
+    if content_type in {
+        ContentType.PARQUET.value,
+        ContentType.FEATHER.value,
+        ContentType.ORC.value,
+        ContentType.JSON.value,
+        ContentType.AVRO.value,
+    }:
+        return {}
+    raise ValueError(f"Unsupported content type: {content_type}")
+
+
+def _add_column_kwargs(
+    content_type: str,
+    column_names: Optional[List[str]],
+    include_columns: Optional[List[str]],
+    kwargs: Dict[str, Any],
+):
+    if content_type in DELIMITED_TEXT_CONTENT_TYPES:
+        if column_names:
+            kwargs["new_columns"] = column_names
+        if include_columns:
+            kwargs["columns"] = include_columns
+    else:
+        if content_type in TABULAR_CONTENT_TYPES:
+            if include_columns:
+                kwargs["columns"] = include_columns
+        else:
+            if include_columns:
+                logger.warning(
+                    f"Ignoring request to include columns {include_columns} "
+                    f"for non-tabular content type {content_type}"
+                )
+
+
+def concat_dataframes(dataframes: List[pl.DataFrame]) -> Optional[pl.DataFrame]:
+    if dataframes is None or not len(dataframes):
+        return None
+    if len(dataframes) == 1:
+        return next(iter(dataframes))
+    return pl.concat(dataframes)
+
+
+def s3_file_to_dataframe(
+    s3_url: str,
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pl_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    **s3_client_kwargs,
+) -> pl.DataFrame:
+
+    from deltacat.aws import s3u as s3_utils
+
+    logger.debug(
+        f"Reading {s3_url} to Polars. Content type: {content_type}. "
+        f"Encoding: {content_encoding}"
+    )
+    s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
+    logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
+    
+    # Handle ORC files specially since polars doesn't have native support
+    if content_type == ContentType.ORC.value:
+        # Use pandas to read ORC and convert to polars
+        import pandas as pd
+        pd_df = pd.read_orc(io.BytesIO(s3_obj["Body"].read()))
+        dataframe = pl.from_pandas(pd_df)
+        logger.debug(f"Time to read {s3_url} into Polars DataFrame via pandas")
+        return dataframe
+    
+    pl_read_func = CONTENT_TYPE_TO_PL_READ_FUNC[content_type]
+    kwargs = content_type_to_reader_kwargs(content_type)
+    _add_column_kwargs(content_type, column_names, include_columns, kwargs)
+
+    # Handle compression for delimited text files
+    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
+        if content_encoding == ContentEncoding.GZIP.value:
+            # Polars can handle gzip compression automatically for CSV-like files
+            # For gzip files, we need to handle them specially
+            import gzip
+            with gzip.GzipFile(fileobj=io.BytesIO(s3_obj["Body"].read())) as gz:
+                source = io.BytesIO(gz.read())
+        elif content_encoding == ContentEncoding.BZIP2.value:
+            # Polars doesn't natively support bz2, need to decompress first
+            import bz2
+            data = bz2.decompress(s3_obj["Body"].read())
+            source = io.BytesIO(data)
+        else:
+            source = io.BytesIO(s3_obj["Body"].read())
+    else:
+        source = io.BytesIO(s3_obj["Body"].read())
+    
+    if pl_read_func_kwargs_provider:
+        kwargs = pl_read_func_kwargs_provider(content_type, kwargs)
+    
+    logger.debug(f"Reading {s3_url} via {pl_read_func} with kwargs: {kwargs}")
+     
+    dataframe, latency = timed_invocation(pl_read_func, source, **kwargs)
+    logger.debug(f"Time to read {s3_url} into Polars DataFrame: {latency}s")
+    return dataframe

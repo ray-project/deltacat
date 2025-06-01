@@ -20,7 +20,6 @@ from ray.data.read_api import (
     from_pandas,
     from_pandas_refs,
 )
-from ray.types import ObjectRef
 from tenacity import (
     Retrying,
     wait_random_exponential,
@@ -71,6 +70,7 @@ TABLE_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
     TableType.PYARROW.value: pa_utils.s3_file_to_table,
     TableType.PANDAS.value: pd_utils.s3_file_to_dataframe,
     TableType.NUMPY.value: np_utils.s3_file_to_ndarray,
+    TableType.POLARS.value: pl_utils.s3_file_to_dataframe,
 }
 
 TABLE_CLASS_TO_WRITER_FUNC: Dict[
