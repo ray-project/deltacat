@@ -7,6 +7,7 @@ from ray.data.datasource import FilenameProvider
 from deltacat.types.media import ContentType
 import ray
 import gzip
+import json
 
 
 class TestDatasetToFile:
@@ -158,5 +159,32 @@ class TestDatasetToFile:
                 content = gz.read().decode('utf-8')
                 # Should NOT be quoted since data has no delimiters
                 assert 'abc\t0' in content
+        
+        fs.delete(file_expected_at)
+
+    def test_json_sanity(self, mock_dataset, mock_filename_provider):
+        from deltacat.utils.ray_utils.dataset import dataset_to_file
+
+        fs: AbstractFileSystem = fsspec.filesystem("local")
+
+        dataset_to_file(
+            mock_dataset,
+            self.BASE_PATH,
+            filesystem=fs,
+            block_path_provider=mock_filename_provider,
+            content_type=ContentType.JSON.value,
+        )
+
+        file_expected_at = f"{self.BASE_PATH}/{self.SUB_PATH}"
+        assert fs.exists(file_expected_at), "file was not written"
+        
+        # Verify JSON format and content
+        with fs.open(file_expected_at, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Each line should be a valid JSON object
+                first_line = content.split('\n')[0]
+                record = json.loads(first_line)
+                assert record == {"col1": "a,b\tc|d", "col2": 0}
         
         fs.delete(file_expected_at)
