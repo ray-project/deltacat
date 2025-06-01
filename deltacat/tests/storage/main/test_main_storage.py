@@ -5,6 +5,8 @@ import uuid
 import pytest
 import copy
 import pyarrow as pa
+import pandas as pd
+import ray
 
 from deltacat import PartitionKey, PartitionScheme
 from deltacat.exceptions import TableNotFoundError
@@ -2972,6 +2974,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3003,6 +3007,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3034,6 +3040,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3065,6 +3073,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3096,6 +3106,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3127,6 +3139,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3158,6 +3172,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3189,6 +3205,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3220,6 +3238,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3251,6 +3271,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3282,6 +3304,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3313,6 +3337,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3344,6 +3370,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3375,6 +3403,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3406,6 +3436,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3436,6 +3468,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3467,6 +3501,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3498,6 +3534,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3529,6 +3567,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3590,6 +3630,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3621,6 +3663,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3652,6 +3696,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3683,6 +3729,8 @@ class TestDelta:
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) > 0
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
@@ -3706,6 +3754,7 @@ class TestDelta:
         delta = metastore.stage_delta(
             data=df,
             partition=self.partition,
+            catalog=self.catalog,
             content_type=ContentType.ORC,
         )
 
@@ -3768,6 +3817,7 @@ class TestDelta:
         delta = metastore.stage_delta(
             data=ds,
             partition=self.partition,
+            catalog=self.catalog,
             content_type=ContentType.PARQUET,
         )
 
@@ -3783,11 +3833,30 @@ class TestDelta:
         assert entry.meta.record_count == 3
 
     def test_stage_delta_with_ray_dataset_csv(self):
-        """Test staging a delta using a Ray Dataset with CSV format."""
         # Create a sample Ray Dataset
-        import ray
-        import pandas as pd
+        import ray.data
+        data = [{"col1": "a", "col2": i} for i in range(5)]
+        dataset = ray.data.from_items(data)
 
+        # Stage the delta
+        delta = metastore.stage_delta(
+            partition=self.partition,
+            data=dataset,
+            catalog=self.catalog,
+            content_type=ContentType.CSV,
+        )
+
+        # Verify the delta was staged
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
+        assert len(delta.manifest.entries) > 0
+        entry = delta.manifest.entries[0]
+        assert entry.meta.content_type == ContentType.CSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    def test_stage_delta_with_ray_dataset_tsv(self):
+        # Create a sample Ray Dataset
+        import ray.data
         df = pd.DataFrame(
             {
                 "id": [1, 2, 3],
@@ -3795,22 +3864,113 @@ class TestDelta:
                 "age": [25, 30, 35],
             }
         )
-        ds = ray.data.from_pandas(df)
+        dataset = ray.data.from_pandas(df)
 
-        # Stage the delta using the Ray Dataset as CSV
+        # Stage the delta using the Ray Dataset as TSV
         delta = metastore.stage_delta(
-            data=ds,
+            data=dataset,
             partition=self.partition,
-            content_type=ContentType.CSV,
+            catalog=self.catalog,
+            content_type=ContentType.TSV,
         )
 
-        # Verify the delta was staged correctly
+        # Verify the delta was created correctly
         assert delta is not None
         assert delta.manifest is not None
         assert len(delta.manifest.entries) == 1
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
 
         # Verify the manifest entry metadata
         entry = delta.manifest.entries[0]
-        assert entry.meta.content_type == ContentType.CSV
-        assert entry.meta.content_encoding == ContentEncoding.GZIP
         assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.TSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    def test_stage_delta_with_ray_dataset_psv(self):
+        # Create a sample Ray Dataset
+        import ray.data
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+        dataset = ray.data.from_pandas(df)
+
+        # Stage the delta using the Ray Dataset as PSV
+        delta = metastore.stage_delta(
+            data=dataset,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) == 1
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.PSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    def test_stage_delta_with_ray_dataset_unescaped_tsv(self):
+        # Create a sample Ray Dataset
+        import ray.data
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+        dataset = ray.data.from_pandas(df)
+
+        # Stage the delta using the Ray Dataset as UNESCAPED_TSV
+        delta = metastore.stage_delta(
+            data=dataset,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.UNESCAPED_TSV,
+        )
+
+        # Verify the delta was created correctly
+        assert delta is not None
+        assert delta.manifest is not None
+        assert len(delta.manifest.entries) == 1
+        assert delta.locator.stream_locator == self.stream.locator
+        assert delta.locator.partition_locator == self.partition.locator
+
+        # Verify the manifest entry metadata
+        entry = delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
+        assert entry.meta.content_type == ContentType.UNESCAPED_TSV.value
+        assert entry.meta.content_encoding == ContentEncoding.GZIP.value
+
+    def test_stage_delta_with_ray_dataset_unescaped_tsv_fails_with_delimiters(self):
+        # Create a sample Ray Dataset with data that would need escaping
+        import ray.data
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["a\tb,c", "d\te,f", "g\th,i"],
+                "age": [25, 30, 35],
+            }
+        )
+        dataset = ray.data.from_pandas(df)
+
+        # Attempt to stage the delta with data containing delimiters
+        with pytest.raises(Exception) as exc_info:
+            metastore.stage_delta(
+                data=dataset,
+                partition=self.partition,
+                catalog=self.catalog,
+                content_type=ContentType.UNESCAPED_TSV,
+            )
+        assert "CSV values may not contain structural characters if quoting style is" in str(exc_info.value)

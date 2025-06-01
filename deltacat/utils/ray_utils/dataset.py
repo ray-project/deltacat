@@ -38,11 +38,23 @@ def write_csv(
     block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
+    """
+    Write a Ray Dataset to a CSV file (or other delimited text format).
+    """
+    # Extract CSV-specific options from kwargs
+    delimiter = kwargs.pop("delimiter", ",")
+    quoting_style = kwargs.pop("quoting_style", None)
+    include_header = kwargs.pop("include_header", False)
 
-    # column names are kept in table metadata, so omit header
-    arrow_csv_args_fn = lambda: {
-        "write_options": pacsv.WriteOptions(include_header=False)
-    }
+    # Create a function that will generate WriteOptions inside the worker process
+    def arrow_csv_args_fn():
+        write_options = pacsv.WriteOptions(
+            delimiter=delimiter,
+            include_header=include_header,
+            quoting_style=quoting_style,
+        )
+        return {"write_options": write_options}
+
     pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
     dataset.write_csv(
         base_path,
@@ -56,9 +68,42 @@ def write_csv(
 
 
 CONTENT_TYPE_TO_DATASET_WRITE_FUNC: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: write_csv,
+    ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
+    ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: write_parquet,
 }
+
+
+def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
+    """
+    Returns writer kwargs for the given content type when writing with Ray Dataset.
+    """
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "delimiter": "\t",
+            "include_header": False,
+            "quoting_style": "none",
+        }
+    if content_type == ContentType.TSV.value:
+        return {
+            "delimiter": "\t",
+            "include_header": False,
+        }
+    if content_type == ContentType.CSV.value:
+        return {
+            "delimiter": ",",
+            "include_header": False,
+        }
+    if content_type == ContentType.PSV.value:
+        return {
+            "delimiter": "|",
+            "include_header": False,
+        }
+    if content_type == ContentType.PARQUET.value:
+        return {}
+    raise ValueError(f"Unsupported content type: {content_type}")
 
 
 def slice_dataset(dataset: Dataset, max_len: Optional[int]) -> List[Dataset]:
@@ -103,10 +148,12 @@ def dataset_to_file(
             f" implemented. Known content types: "
             f"{CONTENT_TYPE_TO_DATASET_WRITE_FUNC.keys}"
         )
+    writer_kwargs = content_type_to_writer_kwargs(content_type)
+    writer_kwargs.update(kwargs)
     writer(
         table,
         base_path,
         filesystem=filesystem,
         block_path_provider=block_path_provider,
-        **kwargs,
+        **writer_kwargs,
     )

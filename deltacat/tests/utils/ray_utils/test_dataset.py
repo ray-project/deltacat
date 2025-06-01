@@ -6,6 +6,7 @@ from fsspec import AbstractFileSystem
 from ray.data.datasource import FilenameProvider
 from deltacat.types.media import ContentType
 import ray
+import gzip
 
 
 class TestDatasetToFile:
@@ -20,7 +21,19 @@ class TestDatasetToFile:
 
     @pytest.fixture(scope="module")
     def mock_dataset(self):
-        return from_items([{"col1": i, "col2": i * 2} for i in range(1000)])
+        # Include data that would need escaping to test quoting behavior
+        return from_items([
+            {"col1": "a,b\tc|d", "col2": 0} 
+            for _ in range(5)
+        ])
+
+    @pytest.fixture(scope="module")
+    def mock_unescaped_dataset(self):
+        # Use data without delimiters for unescaped TSV test
+        return from_items([
+            {"col1": "abc", "col2": 0} 
+            for _ in range(5)
+        ])
 
     @pytest.fixture(scope="module")
     def mock_filename_provider(self):
@@ -63,4 +76,87 @@ class TestDatasetToFile:
 
         file_expected_at = f"{self.BASE_PATH}/{self.SUB_PATH}"
         assert fs.exists(file_expected_at), "file was not written"
+        
+        # Verify CSV format and content
+        with fs.open(file_expected_at, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Should be quoted due to commas in data
+                assert '"a,b\tc|d",0' in content
+        
+        fs.delete(file_expected_at)
+
+    def test_tsv_sanity(self, mock_dataset, mock_filename_provider):
+        from deltacat.utils.ray_utils.dataset import dataset_to_file
+
+        fs: AbstractFileSystem = fsspec.filesystem("local")
+
+        dataset_to_file(
+            mock_dataset,
+            self.BASE_PATH,
+            filesystem=fs,
+            block_path_provider=mock_filename_provider,
+            content_type=ContentType.TSV.value,
+        )
+
+        file_expected_at = f"{self.BASE_PATH}/{self.SUB_PATH}"
+        assert fs.exists(file_expected_at), "file was not written"
+        
+        # Verify TSV format and content
+        with fs.open(file_expected_at, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Should be quoted due to tabs in data
+                assert '"a,b\tc|d"\t0' in content
+        
+        fs.delete(file_expected_at)
+
+    def test_psv_sanity(self, mock_dataset, mock_filename_provider):
+        from deltacat.utils.ray_utils.dataset import dataset_to_file
+
+        fs: AbstractFileSystem = fsspec.filesystem("local")
+
+        dataset_to_file(
+            mock_dataset,
+            self.BASE_PATH,
+            filesystem=fs,
+            block_path_provider=mock_filename_provider,
+            content_type=ContentType.PSV.value,
+        )
+
+        file_expected_at = f"{self.BASE_PATH}/{self.SUB_PATH}"
+        assert fs.exists(file_expected_at), "file was not written"
+        
+        # Verify PSV format and content
+        with fs.open(file_expected_at, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Should be quoted due to pipes in data
+                assert '"a,b\tc|d"|0' in content
+        
+        fs.delete(file_expected_at)
+
+    def test_unescaped_tsv_sanity(self, mock_unescaped_dataset, mock_filename_provider):
+        from deltacat.utils.ray_utils.dataset import dataset_to_file
+
+        fs: AbstractFileSystem = fsspec.filesystem("local")
+
+        dataset_to_file(
+            mock_unescaped_dataset,
+            self.BASE_PATH,
+            filesystem=fs,
+            block_path_provider=mock_filename_provider,
+            content_type=ContentType.UNESCAPED_TSV.value,
+        )
+
+        file_expected_at = f"{self.BASE_PATH}/{self.SUB_PATH}"
+        assert fs.exists(file_expected_at), "file was not written"
+        
+        # Verify UNESCAPED_TSV format and content
+        with fs.open(file_expected_at, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Should NOT be quoted since data has no delimiters
+                assert 'abc\t0' in content
+        
         fs.delete(file_expected_at)
