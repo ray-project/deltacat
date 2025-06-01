@@ -73,6 +73,16 @@ TABLE_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
     TableType.POLARS.value: pl_utils.s3_file_to_dataframe,
 }
 
+
+TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+    TableType.PYARROW_PARQUET.value: pa_utils.file_to_parquet,
+    TableType.PYARROW.value: pa_utils.file_to_table,
+    TableType.PANDAS.value: pd_utils.file_to_dataframe,
+    TableType.NUMPY.value: np_utils.file_to_ndarray,
+    TableType.POLARS.value: pl_utils.file_to_dataframe,
+}
+
+
 TABLE_CLASS_TO_WRITER_FUNC: Dict[
     Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable
 ] = {
@@ -505,13 +515,6 @@ def get_block_metadata(
         num_rows=get_table_length(table),
         size_bytes=table_size,
         schema=None,
-        input_files=None,
-        exec_stats=None,
-    )
-
-
-def block_metadata(block: Block) -> BlockMetadata:
-    return BlockAccessor.for_block(block).get_metadata(
         input_files=None,
         exec_stats=None,
     )

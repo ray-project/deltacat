@@ -1148,3 +1148,89 @@ def file_to_table(
     table, latency = timed_invocation(_read_file)
     logger.debug(f"Time to read {path} into PyArrow Table: {latency}s")
     return table
+
+
+def file_to_parquet(
+    path: str,
+    content_type: str = ContentType.PARQUET.value,
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    **kwargs,
+) -> ParquetFile:
+    """
+    Read a file into a PyArrow ParquetFile using any filesystem.
+    
+    This function is equivalent to s3_file_to_parquet but works with any filesystem.
+    It returns a ParquetFile object which provides metadata access and lazy loading.
+    
+    Args:
+        path: The file path to read
+        content_type: The content type (must be PARQUET, default: PARQUET)
+        content_encoding: The content encoding (must be IDENTITY, default: IDENTITY)
+        filesystem: The filesystem to use (if None, will be inferred from path)
+        column_names: Optional column names (unused for ParquetFile but kept for API consistency)
+        include_columns: Optional columns (unused for ParquetFile but kept for API consistency)
+        pa_read_func_kwargs_provider: Optional kwargs provider for customization
+        fs_open_kwargs: Optional kwargs for filesystem open operations
+        **kwargs: Additional kwargs passed to ParquetFile constructor
+        
+    Returns:
+        ParquetFile: The ParquetFile object for lazy loading and metadata access
+        
+    Raises:
+        ContentTypeValidationError: If content_type is not PARQUET or content_encoding is not IDENTITY
+    """
+    logger.debug(
+        f"Reading {path} to PyArrow ParquetFile. "
+        f"Content type: {content_type}. Encoding: {content_encoding}"
+    )
+
+    # Validate content type and encoding (same validation as s3_file_to_parquet)
+    if (
+        content_type != ContentType.PARQUET.value
+        or content_encoding != ContentEncoding.IDENTITY.value
+    ):
+        raise ContentTypeValidationError(
+            f"File with content type: {content_type} and content encoding: {content_encoding} "
+            "cannot be read into pyarrow.parquet.ParquetFile"
+        )
+    
+    # Resolve filesystem and path
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+    
+    # Build kwargs for ParquetFile constructor
+    parquet_kwargs = {}
+    
+    # Add filesystem to kwargs if we have one
+    if filesystem:
+        parquet_kwargs["filesystem"] = filesystem
+    
+    # Apply kwargs provider if provided
+    if pa_read_func_kwargs_provider:
+        parquet_kwargs = pa_read_func_kwargs_provider(content_type, parquet_kwargs)
+    
+    # Merge with provided kwargs
+    parquet_kwargs.update(kwargs)
+    
+    logger.debug(f"Pre-sanitize kwargs for {path}: {parquet_kwargs}")
+    
+    # Sanitize kwargs to only include those supported by ParquetFile.__init__
+    parquet_kwargs = sanitize_kwargs_to_callable(ParquetFile.__init__, parquet_kwargs)
+    
+    logger.debug(
+        f"Reading the file from {path} into ParquetFile with kwargs: {parquet_kwargs}"
+    )
+    
+    def _create_parquet_file():
+        return ParquetFile(path, **parquet_kwargs)
+    
+    pq_file, latency = timed_invocation(_create_parquet_file)
+    
+    logger.debug(f"Time to get {path} into parquet file: {latency}s")
+    
+    return pq_file

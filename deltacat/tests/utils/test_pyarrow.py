@@ -6,6 +6,7 @@ from deltacat.utils.pyarrow import (
     _add_column_kwargs,
     s3_file_to_table,
     file_to_table,
+    file_to_parquet,
     ReadKwargsProviderPyArrowSchemaOverride,
     ReadKwargsProviderPyArrowCsvPureUtf8,
     RAISE_ON_EMPTY_CSV_KWARG,
@@ -13,6 +14,7 @@ from deltacat.utils.pyarrow import (
 )
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
+from deltacat.exceptions import ContentTypeValidationError
 from pyarrow.parquet import ParquetFile
 import tempfile
 import pyarrow as pa
@@ -1098,3 +1100,249 @@ class TestPyArrowReaders(TestCase):
         assert len(result) == 3
         assert result.column_names == ['col1', 'col2', 'col3']
         assert result.column('col1').to_pylist() == ['a,b\tc|d', 'e,f\tg|h', 'test']
+
+
+class TestFileToParquet(TestCase):
+    def setUp(self):
+        # Create test data files for reading
+        self.fs = fsspec.filesystem("file")
+        self.base_path = tempfile.mkdtemp()
+        self.fs.makedirs(self.base_path, exist_ok=True)
+        
+        # Create test Table
+        self.table = pa.Table.from_pylist([
+            {'col1': 'a,b\tc|d', 'col2': 1, 'col3': 1.1},
+            {'col1': 'e,f\tg|h', 'col2': 2, 'col3': 2.2},
+            {'col1': 'test', 'col2': 3, 'col3': 3.3}
+        ])
+        
+        # Write test parquet files
+        self._create_test_files()
+
+    def tearDown(self):
+        self.fs.rm(self.base_path, recursive=True)
+
+    def _create_test_files(self):
+        # Create basic Parquet file
+        parquet_path = f"{self.base_path}/test.parquet"
+        with self.fs.open(parquet_path, "wb") as f:
+            papq.write_table(self.table, f)
+        
+        # Create larger Parquet file with multiple row groups
+        large_table = pa.Table.from_pylist([
+            {'col1': f'row_{i}', 'col2': i, 'col3': float(i)}
+            for i in range(1000)
+        ])
+        large_parquet_path = f"{self.base_path}/test_large.parquet"
+        with self.fs.open(large_parquet_path, "wb") as f:
+            papq.write_table(large_table, f, row_group_size=100)  # Create multiple row groups
+
+    def test_file_to_parquet_basic(self):
+        # Test basic parquet file reading
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        result = file_to_parquet(
+            parquet_path,
+            filesystem=self.fs
+        )
+        
+        assert isinstance(result, papq.ParquetFile)
+        assert result.num_row_groups > 0
+        assert result.metadata.num_rows == 3
+        assert result.metadata.num_columns == 3
+        
+        # Verify we can read the data
+        table = result.read()
+        assert len(table) == 3
+        assert table.column_names == ['col1', 'col2', 'col3']
+
+    def test_file_to_parquet_with_schema_provider(self):
+        # Test with schema override provider
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        schema = pa.schema([
+            pa.field('col1', pa.string()),
+            pa.field('col2', pa.string()),  # Override to string
+            pa.field('col3', pa.string())   # Override to string
+        ])
+        
+        provider = ReadKwargsProviderPyArrowSchemaOverride(schema=schema)
+        
+        result = file_to_parquet(
+            parquet_path,
+            filesystem=self.fs,
+            pa_read_func_kwargs_provider=provider
+        )
+        
+        assert isinstance(result, papq.ParquetFile)
+        # Note: schema override might not affect ParquetFile metadata,
+        # but should work when reading the table
+        table = result.read()
+        assert len(table) == 3
+
+    def test_file_to_parquet_with_custom_kwargs(self):
+        # Test with custom ParquetFile kwargs
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        result = file_to_parquet(
+            parquet_path,
+            filesystem=self.fs,
+            validate_schema=True,  # Custom kwarg for ParquetFile
+            memory_map=True       # Another custom kwarg
+        )
+        
+        assert isinstance(result, papq.ParquetFile)
+        assert result.metadata.num_rows == 3
+
+    def test_file_to_parquet_filesystem_inference(self):
+        # Test filesystem inference when no filesystem is provided
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        result = file_to_parquet(
+            parquet_path
+            # No filesystem provided - should be inferred
+        )
+        
+        assert isinstance(result, papq.ParquetFile)
+        assert result.metadata.num_rows == 3
+        assert result.metadata.num_columns == 3
+
+    def test_file_to_parquet_large_file(self):
+        # Test with larger parquet file (multiple row groups)
+        large_parquet_path = f"{self.base_path}/test_large.parquet"
+        
+        result = file_to_parquet(
+            large_parquet_path,
+            filesystem=self.fs
+        )
+        
+        assert isinstance(result, papq.ParquetFile)
+        assert result.metadata.num_rows == 1000
+        assert result.num_row_groups > 1  # Should have multiple row groups
+        
+        # Test reading specific row groups
+        first_row_group = result.read_row_group(0)
+        assert len(first_row_group) <= 100  # Based on row_group_size=100
+
+    def test_file_to_parquet_metadata_access(self):
+        # Test accessing various metadata properties
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        result = file_to_parquet(
+            parquet_path,
+            filesystem=self.fs
+        )
+        
+        # Test metadata access
+        metadata = result.metadata
+        assert metadata.num_rows == 3
+        assert metadata.num_columns == 3
+        assert metadata.num_row_groups >= 1
+        
+        # Test schema access
+        schema = result.schema
+        assert len(schema) == 3
+        assert 'col1' in schema.names
+        assert 'col2' in schema.names
+        assert 'col3' in schema.names
+        
+        # Test schema_arrow property
+        schema_arrow = result.schema_arrow
+        assert isinstance(schema_arrow, pa.Schema)
+        assert len(schema_arrow) == 3
+
+    def test_file_to_parquet_column_selection(self):
+        # Test reading specific columns
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        result = file_to_parquet(
+            parquet_path,
+            filesystem=self.fs
+        )
+        
+        # Read only specific columns
+        table = result.read(columns=['col1', 'col2'])
+        assert len(table.column_names) == 2
+        assert table.column_names == ['col1', 'col2']
+        assert len(table) == 3
+
+    def test_file_to_parquet_invalid_content_type(self):
+        # Test error handling for invalid content type
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        with self.assertRaises(ContentTypeValidationError) as context:
+            file_to_parquet(
+                parquet_path,
+                content_type=ContentType.CSV.value,  # Invalid content type
+                filesystem=self.fs
+            )
+        
+        assert "cannot be read into pyarrow.parquet.ParquetFile" in str(context.exception)
+
+    def test_file_to_parquet_invalid_content_encoding(self):
+        # Test error handling for invalid content encoding
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        with self.assertRaises(ContentTypeValidationError) as context:
+            file_to_parquet(
+                parquet_path,
+                content_encoding=ContentEncoding.GZIP.value,  # Invalid encoding
+                filesystem=self.fs
+            )
+        
+        assert "cannot be read into pyarrow.parquet.ParquetFile" in str(context.exception)
+
+    def test_file_to_parquet_different_filesystems(self):
+        # Test with different filesystem implementations
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        # Test with fsspec filesystem
+        result_fsspec = file_to_parquet(
+            parquet_path,
+            filesystem=self.fs
+        )
+        assert isinstance(result_fsspec, papq.ParquetFile)
+        assert result_fsspec.metadata.num_rows == 3
+        
+        # Test with None filesystem (inferred)
+        result_inferred = file_to_parquet(
+            parquet_path,
+            filesystem=None
+        )
+        assert isinstance(result_inferred, papq.ParquetFile)
+        assert result_inferred.metadata.num_rows == 3
+
+    def test_file_to_parquet_lazy_loading(self):
+        # Test that ParquetFile provides lazy loading capabilities
+        large_parquet_path = f"{self.base_path}/test_large.parquet"
+        
+        result = file_to_parquet(
+            large_parquet_path,
+            filesystem=self.fs
+        )
+        
+        # ParquetFile should be created without loading all data
+        assert isinstance(result, papq.ParquetFile)
+        assert result.metadata.num_rows == 1000
+        
+        # Test reading only specific columns (lazy loading)
+        partial_table = result.read(columns=['col1', 'col2'])
+        assert len(partial_table) == 1000  # All rows but only 2 columns
+        assert partial_table.column_names == ['col1', 'col2']
+        
+        # Test reading specific row group (lazy loading)
+        row_group_table = result.read_row_group(0)
+        assert len(row_group_table) <= 100  # Based on row_group_size
+
+    def test_file_to_parquet_performance_timing(self):
+        # Test that performance timing is logged (basic functionality test)
+        parquet_path = f"{self.base_path}/test.parquet"
+        
+        # This should complete without error and log timing
+        result = file_to_parquet(
+            parquet_path,
+            filesystem=self.fs
+        )
+        
+        assert isinstance(result, papq.ParquetFile)
+        assert result.metadata.num_rows == 3
