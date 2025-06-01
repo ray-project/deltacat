@@ -6,7 +6,6 @@ import pytest
 import copy
 import pyarrow as pa
 import pandas as pd
-import ray
 
 from deltacat import PartitionKey, PartitionScheme
 from deltacat.exceptions import TableNotFoundError
@@ -3835,6 +3834,7 @@ class TestDelta:
     def test_stage_delta_with_ray_dataset_csv(self):
         # Create a sample Ray Dataset
         import ray.data
+
         data = [{"col1": "a", "col2": i} for i in range(5)]
         dataset = ray.data.from_items(data)
 
@@ -3857,6 +3857,7 @@ class TestDelta:
     def test_stage_delta_with_ray_dataset_tsv(self):
         # Create a sample Ray Dataset
         import ray.data
+
         df = pd.DataFrame(
             {
                 "id": [1, 2, 3],
@@ -3890,6 +3891,7 @@ class TestDelta:
     def test_stage_delta_with_ray_dataset_psv(self):
         # Create a sample Ray Dataset
         import ray.data
+
         df = pd.DataFrame(
             {
                 "id": [1, 2, 3],
@@ -3923,6 +3925,7 @@ class TestDelta:
     def test_stage_delta_with_ray_dataset_unescaped_tsv(self):
         # Create a sample Ray Dataset
         import ray.data
+
         df = pd.DataFrame(
             {
                 "id": [1, 2, 3],
@@ -3956,6 +3959,7 @@ class TestDelta:
     def test_stage_delta_with_ray_dataset_unescaped_tsv_fails_with_delimiters(self):
         # Create a sample Ray Dataset with data that would need escaping
         import ray.data
+
         df = pd.DataFrame(
             {
                 "id": [1, 2, 3],
@@ -3973,7 +3977,10 @@ class TestDelta:
                 catalog=self.catalog,
                 content_type=ContentType.UNESCAPED_TSV,
             )
-        assert "CSV values may not contain structural characters if quoting style is" in str(exc_info.value)
+        assert (
+            "CSV values may not contain structural characters if quoting style is"
+            in str(exc_info.value)
+        )
 
     def test_stage_delta_with_ray_dataset_json(self):
         # Create a sample Ray Dataset

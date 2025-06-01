@@ -49,7 +49,7 @@ class TestDatasetToFile:
     def test_parquet_sanity(self, mock_dataset, mock_filename_provider):
         from deltacat.utils.ray_utils.dataset import dataset_to_file
 
-        fs: AbstractFileSystem = fsspec.filesystem("local")
+        fs: AbstractFileSystem = fsspec.filesystem("file")
 
         dataset_to_file(
             mock_dataset,
@@ -65,7 +65,7 @@ class TestDatasetToFile:
     def test_csv_sanity(self, mock_dataset, mock_filename_provider):
         from deltacat.utils.ray_utils.dataset import dataset_to_file
 
-        fs: AbstractFileSystem = fsspec.filesystem("local")
+        fs: AbstractFileSystem = fsspec.filesystem("file")
 
         dataset_to_file(
             mock_dataset,
@@ -90,7 +90,7 @@ class TestDatasetToFile:
     def test_tsv_sanity(self, mock_dataset, mock_filename_provider):
         from deltacat.utils.ray_utils.dataset import dataset_to_file
 
-        fs: AbstractFileSystem = fsspec.filesystem("local")
+        fs: AbstractFileSystem = fsspec.filesystem("file")
 
         dataset_to_file(
             mock_dataset,
@@ -115,7 +115,7 @@ class TestDatasetToFile:
     def test_psv_sanity(self, mock_dataset, mock_filename_provider):
         from deltacat.utils.ray_utils.dataset import dataset_to_file
 
-        fs: AbstractFileSystem = fsspec.filesystem("local")
+        fs: AbstractFileSystem = fsspec.filesystem("file")
 
         dataset_to_file(
             mock_dataset,
@@ -140,7 +140,7 @@ class TestDatasetToFile:
     def test_unescaped_tsv_sanity(self, mock_unescaped_dataset, mock_filename_provider):
         from deltacat.utils.ray_utils.dataset import dataset_to_file
 
-        fs: AbstractFileSystem = fsspec.filesystem("local")
+        fs: AbstractFileSystem = fsspec.filesystem("file")
 
         dataset_to_file(
             mock_unescaped_dataset,
@@ -165,7 +165,7 @@ class TestDatasetToFile:
     def test_json_sanity(self, mock_dataset, mock_filename_provider):
         from deltacat.utils.ray_utils.dataset import dataset_to_file
 
-        fs: AbstractFileSystem = fsspec.filesystem("local")
+        fs: AbstractFileSystem = fsspec.filesystem("file")
 
         dataset_to_file(
             mock_dataset,

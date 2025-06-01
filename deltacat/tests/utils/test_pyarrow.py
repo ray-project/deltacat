@@ -7,11 +7,21 @@ from deltacat.utils.pyarrow import (
     s3_file_to_table,
     ReadKwargsProviderPyArrowSchemaOverride,
     RAISE_ON_EMPTY_CSV_KWARG,
+    table_to_file,
 )
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.types.partial_download import PartialParquetParameters
 from pyarrow.parquet import ParquetFile
+import tempfile
 import pyarrow as pa
+import fsspec
+import gzip
+import json
+from pyarrow import (
+    feather as paf,
+    parquet as papq,
+    orc as paorc,
+)
 
 PARQUET_FILE_PATH = "deltacat/tests/utils/data/test_file.parquet"
 EMPTY_UTSV_PATH = "deltacat/tests/utils/data/empty.csv"
@@ -534,3 +544,192 @@ class TestS3FileToTable(TestCase):
             self.assertEqual(field.name, schema.field(index).name)
 
         self.assertEqual(result.schema.field(1).type, "string")
+
+
+class TestWriters(TestCase):
+    def setUp(self):
+        self.table = pa.table({
+            'col1': ['a,b\tc|d', 'e,f\tg|h'],
+            'col2': [1, 2]
+        })
+        self.fs = fsspec.filesystem("file")
+        self.base_path = tempfile.mkdtemp()
+        self.fs.makedirs(self.base_path, exist_ok=True)
+
+    def tearDown(self):
+        self.fs.rm(self.base_path, recursive=True)
+
+    def test_write_feather(self):
+        path = f"{self.base_path}/test.feather"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.FEATHER.value
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content
+        result = paf.read_table(path)
+        assert result.equals(self.table)
+
+    def test_write_csv(self):
+        path = f"{self.base_path}/test.csv"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.CSV.value
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content (should be GZIP compressed)
+        with self.fs.open(path, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Should be quoted due to commas in data
+                assert '"a,b\tc|d",1' in content
+                assert '"e,f\tg|h",2' in content
+
+    def test_write_tsv(self):
+        path = f"{self.base_path}/test.tsv"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.TSV.value,
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content (should be GZIP compressed)
+        with self.fs.open(path, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Should be quoted due to tabs in data
+                assert '"a,b\tc|d"\t1' in content
+                assert '"e,f\tg|h"\t2' in content
+
+    def test_write_psv(self):
+        path = f"{self.base_path}/test.psv"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.PSV.value,
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content (should be GZIP compressed)
+        with self.fs.open(path, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Should be quoted due to pipes in data
+                assert '"a,b\tc|d"|1' in content
+                assert '"e,f\tg|h"|2' in content
+
+    def test_write_unescaped_tsv(self):
+        # Create table without delimiters for unescaped TSV
+        table = pa.table({
+            'col1': ['abc', 'def'],
+            'col2': [1, 2]
+        })
+        path = f"{self.base_path}/test.tsv"
+        
+        table_to_file(
+            table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.UNESCAPED_TSV.value,
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content (should be GZIP compressed)
+        with self.fs.open(path, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # With quoting_style="none", strings should not be quoted
+                assert 'abc\t1' in content
+                assert 'def\t2' in content
+
+    def test_write_orc(self):
+        path = f"{self.base_path}/test.orc"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.ORC.value
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content
+        result = paorc.read_table(path)
+        assert result.equals(self.table)
+
+    def test_write_parquet(self):
+        path = f"{self.base_path}/test.parquet"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.PARQUET.value
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content
+        result = papq.read_table(path)
+        assert result.equals(self.table)
+
+    def test_write_json(self):
+        path = f"{self.base_path}/test.json"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.JSON.value
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content (should be GZIP compressed)
+        with self.fs.open(path, "rb") as f:
+            with gzip.GzipFile(fileobj=f) as gz:
+                content = gz.read().decode('utf-8')
+                # Each line should be a valid JSON object
+                lines = [line for line in content.split('\n') if line]  # Skip empty lines
+                assert len(lines) == 2  # 2 records
+                assert json.loads(lines[0]) == {"col1": "a,b\tc|d", "col2": 1}
+                assert json.loads(lines[1]) == {"col1": "e,f\tg|h", "col2": 2}
+
+    def test_write_avro(self):
+        import polars as pl
+        path = f"{self.base_path}/test.avro"
+        
+        table_to_file(
+            self.table,
+            path,
+            self.fs,
+            lambda x: path,
+            content_type=ContentType.AVRO.value
+        )
+        assert self.fs.exists(path), "file was not written"
+        
+        # Verify content by reading with polars
+        result = pl.read_avro(path).to_arrow()
+        # Cast the result to match the original table's schema
+        # (the round-trip from arrow->polars->arrow casts string to large string)
+        result = result.cast(self.table.schema)
+        assert result.equals(self.table)
