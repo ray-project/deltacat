@@ -231,42 +231,75 @@ class TestPolarsReaders(TestCase):
         self.fs.rm(self.base_path, recursive=True)
 
     def _create_test_files(self):
-        """Create test files in different formats with different compression types."""
-        import pyarrow as pa
+        """Create test files for reading tests with the original test data structure."""
         import gzip
         import bz2
         
-        # CSV files
-        csv_data = "col1,col2,col3\nvalue1,1,1.1\nvalue2,2,2.2\nvalue3,3,3.3\n"
+        # Create CSV file (GZIP compressed) with the original test data
+        csv_path = f"{self.base_path}/test.csv"
+        with self.fs.open(csv_path, "wb") as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                content = '"a,b\tc|d",1,1.1\n"e,f\tg|h",2,2.2\ntest,3,3.3\n'
+                gz.write(content.encode('utf-8'))
         
-        # Create uncompressed CSV
-        with open(f"{self.base_path}/test.csv", "w") as f:
-            f.write(csv_data)
-            
-        # Create GZIP compressed CSV (fix: properly close the file)
-        with gzip.open(f"{self.base_path}/test_gzip.csv.gz", "wt") as f:
-            f.write(csv_data)
-            
-        # Create BZIP2 compressed CSV (fix: properly close the file)
-        with bz2.open(f"{self.base_path}/test_bzip2.csv.bz2", "wt") as f:
-            f.write(csv_data)
+        # Create TSV file (GZIP compressed)  
+        tsv_path = f"{self.base_path}/test.tsv"
+        with self.fs.open(tsv_path, "wb") as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                content = '"a,b\tc|d"\t1\t1.1\n"e,f\tg|h"\t2\t2.2\ntest\t3\t3.3\n'
+                gz.write(content.encode('utf-8'))
         
-        # Parquet file
-        self.df.write_parquet(f"{self.base_path}/test.parquet")
+        # Create PSV file (GZIP compressed)
+        psv_path = f"{self.base_path}/test.psv"
+        with self.fs.open(psv_path, "wb") as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                content = '"a,b\tc|d"|1|1.1\n"e,f\tg|h"|2|2.2\ntest|3|3.3\n'
+                gz.write(content.encode('utf-8'))
         
-        # Feather/IPC file
-        self.df.write_ipc(f"{self.base_path}/test.feather")
+        # Create unescaped TSV file (GZIP compressed)
+        unescaped_tsv_path = f"{self.base_path}/test_unescaped.tsv"
+        with self.fs.open(unescaped_tsv_path, "wb") as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                content = 'abc\t1\t1.1\ndef\t2\t2.2\nghi\t3\t3.3\n'
+                gz.write(content.encode('utf-8'))
         
-        # JSON file (NDJSON)
-        json_data = '{"col1":"value1","col2":1,"col3":1.1}\n{"col1":"value2","col2":2,"col3":2.2}\n{"col1":"value3","col2":3,"col3":3.3}\n'
-        with open(f"{self.base_path}/test.json", "w") as f:
-            f.write(json_data)
-            
-        # AVRO file
-        self.df.write_avro(f"{self.base_path}/test.avro")
+        # Create Parquet file
+        parquet_path = f"{self.base_path}/test.parquet"
+        self.df.write_parquet(parquet_path)
         
-        # ORC file (via pandas since polars delegates to pandas for ORC)
-        self.df.to_pandas().to_orc(f"{self.base_path}/test.orc")
+        # Create Feather file
+        feather_path = f"{self.base_path}/test.feather"
+        self.df.write_ipc(feather_path)
+        
+        # Create JSON file (GZIP compressed, NDJSON format)
+        json_path = f"{self.base_path}/test.json"
+        with self.fs.open(json_path, "wb") as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                # Use proper NDJSON format - one JSON object per line
+                lines = []
+                for i in range(len(self.df)):
+                    row = self.df.row(i)
+                    json_obj = {
+                        "col1": row[0],
+                        "col2": row[1], 
+                        "col3": row[2]
+                    }
+                    lines.append(json.dumps(json_obj))
+                content = '\n'.join(lines) + '\n'
+                gz.write(content.encode('utf-8'))
+        
+        # Create Avro file
+        avro_path = f"{self.base_path}/test.avro"
+        self.df.write_avro(avro_path)
+        
+        # Create ORC file using pandas (since polars delegates to pandas for ORC)
+        orc_path = f"{self.base_path}/test.orc"
+        self.df.to_pandas().to_orc(orc_path)
+        
+        # Create BZIP2 compressed CSV for compression tests
+        bzip2_path = f"{self.base_path}/test_bzip2.csv.bz2"
+        with bz2.open(bzip2_path, "wt") as f:
+            f.write('"a,b\tc|d",1,1.1\n"e,f\tg|h",2,2.2\ntest,3,3.3\n')
 
     def test_content_type_to_reader_kwargs(self):
         # Test CSV kwargs
