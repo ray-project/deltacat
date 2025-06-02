@@ -225,6 +225,10 @@ class TestPandasReaders(TestCase):
         self.fs.rm(self.base_path, recursive=True)
 
     def _create_test_files(self):
+        """Create test files in different formats with different compression types."""
+        import pyarrow as pa
+        import gzip
+        import bz2
         # Create CSV file (GZIP compressed)
         csv_path = f"{self.base_path}/test.csv"
         with self.fs.open(csv_path, "wb") as f:
@@ -573,4 +577,442 @@ class TestPandasReaders(TestCase):
         
         # Test None input
         result = concat_dataframes(None)
-        assert result is None 
+        assert result is None
+
+
+class TestPandasFileSystemSupport(TestCase):
+    """
+    Comprehensive tests for encoding-aware reader functions with different filesystem types.
+    Tests fsspec AbstractFileSystem, PyArrow FileSystem, and auto-inferred filesystem.
+    """
+    
+    def setUp(self):
+        import pyarrow as pa
+        import pyarrow.fs as pafs
+        import shutil
+        
+        # Create test data
+        self.test_data = pd.DataFrame({
+            'col1': ['value1', 'value2', 'value3'],
+            'col2': [1, 2, 3],
+            'col3': [1.1, 2.2, 3.3]
+        })
+        
+        # Set up temporary directory
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Set up different filesystem types
+        self.fsspec_fs = fsspec.filesystem("file")
+        self.pyarrow_fs = pafs.LocalFileSystem()
+        
+        # Create test files for each content type
+        self._create_test_files()
+        
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir)
+        
+    def _create_test_files(self):
+        """Create test files in different formats with different compression types."""
+        import pyarrow as pa
+        import gzip
+        import bz2
+        
+        # CSV files without headers to match test data structure
+        csv_data = "value1,1,1.1\nvalue2,2,2.2\nvalue3,3,3.3\n"
+        
+        # Create uncompressed CSV
+        with open(f"{self.temp_dir}/test.csv", "w") as f:
+            f.write(csv_data)
+            
+        # Create GZIP compressed CSV
+        with gzip.open(f"{self.temp_dir}/test_gzip.csv.gz", "wt") as f:
+            f.write(csv_data)
+            
+        # Create BZIP2 compressed CSV
+        with bz2.open(f"{self.temp_dir}/test_bzip2.csv.bz2", "wt") as f:
+            f.write(csv_data)
+        
+        # Parquet file
+        self.test_data.to_parquet(f"{self.temp_dir}/test.parquet", index=False)
+        
+        # Feather file
+        self.test_data.to_feather(f"{self.temp_dir}/test.feather")
+        
+        # JSON file (records format)
+        json_data = '[{"col1":"value1","col2":1,"col3":1.1},{"col1":"value2","col2":2,"col3":2.2},{"col1":"value3","col2":3,"col3":3.3}]'
+        with open(f"{self.temp_dir}/test.json", "w") as f:
+            f.write(json_data)
+            
+        # AVRO file (using polars since pandas delegates to polars for AVRO)
+        import polars as pl
+        pl_df = pl.from_pandas(self.test_data)
+        pl_df.write_avro(f"{self.temp_dir}/test.avro")
+        
+        # ORC file
+        self.test_data.to_orc(f"{self.temp_dir}/test.orc")
+
+    def _assert_dataframes_equal(self, result, expected):
+        """Helper to assert pandas dataframes are equal."""
+        pd.testing.assert_frame_equal(
+            result.reset_index(drop=True),
+            expected.reset_index(drop=True),
+            check_dtype=False  # Allow minor type differences
+        )
+        
+    def test_csv_with_fsspec_filesystem(self):
+        """Test CSV reading with fsspec AbstractFileSystem."""
+        from deltacat.utils.pandas import read_csv
+        
+        # Test uncompressed CSV
+        result = read_csv(
+            f"{self.temp_dir}/test.csv",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            names=['col1', 'col2', 'col3']
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test GZIP compressed CSV
+        result = read_csv(
+            f"{self.temp_dir}/test_gzip.csv.gz", 
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.GZIP.value,
+            names=['col1', 'col2', 'col3']
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test BZIP2 compressed CSV
+        result = read_csv(
+            f"{self.temp_dir}/test_bzip2.csv.bz2",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.BZIP2.value,
+            names=['col1', 'col2', 'col3']
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_csv_with_pyarrow_filesystem(self):
+        """Test CSV reading with PyArrow FileSystem."""
+        from deltacat.utils.pandas import read_csv
+        
+        # Test uncompressed CSV
+        result = read_csv(
+            f"{self.temp_dir}/test.csv",
+            filesystem=self.pyarrow_fs,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            names=['col1', 'col2', 'col3']
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test GZIP compressed CSV
+        result = read_csv(
+            f"{self.temp_dir}/test_gzip.csv.gz",
+            filesystem=self.pyarrow_fs,
+            content_encoding=ContentEncoding.GZIP.value,
+            names=['col1', 'col2', 'col3']
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_csv_with_auto_inferred_filesystem(self):
+        """Test CSV reading with automatically inferred filesystem."""
+        from deltacat.utils.pandas import read_csv
+        
+        # Test uncompressed CSV (filesystem=None, should auto-infer)
+        result = read_csv(
+            f"{self.temp_dir}/test.csv",
+            filesystem=None,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            names=['col1', 'col2', 'col3']
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_parquet_with_different_filesystems(self):
+        """Test Parquet reading with different filesystem types."""
+        from deltacat.utils.pandas import read_parquet
+        
+        # Test with fsspec
+        result = read_parquet(
+            f"{self.temp_dir}/test.parquet",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = read_parquet(
+            f"{self.temp_dir}/test.parquet",
+            filesystem=self.pyarrow_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = read_parquet(
+            f"{self.temp_dir}/test.parquet",
+            filesystem=None,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_feather_with_different_filesystems(self):
+        """Test Feather reading with different filesystem types."""
+        from deltacat.utils.pandas import read_feather
+        
+        # Test with fsspec
+        result = read_feather(
+            f"{self.temp_dir}/test.feather",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = read_feather(
+            f"{self.temp_dir}/test.feather",
+            filesystem=self.pyarrow_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = read_feather(
+            f"{self.temp_dir}/test.feather",
+            filesystem=None,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_json_with_different_filesystems(self):
+        """Test JSON reading with different filesystem types."""
+        from deltacat.utils.pandas import read_json
+        
+        # Test with fsspec
+        result = read_json(
+            f"{self.temp_dir}/test.json",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = read_json(
+            f"{self.temp_dir}/test.json",
+            filesystem=self.pyarrow_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = read_json(
+            f"{self.temp_dir}/test.json",
+            filesystem=None,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_avro_with_different_filesystems(self):
+        """Test AVRO reading with different filesystem types."""
+        from deltacat.utils.pandas import read_avro
+        
+        # Test with fsspec
+        result = read_avro(
+            f"{self.temp_dir}/test.avro",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = read_avro(
+            f"{self.temp_dir}/test.avro",
+            filesystem=self.pyarrow_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = read_avro(
+            f"{self.temp_dir}/test.avro",
+            filesystem=None,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_orc_with_different_filesystems(self):
+        """Test ORC reading with different filesystem types."""
+        from deltacat.utils.pandas import read_orc
+        
+        # Test with fsspec
+        result = read_orc(
+            f"{self.temp_dir}/test.orc",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = read_orc(
+            f"{self.temp_dir}/test.orc",
+            filesystem=self.pyarrow_fs,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = read_orc(
+            f"{self.temp_dir}/test.orc",
+            filesystem=None,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_file_to_dataframe_with_different_filesystems(self):
+        """Test file_to_dataframe with different filesystem types for all content types."""
+        test_cases = [
+            (f"{self.temp_dir}/test.csv", ContentType.CSV.value, ContentEncoding.IDENTITY.value, {"column_names": ["col1", "col2", "col3"]}),
+            (f"{self.temp_dir}/test_gzip.csv.gz", ContentType.CSV.value, ContentEncoding.GZIP.value, {"column_names": ["col1", "col2", "col3"]}),
+            (f"{self.temp_dir}/test.parquet", ContentType.PARQUET.value, ContentEncoding.IDENTITY.value, {}),
+            (f"{self.temp_dir}/test.feather", ContentType.FEATHER.value, ContentEncoding.IDENTITY.value, {}),
+            (f"{self.temp_dir}/test.json", ContentType.JSON.value, ContentEncoding.IDENTITY.value, {}),
+            (f"{self.temp_dir}/test.avro", ContentType.AVRO.value, ContentEncoding.IDENTITY.value, {}),
+            (f"{self.temp_dir}/test.orc", ContentType.ORC.value, ContentEncoding.IDENTITY.value, {}),
+        ]
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        for path, content_type, content_encoding, extra_kwargs in test_cases:
+            for fs_name, filesystem in filesystems:
+                with self.subTest(content_type=content_type, filesystem=fs_name, encoding=content_encoding):
+                    result = file_to_dataframe(
+                        path=path,
+                        content_type=content_type,
+                        content_encoding=content_encoding,
+                        filesystem=filesystem,
+                        **extra_kwargs
+                    )
+                    self._assert_dataframes_equal(result, self.test_data)
+
+    def test_compression_encoding_with_different_filesystems(self):
+        """Test that compression encoding works correctly with different filesystem types."""
+        test_cases = [
+            (f"{self.temp_dir}/test.csv", ContentEncoding.IDENTITY.value),
+            (f"{self.temp_dir}/test_gzip.csv.gz", ContentEncoding.GZIP.value),
+            (f"{self.temp_dir}/test_bzip2.csv.bz2", ContentEncoding.BZIP2.value),
+        ]
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        for path, content_encoding in test_cases:
+            for fs_name, filesystem in filesystems:
+                with self.subTest(encoding=content_encoding, filesystem=fs_name):
+                    result = file_to_dataframe(
+                        path=path,
+                        content_type=ContentType.CSV.value,
+                        content_encoding=content_encoding,
+                        filesystem=filesystem,
+                        column_names=["col1", "col2", "col3"]
+                    )
+                    self._assert_dataframes_equal(result, self.test_data)
+
+    def test_filesystem_open_kwargs(self):
+        """Test that filesystem open kwargs are properly passed through."""
+        from deltacat.utils.pandas import read_csv
+        
+        # Test with custom fs_open_kwargs
+        result = read_csv(
+            f"{self.temp_dir}/test.csv",
+            filesystem=self.fsspec_fs,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            fs_open_kwargs={"encoding": "utf-8"},  # This should be passed to filesystem.open()
+            names=['col1', 'col2', 'col3']
+        )
+        self._assert_dataframes_equal(result, self.test_data)
+
+    def test_delimited_formats_with_different_filesystems(self):
+        """Test delimited formats (TSV, PSV, etc.) with different filesystem types."""
+        # Create TSV test file without headers to match test data structure
+        tsv_data = "value1\t1\t1.1\nvalue2\t2\t2.2\nvalue3\t3\t3.3\n"
+        with open(f"{self.temp_dir}/test.tsv", "w") as f:
+            f.write(tsv_data)
+            
+        # Create PSV test file without headers to match test data structure
+        psv_data = "value1|1|1.1\nvalue2|2|2.2\nvalue3|3|3.3\n"
+        with open(f"{self.temp_dir}/test.psv", "w") as f:
+            f.write(psv_data)
+        
+        delimited_test_cases = [
+            (f"{self.temp_dir}/test.tsv", ContentType.TSV.value, {"sep": "\t", "column_names": ["col1", "col2", "col3"]}),
+            (f"{self.temp_dir}/test.psv", ContentType.PSV.value, {"sep": "|", "column_names": ["col1", "col2", "col3"]}),
+        ]
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        for path, content_type, extra_kwargs in delimited_test_cases:
+            for fs_name, filesystem in filesystems:
+                with self.subTest(content_type=content_type, filesystem=fs_name):
+                    result = file_to_dataframe(
+                        path=path,
+                        content_type=content_type,
+                        content_encoding=ContentEncoding.IDENTITY.value,
+                        filesystem=filesystem,
+                        **extra_kwargs
+                    )
+                    self._assert_dataframes_equal(result, self.test_data)
+
+    def test_end_to_end_round_trip_all_formats(self):
+        """Test end-to-end round trip with write and read for all supported formats."""
+        from deltacat.utils.pandas import (
+            write_csv, write_parquet, write_feather, write_json, write_avro, write_orc,
+            read_csv, read_parquet, read_feather, read_json, read_avro, read_orc
+        )
+        
+        # Test cases with writer/reader pairs
+        # Note: CSV and JSON writers automatically apply GZIP compression
+        round_trip_cases = [
+            ("test_roundtrip.csv", write_csv, read_csv, {"content_encoding": ContentEncoding.GZIP.value, "names": ["col1", "col2", "col3"]}, {"index": False}),
+            ("test_roundtrip.parquet", write_parquet, read_parquet, {"content_encoding": ContentEncoding.IDENTITY.value}, {}),
+            ("test_roundtrip.feather", write_feather, read_feather, {"content_encoding": ContentEncoding.IDENTITY.value}, {}),
+            ("test_roundtrip.json", write_json, read_json, {"content_encoding": ContentEncoding.GZIP.value, "orient": "records"}, {"orient": "records"}),
+            ("test_roundtrip.avro", write_avro, read_avro, {"content_encoding": ContentEncoding.IDENTITY.value}, {}),
+            ("test_roundtrip.orc", write_orc, read_orc, {"content_encoding": ContentEncoding.IDENTITY.value}, {}),
+        ]
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+        ]
+        
+        for filename, write_func, read_func, read_kwargs, write_kwargs in round_trip_cases:
+            for fs_name, filesystem in filesystems:
+                with self.subTest(format=filename, filesystem=fs_name):
+                    file_path = f"{self.temp_dir}/{filename}"
+                    
+                    # Write the file
+                    write_func(
+                        self.test_data,
+                        file_path,
+                        filesystem=filesystem,
+                        **write_kwargs
+                    )
+                    
+                    # Read it back
+                    result = read_func(
+                        file_path,
+                        filesystem=filesystem,
+                        **read_kwargs
+                    )
+                    
+                    # Verify it matches
+                    self._assert_dataframes_equal(result, self.test_data) 

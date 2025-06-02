@@ -47,10 +47,22 @@ def read_csv(
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                return pd.read_csv(input_file, **read_kwargs)
+            # Handle compression with smart detection for PyArrow auto-decompression
+            if content_encoding in [ContentEncoding.GZIP.value, ContentEncoding.BZIP2.value]:
+                try:
+                    # First try to read as if already decompressed by PyArrow
+                    return pd.read_csv(f, **read_kwargs)
+                except (gzip.BadGzipFile, OSError, UnicodeDecodeError, pd.errors.EmptyDataError, Exception):
+                    # If that fails, we need to reopen the file since the stream may be closed/corrupted
+                    pass
+                
+                # Reopen and try manual decompression
+                with filesystem.open_input_stream(path, **fs_open_kwargs) as f_retry:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f_retry) as input_file:
+                        return pd.read_csv(input_file, **read_kwargs)
+            else:
+                return pd.read_csv(f, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -71,10 +83,22 @@ def read_parquet(
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                return pd.read_parquet(input_file, **read_kwargs)
+            # Handle compression with smart detection for PyArrow auto-decompression
+            if content_encoding in [ContentEncoding.GZIP.value, ContentEncoding.BZIP2.value]:
+                try:
+                    # First try to read as if already decompressed by PyArrow
+                    return pd.read_parquet(f, **read_kwargs)
+                except (gzip.BadGzipFile, OSError, pa.ArrowInvalid, Exception):
+                    # If that fails, we need to reopen the file
+                    pass
+                
+                # Reopen and try manual decompression
+                with filesystem.open_input_file(path, **fs_open_kwargs) as f_retry:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f_retry) as input_file:
+                        return pd.read_parquet(input_file, **read_kwargs)
+            else:
+                return pd.read_parquet(f, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -95,10 +119,22 @@ def read_feather(
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                return pd.read_feather(input_file, **read_kwargs)
+            # Handle compression with smart detection for PyArrow auto-decompression
+            if content_encoding in [ContentEncoding.GZIP.value, ContentEncoding.BZIP2.value]:
+                try:
+                    # First try to read as if already decompressed by PyArrow
+                    return pd.read_feather(f, **read_kwargs)
+                except (gzip.BadGzipFile, OSError, pa.ArrowInvalid, Exception):
+                    # If that fails, we need to reopen the file
+                    pass
+                
+                # Reopen and try manual decompression
+                with filesystem.open_input_file(path, **fs_open_kwargs) as f_retry:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f_retry) as input_file:
+                        return pd.read_feather(input_file, **read_kwargs)
+            else:
+                return pd.read_feather(f, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -119,10 +155,22 @@ def read_orc(
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                return pd.read_orc(input_file, **read_kwargs)
+            # Handle compression with smart detection for PyArrow auto-decompression
+            if content_encoding in [ContentEncoding.GZIP.value, ContentEncoding.BZIP2.value]:
+                try:
+                    # First try to read as if already decompressed by PyArrow
+                    return pd.read_orc(f, **read_kwargs)
+                except (gzip.BadGzipFile, OSError, pa.ArrowInvalid, Exception):
+                    # If that fails, we need to reopen the file
+                    pass
+                
+                # Reopen and try manual decompression
+                with filesystem.open_input_file(path, **fs_open_kwargs) as f_retry:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f_retry) as input_file:
+                        return pd.read_orc(input_file, **read_kwargs)
+            else:
+                return pd.read_orc(f, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -143,10 +191,22 @@ def read_json(
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                return pd.read_json(input_file, **read_kwargs)
+            # Handle compression with smart detection for PyArrow auto-decompression
+            if content_encoding in [ContentEncoding.GZIP.value, ContentEncoding.BZIP2.value]:
+                try:
+                    # First try to read as if already decompressed by PyArrow
+                    return pd.read_json(f, **read_kwargs)
+                except (gzip.BadGzipFile, OSError, UnicodeDecodeError, ValueError, Exception):
+                    # If that fails, we need to reopen the file
+                    pass
+                
+                # Reopen and try manual decompression
+                with filesystem.open_input_stream(path, **fs_open_kwargs) as f_retry:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f_retry) as input_file:
+                        return pd.read_json(input_file, **read_kwargs)
+            else:
+                return pd.read_json(f, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
@@ -172,10 +232,24 @@ def read_avro(
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                pl_df = pl.read_avro(input_file, **read_kwargs)
+            # Handle compression with smart detection for PyArrow auto-decompression
+            if content_encoding in [ContentEncoding.GZIP.value, ContentEncoding.BZIP2.value]:
+                try:
+                    # First try to read as if already decompressed by PyArrow
+                    pl_df = pl.read_avro(f, **read_kwargs)
+                    return pl_df.to_pandas()
+                except (gzip.BadGzipFile, OSError, Exception):
+                    # If that fails, we need to reopen the file
+                    pass
+                
+                # Reopen and try manual decompression
+                with filesystem.open_input_file(path, **fs_open_kwargs) as f_retry:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f_retry) as input_file:
+                        pl_df = pl.read_avro(input_file, **read_kwargs)
+                        return pl_df.to_pandas()
+            else:
+                pl_df = pl.read_avro(f, **read_kwargs)
                 return pl_df.to_pandas()
     else:
         # fsspec AbstractFileSystem
