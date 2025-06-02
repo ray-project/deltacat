@@ -6750,3 +6750,630 @@ class TestDelta:
         assert len(downloaded_table) > 0, "Downloaded table should not be empty"
         assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
         assert set(downloaded_table.columns) == set(test_data.columns), "Column mismatch"
+
+    def test_download_delta_distributed_basic_pyarrow(self):
+        """Test basic distributed download with Ray Data using PyArrow table type."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create larger test data to benefit from distributed processing
+        test_data = pd.DataFrame(
+            {
+                "id": list(range(1000, 1100)),
+                "name": [f"User_{i}" for i in range(1000, 1100)],
+                "age": [25 + (i % 50) for i in range(100)],
+                "city": [f"City_{i % 10}" for i in range(100)],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test distributed download with Ray Dataset
+        distributed_dataset = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.DISTRIBUTED,
+            distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+            max_parallelism=4,
+            catalog=self.catalog,
+        )
+
+        # Verify the result is a Ray Dataset
+        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        assert hasattr(distributed_dataset, "count"), "Expected Ray Dataset"
+
+        # Convert to pandas to verify data integrity
+        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        expected_df = test_data.sort_values("id").reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(downloaded_df, expected_df)
+
+    def test_download_delta_distributed_with_delta_locator(self):
+        """Test distributed download using DeltaLocator instead of Delta object."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "id": [2001, 2002, 2003, 2004, 2005],
+                "name": ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"],
+                "age": [30, 35, 40, 45, 50],
+                "city": ["Seattle", "Portland", "San Francisco", "Los Angeles", "San Diego"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test download using DeltaLocator with distributed storage
+        delta_locator = committed_delta.locator
+        distributed_dataset = metastore.download_delta(
+            delta_like=delta_locator,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.DISTRIBUTED,
+            distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+            catalog=self.catalog,
+        )
+
+        # Verify the result is a Ray Dataset
+        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        
+        # Convert to pandas and verify data integrity
+        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        expected_df = test_data.sort_values("id").reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(downloaded_df, expected_df)
+
+    def test_download_delta_distributed_different_table_types(self):
+        """Test distributed download with different table types."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "id": [3001, 3002, 3003],
+                "name": ["ServiceA", "ServiceB", "ServiceC"],
+                "age": [1, 2, 3],  # service years
+                "city": ["DataCenter1", "DataCenter2", "DataCenter3"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test different table types with distributed download
+        table_types_to_test = [
+            TableType.PYARROW,
+            TableType.PANDAS,
+            TableType.POLARS,  # Now supported in distributed Ray datasets
+        ]
+
+        for table_type in table_types_to_test:
+            distributed_dataset = metastore.download_delta(
+                delta_like=committed_delta,
+                table_type=table_type,
+                storage_type=StorageType.DISTRIBUTED,
+                distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+                catalog=self.catalog,
+            )
+
+            # Verify the result is a Ray Dataset
+            assert hasattr(distributed_dataset, "to_pandas"), f"Expected Ray Dataset for {table_type}"
+            
+            # Convert to pandas and verify basic properties
+            downloaded_df = distributed_dataset.to_pandas()
+            assert len(downloaded_df) == len(test_data), f"Row count mismatch for {table_type}"
+            assert set(downloaded_df.columns) == set(test_data.columns), f"Column mismatch for {table_type}"
+
+    def test_download_delta_distributed_different_content_types(self):
+        """Test distributed download with different content types."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Test data
+        test_data = pd.DataFrame(
+            {
+                "id": [4001, 4002, 4003, 4004],
+                "name": ["Product A", "Product B", "Product C", "Product D"],
+                "age": [1, 2, 3, 4],  # product years
+                "city": ["Warehouse A", "Warehouse B", "Warehouse C", "Warehouse D"],
+            }
+        )
+
+        # Test different content types
+        content_types_to_test = [
+            ContentType.PARQUET,
+            ContentType.CSV,
+            ContentType.JSON,
+            ContentType.AVRO,
+        ]
+
+        for content_type in content_types_to_test:
+            staged_delta = metastore.stage_delta(
+                data=test_data,
+                partition=self.partition,
+                catalog=self.catalog,
+                content_type=content_type,
+                delta_type=DeltaType.UPSERT,
+            )
+
+            committed_delta = metastore.commit_delta(
+                delta=staged_delta,
+                catalog=self.catalog,
+            )
+
+            # Test distributed download
+            distributed_dataset = metastore.download_delta(
+                delta_like=committed_delta,
+                table_type=TableType.PYARROW,
+                storage_type=StorageType.DISTRIBUTED,
+                distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+                catalog=self.catalog,
+            )
+
+            # Verify the result is a Ray Dataset
+            assert hasattr(distributed_dataset, "to_pandas"), f"Expected Ray Dataset for {content_type}"
+            
+            # Convert to pandas and verify basic properties
+            downloaded_df = distributed_dataset.to_pandas()
+            assert len(downloaded_df) == len(test_data), f"Row count mismatch for {content_type}"
+            assert set(downloaded_df.columns) == set(test_data.columns), f"Column mismatch for {content_type}"
+
+    def test_download_delta_distributed_with_column_selection(self):
+        """Test distributed download with column selection."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create test data with multiple columns
+        test_data = pd.DataFrame(
+            {
+                "id": [5001, 5002, 5003, 5004, 5005],
+                "name": ["Task A", "Task B", "Task C", "Task D", "Task E"],
+                "age": [10, 20, 30, 40, 50],  # task priority
+                "city": ["Queue 1", "Queue 2", "Queue 3", "Queue 4", "Queue 5"],
+                "extra_column": ["data1", "data2", "data3", "data4", "data5"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test download with column selection
+        selected_columns = ["id", "name", "age"]
+        distributed_dataset = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.DISTRIBUTED,
+            columns=selected_columns,
+            distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+            catalog=self.catalog,
+        )
+
+        # Verify the result is a Ray Dataset
+        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        
+        # Convert to pandas and verify column selection
+        downloaded_df = distributed_dataset.to_pandas()
+        assert set(downloaded_df.columns) == set(selected_columns), "Column selection mismatch"
+        assert len(downloaded_df) == len(test_data), "Row count should match"
+
+        # Verify data integrity for selected columns
+        expected_df = test_data[selected_columns]
+        downloaded_df_sorted = downloaded_df.sort_values("id").reset_index(drop=True)
+        expected_df_sorted = expected_df.sort_values("id").reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(downloaded_df_sorted, expected_df_sorted)
+
+    def test_download_delta_distributed_with_max_parallelism(self):
+        """Test distributed download with different parallelism settings."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create larger test data to see parallelism effects
+        test_data = pd.DataFrame(
+            {
+                "id": list(range(6000, 6050)),
+                "name": [f"Record_{i}" for i in range(6000, 6050)],
+                "age": [25 + (i % 40) for i in range(50)],
+                "city": [f"Location_{i % 5}" for i in range(50)],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test different parallelism settings
+        parallelism_settings = [1, 2, 4, 8]
+
+        for max_parallelism in parallelism_settings:
+            distributed_dataset = metastore.download_delta(
+                delta_like=committed_delta,
+                table_type=TableType.PYARROW,
+                storage_type=StorageType.DISTRIBUTED,
+                max_parallelism=max_parallelism,
+                distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+                catalog=self.catalog,
+            )
+
+            # Verify the result is a Ray Dataset
+            assert hasattr(distributed_dataset, "to_pandas"), f"Expected Ray Dataset for parallelism {max_parallelism}"
+            
+            # Convert to pandas and verify data integrity
+            downloaded_df = distributed_dataset.to_pandas()
+            assert len(downloaded_df) == len(test_data), f"Row count mismatch for parallelism {max_parallelism}"
+            assert set(downloaded_df.columns) == set(test_data.columns), f"Column mismatch for parallelism {max_parallelism}"
+
+    def test_download_delta_distributed_large_dataset(self):
+        """Test distributed download with a larger dataset to verify performance benefits."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create a larger dataset
+        size = 1000
+        test_data = pd.DataFrame(
+            {
+                "id": list(range(7000, 7000 + size)),
+                "name": [f"Entity_{i}" for i in range(size)],
+                "age": [20 + (i % 60) for i in range(size)],
+                "city": [f"Region_{i % 20}" for i in range(size)],
+                "category": [f"Cat_{i % 10}" for i in range(size)],
+                "value": [float(i * 1.5) for i in range(size)],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test distributed download with high parallelism
+        distributed_dataset = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.DISTRIBUTED,
+            max_parallelism=8,
+            distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+            catalog=self.catalog,
+        )
+
+        # Verify the result is a Ray Dataset
+        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        assert hasattr(distributed_dataset, "count"), "Expected Ray Dataset"
+        
+        # Verify row count without materializing the entire dataset
+        row_count = distributed_dataset.count()
+        assert row_count == len(test_data), "Row count should match"
+
+        # Sample a few rows to verify data integrity
+        sample_df = distributed_dataset.limit(10).to_pandas()
+        assert len(sample_df) == 10, "Sample should have 10 rows"
+        assert set(sample_df.columns) == set(test_data.columns), "Column names should match"
+
+    def test_download_delta_distributed_cross_table_type_consistency(self):
+        """Test that distributed downloads return consistent data across table types."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Test data
+        test_data = pd.DataFrame(
+            {
+                "id": [8001, 8002, 8003],
+                "name": ["ItemX", "ItemY", "ItemZ"],
+                "age": [5, 10, 15],
+                "city": ["StoreX", "StoreY", "StoreZ"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,  # Use Parquet for best type preservation
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Download as different table types with distributed storage
+        table_types_to_test = [
+            TableType.PYARROW,
+            TableType.PANDAS,
+            TableType.POLARS,  # Now supported in distributed Ray datasets
+        ]
+
+        downloaded_dfs = {}
+        for table_type in table_types_to_test:
+            distributed_dataset = metastore.download_delta(
+                delta_like=committed_delta,
+                table_type=table_type,
+                storage_type=StorageType.DISTRIBUTED,
+                distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+                catalog=self.catalog,
+            )
+
+            # Convert to pandas for comparison
+            downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+            downloaded_dfs[table_type] = downloaded_df
+
+        # Verify consistency across table types
+        base_df = downloaded_dfs[TableType.PYARROW]
+        for table_type, df in downloaded_dfs.items():
+            assert len(df) == len(base_df), f"Row count mismatch for {table_type}"
+            assert set(df.columns) == set(base_df.columns), f"Column names mismatch for {table_type}"
+            
+            # Compare data values (allowing for type differences)
+            for col in base_df.columns:
+                assert list(df[col]) == list(base_df[col]), f"Data mismatch in column {col} for {table_type}"
+
+    def test_download_delta_distributed_ray_options(self):
+        """Test distributed download with custom Ray options."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "id": [9001, 9002, 9003, 9004],
+                "name": ["Resource A", "Resource B", "Resource C", "Resource D"],
+                "age": [1, 2, 3, 4],
+                "city": ["Node A", "Node B", "Node C", "Node D"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Define custom Ray options provider
+        def custom_ray_options_provider(parallelism, context):
+            return {
+                "num_cpus": 0.5,  # Use half a CPU per task
+                "memory": 100 * 1024 * 1024,  # 100MB memory limit
+            }
+
+        # Test download with custom Ray options
+        distributed_dataset = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.DISTRIBUTED,
+            ray_options_provider=custom_ray_options_provider,
+            distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+            catalog=self.catalog,
+        )
+
+        # Verify the result is a Ray Dataset
+        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        
+        # Convert to pandas and verify data integrity
+        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        expected_df = test_data.sort_values("id").reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(downloaded_df, expected_df)
+
+    def test_download_delta_distributed_vs_local_consistency(self):
+        """Test that distributed and local downloads return the same data."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "id": [10001, 10002, 10003, 10004, 10005],
+                "name": ["CompareA", "CompareB", "CompareC", "CompareD", "CompareE"],
+                "age": [30, 35, 40, 45, 50],
+                "city": ["TestCity1", "TestCity2", "TestCity3", "TestCity4", "TestCity5"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Download using local storage
+        local_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        # Convert local result to pandas
+        if len(local_tables) == 1:
+            local_df = local_tables[0].to_pandas()
+        else:
+            local_df = pa.concat_tables(local_tables).to_pandas()
+        local_df = local_df.sort_values("id").reset_index(drop=True)
+
+        # Download using distributed storage
+        distributed_dataset = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.DISTRIBUTED,
+            distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+            catalog=self.catalog,
+        )
+
+        # Convert distributed result to pandas
+        distributed_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+
+        # Verify they are identical
+        pd.testing.assert_frame_equal(local_df, distributed_df)
+
+    def test_download_delta_distributed_error_handling(self):
+        """Test error handling in distributed downloads."""
+        import pandas as pd
+        import ray
+        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
+        # Ensure Ray is initialized
+        if not ray.is_initialized():
+            ray.init()
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "id": [11001, 11002, 11003],
+                "name": ["ErrorTestA", "ErrorTestB", "ErrorTestC"],
+                "age": [25, 30, 35],
+                "city": ["ErrorCity1", "ErrorCity2", "ErrorCity3"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test with invalid column names
+        with pytest.raises(
+            ValueError,
+            match="One or more columns .* are not present in table version columns",
+        ):
+            metastore.download_delta(
+                delta_like=committed_delta,
+                table_type=TableType.PYARROW,
+                storage_type=StorageType.DISTRIBUTED,
+                columns=["id", "non_existent_column"],
+                distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
+                catalog=self.catalog,
+            )

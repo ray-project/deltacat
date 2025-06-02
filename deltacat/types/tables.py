@@ -160,6 +160,7 @@ TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
     TableType.PYARROW_PARQUET.value: from_arrow_refs,
     TableType.NUMPY.value: from_numpy,
     TableType.PANDAS.value: from_pandas_refs,
+    TableType.POLARS.value: from_arrow_refs,  # We cast Polars to Arrow for Ray Datasets
 }
 
 DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
@@ -584,8 +585,39 @@ def _download_manifest_entries(
 
 
 @ray.remote
-def download_manifest_entry_ray(*args, **kwargs) -> LocalTable:
-    return download_manifest_entry(*args, **kwargs)
+def download_manifest_entry_ray(
+    manifest_entry: ManifestEntry,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    content_type: Optional[ContentType] = None,
+    content_encoding: Optional[ContentEncoding] = None,
+    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+) -> LocalTable:
+    """
+    Ray remote function for downloading manifest entries.
+    For Polars table types, converts the result to Arrow format since Ray datasets work with Arrow.
+    """
+    # Call the regular download function
+    result = download_manifest_entry(
+        manifest_entry=manifest_entry,
+        table_type=table_type,
+        column_names=column_names,
+        include_columns=include_columns,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
+        content_type=content_type,
+        content_encoding=content_encoding,
+        filesystem=filesystem,
+    )
+    
+    # If table_type is POLARS, convert to Arrow for Ray dataset compatibility
+    if table_type == TableType.POLARS:
+        if isinstance(result, pl.DataFrame):
+            # Convert Polars DataFrame to PyArrow Table
+            result = result.to_arrow()
+    
+    return result
 
 
 def download_manifest_entries_distributed(
@@ -609,12 +641,12 @@ def download_manifest_entries_distributed(
         "include_columns": include_columns,
         "file_reader_kwargs_provider": file_reader_kwargs_provider,
         "ray_options_provider": ray_options_provider,
-        "distributed_dataset_type": distributed_dataset_type,
     }
 
     if distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
         return _download_manifest_entries_ray_data_distributed(**params)
     elif distributed_dataset_type is not None:
+        params["distributed_dataset_type"] = distributed_dataset_type
         return _download_manifest_entries_all_dataset_distributed(**params)
     else:
         raise ValueError(
@@ -645,7 +677,7 @@ def _download_manifest_entries_ray_data_distributed(
             max_parallelism=max_parallelism,
             options_provider=ray_options_provider,
         )
-    return TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS[table_type](table_pending_ids)
+    return TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS[table_type.value](table_pending_ids)
 
 
 def _download_manifest_entries_all_dataset_distributed(

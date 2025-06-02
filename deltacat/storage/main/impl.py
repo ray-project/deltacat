@@ -710,52 +710,6 @@ def get_latest_delta(
     return result
 
 
-def _download_manifest_entries_distributed(
-    manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
-    max_parallelism: Optional[int] = None,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    *args,
-    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
-    distributed_dataset_type: Optional[
-        DistributedDatasetType
-    ] = DistributedDatasetType.RAY_DATASET,
-    **kwargs,
-) -> DistributedDataset:
-
-    return download_manifest_entries_distributed(
-        manifest=manifest,
-        table_type=table_type,
-        max_parallelism=max_parallelism,
-        column_names=column_names,
-        include_columns=include_columns,
-        file_reader_kwargs_provider=file_reader_kwargs_provider,
-        ray_options_provider=ray_options_provider,
-        distributed_dataset_type=distributed_dataset_type,
-    )
-
-
-def _download_manifest_entries(
-    manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
-    max_parallelism: int = 1,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-) -> LocalDataset:
-
-    return download_manifest_entries(
-        manifest,
-        table_type,
-        max_parallelism,
-        column_names,
-        include_columns,
-        file_reader_kwargs_provider,
-    )
-
-
 def _download_delta_distributed(
     manifest: Manifest,
     table_type: TableType = TableType.PYARROW,
@@ -827,8 +781,8 @@ def download_delta(
     """
     # TODO (pdames): Cast delimited text types to the table's schema types
     # TODO (pdames): Deprecate this method and replace with `read_delta`
-    # TODO (pdames): Replace dependence on TableType and StorageType with
-    #  DatasetType
+    # TODO (pdames): Replace dependence on TableType, StorageType, and DistributedDatasetType 
+    #   with DatasetType
     storage_type_to_download_func = {
         StorageType.LOCAL: _download_delta_local,
         StorageType.DISTRIBUTED: _download_delta_distributed,
