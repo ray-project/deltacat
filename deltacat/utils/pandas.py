@@ -327,11 +327,12 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
         return {"sep": ",", "header": None}
     if content_type == ContentType.PSV.value:
         return {"sep": "|", "header": None}
+    if content_type == ContentType.JSON.value:
+        return {"lines": True}  # Support NDJSON format
     if content_type in {
         ContentType.PARQUET.value,
         ContentType.FEATHER.value,
         ContentType.ORC.value,
-        ContentType.JSON.value,
         ContentType.AVRO.value,
     }:
         return {}
@@ -668,7 +669,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
     if content_type == ContentType.FEATHER.value:
         return {}
     if content_type == ContentType.JSON.value:
-        return {"index": False, "orient": "records"}
+        return {"index": False, "orient": "records", "lines": True}
     if content_type == ContentType.AVRO.value:
         return {"index": False}
     if content_type == ContentType.ORC.value:

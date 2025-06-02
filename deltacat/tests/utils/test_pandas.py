@@ -173,17 +173,21 @@ class TestPandasWriters(TestCase):
             self.fs,
             lambda x: path,
             content_type=ContentType.JSON.value,
-            orient='records'  # Write each record as a separate JSON object
+            orient='records',  # Write each record as a separate JSON object
+            lines=True  # This should create NDJSON format
         )
         assert self.fs.exists(path), "file was not written"
         
-        # Verify content (should be GZIP compressed)
+        # Verify content (should be GZIP compressed NDJSON format)
         with self.fs.open(path, "rb") as f:
             with gzip.GzipFile(fileobj=f) as gz:
-                content = gz.read().decode('utf-8')
-                # Each line should be a valid JSON object
-                data = json.loads(content)
-                assert len(data) == 2  # 2 records
+                content = gz.read().decode('utf-8').strip()
+                # Content should be NDJSON format: each line is a separate JSON object
+                lines = content.split('\n')
+                assert len(lines) == 2  # 2 records
+                
+                # Parse each line as a separate JSON object
+                data = [json.loads(line) for line in lines]
                 assert data[0] == {"col1": "a,b\tc|d", "col2": 1}
                 assert data[1] == {"col1": "e,f\tg|h", "col2": 2}
 
@@ -270,11 +274,11 @@ class TestPandasReaders(TestCase):
         feather_path = f"{self.base_path}/test.feather"
         self.df.to_feather(feather_path)
         
-        # Create JSON file (GZIP compressed, orient=records format)
+        # Create JSON file (GZIP compressed, NDJSON format)
         json_path = f"{self.base_path}/test.json"
         with self.fs.open(json_path, "wb") as f:
             with gzip.GzipFile(fileobj=f, mode='wb') as gz:
-                json_str = self.df.to_json(orient='records')
+                json_str = self.df.to_json(orient='records', lines=True)
                 gz.write(json_str.encode('utf-8'))
         
         # Create Avro file using polars (since pandas delegates to polars for Avro)
@@ -639,10 +643,12 @@ class TestPandasFileSystemSupport(TestCase):
         # Feather file
         self.test_data.to_feather(f"{self.temp_dir}/test.feather")
         
-        # JSON file (records format)
-        json_data = '[{"col1":"value1","col2":1,"col3":1.1},{"col1":"value2","col2":2,"col3":2.2},{"col1":"value3","col2":3,"col3":3.3}]'
-        with open(f"{self.temp_dir}/test.json", "w") as f:
-            f.write(json_data)
+        # JSON file (GZIP compressed, NDJSON format)
+        json_path = f"{self.temp_dir}/test.json"
+        with self.fsspec_fs.open(json_path, "wb") as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                json_str = self.test_data.to_json(orient='records', lines=True)
+                gz.write(json_str.encode('utf-8'))
             
         # AVRO file (using polars since pandas delegates to polars for AVRO)
         import polars as pl
@@ -790,7 +796,8 @@ class TestPandasFileSystemSupport(TestCase):
         result = read_json(
             f"{self.temp_dir}/test.json",
             filesystem=self.fsspec_fs,
-            content_encoding=ContentEncoding.IDENTITY.value
+            content_encoding=ContentEncoding.GZIP.value,
+            lines=True  # Required for NDJSON format
         )
         self._assert_dataframes_equal(result, self.test_data)
         
@@ -798,7 +805,8 @@ class TestPandasFileSystemSupport(TestCase):
         result = read_json(
             f"{self.temp_dir}/test.json",
             filesystem=self.pyarrow_fs,
-            content_encoding=ContentEncoding.IDENTITY.value
+            content_encoding=ContentEncoding.GZIP.value,
+            lines=True  # Required for NDJSON format
         )
         self._assert_dataframes_equal(result, self.test_data)
         
@@ -806,7 +814,8 @@ class TestPandasFileSystemSupport(TestCase):
         result = read_json(
             f"{self.temp_dir}/test.json",
             filesystem=None,
-            content_encoding=ContentEncoding.IDENTITY.value
+            content_encoding=ContentEncoding.GZIP.value,
+            lines=True  # Required for NDJSON format
         )
         self._assert_dataframes_equal(result, self.test_data)
 
@@ -873,7 +882,7 @@ class TestPandasFileSystemSupport(TestCase):
             (f"{self.temp_dir}/test_gzip.csv.gz", ContentType.CSV.value, ContentEncoding.GZIP.value, {"column_names": ["col1", "col2", "col3"]}),
             (f"{self.temp_dir}/test.parquet", ContentType.PARQUET.value, ContentEncoding.IDENTITY.value, {}),
             (f"{self.temp_dir}/test.feather", ContentType.FEATHER.value, ContentEncoding.IDENTITY.value, {}),
-            (f"{self.temp_dir}/test.json", ContentType.JSON.value, ContentEncoding.IDENTITY.value, {}),
+            (f"{self.temp_dir}/test.json", ContentType.JSON.value, ContentEncoding.GZIP.value, {}),
             (f"{self.temp_dir}/test.avro", ContentType.AVRO.value, ContentEncoding.IDENTITY.value, {}),
             (f"{self.temp_dir}/test.orc", ContentType.ORC.value, ContentEncoding.IDENTITY.value, {}),
         ]

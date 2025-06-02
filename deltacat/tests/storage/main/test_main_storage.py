@@ -6652,3 +6652,101 @@ class TestDelta:
         assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
         # NumPy arrays don't have column names, but should have the right shape
         assert downloaded_table.shape[1] == len(test_data.columns), "Column count mismatch"
+
+    def test_download_delta_content_types_with_polars_json(self):
+        """Test downloading delta with JSON content type as Polars DataFrames."""
+        import pandas as pd
+        import polars as pl
+        import pytest
+        from deltacat.types.media import TableType, StorageType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [201, 202, 203, 204, 205],
+            "name": ["UserA", "UserB", "UserC", "UserD", "UserE"],
+            "age": [25, 30, 35, 40, 45],
+            "city": ["CityA", "CityB", "CityC", "CityD", "CityE"]
+        })
+
+        # Test with JSON content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.JSON,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Try to download as Polars DataFrame - this may fail due to known Polars+JSON issues
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.POLARS,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+        
+        # If we get here, the download succeeded
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with Polars"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+        assert all(isinstance(t, pl.DataFrame) for t in downloaded_tables), "All tables should be Polars DataFrames"
+        
+        # Verify data integrity
+        if len(downloaded_tables) == 1:
+            result = downloaded_tables[0]
+        else:
+            result = pl.concat(downloaded_tables)
+        
+        assert len(result) == len(test_data), "Row count should match"
+        assert set(result.columns) == set(test_data.columns), "Column names should match"
+
+    def test_download_manifest_entry_content_types_with_polars_json(self):
+        """Test downloading manifest entries with JSON content type as Polars DataFrames."""
+        import pandas as pd
+        import polars as pl
+        import pytest
+        from deltacat.types.media import TableType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [401, 402, 403, 404],
+            "name": ["ItemA", "ItemB", "ItemC", "ItemD"],
+            "age": [1, 2, 3, 4],  # item age
+            "city": ["StoreA", "StoreB", "StoreC", "StoreD"]
+        })
+
+        # Test with JSON content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.JSON,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify we have a manifest with entries
+        assert committed_delta.manifest is not None, "Delta should have a manifest"
+        assert len(committed_delta.manifest.entries) > 0, "Should have manifest entries"
+
+        # Try to download manifest entry as Polars DataFrame
+        downloaded_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=0,
+            table_type=TableType.POLARS,
+            catalog=self.catalog,
+        )
+
+        # If we get here, the download succeeded
+        assert isinstance(downloaded_table, pl.DataFrame), "Expected Polars DataFrame"
+        assert len(downloaded_table) > 0, "Downloaded table should not be empty"
+        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.columns) == set(test_data.columns), "Column mismatch"

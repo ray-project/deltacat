@@ -79,11 +79,11 @@ class TestNumpyReaders(TestCase):
         feather_path = f"{self.base_path}/test.feather"
         df.to_feather(feather_path)
         
-        # Create JSON file (GZIP compressed, orient=records format)
+        # Create JSON file (GZIP compressed, NDJSON format)
         json_path = f"{self.base_path}/test.json"
         with self.fs.open(json_path, "wb") as f:
             with gzip.GzipFile(fileobj=f, mode='wb') as gz:
-                json_str = df.to_json(orient='records')
+                json_str = df.to_json(orient='records', lines=True)
                 gz.write(json_str.encode('utf-8'))
         
         # Create Avro file using polars
@@ -710,10 +710,10 @@ class TestNumpyFileSystemSupport(TestCase):
         # Feather file
         df.to_feather(f"{self.temp_dir}/test.feather")
         
-        # JSON file (records format)
-        json_data = '[{"col1":"value1","col2":1,"col3":1.1},{"col1":"value2","col2":2,"col3":2.2},{"col1":"value3","col2":3,"col3":3.3}]'
+        # JSON file (NDJSON format)
+        json_str = df.to_json(orient='records', lines=True)
         with open(f"{self.temp_dir}/test.json", "w") as f:
-            f.write(json_data)
+            f.write(json_str)
             
         # AVRO file (using polars since pandas delegates to polars for AVRO)
         import polars as pl
