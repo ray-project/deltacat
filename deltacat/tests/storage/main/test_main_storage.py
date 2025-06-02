@@ -5439,3 +5439,165 @@ class TestDelta:
         delta_types = [delta.type for delta in delta_list]
         assert DeltaType.UPSERT in delta_types
         assert DeltaType.APPEND in delta_types
+
+    def test_commit_delta_with_user_specified_stream_position(self):
+        """Test that user-specified stream positions are preserved during delta commit instead of auto-assigning."""
+        import pandas as pd
+
+        # Get initial partition state to understand current stream position
+        initial_partition = metastore.get_partition_by_id(
+            stream_locator=self.partition.stream_locator,
+            partition_id=self.partition.partition_id,
+            catalog=self.catalog,
+        )
+        initial_stream_position = initial_partition.stream_position or 0
+
+        # Create test data
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "custom_stream_position": ["test1", "test2", "test3"],
+        })
+
+        # Stage a delta normally (stream position will be None initially)
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        # Verify the staged delta initially has no stream position set
+        assert staged_delta.locator.stream_position is None, "Staged delta should initially have no stream position"
+
+        # Set a custom stream position that's greater than the current stream position
+        # We'll use a large gap to make it obvious this is user-specified
+        user_specified_stream_position = initial_stream_position + 100
+
+        # Set the stream position on the delta's locator before committing
+        staged_delta.locator.stream_position = user_specified_stream_position
+
+        # Verify the stream position was set
+        assert staged_delta.locator.stream_position == user_specified_stream_position, "Stream position should be set to user-specified value"
+
+        # Commit the delta with the user-specified stream position
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the committed delta preserves the user-specified stream position
+        assert committed_delta.locator.stream_position == user_specified_stream_position, f"Committed delta should preserve user-specified stream position {user_specified_stream_position}, but got {committed_delta.locator.stream_position}"
+
+        # Verify the previous stream position is correctly set
+        assert committed_delta.previous_stream_position == initial_stream_position, f"Previous stream position should be {initial_stream_position}, but got {committed_delta.previous_stream_position}"
+
+        # Verify the partition's stream position is updated to the user-specified position
+        updated_partition = metastore.get_partition_by_id(
+            stream_locator=self.partition.stream_locator,
+            partition_id=self.partition.partition_id,
+            catalog=self.catalog,
+        )
+        assert updated_partition.stream_position == user_specified_stream_position, f"Partition stream position should be updated to {user_specified_stream_position}, but got {updated_partition.stream_position}"
+
+        # Test that we can retrieve the delta using the user-specified stream position
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=user_specified_stream_position,
+            table_version=self.table_version.table_version,
+            include_manifest=True,
+            catalog=self.catalog,
+        )
+
+        # Verify the retrieved delta matches the committed one
+        assert retrieved_delta is not None, f"Should be able to retrieve delta at user-specified stream position {user_specified_stream_position}"
+        assert retrieved_delta.locator.stream_position == user_specified_stream_position
+        assert retrieved_delta.type == DeltaType.UPSERT
+        assert retrieved_delta.manifest is not None
+
+        # Test committing another delta after the custom stream position
+        df2 = pd.DataFrame({
+            "id": [4, 5],
+            "name": ["David", "Eve"],
+            "follow_up": ["test4", "test5"],
+        })
+
+        # Stage and commit a second delta (should get auto-assigned position)
+        staged_delta_2 = metastore.stage_delta(
+            data=df2,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.APPEND,
+        )
+
+        # Don't set a custom stream position for the second delta
+        committed_delta_2 = metastore.commit_delta(
+            delta=staged_delta_2,
+            catalog=self.catalog,
+        )
+
+        # Verify the second delta gets auto-assigned position (user_specified_position + 1)
+        expected_auto_assigned_position = user_specified_stream_position + 1
+        assert committed_delta_2.locator.stream_position == expected_auto_assigned_position, f"Second delta should get auto-assigned position {expected_auto_assigned_position}, but got {committed_delta_2.locator.stream_position}"
+        assert committed_delta_2.previous_stream_position == user_specified_stream_position, f"Second delta's previous stream position should be {user_specified_stream_position}, but got {committed_delta_2.previous_stream_position}"
+
+    def test_commit_delta_user_stream_position_validation(self):
+        """Test that user-specified stream positions are validated to be greater than previous stream position."""
+        import pandas as pd
+
+        # Get initial partition state
+        initial_partition = metastore.get_partition_by_id(
+            stream_locator=self.partition.stream_locator,
+            partition_id=self.partition.partition_id,
+            catalog=self.catalog,
+        )
+        initial_stream_position = initial_partition.stream_position or 0
+
+        # Create test data
+        df = pd.DataFrame({
+            "id": [1, 2],
+            "validation_test": ["data1", "data2"],
+        })
+
+        # Stage a delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        # Test 1: Try to set stream position equal to previous stream position (should fail)
+        staged_delta.locator.stream_position = initial_stream_position
+
+        with pytest.raises(ValueError, match="Delta stream position .* must be greater than previous stream position"):
+            metastore.commit_delta(
+                delta=staged_delta,
+                catalog=self.catalog,
+            )
+
+        # Test 2: Try to set stream position less than previous stream position (should fail)
+        if initial_stream_position > 0:
+            staged_delta.locator.stream_position = initial_stream_position - 1
+
+            with pytest.raises(ValueError, match="Delta stream position .* must be greater than previous stream position"):
+                metastore.commit_delta(
+                    delta=staged_delta,
+                    catalog=self.catalog,
+                )
+
+        # Test 3: Set valid stream position greater than previous (should succeed)
+        valid_stream_position = initial_stream_position + 50
+        staged_delta.locator.stream_position = valid_stream_position
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify the valid stream position was preserved
+        assert committed_delta.locator.stream_position == valid_stream_position, f"Valid stream position {valid_stream_position} should be preserved, but got {committed_delta.locator.stream_position}"
