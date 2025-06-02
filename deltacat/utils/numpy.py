@@ -13,6 +13,7 @@ from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat import logs
 from deltacat.utils.performance import timed_invocation
+from deltacat.types.partial_download import PartialFileDownloadParams
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -35,7 +36,7 @@ def s3_file_to_ndarray(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs
+    **s3_client_kwargs,
 ) -> np.ndarray:
     # TODO: Compare perf to s3 -> pyarrow -> pandas [Series/DataFrame] -> numpy
     dataframe = pd_utils.s3_file_to_dataframe(
@@ -45,7 +46,7 @@ def s3_file_to_ndarray(
         column_names,
         include_columns,
         pd_read_func_kwargs_provider,
-        **s3_client_kwargs
+        **s3_client_kwargs,
     )
     return dataframe.to_numpy()
 
@@ -58,15 +59,16 @@ def file_to_ndarray(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     fs_open_kwargs: Dict[str, Any] = {},
     **kwargs,
 ) -> np.ndarray:
     """
     Read a file into a NumPy ndarray using any filesystem.
-    
+
     This function delegates to the pandas file_to_dataframe function and converts
     the resulting DataFrame to a NumPy ndarray.
-    
+
     Args:
         path: The file path to read
         content_type: The content type of the file (e.g., ContentType.CSV.value)
@@ -77,7 +79,7 @@ def file_to_ndarray(
         pd_read_func_kwargs_provider: Optional kwargs provider for customization
         fs_open_kwargs: Optional kwargs for filesystem open operations
         **kwargs: Additional kwargs passed to the reader function
-        
+
     Returns:
         np.ndarray: The loaded data as a NumPy ndarray
     """
@@ -85,7 +87,7 @@ def file_to_ndarray(
         f"Reading {path} to NumPy ndarray. Content type: {content_type}. "
         f"Encoding: {content_encoding}"
     )
-    
+
     def _read_to_ndarray():
         # Delegate to pandas implementation and convert to ndarray
         dataframe = pd_utils.file_to_dataframe(
@@ -100,7 +102,7 @@ def file_to_ndarray(
             **kwargs,
         )
         return dataframe.to_numpy()
-    
+
     ndarray, latency = timed_invocation(_read_to_ndarray)
     logger.debug(f"Time to read {path} into NumPy ndarray: {latency}s")
     return ndarray
@@ -116,7 +118,7 @@ def ndarray_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[FilenameProvider, Callable],
     content_type: str = ContentType.PARQUET.value,
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Writes the given Numpy ndarray to a file.
@@ -130,5 +132,5 @@ def ndarray_to_file(
         filesystem,
         block_path_provider,
         content_type,
-        **kwargs
+        **kwargs,
     )

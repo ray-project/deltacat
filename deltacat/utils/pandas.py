@@ -21,6 +21,7 @@ from deltacat.types.media import (
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.types.partial_download import PartialFileDownloadParams
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -30,6 +31,7 @@ def read_avro(file_path, **kwargs):
     Read an Avro file using polars and convert to pandas.
     """
     import polars as pl
+
     return pl.read_avro(file_path, **kwargs).to_pandas()
 
 
@@ -190,12 +192,13 @@ def file_to_dataframe(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     fs_open_kwargs: Dict[str, Any] = {},
     **kwargs,
 ) -> pd.DataFrame:
     """
     Read a file into a Pandas DataFrame using any filesystem.
-    
+
     Args:
         path: The file path to read
         content_type: The content type of the file (e.g., ContentType.CSV.value)
@@ -206,7 +209,7 @@ def file_to_dataframe(
         pd_read_func_kwargs_provider: Optional kwargs provider for customization
         fs_open_kwargs: Optional kwargs for filesystem open operations
         **kwargs: Additional kwargs passed to the reader function
-        
+
     Returns:
         pd.DataFrame: The loaded DataFrame
     """
@@ -214,11 +217,11 @@ def file_to_dataframe(
         f"Reading {path} to Pandas. Content type: {content_type}. "
         f"Encoding: {content_encoding}"
     )
-    
+
     # Resolve filesystem and path
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
-    
+
     pd_read_func = CONTENT_TYPE_TO_PD_READ_FUNC.get(content_type)
     if not pd_read_func:
         raise NotImplementedError(
@@ -226,24 +229,24 @@ def file_to_dataframe(
             f"implemented. Known content types: "
             f"{list(CONTENT_TYPE_TO_PD_READ_FUNC.keys())}"
         )
-    
+
     reader_kwargs = content_type_to_reader_kwargs(content_type)
     _add_column_kwargs(content_type, column_names, include_columns, reader_kwargs)
-    
+
     # Handle compression for explicit compression content types
     if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
         reader_kwargs["compression"] = ENCODING_TO_PD_COMPRESSION.get(
             content_encoding, "infer"
         )
-    
+
     # Merge with provided kwargs
     reader_kwargs.update(kwargs)
-    
+
     if pd_read_func_kwargs_provider:
         reader_kwargs = pd_read_func_kwargs_provider(content_type, reader_kwargs)
-    
+
     logger.debug(f"Reading {path} via {pd_read_func} with kwargs: {reader_kwargs}")
-    
+
     # Handle different filesystem types
     def _read_file():
         if isinstance(filesystem, pafs.FileSystem):
@@ -253,7 +256,7 @@ def file_to_dataframe(
             # fsspec AbstractFileSystem
             with filesystem.open(path, "rb", **fs_open_kwargs) as f:
                 return pd_read_func(f, **reader_kwargs)
-    
+
     dataframe, latency = timed_invocation(_read_file)
     logger.debug(f"Time to read {path} into Pandas DataFrame: {latency}s")
     return dataframe

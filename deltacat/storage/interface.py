@@ -217,7 +217,7 @@ def download_delta(
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
-    Download the given delta or delta locator into either a list of
+    Reads the given delta or delta locator into either a list of
     tables resident in the local node's memory, or into a dataset distributed
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
@@ -236,12 +236,12 @@ def download_delta_manifest_entry(
     **kwargs,
 ) -> LocalTable:
     """
-    Downloads a single manifest entry into the specified table type for the
+    Reads a single manifest entry into the specified table type for the
     given delta or delta locator. If a delta is provided with a non-empty
-    manifest, then the entry is downloaded from this manifest. Otherwise, the
-    manifest is first retrieved then the given entry index downloaded.
+    manifest, then the entry is read from this manifest. Otherwise, the
+    manifest is first retrieved then the given entry index read.
 
-    NOTE: The entry will be downloaded in the current node's memory.
+    NOTE: The entry will be read in the current node's memory.
     """
     raise NotImplementedError("download_delta_manifest_entry not implemented")
 

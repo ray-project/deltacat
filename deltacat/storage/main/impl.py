@@ -1,5 +1,7 @@
+import logging
 import uuid
 import posixpath
+import pyarrow
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
@@ -11,6 +13,7 @@ from deltacat.storage.model.manifest import (
     EntryType,
     ManifestAuthor,
     ManifestEntryList,
+    ManifestEntry,
 )
 from deltacat.storage.model.delta import (
     Delta,
@@ -75,6 +78,7 @@ from deltacat.types.media import (
     DistributedDatasetType,
     StorageType,
     TableType,
+    ContentEncoding,
 )
 from deltacat.utils.common import ReadKwargsProvider
 import pyarrow as pa
@@ -83,7 +87,14 @@ from deltacat.types.tables import (
     get_table_writer,
     get_table_slicer,
     write_sliced_table,
+    download_manifest_entries,
+    download_manifest_entries_distributed,
+    download_manifest_entry,
 )
+from deltacat import logs
+from deltacat.utils.filesystem import resolve_path_and_filesystem
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _list(
@@ -438,7 +449,7 @@ def list_deltas(
     #  positions, or should traverse using Partition.stream_position (to
     #  resolve last stream position) and Delta.previous_stream_position
     #  (down to first stream position).
-    
+
     # First get the stream to resolve proper table version and stream locator
     stream = get_stream(
         *args,
@@ -453,7 +464,7 @@ def list_deltas(
             f"`{namespace}.{table_name}` at table version "
             f"`{table_version or 'latest'}` (no stream found)."
         )
-    
+
     # Then get the actual partition to ensure we have the real partition locator with ID
     partition = get_partition(
         stream_locator=stream.locator,
@@ -468,7 +479,7 @@ def list_deltas(
             f"with partition_values={partition_values} and "
             f"partition_scheme_id={partition_scheme_id}"
         )
-    
+
     # Use the actual partition locator (with partition ID) for listing deltas
     locator = DeltaLocator.of(partition_locator=partition.locator)
     delta = Delta.of(
@@ -488,8 +499,14 @@ def list_deltas(
     filtered_deltas = [
         delta
         for delta in all_deltas
-        if (first_stream_position is None or first_stream_position <= delta.stream_position) and
-           (last_stream_position is None or delta.stream_position <= last_stream_position)
+        if (
+            first_stream_position is None
+            or first_stream_position <= delta.stream_position
+        )
+        and (
+            last_stream_position is None
+            or delta.stream_position <= last_stream_position
+        )
     ]
     if ascending_order:
         filtered_deltas.reverse()
@@ -540,8 +557,14 @@ def list_partition_deltas(
     filtered_deltas = [
         delta
         for delta in all_deltas
-        if (first_stream_position is None or first_stream_position <= delta.stream_position) and
-           (last_stream_position is None or delta.stream_position <= last_stream_position)
+        if (
+            first_stream_position is None
+            or first_stream_position <= delta.stream_position
+        )
+        and (
+            last_stream_position is None
+            or delta.stream_position <= last_stream_position
+        )
     ]
     if ascending_order:
         filtered_deltas.reverse()
@@ -572,7 +595,7 @@ def get_delta(
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
     """
     # TODO(pdames): Honor `include_manifest` param.
-    
+
     # First get the stream to resolve proper table version and stream locator
     stream = get_stream(
         *args,
@@ -587,7 +610,7 @@ def get_delta(
             f"`{namespace}.{table_name}` at table version "
             f"`{table_version or 'latest'}` (no stream found)."
         )
-    
+
     # Then get the actual partition to ensure we have the real partition locator with ID
     partition = get_partition(
         stream_locator=stream.locator,
@@ -602,7 +625,7 @@ def get_delta(
             f"with partition_values={partition_values} and "
             f"partition_scheme_id={partition_scheme_id}"
         )
-    
+
     # Use the actual partition locator (with partition ID) for getting the delta
     locator = DeltaLocator.of(
         partition_locator=partition.locator,
@@ -620,12 +643,12 @@ def get_delta(
         metafile=delta,
         **kwargs,
     )
-    
-    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since 
+
+    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
     #   the point is to avoid loading the manifest into memory if it's not needed.
     if result and not include_manifest:
         result.manifest = None
-        
+
     return result
 
 
@@ -678,13 +701,109 @@ def get_latest_delta(
         metafile=delta,
         **kwargs,
     )
-    
-    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since 
+
+    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
     #   the point is to avoid loading the manifest into memory if it's not needed.
     if result and not include_manifest:
         result.manifest = None
-        
+
     return result
+
+
+def _download_manifest_entries_distributed(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    *args,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+    **kwargs,
+) -> DistributedDataset:
+
+    return download_manifest_entries_distributed(
+        manifest=manifest,
+        table_type=table_type,
+        max_parallelism=max_parallelism,
+        column_names=column_names,
+        include_columns=include_columns,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
+        ray_options_provider=ray_options_provider,
+        distributed_dataset_type=distributed_dataset_type,
+    )
+
+
+def _download_manifest_entries(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: int = 1,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+) -> LocalDataset:
+
+    return download_manifest_entries(
+        manifest,
+        table_type,
+        max_parallelism,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+    )
+
+
+def _download_delta_distributed(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    *args,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+    **kwargs,
+) -> DistributedDataset:
+
+    distributed_dataset: DistributedDataset = download_manifest_entries_distributed(
+        manifest=manifest,
+        table_type=table_type,
+        max_parallelism=max_parallelism,
+        column_names=column_names,
+        include_columns=include_columns,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
+        ray_options_provider=ray_options_provider,
+        distributed_dataset_type=distributed_dataset_type,
+    )
+
+    return distributed_dataset
+
+
+def _download_delta_local(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    *args,
+    **kwargs,
+) -> LocalDataset:
+    tables: LocalDataset = download_manifest_entries(
+        manifest,
+        table_type,
+        max_parallelism if max_parallelism else 1,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+    )
+    return tables
 
 
 def download_delta(
@@ -700,13 +819,93 @@ def download_delta(
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
-    Download the given delta or delta locator into either a list of
+    Read the given delta or delta locator into either a list of
     tables resident in the local node's memory, or into a dataset distributed
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
     the contents of ordered delta manifest entry N.
     """
-    raise NotImplementedError("download_delta not implemented")
+    # TODO (pdames): Cast delimited text types to the table's schema types
+    # TODO (pdames): Deprecate this method and replace with `read_delta`
+    # TODO (pdames): Replace dependence on TableType and StorageType with
+    #  DatasetType
+    storage_type_to_download_func = {
+        StorageType.LOCAL: _download_delta_local,
+        StorageType.DISTRIBUTED: _download_delta_distributed,
+    }
+
+    is_delta = isinstance(delta_like, Delta)
+    is_delta_locator = isinstance(delta_like, DeltaLocator)
+
+    delta_locator: Optional[DeltaLocator] = None
+    if is_delta_locator:
+        delta_locator = delta_like
+    elif is_delta:
+        delta_locator = Delta(delta_like).locator
+    if not delta_locator:
+        raise ValueError(
+            f"Expected delta_like to be a Delta or DeltaLocator, but found "
+            f"{type(delta_like)}."
+        )
+
+    # Get manifest - if delta_like is a Delta with a manifest, use it, otherwise fetch from storage
+    if is_delta and delta_like.manifest:
+        manifest = delta_like.manifest
+    else:
+        manifest = get_delta_manifest(delta_locator, **kwargs)
+    all_column_names = get_table_version_column_names(
+        delta_locator.namespace,
+        delta_locator.table_name,
+        delta_locator.table_version,
+        **kwargs,
+    )
+    if columns:
+        if not all(
+            col in [col_name.lower() for col_name in all_column_names]
+            for col in columns
+        ):
+            raise ValueError(
+                f"One or more columns in {columns} are not present in table "
+                f"version columns {all_column_names}"
+            )
+        columns = [column.lower() for column in columns]
+    logger.debug(
+        f"Reading {columns or 'all'} columns from table version column "
+        f"names: {all_column_names}. "
+    )
+    return storage_type_to_download_func[storage_type](
+        manifest,
+        table_type,
+        max_parallelism,
+        all_column_names,
+        columns,
+        file_reader_kwargs_provider,
+        ray_options_provider=ray_options_provider,
+        distributed_dataset_type=distributed_dataset_type,
+    )
+
+
+def _download_manifest_entry(
+    manifest_entry: ManifestEntry,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    content_type: Optional[ContentType] = None,
+    content_encoding: Optional[ContentEncoding] = None,
+    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+) -> LocalTable:
+
+    return download_manifest_entry(
+        manifest_entry,
+        table_type,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+        content_type,
+        content_encoding,
+        filesystem,
+    )
 
 
 def download_delta_manifest_entry(
@@ -719,14 +918,65 @@ def download_delta_manifest_entry(
     **kwargs,
 ) -> LocalTable:
     """
-    Downloads a single manifest entry into the specified table type for the
+    Reads a single manifest entry into the specified table type for the
     given delta or delta locator. If a delta is provided with a non-empty
-    manifest, then the entry is downloaded from this manifest. Otherwise, the
-    manifest is first retrieved then the given entry index downloaded.
+    manifest, then the entry is read from this manifest. Otherwise, the
+    manifest is first retrieved then the given entry index read.
 
-    NOTE: The entry will be downloaded in the current node's memory.
+    NOTE: The entry will be read in the current node's memory.
     """
-    raise NotImplementedError("download_delta_manifest_entry not implemented")
+    # TODO (pdames): Deprecate this method and replace with
+    #  `read_delta_manifest_entry`
+    # TODO (pdames): Replace dependence on TableType with DatasetType
+    is_delta = isinstance(delta_like, Delta)
+    is_delta_locator = isinstance(delta_like, DeltaLocator)
+
+    delta_locator: Optional[DeltaLocator] = None
+    if is_delta_locator:
+        delta_locator = delta_like
+    elif is_delta:
+        delta_locator = Delta(delta_like).locator
+    if not delta_locator:
+        raise ValueError(
+            f"Expected delta_like to be a Delta or DeltaLocator, but found "
+            f"{type(delta_like)}."
+        )
+
+    if is_delta and delta_like.manifest:
+        manifest = delta_like.manifest
+    else:
+        manifest = get_delta_manifest(delta_locator, **kwargs)
+    # TODO(pdames): Cache table version column names and only invoke when
+    #  needed.
+    all_column_names = get_table_version_column_names(
+        delta_locator.namespace,
+        delta_locator.table_name,
+        delta_locator.table_version,
+        **kwargs,
+    )
+    if columns:
+        if not all(
+            col in [col_name.lower() for col_name in all_column_names]
+            for col in columns
+        ):
+            raise ValueError(
+                f"One or more columns in {columns} are not present in table "
+                f"version columns {all_column_names}"
+            )
+        columns = [column.lower() for column in columns]
+    logger.debug(
+        f"Reading {columns or 'all'} columns from table version column "
+        f"names: {all_column_names}. "
+    )
+    catalog_properties = get_catalog_properties(**kwargs)
+    return _download_manifest_entry(
+        manifest.entries[entry_index],
+        table_type,
+        all_column_names,
+        columns,
+        file_reader_kwargs_provider,
+        filesystem=catalog_properties.filesystem,
+    )
 
 
 def get_delta_manifest(
@@ -760,8 +1010,10 @@ def get_delta_manifest(
         *args,
         **kwargs,
     )
-    if not latest_delta or not latest_delta.manifest:
-        raise ValueError(f"No manifest found for delta: {delta_locator}")
+    if not latest_delta:
+        raise ValueError(f"No delta found for locator: {delta_locator}")
+    elif not latest_delta.manifest:
+        raise ValueError(f"No manifest found for delta: {latest_delta}")
     return latest_delta.manifest
 
 
@@ -2082,7 +2334,7 @@ def stage_delta(
         table_writer_kwargs,
         **kwargs,
     )
-    delta_cairns: Delta = Delta.of(
+    staged_delta: Delta = Delta.of(
         locator=DeltaLocator.of(partition.locator, None),
         delta_type=delta_type,
         meta=manifest.meta,
@@ -2090,7 +2342,7 @@ def stage_delta(
         manifest=manifest,
         previous_stream_position=previous_stream_position,
     )
-    return delta_cairns
+    return staged_delta
 
 
 def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
@@ -2316,6 +2568,7 @@ def get_table_version_column_names(
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
+        **kwargs,
     )
     return schema.arrow.names if schema else None
 
@@ -2332,7 +2585,7 @@ def get_table_version_schema(
     table version if none is specified. Returns None if the table version is
     schemaless. Raises an error if the table version does not exist.
     """
-    table_version = (
+    table_version_meta = (
         get_table_version(
             *args,
             namespace=namespace,
@@ -2348,7 +2601,7 @@ def get_table_version_schema(
             **kwargs,
         )
     )
-    return table_version.schema
+    return table_version_meta.schema
 
 
 def table_version_exists(

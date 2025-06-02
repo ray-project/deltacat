@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, List, Any, Dict, Callable, Iterator
+from typing import Optional, List, Any, Dict, Callable, Iterator, Union
 
 from daft.daft import (
     StorageConfig,
@@ -34,6 +34,7 @@ from daft.io.scan import (
     make_partition_field,
 )
 import pyarrow as pa
+import pyarrow.fs as pafs
 
 from deltacat import logs
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -249,7 +250,7 @@ def s3_files_to_dataframe(
     ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
 
     if not ray.is_initialized():
-        ray.init(ignore_reinit_error=True, **ray_init_options)
+        ray.init(**ray_init_options)
 
     daft.context.set_runner_ray(noop_if_initialized=True)
 
@@ -270,6 +271,118 @@ def s3_files_to_dataframe(
     )
 
     df, latency = timed_invocation(daft.read_parquet, path=uris, io_config=io_config)
+
+    logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
+
+    columns_to_read = include_columns or column_names
+
+    logger.debug(f"Taking columns {columns_to_read} from the daft df.")
+
+    if columns_to_read:
+        return df.select(*columns_to_read)
+    else:
+        return df
+
+
+def files_to_dataframe(
+    uris: List[str],
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Optional[Callable[[int, Any], Dict[str, Any]]] = None,
+    ray_init_options: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> DataFrame:
+    """
+    Read multiple files into a Daft DataFrame using any filesystem.
+
+    This function is equivalent to s3_files_to_dataframe but works with any filesystem
+    by allowing users to provide their own IOConfig through kwargs.
+
+    Args:
+        uris: List of file URIs to read
+        content_type: The content type (currently only PARQUET is supported)
+        content_encoding: The content encoding (currently only IDENTITY is supported)
+        column_names: Optional column names to assign
+        include_columns: Optional columns to include in the result
+        read_func_kwargs_provider: Optional kwargs provider for customization
+        ray_options_provider: Optional Ray options provider
+        ray_init_options: Optional Ray initialization options
+        **kwargs: Additional kwargs, including optional 'io_config' for filesystem configuration
+
+    Returns:
+        DataFrame: The Daft DataFrame
+
+    Raises:
+        AssertionError: If content_type is not PARQUET or content_encoding is not IDENTITY
+
+    Examples:
+        # Read local files (filesystem auto-inferred)
+        df = files_to_dataframe(
+            uris=["file1.parquet", "file2.parquet"],
+            content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+
+        # Read S3 files with custom IOConfig
+        from daft.io import IOConfig, S3Config
+        s3_config = IOConfig(s3=S3Config(...))
+        df = files_to_dataframe(
+            uris=["s3://bucket/file1.parquet", "s3://bucket/file2.parquet"],
+            content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            io_config=s3_config
+        )
+
+        # Read with custom daft.read_parquet parameters
+        df = files_to_dataframe(
+            uris=["file1.parquet"],
+            content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            coerce_int96_timestamp_unit="ns",
+            hive_partitioning=True
+        )
+    """
+    if ray_init_options is None:
+        ray_init_options = {}
+
+    assert (
+        content_type == ContentType.PARQUET.value
+    ), f"daft native reader currently only supports parquet, got {content_type}"
+
+    assert (
+        content_encoding == ContentEncoding.IDENTITY.value
+    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
+
+    if not ray.is_initialized():
+        ray.init(**ray_init_options)
+
+    daft.context.set_runner_ray(noop_if_initialized=True)
+
+    read_kwargs = {}
+    if read_func_kwargs_provider is not None:
+        read_kwargs = read_func_kwargs_provider(content_type, read_kwargs)
+
+    # TODO(raghumdani): pass in coerce_int96_timestamp arg
+    # https://github.com/Eventual-Inc/Daft/issues/1894
+
+    # Extract io_config from kwargs if provided, otherwise use None
+    io_config = kwargs.pop("io_config", None)
+
+    # Merge any remaining kwargs into read_kwargs
+    read_kwargs.update(kwargs)
+
+    logger.debug(f"Preparing to read {len(uris)} files into daft dataframe")
+
+    # Call daft.read_parquet with io_config only if provided
+    if io_config is not None:
+        df, latency = timed_invocation(
+            daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
+        )
+    else:
+        df, latency = timed_invocation(daft.read_parquet, path=uris, **read_kwargs)
 
     logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
 

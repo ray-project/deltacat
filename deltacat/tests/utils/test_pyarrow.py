@@ -1346,3 +1346,328 @@ class TestFileToParquet(TestCase):
         
         assert isinstance(result, papq.ParquetFile)
         assert result.metadata.num_rows == 3
+
+
+class TestFileToTableFilesystems(TestCase):
+    """Test file_to_table with different filesystem implementations across all content types."""
+    
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self._create_test_files()
+    
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir)
+    
+    def _create_test_files(self):
+        """Create test files for all supported content types."""
+        # Test data
+        test_data = pa.table({
+            "id": [1, 2, 3, 4, 5],
+            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+            "age": [25, 30, 35, 28, 32],
+            "score": [85.5, 92.0, 78.5, 88.0, 95.5]
+        })
+        
+        # File paths
+        self.csv_file = f"{self.tmpdir}/test.csv"
+        self.tsv_file = f"{self.tmpdir}/test.tsv"
+        self.psv_file = f"{self.tmpdir}/test.psv"
+        self.unescaped_tsv_file = f"{self.tmpdir}/test_unescaped.tsv"
+        self.parquet_file = f"{self.tmpdir}/test.parquet"
+        self.feather_file = f"{self.tmpdir}/test.feather"
+        self.json_file = f"{self.tmpdir}/test.json"
+        self.orc_file = f"{self.tmpdir}/test.orc"
+        self.avro_file = f"{self.tmpdir}/test.avro"
+        
+        # Create CSV file
+        pacsv.write_csv(
+            test_data, 
+            self.csv_file,
+            write_options=pacsv.WriteOptions(delimiter=",", include_header=False)
+        )
+        
+        # Create TSV file
+        pacsv.write_csv(
+            test_data, 
+            self.tsv_file,
+            write_options=pacsv.WriteOptions(delimiter="\t", include_header=False)
+        )
+        
+        # Create PSV file
+        pacsv.write_csv(
+            test_data, 
+            self.psv_file,
+            write_options=pacsv.WriteOptions(delimiter="|", include_header=False)
+        )
+        
+        # Create unescaped TSV file
+        pacsv.write_csv(
+            test_data, 
+            self.unescaped_tsv_file,
+            write_options=pacsv.WriteOptions(delimiter="\t", include_header=False, quoting_style="none")
+        )
+        
+        # Create Parquet file
+        papq.write_table(test_data, self.parquet_file)
+        
+        # Create Feather file
+        paf.write_feather(test_data, self.feather_file)
+        
+        # Create JSON file (write as JSONL format)
+        import pandas as pd
+        df = test_data.to_pandas()
+        with open(self.json_file, 'w') as f:
+            for _, row in df.iterrows():
+                json.dump(row.to_dict(), f)
+                f.write('\n')
+        
+        # Create ORC file
+        paorc.write_table(test_data, self.orc_file)
+        
+        # Create Avro file
+        try:
+            import polars as pl
+            pl_df = pl.from_arrow(test_data)
+            pl_df.write_avro(self.avro_file)
+        except ImportError:
+            # Skip Avro file creation if polars is not available
+            self.avro_file = None
+    
+    def _get_filesystems(self, file_path):
+        """Get different filesystem implementations for testing."""
+        # fsspec AbstractFileSystem
+        fsspec_fs = fsspec.filesystem('file')
+        
+        # PyArrow filesystem  
+        import pyarrow.fs as pafs
+        pyarrow_fs = pafs.LocalFileSystem()
+        
+        # None for automatic inference
+        auto_infer_fs = None
+        
+        return [
+            ("fsspec", fsspec_fs),
+            ("pyarrow", pyarrow_fs), 
+            ("auto_infer", auto_infer_fs)
+        ]
+    
+    def _assert_table_content(self, table, content_type):
+        """Assert that the loaded table has expected content."""
+        self.assertEqual(len(table), 5, f"Expected 5 rows for {content_type}")
+        self.assertEqual(len(table.columns), 4, f"Expected 4 columns for {content_type}")
+        
+        # Check column names exist (order might vary for some formats)
+        column_names = set(table.column_names)
+        expected_columns = {"id", "name", "age", "score"}
+        self.assertEqual(column_names, expected_columns, f"Column names mismatch for {content_type}")
+    
+    def test_csv_all_filesystems(self):
+        """Test CSV reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.csv_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.csv_file,
+                    ContentType.CSV.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem,
+                    column_names=["id", "name", "age", "score"]
+                )
+                self._assert_table_content(table, f"CSV with {fs_name}")
+    
+    def test_tsv_all_filesystems(self):
+        """Test TSV reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.tsv_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.tsv_file,
+                    ContentType.TSV.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem,
+                    column_names=["id", "name", "age", "score"]
+                )
+                self._assert_table_content(table, f"TSV with {fs_name}")
+    
+    def test_psv_all_filesystems(self):
+        """Test PSV reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.psv_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.psv_file,
+                    ContentType.PSV.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem,
+                    column_names=["id", "name", "age", "score"]
+                )
+                self._assert_table_content(table, f"PSV with {fs_name}")
+    
+    def test_unescaped_tsv_all_filesystems(self):
+        """Test unescaped TSV reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.unescaped_tsv_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.unescaped_tsv_file,
+                    ContentType.UNESCAPED_TSV.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem,
+                    column_names=["id", "name", "age", "score"]
+                )
+                self._assert_table_content(table, f"UNESCAPED_TSV with {fs_name}")
+    
+    def test_parquet_all_filesystems(self):
+        """Test Parquet reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.parquet_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.parquet_file,
+                    ContentType.PARQUET.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem
+                )
+                self._assert_table_content(table, f"PARQUET with {fs_name}")
+    
+    def test_feather_all_filesystems(self):
+        """Test Feather reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.feather_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.feather_file,
+                    ContentType.FEATHER.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem
+                )
+                self._assert_table_content(table, f"FEATHER with {fs_name}")
+    
+    def test_json_all_filesystems(self):
+        """Test JSON reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.json_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.json_file,
+                    ContentType.JSON.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem
+                )
+                self._assert_table_content(table, f"JSON with {fs_name}")
+    
+    def test_orc_all_filesystems(self):
+        """Test ORC reading with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.orc_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.orc_file,
+                    ContentType.ORC.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem
+                )
+                self._assert_table_content(table, f"ORC with {fs_name}")
+    
+    def test_avro_all_filesystems(self):
+        """Test Avro reading with all filesystem types."""
+        if self.avro_file is None:
+            self.skipTest("Avro file creation skipped (polars not available)")
+        
+        for fs_name, filesystem in self._get_filesystems(self.avro_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.avro_file,
+                    ContentType.AVRO.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem
+                )
+                self._assert_table_content(table, f"AVRO with {fs_name}")
+    
+    def test_column_selection_all_filesystems(self):
+        """Test column selection works with all filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.parquet_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.parquet_file,
+                    ContentType.PARQUET.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem,
+                    include_columns=["name", "age"]
+                )
+                self.assertEqual(len(table.columns), 2, f"Expected 2 columns with {fs_name}")
+                self.assertEqual(set(table.column_names), {"name", "age"}, f"Column selection failed with {fs_name}")
+    
+    def test_kwargs_provider_all_filesystems(self):
+        """Test that kwargs providers work with all filesystem types."""
+        def schema_provider(content_type, kwargs):
+            if content_type == ContentType.CSV.value:
+                # Force all columns to be strings
+                kwargs["convert_options"] = pacsv.ConvertOptions(
+                    column_types={"id": pa.string(), "name": pa.string(), "age": pa.string(), "score": pa.string()}
+                )
+            return kwargs
+        
+        for fs_name, filesystem in self._get_filesystems(self.csv_file):
+            with self.subTest(filesystem=fs_name):
+                table = file_to_table(
+                    self.csv_file,
+                    ContentType.CSV.value,
+                    ContentEncoding.IDENTITY.value,
+                    filesystem=filesystem,
+                    column_names=["id", "name", "age", "score"],
+                    pa_read_func_kwargs_provider=schema_provider
+                )
+                # Check that all columns are strings
+                for field in table.schema:
+                    self.assertEqual(field.type, pa.string(), f"Column {field.name} should be string with {fs_name}")
+    
+    def test_filesystem_auto_inference_consistency(self):
+        """Test that auto-inferred filesystem produces same results as explicit filesystems."""
+        # Use Parquet as it's most reliable across filesystem types
+        
+        # Read with auto-inference
+        auto_table = file_to_table(
+            self.parquet_file,
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=None  # Auto-infer
+        )
+        
+        # Read with explicit fsspec filesystem
+        fsspec_fs = fsspec.filesystem('file')
+        fsspec_table = file_to_table(
+            self.parquet_file,
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=fsspec_fs
+        )
+        
+        # Read with explicit PyArrow filesystem
+        import pyarrow.fs as pafs
+        pyarrow_fs = pafs.LocalFileSystem()
+        pyarrow_table = file_to_table(
+            self.parquet_file,
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=pyarrow_fs
+        )
+        
+        # All should produce equivalent results
+        self.assertTrue(auto_table.equals(fsspec_table), "Auto-inferred result should match fsspec result")
+        self.assertTrue(auto_table.equals(pyarrow_table), "Auto-inferred result should match PyArrow result")
+    
+    def test_error_handling_all_filesystems(self):
+        """Test error handling works consistently across filesystem types."""
+        for fs_name, filesystem in self._get_filesystems(self.parquet_file):
+            with self.subTest(filesystem=fs_name):
+                # Test unsupported content type
+                with self.assertRaises(NotImplementedError):
+                    file_to_table(
+                        self.parquet_file,
+                        "UNSUPPORTED_TYPE",
+                        ContentEncoding.IDENTITY.value,
+                        filesystem=filesystem
+                    )
+                
+                # Test non-existent file
+                with self.assertRaises((FileNotFoundError, OSError)):
+                    file_to_table(
+                        f"{self.tmpdir}/non_existent.parquet",
+                        ContentType.PARQUET.value,
+                        ContentEncoding.IDENTITY.value,
+                        filesystem=filesystem
+                    )

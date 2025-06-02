@@ -47,7 +47,7 @@ from deltacat.types.media import (
 from deltacat.types.tables import (
     TABLE_TYPE_TO_S3_READER_FUNC,
     TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS,
-    DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC,
+    DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC,
     get_table_length,
     CapturedBlockWritePathsActor,
     CapturedBlockWritePathsBase,
@@ -695,8 +695,10 @@ def _download_manifest_entries_all_dataset_distributed(
 
     s3_client_kwargs = _get_s3_client_kwargs_from_token(token_holder=token_holder)
 
-    if distributed_dataset_type in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
-        return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
+    if distributed_dataset_type in DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC:
+        return DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC[
+            distributed_dataset_type.value
+        ](
             uris=uris,
             content_type=entry_content_type,
             content_encoding=entry_content_encoding,

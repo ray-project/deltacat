@@ -1,5 +1,7 @@
 import logging
+import multiprocessing
 from enum import Enum
+from functools import partial
 from typing import Callable, Dict, Type, Union, Optional, Any, List
 from uuid import uuid4
 
@@ -32,10 +34,12 @@ from deltacat import logs
 from deltacat.constants import (
     UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY,
     RETRYABLE_TRANSIENT_ERRORS,
+    DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY,
 )
 from deltacat.storage.model.types import (
     LocalTable,
     DistributedDataset,
+    LocalDataset,
 )
 from deltacat.types.media import (
     TableType,
@@ -55,12 +59,19 @@ from deltacat.storage.model.manifest import (
     ManifestEntry,
     EntryParams,
     EntryType,
+    Manifest,
 )
 from deltacat.exceptions import (
     RetryableError,
     RetryableUploadTableError,
     NonRetryableUploadTableError,
+    categorize_errors,
+    RetryableDownloadTableError,
+    NonRetryableDownloadTableError,
 )
+from deltacat.utils.common import ReadKwargsProvider
+from deltacat.types.partial_download import PartialFileDownloadParams
+from deltacat.utils.ray_utils.concurrency import invoke_parallel
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -151,8 +162,12 @@ TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
     TableType.PANDAS.value: from_pandas_refs,
 }
 
-DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
     DistributedDatasetType.DAFT.value: daft_utils.s3_files_to_dataframe
+}
+
+DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+    DistributedDatasetType.DAFT.value: daft_utils.files_to_dataframe
 }
 
 
@@ -331,7 +346,7 @@ def write_table(
             manifest_entries.append(manifest_entry)
         except RETRYABLE_TRANSIENT_ERRORS as e:
             raise RetryableUploadTableError(
-                f"Retry write for: {path} after receiving {type(e).__name__}",
+                f"Retry write for: {path} after receiving {type(e).__name__}: {e}",
             ) from e
         except BaseException as e:
             logger.warning(
@@ -339,7 +354,7 @@ def write_table(
                 exc_info=True,
             )
             raise NonRetryableUploadTableError(
-                f"Upload has failed for {path} and content_type={content_type} because of {type(e).__name__}",
+                f"Upload has failed for {path} and content_type={content_type} because of {type(e).__name__}: {e}",
             ) from e
     return manifest_entries
 
@@ -518,3 +533,292 @@ def get_block_metadata(
         input_files=None,
         exec_stats=None,
     )
+
+
+def download_manifest_entries(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = 1,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+) -> LocalDataset:
+
+    if max_parallelism and max_parallelism <= 1:
+        return _download_manifest_entries(
+            manifest,
+            table_type,
+            column_names,
+            include_columns,
+            file_reader_kwargs_provider,
+        )
+    else:
+        return _download_manifest_entries_parallel(
+            manifest,
+            table_type,
+            max_parallelism,
+            column_names,
+            include_columns,
+            file_reader_kwargs_provider,
+        )
+
+
+def _download_manifest_entries(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+) -> LocalDataset:
+
+    return [
+        download_manifest_entry(
+            manifest_entry=e,
+            table_type=table_type,
+            column_names=column_names,
+            include_columns=include_columns,
+            file_reader_kwargs_provider=file_reader_kwargs_provider,
+        )
+        for e in manifest.entries
+    ]
+
+
+@ray.remote
+def download_manifest_entry_ray(*args, **kwargs) -> LocalTable:
+    return download_manifest_entry(*args, **kwargs)
+
+
+def download_manifest_entries_distributed(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = 1000,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+) -> DistributedDataset:
+
+    params = {
+        "manifest": manifest,
+        "table_type": table_type,
+        "max_parallelism": max_parallelism,
+        "column_names": column_names,
+        "include_columns": include_columns,
+        "file_reader_kwargs_provider": file_reader_kwargs_provider,
+        "ray_options_provider": ray_options_provider,
+        "distributed_dataset_type": distributed_dataset_type,
+    }
+
+    if distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
+        return _download_manifest_entries_ray_data_distributed(**params)
+    elif distributed_dataset_type is not None:
+        return _download_manifest_entries_all_dataset_distributed(**params)
+    else:
+        raise ValueError(
+            f"Distributed dataset type {distributed_dataset_type} not supported."
+        )
+
+
+def _download_manifest_entries_ray_data_distributed(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = 1000,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+) -> DistributedDataset:
+
+    table_pending_ids = []
+    manifest_entries = manifest.entries
+    if manifest_entries:
+        table_pending_ids = invoke_parallel(
+            manifest_entries,
+            download_manifest_entry_ray,
+            table_type,
+            column_names,
+            include_columns,
+            file_reader_kwargs_provider,
+            max_parallelism=max_parallelism,
+            options_provider=ray_options_provider,
+        )
+    return TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS[table_type](table_pending_ids)
+
+
+def _download_manifest_entries_all_dataset_distributed(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = 1000,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+) -> DistributedDataset:
+
+    entry_content_type = None
+    entry_content_encoding = None
+    uris = []
+    for entry in manifest.entries or []:
+        if (
+            entry_content_type is not None
+            and entry_content_type != entry.meta.content_type
+        ):
+            raise ValueError(
+                f"Mixed content types of ({entry_content_type},"
+                f" {entry.meta.content_type}) is not supported."
+            )
+
+        if (
+            entry_content_encoding is not None
+            and entry_content_encoding != entry.meta.content_encoding
+        ):
+            raise ValueError(
+                f"Mixed content encoding of {entry_content_encoding},"
+                f" {entry.meta.content_encoding} is not supported."
+            )
+
+        entry_content_type = entry.meta.content_type
+        entry_content_encoding = entry.meta.content_encoding
+        uris.append(entry.uri)
+
+    if distributed_dataset_type in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
+        return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
+            uris=uris,
+            content_type=entry_content_type,
+            content_encoding=entry_content_encoding,
+            column_names=column_names,
+            include_columns=include_columns,
+            read_func_kwargs_provider=file_reader_kwargs_provider,
+            ray_options_provider=ray_options_provider,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported distributed dataset type={distributed_dataset_type}"
+        )
+
+
+def _download_manifest_entries_parallel(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+) -> LocalDataset:
+
+    tables = []
+    pool = multiprocessing.Pool(max_parallelism)
+    downloader = partial(
+        download_manifest_entry,
+        table_type=table_type,
+        column_names=column_names,
+        include_columns=include_columns,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
+    )
+    for table in pool.map(downloader, [e for e in manifest.entries]):
+        tables.append(table)
+    return tables
+
+
+def download_manifest_entry(
+    manifest_entry: ManifestEntry,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    content_type: Optional[ContentType] = None,
+    content_encoding: Optional[ContentEncoding] = None,
+    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+) -> LocalTable:
+    if not content_type:
+        content_type = manifest_entry.meta.content_type
+        assert (
+            content_type
+        ), f"Unknown content type for manifest entry: {manifest_entry}"
+        content_type = ContentType(content_type)
+    if not content_encoding:
+        content_encoding = manifest_entry.meta.content_encoding
+        assert (
+            content_encoding
+        ), f"Unknown content encoding for manifest entry: {manifest_entry}"
+        content_encoding = ContentEncoding(content_encoding)
+    path = manifest_entry.uri
+    if path is None:
+        path = manifest_entry.url
+
+    partial_file_download_params = None
+
+    if manifest_entry.meta and manifest_entry.meta.content_type_parameters:
+        for type_params in manifest_entry.meta.content_type_parameters:
+            if isinstance(type_params, PartialFileDownloadParams):
+                partial_file_download_params = type_params
+                break
+
+    # @retry decorator can't be pickled by Ray, so wrap download in Retrying
+    retrying = Retrying(
+        wait=wait_random_exponential(multiplier=1, max=60),
+        stop=stop_after_delay(DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY),
+        retry=retry_if_exception_type(RetryableError),
+    )
+
+    table = retrying(
+        read_file,
+        path,
+        content_type,
+        content_encoding,
+        table_type,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+        partial_file_download_params,
+        filesystem,
+    )
+    return table
+
+
+@categorize_errors
+def read_file(
+    path: str,
+    content_type: ContentType,
+    content_encoding: ContentEncoding = ContentEncoding.IDENTITY,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
+    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+) -> LocalTable:
+
+    reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
+    try:
+        table = reader(
+            path,
+            content_type.value,
+            content_encoding.value,
+            filesystem,
+            column_names,
+            include_columns,
+            file_reader_kwargs_provider,
+            partial_file_download_params,
+        )
+        return table
+    except RETRYABLE_TRANSIENT_ERRORS as e:
+        raise RetryableDownloadTableError(
+            f"Retry download for: {path} after receiving {type(e).__name__}: {e}"
+        ) from e
+    except BaseException as e:
+        logger.warning(
+            f"Read has failed for {path} and content_type={content_type} "
+            f"and encoding={content_encoding}. Error: {e}",
+            exc_info=True,
+        )
+        raise NonRetryableDownloadTableError(
+            f"Read has failed for {path} and content_type={content_type} "
+            f"and encoding={content_encoding}: Error: {e}",
+        ) from e

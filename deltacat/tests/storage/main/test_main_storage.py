@@ -2940,14 +2940,17 @@ class TestPartition:
         assert committed_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
         assert committed_partition.previous_partition_id is None
         assert committed_partition.locator is not None
-        assert committed_partition.locator.stream_locator == self.unpartitioned_stream.locator
+        assert (
+            committed_partition.locator.stream_locator
+            == self.unpartitioned_stream.locator
+        )
 
         # When we retrieve the partition using get_partition with partition_values=None and
         # partition_scheme_id=UNPARTITIONED_SCHEME_ID
         retrieved_partition = metastore.get_partition(
             stream_locator=self.unpartitioned_stream.locator,
             partition_values=None,
-            #partition_scheme_id=UNPARTITIONED_SCHEME_ID,
+            # partition_scheme_id=UNPARTITIONED_SCHEME_ID,
             catalog=self.catalog,
         )
 
@@ -2958,7 +2961,10 @@ class TestPartition:
         assert retrieved_partition.state == CommitState.COMMITTED
         assert retrieved_partition.partition_values is None
         assert retrieved_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
-        assert retrieved_partition.locator.stream_locator == self.unpartitioned_stream.locator
+        assert (
+            retrieved_partition.locator.stream_locator
+            == self.unpartitioned_stream.locator
+        )
 
         # When we retrieve the partition using get_partition with partition_values=None and
         # partition_scheme_id=UNPARTITIONED_SCHEME_ID
@@ -3040,7 +3046,7 @@ class TestPartition:
         # Given committed partitions on a partitioned stream with actual values
         partition_values1 = [123, "abc"]
         partition_values2 = [456, "def"]
-        
+
         staged_partition1 = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values1,
@@ -3051,7 +3057,7 @@ class TestPartition:
             partition=staged_partition1,
             catalog=self.catalog,
         )
-        
+
         staged_partition2 = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values2,
@@ -3083,11 +3089,11 @@ class TestPartition:
 
         # Then we should get the partitioned stream's partitions with actual values
         assert len(partitioned_partitions) == 2
-        
+
         partition_values_list = [p.partition_values for p in partitioned_partitions]
         assert partition_values1 in partition_values_list
         assert partition_values2 in partition_values_list
-        
+
         for p in partitioned_partitions:
             assert p.state == CommitState.COMMITTED
             assert p.partition_scheme_id == self.tv.partition_scheme.id
@@ -3156,9 +3162,14 @@ class TestPartition:
             assert p.locator.stream_locator == self.unpartitioned_stream.locator
 
         # Verify we have one with empty list and one with None
-        partition_values_set = {tuple(p.partition_values) if p.partition_values is not None else None for p in partitions_list}
+        partition_values_set = {
+            tuple(p.partition_values) if p.partition_values is not None else None
+            for p in partitions_list
+        }
         assert None in partition_values_set  # None values
-        assert () in partition_values_set     # Empty list (converted to empty tuple for set membership)
+        assert (
+            () in partition_values_set
+        )  # Empty list (converted to empty tuple for set membership)
 
         # Verify we can retrieve each partition individually
         retrieved_empty_list = metastore.get_partition(
@@ -3183,6 +3194,9 @@ class TestPartition:
 class TestDelta:
     @classmethod
     def setup_method(cls):
+        import pyarrow as pa
+        from deltacat.storage import Schema
+
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = CatalogProperties(root=cls.tmpdir)
 
@@ -3193,11 +3207,35 @@ class TestDelta:
             catalog=cls.catalog,
         )
 
-        # Create and commit table version
+        # Create a schema for the table version
+        arrow_schema = pa.schema(
+            [
+                ("id", pa.int64()),
+                ("name", pa.string()),
+                ("age", pa.int64()),
+                ("city", pa.string()),
+            ]
+        )
+        schema = Schema.of(
+            schema=arrow_schema,
+            schema_id="test_schema_id",
+        )
+
+        # Create and commit table version with schema
         cls.table, cls.table_version, cls.stream = metastore.create_table_version(
             namespace=cls.namespace.locator.namespace,
             table_name="test_table",
             table_version="v.1",
+            schema=schema,
+            catalog=cls.catalog,
+        )
+
+        # Make the table version active
+        metastore.update_table_version(
+            namespace=cls.namespace.locator.namespace,
+            table_name="test_table",
+            table_version="v.1",
+            lifecycle_state=LifecycleState.ACTIVE,
             catalog=cls.catalog,
         )
 
@@ -3219,8 +3257,7 @@ class TestDelta:
 
     @classmethod
     def teardown_method(cls):
-        # shutil.rmtree(cls.tmpdir)
-        pass
+        shutil.rmtree(cls.tmpdir)
 
     def test_stage_delta_with_polars(self):
         # Create a sample Polars DataFrame
@@ -4332,7 +4369,7 @@ class TestDelta:
         assert len(committed_delta.manifest.entries) > 0
         assert committed_delta.locator.stream_locator == self.stream.locator
         assert committed_delta.locator.partition_locator == self.partition.locator
-        
+
         # Verify the committed delta has stream position assigned
         assert committed_delta.locator.stream_position is not None
         assert committed_delta.locator.stream_position >= 1
@@ -4389,10 +4426,12 @@ class TestDelta:
         import pyarrow as pa
 
         # Create a delete delta with records to delete
-        delete_table = pa.Table.from_pylist([
-            {"id": 1},  # Delete record with id=1
-            {"id": 2},  # Delete record with id=2
-        ])
+        delete_table = pa.Table.from_pylist(
+            [
+                {"id": 1},  # Delete record with id=1
+                {"id": 2},  # Delete record with id=2
+            ]
+        )
 
         # Stage the delta as DELETE type
         staged_delta = metastore.stage_delta(
@@ -4427,10 +4466,12 @@ class TestDelta:
         # Test committing deltas with different content types
         import pandas as pd
 
-        test_data = pd.DataFrame({
-            "id": [1, 2],
-            "value": ["test1", "test2"],
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "value": ["test1", "test2"],
+            }
+        )
 
         content_types_to_test = [
             ContentType.PARQUET,
@@ -4442,7 +4483,7 @@ class TestDelta:
         ]
 
         committed_deltas = []
-        
+
         for content_type in content_types_to_test:
             # Stage delta with specific content type
             staged_delta = metastore.stage_delta(
@@ -4463,34 +4504,38 @@ class TestDelta:
             assert committed_delta is not None
             assert committed_delta.type == DeltaType.UPSERT
             assert committed_delta.locator.stream_position is not None
-            
+
             # Verify content type in manifest entry
             entry = committed_delta.manifest.entries[0]
             assert entry.meta.content_type == content_type.value
             assert entry.meta.record_count == 2
-            
+
             committed_deltas.append(committed_delta)
 
         # Verify all deltas have unique stream positions
         stream_positions = [d.locator.stream_position for d in committed_deltas]
-        assert len(set(stream_positions)) == len(stream_positions), "Stream positions should be unique"
+        assert len(set(stream_positions)) == len(
+            stream_positions
+        ), "Stream positions should be unique"
 
     def test_commit_delta_sequential_stream_positions(self):
         # Test that sequential delta commits get incrementing stream positions
         import pandas as pd
 
-        base_data = pd.DataFrame({
-            "id": [1, 2],
-            "value": ["base1", "base2"],
-        })
+        base_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "value": ["base1", "base2"],
+            }
+        )
 
         committed_deltas = []
-        
+
         # Commit multiple deltas in sequence
         for i in range(5):
             test_data = base_data.copy()
             test_data["batch"] = i
-            
+
             # Stage delta
             staged_delta = metastore.stage_delta(
                 data=test_data,
@@ -4510,25 +4555,31 @@ class TestDelta:
             assert committed_delta is not None
             assert committed_delta.type == DeltaType.UPSERT
             assert committed_delta.locator.stream_position is not None
-            
+
             committed_deltas.append(committed_delta)
 
         # Verify stream positions are increasing
         stream_positions = [d.locator.stream_position for d in committed_deltas]
         for i in range(1, len(stream_positions)):
-            assert stream_positions[i] > stream_positions[i-1], "Stream positions should be increasing"
+            assert (
+                stream_positions[i] > stream_positions[i - 1]
+            ), "Stream positions should be increasing"
 
         # Verify all positions are unique
-        assert len(set(stream_positions)) == len(stream_positions), "Stream positions should be unique"
+        assert len(set(stream_positions)) == len(
+            stream_positions
+        ), "Stream positions should be unique"
 
     def test_commit_delta_with_properties(self):
         # Test committing delta with custom properties
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "data": ["a", "b", "c"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "data": ["a", "b", "c"],
+            }
+        )
 
         # Stage delta
         staged_delta = metastore.stage_delta(
@@ -4562,16 +4613,15 @@ class TestDelta:
         from deltacat.storage.model.manifest import ManifestAuthor
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "author_test": ["data1", "data2"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "author_test": ["data1", "data2"],
+            }
+        )
 
         # Create manifest author
-        author = ManifestAuthor.of(
-            name="test_author", 
-            version="1.0"
-        )
+        author = ManifestAuthor.of(name="test_author", version="1.0")
 
         # Stage delta with author
         staged_delta = metastore.stage_delta(
@@ -4600,10 +4650,12 @@ class TestDelta:
         # Test error handling when committing delta with invalid partition
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "data": ["test1", "test2"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "data": ["test1", "test2"],
+            }
+        )
 
         # Stage delta normally
         staged_delta = metastore.stage_delta(
@@ -4622,17 +4674,19 @@ class TestDelta:
                 delta=staged_delta,
                 catalog=self.catalog,
             )
-        
+
         assert "Partition not found" in str(exc_info.value)
 
     def test_commit_delta_default_type_assignment(self):
         # Test that delta type defaults to UPSERT when not specified
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "default_type": ["a", "b", "c"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "default_type": ["a", "b", "c"],
+            }
+        )
 
         # Stage delta without specifying type (should default to UPSERT)
         staged_delta = metastore.stage_delta(
@@ -4661,12 +4715,14 @@ class TestDelta:
         import pandas as pd
 
         # Create a larger dataset
-        large_data = pd.DataFrame({
-            "id": range(1000),
-            "name": [f"user_{i}" for i in range(1000)],
-            "value": [i * 1.5 for i in range(1000)],
-            "category": [f"cat_{i % 10}" for i in range(1000)],
-        })
+        large_data = pd.DataFrame(
+            {
+                "id": range(1000),
+                "name": [f"user_{i}" for i in range(1000)],
+                "value": [i * 1.5 for i in range(1000)],
+                "category": [f"cat_{i % 10}" for i in range(1000)],
+            }
+        )
 
         # Stage the large delta
         staged_delta = metastore.stage_delta(
@@ -4699,10 +4755,12 @@ class TestDelta:
         import pandas as pd
 
         # Create Ray Dataset
-        df = pd.DataFrame({
-            "id": [1, 2, 3, 4, 5],
-            "ray_data": ["a", "b", "c", "d", "e"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "ray_data": ["a", "b", "c", "d", "e"],
+            }
+        )
         ray_dataset = ray.data.from_pandas(df)
 
         # Stage delta with Ray Dataset
@@ -4742,10 +4800,12 @@ class TestDelta:
         )
         initial_stream_position = initial_partition.stream_position or 0
 
-        test_data = pd.DataFrame({
-            "id": [1, 2],
-            "stream_test": ["data1", "data2"],
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "stream_test": ["data1", "data2"],
+            }
+        )
 
         # Stage and commit first delta
         staged_delta_1 = metastore.stage_delta(
@@ -4795,11 +4855,13 @@ class TestDelta:
         # Test basic delta retrieval after commit
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "age": [25, 30, 35],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
 
         # Stage and commit delta
         staged_delta = metastore.stage_delta(
@@ -4833,27 +4895,36 @@ class TestDelta:
         )
 
         # Verify the retrieved delta matches the committed one
-        assert retrieved_delta is not None, f"Failed to retrieve delta at stream position {committed_delta.locator.stream_position}"
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert (
+            retrieved_delta is not None
+        ), f"Failed to retrieve delta at stream position {committed_delta.locator.stream_position}"
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
         assert retrieved_delta.type == committed_delta.type
         assert retrieved_delta.type == DeltaType.UPSERT
 
         # Verify manifest integrity
         assert retrieved_delta.manifest is not None
-        assert len(retrieved_delta.manifest.entries) == len(committed_delta.manifest.entries)
+        assert len(retrieved_delta.manifest.entries) == len(
+            committed_delta.manifest.entries
+        )
 
     def test_get_delta_different_types(self):
         # Test retrieving deltas with different delta types
         import pandas as pd
 
-        test_data = pd.DataFrame({
-            "id": [1, 2],
-            "value": ["test1", "test2"],
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "value": ["test1", "test2"],
+            }
+        )
 
         delta_types_to_test = [
             DeltaType.UPSERT,
-            DeltaType.APPEND, 
+            DeltaType.APPEND,
             DeltaType.DELETE,
         ]
 
@@ -4885,18 +4956,25 @@ class TestDelta:
             )
 
             # Verify the retrieved delta matches the committed one
-            assert retrieved_delta is not None, f"Failed to retrieve {delta_type} delta at stream position {committed_delta.locator.stream_position}"
+            assert (
+                retrieved_delta is not None
+            ), f"Failed to retrieve {delta_type} delta at stream position {committed_delta.locator.stream_position}"
             assert retrieved_delta.type == delta_type
-            assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+            assert (
+                retrieved_delta.locator.stream_position
+                == committed_delta.locator.stream_position
+            )
 
     def test_get_delta_with_properties(self):
         # Test retrieving delta with custom properties
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "prop_test": ["a", "b", "c"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "prop_test": ["a", "b", "c"],
+            }
+        )
 
         # Stage delta
         staged_delta = metastore.stage_delta(
@@ -4933,18 +5011,25 @@ class TestDelta:
         )
 
         # Verify the retrieved delta preserves custom properties
-        assert retrieved_delta is not None, f"Failed to retrieve delta with properties at stream position {committed_delta.locator.stream_position}"
+        assert (
+            retrieved_delta is not None
+        ), f"Failed to retrieve delta with properties at stream position {committed_delta.locator.stream_position}"
         assert retrieved_delta.properties == custom_properties
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
 
     def test_get_delta_without_manifest(self):
         # Test retrieving delta without manifest for performance
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "perf_test": ["x", "y", "z"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "perf_test": ["x", "y", "z"],
+            }
+        )
 
         # Stage and commit delta
         staged_delta = metastore.stage_delta(
@@ -4973,10 +5058,17 @@ class TestDelta:
         )
 
         # Verify the retrieved delta but without manifest
-        assert retrieved_delta is not None, f"Failed to retrieve delta without manifest at stream position {committed_delta.locator.stream_position}"
+        assert (
+            retrieved_delta is not None
+        ), f"Failed to retrieve delta without manifest at stream position {committed_delta.locator.stream_position}"
         assert retrieved_delta.type == DeltaType.UPSERT
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
-        assert retrieved_delta.manifest is None  # Should be None when include_manifest=False
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
+        assert (
+            retrieved_delta.manifest is None
+        )  # Should be None when include_manifest=False
 
     def test_get_delta_not_exists(self):
         # Test error handling when trying to retrieve non-existent delta
@@ -5015,12 +5107,14 @@ class TestDelta:
         import pandas as pd
 
         # Create a larger dataset
-        large_data = pd.DataFrame({
-            "id": range(500),
-            "name": [f"user_{i}" for i in range(500)],
-            "value": [i * 2.5 for i in range(500)],
-            "category": [f"cat_{i % 5}" for i in range(500)],
-        })
+        large_data = pd.DataFrame(
+            {
+                "id": range(500),
+                "name": [f"user_{i}" for i in range(500)],
+                "value": [i * 2.5 for i in range(500)],
+                "category": [f"cat_{i % 5}" for i in range(500)],
+            }
+        )
 
         # Stage the large delta
         staged_delta = metastore.stage_delta(
@@ -5052,7 +5146,10 @@ class TestDelta:
         # Verify the retrieved delta for large dataset
         assert retrieved_delta is not None
         assert retrieved_delta.type == DeltaType.APPEND
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
         assert retrieved_delta.manifest is not None
 
         # Verify manifest entry metadata for large dataset
@@ -5066,10 +5163,12 @@ class TestDelta:
         import pandas as pd
 
         # Create Ray Dataset
-        df = pd.DataFrame({
-            "id": [1, 2, 3, 4, 5],
-            "ray_retrieve": ["a", "b", "c", "d", "e"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "ray_retrieve": ["a", "b", "c", "d", "e"],
+            }
+        )
         ray_dataset = ray.data.from_pandas(df)
 
         # Stage delta with Ray Dataset
@@ -5102,7 +5201,10 @@ class TestDelta:
         # Verify the retrieved delta
         assert retrieved_delta is not None
         assert retrieved_delta.type == DeltaType.UPSERT
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
         assert retrieved_delta.manifest is not None
 
         # Verify manifest entry metadata
@@ -5114,11 +5216,13 @@ class TestDelta:
         # Test that retrieved delta manifest is consistent with committed delta
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2, 3, 4],
-            "consistency_test": ["w", "x", "y", "z"],
-            "metadata": [10, 20, 30, 40],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4],
+                "consistency_test": ["w", "x", "y", "z"],
+                "metadata": [10, 20, 30, 40],
+            }
+        )
 
         # Stage and commit delta
         staged_delta = metastore.stage_delta(
@@ -5159,30 +5263,49 @@ class TestDelta:
         assert retrieved_meta.content_encoding == committed_meta.content_encoding
 
         # Check manifest entries
-        assert len(retrieved_delta.manifest.entries) == len(committed_delta.manifest.entries)
-        
-        for i, (retrieved_entry, committed_entry) in enumerate(zip(
-            retrieved_delta.manifest.entries, 
+        assert len(retrieved_delta.manifest.entries) == len(
             committed_delta.manifest.entries
-        )):
+        )
+
+        for i, (retrieved_entry, committed_entry) in enumerate(
+            zip(retrieved_delta.manifest.entries, committed_delta.manifest.entries)
+        ):
             assert retrieved_entry.uri == committed_entry.uri
-            assert retrieved_entry.meta.record_count == committed_entry.meta.record_count
-            assert retrieved_entry.meta.content_type == committed_entry.meta.content_type
-            assert retrieved_entry.meta.content_length == committed_entry.meta.content_length
+            assert (
+                retrieved_entry.meta.record_count == committed_entry.meta.record_count
+            )
+            assert (
+                retrieved_entry.meta.content_type == committed_entry.meta.content_type
+            )
+            assert (
+                retrieved_entry.meta.content_length
+                == committed_entry.meta.content_length
+            )
 
         # Verify stream position and locator consistency
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
-        assert retrieved_delta.locator.partition_locator.partition_id == committed_delta.locator.partition_locator.partition_id
-        assert retrieved_delta.previous_stream_position == committed_delta.previous_stream_position
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
+        assert (
+            retrieved_delta.locator.partition_locator.partition_id
+            == committed_delta.locator.partition_locator.partition_id
+        )
+        assert (
+            retrieved_delta.previous_stream_position
+            == committed_delta.previous_stream_position
+        )
 
     def test_get_delta_without_manifest(self):
         # Test retrieving delta without manifest for performance
         import pandas as pd
 
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "perf_test": ["x", "y", "z"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "perf_test": ["x", "y", "z"],
+            }
+        )
 
         # Stage and commit delta
         staged_delta = metastore.stage_delta(
@@ -5211,20 +5334,29 @@ class TestDelta:
         )
 
         # Verify the retrieved delta but without manifest
-        assert retrieved_delta is not None, f"Failed to retrieve delta without manifest at stream position {committed_delta.locator.stream_position}"
+        assert (
+            retrieved_delta is not None
+        ), f"Failed to retrieve delta without manifest at stream position {committed_delta.locator.stream_position}"
         assert retrieved_delta.type == DeltaType.UPSERT
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
-        assert retrieved_delta.manifest is None  # Should be None when include_manifest=False
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
+        assert (
+            retrieved_delta.manifest is None
+        )  # Should be None when include_manifest=False
 
     def test_get_delta_with_different_table_versions(self):
         # Test retrieving deltas from different table versions
         import pandas as pd
 
         # Create data for first table version
-        df1 = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-        })
+        df1 = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
 
         # Stage and commit delta for first table version (v.1)
         staged_delta_1 = metastore.stage_delta(
@@ -5241,10 +5373,12 @@ class TestDelta:
         )
 
         # Create data for second table version
-        df2 = pd.DataFrame({
-            "id": [4, 5, 6],
-            "name": ["David", "Eve", "Frank"],
-        })
+        df2 = pd.DataFrame(
+            {
+                "id": [4, 5, 6],
+                "name": ["David", "Eve", "Frank"],
+            }
+        )
 
         # Create a second table version
         _, table_version_2, stream_2 = metastore.create_table_version(
@@ -5301,18 +5435,26 @@ class TestDelta:
         # Verify both deltas were retrieved correctly
         assert retrieved_delta_1 is not None
         assert retrieved_delta_2 is not None
-        assert retrieved_delta_1.locator.partition_locator.stream_locator.table_version_locator.table_version == "v.1"
-        assert retrieved_delta_2.locator.partition_locator.stream_locator.table_version_locator.table_version == "v.2"
+        assert (
+            retrieved_delta_1.locator.partition_locator.stream_locator.table_version_locator.table_version
+            == "v.1"
+        )
+        assert (
+            retrieved_delta_2.locator.partition_locator.stream_locator.table_version_locator.table_version
+            == "v.2"
+        )
 
     def test_get_delta_infers_latest_active_table_version(self):
         """Test that get_delta can infer the latest active table version when not explicitly specified."""
         import pandas as pd
 
         # Create data for the test
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
 
         # Set the current table version to active explicitly
         metastore.update_table_version(
@@ -5348,11 +5490,19 @@ class TestDelta:
         )
 
         # Verify the delta was retrieved correctly
-        assert retrieved_delta is not None, "Should be able to retrieve delta with inferred table version"
+        assert (
+            retrieved_delta is not None
+        ), "Should be able to retrieve delta with inferred table version"
         assert retrieved_delta.type == DeltaType.UPSERT
-        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert (
+            retrieved_delta.locator.stream_position
+            == committed_delta.locator.stream_position
+        )
         assert retrieved_delta.manifest is not None
-        assert retrieved_delta.locator.partition_locator.stream_locator.table_version_locator.table_version == self.table_version.table_version
+        assert (
+            retrieved_delta.locator.partition_locator.stream_locator.table_version_locator.table_version
+            == self.table_version.table_version
+        )
 
         # Verify manifest entry metadata
         entry = retrieved_delta.manifest.entries[0]
@@ -5373,15 +5523,19 @@ class TestDelta:
         )
 
         # Create and commit multiple deltas
-        df1 = pd.DataFrame({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-        })
+        df1 = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+            }
+        )
 
-        df2 = pd.DataFrame({
-            "id": [3, 4],
-            "name": ["Charlie", "David"],
-        })
+        df2 = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "David"],
+            }
+        )
 
         # Stage and commit first delta
         staged_delta_1 = metastore.stage_delta(
@@ -5421,20 +5575,28 @@ class TestDelta:
 
         # Verify deltas were listed correctly
         assert len(deltas) == 2, f"Expected 2 deltas, got {len(deltas)}"
-        
+
         # Convert to list to access by index
         delta_list = list(deltas)
-        
+
         # Verify both deltas are from the correct table version
         for delta in delta_list:
-            assert delta.locator.partition_locator.stream_locator.table_version_locator.table_version == self.table_version.table_version
-        
+            assert (
+                delta.locator.partition_locator.stream_locator.table_version_locator.table_version
+                == self.table_version.table_version
+            )
+
         # Verify the deltas are the ones we committed (by stream position)
         stream_positions = [delta.locator.stream_position for delta in delta_list]
-        expected_positions = [committed_delta_1.locator.stream_position, committed_delta_2.locator.stream_position]
-        
-        assert set(stream_positions) == set(expected_positions), f"Expected stream positions {expected_positions}, got {stream_positions}"
-        
+        expected_positions = [
+            committed_delta_1.locator.stream_position,
+            committed_delta_2.locator.stream_position,
+        ]
+
+        assert set(stream_positions) == set(
+            expected_positions
+        ), f"Expected stream positions {expected_positions}, got {stream_positions}"
+
         # Verify delta types
         delta_types = [delta.type for delta in delta_list]
         assert DeltaType.UPSERT in delta_types
@@ -5453,11 +5615,13 @@ class TestDelta:
         initial_stream_position = initial_partition.stream_position or 0
 
         # Create test data
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "custom_stream_position": ["test1", "test2", "test3"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "custom_stream_position": ["test1", "test2", "test3"],
+            }
+        )
 
         # Stage a delta normally (stream position will be None initially)
         staged_delta = metastore.stage_delta(
@@ -5469,7 +5633,9 @@ class TestDelta:
         )
 
         # Verify the staged delta initially has no stream position set
-        assert staged_delta.locator.stream_position is None, "Staged delta should initially have no stream position"
+        assert (
+            staged_delta.locator.stream_position is None
+        ), "Staged delta should initially have no stream position"
 
         # Set a custom stream position that's greater than the current stream position
         # We'll use a large gap to make it obvious this is user-specified
@@ -5479,7 +5645,9 @@ class TestDelta:
         staged_delta.locator.stream_position = user_specified_stream_position
 
         # Verify the stream position was set
-        assert staged_delta.locator.stream_position == user_specified_stream_position, "Stream position should be set to user-specified value"
+        assert (
+            staged_delta.locator.stream_position == user_specified_stream_position
+        ), "Stream position should be set to user-specified value"
 
         # Commit the delta with the user-specified stream position
         committed_delta = metastore.commit_delta(
@@ -5488,10 +5656,14 @@ class TestDelta:
         )
 
         # Verify the committed delta preserves the user-specified stream position
-        assert committed_delta.locator.stream_position == user_specified_stream_position, f"Committed delta should preserve user-specified stream position {user_specified_stream_position}, but got {committed_delta.locator.stream_position}"
+        assert (
+            committed_delta.locator.stream_position == user_specified_stream_position
+        ), f"Committed delta should preserve user-specified stream position {user_specified_stream_position}, but got {committed_delta.locator.stream_position}"
 
         # Verify the previous stream position is correctly set
-        assert committed_delta.previous_stream_position == initial_stream_position, f"Previous stream position should be {initial_stream_position}, but got {committed_delta.previous_stream_position}"
+        assert (
+            committed_delta.previous_stream_position == initial_stream_position
+        ), f"Previous stream position should be {initial_stream_position}, but got {committed_delta.previous_stream_position}"
 
         # Verify the partition's stream position is updated to the user-specified position
         updated_partition = metastore.get_partition_by_id(
@@ -5499,7 +5671,9 @@ class TestDelta:
             partition_id=self.partition.partition_id,
             catalog=self.catalog,
         )
-        assert updated_partition.stream_position == user_specified_stream_position, f"Partition stream position should be updated to {user_specified_stream_position}, but got {updated_partition.stream_position}"
+        assert (
+            updated_partition.stream_position == user_specified_stream_position
+        ), f"Partition stream position should be updated to {user_specified_stream_position}, but got {updated_partition.stream_position}"
 
         # Test that we can retrieve the delta using the user-specified stream position
         retrieved_delta = metastore.get_delta(
@@ -5512,17 +5686,21 @@ class TestDelta:
         )
 
         # Verify the retrieved delta matches the committed one
-        assert retrieved_delta is not None, f"Should be able to retrieve delta at user-specified stream position {user_specified_stream_position}"
+        assert (
+            retrieved_delta is not None
+        ), f"Should be able to retrieve delta at user-specified stream position {user_specified_stream_position}"
         assert retrieved_delta.locator.stream_position == user_specified_stream_position
         assert retrieved_delta.type == DeltaType.UPSERT
         assert retrieved_delta.manifest is not None
 
         # Test committing another delta after the custom stream position
-        df2 = pd.DataFrame({
-            "id": [4, 5],
-            "name": ["David", "Eve"],
-            "follow_up": ["test4", "test5"],
-        })
+        df2 = pd.DataFrame(
+            {
+                "id": [4, 5],
+                "name": ["David", "Eve"],
+                "follow_up": ["test4", "test5"],
+            }
+        )
 
         # Stage and commit a second delta (should get auto-assigned position)
         staged_delta_2 = metastore.stage_delta(
@@ -5541,8 +5719,12 @@ class TestDelta:
 
         # Verify the second delta gets auto-assigned position (user_specified_position + 1)
         expected_auto_assigned_position = user_specified_stream_position + 1
-        assert committed_delta_2.locator.stream_position == expected_auto_assigned_position, f"Second delta should get auto-assigned position {expected_auto_assigned_position}, but got {committed_delta_2.locator.stream_position}"
-        assert committed_delta_2.previous_stream_position == user_specified_stream_position, f"Second delta's previous stream position should be {user_specified_stream_position}, but got {committed_delta_2.previous_stream_position}"
+        assert (
+            committed_delta_2.locator.stream_position == expected_auto_assigned_position
+        ), f"Second delta should get auto-assigned position {expected_auto_assigned_position}, but got {committed_delta_2.locator.stream_position}"
+        assert (
+            committed_delta_2.previous_stream_position == user_specified_stream_position
+        ), f"Second delta's previous stream position should be {user_specified_stream_position}, but got {committed_delta_2.previous_stream_position}"
 
     def test_commit_delta_user_stream_position_validation(self):
         """Test that user-specified stream positions are validated to be greater than previous stream position."""
@@ -5557,10 +5739,12 @@ class TestDelta:
         initial_stream_position = initial_partition.stream_position or 0
 
         # Create test data
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "validation_test": ["data1", "data2"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "validation_test": ["data1", "data2"],
+            }
+        )
 
         # Stage a delta
         staged_delta = metastore.stage_delta(
@@ -5574,7 +5758,10 @@ class TestDelta:
         # Test 1: Try to set stream position equal to previous stream position (should fail)
         staged_delta.locator.stream_position = initial_stream_position
 
-        with pytest.raises(ValueError, match="Delta stream position .* must be greater than previous stream position"):
+        with pytest.raises(
+            ValueError,
+            match="Delta stream position .* must be greater than previous stream position",
+        ):
             metastore.commit_delta(
                 delta=staged_delta,
                 catalog=self.catalog,
@@ -5584,7 +5771,10 @@ class TestDelta:
         if initial_stream_position > 0:
             staged_delta.locator.stream_position = initial_stream_position - 1
 
-            with pytest.raises(ValueError, match="Delta stream position .* must be greater than previous stream position"):
+            with pytest.raises(
+                ValueError,
+                match="Delta stream position .* must be greater than previous stream position",
+            ):
                 metastore.commit_delta(
                     delta=staged_delta,
                     catalog=self.catalog,
@@ -5600,4 +5790,217 @@ class TestDelta:
         )
 
         # Verify the valid stream position was preserved
-        assert committed_delta.locator.stream_position == valid_stream_position, f"Valid stream position {valid_stream_position} should be preserved, but got {committed_delta.locator.stream_position}"
+        assert (
+            committed_delta.locator.stream_position == valid_stream_position
+        ), f"Valid stream position {valid_stream_position} should be preserved, but got {committed_delta.locator.stream_position}"
+
+    def test_download_delta_local_pyarrow(self):
+        """Test downloading delta with local storage and PyArrow table type."""
+        import pandas as pd
+        from deltacat.types.media import TableType, StorageType
+
+        # Create very simple test data that matches the schema exactly
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["New York", "Boston", "Chicago"],
+            }
+        )
+
+        # Stage and commit the delta
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test downloading with specific columns
+        selected_columns = ["id", "name", "city"]
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.LOCAL,
+            columns=selected_columns,
+            catalog=self.catalog,
+        )
+
+        # Verify only selected columns are present
+        downloaded_table = (
+            downloaded_tables[0]
+            if len(downloaded_tables) == 1
+            else pa.concat_tables(downloaded_tables)
+        )
+        downloaded_df = downloaded_table.to_pandas()
+
+        assert (
+            list(downloaded_df.columns) == selected_columns
+        ), f"Expected columns {selected_columns}, got {list(downloaded_df.columns)}"
+
+        # Verify data integrity for selected columns
+        expected_df = test_data[selected_columns]
+        downloaded_df_sorted = downloaded_df.sort_values("id").reset_index(drop=True)
+        expected_df_sorted = expected_df.sort_values("id").reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(downloaded_df_sorted, expected_df_sorted)
+
+    def test_download_delta_with_delta_locator(self):
+        """Test downloading delta using DeltaLocator instead of Delta object."""
+        import pandas as pd
+        from deltacat.types.media import TableType, StorageType
+
+        # Create and commit test data
+        test_data = pd.DataFrame(
+            {
+                "id": [1001, 1002, 1003],
+                "name": ["Customer A", "Customer B", "Customer C"],
+                "age": [30, 35, 40],
+                "city": ["Seattle", "Portland", "San Francisco"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test download using DeltaLocator instead of Delta object
+        delta_locator = committed_delta.locator
+        downloaded_tables = metastore.download_delta(
+            delta_like=delta_locator,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        # Verify the result
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        downloaded_table = (
+            downloaded_tables[0]
+            if len(downloaded_tables) == 1
+            else pa.concat_tables(downloaded_tables)
+        )
+        downloaded_df = (
+            downloaded_table.to_pandas().sort_values("id").reset_index(drop=True)
+        )
+        expected_df = test_data.sort_values("id").reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(downloaded_df, expected_df)
+
+    def test_download_delta_invalid_columns(self):
+        """Test error handling when requesting non-existent columns."""
+        import pandas as pd
+        from deltacat.types.media import TableType, StorageType
+
+        # Create and commit test data
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["New York", "Boston", "Chicago"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test with invalid column names (one valid, one invalid)
+        invalid_columns = ["id", "non_existent_column"]
+        with pytest.raises(
+            ValueError,
+            match="One or more columns .* are not present in table version columns",
+        ):
+            metastore.download_delta(
+                delta_like=committed_delta,
+                table_type=TableType.PYARROW,
+                storage_type=StorageType.LOCAL,
+                columns=invalid_columns,
+                catalog=self.catalog,
+            )
+
+    def test_download_delta_manifest_entry_basic(self):
+        """Test downloading a specific manifest entry by index."""
+        import pandas as pd
+        from deltacat.types.media import TableType
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["New York", "Boston", "Chicago"],
+            }
+        )
+
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify we have a manifest
+        assert committed_delta.manifest is not None, "Delta should have a manifest"
+        assert (
+            len(committed_delta.manifest.entries) > 0
+        ), "Should have at least one manifest entry"
+
+        # Test downloading the first manifest entry
+        entry_index = 0
+        downloaded_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=entry_index,
+            table_type=TableType.PYARROW,
+            catalog=self.catalog,
+        )
+
+        # Verify the result is a PyArrow table
+        assert isinstance(
+            downloaded_table, pa.Table
+        ), f"Expected PyArrow Table, got {type(downloaded_table)}"
+        assert len(downloaded_table) > 0, "Downloaded table should not be empty"
+        assert len(downloaded_table) <= len(
+            test_data
+        ), "Downloaded table should not have more rows than test data"
+
+        # Verify columns match expected schema
+        expected_columns = ["id", "name", "age", "city"]
+        assert (
+            list(downloaded_table.column_names) == expected_columns
+        ), f"Expected columns {expected_columns}, got {list(downloaded_table.column_names)}"
