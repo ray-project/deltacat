@@ -9,17 +9,19 @@ from deltacat.compute.converter.utils.converter_session_utils import (
 )
 import logging
 from deltacat import logs
+from typing import List, Dict, Tuple, Optional, Any
+from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def dedupe_data_files(
-    data_file_to_dedupe,
-    identifier_columns,
-    remaining_data_table_after_convert,
-    merge_sort_column,
-    s3_client_kwargs,
-):
+    data_file_to_dedupe: List[Tuple[int, DataFile]],
+    identifier_columns: List[str],
+    remaining_data_table_after_convert: Optional[pa.Table],
+    merge_sort_column: str,
+    s3_client_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[pa.Table, int, int]:
     data_file_table = []
     if remaining_data_table_after_convert:
         data_file_table.append(remaining_data_table_after_convert)

@@ -22,12 +22,15 @@ from deltacat.compute.converter.pyiceberg.overrides import (
 from deltacat.compute.converter.model.convert_result import ConvertResult
 from pyiceberg.manifest import DataFileContent
 from deltacat import logs
+from fsspec import AbstractFileSystem
+from typing import List, Dict, Tuple, Optional, Any
+from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 @ray.remote
-def convert(convert_input: ConvertInput):
+def convert(convert_input: ConvertInput) -> ConvertResult:
     convert_input_files = convert_input.convert_input_files
     convert_task_index = convert_input.convert_task_index
     iceberg_table_warehouse_prefix = convert_input.iceberg_table_warehouse_prefix
@@ -181,7 +184,10 @@ def convert(convert_input: ConvertInput):
     return convert_res
 
 
-def get_additional_applicable_data_files(all_data_files, data_files_downloaded):
+def get_additional_applicable_data_files(
+    all_data_files: List[Tuple[int, DataFile]],
+    data_files_downloaded: List[Tuple[int, DataFile]],
+) -> List[Tuple[int, DataFile]]:
     data_file_to_dedupe = []
     assert len(set(all_data_files)) >= len(set(data_files_downloaded)), (
         f"Length of all data files ({len(set(all_data_files))}) should never be less than "
@@ -198,8 +204,10 @@ def get_additional_applicable_data_files(all_data_files, data_files_downloaded):
 
 
 def filter_rows_to_be_deleted(
-    equality_delete_table, data_file_table, identifier_columns
-):
+    equality_delete_table: Optional[pa.Table],
+    data_file_table: Optional[pa.Table],
+    identifier_columns: List[str],
+) -> Tuple[Optional[pa.Table], Optional[pa.Table]]:
     identifier_column = sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME
     if equality_delete_table and data_file_table:
         equality_deletes = pc.is_in(
@@ -229,12 +237,12 @@ def filter_rows_to_be_deleted(
 
 
 def compute_pos_delete_converting_equality_deletes(
-    equality_delete_table,
-    data_file_table,
-    identifier_columns,
-    iceberg_table_warehouse_prefix_with_partition,
-    s3_file_system,
-):
+    equality_delete_table: Optional[pa.Table],
+    data_file_table: Optional[pa.Table],
+    identifier_columns: List[str],
+    iceberg_table_warehouse_prefix_with_partition: str,
+    s3_file_system: Optional[AbstractFileSystem],
+) -> Tuple[Optional[pa.Table], Optional[pa.Table]]:
     new_position_delete_table, remaining_data_table = filter_rows_to_be_deleted(
         data_file_table=data_file_table,
         equality_delete_table=equality_delete_table,
@@ -252,15 +260,15 @@ def compute_pos_delete_converting_equality_deletes(
 
 
 def compute_pos_delete_with_limited_parallelism(
-    data_files_list,
-    identifier_columns,
-    equality_delete_files_list,
-    iceberg_table_warehouse_prefix_with_partition,
-    convert_task_index,
-    max_parallel_data_file_download,
-    s3_file_system,
-    s3_client_kwargs,
-):
+    data_files_list: List[List[Tuple[int, DataFile]]],
+    identifier_columns: List[str],
+    equality_delete_files_list: List[List[Tuple[int, DataFile]]],
+    iceberg_table_warehouse_prefix_with_partition: str,
+    convert_task_index: int,
+    max_parallel_data_file_download: int,
+    s3_file_system: Optional[AbstractFileSystem],
+    s3_client_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[Optional[pa.Table], Optional[pa.Table]]:
     assert len(data_files_list) == len(equality_delete_files_list), (
         f"Number of lists of data files should equal to number of list of equality delete files, "
         f"But got {len(data_files_list)} data files lists vs {len(equality_delete_files_list)}."

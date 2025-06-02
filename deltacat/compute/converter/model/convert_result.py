@@ -1,18 +1,19 @@
 from __future__ import annotations
-from typing import Dict
+from typing import Dict, List, Any
+from pyiceberg.manifest import DataFile
 
 
 class ConvertResult(Dict):
     @staticmethod
     def of(
-        convert_task_index,
-        to_be_added_files,
-        to_be_deleted_files,
-        position_delete_record_count,
-        input_data_files_record_count,
-        input_data_files_hash_columns_in_memory_sizes,
-        position_delete_in_memory_sizes,
-        position_delete_on_disk_sizes,
+        convert_task_index: int,
+        to_be_added_files: List[DataFile],
+        to_be_deleted_files: Dict[Any, List[DataFile]],
+        position_delete_record_count: int,
+        input_data_files_record_count: int,
+        input_data_files_hash_columns_in_memory_sizes: int,
+        position_delete_in_memory_sizes: int,
+        position_delete_on_disk_sizes: int,
     ) -> ConvertResult:
 
         result = ConvertResult()
@@ -33,29 +34,29 @@ class ConvertResult(Dict):
         return self["convert_task_index"]
 
     @property
-    def to_be_added_files(self):
+    def to_be_added_files(self) -> List[DataFile]:
         return self["to_be_added_files"]
 
     @property
-    def to_be_deleted_files(self):
+    def to_be_deleted_files(self) -> Dict[Any, List[DataFile]]:
         return self["to_be_deleted_files"]
 
     @property
-    def position_delete_record_count(self):
+    def position_delete_record_count(self) -> int:
         return self["position_delete_record_count"]
 
     @property
-    def input_data_files_record_count(self):
+    def input_data_files_record_count(self) -> int:
         return self["input_data_files_record_count"]
 
     @property
-    def input_data_files_hash_columns_in_memory_sizes(self):
+    def input_data_files_hash_columns_in_memory_sizes(self) -> int:
         return self["input_data_files_hash_columns_in_memory_sizes"]
 
     @property
-    def position_delete_in_memory_sizes(self):
+    def position_delete_in_memory_sizes(self) -> int:
         return self["position_delete_in_memory_sizes"]
 
     @property
-    def position_delete_on_disk_sizes(self):
+    def position_delete_on_disk_sizes(self) -> int:
         return self["position_delete_on_disk_sizes"]

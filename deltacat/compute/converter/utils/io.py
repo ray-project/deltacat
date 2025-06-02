@@ -3,23 +3,23 @@ from deltacat import logs
 import deltacat.compute.converter.utils.iceberg_columns as sc
 import daft
 from deltacat.utils.daft import _get_s3_io_config
-from daft import TimeUnit
+from daft import TimeUnit, DataFrame
 import pyarrow as pa
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from deltacat.utils.pyarrow import sliced_string_cast
 from deltacat.compute.converter.constants import IDENTIFIER_FIELD_DELIMITER
-
+from pyiceberg.manifest import DataFile
 import pyarrow.compute as pc
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def download_data_table_and_append_iceberg_columns(
-    file,
-    columns_to_download,
+    file: DataFile,
+    columns_to_download: List[str],
     additional_columns_to_append: Optional[List[str]] = [],
-    s3_client_kwargs: Optional[Dict] = None,
-):
+    s3_client_kwargs: Optional[Dict[str, Any]] = None,
+) -> pa.Table:
     table = download_parquet_with_daft_hash_applied(
         identifier_columns=columns_to_download,
         file=file,
@@ -36,8 +36,11 @@ def download_data_table_and_append_iceberg_columns(
 
 
 def download_parquet_with_daft_hash_applied(
-    identifier_columns, file, s3_client_kwargs, **kwargs
-):
+    identifier_columns: List[str],
+    file: DataFile,
+    s3_client_kwargs: Optional[Dict[str, Any]],
+    **kwargs: Any,
+) -> pa.Table:
 
     # TODO: Add correct read kwargs as in:
     #  https://github.com/ray-project/deltacat/blob/383855a4044e4dfe03cf36d7738359d512a517b4/deltacat/utils/daft.py#L97
@@ -65,7 +68,9 @@ def download_parquet_with_daft_hash_applied(
     return table
 
 
-def daft_read_parquet(path, io_config, coerce_int96_timestamp_unit):
+def daft_read_parquet(
+    path: str, io_config: Dict[str, Any], coerce_int96_timestamp_unit: TimeUnit
+) -> DataFrame:
     df = daft.read_parquet(
         path=path,
         io_config=io_config,
@@ -74,7 +79,9 @@ def daft_read_parquet(path, io_config, coerce_int96_timestamp_unit):
     return df
 
 
-def concatenate_hashed_identifier_columns(df, identifier_columns):
+def concatenate_hashed_identifier_columns(
+    df: DataFrame, identifier_columns: List[str]
+) -> pa.Array:
     pk_hash_columns = []
     previous_hash_column_length = None
     for i in range(len(identifier_columns)):
