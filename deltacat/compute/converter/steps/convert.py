@@ -24,7 +24,10 @@ from pyiceberg.manifest import DataFileContent
 from deltacat import logs
 from fsspec import AbstractFileSystem
 from typing import List, Dict, Tuple, Optional, Any
-from pyiceberg.manifest import DataFile
+from deltacat.compute.converter.model.convert_input_files import (
+    DataFileList,
+    DataFileListGroup,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -185,9 +188,9 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
 
 
 def get_additional_applicable_data_files(
-    all_data_files: List[Tuple[int, DataFile]],
-    data_files_downloaded: List[Tuple[int, DataFile]],
-) -> List[Tuple[int, DataFile]]:
+    all_data_files: DataFileList,
+    data_files_downloaded: DataFileList,
+) -> DataFileList:
     data_file_to_dedupe = []
     assert len(set(all_data_files)) >= len(set(data_files_downloaded)), (
         f"Length of all data files ({len(set(all_data_files))}) should never be less than "
@@ -260,9 +263,9 @@ def compute_pos_delete_converting_equality_deletes(
 
 
 def compute_pos_delete_with_limited_parallelism(
-    data_files_list: List[List[Tuple[int, DataFile]]],
+    data_files_list: DataFileListGroup,
     identifier_columns: List[str],
-    equality_delete_files_list: List[List[Tuple[int, DataFile]]],
+    equality_delete_files_list: DataFileListGroup,
     iceberg_table_warehouse_prefix_with_partition: str,
     convert_task_index: int,
     max_parallel_data_file_download: int,

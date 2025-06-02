@@ -1,17 +1,20 @@
 from collections import defaultdict
 import logging
 from deltacat import logs
-from deltacat.compute.converter.model.convert_input_files import ConvertInputFiles
+from deltacat.compute.converter.model.convert_input_files import (
+    ConvertInputFiles,
+    DataFileList,
+    DataFileListGroup,
+)
 from typing import List, Dict, Tuple, Any
-from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def check_data_files_sequence_number(
-    data_files_list: List[Tuple[int, DataFile]],
-    equality_delete_files_list: List[Tuple[int, DataFile]],
-) -> Tuple[List[List[Tuple[int, DataFile]]], List[List[Tuple[int, DataFile]]]]:
+    data_files_list: DataFileList,
+    equality_delete_files_list: DataFileList,
+) -> Tuple[DataFileListGroup, DataFileListGroup]:
     # Sort by file sequence number
     data_files_list.sort(key=lambda file_tuple: file_tuple[0])
     equality_delete_files_list.sort(key=lambda file_tuple: file_tuple[0])
@@ -71,9 +74,9 @@ def partition_value_record_to_partition_value_string(partition: Any) -> str:
 
 
 def group_all_files_to_each_bucket(
-    data_file_dict: Dict[Any, List[Tuple[int, DataFile]]],
-    equality_delete_dict: Dict[Any, List[Tuple[int, DataFile]]],
-    pos_delete_dict: Dict[Any, List[Tuple[int, DataFile]]],
+    data_file_dict: Dict[Any, DataFileList],
+    equality_delete_dict: Dict[Any, DataFileList],
+    pos_delete_dict: Dict[Any, DataFileList],
 ) -> List[ConvertInputFiles]:
     convert_input_files_for_all_buckets = []
     files_for_each_bucket_for_deletes = defaultdict(tuple)
@@ -109,9 +112,7 @@ def group_all_files_to_each_bucket(
     return convert_input_files_for_all_buckets
 
 
-def sort_data_files_maintaining_order(
-    data_files: List[Tuple[int, DataFile]]
-) -> List[Tuple[int, DataFile]]:
+def sort_data_files_maintaining_order(data_files: DataFileList) -> DataFileList:
     """
     Sort data files deterministically based on two criterias:
     1. Sequence number: Newly added files will have a higher sequence number
