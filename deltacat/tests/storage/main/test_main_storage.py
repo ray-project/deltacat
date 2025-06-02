@@ -5220,7 +5220,33 @@ class TestDelta:
         # Test retrieving deltas from different table versions
         import pandas as pd
 
-        # Create another table version
+        # Create data for first table version
+        df1 = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+        })
+
+        # Stage and commit delta for first table version (v.1)
+        staged_delta_1 = metastore.stage_delta(
+            data=df1,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta_1 = metastore.commit_delta(
+            delta=staged_delta_1,
+            catalog=self.catalog,
+        )
+
+        # Create data for second table version
+        df2 = pd.DataFrame({
+            "id": [4, 5, 6],
+            "name": ["David", "Eve", "Frank"],
+        })
+
+        # Create a second table version
         _, table_version_2, stream_2 = metastore.create_table_version(
             namespace=self.namespace.locator.namespace,
             table_name="test_table",
@@ -5228,7 +5254,7 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        # Stage and commit partition for new table version
+        # Stage and commit partition for second table version
         partition_2 = metastore.stage_partition(
             stream=stream_2,
             catalog=self.catalog,
@@ -5238,45 +5264,178 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "version_test": ["v2_data1", "v2_data2"],
-        })
-
-        # Stage and commit delta to v.2
-        staged_delta_v2 = metastore.stage_delta(
-            data=df,
+        # Stage and commit delta for second table version
+        staged_delta_2 = metastore.stage_delta(
+            data=df2,
             partition=partition_2,
             catalog=self.catalog,
             content_type=ContentType.PARQUET,
             delta_type=DeltaType.UPSERT,
         )
 
-        committed_delta_v2 = metastore.commit_delta(
-            delta=staged_delta_v2,
+        committed_delta_2 = metastore.commit_delta(
+            delta=staged_delta_2,
             catalog=self.catalog,
         )
 
-        # Retrieve the committed delta from v.2
-        retrieved_delta_v2 = metastore.get_delta(
+        # Retrieve delta from first table version
+        retrieved_delta_1 = metastore.get_delta(
             namespace=self.namespace.locator.namespace,
             table_name="test_table",
-            stream_position=committed_delta_v2.locator.stream_position,
-            partition_values=None,  # Using None for unpartitioned table
-            table_version="v.2",
+            stream_position=committed_delta_1.locator.stream_position,
+            table_version="v.1",
             include_manifest=True,
-            partition_scheme_id=partition_2.partition_scheme_id,
             catalog=self.catalog,
         )
 
-        # Verify the retrieved delta from v.2
-        assert retrieved_delta_v2 is not None
-        assert retrieved_delta_v2.type == DeltaType.UPSERT
-        assert retrieved_delta_v2.locator.stream_position == committed_delta_v2.locator.stream_position
-        assert retrieved_delta_v2.locator.stream_locator.table_version_locator.table_version == "v.2"
-        assert retrieved_delta_v2.manifest is not None
+        # Retrieve delta from second table version
+        retrieved_delta_2 = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta_2.locator.stream_position,
+            table_version="v.2",
+            include_manifest=True,
+            catalog=self.catalog,
+        )
+
+        # Verify both deltas were retrieved correctly
+        assert retrieved_delta_1 is not None
+        assert retrieved_delta_2 is not None
+        assert retrieved_delta_1.locator.partition_locator.stream_locator.table_version_locator.table_version == "v.1"
+        assert retrieved_delta_2.locator.partition_locator.stream_locator.table_version_locator.table_version == "v.2"
+
+    def test_get_delta_infers_latest_active_table_version(self):
+        """Test that get_delta can infer the latest active table version when not explicitly specified."""
+        import pandas as pd
+
+        # Create data for the test
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+        })
+
+        # Set the current table version to active explicitly
+        metastore.update_table_version(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            table_version=self.table_version.table_version,
+            lifecycle_state=LifecycleState.ACTIVE,
+            catalog=self.catalog,
+        )
+
+        # Stage and commit a delta
+        staged_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Retrieve the delta WITHOUT specifying table_version (should infer latest active)
+        retrieved_delta = metastore.get_delta(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            stream_position=committed_delta.locator.stream_position,
+            # table_version=None,  # Not specified - should infer latest active
+            include_manifest=True,
+            catalog=self.catalog,
+        )
+
+        # Verify the delta was retrieved correctly
+        assert retrieved_delta is not None, "Should be able to retrieve delta with inferred table version"
+        assert retrieved_delta.type == DeltaType.UPSERT
+        assert retrieved_delta.locator.stream_position == committed_delta.locator.stream_position
+        assert retrieved_delta.manifest is not None
+        assert retrieved_delta.locator.partition_locator.stream_locator.table_version_locator.table_version == self.table_version.table_version
 
         # Verify manifest entry metadata
-        entry = retrieved_delta_v2.manifest.entries[0]
-        assert entry.meta.record_count == 2
+        entry = retrieved_delta.manifest.entries[0]
+        assert entry.meta.record_count == 3
         assert entry.meta.content_type == ContentType.PARQUET.value
+
+    def test_list_deltas_infers_latest_active_table_version(self):
+        """Test that list_deltas can infer the latest active table version when not explicitly specified."""
+        import pandas as pd
+
+        # Set the current table version to active explicitly
+        metastore.update_table_version(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            table_version=self.table_version.table_version,
+            lifecycle_state=LifecycleState.ACTIVE,
+            catalog=self.catalog,
+        )
+
+        # Create and commit multiple deltas
+        df1 = pd.DataFrame({
+            "id": [1, 2],
+            "name": ["Alice", "Bob"],
+        })
+
+        df2 = pd.DataFrame({
+            "id": [3, 4],
+            "name": ["Charlie", "David"],
+        })
+
+        # Stage and commit first delta
+        staged_delta_1 = metastore.stage_delta(
+            data=df1,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta_1 = metastore.commit_delta(
+            delta=staged_delta_1,
+            catalog=self.catalog,
+        )
+
+        # Stage and commit second delta
+        staged_delta_2 = metastore.stage_delta(
+            data=df2,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.APPEND,
+        )
+
+        committed_delta_2 = metastore.commit_delta(
+            delta=staged_delta_2,
+            catalog=self.catalog,
+        )
+
+        # List deltas WITHOUT specifying table_version (should infer latest active)
+        deltas = metastore.list_deltas(
+            namespace=self.namespace.locator.namespace,
+            table_name="test_table",
+            # table_version=None,  # Not specified - should infer latest active
+            catalog=self.catalog,
+        )
+
+        # Verify deltas were listed correctly
+        assert len(deltas) == 2, f"Expected 2 deltas, got {len(deltas)}"
+        
+        # Convert to list to access by index
+        delta_list = list(deltas)
+        
+        # Verify both deltas are from the correct table version
+        for delta in delta_list:
+            assert delta.locator.partition_locator.stream_locator.table_version_locator.table_version == self.table_version.table_version
+        
+        # Verify the deltas are the ones we committed (by stream position)
+        stream_positions = [delta.locator.stream_position for delta in delta_list]
+        expected_positions = [committed_delta_1.locator.stream_position, committed_delta_2.locator.stream_position]
+        
+        assert set(stream_positions) == set(expected_positions), f"Expected stream positions {expected_positions}, got {stream_positions}"
+        
+        # Verify delta types
+        delta_types = [delta.type for delta in delta_list]
+        assert DeltaType.UPSERT in delta_types
+        assert DeltaType.APPEND in delta_types
