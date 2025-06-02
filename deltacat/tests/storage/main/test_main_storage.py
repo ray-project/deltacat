@@ -6,6 +6,8 @@ import pytest
 import copy
 import pyarrow as pa
 import pandas as pd
+import polars as pl
+import numpy as np
 
 from deltacat import PartitionKey, PartitionScheme
 from deltacat.exceptions import TableNotFoundError
@@ -6004,3 +6006,649 @@ class TestDelta:
         assert (
             list(downloaded_table.column_names) == expected_columns
         ), f"Expected columns {expected_columns}, got {list(downloaded_table.column_names)}"
+
+    def test_download_delta_content_types_with_pandas(self):
+        """Test downloading delta with different content types as pandas DataFrames."""
+        import pandas as pd
+        from deltacat.types.media import TableType, StorageType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [1, 2, 3, 4],
+            "name": ["Alice", "Bob", "Charlie", "David"],
+            "age": [25, 30, 35, 40],
+            "city": ["New York", "London", "Paris", "Tokyo"]
+        })
+
+        # Test with PARQUET content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Download as pandas DataFrame
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PANDAS,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        # Concatenate all tables and verify data
+        if len(downloaded_tables) == 1:
+            result_df = downloaded_tables[0]
+        else:
+            result_df = pd.concat(downloaded_tables, ignore_index=True)
+
+        assert isinstance(result_df, pd.DataFrame), "Expected pandas DataFrame"
+        assert len(result_df) == len(test_data), "Row count mismatch"
+        assert set(result_df.columns) == set(test_data.columns), "Column mismatch"
+
+    def test_download_delta_content_types_with_pyarrow(self):
+        """Test downloading delta with different content types as PyArrow Tables."""
+        import pandas as pd
+        import pyarrow as pa
+        from deltacat.types.media import TableType, StorageType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [10, 20, 30],
+            "name": ["Alice", "Bob", "Charlie"],
+            "age": [25, 30, 35],
+            "city": ["Seattle", "Boston", "Chicago"]
+        })
+
+        # Test with CSV content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.CSV,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Download as PyArrow Table
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        # Concatenate all tables and verify data
+        if len(downloaded_tables) == 1:
+            result_table = downloaded_tables[0]
+        else:
+            result_table = pa.concat_tables(downloaded_tables)
+
+        assert isinstance(result_table, pa.Table), "Expected PyArrow Table"
+        assert len(result_table) == len(test_data), "Row count mismatch"
+        assert set(result_table.column_names) == set(test_data.columns), "Column mismatch"
+
+    def test_download_delta_content_types_with_polars(self):
+        """Test downloading delta with different content types as Polars DataFrames."""
+        import pandas as pd
+        import polars as pl
+        from deltacat.types.media import TableType, StorageType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [101, 102, 103, 104, 105],
+            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+            "age": [15, 23, 8, 45, 12],
+            "city": ["City A", "City B", "City C", "City D", "City E"]
+        })
+
+        # Test with PARQUET content type (avoiding JSON due to PanicException)
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Download as Polars DataFrame
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.POLARS,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        # Concatenate all tables and verify data
+        if len(downloaded_tables) == 1:
+            result_df = downloaded_tables[0]
+        else:
+            result_df = pl.concat(downloaded_tables)
+
+        assert isinstance(result_df, pl.DataFrame), "Expected Polars DataFrame"
+        assert len(result_df) == len(test_data), "Row count mismatch"
+        assert set(result_df.columns) == set(test_data.columns), "Column mismatch"
+
+    def test_download_delta_content_types_with_numpy(self):
+        """Test downloading delta with different content types as NumPy arrays."""
+        import pandas as pd
+        import numpy as np
+        from deltacat.types.media import TableType, StorageType
+
+        # Test data - simpler data types that work well with numpy
+        test_data = pd.DataFrame({
+            "id": [1, 2, 3],
+            "value": [10.5, 20.7, 30.9],
+            "count": [5, 10, 15]
+        })
+
+        # Test with FEATHER content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.FEATHER,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Download as NumPy array
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.NUMPY,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        # Concatenate all arrays and verify data
+        if len(downloaded_tables) == 1:
+            result_array = downloaded_tables[0]
+        else:
+            result_array = np.concatenate(downloaded_tables, axis=0)
+
+        assert isinstance(result_array, np.ndarray), "Expected NumPy array"
+        assert len(result_array) == len(test_data), "Row count mismatch"
+        # NumPy arrays don't have column names, but should have the right shape
+        assert result_array.shape[1] == len(test_data.columns), "Column count mismatch"
+
+    def test_download_manifest_entry_content_types_with_pandas(self):
+        """Test downloading manifest entries with different content types as pandas DataFrames."""
+        import pandas as pd
+        from deltacat.types.media import TableType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [1001, 1002, 1003],
+            "name": ["Customer A", "Customer B", "Customer C"],
+            "age": [30, 45, 28],
+            "city": ["Houston", "Phoenix", "Philadelphia"]
+        })
+
+        # Test with TSV content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.TSV,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify we have a manifest with entries
+        assert committed_delta.manifest is not None, "Delta should have a manifest"
+        assert len(committed_delta.manifest.entries) > 0, "Should have manifest entries"
+
+        # Download first manifest entry as pandas DataFrame
+        downloaded_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=0,
+            table_type=TableType.PANDAS,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_table, pd.DataFrame), "Expected pandas DataFrame"
+        assert len(downloaded_table) > 0, "Downloaded table should not be empty"
+        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.columns) == set(test_data.columns), "Column mismatch"
+
+    def test_download_manifest_entry_content_types_with_pyarrow(self):
+        """Test downloading manifest entries with different content types as PyArrow Tables."""
+        import pandas as pd
+        import pyarrow as pa
+        from deltacat.types.media import TableType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [2001, 2002, 2003, 2004],
+            "name": ["Account A", "Account B", "Account C", "Account D"],
+            "age": [32, 28, 45, 39],
+            "city": ["San Antonio", "San Diego", "Dallas", "San Jose"]
+        })
+
+        # Test with PSV content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PSV,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify we have a manifest with entries
+        assert committed_delta.manifest is not None, "Delta should have a manifest"
+        assert len(committed_delta.manifest.entries) > 0, "Should have manifest entries"
+
+        # Download first manifest entry as PyArrow Table
+        downloaded_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=0,
+            table_type=TableType.PYARROW,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_table, pa.Table), "Expected PyArrow Table"
+        assert len(downloaded_table) > 0, "Downloaded table should not be empty"
+        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.column_names) == set(test_data.columns), "Column mismatch"
+
+    def test_download_delta_cross_table_type_consistency(self):
+        """Test that different table types return consistent data for the same delta."""
+        import pandas as pd
+        import pyarrow as pa
+        import polars as pl
+        import numpy as np
+        from deltacat.types.media import TableType, StorageType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alpha", "Beta", "Gamma"],
+            "age": [25, 30, 35],
+            "city": ["City A", "City B", "City C"]
+        })
+
+        # Stage and commit delta
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,  # Use Parquet for best type preservation
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Download as different table types
+        pandas_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PANDAS,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        pyarrow_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        polars_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.POLARS,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        numpy_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.NUMPY,
+            storage_type=StorageType.LOCAL,
+            catalog=self.catalog,
+        )
+
+        # Verify all return types and basic properties
+        assert all(isinstance(t, pd.DataFrame) for t in pandas_tables), "All pandas tables should be DataFrames"
+        assert all(isinstance(t, pa.Table) for t in pyarrow_tables), "All PyArrow tables should be Tables"
+        assert all(isinstance(t, pl.DataFrame) for t in polars_tables), "All Polars tables should be DataFrames"
+        assert all(isinstance(t, np.ndarray) for t in numpy_tables), "All NumPy tables should be arrays"
+
+        # Verify row counts are consistent
+        pandas_total_rows = sum(len(t) for t in pandas_tables)
+        pyarrow_total_rows = sum(len(t) for t in pyarrow_tables)
+        polars_total_rows = sum(len(t) for t in polars_tables)
+        numpy_total_rows = sum(len(t) for t in numpy_tables)
+
+        assert pandas_total_rows == len(test_data), "Pandas row count should match test data"
+        assert pyarrow_total_rows == len(test_data), "PyArrow row count should match test data"
+        assert polars_total_rows == len(test_data), "Polars row count should match test data"
+        assert numpy_total_rows == len(test_data), "NumPy row count should match test data"
+
+    def test_download_manifest_entry_cross_table_type_consistency(self):
+        """Test that different table types return consistent data for the same manifest entry."""
+        import pandas as pd
+        import pyarrow as pa
+        import polars as pl
+        import numpy as np
+        from deltacat.types.media import TableType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [401, 402, 403],
+            "name": ["Metric A", "Metric B", "Metric C"],
+            "age": [5, 10, 15],  # metric age in years
+            "city": ["Server A", "Server B", "Server C"]
+        })
+
+        # Stage and commit delta
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,  # Use Parquet for best type preservation
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify we have a manifest with entries
+        assert committed_delta.manifest is not None, "Delta should have a manifest"
+        assert len(committed_delta.manifest.entries) > 0, "Should have manifest entries"
+
+        # Download same manifest entry as different table types
+        entry_index = 0
+
+        pandas_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=entry_index,
+            table_type=TableType.PANDAS,
+            catalog=self.catalog,
+        )
+
+        pyarrow_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=entry_index,
+            table_type=TableType.PYARROW,
+            catalog=self.catalog,
+        )
+
+        polars_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=entry_index,
+            table_type=TableType.POLARS,
+            catalog=self.catalog,
+        )
+
+        numpy_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=entry_index,
+            table_type=TableType.NUMPY,
+            catalog=self.catalog,
+        )
+
+        # Verify return types
+        assert isinstance(pandas_table, pd.DataFrame), "Pandas download should return DataFrame"
+        assert isinstance(pyarrow_table, pa.Table), "PyArrow download should return Table"
+        assert isinstance(polars_table, pl.DataFrame), "Polars download should return DataFrame"
+        assert isinstance(numpy_table, np.ndarray), "NumPy download should return ndarray"
+
+        # Verify basic consistency (same number of rows, same columns where applicable)
+        assert len(pandas_table) == len(pyarrow_table), "Pandas and PyArrow should have same row count"
+        assert len(pyarrow_table) == len(polars_table), "PyArrow and Polars should have same row count"
+        assert len(polars_table) == len(numpy_table), "Polars and NumPy should have same row count"
+
+        # Verify column counts where applicable
+        assert len(pandas_table.columns) == len(pyarrow_table.column_names), "Column count should match between pandas and PyArrow"
+        assert len(pyarrow_table.column_names) == len(polars_table.columns), "Column count should match between PyArrow and Polars"
+        assert len(polars_table.columns) == numpy_table.shape[1], "Column count should match between Polars and NumPy"
+
+    def test_download_delta_with_column_selection_all_table_types(self):
+        """Test downloading delta with column selection across all table types."""
+        import pandas as pd
+        import pyarrow as pa
+        import polars as pl
+        import numpy as np
+        from deltacat.types.media import TableType, StorageType
+
+        # Test data with correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [1, 2, 3, 4, 5],
+            "name": ["Product A", "Product B", "Product C", "Product D", "Product E"],
+            "age": [1, 2, 3, 4, 5],  # product age in years
+            "city": ["Factory A", "Factory B", "Factory C", "Factory D", "Factory E"]
+        })
+
+        # Stage and commit delta
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.PARQUET,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Test column selection - using actual schema columns
+        selected_columns = ["id", "name", "age"]
+
+        # Test with pandas
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PANDAS,
+            storage_type=StorageType.LOCAL,
+            columns=selected_columns,
+            catalog=self.catalog,
+        )
+
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with pandas"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        if len(downloaded_tables) == 1:
+            result = downloaded_tables[0]
+        else:
+            result = pd.concat(downloaded_tables, ignore_index=True)
+        assert list(result.columns) == selected_columns, "Column selection failed for pandas"
+
+        # Test with PyArrow
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.PYARROW,
+            storage_type=StorageType.LOCAL,
+            columns=selected_columns,
+            catalog=self.catalog,
+        )
+
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with PyArrow"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        if len(downloaded_tables) == 1:
+            result = downloaded_tables[0]
+        else:
+            result = pa.concat_tables(downloaded_tables)
+        assert list(result.column_names) == selected_columns, "Column selection failed for PyArrow"
+
+        # Test with Polars
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.POLARS,
+            storage_type=StorageType.LOCAL,
+            columns=selected_columns,
+            catalog=self.catalog,
+        )
+
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with Polars"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        if len(downloaded_tables) == 1:
+            result = downloaded_tables[0]
+        else:
+            result = pl.concat(downloaded_tables)
+        assert list(result.columns) == selected_columns, "Column selection failed for Polars"
+
+        # Test with NumPy
+        downloaded_tables = metastore.download_delta(
+            delta_like=committed_delta,
+            table_type=TableType.NUMPY,
+            storage_type=StorageType.LOCAL,
+            columns=selected_columns,
+            catalog=self.catalog,
+        )
+
+        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with NumPy"
+        assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
+
+        if len(downloaded_tables) == 1:
+            result = downloaded_tables[0]
+        else:
+            result = np.concatenate(downloaded_tables, axis=0)
+        # NumPy arrays don't have column names, but should have the right number of columns
+        assert result.shape[1] == len(selected_columns), "Column count mismatch for NumPy"
+
+    def test_download_manifest_entry_content_types_with_polars(self):
+        """Test downloading manifest entries with different content types as Polars DataFrames."""
+        import pandas as pd
+        import polars as pl
+        from deltacat.types.media import TableType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [301, 302, 303, 304, 305],
+            "name": ["Sensor A", "Sensor B", "Sensor C", "Sensor D", "Sensor E"],
+            "age": [1, 2, 3, 4, 5],  # sensor age in years
+            "city": ["Building A", "Building B", "Building C", "Building D", "Building E"]
+        })
+
+        # Test with AVRO content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.AVRO,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify we have a manifest with entries
+        assert committed_delta.manifest is not None, "Delta should have a manifest"
+        assert len(committed_delta.manifest.entries) > 0, "Should have manifest entries"
+
+        # Download first manifest entry as Polars DataFrame
+        downloaded_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=0,
+            table_type=TableType.POLARS,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_table, pl.DataFrame), "Expected Polars DataFrame"
+        assert len(downloaded_table) > 0, "Downloaded table should not be empty"
+        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.columns) == set(test_data.columns), "Column mismatch"
+
+    def test_download_manifest_entry_content_types_with_numpy(self):
+        """Test downloading manifest entries with different content types as NumPy arrays."""
+        import pandas as pd
+        import numpy as np
+        from deltacat.types.media import TableType
+
+        # Test data - using correct schema: id, name, age, city
+        test_data = pd.DataFrame({
+            "id": [1, 2, 3, 4],
+            "name": ["Point A", "Point B", "Point C", "Point D"],
+            "age": [10, 20, 30, 40],  # point age
+            "city": ["Grid 1", "Grid 2", "Grid 3", "Grid 4"]
+        })
+
+        # Test with ORC content type
+        staged_delta = metastore.stage_delta(
+            data=test_data,
+            partition=self.partition,
+            catalog=self.catalog,
+            content_type=ContentType.ORC,
+            delta_type=DeltaType.UPSERT,
+        )
+
+        committed_delta = metastore.commit_delta(
+            delta=staged_delta,
+            catalog=self.catalog,
+        )
+
+        # Verify we have a manifest with entries
+        assert committed_delta.manifest is not None, "Delta should have a manifest"
+        assert len(committed_delta.manifest.entries) > 0, "Should have manifest entries"
+
+        # Download first manifest entry as NumPy array
+        downloaded_table = metastore.download_delta_manifest_entry(
+            delta_like=committed_delta,
+            entry_index=0,
+            table_type=TableType.NUMPY,
+            catalog=self.catalog,
+        )
+
+        # Verify result
+        assert isinstance(downloaded_table, np.ndarray), "Expected NumPy array"
+        assert len(downloaded_table) > 0, "Downloaded table should not be empty"
+        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
+        # NumPy arrays don't have column names, but should have the right shape
+        assert downloaded_table.shape[1] == len(test_data.columns), "Column count mismatch"
