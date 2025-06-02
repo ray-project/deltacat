@@ -639,4 +639,492 @@ class TestNumpyReaders(TestCase):
         except (TypeError, ValueError, NotImplementedError):
             # Complex dtypes might not be supported by PyArrow/Parquet
             # This is acceptable behavior
-            pass 
+            pass
+
+
+class TestNumpyFileSystemSupport(TestCase):
+    """
+    Comprehensive tests for numpy file operations with different filesystem types.
+    Tests fsspec AbstractFileSystem, PyArrow FileSystem, and auto-inferred filesystem.
+    """
+    
+    def setUp(self):
+        import pyarrow as pa
+        import pyarrow.fs as pafs
+        import shutil
+        
+        # Create test data as numpy array
+        # All formats preserve mixed types when converted to numpy, so use object dtype for all
+        self.test_data = np.array([
+            ['value1', 1, 1.1],
+            ['value2', 2, 2.2],
+            ['value3', 3, 3.3]
+        ], dtype=object)
+        
+        # Set up temporary directory
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Set up different filesystem types
+        self.fsspec_fs = fsspec.filesystem("file")
+        self.pyarrow_fs = pafs.LocalFileSystem()
+        
+        # Create test files for each content type
+        self._create_test_files()
+        
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir)
+        
+    def _create_test_files(self):
+        """Create test files in different formats with different compression types."""
+        import pyarrow as pa
+        import gzip
+        import bz2
+        import pandas as pd
+        
+        # Create pandas DataFrame for file creation
+        df = pd.DataFrame({
+            'col1': ['value1', 'value2', 'value3'],
+            'col2': [1, 2, 3],
+            'col3': [1.1, 2.2, 3.3]
+        })
+        
+        # CSV files without headers to match test data structure
+        csv_data = "value1,1,1.1\nvalue2,2,2.2\nvalue3,3,3.3\n"
+        
+        # Create uncompressed CSV
+        with open(f"{self.temp_dir}/test.csv", "w") as f:
+            f.write(csv_data)
+            
+        # Create GZIP compressed CSV
+        with gzip.open(f"{self.temp_dir}/test_gzip.csv.gz", "wt") as f:
+            f.write(csv_data)
+            
+        # Create BZIP2 compressed CSV
+        with bz2.open(f"{self.temp_dir}/test_bzip2.csv.bz2", "wt") as f:
+            f.write(csv_data)
+        
+        # Parquet file
+        df.to_parquet(f"{self.temp_dir}/test.parquet", index=False)
+        
+        # Feather file
+        df.to_feather(f"{self.temp_dir}/test.feather")
+        
+        # JSON file (records format)
+        json_data = '[{"col1":"value1","col2":1,"col3":1.1},{"col1":"value2","col2":2,"col3":2.2},{"col1":"value3","col2":3,"col3":3.3}]'
+        with open(f"{self.temp_dir}/test.json", "w") as f:
+            f.write(json_data)
+            
+        # AVRO file (using polars since pandas delegates to polars for AVRO)
+        import polars as pl
+        pl_df = pl.from_pandas(df)
+        pl_df.write_avro(f"{self.temp_dir}/test.avro")
+        
+        # ORC file
+        df.to_orc(f"{self.temp_dir}/test.orc")
+        
+    def _assert_arrays_equal(self, result, expected):
+        """Helper to assert numpy arrays are equal."""
+        assert result.shape == expected.shape, f"Shape mismatch: {result.shape} vs {expected.shape}"
+        np.testing.assert_array_equal(result, expected)
+        
+    def test_csv_with_fsspec_filesystem(self):
+        """Test CSV reading with fsspec AbstractFileSystem."""
+        # Test uncompressed CSV
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.csv",
+            ContentType.CSV.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.fsspec_fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test GZIP compressed CSV
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test_gzip.csv.gz",
+            ContentType.CSV.value,
+            ContentEncoding.GZIP.value,
+            filesystem=self.fsspec_fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test BZIP2 compressed CSV
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test_bzip2.csv.bz2",
+            ContentType.CSV.value,
+            ContentEncoding.BZIP2.value,
+            filesystem=self.fsspec_fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_csv_with_pyarrow_filesystem(self):
+        """Test CSV reading with PyArrow FileSystem."""
+        # Test uncompressed CSV
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.csv",
+            ContentType.CSV.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.pyarrow_fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test GZIP compressed CSV
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test_gzip.csv.gz",
+            ContentType.CSV.value,
+            ContentEncoding.GZIP.value,
+            filesystem=self.pyarrow_fs,
+            column_names=['col1', 'col2', 'col3']
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_csv_with_auto_inferred_filesystem(self):
+        """Test CSV reading with automatically inferred filesystem."""
+        # Test uncompressed CSV (filesystem=None, should auto-infer)
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.csv",
+            ContentType.CSV.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=None,
+            column_names=['col1', 'col2', 'col3']
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_parquet_with_different_filesystems(self):
+        """Test Parquet reading with different filesystem types."""
+        # Test with fsspec
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.parquet",
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.fsspec_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.parquet",
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.pyarrow_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.parquet",
+            ContentType.PARQUET.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=None
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_feather_with_different_filesystems(self):
+        """Test Feather reading with different filesystem types."""
+        # Test with fsspec
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.feather",
+            ContentType.FEATHER.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.fsspec_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.feather",
+            ContentType.FEATHER.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.pyarrow_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.feather",
+            ContentType.FEATHER.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=None
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_json_with_different_filesystems(self):
+        """Test JSON reading with different filesystem types."""
+        # Test with fsspec
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.json",
+            ContentType.JSON.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.fsspec_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.json",
+            ContentType.JSON.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.pyarrow_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.json",
+            ContentType.JSON.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=None
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_avro_with_different_filesystems(self):
+        """Test AVRO reading with different filesystem types."""
+        # Test with fsspec
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.avro",
+            ContentType.AVRO.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.fsspec_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.avro",
+            ContentType.AVRO.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.pyarrow_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.avro",
+            ContentType.AVRO.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=None
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_orc_with_different_filesystems(self):
+        """Test ORC reading with different filesystem types."""
+        # Test with fsspec
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.orc",
+            ContentType.ORC.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.fsspec_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with PyArrow
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.orc",
+            ContentType.ORC.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.pyarrow_fs
+        )
+        self._assert_arrays_equal(result, self.test_data)
+        
+        # Test with auto-inferred
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.orc",
+            ContentType.ORC.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=None
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_file_to_ndarray_with_different_filesystems(self):
+        """Test file_to_ndarray with different filesystem types for all content types."""
+        test_cases = [
+            (f"{self.temp_dir}/test.csv", ContentType.CSV.value, ContentEncoding.IDENTITY.value, {"column_names": ["col1", "col2", "col3"]}, self.test_data),
+            (f"{self.temp_dir}/test_gzip.csv.gz", ContentType.CSV.value, ContentEncoding.GZIP.value, {"column_names": ["col1", "col2", "col3"]}, self.test_data),
+            (f"{self.temp_dir}/test.parquet", ContentType.PARQUET.value, ContentEncoding.IDENTITY.value, {}, self.test_data),
+            (f"{self.temp_dir}/test.feather", ContentType.FEATHER.value, ContentEncoding.IDENTITY.value, {}, self.test_data),
+            (f"{self.temp_dir}/test.json", ContentType.JSON.value, ContentEncoding.IDENTITY.value, {}, self.test_data),
+            (f"{self.temp_dir}/test.avro", ContentType.AVRO.value, ContentEncoding.IDENTITY.value, {}, self.test_data),
+            (f"{self.temp_dir}/test.orc", ContentType.ORC.value, ContentEncoding.IDENTITY.value, {}, self.test_data),
+        ]
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        for path, content_type, content_encoding, extra_kwargs, expected_data in test_cases:
+            for fs_name, filesystem in filesystems:
+                with self.subTest(content_type=content_type, filesystem=fs_name, encoding=content_encoding):
+                    result = file_to_ndarray(
+                        path=path,
+                        content_type=content_type,
+                        content_encoding=content_encoding,
+                        filesystem=filesystem,
+                        **extra_kwargs
+                    )
+                    self._assert_arrays_equal(result, expected_data)
+
+    def test_compression_encoding_with_different_filesystems(self):
+        """Test that compression encoding works correctly with different filesystem types."""
+        test_cases = [
+            (f"{self.temp_dir}/test.csv", ContentEncoding.IDENTITY.value),
+            (f"{self.temp_dir}/test_gzip.csv.gz", ContentEncoding.GZIP.value),
+            (f"{self.temp_dir}/test_bzip2.csv.bz2", ContentEncoding.BZIP2.value),
+        ]
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        for path, content_encoding in test_cases:
+            for fs_name, filesystem in filesystems:
+                with self.subTest(encoding=content_encoding, filesystem=fs_name):
+                    result = file_to_ndarray(
+                        path=path,
+                        content_type=ContentType.CSV.value,
+                        content_encoding=content_encoding,
+                        filesystem=filesystem,
+                        column_names=["col1", "col2", "col3"]
+                    )
+                    self._assert_arrays_equal(result, self.test_data)
+
+    def test_filesystem_open_kwargs(self):
+        """Test that filesystem open kwargs are properly passed through."""
+        # Test with custom fs_open_kwargs
+        result = file_to_ndarray(
+            f"{self.temp_dir}/test.csv",
+            ContentType.CSV.value,
+            ContentEncoding.IDENTITY.value,
+            filesystem=self.fsspec_fs,
+            fs_open_kwargs={"encoding": "utf-8"},  # This should be passed to filesystem.open()
+            column_names=['col1', 'col2', 'col3']
+        )
+        self._assert_arrays_equal(result, self.test_data)
+
+    def test_delimited_formats_with_different_filesystems(self):
+        """Test delimited formats (TSV, PSV, etc.) with different filesystem types."""
+        # Create TSV test file without headers to match test data structure
+        tsv_data = "value1\t1\t1.1\nvalue2\t2\t2.2\nvalue3\t3\t3.3\n"
+        with open(f"{self.temp_dir}/test.tsv", "w") as f:
+            f.write(tsv_data)
+            
+        # Create PSV test file without headers to match test data structure
+        psv_data = "value1|1|1.1\nvalue2|2|2.2\nvalue3|3|3.3\n"
+        with open(f"{self.temp_dir}/test.psv", "w") as f:
+            f.write(psv_data)
+        
+        delimited_test_cases = [
+            (f"{self.temp_dir}/test.tsv", ContentType.TSV.value, {"sep": "\t", "column_names": ["col1", "col2", "col3"]}),
+            (f"{self.temp_dir}/test.psv", ContentType.PSV.value, {"sep": "|", "column_names": ["col1", "col2", "col3"]}),
+        ]
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        for path, content_type, extra_kwargs in delimited_test_cases:
+            for fs_name, filesystem in filesystems:
+                with self.subTest(content_type=content_type, filesystem=fs_name):
+                    result = file_to_ndarray(
+                        path=path,
+                        content_type=content_type,
+                        content_encoding=ContentEncoding.IDENTITY.value,
+                        filesystem=filesystem,
+                        **extra_kwargs
+                    )
+                    self._assert_arrays_equal(result, self.test_data)
+
+    def test_numpy_array_conversion_consistency(self):
+        """Test that numpy array conversion is consistent across filesystem types."""
+        # Test that the same data produces the same numpy array regardless of filesystem
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        # Use Parquet as it preserves data types well
+        parquet_path = f"{self.temp_dir}/test.parquet"
+        
+        results = []
+        for fs_name, filesystem in filesystems:
+            result = file_to_ndarray(
+                parquet_path,
+                ContentType.PARQUET.value,
+                ContentEncoding.IDENTITY.value,
+                filesystem=filesystem
+            )
+            results.append((fs_name, result))
+        
+        # All results should be identical
+        reference_result = results[0][1]
+        for fs_name, result in results[1:]:
+            with self.subTest(filesystem=fs_name):
+                self._assert_arrays_equal(result, reference_result)
+
+    def test_dtype_preservation_across_filesystems(self):
+        """Test that data types are preserved across different filesystem types."""
+        import pandas as pd
+        
+        # Create a DataFrame with mixed data types
+        df = pd.DataFrame({
+            'int_col': [1, 2, 3],
+            'float_col': [1.1, 2.2, 3.3],
+            'str_col': ['a', 'b', 'c']
+        })
+        
+        # Save as Parquet (preserves types best)
+        parquet_path = f"{self.temp_dir}/test_dtypes.parquet"
+        df.to_parquet(parquet_path, index=False)
+        
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        # Test that data types are consistent across filesystems
+        dtypes = []
+        for fs_name, filesystem in filesystems:
+            result = file_to_ndarray(
+                parquet_path,
+                ContentType.PARQUET.value,
+                ContentEncoding.IDENTITY.value,
+                filesystem=filesystem
+            )
+            dtypes.append((fs_name, result.dtype))
+        
+        # All dtypes should be the same (object type for mixed data)
+        reference_dtype = dtypes[0][1]
+        for fs_name, dtype in dtypes[1:]:
+            with self.subTest(filesystem=fs_name):
+                assert dtype == reference_dtype, f"Dtype mismatch for {fs_name}: {dtype} vs {reference_dtype}"
+
+    def test_error_handling_across_filesystems(self):
+        """Test that error handling is consistent across filesystem types."""
+        filesystems = [
+            ("fsspec", self.fsspec_fs),
+            ("pyarrow", self.pyarrow_fs),
+            ("auto-inferred", None),
+        ]
+        
+        # Test with non-existent file
+        for fs_name, filesystem in filesystems:
+            with self.subTest(filesystem=fs_name):
+                with self.assertRaises(Exception):  # Should raise some kind of file not found error
+                    file_to_ndarray(
+                        f"{self.temp_dir}/nonexistent.csv",
+                        ContentType.CSV.value,
+                        ContentEncoding.IDENTITY.value,
+                        filesystem=filesystem,
+                        column_names=['col1', 'col2', 'col3']
+                    ) 
