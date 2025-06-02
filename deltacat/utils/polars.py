@@ -1,5 +1,8 @@
 import logging
 import io
+import bz2
+import gzip
+from functools import partial
 from typing import Optional, List, Dict, Callable, Union, Iterable, Any
 
 import polars as pl
@@ -24,6 +27,13 @@ from deltacat.types.media import (
 from deltacat.types.partial_download import PartialFileDownloadParams
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+# Encoding to file initialization function mapping
+ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
+    ContentEncoding.GZIP.value: partial(gzip.open, mode="rb"),
+    ContentEncoding.BZIP2.value: partial(bz2.open, mode="rb"),
+    ContentEncoding.IDENTITY.value: lambda file_path: file_path,
+}
 
 
 def write_json(
@@ -470,31 +480,12 @@ def file_to_dataframe(
         f"Encoding: {content_encoding}"
     )
 
-    # Resolve filesystem and path
-    if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path, filesystem)
-
-    # Handle ORC files specially since polars doesn't have native support
-    if content_type == ContentType.ORC.value:
-        # Use pandas to read ORC and convert to polars
-        import pandas as pd
-
-        if isinstance(filesystem, pafs.FileSystem):
-            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-                pd_df = pd.read_orc(f, **kwargs)
-        else:
-            with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-                pd_df = pd.read_orc(f, **kwargs)
-        dataframe = pl.from_pandas(pd_df)
-        logger.debug(f"Time to read {path} into Polars DataFrame via pandas")
-        return dataframe
-
-    pl_read_func = CONTENT_TYPE_TO_PL_READ_FUNC.get(content_type)
+    pl_read_func = CONTENT_TYPE_TO_READ_FN.get(content_type)
     if not pl_read_func:
         raise NotImplementedError(
             f"Polars reader for content type '{content_type}' not "
             f"implemented. Known content types: "
-            f"{list(CONTENT_TYPE_TO_PL_READ_FUNC.keys())}"
+            f"{list(CONTENT_TYPE_TO_READ_FN.keys())}"
         )
 
     reader_kwargs = content_type_to_reader_kwargs(content_type)
@@ -508,53 +499,264 @@ def file_to_dataframe(
 
     logger.debug(f"Reading {path} via {pl_read_func} with kwargs: {reader_kwargs}")
 
-    # Handle different filesystem types and compression
-    def _read_file():
-        if isinstance(filesystem, pafs.FileSystem):
-            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-                # Handle compression for explicit compression content types
-                if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
-                    if content_encoding == ContentEncoding.GZIP.value:
-                        import gzip
-
-                        with gzip.GzipFile(fileobj=f) as gz:
-                            source = io.BytesIO(gz.read())
-                        return pl_read_func(source, **reader_kwargs)
-                    elif content_encoding == ContentEncoding.BZIP2.value:
-                        import bz2
-
-                        data = bz2.decompress(f.read())
-                        source = io.BytesIO(data)
-                        return pl_read_func(source, **reader_kwargs)
-                    else:
-                        return pl_read_func(f, **reader_kwargs)
-                else:
-                    return pl_read_func(f, **reader_kwargs)
-        else:
-            # fsspec AbstractFileSystem
-            mode = "rb"
-            with filesystem.open(path, mode, **fs_open_kwargs) as f:
-                # Handle compression for explicit compression content types
-                if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
-                    if content_encoding == ContentEncoding.GZIP.value:
-                        import gzip
-
-                        with gzip.GzipFile(fileobj=f) as gz:
-                            source = io.BytesIO(gz.read())
-                        return pl_read_func(source, **reader_kwargs)
-                    elif content_encoding == ContentEncoding.BZIP2.value:
-                        import bz2
-
-                        data = bz2.decompress(f.read())
-                        source = io.BytesIO(data)
-                        return pl_read_func(source, **reader_kwargs)
-                    else:
-                        source = io.BytesIO(f.read())
-                        return pl_read_func(source, **reader_kwargs)
-                else:
-                    source = io.BytesIO(f.read())
-                    return pl_read_func(source, **reader_kwargs)
-
-    dataframe, latency = timed_invocation(_read_file)
+    dataframe, latency = timed_invocation(
+        pl_read_func,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        content_encoding=content_encoding,
+        **reader_kwargs,
+    )
     logger.debug(f"Time to read {path} into Polars DataFrame: {latency}s")
     return dataframe
+
+
+def read_csv(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pl.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        if content_encoding == ContentEncoding.IDENTITY.value:
+            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+                return pl.read_csv(f, **read_kwargs)
+        else:
+            # For compressed files with PyArrow, we need to be careful because PyArrow
+            # may auto-decompress some formats. Try to read directly first.
+            try:
+                with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+                    # Try reading as if it's already decompressed by PyArrow
+                    return pl.read_csv(f, **read_kwargs)
+            except Exception:
+                # If that fails, try manual decompression 
+                with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f) as input_file:
+                        content = input_file.read()
+                        if isinstance(content, str):
+                            content = content.encode('utf-8')
+                        return pl.read_csv(content, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_csv(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    if isinstance(content, str):
+                        content = content.encode('utf-8')
+                    return pl.read_csv(content, **read_kwargs)
+
+
+def read_parquet(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pl.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_parquet(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    return pl.read_parquet(content, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_parquet(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    return pl.read_parquet(content, **read_kwargs)
+
+
+def read_ipc(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pl.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_ipc(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    return pl.read_ipc(content, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_ipc(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    return pl.read_ipc(content, **read_kwargs)
+
+
+def read_ndjson(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pl.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        if content_encoding == ContentEncoding.IDENTITY.value:
+            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+                return pl.read_ndjson(f, **read_kwargs)
+        else:
+            # For compressed files with PyArrow, we need to be careful because PyArrow
+            # may auto-decompress some formats. Try to read directly first.
+            try:
+                with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+                    # Try reading as if it's already decompressed by PyArrow
+                    return pl.read_ndjson(f, **read_kwargs)
+            except Exception:
+                # If that fails, try manual decompression 
+                with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    with input_file_init(f) as input_file:
+                        content = input_file.read()
+                        if isinstance(content, str):
+                            content = content.encode('utf-8')
+                        return pl.read_ndjson(content, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_ndjson(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    if isinstance(content, str):
+                        content = content.encode('utf-8')
+                    return pl.read_ndjson(content, **read_kwargs)
+
+
+def read_avro(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pl.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_avro(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    return pl.read_avro(content, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                return pl.read_avro(f, **read_kwargs)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content as bytes and pass to polars
+                    content = input_file.read()
+                    return pl.read_avro(content, **read_kwargs)
+
+
+def read_orc(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pl.DataFrame:
+    """
+    Read an ORC file using pandas and convert to polars since polars doesn't have native ORC support.
+    """
+    import pandas as pd
+    
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                pd_df = pd.read_orc(f, **read_kwargs)
+                return pl.from_pandas(pd_df)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content and pass to pandas
+                    content = input_file.read()
+                    import io
+                    pd_df = pd.read_orc(io.BytesIO(content), **read_kwargs)
+                    return pl.from_pandas(pd_df)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            if content_encoding == ContentEncoding.IDENTITY.value:
+                pd_df = pd.read_orc(f, **read_kwargs)
+                return pl.from_pandas(pd_df)
+            else:
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    # Read decompressed content and pass to pandas
+                    content = input_file.read()
+                    import io
+                    pd_df = pd.read_orc(io.BytesIO(content), **read_kwargs)
+                    return pl.from_pandas(pd_df)
+
+
+# New mapping for encoding-aware reader functions used by file_to_dataframe
+CONTENT_TYPE_TO_READ_FN: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: read_csv,
+    ContentType.TSV.value: read_csv,
+    ContentType.CSV.value: read_csv,
+    ContentType.PSV.value: read_csv,
+    ContentType.PARQUET.value: read_parquet,
+    ContentType.FEATHER.value: read_ipc,
+    ContentType.JSON.value: read_ndjson,
+    ContentType.AVRO.value: read_avro,
+    ContentType.ORC.value: read_orc,
+}

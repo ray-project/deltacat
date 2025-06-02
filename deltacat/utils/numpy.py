@@ -88,23 +88,23 @@ def file_to_ndarray(
         f"Encoding: {content_encoding}"
     )
 
-    def _read_to_ndarray():
-        # Delegate to pandas implementation and convert to ndarray
-        dataframe = pd_utils.file_to_dataframe(
-            path=path,
-            content_type=content_type,
-            content_encoding=content_encoding,
-            filesystem=filesystem,
-            column_names=column_names,
-            include_columns=include_columns,
-            pd_read_func_kwargs_provider=pd_read_func_kwargs_provider,
-            fs_open_kwargs=fs_open_kwargs,
-            **kwargs,
-        )
-        return dataframe.to_numpy()
-
-    ndarray, latency = timed_invocation(_read_to_ndarray)
-    logger.debug(f"Time to read {path} into NumPy ndarray: {latency}s")
+    dataframe, latency = timed_invocation(
+        pd_utils.file_to_dataframe,
+        path=path,
+        content_type=content_type,
+        content_encoding=content_encoding,
+        filesystem=filesystem,
+        column_names=column_names,
+        include_columns=include_columns,
+        pd_read_func_kwargs_provider=pd_read_func_kwargs_provider,
+        partial_file_download_params=partial_file_download_params,
+        fs_open_kwargs=fs_open_kwargs,
+        **kwargs,
+    )
+    
+    ndarray, conversion_latency = timed_invocation(dataframe.to_numpy)
+    total_latency = latency + conversion_latency
+    logger.debug(f"Time to read {path} into NumPy ndarray: {total_latency}s")
     return ndarray
 
 

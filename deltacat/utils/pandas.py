@@ -2,6 +2,9 @@ import csv
 import io
 import logging
 import math
+import bz2
+import gzip
+from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 
 import pandas as pd
@@ -25,14 +28,163 @@ from deltacat.types.partial_download import PartialFileDownloadParams
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+# Encoding to file initialization function mapping
+ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
+    ContentEncoding.GZIP.value: partial(gzip.open, mode="rb"),
+    ContentEncoding.BZIP2.value: partial(bz2.open, mode="rb"),
+    ContentEncoding.IDENTITY.value: lambda file_path: file_path,
+}
 
-def read_avro(file_path, **kwargs):
+
+def read_csv(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pd.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_csv(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_csv(input_file, **read_kwargs)
+
+
+def read_parquet(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pd.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_parquet(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_parquet(input_file, **read_kwargs)
+
+
+def read_feather(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pd.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_feather(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression  
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_feather(input_file, **read_kwargs)
+
+
+def read_orc(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pd.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_orc(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_orc(input_file, **read_kwargs)
+
+
+def read_json(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pd.DataFrame:
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_json(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pd.read_json(input_file, **read_kwargs)
+
+
+def read_avro(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pd.DataFrame:
     """
     Read an Avro file using polars and convert to pandas.
     """
     import polars as pl
-
-    return pl.read_avro(file_path, **kwargs).to_pandas()
+    
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                pl_df = pl.read_avro(input_file, **read_kwargs)
+                return pl_df.to_pandas()
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                pl_df = pl.read_avro(input_file, **read_kwargs)
+                return pl_df.to_pandas()
 
 
 CONTENT_TYPE_TO_PD_READ_FUNC: Dict[str, Callable] = {
@@ -44,6 +196,20 @@ CONTENT_TYPE_TO_PD_READ_FUNC: Dict[str, Callable] = {
     ContentType.FEATHER.value: pd.read_feather,
     ContentType.ORC.value: pd.read_orc,
     ContentType.JSON.value: pd.read_json,
+    ContentType.AVRO.value: read_avro,
+}
+
+
+# New mapping for encoding-aware reader functions used by file_to_dataframe
+CONTENT_TYPE_TO_READ_FN: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: read_csv,
+    ContentType.TSV.value: read_csv,
+    ContentType.CSV.value: read_csv,
+    ContentType.PSV.value: read_csv,
+    ContentType.PARQUET.value: read_parquet,
+    ContentType.FEATHER.value: read_feather,
+    ContentType.ORC.value: read_orc,
+    ContentType.JSON.value: read_json,
     ContentType.AVRO.value: read_avro,
 }
 
@@ -218,26 +384,16 @@ def file_to_dataframe(
         f"Encoding: {content_encoding}"
     )
 
-    # Resolve filesystem and path
-    if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path, filesystem)
-
-    pd_read_func = CONTENT_TYPE_TO_PD_READ_FUNC.get(content_type)
+    pd_read_func = CONTENT_TYPE_TO_READ_FN.get(content_type)
     if not pd_read_func:
         raise NotImplementedError(
             f"Pandas reader for content type '{content_type}' not "
             f"implemented. Known content types: "
-            f"{list(CONTENT_TYPE_TO_PD_READ_FUNC.keys())}"
+            f"{list(CONTENT_TYPE_TO_READ_FN.keys())}"
         )
 
     reader_kwargs = content_type_to_reader_kwargs(content_type)
     _add_column_kwargs(content_type, column_names, include_columns, reader_kwargs)
-
-    # Handle compression for explicit compression content types
-    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
-        reader_kwargs["compression"] = ENCODING_TO_PD_COMPRESSION.get(
-            content_encoding, "infer"
-        )
 
     # Merge with provided kwargs
     reader_kwargs.update(kwargs)
@@ -247,17 +403,14 @@ def file_to_dataframe(
 
     logger.debug(f"Reading {path} via {pd_read_func} with kwargs: {reader_kwargs}")
 
-    # Handle different filesystem types
-    def _read_file():
-        if isinstance(filesystem, pafs.FileSystem):
-            with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-                return pd_read_func(f, **reader_kwargs)
-        else:
-            # fsspec AbstractFileSystem
-            with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-                return pd_read_func(f, **reader_kwargs)
-
-    dataframe, latency = timed_invocation(_read_file)
+    dataframe, latency = timed_invocation(
+        pd_read_func,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        content_encoding=content_encoding,
+        **reader_kwargs,
+    )
     logger.debug(f"Time to read {path} into Pandas DataFrame: {latency}s")
     return dataframe
 
