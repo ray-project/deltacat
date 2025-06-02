@@ -634,10 +634,12 @@ def get_delta(
         partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
+    print(f"partition_locator_alias: {partition_locator_alias}")
     locator = DeltaLocator.of(
         partition_locator=partition_locator_alias,
         stream_position=stream_position,
     )
+    print(f"locator: {locator}")
     delta = Delta.of(
         locator=locator,
         delta_type=None,
@@ -645,6 +647,7 @@ def get_delta(
         properties=None,
         manifest=None,
     )
+    print(f"delta: {delta}")
     return _latest(
         *args,
         metafile=delta,

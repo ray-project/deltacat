@@ -2913,6 +2913,272 @@ class TestPartition:
                 catalog=self.catalog,
             )
 
+    def test_get_partition_unpartitioned_stream_none_values(self):
+        """Test retrieving a staged and committed partition with partition_values=None for an unpartitioned stream."""
+        # Given a staged partition with None partition values on an unpartitioned stream
+        staged_partition = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=None,
+            catalog=self.catalog,
+        )
+
+        # Verify the partition was staged correctly with None values and UNPARTITIONED_SCHEME_ID
+        assert staged_partition is not None
+        assert staged_partition.partition_values is None
+        assert staged_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+
+        # When we commit the partition
+        committed_partition = metastore.commit_partition(
+            partition=staged_partition,
+            catalog=self.catalog,
+        )
+
+        # Then the partition should be committed correctly
+        assert committed_partition is not None
+        assert committed_partition.state == CommitState.COMMITTED
+        assert committed_partition.partition_values is None
+        assert committed_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+        assert committed_partition.previous_partition_id is None
+        assert committed_partition.locator is not None
+        assert committed_partition.locator.stream_locator == self.unpartitioned_stream.locator
+
+        # When we retrieve the partition using get_partition with partition_values=None and
+        # partition_scheme_id=UNPARTITIONED_SCHEME_ID
+        retrieved_partition = metastore.get_partition(
+            stream_locator=self.unpartitioned_stream.locator,
+            partition_values=None,
+            #partition_scheme_id=UNPARTITIONED_SCHEME_ID,
+            catalog=self.catalog,
+        )
+
+        # Then we should get the correct committed partition
+        assert retrieved_partition is not None
+        assert retrieved_partition.equivalent_to(committed_partition)
+        assert retrieved_partition.partition_id == committed_partition.partition_id
+        assert retrieved_partition.state == CommitState.COMMITTED
+        assert retrieved_partition.partition_values is None
+        assert retrieved_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+        assert retrieved_partition.locator.stream_locator == self.unpartitioned_stream.locator
+
+        # When we retrieve the partition using get_partition with partition_values=None and
+        # partition_scheme_id=UNPARTITIONED_SCHEME_ID
+        retrieved_partition = metastore.get_partition(
+            stream_locator=self.unpartitioned_stream.locator,
+            partition_values=None,
+            partition_scheme_id=UNPARTITIONED_SCHEME_ID,
+            catalog=self.catalog,
+        )
+
+        # Should get the same partition
+        assert retrieved_partition is not None
+        assert retrieved_partition.equivalent_to(committed_partition)
+        assert retrieved_partition.partition_values is None
+        assert retrieved_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+
+        # Verify we can also retrieve it by partition ID
+        retrieved_by_id = metastore.get_partition_by_id(
+            stream_locator=self.unpartitioned_stream.locator,
+            partition_id=committed_partition.partition_id,
+            catalog=self.catalog,
+        )
+
+        # Should get the same partition
+        assert retrieved_by_id is not None
+        assert retrieved_by_id.equivalent_to(committed_partition)
+        assert retrieved_by_id.partition_values is None
+        assert retrieved_by_id.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+
+    def test_list_stream_partitions_unpartitioned(self):
+        """Test listing partitions for an unpartitioned stream with None partition values."""
+        # Given a committed partition with None partition values on an unpartitioned stream
+        partition_1 = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=None,
+            catalog=self.catalog,
+        )
+        committed_partition_1 = metastore.commit_partition(
+            partition=partition_1,
+            catalog=self.catalog,
+        )
+
+        # When we stage and commit another partition with None values, it should replace the first one
+        partition_2 = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=None,
+            catalog=self.catalog,
+        )
+        committed_partition_2 = metastore.commit_partition(
+            partition=partition_2,
+            catalog=self.catalog,
+        )
+
+        # Verify the second partition replaced the first (same partition values = replacement)
+        assert committed_partition_2.previous_partition_id == committed_partition_1.id
+
+        # When we list the partitions for the unpartitioned stream
+        list_result = metastore.list_stream_partitions(
+            stream=self.unpartitioned_stream,
+            catalog=self.catalog,
+        )
+
+        # Then we should get only the latest partition (the replacement)
+        partitions_list = list_result.all_items()
+        assert len(partitions_list) == 1
+
+        # Verify the returned partition has None values and correct scheme ID
+        partition = partitions_list[0]
+        assert partition.state == CommitState.COMMITTED
+        assert partition.partition_values is None
+        assert partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+        assert partition.locator.stream_locator == self.unpartitioned_stream.locator
+
+        # Verify we got the latest committed partition (the replacement)
+        assert partition.partition_id == committed_partition_2.partition_id
+
+    def test_list_stream_partitions_partitioned_and_unpartitioned(self):
+        """Test listing partitions for both partitioned and unpartitioned streams to compare behavior."""
+        # Given committed partitions on a partitioned stream with actual values
+        partition_values1 = [123, "abc"]
+        partition_values2 = [456, "def"]
+        
+        staged_partition1 = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values1,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition1 = metastore.commit_partition(
+            partition=staged_partition1,
+            catalog=self.catalog,
+        )
+        
+        staged_partition2 = metastore.stage_partition(
+            stream=self.stream,
+            partition_values=partition_values2,
+            partition_scheme_id=self.tv.partition_scheme.id,
+            catalog=self.catalog,
+        )
+        committed_partition2 = metastore.commit_partition(
+            partition=staged_partition2,
+            catalog=self.catalog,
+        )
+
+        # And a committed partition on an unpartitioned stream with None values
+        unpartitioned_partition1 = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=None,
+            catalog=self.catalog,
+        )
+        committed_unpartitioned1 = metastore.commit_partition(
+            partition=unpartitioned_partition1,
+            catalog=self.catalog,
+        )
+
+        # When we list partitions for the partitioned stream
+        partitioned_list_result = metastore.list_stream_partitions(
+            stream=self.stream,
+            catalog=self.catalog,
+        )
+        partitioned_partitions = partitioned_list_result.all_items()
+
+        # Then we should get the partitioned stream's partitions with actual values
+        assert len(partitioned_partitions) == 2
+        
+        partition_values_list = [p.partition_values for p in partitioned_partitions]
+        assert partition_values1 in partition_values_list
+        assert partition_values2 in partition_values_list
+        
+        for p in partitioned_partitions:
+            assert p.state == CommitState.COMMITTED
+            assert p.partition_scheme_id == self.tv.partition_scheme.id
+            assert p.partition_values is not None
+            assert p.locator.stream_locator == self.stream.locator
+
+        # When we list partitions for the unpartitioned stream
+        unpartitioned_list_result = metastore.list_stream_partitions(
+            stream=self.unpartitioned_stream,
+            catalog=self.catalog,
+        )
+        unpartitioned_partitions = unpartitioned_list_result.all_items()
+
+        # Then we should get the unpartitioned stream's partition with None values
+        assert len(unpartitioned_partitions) == 1
+
+        partition = unpartitioned_partitions[0]
+        assert partition.state == CommitState.COMMITTED
+        assert partition.partition_values is None
+        assert partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+        assert partition.locator.stream_locator == self.unpartitioned_stream.locator
+
+        # Verify partition IDs are distinct between streams
+        partitioned_ids = {p.partition_id for p in partitioned_partitions}
+        unpartitioned_ids = {p.partition_id for p in unpartitioned_partitions}
+        assert len(partitioned_ids.intersection(unpartitioned_ids)) == 0  # No overlap
+
+    def test_list_stream_partitions_empty_values_vs_none_values(self):
+        """Test listing partitions with empty list values vs None values for unpartitioned streams."""
+        # Given a partition with empty list partition values
+        empty_list_partition = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=[],
+            catalog=self.catalog,
+        )
+        committed_empty_list = metastore.commit_partition(
+            partition=empty_list_partition,
+            catalog=self.catalog,
+        )
+
+        # And a partition with None partition values
+        none_values_partition = metastore.stage_partition(
+            stream=self.unpartitioned_stream,
+            partition_values=None,
+            catalog=self.catalog,
+        )
+        committed_none_values = metastore.commit_partition(
+            partition=none_values_partition,
+            catalog=self.catalog,
+        )
+
+        # When we list the partitions
+        list_result = metastore.list_stream_partitions(
+            stream=self.unpartitioned_stream,
+            catalog=self.catalog,
+        )
+        partitions_list = list_result.all_items()
+
+        # Then we should get both partitions
+        assert len(partitions_list) == 2
+
+        # Verify both partitions are committed and have the right scheme ID
+        for p in partitions_list:
+            assert p.state == CommitState.COMMITTED
+            assert p.partition_scheme_id == UNPARTITIONED_SCHEME_ID
+            assert p.locator.stream_locator == self.unpartitioned_stream.locator
+
+        # Verify we have one with empty list and one with None
+        partition_values_set = {tuple(p.partition_values) if p.partition_values is not None else None for p in partitions_list}
+        assert None in partition_values_set  # None values
+        assert () in partition_values_set     # Empty list (converted to empty tuple for set membership)
+
+        # Verify we can retrieve each partition individually
+        retrieved_empty_list = metastore.get_partition(
+            stream_locator=self.unpartitioned_stream.locator,
+            partition_values=[],
+            partition_scheme_id=UNPARTITIONED_SCHEME_ID,
+            catalog=self.catalog,
+        )
+        assert retrieved_empty_list is not None
+        assert retrieved_empty_list.partition_values == []
+
+        retrieved_none_values = metastore.get_partition(
+            stream_locator=self.unpartitioned_stream.locator,
+            partition_values=None,
+            partition_scheme_id=UNPARTITIONED_SCHEME_ID,
+            catalog=self.catalog,
+        )
+        assert retrieved_none_values is not None
+        assert retrieved_none_values.partition_values is None
+
 
 class TestDelta:
     @classmethod
@@ -2928,7 +3194,7 @@ class TestDelta:
         )
 
         # Create and commit table version
-        _, cls.table_version, cls.stream = metastore.create_table_version(
+        cls.table, cls.table_version, cls.stream = metastore.create_table_version(
             namespace=cls.namespace.locator.namespace,
             table_name="test_table",
             table_version="v.1",
@@ -2944,13 +3210,14 @@ class TestDelta:
             partition=cls.partition,
             catalog=cls.catalog,
         )
-
+        print(f"committed partition: {cls.partition}")
         # Get the committed partition to ensure we have the latest state
         cls.partition = metastore.get_partition_by_id(
             stream_locator=cls.partition.stream_locator,
             partition_id=cls.partition.partition_id,
             catalog=cls.catalog,
         )
+        print(f"get partition: {cls.partition}")
 
     @classmethod
     def teardown_method(cls):
@@ -4550,15 +4817,22 @@ class TestDelta:
             catalog=self.catalog,
         )
 
+        deltas = metastore.list_deltas(
+            namespace=self.namespace.namespace,
+            table_name=self.table.table_name,
+            catalog=self.catalog,
+        )
+        print(f"deltas: {deltas}")
+
         # Retrieve the committed delta
         retrieved_delta = metastore.get_delta(
-            namespace=self.namespace.locator.namespace,
-            table_name="test_table",
-            stream_position=committed_delta.locator.stream_position,
-            partition_values=None,  # Using None for unpartitioned table
-            table_version="v.1",
-            include_manifest=True,
-            partition_scheme_id=self.partition.partition_scheme_id,
+            namespace=self.namespace.namespace,
+            table_name=self.table.table_name,
+            stream_position=committed_delta.stream_position,
+            #partition_values=None,  # Using None for unpartitioned table
+            #table_version=self.table_version.table_version,
+            #include_manifest=True,
+            #partition_scheme_id=self.partition.partition_scheme_id,
             catalog=self.catalog,
         )
 
