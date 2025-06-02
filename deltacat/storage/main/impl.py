@@ -41,7 +41,6 @@ from deltacat.storage.model.partition import (
     PartitionValues,
     UNPARTITIONED_SCHEME,
     UNPARTITIONED_SCHEME_ID,
-    PartitionLocatorAlias,
 )
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import (
@@ -140,66 +139,6 @@ def _exists(
     )
     results = list_results.all_items()
     return True if results else False
-
-
-def _resolve_partition_locator_alias(
-    namespace: str,
-    table_name: str,
-    table_version: Optional[str] = None,
-    partition_values: Optional[PartitionValues] = None,
-    partition_scheme_id: Optional[str] = None,
-    *args,
-    **kwargs,
-) -> PartitionLocatorAlias:
-    # TODO(pdames): A read shouldn't initiate N transactions that
-    #  read against different catalog snapshots. To resolve this, add
-    #  new "start", "step", and "end" methods to Transaction that
-    #  support starting a txn, defining and executing a txn op, retrieve
-    #  its results, then define and execute the next txn op. When
-    #  stepping through a transaction its txn heartbeat timeout should
-    #  be set manually.
-    partition_locator = None
-    if not partition_values:
-        partition_scheme_id = UNPARTITIONED_SCHEME_ID
-    elif not partition_scheme_id:
-        # resolve latest partition scheme from the current
-        # revision of its `deltacat` stream
-        stream = get_stream(
-            *args,
-            namespace=namespace,
-            table_name=table_name,
-            table_version=table_version,
-            **kwargs,
-        )
-        if not stream:
-            raise ValueError(
-                f"Failed to resolve latest partition scheme for "
-                f"`{namespace}.{table_name}` at table version "
-                f"`{table_version or 'latest'}` (no stream found)."
-            )
-        partition_locator = PartitionLocator.of(
-            stream_locator=stream.locator,
-            partition_values=partition_values,
-            partition_id=None,
-        )
-        partition_scheme_id = stream.partition_scheme.id
-    if not partition_locator:
-        partition_locator = PartitionLocator.at(
-            namespace=namespace,
-            table_name=table_name,
-            table_version=table_version,
-            stream_id=None,
-            stream_format=StreamFormat.DELTACAT,
-            partition_values=partition_values,
-            partition_id=None,
-        )
-    partition = Partition.of(
-        locator=partition_locator,
-        schema=None,
-        content_types=None,
-        partition_scheme_id=partition_scheme_id,
-    )
-    return partition.locator_alias
 
 
 def _resolve_latest_active_table_version_id(
@@ -318,23 +257,6 @@ def _validate_partition_values_against_scheme(
                 f"Partition value {partition_value} (type {type(partition_value)}) "
                 f"incompatible with partition transform return type {field_type}"
             ) from e
-
-
-def _ensure_value_coercible_to_pyarrow_type(
-    value: Any,
-    field_type: pa.DataType,
-) -> None:
-    """
-    Ensures that a single value can be converted to the given pyarrow data type.
-
-    Args:
-        value: The partition value to validate
-        field_type: The pyarrow field type that the partition value should be
-            convertible to.
-
-    Raises:
-        ValueError: If validation fails
-    """
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
