@@ -3210,14 +3210,12 @@ class TestDelta:
             partition=cls.partition,
             catalog=cls.catalog,
         )
-        print(f"committed partition: {cls.partition}")
         # Get the committed partition to ensure we have the latest state
         cls.partition = metastore.get_partition_by_id(
             stream_locator=cls.partition.stream_locator,
             partition_id=cls.partition.partition_id,
             catalog=cls.catalog,
         )
-        print(f"get partition: {cls.partition}")
 
     @classmethod
     def teardown_method(cls):
@@ -4820,19 +4818,17 @@ class TestDelta:
         deltas = metastore.list_deltas(
             namespace=self.namespace.namespace,
             table_name=self.table.table_name,
+            table_version=self.table_version.table_version,  # Explicitly specify table version
             catalog=self.catalog,
         )
-        print(f"deltas: {deltas}")
 
         # Retrieve the committed delta
         retrieved_delta = metastore.get_delta(
             namespace=self.namespace.namespace,
             table_name=self.table.table_name,
             stream_position=committed_delta.stream_position,
-            #partition_values=None,  # Using None for unpartitioned table
-            #table_version=self.table_version.table_version,
-            #include_manifest=True,
-            #partition_scheme_id=self.partition.partition_scheme_id,
+            table_version=self.table_version.table_version,  # Explicitly specify table version
+            include_manifest=True,  # Explicitly request manifest
             catalog=self.catalog,
         )
 

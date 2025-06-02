@@ -516,16 +516,39 @@ def list_deltas(
     #  positions, or should traverse using Partition.stream_position (to
     #  resolve last stream position) and Delta.previous_stream_position
     #  (down to first stream position).
-    partition_locator_alias = _resolve_partition_locator_alias(
+    
+    # First get the stream to resolve proper table version and stream locator
+    stream = get_stream(
         *args,
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
-        partition_values=partition_values,
-        partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
-    locator = DeltaLocator.of(partition_locator=partition_locator_alias)
+    if not stream:
+        raise ValueError(
+            f"Failed to resolve stream for "
+            f"`{namespace}.{table_name}` at table version "
+            f"`{table_version or 'latest'}` (no stream found)."
+        )
+    
+    # Then get the actual partition to ensure we have the real partition locator with ID
+    partition = get_partition(
+        stream_locator=stream.locator,
+        partition_values=partition_values,
+        partition_scheme_id=partition_scheme_id,
+        *args,
+        **kwargs,
+    )
+    if not partition:
+        raise ValueError(
+            f"Failed to find partition for stream {stream.locator} "
+            f"with partition_values={partition_values} and "
+            f"partition_scheme_id={partition_scheme_id}"
+        )
+    
+    # Use the actual partition locator (with partition ID) for listing deltas
+    locator = DeltaLocator.of(partition_locator=partition.locator)
     delta = Delta.of(
         locator=locator,
         delta_type=None,
@@ -543,7 +566,8 @@ def list_deltas(
     filtered_deltas = [
         delta
         for delta in all_deltas
-        if first_stream_position <= delta.stream_position <= last_stream_position
+        if (first_stream_position is None or first_stream_position <= delta.stream_position) and
+           (last_stream_position is None or delta.stream_position <= last_stream_position)
     ]
     if ascending_order:
         filtered_deltas.reverse()
@@ -594,7 +618,8 @@ def list_partition_deltas(
     filtered_deltas = [
         delta
         for delta in all_deltas
-        if first_stream_position <= delta.stream_position <= last_stream_position
+        if (first_stream_position is None or first_stream_position <= delta.stream_position) and
+           (last_stream_position is None or delta.stream_position <= last_stream_position)
     ]
     if ascending_order:
         filtered_deltas.reverse()
@@ -625,21 +650,42 @@ def get_delta(
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
     """
     # TODO(pdames): Honor `include_manifest` param.
-    partition_locator_alias = _resolve_partition_locator_alias(
+    
+    # First get the stream to resolve proper table version and stream locator
+    stream = get_stream(
         *args,
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
-        partition_values=partition_values,
-        partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
-    print(f"partition_locator_alias: {partition_locator_alias}")
+    if not stream:
+        raise ValueError(
+            f"Failed to resolve stream for "
+            f"`{namespace}.{table_name}` at table version "
+            f"`{table_version or 'latest'}` (no stream found)."
+        )
+    
+    # Then get the actual partition to ensure we have the real partition locator with ID
+    partition = get_partition(
+        stream_locator=stream.locator,
+        partition_values=partition_values,
+        partition_scheme_id=partition_scheme_id,
+        *args,
+        **kwargs,
+    )
+    if not partition:
+        raise ValueError(
+            f"Failed to find partition for stream {stream.locator} "
+            f"with partition_values={partition_values} and "
+            f"partition_scheme_id={partition_scheme_id}"
+        )
+    
+    # Use the actual partition locator (with partition ID) for getting the delta
     locator = DeltaLocator.of(
-        partition_locator=partition_locator_alias,
+        partition_locator=partition.locator,
         stream_position=stream_position,
     )
-    print(f"locator: {locator}")
     delta = Delta.of(
         locator=locator,
         delta_type=None,
@@ -647,12 +693,18 @@ def get_delta(
         properties=None,
         manifest=None,
     )
-    print(f"delta: {delta}")
-    return _latest(
+    result = _latest(
         *args,
         metafile=delta,
         **kwargs,
     )
+    
+    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since 
+    #   the point is to avoid loading the manifest into memory if it's not needed.
+    if result and not include_manifest:
+        result.manifest = None
+        
+    return result
 
 
 def get_latest_delta(
@@ -699,11 +751,18 @@ def get_latest_delta(
         properties=None,
         manifest=None,
     )
-    return _latest(
+    result = _latest(
         *args,
         metafile=delta,
         **kwargs,
     )
+    
+    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since 
+    #   the point is to avoid loading the manifest into memory if it's not needed.
+    if result and not include_manifest:
+        result.manifest = None
+        
+    return result
 
 
 def download_delta(
