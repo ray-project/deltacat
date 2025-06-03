@@ -7608,8 +7608,9 @@ class TestDelta:
         )
 
         # Should return empty list for partition with no deltas
-        assert isinstance(result, list)
-        assert len(result) == 0
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        assert len(deltas) == 0
 
     def test_list_partition_deltas_with_partition_object(self):
         """Test listing deltas using a partition object."""
@@ -7641,12 +7642,13 @@ class TestDelta:
         )
 
         # Should return both deltas in ascending order by default
-        assert isinstance(result, list)
-        assert len(result) == 2
-        assert result[0].stream_position == committed_delta1.stream_position
-        assert result[1].stream_position == committed_delta2.stream_position
-        assert result[0].type == DeltaType.UPSERT
-        assert result[1].type == DeltaType.APPEND
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        deltas = result.all_items(); assert len(deltas) == 2
+        assert deltas[0].stream_position == committed_delta1.stream_position
+        assert deltas[1].stream_position == committed_delta2.stream_position
+        assert deltas[0].type == DeltaType.UPSERT
+        assert deltas[1].type == DeltaType.APPEND
 
     def test_list_partition_deltas_with_partition_locator(self):
         """Test listing deltas using a partition locator."""
@@ -7670,10 +7672,11 @@ class TestDelta:
         )
 
         # Should return the delta
-        assert isinstance(result, list)
-        assert len(result) >= 1  # At least the delta we just added
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        deltas = result.all_items(); assert len(deltas) >= 1  # At least the delta we just added
         found_delta = next(
-            (d for d in result if d.stream_position == committed_delta.stream_position),
+            (d for d in deltas if d.stream_position == committed_delta.stream_position),
             None,
         )
         assert found_delta is not None
@@ -7687,7 +7690,7 @@ class TestDelta:
         )
 
         # Stage and commit multiple deltas
-        deltas = []
+        committed_deltas = []
         for i in range(3):
             delta = metastore.stage_delta(
                 data=df,
@@ -7695,48 +7698,55 @@ class TestDelta:
                 catalog=self.catalog,
             )
             committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
-            deltas.append(committed_delta)
+            committed_deltas.append(committed_delta)
 
         # Test filtering by first_stream_position
         result = metastore.list_partition_deltas(
             partition_like=self.partition,
-            first_stream_position=deltas[1].stream_position,
+            first_stream_position=committed_deltas[1].stream_position,
             catalog=self.catalog,
         )
 
         # Should only return deltas from position 2 onwards
-        assert isinstance(result, list)
-        assert len(result) >= 2
-        for delta in result:
-            assert delta.stream_position >= deltas[1].stream_position
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        deltas = result.all_items()
+        assert len(deltas) >= 2
+        deltas = result.all_items()
+        for delta in deltas:
+            assert delta.stream_position >= committed_deltas[1].stream_position
 
         # Test filtering by last_stream_position
         result = metastore.list_partition_deltas(
             partition_like=self.partition,
-            last_stream_position=deltas[1].stream_position,
+            last_stream_position=committed_deltas[1].stream_position,
             catalog=self.catalog,
         )
 
         # Should only return deltas up to position 2
-        assert isinstance(result, list)
-        for delta in result:
-            assert delta.stream_position <= deltas[1].stream_position
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        deltas = result.all_items()
+        for delta in deltas:
+            assert delta.stream_position <= committed_deltas[1].stream_position
 
         # Test filtering by both first and last
         result = metastore.list_partition_deltas(
             partition_like=self.partition,
-            first_stream_position=deltas[0].stream_position,
-            last_stream_position=deltas[1].stream_position,
+            first_stream_position=committed_deltas[0].stream_position,
+            last_stream_position=committed_deltas[1].stream_position,
             catalog=self.catalog,
         )
 
         # Should return deltas in the specified range
-        assert isinstance(result, list)
-        for delta in result:
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        deltas = result.all_items()
+        for delta in deltas:
             assert (
-                deltas[0].stream_position
+                committed_deltas[0].stream_position
                 <= delta.stream_position
-                <= deltas[1].stream_position
+                <= committed_deltas[1].stream_position
             )
 
     def test_list_partition_deltas_ascending_order(self):
@@ -7765,11 +7775,12 @@ class TestDelta:
         )
 
         # Should return deltas in descending stream position order (reversed from default)
-        assert isinstance(result, list)
-        assert len(result) >= 3
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        assert len(deltas) >= 3
 
         # Check that the first 3 deltas are in descending order
-        first_three = result[:3]
+        first_three = deltas[:3]
         for i in range(len(first_three) - 1):
             assert first_three[i].stream_position > first_three[i + 1].stream_position
 
@@ -7795,9 +7806,10 @@ class TestDelta:
             catalog=self.catalog,
         )
 
+        deltas = result.all_items()
         # Find our delta and verify it has a manifest
         found_delta = next(
-            (d for d in result if d.stream_position == committed_delta.stream_position),
+            (d for d in deltas if d.stream_position == committed_delta.stream_position),
             None,
         )
         assert found_delta is not None
@@ -7812,10 +7824,11 @@ class TestDelta:
         )
 
         # Find our delta and verify it doesn't have a manifest by default
+        deltas_no_manifest = result_no_manifest.all_items()
         found_delta_no_manifest = next(
             (
                 d
-                for d in result_no_manifest
+                for d in deltas_no_manifest
                 if d.stream_position == committed_delta.stream_position
             ),
             None,

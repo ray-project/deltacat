@@ -572,7 +572,11 @@ def list_partition_deltas(
     ]
     if ascending_order:
         filtered_deltas.reverse()
-    return filtered_deltas
+    return ListResult.of(
+        items=filtered_deltas,
+        pagination_key=None,
+        next_page_provider=None,
+    )
 
 
 def get_delta(

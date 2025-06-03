@@ -5,50 +5,14 @@ import tempfile
 import shutil
 import pandas as pd
 from deltacat.storage import metastore
-from deltacat.storage.model.list_result import ListResult
 from deltacat.catalog import CatalogProperties
 from deltacat.types.media import ContentType
 from deltacat.storage.model.types import DeltaType
 from deltacat.compute.compactor_v2.compaction_session import compact_partition
 from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
-from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_constant import TEST_S3_RCF_BUCKET_NAME
 from moto import mock_s3
 import boto3
-from typing import Union, Optional, List
-from deltacat.storage.model.partition import Partition, PartitionLocator
-from deltacat.storage.model.delta import Delta
-
-
-class MetastoreWrapper:
-    """Wrapper around the main metastore to make it compatible with compactor API expectations."""
-    
-    def __getattr__(self, name):
-        """Delegate all attributes to the metastore module."""
-        return getattr(metastore, name)
-    
-    def list_partition_deltas(
-        self,
-        partition_like: Union[Partition, PartitionLocator],
-        first_stream_position: Optional[int] = None,
-        last_stream_position: Optional[int] = None,
-        ascending_order: bool = False,
-        include_manifest: bool = False,
-        *args,
-        **kwargs,
-    ) -> ListResult[Delta]:
-        """Wrapper that converts the list result to ListResult object."""
-        deltas_list = metastore.list_partition_deltas(
-            partition_like=partition_like,
-            first_stream_position=first_stream_position,
-            last_stream_position=last_stream_position,
-            ascending_order=ascending_order,
-            include_manifest=include_manifest,
-            *args,
-            **kwargs,
-        )
-        # Wrap the list in a ListResult
-        return ListResult.of(deltas_list, None, None)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -92,18 +56,12 @@ def catalog():
     shutil.rmtree(tmpdir)
 
 
-@pytest.fixture
-def metastore_wrapper():
-    """Create a wrapper around the main metastore."""
-    return MetastoreWrapper()
-
-
 class TestCompactionSessionMain:
     """Basic sanity tests for compact_partition using main deltacat metastore."""
 
     NAMESPACE = "compact_partition_main_test"
     
-    def test_compact_partition_basic_sanity(self, catalog, metastore_wrapper):
+    def test_compact_partition_basic_sanity(self, catalog):
         """Basic sanity test to verify compact_partition works with main metastore."""
         
         # Create source namespace and table
@@ -178,7 +136,7 @@ class TestCompactionSessionMain:
                     "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
-                    "deltacat_storage": metastore_wrapper,
+                    "deltacat_storage": metastore,
                     "deltacat_storage_kwargs": {"catalog": catalog},
                     "destination_partition_locator": dest_partition.locator,
                     "drop_duplicates": True,
@@ -216,7 +174,7 @@ class TestCompactionSessionMain:
         print(f"Updated destination partition stream position: {updated_dest_partition.stream_position}")
         
         # Verify that the destination partition now has some deltas
-        dest_partition_deltas = metastore_wrapper.list_partition_deltas(
+        dest_partition_deltas = metastore.list_partition_deltas(
             partition_like=updated_dest_partition,
             include_manifest=True,
             catalog=catalog,
