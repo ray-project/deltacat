@@ -32,6 +32,9 @@ from pyiceberg.typedef import (
 )
 from pyiceberg.schema import Schema
 from pyiceberg.io import FileIO
+from deltacat.compute.converter.model.convert_input_files import (
+    DataFileList,
+)
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -199,14 +202,9 @@ def parquet_files_dict_to_iceberg_data_files(
 
 def fetch_all_bucket_files(
     table: Table,
-) -> Tuple[
-    Dict[Any, List[Tuple[int, DataFile]]],
-    Dict[Any, List[Tuple[int, DataFile]]],
-    Dict[Any, List[Tuple[int, DataFile]]],
-]:
+) -> Tuple[Dict[Any, DataFileList], Dict[Any, DataFileList], Dict[Any, DataFileList]]:
     # step 1: filter manifests using partition summaries
     # the filter depends on the partition spec used to write the manifest file, so create a cache of filters for each spec id
-
     data_scan = table.scan()
     snapshot = data_scan.snapshot()
     if not snapshot:
