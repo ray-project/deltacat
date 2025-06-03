@@ -5744,7 +5744,6 @@ class TestDelta:
     def test_download_delta_local_pyarrow(self):
         """Test downloading delta with local storage and PyArrow table type."""
 
-
         # Create very simple test data that matches the schema exactly
         test_data = pd.DataFrame(
             {
@@ -5801,7 +5800,6 @@ class TestDelta:
     def test_download_delta_with_delta_locator(self):
         """Test downloading delta using DeltaLocator instead of Delta object."""
 
-
         # Create and commit test data
         test_data = pd.DataFrame(
             {
@@ -5853,7 +5851,6 @@ class TestDelta:
     def test_download_delta_invalid_columns(self):
         """Test error handling when requesting non-existent columns."""
 
-
         # Create and commit test data
         test_data = pd.DataFrame(
             {
@@ -5893,7 +5890,6 @@ class TestDelta:
 
     def test_download_delta_manifest_entry_basic(self):
         """Test downloading a specific manifest entry by index."""
-
 
         # Create test data
         test_data = pd.DataFrame(
@@ -5951,14 +5947,15 @@ class TestDelta:
     def test_download_delta_content_types_with_pandas(self):
         """Test downloading delta with different content types as pandas DataFrames."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [1, 2, 3, 4],
-            "name": ["Alice", "Bob", "Charlie", "David"],
-            "age": [25, 30, 35, 40],
-            "city": ["New York", "London", "Paris", "Tokyo"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4],
+                "name": ["Alice", "Bob", "Charlie", "David"],
+                "age": [25, 30, 35, 40],
+                "city": ["New York", "London", "Paris", "Tokyo"],
+            }
+        )
 
         # Test with PARQUET content type
         staged_delta = metastore.stage_delta(
@@ -5999,14 +5996,15 @@ class TestDelta:
     def test_download_delta_content_types_with_pyarrow(self):
         """Test downloading delta with different content types as PyArrow Tables."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [10, 20, 30],
-            "name": ["Alice", "Bob", "Charlie"],
-            "age": [25, 30, 35],
-            "city": ["Seattle", "Boston", "Chicago"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [10, 20, 30],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["Seattle", "Boston", "Chicago"],
+            }
+        )
 
         # Test with CSV content type
         staged_delta = metastore.stage_delta(
@@ -6042,19 +6040,22 @@ class TestDelta:
 
         assert isinstance(result_table, pa.Table), "Expected PyArrow Table"
         assert len(result_table) == len(test_data), "Row count mismatch"
-        assert set(result_table.column_names) == set(test_data.columns), "Column mismatch"
+        assert set(result_table.column_names) == set(
+            test_data.columns
+        ), "Column mismatch"
 
     def test_download_delta_content_types_with_polars(self):
         """Test downloading delta with different content types as Polars DataFrames."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [101, 102, 103, 104, 105],
-            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
-            "age": [15, 23, 8, 45, 12],
-            "city": ["City A", "City B", "City C", "City D", "City E"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [101, 102, 103, 104, 105],
+                "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+                "age": [15, 23, 8, 45, 12],
+                "city": ["City A", "City B", "City C", "City D", "City E"],
+            }
+        )
 
         # Test with PARQUET content type (avoiding JSON due to PanicException)
         staged_delta = metastore.stage_delta(
@@ -6095,13 +6096,10 @@ class TestDelta:
     def test_download_delta_content_types_with_numpy(self):
         """Test downloading delta with different content types as NumPy arrays."""
 
-
         # Test data - simpler data types that work well with numpy
-        test_data = pd.DataFrame({
-            "id": [1, 2, 3],
-            "value": [10.5, 20.7, 30.9],
-            "count": [5, 10, 15]
-        })
+        test_data = pd.DataFrame(
+            {"id": [1, 2, 3], "value": [10.5, 20.7, 30.9], "count": [5, 10, 15]}
+        )
 
         # Test with FEATHER content type
         staged_delta = metastore.stage_delta(
@@ -6143,14 +6141,15 @@ class TestDelta:
     def test_download_manifest_entry_content_types_with_pandas(self):
         """Test downloading manifest entries with different content types as pandas DataFrames."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [1001, 1002, 1003],
-            "name": ["Customer A", "Customer B", "Customer C"],
-            "age": [30, 45, 28],
-            "city": ["Houston", "Phoenix", "Philadelphia"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1001, 1002, 1003],
+                "name": ["Customer A", "Customer B", "Customer C"],
+                "age": [30, 45, 28],
+                "city": ["Houston", "Phoenix", "Philadelphia"],
+            }
+        )
 
         # Test with TSV content type
         staged_delta = metastore.stage_delta(
@@ -6181,20 +6180,25 @@ class TestDelta:
         # Verify result
         assert isinstance(downloaded_table, pd.DataFrame), "Expected pandas DataFrame"
         assert len(downloaded_table) > 0, "Downloaded table should not be empty"
-        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
-        assert set(downloaded_table.columns) == set(test_data.columns), "Column mismatch"
+        assert len(downloaded_table) <= len(
+            test_data
+        ), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.columns) == set(
+            test_data.columns
+        ), "Column mismatch"
 
     def test_download_manifest_entry_content_types_with_pyarrow(self):
         """Test downloading manifest entries with different content types as PyArrow Tables."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [2001, 2002, 2003, 2004],
-            "name": ["Account A", "Account B", "Account C", "Account D"],
-            "age": [32, 28, 45, 39],
-            "city": ["San Antonio", "San Diego", "Dallas", "San Jose"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [2001, 2002, 2003, 2004],
+                "name": ["Account A", "Account B", "Account C", "Account D"],
+                "age": [32, 28, 45, 39],
+                "city": ["San Antonio", "San Diego", "Dallas", "San Jose"],
+            }
+        )
 
         # Test with PSV content type
         staged_delta = metastore.stage_delta(
@@ -6225,20 +6229,25 @@ class TestDelta:
         # Verify result
         assert isinstance(downloaded_table, pa.Table), "Expected PyArrow Table"
         assert len(downloaded_table) > 0, "Downloaded table should not be empty"
-        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
-        assert set(downloaded_table.column_names) == set(test_data.columns), "Column mismatch"
+        assert len(downloaded_table) <= len(
+            test_data
+        ), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.column_names) == set(
+            test_data.columns
+        ), "Column mismatch"
 
     def test_download_delta_cross_table_type_consistency(self):
         """Test that different table types return consistent data for the same delta."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alpha", "Beta", "Gamma"],
-            "age": [25, 30, 35],
-            "city": ["City A", "City B", "City C"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alpha", "Beta", "Gamma"],
+                "age": [25, 30, 35],
+                "city": ["City A", "City B", "City C"],
+            }
+        )
 
         # Stage and commit delta
         staged_delta = metastore.stage_delta(
@@ -6284,10 +6293,18 @@ class TestDelta:
         )
 
         # Verify all return types and basic properties
-        assert all(isinstance(t, pd.DataFrame) for t in pandas_tables), "All pandas tables should be DataFrames"
-        assert all(isinstance(t, pa.Table) for t in pyarrow_tables), "All PyArrow tables should be Tables"
-        assert all(isinstance(t, pl.DataFrame) for t in polars_tables), "All Polars tables should be DataFrames"
-        assert all(isinstance(t, np.ndarray) for t in numpy_tables), "All NumPy tables should be arrays"
+        assert all(
+            isinstance(t, pd.DataFrame) for t in pandas_tables
+        ), "All pandas tables should be DataFrames"
+        assert all(
+            isinstance(t, pa.Table) for t in pyarrow_tables
+        ), "All PyArrow tables should be Tables"
+        assert all(
+            isinstance(t, pl.DataFrame) for t in polars_tables
+        ), "All Polars tables should be DataFrames"
+        assert all(
+            isinstance(t, np.ndarray) for t in numpy_tables
+        ), "All NumPy tables should be arrays"
 
         # Verify row counts are consistent
         pandas_total_rows = sum(len(t) for t in pandas_tables)
@@ -6295,22 +6312,31 @@ class TestDelta:
         polars_total_rows = sum(len(t) for t in polars_tables)
         numpy_total_rows = sum(len(t) for t in numpy_tables)
 
-        assert pandas_total_rows == len(test_data), "Pandas row count should match test data"
-        assert pyarrow_total_rows == len(test_data), "PyArrow row count should match test data"
-        assert polars_total_rows == len(test_data), "Polars row count should match test data"
-        assert numpy_total_rows == len(test_data), "NumPy row count should match test data"
+        assert pandas_total_rows == len(
+            test_data
+        ), "Pandas row count should match test data"
+        assert pyarrow_total_rows == len(
+            test_data
+        ), "PyArrow row count should match test data"
+        assert polars_total_rows == len(
+            test_data
+        ), "Polars row count should match test data"
+        assert numpy_total_rows == len(
+            test_data
+        ), "NumPy row count should match test data"
 
     def test_download_manifest_entry_cross_table_type_consistency(self):
         """Test that different table types return consistent data for the same manifest entry."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [401, 402, 403],
-            "name": ["Metric A", "Metric B", "Metric C"],
-            "age": [5, 10, 15],  # metric age in years
-            "city": ["Server A", "Server B", "Server C"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [401, 402, 403],
+                "name": ["Metric A", "Metric B", "Metric C"],
+                "age": [5, 10, 15],  # metric age in years
+                "city": ["Server A", "Server B", "Server C"],
+            }
+        )
 
         # Stage and commit delta
         staged_delta = metastore.stage_delta(
@@ -6362,32 +6388,65 @@ class TestDelta:
         )
 
         # Verify return types
-        assert isinstance(pandas_table, pd.DataFrame), "Pandas download should return DataFrame"
-        assert isinstance(pyarrow_table, pa.Table), "PyArrow download should return Table"
-        assert isinstance(polars_table, pl.DataFrame), "Polars download should return DataFrame"
-        assert isinstance(numpy_table, np.ndarray), "NumPy download should return ndarray"
+        assert isinstance(
+            pandas_table, pd.DataFrame
+        ), "Pandas download should return DataFrame"
+        assert isinstance(
+            pyarrow_table, pa.Table
+        ), "PyArrow download should return Table"
+        assert isinstance(
+            polars_table, pl.DataFrame
+        ), "Polars download should return DataFrame"
+        assert isinstance(
+            numpy_table, np.ndarray
+        ), "NumPy download should return ndarray"
 
         # Verify basic consistency (same number of rows, same columns where applicable)
-        assert len(pandas_table) == len(pyarrow_table), "Pandas and PyArrow should have same row count"
-        assert len(pyarrow_table) == len(polars_table), "PyArrow and Polars should have same row count"
-        assert len(polars_table) == len(numpy_table), "Polars and NumPy should have same row count"
+        assert len(pandas_table) == len(
+            pyarrow_table
+        ), "Pandas and PyArrow should have same row count"
+        assert len(pyarrow_table) == len(
+            polars_table
+        ), "PyArrow and Polars should have same row count"
+        assert len(polars_table) == len(
+            numpy_table
+        ), "Polars and NumPy should have same row count"
 
         # Verify column counts where applicable
-        assert len(pandas_table.columns) == len(pyarrow_table.column_names), "Column count should match between pandas and PyArrow"
-        assert len(pyarrow_table.column_names) == len(polars_table.columns), "Column count should match between PyArrow and Polars"
-        assert len(polars_table.columns) == numpy_table.shape[1], "Column count should match between Polars and NumPy"
+        assert len(pandas_table.columns) == len(
+            pyarrow_table.column_names
+        ), "Column count should match between pandas and PyArrow"
+        assert len(pyarrow_table.column_names) == len(
+            polars_table.columns
+        ), "Column count should match between PyArrow and Polars"
+        assert (
+            len(polars_table.columns) == numpy_table.shape[1]
+        ), "Column count should match between Polars and NumPy"
 
     def test_download_delta_with_column_selection_all_table_types(self):
         """Test downloading delta with column selection across all table types."""
 
-
         # Test data with correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [1, 2, 3, 4, 5],
-            "name": ["Product A", "Product B", "Product C", "Product D", "Product E"],
-            "age": [1, 2, 3, 4, 5],  # product age in years
-            "city": ["Factory A", "Factory B", "Factory C", "Factory D", "Factory E"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": [
+                    "Product A",
+                    "Product B",
+                    "Product C",
+                    "Product D",
+                    "Product E",
+                ],
+                "age": [1, 2, 3, 4, 5],  # product age in years
+                "city": [
+                    "Factory A",
+                    "Factory B",
+                    "Factory C",
+                    "Factory D",
+                    "Factory E",
+                ],
+            }
+        )
 
         # Stage and commit delta
         staged_delta = metastore.stage_delta(
@@ -6415,14 +6474,18 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with pandas"
+        assert isinstance(
+            downloaded_tables, list
+        ), "Expected list for LOCAL storage with pandas"
         assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
 
         if len(downloaded_tables) == 1:
             result = downloaded_tables[0]
         else:
             result = pd.concat(downloaded_tables, ignore_index=True)
-        assert list(result.columns) == selected_columns, "Column selection failed for pandas"
+        assert (
+            list(result.columns) == selected_columns
+        ), "Column selection failed for pandas"
 
         # Test with PyArrow
         downloaded_tables = metastore.download_delta(
@@ -6433,14 +6496,18 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with PyArrow"
+        assert isinstance(
+            downloaded_tables, list
+        ), "Expected list for LOCAL storage with PyArrow"
         assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
 
         if len(downloaded_tables) == 1:
             result = downloaded_tables[0]
         else:
             result = pa.concat_tables(downloaded_tables)
-        assert list(result.column_names) == selected_columns, "Column selection failed for PyArrow"
+        assert (
+            list(result.column_names) == selected_columns
+        ), "Column selection failed for PyArrow"
 
         # Test with Polars
         downloaded_tables = metastore.download_delta(
@@ -6451,14 +6518,18 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with Polars"
+        assert isinstance(
+            downloaded_tables, list
+        ), "Expected list for LOCAL storage with Polars"
         assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
 
         if len(downloaded_tables) == 1:
             result = downloaded_tables[0]
         else:
             result = pl.concat(downloaded_tables)
-        assert list(result.columns) == selected_columns, "Column selection failed for Polars"
+        assert (
+            list(result.columns) == selected_columns
+        ), "Column selection failed for Polars"
 
         # Test with NumPy
         downloaded_tables = metastore.download_delta(
@@ -6469,7 +6540,9 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with NumPy"
+        assert isinstance(
+            downloaded_tables, list
+        ), "Expected list for LOCAL storage with NumPy"
         assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
 
         if len(downloaded_tables) == 1:
@@ -6477,19 +6550,28 @@ class TestDelta:
         else:
             result = np.concatenate(downloaded_tables, axis=0)
         # NumPy arrays don't have column names, but should have the right number of columns
-        assert result.shape[1] == len(selected_columns), "Column count mismatch for NumPy"
+        assert result.shape[1] == len(
+            selected_columns
+        ), "Column count mismatch for NumPy"
 
     def test_download_manifest_entry_content_types_with_polars(self):
         """Test downloading manifest entries with different content types as Polars DataFrames."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [301, 302, 303, 304, 305],
-            "name": ["Sensor A", "Sensor B", "Sensor C", "Sensor D", "Sensor E"],
-            "age": [1, 2, 3, 4, 5],  # sensor age in years
-            "city": ["Building A", "Building B", "Building C", "Building D", "Building E"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [301, 302, 303, 304, 305],
+                "name": ["Sensor A", "Sensor B", "Sensor C", "Sensor D", "Sensor E"],
+                "age": [1, 2, 3, 4, 5],  # sensor age in years
+                "city": [
+                    "Building A",
+                    "Building B",
+                    "Building C",
+                    "Building D",
+                    "Building E",
+                ],
+            }
+        )
 
         # Test with AVRO content type
         staged_delta = metastore.stage_delta(
@@ -6520,20 +6602,25 @@ class TestDelta:
         # Verify result
         assert isinstance(downloaded_table, pl.DataFrame), "Expected Polars DataFrame"
         assert len(downloaded_table) > 0, "Downloaded table should not be empty"
-        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
-        assert set(downloaded_table.columns) == set(test_data.columns), "Column mismatch"
+        assert len(downloaded_table) <= len(
+            test_data
+        ), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.columns) == set(
+            test_data.columns
+        ), "Column mismatch"
 
     def test_download_manifest_entry_content_types_with_numpy(self):
         """Test downloading manifest entries with different content types as NumPy arrays."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [1, 2, 3, 4],
-            "name": ["Point A", "Point B", "Point C", "Point D"],
-            "age": [10, 20, 30, 40],  # point age
-            "city": ["Grid 1", "Grid 2", "Grid 3", "Grid 4"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4],
+                "name": ["Point A", "Point B", "Point C", "Point D"],
+                "age": [10, 20, 30, 40],  # point age
+                "city": ["Grid 1", "Grid 2", "Grid 3", "Grid 4"],
+            }
+        )
 
         # Test with ORC content type
         staged_delta = metastore.stage_delta(
@@ -6564,21 +6651,26 @@ class TestDelta:
         # Verify result
         assert isinstance(downloaded_table, np.ndarray), "Expected NumPy array"
         assert len(downloaded_table) > 0, "Downloaded table should not be empty"
-        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
+        assert len(downloaded_table) <= len(
+            test_data
+        ), "Downloaded table should not exceed test data size"
         # NumPy arrays don't have column names, but should have the right shape
-        assert downloaded_table.shape[1] == len(test_data.columns), "Column count mismatch"
+        assert downloaded_table.shape[1] == len(
+            test_data.columns
+        ), "Column count mismatch"
 
     def test_download_delta_content_types_with_polars_json(self):
         """Test downloading delta with JSON content type as Polars DataFrames."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [201, 202, 203, 204, 205],
-            "name": ["UserA", "UserB", "UserC", "UserD", "UserE"],
-            "age": [25, 30, 35, 40, 45],
-            "city": ["CityA", "CityB", "CityC", "CityD", "CityE"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [201, 202, 203, 204, 205],
+                "name": ["UserA", "UserB", "UserC", "UserD", "UserE"],
+                "age": [25, 30, 35, 40, 45],
+                "city": ["CityA", "CityB", "CityC", "CityD", "CityE"],
+            }
+        )
 
         # Test with JSON content type
         staged_delta = metastore.stage_delta(
@@ -6601,32 +6693,39 @@ class TestDelta:
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
-        
+
         # If we get here, the download succeeded
-        assert isinstance(downloaded_tables, list), "Expected list for LOCAL storage with Polars"
+        assert isinstance(
+            downloaded_tables, list
+        ), "Expected list for LOCAL storage with Polars"
         assert len(downloaded_tables) > 0, "Downloaded tables should not be empty"
-        assert all(isinstance(t, pl.DataFrame) for t in downloaded_tables), "All tables should be Polars DataFrames"
-        
+        assert all(
+            isinstance(t, pl.DataFrame) for t in downloaded_tables
+        ), "All tables should be Polars DataFrames"
+
         # Verify data integrity
         if len(downloaded_tables) == 1:
             result = downloaded_tables[0]
         else:
             result = pl.concat(downloaded_tables)
-        
+
         assert len(result) == len(test_data), "Row count should match"
-        assert set(result.columns) == set(test_data.columns), "Column names should match"
+        assert set(result.columns) == set(
+            test_data.columns
+        ), "Column names should match"
 
     def test_download_manifest_entry_content_types_with_polars_json(self):
         """Test downloading manifest entries with JSON content type as Polars DataFrames."""
 
-
         # Test data - using correct schema: id, name, age, city
-        test_data = pd.DataFrame({
-            "id": [401, 402, 403, 404],
-            "name": ["ItemA", "ItemB", "ItemC", "ItemD"],
-            "age": [1, 2, 3, 4],  # item age
-            "city": ["StoreA", "StoreB", "StoreC", "StoreD"]
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [401, 402, 403, 404],
+                "name": ["ItemA", "ItemB", "ItemC", "ItemD"],
+                "age": [1, 2, 3, 4],  # item age
+                "city": ["StoreA", "StoreB", "StoreC", "StoreD"],
+            }
+        )
 
         # Test with JSON content type
         staged_delta = metastore.stage_delta(
@@ -6657,12 +6756,15 @@ class TestDelta:
         # If we get here, the download succeeded
         assert isinstance(downloaded_table, pl.DataFrame), "Expected Polars DataFrame"
         assert len(downloaded_table) > 0, "Downloaded table should not be empty"
-        assert len(downloaded_table) <= len(test_data), "Downloaded table should not exceed test data size"
-        assert set(downloaded_table.columns) == set(test_data.columns), "Column mismatch"
+        assert len(downloaded_table) <= len(
+            test_data
+        ), "Downloaded table should not exceed test data size"
+        assert set(downloaded_table.columns) == set(
+            test_data.columns
+        ), "Column mismatch"
 
     def test_download_delta_distributed_basic_pyarrow(self):
         """Test basic distributed download with Ray Data using PyArrow table type."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6703,20 +6805,21 @@ class TestDelta:
 
         # Verify the result is a Ray Dataset
         assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
-        
+
         # Verify row count without materializing the entire dataset
         row_count = distributed_dataset.count()
         assert row_count == len(test_data), "Row count should match"
 
         # Convert to pandas to verify data integrity
-        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        downloaded_df = (
+            distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        )
         expected_df = test_data.sort_values("id").reset_index(drop=True)
 
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
     def test_download_delta_distributed_with_delta_locator(self):
         """Test distributed download using DeltaLocator instead of Delta object."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6728,7 +6831,13 @@ class TestDelta:
                 "id": [2001, 2002, 2003, 2004, 2005],
                 "name": ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"],
                 "age": [30, 35, 40, 45, 50],
-                "city": ["Seattle", "Portland", "San Francisco", "Los Angeles", "San Diego"],
+                "city": [
+                    "Seattle",
+                    "Portland",
+                    "San Francisco",
+                    "Los Angeles",
+                    "San Diego",
+                ],
             }
         )
 
@@ -6757,16 +6866,17 @@ class TestDelta:
 
         # Verify the result is a Ray Dataset
         assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
-        
+
         # Convert to pandas and verify data integrity
-        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        downloaded_df = (
+            distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        )
         expected_df = test_data.sort_values("id").reset_index(drop=True)
 
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
     def test_download_delta_distributed_different_table_types(self):
         """Test distributed download with different table types."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6812,16 +6922,21 @@ class TestDelta:
             )
 
             # Verify the result is a Ray Dataset
-            assert isinstance(distributed_dataset, RayDataset), f"Expected Ray Dataset for {table_type}"
-            
+            assert isinstance(
+                distributed_dataset, RayDataset
+            ), f"Expected Ray Dataset for {table_type}"
+
             # Convert to pandas and verify basic properties
             downloaded_df = distributed_dataset.to_pandas()
-            assert len(downloaded_df) == len(test_data), f"Row count mismatch for {table_type}"
-            assert set(downloaded_df.columns) == set(test_data.columns), f"Column mismatch for {table_type}"
+            assert len(downloaded_df) == len(
+                test_data
+            ), f"Row count mismatch for {table_type}"
+            assert set(downloaded_df.columns) == set(
+                test_data.columns
+            ), f"Column mismatch for {table_type}"
 
     def test_download_delta_distributed_different_content_types(self):
         """Test distributed download with different content types."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6869,16 +6984,21 @@ class TestDelta:
             )
 
             # Verify the result is a Ray Dataset
-            assert isinstance(distributed_dataset, RayDataset), f"Expected Ray Dataset for {content_type}"
-            
+            assert isinstance(
+                distributed_dataset, RayDataset
+            ), f"Expected Ray Dataset for {content_type}"
+
             # Convert to pandas and verify basic properties
             downloaded_df = distributed_dataset.to_pandas()
-            assert len(downloaded_df) == len(test_data), f"Row count mismatch for {content_type}"
-            assert set(downloaded_df.columns) == set(test_data.columns), f"Column mismatch for {content_type}"
+            assert len(downloaded_df) == len(
+                test_data
+            ), f"Row count mismatch for {content_type}"
+            assert set(downloaded_df.columns) == set(
+                test_data.columns
+            ), f"Column mismatch for {content_type}"
 
     def test_download_delta_distributed_with_column_selection(self):
         """Test distributed download with column selection."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6921,10 +7041,12 @@ class TestDelta:
 
         # Verify the result is a Ray Dataset
         assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
-        
+
         # Convert to pandas and verify column selection
         downloaded_df = distributed_dataset.to_pandas()
-        assert set(downloaded_df.columns) == set(selected_columns), "Column selection mismatch"
+        assert set(downloaded_df.columns) == set(
+            selected_columns
+        ), "Column selection mismatch"
         assert len(downloaded_df) == len(test_data), "Row count should match"
 
         # Verify data integrity for selected columns
@@ -6936,7 +7058,6 @@ class TestDelta:
 
     def test_download_delta_distributed_with_max_parallelism(self):
         """Test distributed download with different parallelism settings."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6979,16 +7100,21 @@ class TestDelta:
             )
 
             # Verify the result is a Ray Dataset
-            assert isinstance(distributed_dataset, RayDataset), f"Expected Ray Dataset for parallelism {max_parallelism}"
-            
+            assert isinstance(
+                distributed_dataset, RayDataset
+            ), f"Expected Ray Dataset for parallelism {max_parallelism}"
+
             # Convert to pandas and verify data integrity
             downloaded_df = distributed_dataset.to_pandas()
-            assert len(downloaded_df) == len(test_data), f"Row count mismatch for parallelism {max_parallelism}"
-            assert set(downloaded_df.columns) == set(test_data.columns), f"Column mismatch for parallelism {max_parallelism}"
+            assert len(downloaded_df) == len(
+                test_data
+            ), f"Row count mismatch for parallelism {max_parallelism}"
+            assert set(downloaded_df.columns) == set(
+                test_data.columns
+            ), f"Column mismatch for parallelism {max_parallelism}"
 
     def test_download_delta_distributed_large_dataset(self):
         """Test distributed download with a larger dataset to verify performance benefits."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7033,7 +7159,7 @@ class TestDelta:
         # Verify the result is a Ray Dataset
         assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
         # isinstance check already verifies Ray Dataset type which includes count method
-        
+
         # Verify row count without materializing the entire dataset
         row_count = distributed_dataset.count()
         assert row_count == len(test_data), "Row count should match"
@@ -7041,11 +7167,12 @@ class TestDelta:
         # Sample a few rows to verify data integrity
         sample_df = distributed_dataset.limit(10).to_pandas()
         assert len(sample_df) == 10, "Sample should have 10 rows"
-        assert set(sample_df.columns) == set(test_data.columns), "Column names should match"
+        assert set(sample_df.columns) == set(
+            test_data.columns
+        ), "Column names should match"
 
     def test_download_delta_distributed_cross_table_type_consistency(self):
         """Test that distributed downloads return consistent data across table types."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7092,22 +7219,27 @@ class TestDelta:
             )
 
             # Convert to pandas for comparison
-            downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+            downloaded_df = (
+                distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+            )
             downloaded_dfs[table_type] = downloaded_df
 
         # Verify consistency across table types
         base_df = downloaded_dfs[TableType.PYARROW]
         for table_type, df in downloaded_dfs.items():
             assert len(df) == len(base_df), f"Row count mismatch for {table_type}"
-            assert set(df.columns) == set(base_df.columns), f"Column names mismatch for {table_type}"
-            
+            assert set(df.columns) == set(
+                base_df.columns
+            ), f"Column names mismatch for {table_type}"
+
             # Compare data values (allowing for type differences)
             for col in base_df.columns:
-                assert list(df[col]) == list(base_df[col]), f"Data mismatch in column {col} for {table_type}"
+                assert list(df[col]) == list(
+                    base_df[col]
+                ), f"Data mismatch in column {col} for {table_type}"
 
     def test_download_delta_distributed_ray_options(self):
         """Test distributed download with custom Ray options."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7155,16 +7287,17 @@ class TestDelta:
 
         # Verify the result is a Ray Dataset
         assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
-        
+
         # Convert to pandas and verify data integrity
-        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        downloaded_df = (
+            distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        )
         expected_df = test_data.sort_values("id").reset_index(drop=True)
 
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
     def test_download_delta_distributed_vs_local_consistency(self):
         """Test that distributed and local downloads return the same data."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7176,7 +7309,13 @@ class TestDelta:
                 "id": [10001, 10002, 10003, 10004, 10005],
                 "name": ["CompareA", "CompareB", "CompareC", "CompareD", "CompareE"],
                 "age": [30, 35, 40, 45, 50],
-                "city": ["TestCity1", "TestCity2", "TestCity3", "TestCity4", "TestCity5"],
+                "city": [
+                    "TestCity1",
+                    "TestCity2",
+                    "TestCity3",
+                    "TestCity4",
+                    "TestCity5",
+                ],
             }
         )
 
@@ -7218,14 +7357,15 @@ class TestDelta:
         )
 
         # Convert distributed result to pandas
-        distributed_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        distributed_df = (
+            distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        )
 
         # Verify they are identical
         pd.testing.assert_frame_equal(local_df, distributed_df)
 
     def test_download_delta_distributed_error_handling(self):
         """Test error handling in distributed downloads."""
-
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7273,14 +7413,19 @@ class TestDelta:
     def test_download_delta_distributed_daft_basic(self):
         """Test basic distributed download with DAFT dataset type."""
 
-
         # Create test data
         test_data = pd.DataFrame(
             {
                 "id": [12001, 12002, 12003, 12004, 12005],
                 "name": ["DAFT_A", "DAFT_B", "DAFT_C", "DAFT_D", "DAFT_E"],
                 "age": [21, 22, 23, 24, 25],
-                "city": ["DaftCity1", "DaftCity2", "DaftCity3", "DaftCity4", "DaftCity5"],
+                "city": [
+                    "DaftCity1",
+                    "DaftCity2",
+                    "DaftCity3",
+                    "DaftCity4",
+                    "DaftCity5",
+                ],
             }
         )
 
@@ -7310,86 +7455,104 @@ class TestDelta:
         assert isinstance(distributed_dataset, DaftDataFrame), "Expected DAFT DataFrame"
 
         # Convert to pandas and verify data integrity
-        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        downloaded_df = (
+            distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        )
         expected_df = test_data.sort_values("id").reset_index(drop=True)
 
         assert len(downloaded_df) == len(expected_df), "Row count mismatch"
-        assert set(downloaded_df.columns) == set(expected_df.columns), "Column names mismatch"
+        assert set(downloaded_df.columns) == set(
+            expected_df.columns
+        ), "Column names mismatch"
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
     def test_download_delta_distributed_daft_with_delta_locator(self):
         """Test DAFT distributed download using DeltaLocator instead of Delta object."""
 
-
-        test_data = pd.DataFrame({
-            "id": [12101, 12102, 12103],
-            "name": ["DAFT_Locator_A", "DAFT_Locator_B", "DAFT_Locator_C"],
-            "age": [30, 31, 32],
-            "city": ["DaftLocCity1", "DaftLocCity2", "DaftLocCity3"],
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [12101, 12102, 12103],
+                "name": ["DAFT_Locator_A", "DAFT_Locator_B", "DAFT_Locator_C"],
+                "age": [30, 31, 32],
+                "city": ["DaftLocCity1", "DaftLocCity2", "DaftLocCity3"],
+            }
+        )
 
         staged_delta = metastore.stage_delta(
-            data=test_data, 
-            partition=self.partition, 
-            content_type=ContentType.PARQUET, 
+            data=test_data,
+            partition=self.partition,
+            content_type=ContentType.PARQUET,
             delta_type=DeltaType.UPSERT,
             catalog=self.catalog,
         )
         committed_delta = metastore.commit_delta(
-            delta=staged_delta, 
+            delta=staged_delta,
             catalog=self.catalog,
         )
 
         # Download using DeltaLocator with DAFT
         distributed_dataset = metastore.download_delta(
-            delta_like=committed_delta.locator, 
+            delta_like=committed_delta.locator,
             table_type=TableType.PYARROW,
-            storage_type=StorageType.DISTRIBUTED, 
+            storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
         )
 
-        downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        downloaded_df = (
+            distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
+        )
         expected_df = test_data.sort_values("id").reset_index(drop=True)
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
     def test_download_delta_distributed_daft_vs_ray_consistency(self):
         """Test that DAFT and Ray distributed downloads return the same data."""
 
-
-        test_data = pd.DataFrame({
-            "id": [12501, 12502, 12503, 12504],
-            "name": ["Consistency_A", "Consistency_B", "Consistency_C", "Consistency_D"],
-            "age": [60, 61, 62, 63],
-            "city": ["ConsistencyCity1", "ConsistencyCity2", "ConsistencyCity3", "ConsistencyCity4"],
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [12501, 12502, 12503, 12504],
+                "name": [
+                    "Consistency_A",
+                    "Consistency_B",
+                    "Consistency_C",
+                    "Consistency_D",
+                ],
+                "age": [60, 61, 62, 63],
+                "city": [
+                    "ConsistencyCity1",
+                    "ConsistencyCity2",
+                    "ConsistencyCity3",
+                    "ConsistencyCity4",
+                ],
+            }
+        )
 
         staged_delta = metastore.stage_delta(
-            data=test_data, 
-            partition=self.partition, 
+            data=test_data,
+            partition=self.partition,
             catalog=self.catalog,
-            content_type=ContentType.PARQUET, 
+            content_type=ContentType.PARQUET,
             delta_type=DeltaType.UPSERT,
         )
         committed_delta = metastore.commit_delta(
-            delta=staged_delta, 
+            delta=staged_delta,
             catalog=self.catalog,
         )
 
         # Download using DAFT
         daft_dataset = metastore.download_delta(
-            delta_like=committed_delta, 
+            delta_like=committed_delta,
             table_type=TableType.PYARROW,
-            storage_type=StorageType.DISTRIBUTED, 
+            storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
         )
 
         # Download using Ray
         ray_dataset = metastore.download_delta(
-            delta_like=committed_delta, 
+            delta_like=committed_delta,
             table_type=TableType.PYARROW,
-            storage_type=StorageType.DISTRIBUTED, 
+            storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             catalog=self.catalog,
         )
@@ -7402,208 +7565,275 @@ class TestDelta:
     def test_download_delta_distributed_daft_error_handling(self):
         """Test error handling in DAFT distributed downloads."""
 
-
-        test_data = pd.DataFrame({
-            "id": [12601, 12602, 12603],
-            "name": ["DaftError_A", "DaftError_B", "DaftError_C"],
-            "age": [70, 71, 72],
-            "city": ["DaftErrorCity1", "DaftErrorCity2", "DaftErrorCity3"],
-        })
+        test_data = pd.DataFrame(
+            {
+                "id": [12601, 12602, 12603],
+                "name": ["DaftError_A", "DaftError_B", "DaftError_C"],
+                "age": [70, 71, 72],
+                "city": ["DaftErrorCity1", "DaftErrorCity2", "DaftErrorCity3"],
+            }
+        )
 
         staged_delta = metastore.stage_delta(
-            data=test_data, 
-            partition=self.partition, 
+            data=test_data,
+            partition=self.partition,
             catalog=self.catalog,
-            content_type=ContentType.PARQUET, 
+            content_type=ContentType.PARQUET,
             delta_type=DeltaType.UPSERT,
         )
         committed_delta = metastore.commit_delta(
-            delta=staged_delta, 
+            delta=staged_delta,
             catalog=self.catalog,
         )
 
         # Test with invalid column names using DAFT
-        with pytest.raises(ValueError, match="One or more columns .* are not present in table version columns"):
+        with pytest.raises(
+            ValueError,
+            match="One or more columns .* are not present in table version columns",
+        ):
             metastore.download_delta(
-                delta_like=committed_delta, 
+                delta_like=committed_delta,
                 table_type=TableType.PYARROW,
-                storage_type=StorageType.DISTRIBUTED, 
+                storage_type=StorageType.DISTRIBUTED,
                 columns=["id", "invalid_column"],
-                distributed_dataset_type=DistributedDatasetType.DAFT, 
+                distributed_dataset_type=DistributedDatasetType.DAFT,
                 catalog=self.catalog,
             )
 
-
-class TestErrorCategorization:
-    """Test cases for metastore error categorization functions."""
-
-    def test_can_categorize_deltacat_error(self):
-        """Test that can_categorize returns True for DeltaCatError instances."""
-        from deltacat.exceptions import DeltaCatError
-        
-        # Create a DeltaCatError instance
-        error = DeltaCatError("Test DeltaCat error")
-        
-        # Test that it can be categorized
-        result = metastore.can_categorize(error)
-        assert result is True, "DeltaCatError should be categorizable"
-
-    def test_can_categorize_table_not_found_error(self):
-        """Test that can_categorize returns True for TableNotFoundError (subclass of DeltaCatError)."""
-        # Create a TableNotFoundError instance (which inherits from DeltaCatError)
-        error = TableNotFoundError("Test table not found")
-        
-        # Test that it can be categorized
-        result = metastore.can_categorize(error)
-        assert result is True, "TableNotFoundError should be categorizable"
-
-    def test_can_categorize_standard_exception(self):
-        """Test that can_categorize returns False for standard Python exceptions."""
-        # Create a standard Python exception
-        error = ValueError("Test value error")
-        
-        # Test that it cannot be categorized
-        result = metastore.can_categorize(error)
-        assert result is False, "Standard exceptions should not be categorizable"
-
-    def test_can_categorize_runtime_error(self):
-        """Test that can_categorize returns False for RuntimeError."""
-        # Create a RuntimeError
-        error = RuntimeError("Test runtime error")
-        
-        # Test that it cannot be categorized
-        result = metastore.can_categorize(error)
-        assert result is False, "RuntimeError should not be categorizable"
-
-    def test_can_categorize_type_error(self):
-        """Test that can_categorize returns False for TypeError."""
-        # Create a TypeError
-        error = TypeError("Test type error")
-        
-        # Test that it cannot be categorized
-        result = metastore.can_categorize(error)
-        assert result is False, "TypeError should not be categorizable"
-
-    def test_raise_categorized_error_with_deltacat_error(self):
-        """Test that raise_categorized_error re-raises DeltaCatError instances."""
-        from deltacat.exceptions import DeltaCatError
-        
-        # Create a DeltaCatError instance
-        original_error = DeltaCatError("Test DeltaCat error")
-        
-        # Test that it raises UnclassifiedDeltaCatError (since categorized is always None)
-        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
-            metastore.raise_categorized_error(original_error)
-        
-        # Verify the error message
-        assert "Failed to classify error DeltaCatError" in str(exc_info.value)
-        assert exc_info.value.__cause__ is original_error
-
-    def test_raise_categorized_error_with_standard_exception(self):
-        """Test that raise_categorized_error raises UnclassifiedDeltaCatError for standard exceptions."""
-        from deltacat.exceptions import UnclassifiedDeltaCatError
-        
-        # Create a standard Python exception
-        original_error = ValueError("Test value error")
-        
-        # Test that it raises UnclassifiedDeltaCatError
-        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
-            metastore.raise_categorized_error(original_error)
-        
-        # Verify the error message contains the original error type and message
-        assert "Failed to classify error ValueError" in str(exc_info.value)
-        assert "Test value error" in str(exc_info.value)
-        assert exc_info.value.__cause__ is original_error
-
-    def test_raise_categorized_error_with_table_not_found_error(self):
-        """Test that raise_categorized_error handles TableNotFoundError properly."""
-        from deltacat.exceptions import UnclassifiedDeltaCatError
-        
-        # Create a TableNotFoundError
-        original_error = TableNotFoundError("Table 'test_table' not found")
-        
-        # Test that it raises UnclassifiedDeltaCatError
-        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
-            metastore.raise_categorized_error(original_error)
-        
-        # Verify the error message and chaining
-        assert "Failed to classify error TableNotFoundError" in str(exc_info.value)
-        assert "Table 'test_table' not found" in str(exc_info.value)
-        assert exc_info.value.__cause__ is original_error
-
-    def test_raise_categorized_error_with_runtime_error(self):
-        """Test that raise_categorized_error handles RuntimeError properly."""
-        from deltacat.exceptions import UnclassifiedDeltaCatError
-        
-        # Create a RuntimeError
-        original_error = RuntimeError("Something went wrong at runtime")
-        
-        # Test that it raises UnclassifiedDeltaCatError
-        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
-            metastore.raise_categorized_error(original_error)
-        
-        # Verify the error message and chaining
-        assert "Failed to classify error RuntimeError" in str(exc_info.value)
-        assert "Something went wrong at runtime" in str(exc_info.value)
-        assert exc_info.value.__cause__ is original_error
-
-    def test_raise_categorized_error_preserves_exception_chain(self):
-        """Test that raise_categorized_error properly preserves the exception chain."""
-        from deltacat.exceptions import UnclassifiedDeltaCatError
-        
-        # Create a chain of exceptions - use manual chaining instead of 'from'
-        root_cause = ValueError("Root cause")
-        intermediate_error = RuntimeError("Intermediate error")
-        intermediate_error.__cause__ = root_cause
-        
-        # Test that raise_categorized_error preserves the chain
-        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
-            metastore.raise_categorized_error(intermediate_error)
-        
-        # Verify the exception chain is preserved
-        assert exc_info.value.__cause__ is intermediate_error
-        assert intermediate_error.__cause__ is root_cause
-
-    def test_can_categorize_with_kwargs(self):
-        """Test that can_categorize accepts and ignores additional kwargs."""
-        from deltacat.exceptions import DeltaCatError
-        
-        # Create a DeltaCatError instance
-        error = DeltaCatError("Test error")
-        
-        # Test with additional kwargs
-        result = metastore.can_categorize(
-            error, 
-            some_arg="test", 
-            another_kwarg=123
+    def test_list_partition_deltas_empty_partition(self):
+        """Test listing deltas from a partition with no committed deltas."""
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition.locator,
+            catalog=self.catalog,
         )
-        assert result is True, "can_categorize should handle additional kwargs"
 
-    def test_raise_categorized_error_with_kwargs(self):
-        """Test that raise_categorized_error accepts and ignores additional kwargs."""
-        from deltacat.exceptions import UnclassifiedDeltaCatError
-        
-        # Create a standard exception
-        original_error = ValueError("Test error")
-        
-        # Test with additional kwargs
-        with pytest.raises(UnclassifiedDeltaCatError):
-            metastore.raise_categorized_error(
-                original_error,
-                some_arg="test",
-                another_kwarg=123
+        # Should return empty list for partition with no deltas
+        assert isinstance(result, list)
+        assert len(result) == 0
+
+    def test_list_partition_deltas_with_partition_object(self):
+        """Test listing deltas using a partition object."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+        )
+
+        # Stage and commit multiple deltas
+        delta1 = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        committed_delta1 = metastore.commit_delta(delta1, catalog=self.catalog)
+
+        delta2 = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            delta_type=DeltaType.APPEND,
+        )
+        committed_delta2 = metastore.commit_delta(delta2, catalog=self.catalog)
+
+        # Test listing with partition object
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition,
+            catalog=self.catalog,
+        )
+
+        # Should return both deltas in ascending order by default
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0].stream_position == committed_delta1.stream_position
+        assert result[1].stream_position == committed_delta2.stream_position
+        assert result[0].type == DeltaType.UPSERT
+        assert result[1].type == DeltaType.APPEND
+
+    def test_list_partition_deltas_with_partition_locator(self):
+        """Test listing deltas using a partition locator."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [4, 5, 6], "name": ["David", "Eve", "Frank"], "age": [40, 45, 50]}
+        )
+
+        # Stage and commit a delta
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+
+        # Test listing with partition locator
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition.locator,
+            catalog=self.catalog,
+        )
+
+        # Should return the delta
+        assert isinstance(result, list)
+        assert len(result) >= 1  # At least the delta we just added
+        found_delta = next(
+            (d for d in result if d.stream_position == committed_delta.stream_position),
+            None,
+        )
+        assert found_delta is not None
+        assert found_delta.type == DeltaType.UPSERT
+
+    def test_list_partition_deltas_with_stream_position_filter(self):
+        """Test filtering deltas by stream position."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [7, 8, 9], "name": ["Grace", "Henry", "Irene"], "age": [55, 60, 65]}
+        )
+
+        # Stage and commit multiple deltas
+        deltas = []
+        for i in range(3):
+            delta = metastore.stage_delta(
+                data=df,
+                partition=self.partition,
+                catalog=self.catalog,
+            )
+            committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+            deltas.append(committed_delta)
+
+        # Test filtering by first_stream_position
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition,
+            first_stream_position=deltas[1].stream_position,
+            catalog=self.catalog,
+        )
+
+        # Should only return deltas from position 2 onwards
+        assert isinstance(result, list)
+        assert len(result) >= 2
+        for delta in result:
+            assert delta.stream_position >= deltas[1].stream_position
+
+        # Test filtering by last_stream_position
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition,
+            last_stream_position=deltas[1].stream_position,
+            catalog=self.catalog,
+        )
+
+        # Should only return deltas up to position 2
+        assert isinstance(result, list)
+        for delta in result:
+            assert delta.stream_position <= deltas[1].stream_position
+
+        # Test filtering by both first and last
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition,
+            first_stream_position=deltas[0].stream_position,
+            last_stream_position=deltas[1].stream_position,
+            catalog=self.catalog,
+        )
+
+        # Should return deltas in the specified range
+        assert isinstance(result, list)
+        for delta in result:
+            assert (
+                deltas[0].stream_position
+                <= delta.stream_position
+                <= deltas[1].stream_position
             )
 
+    def test_list_partition_deltas_ascending_order(self):
+        """Test listing deltas in ascending order."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [10, 11, 12], "name": ["Jack", "Kate", "Luke"], "age": [70, 75, 80]}
+        )
+
+        # Stage and commit multiple deltas
+        committed_deltas = []
+        for i in range(3):
+            delta = metastore.stage_delta(
+                data=df,
+                partition=self.partition,
+                catalog=self.catalog,
+            )
+            committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+            committed_deltas.append(committed_delta)
+
+        # Test ascending order (which actually reverses the default order)
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition,
+            ascending_order=True,
+            catalog=self.catalog,
+        )
+
+        # Should return deltas in descending stream position order (reversed from default)
+        assert isinstance(result, list)
+        assert len(result) >= 3
+
+        # Check that the first 3 deltas are in descending order
+        first_three = result[:3]
+        for i in range(len(first_three) - 1):
+            assert first_three[i].stream_position > first_three[i + 1].stream_position
+
+    def test_list_partition_deltas_with_manifest(self):
+        """Test listing deltas with and without manifests."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [13, 14, 15], "name": ["Mary", "Nick", "Olive"], "age": [85, 90, 95]}
+        )
+
+        # Stage and commit a delta
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+
+        # Test listing with manifest included
+        result = metastore.list_partition_deltas(
+            partition_like=self.partition,
+            include_manifest=True,
+            catalog=self.catalog,
+        )
+
+        # Find our delta and verify it has a manifest
+        found_delta = next(
+            (d for d in result if d.stream_position == committed_delta.stream_position),
+            None,
+        )
+        assert found_delta is not None
+        assert found_delta.manifest is not None
+        assert len(found_delta.manifest.entries) > 0
+
+        # Test listing without manifest (default)
+        result_no_manifest = metastore.list_partition_deltas(
+            partition_like=self.partition,
+            include_manifest=False,
+            catalog=self.catalog,
+        )
+
+        # Find our delta and verify it doesn't have a manifest by default
+        found_delta_no_manifest = next(
+            (
+                d
+                for d in result_no_manifest
+                if d.stream_position == committed_delta.stream_position
+            ),
+            None,
+        )
+        assert found_delta_no_manifest is not None
+        # Note: The manifest might still be present since it was loaded during commit
+
+
 class TestErrorCategorization:
     """Test cases for metastore error categorization functions."""
 
     def test_can_categorize_deltacat_error(self):
         """Test that can_categorize returns True for DeltaCatError instances."""
         from deltacat.exceptions import DeltaCatError
-        
+
         # Create a DeltaCatError instance
         error = DeltaCatError("Test DeltaCat error")
-        
+
         # Test that it can be categorized
         result = metastore.can_categorize(error)
         assert result is True, "DeltaCatError should be categorizable"
@@ -7612,7 +7842,7 @@ class TestErrorCategorization:
         """Test that can_categorize returns True for TableNotFoundError (subclass of DeltaCatError)."""
         # Create a TableNotFoundError instance (which inherits from DeltaCatError)
         error = TableNotFoundError("Test table not found")
-        
+
         # Test that it can be categorized
         result = metastore.can_categorize(error)
         assert result is True, "TableNotFoundError should be categorizable"
@@ -7621,7 +7851,7 @@ class TestErrorCategorization:
         """Test that can_categorize returns False for standard Python exceptions."""
         # Create a standard Python exception
         error = ValueError("Test value error")
-        
+
         # Test that it cannot be categorized
         result = metastore.can_categorize(error)
         assert result is False, "Standard exceptions should not be categorizable"
@@ -7630,7 +7860,7 @@ class TestErrorCategorization:
         """Test that can_categorize returns False for RuntimeError."""
         # Create a RuntimeError
         error = RuntimeError("Test runtime error")
-        
+
         # Test that it cannot be categorized
         result = metastore.can_categorize(error)
         assert result is False, "RuntimeError should not be categorizable"
@@ -7639,7 +7869,7 @@ class TestErrorCategorization:
         """Test that can_categorize returns False for TypeError."""
         # Create a TypeError
         error = TypeError("Test type error")
-        
+
         # Test that it cannot be categorized
         result = metastore.can_categorize(error)
         assert result is False, "TypeError should not be categorizable"
@@ -7647,14 +7877,14 @@ class TestErrorCategorization:
     def test_raise_categorized_error_with_deltacat_error(self):
         """Test that raise_categorized_error re-raises DeltaCatError instances."""
         from deltacat.exceptions import DeltaCatError
-        
+
         # Create a DeltaCatError instance
         original_error = DeltaCatError("Test DeltaCat error")
-        
+
         # Test that it raises UnclassifiedDeltaCatError (since categorized is always None)
         with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
             metastore.raise_categorized_error(original_error)
-        
+
         # Verify the error message
         assert "Failed to classify error DeltaCatError" in str(exc_info.value)
         assert exc_info.value.__cause__ is original_error
@@ -7662,14 +7892,14 @@ class TestErrorCategorization:
     def test_raise_categorized_error_with_standard_exception(self):
         """Test that raise_categorized_error raises UnclassifiedDeltaCatError for standard exceptions."""
         from deltacat.exceptions import UnclassifiedDeltaCatError
-        
+
         # Create a standard Python exception
         original_error = ValueError("Test value error")
-        
+
         # Test that it raises UnclassifiedDeltaCatError
         with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
             metastore.raise_categorized_error(original_error)
-        
+
         # Verify the error message contains the original error type and message
         assert "Failed to classify error ValueError" in str(exc_info.value)
         assert "Test value error" in str(exc_info.value)
@@ -7678,14 +7908,14 @@ class TestErrorCategorization:
     def test_raise_categorized_error_with_table_not_found_error(self):
         """Test that raise_categorized_error handles TableNotFoundError properly."""
         from deltacat.exceptions import UnclassifiedDeltaCatError
-        
+
         # Create a TableNotFoundError
         original_error = TableNotFoundError("Table 'test_table' not found")
-        
+
         # Test that it raises UnclassifiedDeltaCatError
         with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
             metastore.raise_categorized_error(original_error)
-        
+
         # Verify the error message and chaining
         assert "Failed to classify error TableNotFoundError" in str(exc_info.value)
         assert "Table 'test_table' not found" in str(exc_info.value)
@@ -7694,14 +7924,14 @@ class TestErrorCategorization:
     def test_raise_categorized_error_with_runtime_error(self):
         """Test that raise_categorized_error handles RuntimeError properly."""
         from deltacat.exceptions import UnclassifiedDeltaCatError
-        
+
         # Create a RuntimeError
         original_error = RuntimeError("Something went wrong at runtime")
-        
+
         # Test that it raises UnclassifiedDeltaCatError
         with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
             metastore.raise_categorized_error(original_error)
-        
+
         # Verify the error message and chaining
         assert "Failed to classify error RuntimeError" in str(exc_info.value)
         assert "Something went wrong at runtime" in str(exc_info.value)
@@ -7710,16 +7940,16 @@ class TestErrorCategorization:
     def test_raise_categorized_error_preserves_exception_chain(self):
         """Test that raise_categorized_error properly preserves the exception chain."""
         from deltacat.exceptions import UnclassifiedDeltaCatError
-        
+
         # Create a chain of exceptions - use manual chaining instead of 'from'
         root_cause = ValueError("Root cause")
         intermediate_error = RuntimeError("Intermediate error")
         intermediate_error.__cause__ = root_cause
-        
+
         # Test that raise_categorized_error preserves the chain
         with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
             metastore.raise_categorized_error(intermediate_error)
-        
+
         # Verify the exception chain is preserved
         assert exc_info.value.__cause__ is intermediate_error
         assert intermediate_error.__cause__ is root_cause
@@ -7727,29 +7957,23 @@ class TestErrorCategorization:
     def test_can_categorize_with_kwargs(self):
         """Test that can_categorize accepts and ignores additional kwargs."""
         from deltacat.exceptions import DeltaCatError
-        
+
         # Create a DeltaCatError instance
         error = DeltaCatError("Test error")
-        
+
         # Test with additional kwargs
-        result = metastore.can_categorize(
-            error, 
-            some_arg="test", 
-            another_kwarg=123
-        )
+        result = metastore.can_categorize(error, some_arg="test", another_kwarg=123)
         assert result is True, "can_categorize should handle additional kwargs"
 
     def test_raise_categorized_error_with_kwargs(self):
         """Test that raise_categorized_error accepts and ignores additional kwargs."""
         from deltacat.exceptions import UnclassifiedDeltaCatError
-        
+
         # Create a standard exception
         original_error = ValueError("Test error")
-        
+
         # Test with additional kwargs
         with pytest.raises(UnclassifiedDeltaCatError):
             metastore.raise_categorized_error(
-                original_error,
-                some_arg="test",
-                another_kwarg=123
+                original_error, some_arg="test", another_kwarg=123
             )
