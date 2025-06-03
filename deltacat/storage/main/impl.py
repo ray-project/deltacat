@@ -7,7 +7,11 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.catalog import get_catalog_properties
 from deltacat.constants import DEFAULT_TABLE_VERSION, DATA_FILE_DIR_NAME
-from deltacat.exceptions import TableNotFoundError
+from deltacat.exceptions import (
+    TableNotFoundError,
+    DeltaCatError,
+    UnclassifiedDeltaCatError,
+)
 from deltacat.storage.model.manifest import (
     EntryParams,
     EntryType,
@@ -781,7 +785,7 @@ def download_delta(
     """
     # TODO (pdames): Cast delimited text types to the table's schema types
     # TODO (pdames): Deprecate this method and replace with `read_delta`
-    # TODO (pdames): Replace dependence on TableType, StorageType, and DistributedDatasetType 
+    # TODO (pdames): Replace dependence on TableType, StorageType, and DistributedDatasetType
     #   with DatasetType
     storage_type_to_download_func = {
         StorageType.LOCAL: _download_delta_local,
@@ -2586,13 +2590,40 @@ def table_version_exists(
 
 def can_categorize(e: BaseException, *args, **kwargs) -> bool:
     """
-    Return whether input error is from storage implementation layer.
+    True if the input error originated from the storage
+    implementation layer and can be categorized under an
+    existing DeltaCatError. The "categorize_errors" decorator
+    uses this to determine if an unknown error from the storage
+    implementation can be categorized prior to casting it to
+    the equivalent DeltaCatError via `raise_categorized_error`
     """
-    raise NotImplementedError
+
+    # DeltaCAT native storage can only categorize DeltaCatError
+    # (i.e., this is effectively a no-op for native storage)
+    if isinstance(e, DeltaCatError):
+        return True
+    else:
+        return False
 
 
 def raise_categorized_error(e: BaseException, *args, **kwargs):
     """
-    Raise and handle storage implementation layer specific errors.
+    Casts a categorizable error that originaed from the storage
+    implementation layer to its equivalent DeltaCatError
+    for uniform handling (e.g., determining whether an error
+    is retryable or not) via the "categorize_errors" decorator.
+    Raises an UnclassifiedDeltaCatError from the input exception
+    if the error cannot be categorized.
     """
-    raise NotImplementedError
+
+    # DeltaCAT native storage can only categorize DeltaCatError
+    # (i.e., this is effectively a no-op for native storage)
+    logger.info(f"Categorizing exception: {e}")
+    categorized = None
+    if isinstance(categorized, DeltaCatError):
+        raise categorized from e
+
+    logger.warning(f"Could not classify {type(e).__name__}: {e}")
+    raise UnclassifiedDeltaCatError(
+        f"Failed to classify error {type(e).__name__}: {e}"
+    ) from e

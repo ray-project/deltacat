@@ -718,13 +718,23 @@ def table_version_exists(
 
 def can_categorize(e: BaseException, *args, **kwargs) -> bool:
     """
-    Return whether input error is from storage implementation layer.
+    True if the input error originated from the storage
+    implementation layer and can be categorized under an
+    existing DeltaCatError. The "categorize_errors" decorator
+    uses this to determine if an unknown error from the storage
+    implementation can be categorized prior to casting it to
+    the equivalent DeltaCatError via `raise_categorized_error`
     """
     raise NotImplementedError
 
 
 def raise_categorized_error(e: BaseException, *args, **kwargs):
     """
-    Raise and handle storage implementation layer specific errors.
+    Casts a categorizable error that originaed from the storage
+    implementation layer to its equivalent DeltaCatError
+    for uniform handling (e.g., determining whether an error
+    is retryable or not) via the "categorize_errors" decorator.
+    Raises an UnclassifiedDeltaCatError from the input exception
+    if the error cannot be categorized.
     """
     raise NotImplementedError

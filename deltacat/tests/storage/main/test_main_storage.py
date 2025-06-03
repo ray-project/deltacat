@@ -12,7 +12,7 @@ import ray
 import ray.data
 
 from deltacat import PartitionKey, PartitionScheme
-from deltacat.exceptions import TableNotFoundError
+from deltacat.exceptions import TableNotFoundError, UnclassifiedDeltaCatError
 from deltacat.storage import (
     metastore,
     CommitState,
@@ -7431,4 +7431,325 @@ class TestDelta:
                 columns=["id", "invalid_column"],
                 distributed_dataset_type=DistributedDatasetType.DAFT, 
                 catalog=self.catalog,
+            )
+
+
+class TestErrorCategorization:
+    """Test cases for metastore error categorization functions."""
+
+    def test_can_categorize_deltacat_error(self):
+        """Test that can_categorize returns True for DeltaCatError instances."""
+        from deltacat.exceptions import DeltaCatError
+        
+        # Create a DeltaCatError instance
+        error = DeltaCatError("Test DeltaCat error")
+        
+        # Test that it can be categorized
+        result = metastore.can_categorize(error)
+        assert result is True, "DeltaCatError should be categorizable"
+
+    def test_can_categorize_table_not_found_error(self):
+        """Test that can_categorize returns True for TableNotFoundError (subclass of DeltaCatError)."""
+        # Create a TableNotFoundError instance (which inherits from DeltaCatError)
+        error = TableNotFoundError("Test table not found")
+        
+        # Test that it can be categorized
+        result = metastore.can_categorize(error)
+        assert result is True, "TableNotFoundError should be categorizable"
+
+    def test_can_categorize_standard_exception(self):
+        """Test that can_categorize returns False for standard Python exceptions."""
+        # Create a standard Python exception
+        error = ValueError("Test value error")
+        
+        # Test that it cannot be categorized
+        result = metastore.can_categorize(error)
+        assert result is False, "Standard exceptions should not be categorizable"
+
+    def test_can_categorize_runtime_error(self):
+        """Test that can_categorize returns False for RuntimeError."""
+        # Create a RuntimeError
+        error = RuntimeError("Test runtime error")
+        
+        # Test that it cannot be categorized
+        result = metastore.can_categorize(error)
+        assert result is False, "RuntimeError should not be categorizable"
+
+    def test_can_categorize_type_error(self):
+        """Test that can_categorize returns False for TypeError."""
+        # Create a TypeError
+        error = TypeError("Test type error")
+        
+        # Test that it cannot be categorized
+        result = metastore.can_categorize(error)
+        assert result is False, "TypeError should not be categorizable"
+
+    def test_raise_categorized_error_with_deltacat_error(self):
+        """Test that raise_categorized_error re-raises DeltaCatError instances."""
+        from deltacat.exceptions import DeltaCatError
+        
+        # Create a DeltaCatError instance
+        original_error = DeltaCatError("Test DeltaCat error")
+        
+        # Test that it raises UnclassifiedDeltaCatError (since categorized is always None)
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message
+        assert "Failed to classify error DeltaCatError" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_with_standard_exception(self):
+        """Test that raise_categorized_error raises UnclassifiedDeltaCatError for standard exceptions."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a standard Python exception
+        original_error = ValueError("Test value error")
+        
+        # Test that it raises UnclassifiedDeltaCatError
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message contains the original error type and message
+        assert "Failed to classify error ValueError" in str(exc_info.value)
+        assert "Test value error" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_with_table_not_found_error(self):
+        """Test that raise_categorized_error handles TableNotFoundError properly."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a TableNotFoundError
+        original_error = TableNotFoundError("Table 'test_table' not found")
+        
+        # Test that it raises UnclassifiedDeltaCatError
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message and chaining
+        assert "Failed to classify error TableNotFoundError" in str(exc_info.value)
+        assert "Table 'test_table' not found" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_with_runtime_error(self):
+        """Test that raise_categorized_error handles RuntimeError properly."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a RuntimeError
+        original_error = RuntimeError("Something went wrong at runtime")
+        
+        # Test that it raises UnclassifiedDeltaCatError
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message and chaining
+        assert "Failed to classify error RuntimeError" in str(exc_info.value)
+        assert "Something went wrong at runtime" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_preserves_exception_chain(self):
+        """Test that raise_categorized_error properly preserves the exception chain."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a chain of exceptions - use manual chaining instead of 'from'
+        root_cause = ValueError("Root cause")
+        intermediate_error = RuntimeError("Intermediate error")
+        intermediate_error.__cause__ = root_cause
+        
+        # Test that raise_categorized_error preserves the chain
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(intermediate_error)
+        
+        # Verify the exception chain is preserved
+        assert exc_info.value.__cause__ is intermediate_error
+        assert intermediate_error.__cause__ is root_cause
+
+    def test_can_categorize_with_kwargs(self):
+        """Test that can_categorize accepts and ignores additional kwargs."""
+        from deltacat.exceptions import DeltaCatError
+        
+        # Create a DeltaCatError instance
+        error = DeltaCatError("Test error")
+        
+        # Test with additional kwargs
+        result = metastore.can_categorize(
+            error, 
+            some_arg="test", 
+            another_kwarg=123
+        )
+        assert result is True, "can_categorize should handle additional kwargs"
+
+    def test_raise_categorized_error_with_kwargs(self):
+        """Test that raise_categorized_error accepts and ignores additional kwargs."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a standard exception
+        original_error = ValueError("Test error")
+        
+        # Test with additional kwargs
+        with pytest.raises(UnclassifiedDeltaCatError):
+            metastore.raise_categorized_error(
+                original_error,
+                some_arg="test",
+                another_kwarg=123
+            )
+
+class TestErrorCategorization:
+    """Test cases for metastore error categorization functions."""
+
+    def test_can_categorize_deltacat_error(self):
+        """Test that can_categorize returns True for DeltaCatError instances."""
+        from deltacat.exceptions import DeltaCatError
+        
+        # Create a DeltaCatError instance
+        error = DeltaCatError("Test DeltaCat error")
+        
+        # Test that it can be categorized
+        result = metastore.can_categorize(error)
+        assert result is True, "DeltaCatError should be categorizable"
+
+    def test_can_categorize_table_not_found_error(self):
+        """Test that can_categorize returns True for TableNotFoundError (subclass of DeltaCatError)."""
+        # Create a TableNotFoundError instance (which inherits from DeltaCatError)
+        error = TableNotFoundError("Test table not found")
+        
+        # Test that it can be categorized
+        result = metastore.can_categorize(error)
+        assert result is True, "TableNotFoundError should be categorizable"
+
+    def test_can_categorize_standard_exception(self):
+        """Test that can_categorize returns False for standard Python exceptions."""
+        # Create a standard Python exception
+        error = ValueError("Test value error")
+        
+        # Test that it cannot be categorized
+        result = metastore.can_categorize(error)
+        assert result is False, "Standard exceptions should not be categorizable"
+
+    def test_can_categorize_runtime_error(self):
+        """Test that can_categorize returns False for RuntimeError."""
+        # Create a RuntimeError
+        error = RuntimeError("Test runtime error")
+        
+        # Test that it cannot be categorized
+        result = metastore.can_categorize(error)
+        assert result is False, "RuntimeError should not be categorizable"
+
+    def test_can_categorize_type_error(self):
+        """Test that can_categorize returns False for TypeError."""
+        # Create a TypeError
+        error = TypeError("Test type error")
+        
+        # Test that it cannot be categorized
+        result = metastore.can_categorize(error)
+        assert result is False, "TypeError should not be categorizable"
+
+    def test_raise_categorized_error_with_deltacat_error(self):
+        """Test that raise_categorized_error re-raises DeltaCatError instances."""
+        from deltacat.exceptions import DeltaCatError
+        
+        # Create a DeltaCatError instance
+        original_error = DeltaCatError("Test DeltaCat error")
+        
+        # Test that it raises UnclassifiedDeltaCatError (since categorized is always None)
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message
+        assert "Failed to classify error DeltaCatError" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_with_standard_exception(self):
+        """Test that raise_categorized_error raises UnclassifiedDeltaCatError for standard exceptions."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a standard Python exception
+        original_error = ValueError("Test value error")
+        
+        # Test that it raises UnclassifiedDeltaCatError
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message contains the original error type and message
+        assert "Failed to classify error ValueError" in str(exc_info.value)
+        assert "Test value error" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_with_table_not_found_error(self):
+        """Test that raise_categorized_error handles TableNotFoundError properly."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a TableNotFoundError
+        original_error = TableNotFoundError("Table 'test_table' not found")
+        
+        # Test that it raises UnclassifiedDeltaCatError
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message and chaining
+        assert "Failed to classify error TableNotFoundError" in str(exc_info.value)
+        assert "Table 'test_table' not found" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_with_runtime_error(self):
+        """Test that raise_categorized_error handles RuntimeError properly."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a RuntimeError
+        original_error = RuntimeError("Something went wrong at runtime")
+        
+        # Test that it raises UnclassifiedDeltaCatError
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(original_error)
+        
+        # Verify the error message and chaining
+        assert "Failed to classify error RuntimeError" in str(exc_info.value)
+        assert "Something went wrong at runtime" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_raise_categorized_error_preserves_exception_chain(self):
+        """Test that raise_categorized_error properly preserves the exception chain."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a chain of exceptions - use manual chaining instead of 'from'
+        root_cause = ValueError("Root cause")
+        intermediate_error = RuntimeError("Intermediate error")
+        intermediate_error.__cause__ = root_cause
+        
+        # Test that raise_categorized_error preserves the chain
+        with pytest.raises(UnclassifiedDeltaCatError) as exc_info:
+            metastore.raise_categorized_error(intermediate_error)
+        
+        # Verify the exception chain is preserved
+        assert exc_info.value.__cause__ is intermediate_error
+        assert intermediate_error.__cause__ is root_cause
+
+    def test_can_categorize_with_kwargs(self):
+        """Test that can_categorize accepts and ignores additional kwargs."""
+        from deltacat.exceptions import DeltaCatError
+        
+        # Create a DeltaCatError instance
+        error = DeltaCatError("Test error")
+        
+        # Test with additional kwargs
+        result = metastore.can_categorize(
+            error, 
+            some_arg="test", 
+            another_kwarg=123
+        )
+        assert result is True, "can_categorize should handle additional kwargs"
+
+    def test_raise_categorized_error_with_kwargs(self):
+        """Test that raise_categorized_error accepts and ignores additional kwargs."""
+        from deltacat.exceptions import UnclassifiedDeltaCatError
+        
+        # Create a standard exception
+        original_error = ValueError("Test error")
+        
+        # Test with additional kwargs
+        with pytest.raises(UnclassifiedDeltaCatError):
+            metastore.raise_categorized_error(
+                original_error,
+                some_arg="test",
+                another_kwarg=123
             )
