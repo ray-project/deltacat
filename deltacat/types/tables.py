@@ -719,7 +719,7 @@ def _download_manifest_entries_all_dataset_distributed(
         entry_content_encoding = entry.meta.content_encoding
         uris.append(entry.uri)
 
-    if distributed_dataset_type in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
+    if distributed_dataset_type.value in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
         return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
             uris=uris,
             content_type=entry_content_type,
