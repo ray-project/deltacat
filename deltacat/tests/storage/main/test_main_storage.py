@@ -8,6 +8,8 @@ import pyarrow as pa
 import pandas as pd
 import polars as pl
 import numpy as np
+import ray
+import ray.data
 
 from deltacat import PartitionKey, PartitionScheme
 from deltacat.exceptions import TableNotFoundError
@@ -45,6 +47,9 @@ from deltacat.storage import (
 from deltacat.types.media import (
     ContentType,
     ContentEncoding,
+    TableType,
+    StorageType,
+    DistributedDatasetType,
 )
 from deltacat.storage.model.partition import (
     UNPARTITIONED_SCHEME,
@@ -58,6 +63,7 @@ from deltacat.storage.model.sort_key import (
     UNSORTED_SCHEME_NAME,
     SortKeyList,
 )
+from deltacat.storage.model.manifest import ManifestAuthor
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
     create_test_table,
@@ -3200,8 +3206,6 @@ class TestPartition:
 class TestDelta:
     @classmethod
     def setup_method(cls):
-        import pyarrow as pa
-        from deltacat.storage import Schema
 
         cls.tmpdir = tempfile.mkdtemp()
         cls.catalog = CatalogProperties(root=cls.tmpdir)
@@ -3267,7 +3271,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars(self):
         # Create a sample Polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -3300,7 +3303,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars_csv(self):
         # Create a sample Polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -3333,7 +3335,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars_json(self):
         # Create a sample Polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -3366,7 +3367,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars_avro(self):
         # Create a sample Polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -3399,7 +3399,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3432,7 +3431,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_csv(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3465,7 +3463,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_json(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3498,7 +3495,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_avro(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3531,7 +3527,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_feather(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3564,7 +3559,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_tsv(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3597,7 +3591,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_psv(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3630,7 +3623,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_unescaped_tsv(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -3663,7 +3655,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars_tsv(self):
         # Create a sample polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -3696,7 +3687,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars_psv(self):
         # Create a sample polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -3729,7 +3719,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars_unescaped_tsv(self):
         # Create a sample polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -3761,7 +3750,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_tsv(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -3794,7 +3782,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_psv(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -3827,7 +3814,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_unescaped_tsv(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -3860,7 +3846,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_csv(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -3893,7 +3878,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_orc(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.Table.from_pydict(
             {
@@ -3923,7 +3907,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_parquet(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -3956,7 +3939,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_feather(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -3989,7 +3971,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_json(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -4022,7 +4003,6 @@ class TestDelta:
 
     def test_stage_delta_with_pyarrow_avro(self):
         # Create a sample PyArrow Table
-        import pyarrow as pa
 
         table = pa.table(
             {
@@ -4055,7 +4035,6 @@ class TestDelta:
 
     def test_stage_delta_with_pandas_orc(self):
         # Create a sample pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4085,7 +4064,6 @@ class TestDelta:
 
     def test_stage_delta_with_polars_orc(self):
         # Create a sample polars DataFrame
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -4116,8 +4094,6 @@ class TestDelta:
     def test_stage_delta_with_ray_dataset_parquet(self):
         """Test staging a delta using a Ray Dataset with Parquet format."""
         # Create a sample Ray Dataset
-        import ray
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4149,7 +4125,6 @@ class TestDelta:
 
     def test_stage_delta_with_ray_dataset_csv(self):
         # Create a sample Ray Dataset
-        import ray.data
 
         data = [{"col1": "a", "col2": i} for i in range(5)]
         dataset = ray.data.from_items(data)
@@ -4172,7 +4147,6 @@ class TestDelta:
 
     def test_stage_delta_with_ray_dataset_tsv(self):
         # Create a sample Ray Dataset
-        import ray.data
 
         df = pd.DataFrame(
             {
@@ -4206,7 +4180,6 @@ class TestDelta:
 
     def test_stage_delta_with_ray_dataset_psv(self):
         # Create a sample Ray Dataset
-        import ray.data
 
         df = pd.DataFrame(
             {
@@ -4240,7 +4213,6 @@ class TestDelta:
 
     def test_stage_delta_with_ray_dataset_unescaped_tsv(self):
         # Create a sample Ray Dataset
-        import ray.data
 
         df = pd.DataFrame(
             {
@@ -4274,7 +4246,6 @@ class TestDelta:
 
     def test_stage_delta_with_ray_dataset_unescaped_tsv_fails_with_delimiters(self):
         # Create a sample Ray Dataset with data that would need escaping
-        import ray.data
 
         df = pd.DataFrame(
             {
@@ -4300,8 +4271,6 @@ class TestDelta:
 
     def test_stage_delta_with_ray_dataset_json(self):
         # Create a sample Ray Dataset
-        import ray.data
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4337,7 +4306,6 @@ class TestDelta:
 
     def test_commit_delta_basic_upsert(self):
         # Given a staged delta with pandas DataFrame
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4388,7 +4356,6 @@ class TestDelta:
 
     def test_commit_delta_basic_append(self):
         # Given a staged delta with append type
-        import polars as pl
 
         df = pl.DataFrame(
             {
@@ -4429,7 +4396,6 @@ class TestDelta:
 
     def test_commit_delta_basic_delete(self):
         # Given a staged delete delta
-        import pyarrow as pa
 
         # Create a delete delta with records to delete
         delete_table = pa.Table.from_pylist(
@@ -4470,7 +4436,6 @@ class TestDelta:
 
     def test_commit_delta_with_different_content_types(self):
         # Test committing deltas with different content types
-        import pandas as pd
 
         test_data = pd.DataFrame(
             {
@@ -4526,7 +4491,6 @@ class TestDelta:
 
     def test_commit_delta_sequential_stream_positions(self):
         # Test that sequential delta commits get incrementing stream positions
-        import pandas as pd
 
         base_data = pd.DataFrame(
             {
@@ -4578,7 +4542,6 @@ class TestDelta:
 
     def test_commit_delta_with_properties(self):
         # Test committing delta with custom properties
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4616,8 +4579,6 @@ class TestDelta:
 
     def test_commit_delta_with_author_metadata(self):
         # Test committing delta with author metadata
-        from deltacat.storage.model.manifest import ManifestAuthor
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4654,7 +4615,6 @@ class TestDelta:
 
     def test_commit_delta_error_handling_invalid_partition(self):
         # Test error handling when committing delta with invalid partition
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4685,7 +4645,6 @@ class TestDelta:
 
     def test_commit_delta_default_type_assignment(self):
         # Test that delta type defaults to UPSERT when not specified
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4718,7 +4677,6 @@ class TestDelta:
 
     def test_commit_delta_large_dataset(self):
         # Test committing a larger dataset to verify performance and handling
-        import pandas as pd
 
         # Create a larger dataset
         large_data = pd.DataFrame(
@@ -4757,8 +4715,6 @@ class TestDelta:
 
     def test_commit_delta_with_ray_dataset(self):
         # Test committing delta created from Ray Dataset
-        import ray.data
-        import pandas as pd
 
         # Create Ray Dataset
         df = pd.DataFrame(
@@ -4796,7 +4752,6 @@ class TestDelta:
 
     def test_commit_delta_stream_position_consistency(self):
         # Test that stream positions are managed correctly across multiple commits
-        import pandas as pd
 
         # Get initial partition state
         initial_partition = metastore.get_partition_by_id(
@@ -4859,7 +4814,6 @@ class TestDelta:
 
     def test_get_delta_basic_retrieval(self):
         # Test basic delta retrieval after commit
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -4919,7 +4873,6 @@ class TestDelta:
 
     def test_get_delta_different_types(self):
         # Test retrieving deltas with different delta types
-        import pandas as pd
 
         test_data = pd.DataFrame(
             {
@@ -4973,7 +4926,6 @@ class TestDelta:
 
     def test_get_delta_with_properties(self):
         # Test retrieving delta with custom properties
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -5028,7 +4980,6 @@ class TestDelta:
 
     def test_get_delta_without_manifest(self):
         # Test retrieving delta without manifest for performance
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -5110,7 +5061,6 @@ class TestDelta:
 
     def test_get_delta_large_dataset_retrieval(self):
         # Test retrieving a delta with a large dataset
-        import pandas as pd
 
         # Create a larger dataset
         large_data = pd.DataFrame(
@@ -5165,8 +5115,6 @@ class TestDelta:
 
     def test_get_delta_with_ray_dataset_retrieval(self):
         # Test retrieving delta originally created from Ray Dataset
-        import ray.data
-        import pandas as pd
 
         # Create Ray Dataset
         df = pd.DataFrame(
@@ -5220,7 +5168,6 @@ class TestDelta:
 
     def test_get_delta_manifest_consistency(self):
         # Test that retrieved delta manifest is consistent with committed delta
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -5304,7 +5251,6 @@ class TestDelta:
 
     def test_get_delta_without_manifest(self):
         # Test retrieving delta without manifest for performance
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -5354,7 +5300,6 @@ class TestDelta:
 
     def test_get_delta_with_different_table_versions(self):
         # Test retrieving deltas from different table versions
-        import pandas as pd
 
         # Create data for first table version
         df1 = pd.DataFrame(
@@ -5452,7 +5397,6 @@ class TestDelta:
 
     def test_get_delta_infers_latest_active_table_version(self):
         """Test that get_delta can infer the latest active table version when not explicitly specified."""
-        import pandas as pd
 
         # Create data for the test
         df = pd.DataFrame(
@@ -5517,7 +5461,6 @@ class TestDelta:
 
     def test_list_deltas_infers_latest_active_table_version(self):
         """Test that list_deltas can infer the latest active table version when not explicitly specified."""
-        import pandas as pd
 
         # Set the current table version to active explicitly
         metastore.update_table_version(
@@ -5610,7 +5553,6 @@ class TestDelta:
 
     def test_commit_delta_with_user_specified_stream_position(self):
         """Test that user-specified stream positions are preserved during delta commit instead of auto-assigning."""
-        import pandas as pd
 
         # Get initial partition state to understand current stream position
         initial_partition = metastore.get_partition_by_id(
@@ -5734,7 +5676,6 @@ class TestDelta:
 
     def test_commit_delta_user_stream_position_validation(self):
         """Test that user-specified stream positions are validated to be greater than previous stream position."""
-        import pandas as pd
 
         # Get initial partition state
         initial_partition = metastore.get_partition_by_id(
@@ -5802,8 +5743,7 @@ class TestDelta:
 
     def test_download_delta_local_pyarrow(self):
         """Test downloading delta with local storage and PyArrow table type."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType
+
 
         # Create very simple test data that matches the schema exactly
         test_data = pd.DataFrame(
@@ -5860,8 +5800,7 @@ class TestDelta:
 
     def test_download_delta_with_delta_locator(self):
         """Test downloading delta using DeltaLocator instead of Delta object."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType
+
 
         # Create and commit test data
         test_data = pd.DataFrame(
@@ -5913,8 +5852,7 @@ class TestDelta:
 
     def test_download_delta_invalid_columns(self):
         """Test error handling when requesting non-existent columns."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType
+
 
         # Create and commit test data
         test_data = pd.DataFrame(
@@ -5955,8 +5893,7 @@ class TestDelta:
 
     def test_download_delta_manifest_entry_basic(self):
         """Test downloading a specific manifest entry by index."""
-        import pandas as pd
-        from deltacat.types.media import TableType
+
 
         # Create test data
         test_data = pd.DataFrame(
@@ -6013,8 +5950,7 @@ class TestDelta:
 
     def test_download_delta_content_types_with_pandas(self):
         """Test downloading delta with different content types as pandas DataFrames."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6062,9 +5998,7 @@ class TestDelta:
 
     def test_download_delta_content_types_with_pyarrow(self):
         """Test downloading delta with different content types as PyArrow Tables."""
-        import pandas as pd
-        import pyarrow as pa
-        from deltacat.types.media import TableType, StorageType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6112,9 +6046,7 @@ class TestDelta:
 
     def test_download_delta_content_types_with_polars(self):
         """Test downloading delta with different content types as Polars DataFrames."""
-        import pandas as pd
-        import polars as pl
-        from deltacat.types.media import TableType, StorageType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6162,9 +6094,7 @@ class TestDelta:
 
     def test_download_delta_content_types_with_numpy(self):
         """Test downloading delta with different content types as NumPy arrays."""
-        import pandas as pd
-        import numpy as np
-        from deltacat.types.media import TableType, StorageType
+
 
         # Test data - simpler data types that work well with numpy
         test_data = pd.DataFrame({
@@ -6212,8 +6142,7 @@ class TestDelta:
 
     def test_download_manifest_entry_content_types_with_pandas(self):
         """Test downloading manifest entries with different content types as pandas DataFrames."""
-        import pandas as pd
-        from deltacat.types.media import TableType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6257,9 +6186,7 @@ class TestDelta:
 
     def test_download_manifest_entry_content_types_with_pyarrow(self):
         """Test downloading manifest entries with different content types as PyArrow Tables."""
-        import pandas as pd
-        import pyarrow as pa
-        from deltacat.types.media import TableType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6303,11 +6230,7 @@ class TestDelta:
 
     def test_download_delta_cross_table_type_consistency(self):
         """Test that different table types return consistent data for the same delta."""
-        import pandas as pd
-        import pyarrow as pa
-        import polars as pl
-        import numpy as np
-        from deltacat.types.media import TableType, StorageType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6379,11 +6302,7 @@ class TestDelta:
 
     def test_download_manifest_entry_cross_table_type_consistency(self):
         """Test that different table types return consistent data for the same manifest entry."""
-        import pandas as pd
-        import pyarrow as pa
-        import polars as pl
-        import numpy as np
-        from deltacat.types.media import TableType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6460,11 +6379,7 @@ class TestDelta:
 
     def test_download_delta_with_column_selection_all_table_types(self):
         """Test downloading delta with column selection across all table types."""
-        import pandas as pd
-        import pyarrow as pa
-        import polars as pl
-        import numpy as np
-        from deltacat.types.media import TableType, StorageType
+
 
         # Test data with correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6566,9 +6481,7 @@ class TestDelta:
 
     def test_download_manifest_entry_content_types_with_polars(self):
         """Test downloading manifest entries with different content types as Polars DataFrames."""
-        import pandas as pd
-        import polars as pl
-        from deltacat.types.media import TableType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6612,9 +6525,7 @@ class TestDelta:
 
     def test_download_manifest_entry_content_types_with_numpy(self):
         """Test downloading manifest entries with different content types as NumPy arrays."""
-        import pandas as pd
-        import numpy as np
-        from deltacat.types.media import TableType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6659,10 +6570,7 @@ class TestDelta:
 
     def test_download_delta_content_types_with_polars_json(self):
         """Test downloading delta with JSON content type as Polars DataFrames."""
-        import pandas as pd
-        import polars as pl
-        import pytest
-        from deltacat.types.media import TableType, StorageType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6710,10 +6618,7 @@ class TestDelta:
 
     def test_download_manifest_entry_content_types_with_polars_json(self):
         """Test downloading manifest entries with JSON content type as Polars DataFrames."""
-        import pandas as pd
-        import polars as pl
-        import pytest
-        from deltacat.types.media import TableType
+
 
         # Test data - using correct schema: id, name, age, city
         test_data = pd.DataFrame({
@@ -6757,9 +6662,7 @@ class TestDelta:
 
     def test_download_delta_distributed_basic_pyarrow(self):
         """Test basic distributed download with Ray Data using PyArrow table type."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6801,6 +6704,10 @@ class TestDelta:
         # Verify the result is a Ray Dataset
         assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
         
+        # Verify row count without materializing the entire dataset
+        row_count = distributed_dataset.count()
+        assert row_count == len(test_data), "Row count should match"
+
         # Convert to pandas to verify data integrity
         downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
         expected_df = test_data.sort_values("id").reset_index(drop=True)
@@ -6809,9 +6716,7 @@ class TestDelta:
 
     def test_download_delta_distributed_with_delta_locator(self):
         """Test distributed download using DeltaLocator instead of Delta object."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6861,9 +6766,7 @@ class TestDelta:
 
     def test_download_delta_distributed_different_table_types(self):
         """Test distributed download with different table types."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6918,9 +6821,7 @@ class TestDelta:
 
     def test_download_delta_distributed_different_content_types(self):
         """Test distributed download with different content types."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -6977,9 +6878,7 @@ class TestDelta:
 
     def test_download_delta_distributed_with_column_selection(self):
         """Test distributed download with column selection."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7037,9 +6936,7 @@ class TestDelta:
 
     def test_download_delta_distributed_with_max_parallelism(self):
         """Test distributed download with different parallelism settings."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7091,9 +6988,7 @@ class TestDelta:
 
     def test_download_delta_distributed_large_dataset(self):
         """Test distributed download with a larger dataset to verify performance benefits."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7150,9 +7045,7 @@ class TestDelta:
 
     def test_download_delta_distributed_cross_table_type_consistency(self):
         """Test that distributed downloads return consistent data across table types."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7214,9 +7107,7 @@ class TestDelta:
 
     def test_download_delta_distributed_ray_options(self):
         """Test distributed download with custom Ray options."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7273,9 +7164,7 @@ class TestDelta:
 
     def test_download_delta_distributed_vs_local_consistency(self):
         """Test that distributed and local downloads return the same data."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7336,9 +7225,7 @@ class TestDelta:
 
     def test_download_delta_distributed_error_handling(self):
         """Test error handling in distributed downloads."""
-        import pandas as pd
-        import ray
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Ensure Ray is initialized
         if not ray.is_initialized():
@@ -7385,8 +7272,7 @@ class TestDelta:
 
     def test_download_delta_distributed_daft_basic(self):
         """Test basic distributed download with DAFT dataset type."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         # Create test data
         test_data = pd.DataFrame(
@@ -7433,8 +7319,7 @@ class TestDelta:
 
     def test_download_delta_distributed_daft_with_delta_locator(self):
         """Test DAFT distributed download using DeltaLocator instead of Delta object."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         test_data = pd.DataFrame({
             "id": [12101, 12102, 12103],
@@ -7470,8 +7355,7 @@ class TestDelta:
 
     def test_download_delta_distributed_daft_vs_ray_consistency(self):
         """Test that DAFT and Ray distributed downloads return the same data."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         test_data = pd.DataFrame({
             "id": [12501, 12502, 12503, 12504],
@@ -7517,8 +7401,7 @@ class TestDelta:
 
     def test_download_delta_distributed_daft_error_handling(self):
         """Test error handling in DAFT distributed downloads."""
-        import pandas as pd
-        from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+
 
         test_data = pd.DataFrame({
             "id": [12601, 12602, 12603],
