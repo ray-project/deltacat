@@ -67,6 +67,10 @@ from deltacat.catalog import CatalogProperties
 
 from deltacat.storage.main.impl import DEFAULT_TABLE_VERSION
 
+# Add imports for type checking near the top of the file (after the existing imports)
+from ray.data.dataset import Dataset as RayDataset
+from daft import DataFrame as DaftDataFrame
+
 
 class TestNamespace:
     @classmethod
@@ -6795,9 +6799,8 @@ class TestDelta:
         )
 
         # Verify the result is a Ray Dataset
-        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
-        assert hasattr(distributed_dataset, "count"), "Expected Ray Dataset"
-
+        assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
+        
         # Convert to pandas to verify data integrity
         downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
         expected_df = test_data.sort_values("id").reset_index(drop=True)
@@ -6848,7 +6851,7 @@ class TestDelta:
         )
 
         # Verify the result is a Ray Dataset
-        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
         
         # Convert to pandas and verify data integrity
         downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
@@ -6906,7 +6909,7 @@ class TestDelta:
             )
 
             # Verify the result is a Ray Dataset
-            assert hasattr(distributed_dataset, "to_pandas"), f"Expected Ray Dataset for {table_type}"
+            assert isinstance(distributed_dataset, RayDataset), f"Expected Ray Dataset for {table_type}"
             
             # Convert to pandas and verify basic properties
             downloaded_df = distributed_dataset.to_pandas()
@@ -6965,7 +6968,7 @@ class TestDelta:
             )
 
             # Verify the result is a Ray Dataset
-            assert hasattr(distributed_dataset, "to_pandas"), f"Expected Ray Dataset for {content_type}"
+            assert isinstance(distributed_dataset, RayDataset), f"Expected Ray Dataset for {content_type}"
             
             # Convert to pandas and verify basic properties
             downloaded_df = distributed_dataset.to_pandas()
@@ -7018,7 +7021,7 @@ class TestDelta:
         )
 
         # Verify the result is a Ray Dataset
-        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
         
         # Convert to pandas and verify column selection
         downloaded_df = distributed_dataset.to_pandas()
@@ -7079,7 +7082,7 @@ class TestDelta:
             )
 
             # Verify the result is a Ray Dataset
-            assert hasattr(distributed_dataset, "to_pandas"), f"Expected Ray Dataset for parallelism {max_parallelism}"
+            assert isinstance(distributed_dataset, RayDataset), f"Expected Ray Dataset for parallelism {max_parallelism}"
             
             # Convert to pandas and verify data integrity
             downloaded_df = distributed_dataset.to_pandas()
@@ -7133,8 +7136,8 @@ class TestDelta:
         )
 
         # Verify the result is a Ray Dataset
-        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
-        assert hasattr(distributed_dataset, "count"), "Expected Ray Dataset"
+        assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
+        # isinstance check already verifies Ray Dataset type which includes count method
         
         # Verify row count without materializing the entire dataset
         row_count = distributed_dataset.count()
@@ -7260,7 +7263,7 @@ class TestDelta:
         )
 
         # Verify the result is a Ray Dataset
-        assert hasattr(distributed_dataset, "to_pandas"), "Expected Ray Dataset"
+        assert isinstance(distributed_dataset, RayDataset), "Expected Ray Dataset"
         
         # Convert to pandas and verify data integrity
         downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
@@ -7418,7 +7421,7 @@ class TestDelta:
         )
 
         # Verify the result is a DAFT DataFrame
-        assert hasattr(distributed_dataset, "to_pandas"), "Expected DAFT DataFrame"
+        assert isinstance(distributed_dataset, DaftDataFrame), "Expected DAFT DataFrame"
 
         # Convert to pandas and verify data integrity
         downloaded_df = distributed_dataset.to_pandas().sort_values("id").reset_index(drop=True)
