@@ -30,6 +30,10 @@ from deltacat.tests.test_utils.pyarrow import (
 )
 from moto import mock_s3
 
+DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
+    "db_file_path",
+    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
+)
 
 @pytest.fixture(autouse=True, scope="module")
 def setup_ray_cluster():

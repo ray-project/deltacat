@@ -52,6 +52,11 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 
+DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
+    "db_file_path",
+    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
+)
+
 """
 MODULE scoped fixtures
 """

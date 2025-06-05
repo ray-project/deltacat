@@ -601,7 +601,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
     ),
     "15-incremental-empty-input-with-single-hash-bucket": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
-        sort_keys=[SortKey.of(key_name="sk_col_1")],
+        sort_keys=[SortKey.of(key=["sk_col_1"])],
         partition_keys=ZERO_VALUED_PARTITION_KEYS_PARAM,
         partition_values=ZERO_VALUED_PARTITION_VALUES_PARAM,
         input_deltas=pa.Table.from_arrays(

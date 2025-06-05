@@ -470,7 +470,7 @@ class PartitionKey(dict):
         transform: Optional[Transform] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionKey:
-        if len(key) > 1 and not transform.is_multi_field_transform:
+        if len(key) > 1 and transform is not None and not transform.is_multi_field_transform:
             raise ValueError(f"{len(key)} keys given for 1-key transform.")
         return PartitionKey(
             {

@@ -48,6 +48,11 @@ from deltacat.utils.placement import (
     PlacementGroupManager,
 )
 
+DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
+    "db_file_path",
+    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
+)
+
 """
 MODULE scoped fixtures
 """

@@ -52,6 +52,10 @@ from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
+DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
+    "db_file_path",
+    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
+)
 
 """
 MODULE scoped fixtures
