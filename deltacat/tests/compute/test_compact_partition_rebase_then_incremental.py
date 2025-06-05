@@ -89,6 +89,37 @@ def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
     yield
 
 
+"""
+FUNCTION scoped fixtures
+"""
+
+
+@pytest.fixture(scope="function")
+def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
+    # see deltacat/tests/local_deltacat_storage/README.md for documentation
+    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
+        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
+    }
+    yield kwargs_for_local_deltacat_storage
+    if os.path.exists(DATABASE_FILE_PATH_VALUE):
+        os.remove(DATABASE_FILE_PATH_VALUE)
+
+
+@pytest.fixture(autouse=True, scope="function")
+def enable_bucketing_spec_validation(monkeypatch):
+    """
+    Enable the bucketing spec validation for all tests.
+    This will help catch hash bucket drift in testing.
+    """
+    import deltacat.compute.compactor_v2.steps.merge
+
+    monkeypatch.setattr(
+        deltacat.compute.compactor_v2.steps.merge,
+        "BUCKETING_SPEC_COMPLIANCE_PROFILE",
+        "ASSERT",
+    )
+
+
 @pytest.mark.parametrize(
     [
         "test_name",
