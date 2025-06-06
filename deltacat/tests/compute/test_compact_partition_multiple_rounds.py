@@ -48,10 +48,6 @@ from deltacat.utils.placement import (
     PlacementGroupManager,
 )
 
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
 
 """
 MODULE scoped fixtures
@@ -93,17 +89,6 @@ def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
 """
 FUNCTION scoped fixtures
 """
-
-
-@pytest.fixture(scope="function")
-def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
-    # see deltacat/tests/local_deltacat_storage/README.md for documentation
-    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 @pytest.fixture(autouse=True, scope="function")

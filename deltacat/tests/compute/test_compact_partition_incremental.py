@@ -52,10 +52,6 @@ from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
 
 """
 MODULE scoped fixtures
@@ -97,17 +93,6 @@ def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
 """
 FUNCTION scoped fixtures
 """
-
-
-@pytest.fixture(scope="function")
-def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
-    # see deltacat/tests/local_deltacat_storage/README.md for documentation
-    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -200,7 +185,7 @@ def enable_bucketing_spec_validation(monkeypatch):
 )
 def test_compact_partition_incremental(
     s3_resource: ServiceResource,
-    offer_local_deltacat_storage_kwargs: Dict[str, Any],
+    local_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: Dict[str, str],
@@ -226,7 +211,7 @@ def test_compact_partition_incremental(
 ):
     import deltacat.tests.local_deltacat_storage as ds
 
-    ds_mock_kwargs: Dict[str, Any] = offer_local_deltacat_storage_kwargs
+    ds_mock_kwargs: Dict[str, Any] = local_deltacat_storage_kwargs
 
     # setup
     partition_keys = partition_keys_param

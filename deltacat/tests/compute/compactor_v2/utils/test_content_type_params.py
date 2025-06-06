@@ -15,11 +15,6 @@ from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowSchemaOverride,
 )
 
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
-
 
 class TestContentTypeParams:
     TEST_NAMESPACE = "test_content_type_params"
@@ -32,16 +27,6 @@ class TestContentTypeParams:
         ray.init(local_mode=True, ignore_reinit_error=True)
         yield
         ray.shutdown()
-
-    @pytest.fixture(scope="function")
-    def local_deltacat_storage_kwargs(self, request: pytest.FixtureRequest):
-        # see deltacat/tests/local_deltacat_storage/README.md for documentation
-        kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-            DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-        }
-        yield kwargs_for_local_deltacat_storage
-        if os.path.exists(DATABASE_FILE_PATH_VALUE):
-            os.remove(DATABASE_FILE_PATH_VALUE)
 
     def test__download_parquet_metadata_for_manifest_entry_sanity(
         self, local_deltacat_storage_kwargs
