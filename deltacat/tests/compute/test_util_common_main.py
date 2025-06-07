@@ -435,4 +435,120 @@ def create_src_w_deltas_destination_plus_destination_main(
         source_namespace,
         source_table_name,
         source_table_version,
+    )
+
+
+def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
+    sort_keys: Optional[List[Any]],
+    partition_keys: Optional[List[PartitionKey]],
+    input_deltas: pa.Table,
+    input_delta_type: DeltaType,
+    partition_values: Optional[List[Any]],
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[Stream, Stream, Optional[Stream]]:
+    """
+    Main storage version of create_src_w_deltas_destination_rebase_w_deltas_strategy
+    
+    Creates source table with deltas, destination table, and rebase table for rebase testing.
+    This test scenario sets up different source and rebase partition locators to simulate
+    scenarios like hash bucket count changes.
+    """
+    from deltacat.utils.common import current_time_ms
+
+    last_stream_position = current_time_ms()
+    source_namespace, source_table_name, source_table_version = create_src_table_main(
+        sort_keys, partition_keys, input_deltas, ds_mock_kwargs
+    )
+
+    source_table_stream: Stream = metastore.get_stream(
+        namespace=source_namespace,
+        table_name=source_table_name,
+        table_version=source_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    # Convert partition values to correct types
+    converted_partition_values = []
+    if partition_values and partition_keys:
+        for i, (value, pk) in enumerate(zip(partition_values, partition_keys)):
+            if pk.key_type == PartitionKeyType.INT:
+                converted_partition_values.append(int(value))
+            else:
+                converted_partition_values.append(value)
+    else:
+        converted_partition_values = partition_values
+    
+    staged_partition: Partition = metastore.stage_partition(
+        source_table_stream,
+        converted_partition_values,
+        partition_scheme_id="default_partition_scheme" if partition_keys else None,
+        **ds_mock_kwargs
+    )
+    staged_delta: Delta = metastore.stage_delta(
+        input_deltas, staged_partition, input_delta_type, **ds_mock_kwargs
+    )
+    staged_delta.locator.stream_position = last_stream_position
+    metastore.commit_delta(staged_delta, **ds_mock_kwargs)
+    metastore.commit_partition(staged_partition, **ds_mock_kwargs)
+    
+    source_table_stream_after_committed: Stream = metastore.get_stream(
+        namespace=source_namespace,
+        table_name=source_table_name,
+        table_version=source_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    # Create the destination table
+    (
+        destination_table_namespace,
+        destination_table_name,
+        destination_table_version,
+    ) = create_destination_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
+    
+    # Create the rebase table
+    (
+        rebase_table_namespace,
+        rebase_table_name,
+        rebase_table_version,
+    ) = create_rebase_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
+    
+    rebasing_table_stream: Stream = metastore.get_stream(
+        namespace=rebase_table_namespace,
+        table_name=rebase_table_name,
+        table_version=rebase_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    staged_partition: Partition = metastore.stage_partition(
+        rebasing_table_stream,
+        converted_partition_values,
+        partition_scheme_id="default_partition_scheme" if partition_keys else None,
+        **ds_mock_kwargs
+    )
+    staged_delta: Delta = metastore.stage_delta(
+        input_deltas, staged_partition, **ds_mock_kwargs
+    )
+    staged_delta.locator.stream_position = last_stream_position
+    metastore.commit_delta(staged_delta, **ds_mock_kwargs)
+    metastore.commit_partition(staged_partition, **ds_mock_kwargs)
+
+    # Get destination stream
+    destination_table_stream: Stream = metastore.get_stream(
+        namespace=destination_table_namespace,
+        table_name=destination_table_name,
+        table_version=destination_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    rebased_stream_after_committed: Stream = metastore.get_stream(
+        namespace=rebase_table_namespace,
+        table_name=rebase_table_name,
+        table_version=rebase_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    return (
+        source_table_stream_after_committed,
+        destination_table_stream,
+        rebased_stream_after_committed,
     ) 
