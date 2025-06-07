@@ -1,0 +1,677 @@
+import ray
+from moto import mock_s3
+import pytest
+import os
+import logging
+import boto3
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from boto3.resources.base import ServiceResource
+import pyarrow as pa
+from pytest_benchmark.fixture import BenchmarkFixture
+from deltacat.types.media import StorageType
+
+from deltacat.tests.compute.test_util_common import (
+    get_rcf,
+    PartitionKey,
+    PartitionKeyType,
+    BASE_TEST_SOURCE_NAMESPACE,
+    BASE_TEST_SOURCE_TABLE_NAME,
+    BASE_TEST_SOURCE_TABLE_VERSION,
+    BASE_TEST_DESTINATION_NAMESPACE,
+    BASE_TEST_DESTINATION_TABLE_NAME,
+    BASE_TEST_DESTINATION_TABLE_VERSION,
+)
+from deltacat.compute.compactor.model.compactor_version import CompactorVersion
+from deltacat.tests.test_utils.utils import read_s3_contents
+from deltacat.tests.compute.compact_partition_test_cases import (
+    INCREMENTAL_TEST_CASES,
+)
+from deltacat.tests.compute.test_util_constant import (
+    TEST_S3_RCF_BUCKET_NAME,
+    DEFAULT_NUM_WORKERS,
+    DEFAULT_WORKER_INSTANCE_CPUS,
+)
+from deltacat.compute.compactor import (
+    RoundCompletionInfo,
+)
+from deltacat.storage import (
+    CommitState,
+    DeltaType,
+    Delta,
+    DeltaLocator,
+    Partition,
+    PartitionLocator,
+    Stream,
+    metastore,
+    PartitionKey as StoragePartitionKey,
+    PartitionKeyList,
+    IdentityTransform,
+    PartitionScheme,
+    Schema,
+)
+from deltacat.catalog.model.properties import CatalogProperties
+from deltacat.types.media import ContentType
+from deltacat.compute.compactor.model.compaction_session_audit_info import (
+    CompactionSessionAuditInfo,
+)
+from deltacat.compute.compactor.model.compact_partition_params import (
+    CompactPartitionParams,
+)
+from deltacat.utils.placement import (
+    PlacementGroupManager,
+)
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+"""
+MODULE scoped fixtures
+"""
+
+
+@pytest.fixture(autouse=True, scope="module")
+def setup_ray_cluster():
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    yield
+    ray.shutdown()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def mock_aws_credential():
+    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+    os.environ["AWS_SECURITY_TOKEN"] = "testing"
+    os.environ["AWS_SESSION_TOKEN"] = "testing"
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    yield
+
+
+@pytest.fixture(scope="module")
+def s3_resource():
+    with mock_s3():
+        yield boto3.resource("s3")
+
+
+@pytest.fixture(autouse=True, scope="module")
+def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
+    s3_resource.create_bucket(
+        ACL="authenticated-read",
+        Bucket=TEST_S3_RCF_BUCKET_NAME,
+    )
+    yield
+
+
+"""
+FUNCTION scoped fixtures
+"""
+
+
+@pytest.fixture(autouse=True, scope="function")
+def enable_bucketing_spec_validation(monkeypatch):
+    """
+    Enable the bucketing spec validation for all tests.
+    This will help catch hash bucket drift in testing.
+    """
+    import deltacat.compute.compactor_v2.steps.merge
+
+    monkeypatch.setattr(
+        deltacat.compute.compactor_v2.steps.merge,
+        "BUCKETING_SPEC_COMPLIANCE_PROFILE",
+        "ASSERT",
+    )
+
+
+@pytest.fixture(scope="function")
+def temp_dir(tmp_path):
+    return str(tmp_path)
+
+
+@pytest.fixture(scope="function")  
+def catalog(temp_dir):
+    return CatalogProperties(root=temp_dir)
+
+
+@pytest.fixture(scope="function")
+def main_deltacat_storage_kwargs(catalog):
+    return {"catalog": catalog}
+
+
+@pytest.fixture(scope="function")
+def cleanup_database(catalog):
+    """Cleanup test databases after each test function"""
+    yield
+    # Perform cleanup after test
+    import shutil
+    try:
+        shutil.rmtree(catalog.root)
+    except (FileNotFoundError, OSError):
+        pass  # Ignore cleanup errors
+
+
+# Helper functions for main storage implementation
+def _create_table_main(
+    namespace: str,
+    table_name: str,
+    table_version: str,
+    sort_keys: Optional[List[Any]],
+    partition_keys: Optional[List[PartitionKey]], 
+    input_deltas: pa.Table,
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+):
+    """
+    Main storage version of _create_table
+    """
+    # Create schema from the input delta including partition key fields
+    schema = input_deltas.schema
+    
+    # Add partition key fields to schema if they're not already present
+    if partition_keys:
+        for pk in partition_keys:
+            field_name = pk.key_name
+            if field_name not in schema.names:
+                # Add partition key field with appropriate type
+                if pk.key_type == PartitionKeyType.INT:
+                    field_type = pa.int32()
+                elif pk.key_type == PartitionKeyType.STRING:
+                    field_type = pa.string()
+                else:
+                    field_type = pa.string()  # Default to string
+                
+                schema = schema.append(pa.field(field_name, field_type))
+    
+    # Convert test partition keys to storage partition keys
+    storage_partition_keys = []
+    if partition_keys:
+        for pk in partition_keys:
+            storage_pk = StoragePartitionKey.of(
+                key=[pk.key_name],
+                transform=IdentityTransform.of(),
+                name=pk.key_name
+            )
+            storage_partition_keys.append(storage_pk)
+    
+    partition_scheme = None
+    if storage_partition_keys:
+        partition_scheme = PartitionScheme.of(
+            keys=PartitionKeyList.of(storage_partition_keys),
+            scheme_id="default_partition_scheme"
+        )
+
+    # Create namespace first
+    try:
+        metastore.create_namespace(namespace=namespace, **ds_mock_kwargs)
+    except Exception:
+        pass  # Namespace might already exist
+    
+    # Create table version (which creates table and stream automatically)
+    table, table_version_obj, stream = metastore.create_table_version(
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+        schema=Schema.of(schema=schema),
+        partition_scheme=partition_scheme,
+        **ds_mock_kwargs,
+    )
+    return namespace, table_name, table_version
+
+
+def create_src_table_main(
+    sort_keys: Optional[List[Any]],
+    partition_keys: Optional[List[PartitionKey]],
+    input_deltas: pa.Table,
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+):
+    """
+    Main storage version of create_src_table
+    """
+    source_namespace: str = BASE_TEST_SOURCE_NAMESPACE
+    source_table_name: str = BASE_TEST_SOURCE_TABLE_NAME
+    source_table_version: str = BASE_TEST_SOURCE_TABLE_VERSION
+    return _create_table_main(
+        source_namespace,
+        source_table_name,
+        source_table_version,
+        sort_keys,
+        partition_keys,
+        input_deltas,
+        ds_mock_kwargs,
+    )
+
+
+def create_destination_table_main(
+    sort_keys: Optional[List[Any]],
+    partition_keys: Optional[List[PartitionKey]],
+    input_deltas: pa.Table,
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+):
+    """
+    Main storage version of create_destination_table
+    """
+    destination_namespace: str = BASE_TEST_DESTINATION_NAMESPACE
+    destination_table_name: str = BASE_TEST_DESTINATION_TABLE_NAME
+    destination_table_version: str = BASE_TEST_DESTINATION_TABLE_VERSION
+    return _create_table_main(
+        destination_namespace,
+        destination_table_name,
+        destination_table_version,
+        sort_keys,
+        partition_keys,
+        input_deltas,
+        ds_mock_kwargs,
+    )
+
+
+def _add_deltas_to_partition_main(
+    deltas_ingredients: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
+    partition: Optional[Partition],
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[Optional[Delta], int]:
+    all_deltas_length = 0
+    for (delta_data, delta_type, delete_parameters) in deltas_ingredients:
+        staged_delta: Delta = metastore.stage_delta(
+            delta_data,
+            partition,
+            delta_type,
+            entry_params=delete_parameters,
+            **ds_mock_kwargs,
+        )
+        incremental_delta = metastore.commit_delta(
+            staged_delta,
+            **ds_mock_kwargs,
+        )
+        all_deltas_length += len(delta_data) if delta_data else 0
+    return incremental_delta, all_deltas_length
+
+
+def add_late_deltas_to_partition_main(
+    late_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
+    source_partition: Optional[Partition],
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[Optional[Delta], int]:
+    return _add_deltas_to_partition_main(late_deltas, source_partition, ds_mock_kwargs)
+
+
+def create_src_w_deltas_destination_plus_destination_main(
+    sort_keys: Optional[List[Any]],
+    partition_keys: Optional[List[PartitionKey]],
+    input_deltas: pa.Table,
+    input_delta_type: DeltaType,
+    partition_values: Optional[List[Any]],
+    ds_mock_kwargs: Optional[Dict[str, Any]],
+    simulate_is_inplace: bool = False,
+) -> Tuple[Stream, Stream, Optional[Stream], str, str, str]:
+    
+    source_namespace, source_table_name, source_table_version = create_src_table_main(
+        sort_keys, partition_keys, input_deltas, ds_mock_kwargs
+    )
+
+    source_table_stream: Stream = metastore.get_stream(
+        namespace=source_namespace,
+        table_name=source_table_name,
+        table_version=source_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    # Convert partition values to correct types
+    converted_partition_values = []
+    if partition_values and partition_keys:
+        for i, (value, pk) in enumerate(zip(partition_values, partition_keys)):
+            if pk.key_type == PartitionKeyType.INT:
+                converted_partition_values.append(int(value))
+            else:
+                converted_partition_values.append(value)
+    else:
+        converted_partition_values = partition_values
+    
+    staged_partition: Partition = metastore.stage_partition(
+        source_table_stream, converted_partition_values, **ds_mock_kwargs
+    )
+    metastore.commit_delta(
+        metastore.stage_delta(
+            input_deltas, staged_partition, input_delta_type, **ds_mock_kwargs
+        ),
+        **ds_mock_kwargs,
+    )
+    metastore.commit_partition(staged_partition, **ds_mock_kwargs)
+    source_table_stream_after_committed: Stream = metastore.get_stream(
+        namespace=source_namespace,
+        table_name=source_table_name,
+        table_version=source_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    destination_table_namespace: Optional[str] = None
+    destination_table_name: Optional[str] = None
+    destination_table_version: Optional[str] = None
+    if not simulate_is_inplace:
+        (
+            destination_table_namespace,
+            destination_table_name,
+            destination_table_version,
+        ) = create_destination_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
+    else:
+        # not creating a table as in-place
+        destination_table_namespace = source_namespace
+        destination_table_name = source_table_name
+        destination_table_version = source_table_version
+
+    destination_table_stream: Stream = metastore.get_stream(
+        namespace=destination_table_namespace,
+        table_name=destination_table_name,
+        table_version=destination_table_version,
+        **ds_mock_kwargs,
+    )
+    return (
+        source_table_stream_after_committed,
+        destination_table_stream,
+        None,
+        source_namespace,
+        source_table_name,
+        source_table_version,
+    )
+
+
+@pytest.mark.parametrize(
+    [
+        "test_name",
+        "primary_keys",
+        "sort_keys",
+        "partition_keys_param",
+        "partition_values_param",
+        "input_deltas",
+        "input_deltas_delta_type",
+        "expected_terminal_compact_partition_result",
+        "expected_terminal_exception",
+        "expected_terminal_exception_message",
+        "create_placement_group_param",
+        "records_per_compacted_file_param",
+        "hash_bucket_count_param",
+        "read_kwargs_provider_param",
+        "drop_duplicates_param",
+        "skip_enabled_compact_partition_drivers",
+        "assert_compaction_audit",
+        "is_inplace",
+        "add_late_deltas",
+        "compact_partition_func",
+        "compactor_version",
+    ],
+    [
+        (
+            test_name,
+            primary_keys,
+            sort_keys,
+            partition_keys_param,
+            partition_values_param,
+            input_deltas_param,
+            input_deltas_delta_type,
+            expected_terminal_compact_partition_result,
+            expected_terminal_exception,
+            expected_terminal_exception_message,
+            create_placement_group_param,
+            records_per_compacted_file_param,
+            hash_bucket_count_param,
+            drop_duplicates_param,
+            read_kwargs_provider,
+            skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
+            is_inplace,
+            add_late_deltas,
+            compact_partition_func,
+            compactor_version,
+        )
+        for test_name, (
+            primary_keys,
+            sort_keys,
+            partition_keys_param,
+            partition_values_param,
+            input_deltas_param,
+            input_deltas_delta_type,
+            expected_terminal_compact_partition_result,
+            expected_terminal_exception,
+            expected_terminal_exception_message,
+            create_placement_group_param,
+            records_per_compacted_file_param,
+            hash_bucket_count_param,
+            drop_duplicates_param,
+            read_kwargs_provider,
+            skip_enabled_compact_partition_drivers,
+            assert_compaction_audit,
+            is_inplace,
+            add_late_deltas,
+            compact_partition_func,
+            compactor_version,
+        ) in INCREMENTAL_TEST_CASES.items()
+    ],
+    ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
+)
+def test_compact_partition_incremental_main(
+    s3_resource: ServiceResource,
+    main_deltacat_storage_kwargs: Dict[str, Any],
+    cleanup_database,
+    test_name: str,
+    primary_keys: Set[str],
+    sort_keys: Dict[str, str],
+    partition_keys_param: Optional[Dict[str, str]],
+    partition_values_param: str,
+    input_deltas: pa.Table,
+    input_deltas_delta_type: str,
+    expected_terminal_compact_partition_result: pa.Table,
+    expected_terminal_exception: BaseException,
+    expected_terminal_exception_message: Optional[str],
+    create_placement_group_param: bool,
+    records_per_compacted_file_param: int,
+    hash_bucket_count_param: int,
+    drop_duplicates_param: bool,
+    read_kwargs_provider_param: Any,
+    skip_enabled_compact_partition_drivers,
+    assert_compaction_audit: Optional[Callable],
+    compactor_version: Optional[CompactorVersion],
+    is_inplace: bool,
+    add_late_deltas: Optional[List[Tuple[pa.Table, DeltaType]]],
+    compact_partition_func: Callable,
+    benchmark: BenchmarkFixture,
+):
+    # Skip in-place compaction tests for main storage as it's not yet implemented
+    if is_inplace:
+        pytest.skip("In-place compaction not yet implemented in main storage (delta prepending limitation)")
+
+    ds_mock_kwargs: Dict[str, Any] = main_deltacat_storage_kwargs
+
+    # setup
+    partition_keys = partition_keys_param
+    (
+        source_table_stream,
+        destination_table_stream,
+        _,
+        source_table_namespace,
+        source_table_name,
+        source_table_version,
+    ) = create_src_w_deltas_destination_plus_destination_main(
+        sort_keys,
+        partition_keys,
+        input_deltas,
+        input_deltas_delta_type,
+        partition_values_param,
+        ds_mock_kwargs,
+        is_inplace,
+    )
+    
+    # Convert partition values to correct types for get_partition call
+    converted_partition_values = []
+    if partition_values_param and partition_keys:
+        # partition_values_param is a single string, but we need to handle it as a list
+        partition_values_list = [partition_values_param] if isinstance(partition_values_param, str) else partition_values_param
+        for i, (value, pk) in enumerate(zip(partition_values_list, partition_keys)):
+            if pk.key_type == PartitionKeyType.INT:
+                converted_partition_values.append(int(value))
+            else:
+                converted_partition_values.append(value)
+    else:
+        converted_partition_values = [partition_values_param] if partition_values_param else []
+    
+    source_partition: Partition = metastore.get_partition(
+        source_table_stream.locator,
+        converted_partition_values,
+        partition_scheme_id="default_partition_scheme" if partition_keys else None,
+        **ds_mock_kwargs,
+    )
+    destination_partition_locator: PartitionLocator = PartitionLocator.of(
+        destination_table_stream.locator,
+        converted_partition_values,
+        None,
+    )
+    num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
+    total_cpus: int = num_workers * worker_instance_cpu
+    pgm: Optional[PlacementGroupManager] = (
+        PlacementGroupManager(
+            1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
+        ).pgs[0]
+        if create_placement_group_param
+        else None
+    )
+    compact_partition_params = CompactPartitionParams.of(
+        {
+            "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+            "compacted_file_content_type": ContentType.PARQUET,
+            "dd_max_parallelism_ratio": 1.0,
+            "deltacat_storage": metastore,
+            "deltacat_storage_kwargs": ds_mock_kwargs,
+            "destination_partition_locator": destination_partition_locator,
+            "drop_duplicates": drop_duplicates_param,
+            "hash_bucket_count": hash_bucket_count_param,
+            "last_stream_position_to_compact": source_partition.stream_position,
+            "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+            "pg_config": pgm,
+            "primary_keys": primary_keys,
+            "read_kwargs_provider": read_kwargs_provider_param,
+            "rebase_source_partition_locator": None,
+            "rebase_source_partition_high_watermark": None,
+            "records_per_compacted_file": records_per_compacted_file_param,
+            "s3_client_kwargs": {},
+            "source_partition_locator": source_partition.locator,
+            "sort_keys": sort_keys if sort_keys else None,
+        }
+    )
+
+    # execute
+    def _incremental_compaction_setup():
+        """
+        This callable runs right before invoking the benchmark target function (compaction).
+        This is needed as the benchmark module will invoke the target function multiple times
+        in a single test run, which can lead to non-idempotent behavior if RCFs are generated.
+
+        Returns: args, kwargs
+        """
+        s3_resource.Bucket(TEST_S3_RCF_BUCKET_NAME).objects.all().delete()
+        return (compact_partition_params,), {}
+
+    if add_late_deltas:
+        # NOTE: In the case of in-place compaction it is plausible that new deltas may be added to the source partition during compaction
+        # (so that the source_partitition.stream_position > last_stream_position_to_compact).
+        # This parameter helps simulate the case to check that no late deltas are dropped even when the compacted partition is created.
+        latest_delta, _ = add_late_deltas_to_partition_main(
+            add_late_deltas, source_partition, ds_mock_kwargs
+        )
+    if expected_terminal_exception:
+        with pytest.raises(expected_terminal_exception) as exc_info:
+            compact_partition_func(compact_partition_params)
+        assert expected_terminal_exception_message in str(exc_info.value)
+        return
+    rcf_file_s3_uri = benchmark.pedantic(
+        compact_partition_func, setup=_incremental_compaction_setup
+    )
+
+    # validate
+    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
+    compacted_delta_locator: DeltaLocator = (
+        round_completion_info.compacted_delta_locator
+    )
+    audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
+        round_completion_info.compaction_audit_url
+    )
+
+    compaction_audit_obj: Dict[str, Any] = read_s3_contents(
+        s3_resource, audit_bucket, audit_key
+    )
+    compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
+        **compaction_audit_obj
+    )
+
+    # assert if RCF covers all files
+    if compactor_version != CompactorVersion.V1.value:
+        previous_end = None
+        for start, end in round_completion_info.hb_index_to_entry_range.values():
+            assert (previous_end is None and start == 0) or start == previous_end
+            previous_end = end
+        assert (
+            previous_end == round_completion_info.compacted_pyarrow_write_result.files
+        )
+
+    tables = metastore.download_delta(
+        compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+    )
+    actual_compacted_table = pa.concat_tables(tables)
+    sorting_cols: List[Any] = [(val, "ascending") for val in primary_keys]
+    # the compacted table may contain multiple files and chunks
+    # and order of records may be incorrect due to multiple files.
+    expected_terminal_compact_partition_result: pa.Table = (
+        expected_terminal_compact_partition_result.combine_chunks().sort_by(
+            sorting_cols
+        )
+    )
+    actual_compacted_table = actual_compacted_table.combine_chunks().sort_by(
+        sorting_cols
+    )
+
+    assert compaction_audit.input_records == len(
+        input_deltas
+    ), "The input_records must be equal to total records in the input"
+
+    if assert_compaction_audit is not None:
+        if not assert_compaction_audit(compactor_version, compaction_audit):
+            assert False, "Compaction audit assertion failed"
+
+    assert actual_compacted_table.equals(
+        expected_terminal_compact_partition_result
+    ), f"{actual_compacted_table} does not match {expected_terminal_compact_partition_result}"
+
+    if is_inplace:
+        assert (
+            source_partition.locator.partition_values
+            == destination_partition_locator.partition_values
+            and source_partition.locator.stream_id
+            == destination_partition_locator.stream_id
+        ), f"The source partition: {source_partition.locator.canonical_string} should match the destination partition: {destination_partition_locator.canonical_string}"
+        assert (
+            compacted_delta_locator.stream_id == source_partition.locator.stream_id
+        ), "The compacted delta should be in the same stream as the source"
+        source_partition: Partition = metastore.get_partition(
+            source_table_stream.locator,
+            converted_partition_values,
+            partition_scheme_id="default_partition_scheme" if partition_keys else None,
+            **ds_mock_kwargs,
+        )
+        compacted_partition: Optional[Partition] = metastore.get_partition(
+            compacted_delta_locator.stream_locator,
+            converted_partition_values,
+            partition_scheme_id="default_partition_scheme" if partition_keys else None,
+            **ds_mock_kwargs,
+        )
+        assert (
+            compacted_partition.state == source_partition.state == CommitState.COMMITTED
+        ), f"The compacted/source table partition should be in {CommitState.COMMITTED} state and not {CommitState.DEPRECATED}"
+        if add_late_deltas:
+            compacted_partition_deltas: List[Delta] = metastore.list_partition_deltas(
+                partition_like=compacted_partition,
+                ascending_order=False,
+                **ds_mock_kwargs,
+            ).all_items()
+            assert (
+                len(compacted_partition_deltas) == len(add_late_deltas) + 1
+            ), f"Expected the number of deltas within the newly promoted partition to equal 1 (the compacted delta) + the # of late deltas: {len(add_late_deltas)}"
+            assert (
+                compacted_partition_deltas[0].stream_position
+                == latest_delta.stream_position
+            ), f"Expected the latest delta in the compacted partition: {compacted_partition_deltas[0].stream_position} to have the same stream position as the latest delta: {latest_delta.stream_position}"
+    return
