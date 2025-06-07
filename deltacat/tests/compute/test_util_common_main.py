@@ -37,6 +37,8 @@ from deltacat.storage import (
     PartitionScheme,
     Schema,
     SortScheme,
+    PartitionLocator,
+    LocalTable,
 )
 from deltacat.catalog.model.properties import CatalogProperties
 
@@ -94,7 +96,7 @@ def _create_table_main(
                         field_type = pa.int32()
                     elif pk.key_type == PartitionKeyType.STRING:
                         field_type = pa.string()
-                    elif pk.key_type == "timestamp":
+                    elif pk.key_type.value == "timestamp":  # Handle timestamp type properly
                         field_type = pa.timestamp('us')
                     else:
                         field_type = pa.string()  # Default to string
@@ -112,13 +114,14 @@ def _create_table_main(
     storage_partition_keys = []
     if partition_keys:
         for pk in partition_keys:
-            storage_pk = StoragePartitionKey.of(
+            storage_partition_key = StoragePartitionKey.of(
                 key=[pk.key_name],
+                name=pk.key_name,
                 transform=IdentityTransform.of(),
-                name=pk.key_name
             )
-            storage_partition_keys.append(storage_pk)
-    
+            storage_partition_keys.append(storage_partition_key)
+
+    # Create partition scheme
     partition_scheme = None
     if storage_partition_keys:
         partition_scheme = PartitionScheme.of(
@@ -136,6 +139,7 @@ def _create_table_main(
         sort_keys=sort_scheme,
         **ds_mock_kwargs,
     )
+
     return namespace, table_name, table_version
 
 
@@ -467,12 +471,21 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
         **ds_mock_kwargs,
     )
     
-    # Convert partition values to correct types
+    # Convert partition values to correct types, including timestamp handling
     converted_partition_values = []
     if partition_values and partition_keys:
         for i, (value, pk) in enumerate(zip(partition_values, partition_keys)):
             if pk.key_type == PartitionKeyType.INT:
                 converted_partition_values.append(int(value))
+            elif pk.key_type.value == "timestamp":
+                # Handle timestamp partition values
+                if isinstance(value, str) and "T" in value and value.endswith("Z"):
+                    import pandas as pd
+                    ts = pd.to_datetime(value)
+                    # Convert to microseconds since epoch for PyArrow timestamp[us]
+                    converted_partition_values.append(int(ts.timestamp() * 1_000_000))
+                else:
+                    converted_partition_values.append(value)
             else:
                 converted_partition_values.append(value)
     else:
@@ -551,4 +564,132 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
         source_table_stream_after_committed,
         destination_table_stream,
         rebased_stream_after_committed,
+    )
+
+
+def create_incremental_deltas_on_source_table_main(
+    source_namespace: str,
+    source_table_name: str,
+    source_table_version: str,
+    source_table_stream: Stream,
+    partition_values_param,
+    incremental_deltas: List[Tuple[pa.Table, DeltaType, Optional[Dict[str, str]]]],
+    ds_mock_kwargs: Optional[Dict[str, Any]] = None,
+) -> Tuple[PartitionLocator, Delta, int, bool]:
+    """
+    Main storage version of create_incremental_deltas_on_source_table
+    """
+    total_records = 0
+    has_delete_deltas = False
+    new_delta = None
+    
+    # Convert partition values for partition lookup (same as in other helper functions)
+    converted_partition_values_for_lookup = partition_values_param
+    if partition_values_param and source_table_stream.partition_scheme and source_table_stream.partition_scheme.keys:
+        converted_partition_values_for_lookup = []
+        
+        # Get partition field names from the storage partition scheme
+        storage_partition_keys = source_table_stream.partition_scheme.keys
+        partition_field_names = []
+        
+        for storage_key in storage_partition_keys:
+            # Each storage PartitionKey has a 'key' property that contains FieldLocators
+            # Extract the field name from the first FieldLocator
+            field_name = storage_key.key[0] if storage_key.key else None
+            partition_field_names.append(field_name)
+        
+        for i, value in enumerate(partition_values_param):
+            # For timestamp fields like 'region_id', we need to convert the timestamp string
+            if i < len(partition_field_names):
+                field_name = partition_field_names[i]
+                
+                # Check if this is likely a timestamp field based on the value format
+                if isinstance(value, str) and "T" in value and value.endswith("Z"):
+                    # This looks like a timestamp string - convert it
+                    import pandas as pd
+                    ts = pd.to_datetime(value)
+                    # Convert to microseconds since epoch for PyArrow timestamp[us]
+                    converted_partition_values_for_lookup.append(int(ts.timestamp() * 1_000_000))
+                elif isinstance(value, str) and value.isdigit():
+                    # This looks like an integer string
+                    converted_partition_values_for_lookup.append(int(value))
+                else:
+                    # Keep as-is
+                    converted_partition_values_for_lookup.append(value)
+            else:
+                converted_partition_values_for_lookup.append(value)
+    
+    # Get the current partition to stage deltas against
+    try:
+        source_partition: Partition = metastore.get_partition(
+            source_table_stream.locator,
+            converted_partition_values_for_lookup,
+            **ds_mock_kwargs,
+        )
+    except Exception as e:
+        # If we can't get the partition, it might not exist yet. Try to create it.
+        # Stage a new partition if it doesn't exist
+        staged_partition: Partition = metastore.stage_partition(
+            source_table_stream,
+            converted_partition_values_for_lookup,
+            partition_scheme_id="default_partition_scheme" if source_table_stream.partition_scheme else None,
+            **ds_mock_kwargs
+        )
+        # Commit the empty partition first
+        metastore.commit_partition(staged_partition, **ds_mock_kwargs)
+        
+        # Now try to get it again
+        source_partition: Partition = metastore.get_partition(
+            source_table_stream.locator,
+            converted_partition_values_for_lookup,
+            **ds_mock_kwargs,
+        )
+
+    if source_partition is None:
+        raise ValueError(f"Could not create or retrieve partition for values: {converted_partition_values_for_lookup}")
+
+    for delta_table, delta_type, properties_dict in incremental_deltas:
+        # Skip None deltas (empty incremental deltas)
+        if delta_table is None:
+            continue
+            
+        total_records += len(delta_table)
+        
+        if delta_type == DeltaType.DELETE:
+            has_delete_deltas = True
+
+        # Stage and commit the delta
+        staged_delta: Delta = metastore.stage_delta(
+            delta_table, 
+            source_partition, 
+            delta_type, 
+            entry_params=properties_dict,
+            **ds_mock_kwargs
+        )
+        new_delta = metastore.commit_delta(staged_delta, **ds_mock_kwargs)
+    
+    # If all deltas were None, return None for new_delta  
+    if new_delta is None:
+        return None, None, total_records, has_delete_deltas
+    
+    # Get updated stream after deltas were committed
+    source_table_stream_after_committed: Stream = metastore.get_stream(
+        source_namespace,
+        source_table_name,
+        source_table_version,
+        **ds_mock_kwargs,
+    )
+    
+    # Get updated partition after deltas were committed
+    source_partition_after_committed: Partition = metastore.get_partition(
+        source_table_stream_after_committed.locator,
+        converted_partition_values_for_lookup,
+        **ds_mock_kwargs,
+    )
+    
+    return (
+        source_partition_after_committed.locator,
+        new_delta,
+        total_records,
+        has_delete_deltas,
     ) 
