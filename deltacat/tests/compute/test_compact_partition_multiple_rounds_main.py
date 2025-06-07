@@ -13,42 +13,29 @@ from deltacat.tests.compute.test_util_constant import (
     TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
-    BASE_TEST_SOURCE_NAMESPACE,
-    BASE_TEST_SOURCE_TABLE_NAME,
-    BASE_TEST_SOURCE_TABLE_VERSION,
-    BASE_TEST_DESTINATION_NAMESPACE,
-    BASE_TEST_DESTINATION_TABLE_NAME,
-    BASE_TEST_DESTINATION_TABLE_VERSION,
-    REBASING_NAMESPACE,
-    REBASING_TABLE_NAME,
-    REBASING_TABLE_VERSION,
 )
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
     PartitionKey,
+    get_compacted_delta_locator_from_rcf,
+)
+from deltacat.tests.compute.test_util_common_main import (
+    multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
 )
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.tests.compute.test_util_common import (
-    get_compacted_delta_locator_from_rcf,
-)
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.tests.compute.compact_partition_multiple_rounds_test_cases import (
     MULTIPLE_ROUNDS_TEST_CASES,
 )
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set
 from deltacat.types.media import StorageType, ContentType
 from deltacat.storage import (
     DeltaLocator,
     Partition,
-    Stream,
-    DeltaType,
-    PartitionScheme,
-    SortScheme,
 )
-from deltacat.storage.model.partition import PartitionKey as PartitionSchemeKey
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -58,9 +45,7 @@ from deltacat.compute.compactor import (
 from deltacat.utils.placement import (
     PlacementGroupManager,
 )
-from deltacat.catalog import CatalogProperties
 from deltacat.storage import metastore
-from deltacat.storage.model.schema import Schema
 
 
 """
@@ -105,20 +90,6 @@ FUNCTION scoped fixtures
 """
 
 
-@pytest.fixture(scope="function")
-def main_deltacat_storage_kwargs(temp_dir):
-    """
-    Fixture that creates a CatalogProperties object for each test function
-    using the main metastore implementation.
-    
-    Returns:
-        dict: A dictionary with 'catalog' key pointing to CatalogProperties
-    """
-    catalog = CatalogProperties(root=temp_dir)
-    kwargs = {"catalog": catalog}
-    yield kwargs
-
-
 @pytest.fixture(autouse=True, scope="function")
 def enable_bucketing_spec_validation(monkeypatch):
     """
@@ -131,317 +102,6 @@ def enable_bucketing_spec_validation(monkeypatch):
         deltacat.compute.compactor_v2.steps.merge,
         "BUCKETING_SPEC_COMPLIANCE_PROFILE",
         "ASSERT",
-    )
-
-
-@pytest.fixture(autouse=True, scope="function") 
-def cleanup_the_database_file_after_all_compaction_session_package_tests_complete():
-    """
-    Cleanup fixture to prevent state contamination between tests.
-    """
-    yield
-    # Cleanup happens automatically with temp_dir fixture
-
-
-def create_main_deltacat_storage_kwargs() -> Dict[str, Any]:
-    """
-    Helper function to create main deltacat storage kwargs
-    
-    Returns: kwargs to use for main deltacat storage, i.e. {"catalog": CatalogProperties(...)}
-    """
-    temp_dir = tempfile.mkdtemp()
-    catalog = CatalogProperties(root=temp_dir)
-    return {"catalog": catalog}
-
-
-def clean_up_main_deltacat_storage_kwargs(storage_kwargs: Dict[str, Any]):
-    """
-    Cleans up directory created by create_main_deltacat_storage_kwargs
-    """
-    import shutil
-    catalog = storage_kwargs["catalog"]
-    if hasattr(catalog, 'root') and os.path.exists(catalog.root):
-        shutil.rmtree(catalog.root)
-
-
-def _create_table_main(
-    namespace: str,
-    table_name: str,
-    table_version: str,
-    sort_keys: Optional[List[Any]],
-    partition_keys: Optional[List[PartitionKey]],
-    input_deltas: List[pa.Table],
-    ds_mock_kwargs: Optional[Dict[str, Any]],
-):
-    """
-    Main storage version of _create_table
-    """
-    metastore.create_namespace(namespace, {}, **ds_mock_kwargs)
-    # Import the correct PartitionKey and related classes
-    from deltacat.storage.model.partition import PartitionKey as StoragePartitionKey
-    from deltacat.storage.model.partition import PartitionKeyList
-    from deltacat.storage.model.transform import IdentityTransform
-    
-    partition_scheme = None
-    if partition_keys:
-        # Convert test utility PartitionKeys to storage model PartitionKeys
-        storage_partition_keys = [
-            StoragePartitionKey.of(
-                key=[key.key_name],  # Use the key_name as a list
-                transform=IdentityTransform.of(),
-            )
-            for key in partition_keys
-        ]
-        partition_scheme = PartitionScheme.of(
-            keys=PartitionKeyList.of(storage_partition_keys),
-            scheme_id="default_partition_scheme"  # Add an ID for the partition scheme
-        )
-    sort_scheme = SortScheme.of(sort_keys) if sort_keys else None
-    
-    # Create schema from input deltas and add partition key fields
-    schema = None
-    if input_deltas:
-        first_delta_tuple = input_deltas[0]
-        first_delta_table = first_delta_tuple[0]  # Extract the pa.Table from the tuple
-        
-        # Start with the schema from the data
-        data_schema = first_delta_table.schema
-        schema_fields = list(data_schema)
-        
-        # Add partition key fields to the schema if they don't already exist
-        if partition_keys:
-            for key in partition_keys:
-                key_name = key.key_name
-                key_type = key.key_type
-                
-                # Check if the partition key is already in the data schema
-                if key_name not in data_schema.names:
-                    # Add the partition key field to the schema
-                    if key_type == "int":
-                        pa_type = pa.int32()
-                    elif key_type == "string":
-                        pa_type = pa.string()
-                    elif key_type == "timestamp":
-                        pa_type = pa.timestamp('us')
-                    else:
-                        pa_type = pa.string()  # Default to string
-                    
-                    schema_fields.append(pa.field(key_name, pa_type))
-        
-        # Create the combined schema
-        combined_pa_schema = pa.schema(schema_fields)
-        schema = Schema.of(schema=combined_pa_schema)
-    
-    metastore.create_table_version(
-        namespace,
-        table_name,
-        table_version,
-        schema=schema,
-        sort_keys=sort_scheme,
-        partition_scheme=partition_scheme,
-        supported_content_types=[ContentType.PARQUET],
-        **ds_mock_kwargs,
-    )
-    return namespace, table_name, table_version
-
-
-def create_src_table_main(
-    sort_keys: Optional[List[Any]],
-    partition_keys: Optional[List[PartitionKey]],
-    input_deltas: List[pa.Table],
-    ds_mock_kwargs: Optional[Dict[str, Any]],
-):
-    """
-    Main storage version of create_src_table
-    """
-    source_namespace: str = BASE_TEST_SOURCE_NAMESPACE
-    source_table_name: str = BASE_TEST_SOURCE_TABLE_NAME
-    source_table_version: str = BASE_TEST_SOURCE_TABLE_VERSION
-    return _create_table_main(
-        source_namespace,
-        source_table_name,
-        source_table_version,
-        sort_keys,
-        partition_keys,
-        input_deltas,
-        ds_mock_kwargs,
-    )
-
-
-def create_destination_table_main(
-    sort_keys: Optional[List[Any]],
-    partition_keys: Optional[List[PartitionKey]],
-    input_deltas: List[pa.Table],
-    ds_mock_kwargs: Optional[Dict[str, Any]],
-):
-    """
-    Main storage version of create_destination_table
-    """
-    destination_namespace: str = BASE_TEST_DESTINATION_NAMESPACE
-    destination_table_name: str = BASE_TEST_DESTINATION_TABLE_NAME
-    destination_table_version: str = BASE_TEST_DESTINATION_TABLE_VERSION
-    return _create_table_main(
-        destination_namespace,
-        destination_table_name,
-        destination_table_version,
-        sort_keys,
-        partition_keys,
-        input_deltas,
-        ds_mock_kwargs,
-    )
-
-
-def create_rebase_table_main(
-    sort_keys: Optional[List[Any]],
-    partition_keys: Optional[List[PartitionKey]],
-    input_deltas: List[pa.Table],
-    ds_mock_kwargs: Optional[Dict[str, Any]],
-):
-    """
-    Main storage version of create_rebase_table
-    """
-    rebasing_namespace = REBASING_NAMESPACE
-    rebasing_table_name = REBASING_TABLE_NAME
-    rebasing_table_version = REBASING_TABLE_VERSION
-    return _create_table_main(
-        rebasing_namespace,
-        rebasing_table_name,
-        rebasing_table_version,
-        sort_keys,
-        partition_keys,
-        input_deltas,
-        ds_mock_kwargs,
-    )
-
-
-def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
-    sort_keys: Optional[List[Any]],
-    partition_keys: Optional[List[PartitionKey]],
-    input_deltas: List[pa.Table],
-    partition_values: Optional[List[Any]],
-    ds_mock_kwargs: Optional[Dict[str, Any]],
-) -> Tuple[Stream, Stream, Optional[Stream], bool]:
-    """
-    Main storage version of multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy
-    """
-    from deltacat.storage import Partition, Stream
-
-    source_namespace, source_table_name, source_table_version = create_src_table_main(
-        sort_keys, partition_keys, input_deltas, ds_mock_kwargs
-    )
-
-    source_table_stream: Stream = metastore.get_stream(
-        namespace=source_namespace,
-        table_name=source_table_name,
-        table_version=source_table_version,
-        **ds_mock_kwargs,
-    )
-    # Convert partition values to correct types
-    converted_partition_values = partition_values
-    if partition_values and partition_keys:
-        converted_partition_values = []
-        for i, (value, key) in enumerate(zip(partition_values, partition_keys)):
-            if key.key_type == "int":
-                converted_partition_values.append(int(value))
-            elif key.key_type == "string":
-                converted_partition_values.append(str(value))
-            elif key.key_type == "timestamp":
-                converted_partition_values.append(value)  # Keep as is for now
-            else:
-                converted_partition_values.append(value)
-    
-    staged_partition: Partition = metastore.stage_partition(
-        source_table_stream, converted_partition_values, **ds_mock_kwargs
-    )
-    is_delete = False
-    input_delta_length = 0
-    for (
-        input_delta,
-        input_delta_type,
-        input_delta_parameters,
-    ) in input_deltas:
-        if input_delta_type is DeltaType.DELETE:
-            is_delete = True
-        staged_delta = metastore.stage_delta(
-            input_delta,
-            staged_partition,
-            input_delta_type,
-            entry_params=input_delta_parameters,
-            **ds_mock_kwargs,
-        )
-        metastore.commit_delta(
-            staged_delta,
-            **ds_mock_kwargs,
-        )
-        input_delta_length += len(input_delta) if input_delta else 0
-    metastore.commit_partition(staged_partition, **ds_mock_kwargs)
-    source_table_stream_after_committed: Stream = metastore.get_stream(
-        namespace=source_namespace,
-        table_name=source_table_name,
-        table_version=source_table_version,
-        **ds_mock_kwargs,
-    )
-    # create the destination table
-    (
-        destination_table_namespace,
-        destination_table_name,
-        destination_table_version,
-    ) = create_destination_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
-    # create the rebase table
-    (
-        rebase_table_namespace,
-        rebase_table_name,
-        rebase_table_version,
-    ) = create_rebase_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
-    rebasing_table_stream: Stream = metastore.get_stream(
-        namespace=rebase_table_namespace,
-        table_name=rebase_table_name,
-        table_version=rebase_table_version,
-        **ds_mock_kwargs,
-    )
-    staged_partition: Partition = metastore.stage_partition(
-        rebasing_table_stream, converted_partition_values, **ds_mock_kwargs
-    )
-    input_delta_length = 0
-    for (
-        input_delta,
-        input_delta_type,
-        input_delta_parameters,
-    ) in input_deltas:
-        if input_delta_type is DeltaType.DELETE:
-            is_delete = True
-        staged_delta = metastore.stage_delta(
-            input_delta,
-            staged_partition,
-            input_delta_type,
-            entry_params=input_delta_parameters,
-            **ds_mock_kwargs,
-        )
-        metastore.commit_delta(
-            staged_delta,
-            **ds_mock_kwargs,
-        )
-        input_delta_length += len(input_delta) if input_delta else 0
-    metastore.commit_partition(staged_partition, **ds_mock_kwargs)
-
-    # get streams
-    destination_table_stream: Stream = metastore.get_stream(
-        namespace=destination_table_namespace,
-        table_name=destination_table_name,
-        table_version=destination_table_version,
-        **ds_mock_kwargs,
-    )
-    rebased_stream_after_committed: Stream = metastore.get_stream(
-        namespace=rebase_table_namespace,
-        table_name=rebase_table_name,
-        table_version=rebase_table_version,
-        **ds_mock_kwargs,
-    )
-    return (
-        source_table_stream_after_committed,
-        destination_table_stream,
-        rebased_stream_after_committed,
-        is_delete,
     )
 
 

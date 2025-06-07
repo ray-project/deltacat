@@ -4,6 +4,7 @@ import shutil
 from typing import Dict
 
 import pytest
+from deltacat.catalog.model.properties import CatalogProperties
 
 
 @pytest.fixture
@@ -73,3 +74,19 @@ def clean_up_local_deltacat_storage_file(local_storage_kwargs: Dict[str, str]):
     # Remove the temporary directory if it exists
     if os.path.exists(dir_path):
         shutil.rmtree(dir_path)
+
+
+@pytest.fixture(scope="function")
+def main_deltacat_storage_kwargs(temp_dir):
+    """
+    Fixture that creates a CatalogProperties object for each test function
+    using the main metastore implementation and cleans up afterwards.
+    
+    Returns:
+        dict: A dictionary with 'catalog' key pointing to CatalogProperties
+    """
+    catalog = CatalogProperties(root=temp_dir)
+    kwargs = {"catalog": catalog}
+    yield kwargs
+    
+    # Cleanup happens automatically via temp_dir fixture
