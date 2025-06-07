@@ -40,7 +40,6 @@ from deltacat.storage import (
     Partition,
     PartitionLocator,
     metastore,
-    LocalTable,
 )
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.compact_partition_params import (

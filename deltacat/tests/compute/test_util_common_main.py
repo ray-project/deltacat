@@ -38,7 +38,6 @@ from deltacat.storage import (
     Schema,
     SortScheme,
     PartitionLocator,
-    LocalTable,
 )
 from deltacat.catalog.model.properties import CatalogProperties
 
@@ -96,7 +95,7 @@ def _create_table_main(
                         field_type = pa.int32()
                     elif pk.key_type == PartitionKeyType.STRING:
                         field_type = pa.string()
-                    elif pk.key_type.value == "timestamp":  # Handle timestamp type properly
+                    elif pk.key_type == PartitionKeyType.TIMESTAMP:  # Handle timestamp type properly
                         field_type = pa.timestamp('us')
                     else:
                         field_type = pa.string()  # Default to string
@@ -477,7 +476,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
         for i, (value, pk) in enumerate(zip(partition_values, partition_keys)):
             if pk.key_type == PartitionKeyType.INT:
                 converted_partition_values.append(int(value))
-            elif pk.key_type.value == "timestamp":
+            elif pk.key_type == PartitionKeyType.TIMESTAMP:
                 # Handle timestamp partition values
                 if isinstance(value, str) and "T" in value and value.endswith("Z"):
                     import pandas as pd
