@@ -512,8 +512,8 @@ def list_deltas(
             or delta.stream_position <= last_stream_position
         )
     ]
-    if ascending_order:
-        filtered_deltas.reverse()
+    # Sort deltas by stream position in the requested order
+    filtered_deltas.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
     return filtered_deltas
 
 
@@ -570,8 +570,8 @@ def list_partition_deltas(
             or delta.stream_position <= last_stream_position
         )
     ]
-    if ascending_order:
-        filtered_deltas.reverse()
+    # Sort deltas by stream position in the requested order
+    filtered_deltas.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
     return ListResult.of(
         items=filtered_deltas,
         pagination_key=None,
