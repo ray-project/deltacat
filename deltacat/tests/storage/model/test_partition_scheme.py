@@ -38,6 +38,27 @@ def test_partition_scheme_validates_duplicate_keys():
         )
 
 
+def test_partition_scheme_validates_duplicate_names():
+    # When creating a partition scheme with duplicate partition key names
+    with pytest.raises(ValueError, match="Duplicate partition key name found: partition_1"):
+        PartitionScheme.of(
+            keys=[
+                PartitionKey.of(
+                    key=["col1"],
+                    name="partition_1",
+                    transform=IdentityTransform.of(),
+                ),
+                PartitionKey.of(
+                    key=["col2"],  # Different field locator
+                    name="partition_1",  # But duplicate name
+                    transform=IdentityTransform.of(),
+                ),
+            ],
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id",
+        )
+
+
 def test_partition_scheme_allows_valid_keys():
     # When creating a partition scheme with valid keys
     partition_scheme = PartitionScheme.of(

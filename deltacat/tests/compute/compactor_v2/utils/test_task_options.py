@@ -78,7 +78,6 @@ class TestTaskOptions(unittest.TestCase):
         source_content_length: Optional[int] = 1000,
         content_type: Optional[ContentType] = ContentType.PARQUET,
         content_encoding: Optional[ContentEncoding] = ContentEncoding.IDENTITY,
-        partition_values: Optional[PartitionValues] = None,
         uri: Optional[str] = "test",
         url: Optional[str] = "test",
         author: Optional[str] = "foo",
@@ -91,7 +90,6 @@ class TestTaskOptions(unittest.TestCase):
             content_type=content_type,
             content_encoding=content_encoding,
             source_content_length=source_content_length,
-            partition_values=partition_values,
         )
 
         return Manifest.of(

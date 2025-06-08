@@ -7904,14 +7904,14 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        # Should return both deltas in ascending order by default
+        # Should return both deltas in descending order by default
         deltas = result.all_items()
         assert isinstance(deltas, list)
         deltas = result.all_items(); assert len(deltas) == 2
-        assert deltas[0].stream_position == committed_delta1.stream_position
-        assert deltas[1].stream_position == committed_delta2.stream_position
-        assert deltas[0].type == DeltaType.UPSERT
-        assert deltas[1].type == DeltaType.APPEND
+        assert deltas[0].stream_position == committed_delta2.stream_position
+        assert deltas[1].stream_position == committed_delta1.stream_position
+        assert deltas[0].type == DeltaType.APPEND
+        assert deltas[1].type == DeltaType.UPSERT
 
     def test_list_partition_deltas_with_partition_locator(self):
         """Test listing deltas using a partition locator."""
@@ -8037,15 +8037,15 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        # Should return deltas in descending stream position order (reversed from default)
+        # Should return deltas in ascending stream position order (reversed from default)
         deltas = result.all_items()
         assert isinstance(deltas, list)
         assert len(deltas) >= 3
 
-        # Check that the first 3 deltas are in descending order
+        # Check that the first 3 deltas are in ascending order
         first_three = deltas[:3]
         for i in range(len(first_three) - 1):
-            assert first_three[i].stream_position > first_three[i + 1].stream_position
+            assert first_three[i].stream_position < first_three[i + 1].stream_position
 
     def test_list_partition_deltas_with_manifest(self):
         """Test listing deltas with and without manifests."""
