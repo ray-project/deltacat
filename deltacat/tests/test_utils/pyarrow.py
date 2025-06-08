@@ -100,9 +100,9 @@ def commit_delta_to_partition(
         pa_table = pa.concat_tables(tables)
 
     staged_delta = metastore.stage_delta(
-        pa_table, 
-        partition, 
-        content_type=content_type, 
+        pa_table,
+        partition,
+        content_type=content_type,
         **kwargs,
     )
 

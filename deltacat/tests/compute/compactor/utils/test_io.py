@@ -19,6 +19,7 @@ def compaction_audit():
     from deltacat.compute.compactor.model.compaction_session_audit_info import (
         CompactionSessionAuditInfo,
     )
+
     return CompactionSessionAuditInfo("1.0", "2.3", "test")
 
 
@@ -50,7 +51,9 @@ def test_sanity(main_deltacat_storage_kwargs, compaction_audit):
     assert compaction_audit.total_cluster_memory_bytes is not None
 
 
-def test_when_hash_bucket_count_overridden(main_deltacat_storage_kwargs, compaction_audit):
+def test_when_hash_bucket_count_overridden(
+    main_deltacat_storage_kwargs, compaction_audit
+):
     from deltacat.compute.compactor.utils import io
     from deltacat.storage import metastore
 
@@ -74,7 +77,9 @@ def test_when_hash_bucket_count_overridden(main_deltacat_storage_kwargs, compact
     assert require_multiple_rounds is False
 
 
-def test_when_not_enough_memory_splits_manifest_entries(main_deltacat_storage_kwargs, compaction_audit):
+def test_when_not_enough_memory_splits_manifest_entries(
+    main_deltacat_storage_kwargs, compaction_audit
+):
     from deltacat.compute.compactor.utils import io
     from deltacat.storage import metastore
 
@@ -113,7 +118,9 @@ def test_when_no_input_deltas(main_deltacat_storage_kwargs, compaction_audit):
         )
 
 
-def test_when_cpu_resources_is_not_passed(main_deltacat_storage_kwargs, compaction_audit):
+def test_when_cpu_resources_is_not_passed(
+    main_deltacat_storage_kwargs, compaction_audit
+):
     from deltacat.compute.compactor.utils import io
     from deltacat.storage import metastore
 
@@ -125,4 +132,4 @@ def test_when_cpu_resources_is_not_passed(main_deltacat_storage_kwargs, compacti
             None,
             metastore,
             main_deltacat_storage_kwargs,
-        ) 
+        )

@@ -32,6 +32,7 @@ class TestHashBucketMain(unittest.TestCase):
         # Create a temporary directory for main storage
         self.temp_dir = tempfile.mkdtemp()
         from deltacat.catalog import CatalogProperties
+
         catalog_properties = CatalogProperties(root=self.temp_dir)
         self.kwargs = {"inner": catalog_properties}
         self.deltacat_storage_kwargs = self.kwargs
@@ -41,6 +42,7 @@ class TestHashBucketMain(unittest.TestCase):
     def tearDown(self) -> None:
         # Clean up temporary directory
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
         ray.shutdown()
 
@@ -196,6 +198,7 @@ class TestHashBucketMain(unittest.TestCase):
             self.fail("Expected UnclassifiedDeltaCatError")
         except ray.exceptions.RayTaskError as e:
             from deltacat.exceptions import UnclassifiedDeltaCatError
+
             self.assertIsInstance(e.cause, UnclassifiedDeltaCatError)
 
     def _validate_hash_bucket_result(
@@ -230,4 +233,4 @@ class TestHashBucketMain(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

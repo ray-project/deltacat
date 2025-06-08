@@ -207,7 +207,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
     as specified in compact_partition_multiple_rounds_test_cases.py.
     These tests do not test multi-round compaction backfill, which is
     currently unsupported.
-    
+
     This version uses the main metastore implementation instead of local storage.
     """
     (
@@ -226,18 +226,20 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
     converted_partition_values_for_lookup = partition_values_param
     if partition_values_param and partition_keys_param:
         converted_partition_values_for_lookup = []
-        for i, (value, key) in enumerate(zip(partition_values_param, partition_keys_param)):
+        for i, (value, key) in enumerate(
+            zip(partition_values_param, partition_keys_param)
+        ):
             if key.key_type == "int":
                 converted_partition_values_for_lookup.append(int(value))
             elif key.key_type == "string":
                 converted_partition_values_for_lookup.append(str(value))
             elif key.key_type == "timestamp":
-                converted_partition_values_for_lookup.append(value)  # Keep as is for now
+                converted_partition_values_for_lookup.append(
+                    value
+                )  # Keep as is for now
             else:
                 converted_partition_values_for_lookup.append(value)
-    
 
-    
     source_partition: Partition = metastore.get_partition(
         stream_locator=source_table_stream.locator,
         partition_values=converted_partition_values_for_lookup,
@@ -363,4 +365,4 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
             if not assert_compaction_audit(compactor_version, compaction_audit):
                 assert False, "Compaction audit assertion failed"
         assert object_store_clear_spy.call_count, "Object store was never cleaned up!"
-        return 
+        return

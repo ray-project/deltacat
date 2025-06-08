@@ -96,7 +96,6 @@ from deltacat.types.tables import (
     download_manifest_entry,
 )
 from deltacat import logs
-from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -388,7 +387,9 @@ def list_partitions(
         **kwargs,
     )
     if not stream:
-        raise ValueError(f"Default stream for {namespace}.{table_name}.{table_version} not found.")
+        raise ValueError(
+            f"Default stream for {namespace}.{table_name}.{table_version} not found."
+        )
     locator = PartitionLocator.of(
         stream_locator=stream.locator,
         partition_values=["placeholder"],

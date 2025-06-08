@@ -25,7 +25,7 @@ class TestReadTableMain(unittest.TestCase):
         # Use the default catalog storage location instead of a temp directory
         # This ensures both catalog and direct storage operations use the same backend
         cls.temp_dir = tempfile.mkdtemp()
-        cls.catalog_properties = CatalogProperties(root=cls.temp_dir)        
+        cls.catalog_properties = CatalogProperties(root=cls.temp_dir)
 
         cls.catalog_name = str(uuid.uuid4())
 
@@ -40,10 +40,8 @@ class TestReadTableMain(unittest.TestCase):
     def doClassCleanups(cls) -> None:
         # Clean up the default catalog location if needed
         import shutil
-        try:
-            shutil.rmtree(cls.catalog_properties.root, ignore_errors=True)
-        except:
-            pass
+
+        shutil.rmtree(cls.catalog_properties.root, ignore_errors=True)
         ray.shutdown()
         super().tearDownClass()
 
@@ -83,14 +81,14 @@ class TestReadTableMain(unittest.TestCase):
         )
 
         partition = metastore.get_partition(
-            delta.stream_locator, 
-            delta.partition_values, 
+            delta.stream_locator,
+            delta.partition_values,
             inner=self.catalog_properties,
         )
 
         commit_delta_to_partition(
-            partition=partition, 
-            file_paths=[self.SAMPLE_FILE_PATH], 
+            partition=partition,
+            file_paths=[self.SAMPLE_FILE_PATH],
             inner=self.catalog_properties,
             content_type=ContentType.PARQUET,
         )

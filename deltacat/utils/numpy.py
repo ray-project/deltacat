@@ -101,7 +101,7 @@ def file_to_ndarray(
         fs_open_kwargs=fs_open_kwargs,
         **kwargs,
     )
-    
+
     ndarray, conversion_latency = timed_invocation(dataframe.to_numpy)
     total_latency = latency + conversion_latency
     logger.debug(f"Time to read {path} into NumPy ndarray: {total_latency}s")

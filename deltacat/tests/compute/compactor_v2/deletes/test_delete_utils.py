@@ -616,8 +616,12 @@ class TestPrepareDeletesMain:
 
         # Get schema from the first delta for proper table creation
         first_delta_table = deltas_to_compact[0][0] if deltas_to_compact else None
-        
-        source_namespace, source_table_name, source_table_version = create_src_table_main(
+
+        (
+            source_namespace,
+            source_table_name,
+            source_table_version,
+        ) = create_src_table_main(
             None,  # sort_keys
             None,  # partition_keys
             first_delta_table,  # input_deltas - pass the first delta table for schema inference
@@ -724,4 +728,4 @@ class TestPrepareDeletesMain:
                 actual_table = actual_delete_table.combine_chunks()
                 expected_delete_table = expected_delete_tables.combine_chunks()
                 assert actual_table.equals(expected_delete_table)
-        return 
+        return

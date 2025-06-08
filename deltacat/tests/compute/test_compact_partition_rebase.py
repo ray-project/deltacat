@@ -206,7 +206,7 @@ def test_compact_partition_rebase_same_source_and_destination_main(
     This test tests the scenario where source partition locator == destination partition locator,
     but rebase source partition locator is different.
     This scenario could occur when hash bucket count changes.
-    
+
     This version uses the main metastore implementation instead of local storage.
     """
     partition_keys = partition_keys_param
@@ -222,7 +222,7 @@ def test_compact_partition_rebase_same_source_and_destination_main(
         partition_values_param,
         ds_mock_kwargs,
     )
-    
+
     # Convert partition values for partition lookup (same as in the helper function)
     converted_partition_values_for_lookup = partition_values_param
     if partition_values_param and partition_keys:
@@ -232,7 +232,7 @@ def test_compact_partition_rebase_same_source_and_destination_main(
                 converted_partition_values_for_lookup.append(int(value))
             else:
                 converted_partition_values_for_lookup.append(value)
-    
+
     source_partition: Partition = metastore.get_partition(
         source_table_stream.locator,
         converted_partition_values_for_lookup,
@@ -356,4 +356,4 @@ def test_compact_partition_rebase_same_source_and_destination_main(
                 assert False, "Compaction audit assertion failed"
         # We do not expect object store to be cleaned up when there's only one round
         if object_store_put_many_spy.call_count:
-            assert os.listdir(test_dir) != [] 
+            assert os.listdir(test_dir) != []

@@ -100,5 +100,5 @@ class TestCategorizeErrorsMain(unittest.TestCase):
         self.assertFalse(True)
 
 
-if __name__ == '__main__':
-    unittest.main() 
+if __name__ == "__main__":
+    unittest.main()

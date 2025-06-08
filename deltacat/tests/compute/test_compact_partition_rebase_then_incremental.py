@@ -213,10 +213,10 @@ def test_compact_partition_rebase_then_incremental_main(
     This test performs rebase compaction first, then incremental compaction on the same data.
     This tests the scenario where we first do a rebase (with different source/destination partitions)
     and then follow up with incremental compaction using the result of the rebase.
-    
+
     This version uses the main metastore implementation instead of local storage.
     """
-    
+
     """
     REBASE
     """
@@ -233,7 +233,7 @@ def test_compact_partition_rebase_then_incremental_main(
         partition_values_param,
         ds_mock_kwargs,
     )
-    
+
     # Convert partition values for partition lookup (same as in other helper functions)
     converted_partition_values_for_lookup = partition_values_param
     if partition_values_param and partition_keys:
@@ -246,12 +246,14 @@ def test_compact_partition_rebase_then_incremental_main(
                 if isinstance(value, str) and "T" in value and value.endswith("Z"):
                     ts = pd.to_datetime(value)
                     # Convert to microseconds since epoch for PyArrow timestamp[us]
-                    converted_partition_values_for_lookup.append(int(ts.timestamp() * 1_000_000))
+                    converted_partition_values_for_lookup.append(
+                        int(ts.timestamp() * 1_000_000)
+                    )
                 else:
                     converted_partition_values_for_lookup.append(value)
             else:
                 converted_partition_values_for_lookup.append(value)
-    
+
     source_partition: Partition = metastore.get_partition(
         source_table_stream.locator,
         converted_partition_values_for_lookup,
@@ -275,7 +277,7 @@ def test_compact_partition_rebase_then_incremental_main(
         pgm = PlacementGroupManager(
             1, total_cpus, worker_instance_cpu, memory_per_bundle=4000000
         ).pgs[0]
-    
+
     with tempfile.TemporaryDirectory() as test_dir:
         compact_partition_params = CompactPartitionParams.of(
             {
@@ -287,7 +289,10 @@ def test_compact_partition_rebase_then_incremental_main(
                 "destination_partition_locator": destination_partition_locator,
                 "hash_bucket_count": hash_bucket_count_param,
                 "last_stream_position_to_compact": source_partition.stream_position,
-                "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+                "list_deltas_kwargs": {
+                    **ds_mock_kwargs,
+                    **{"equivalent_table_types": []},
+                },
                 "object_store": FileObjectStore(test_dir),
                 "pg_config": pgm,
                 "primary_keys": primary_keys,
@@ -317,7 +322,9 @@ def test_compact_partition_rebase_then_incremental_main(
             else []
         )
         rebase_expected_compact_partition_result = (
-            rebase_expected_compact_partition_result.combine_chunks().sort_by(sorting_cols)
+            rebase_expected_compact_partition_result.combine_chunks().sort_by(
+                sorting_cols
+            )
         )
         actual_rebase_compacted_table = (
             actual_rebase_compacted_table.combine_chunks().sort_by(sorting_cols)
@@ -325,7 +332,7 @@ def test_compact_partition_rebase_then_incremental_main(
         assert actual_rebase_compacted_table.equals(
             rebase_expected_compact_partition_result
         ), f"{actual_rebase_compacted_table} does not match {rebase_expected_compact_partition_result}"
-        
+
         """
         INCREMENTAL
         """
@@ -343,7 +350,7 @@ def test_compact_partition_rebase_then_incremental_main(
             incremental_deltas,
             ds_mock_kwargs,
         )
-        
+
         # Handle empty incremental deltas case
         if new_delta is None:
             # For empty incremental deltas, the expected result should be the same as rebase result
@@ -353,7 +360,7 @@ def test_compact_partition_rebase_then_incremental_main(
         else:
             # Perform incremental compaction when there are actual deltas
             last_stream_position = new_delta.stream_position
-            
+
             compact_partition_params = CompactPartitionParams.of(
                 {
                     "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
@@ -365,7 +372,10 @@ def test_compact_partition_rebase_then_incremental_main(
                     "drop_duplicates": drop_duplicates_param,
                     "hash_bucket_count": hash_bucket_count_param,
                     "last_stream_position_to_compact": last_stream_position,
-                    "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
+                    "list_deltas_kwargs": {
+                        **ds_mock_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
                     "object_store": FileObjectStore(test_dir),
                     "pg_config": pgm,
                     "primary_keys": primary_keys,
@@ -385,28 +395,37 @@ def test_compact_partition_rebase_then_incremental_main(
                 return
             rcf_file_s3_uri = compact_partition_func(compact_partition_params)
             # assert
-            compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-                s3_resource, rcf_file_s3_uri
+            compacted_delta_locator: DeltaLocator = (
+                get_compacted_delta_locator_from_rcf(s3_resource, rcf_file_s3_uri)
             )
             tables = metastore.download_delta(
-                compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+                compacted_delta_locator,
+                storage_type=StorageType.LOCAL,
+                **ds_mock_kwargs,
             )
             actual_compact_partition_result = pa.concat_tables(tables)
-            
+
             # Get compaction audit for verification if needed
             round_completion_info = get_rcf(s3_resource, rcf_file_s3_uri)
-            audit_bucket, audit_key = round_completion_info.compaction_audit_url.replace(
-                "s3://", ""
-            ).split("/", 1)
-            compaction_audit_obj: dict = read_s3_contents(s3_resource, audit_bucket, audit_key)
+            (
+                audit_bucket,
+                audit_key,
+            ) = round_completion_info.compaction_audit_url.replace("s3://", "").split(
+                "/", 1
+            )
+            compaction_audit_obj: dict = read_s3_contents(
+                s3_resource, audit_bucket, audit_key
+            )
             compaction_audit = CompactionSessionAuditInfo(**compaction_audit_obj)
-            
+
         # Verify the final result
         actual_compact_partition_result = (
             actual_compact_partition_result.combine_chunks().sort_by(sorting_cols)
         )
         expected_terminal_compact_partition_result = (
-            expected_terminal_compact_partition_result.combine_chunks().sort_by(sorting_cols)
+            expected_terminal_compact_partition_result.combine_chunks().sort_by(
+                sorting_cols
+            )
         )
         assert actual_compact_partition_result.equals(
             expected_terminal_compact_partition_result
@@ -415,4 +434,4 @@ def test_compact_partition_rebase_then_incremental_main(
         if assert_compaction_audit is not None and compaction_audit is not None:
             if not assert_compaction_audit(compactor_version, compaction_audit):
                 pytest.fail("Compaction audit assertion failed")
-        return 
+        return

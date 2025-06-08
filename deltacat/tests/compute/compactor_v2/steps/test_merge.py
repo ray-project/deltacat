@@ -55,6 +55,7 @@ class TestMergeMain(unittest.TestCase):
         # Create a temporary directory for main storage
         cls.temp_dir = tempfile.mkdtemp()
         from deltacat.catalog import CatalogProperties
+
         catalog_properties = CatalogProperties(root=cls.temp_dir)
         cls.kwargs = {"inner": catalog_properties}
         cls.deltacat_storage_kwargs = cls.kwargs
@@ -63,6 +64,7 @@ class TestMergeMain(unittest.TestCase):
     def tearDown(cls):
         # Clean up temporary directory
         import shutil
+
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
         # Shutdown Ray to ensure clean state for the next test
         ray.shutdown()
@@ -470,7 +472,9 @@ class TestMergeMain(unittest.TestCase):
 
         object_store = RayPlasmaObjectStore()
         new_delta = create_delta_from_csv_file(
-            f"{self._testMethodName}-new", [self.DEDUPE_WITH_DUPLICATION_DATE_PK], **self.kwargs
+            f"{self._testMethodName}-new",
+            [self.DEDUPE_WITH_DUPLICATION_DATE_PK],
+            **self.kwargs,
         )
 
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
@@ -553,7 +557,9 @@ class TestMergeMain(unittest.TestCase):
 
         object_store = RayPlasmaObjectStore()
         new_delta = create_delta_from_csv_file(
-            f"{self._testMethodName}-new", [self.DEDUPE_WITH_DUPLICATION_DATE_PK], **self.kwargs
+            f"{self._testMethodName}-new",
+            [self.DEDUPE_WITH_DUPLICATION_DATE_PK],
+            **self.kwargs,
         )
 
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
@@ -657,7 +663,7 @@ class TestMergeMain(unittest.TestCase):
     @patch("deltacat.compute.compactor_v2.steps.merge._compact_tables")
     def test_merge_when_local_error_categorized_correctly(self, mock_compact_tables):
         mock_compact_tables.side_effect = InvalidNamespaceError("Invalid namespace")
-        
+
         partition = stage_partition_from_file_paths(
             self._testMethodName,  # Use unique namespace
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
@@ -683,13 +689,14 @@ class TestMergeMain(unittest.TestCase):
             # Explicitly disable copy-by-reference to ensure _compact_tables gets called
             disable_copy_by_reference=True,
         )
- 
+
         try:
             merge_result_promise = merge.remote(merge_input)
             ray.get(merge_result_promise)
             self.fail("Expected a UnclassifiedDeltaCatError")
         except ray.exceptions.RayTaskError as e:
             from deltacat.exceptions import UnclassifiedDeltaCatError
+
             self.assertIsInstance(e.cause, UnclassifiedDeltaCatError)
 
     def _prepare_merge_inputs(
@@ -724,9 +731,13 @@ class TestMergeMain(unittest.TestCase):
         all_hash_group_idx_to_obj_id = defaultdict(list)
         for hg_idx in range(num_hash_group):
             bucket_object_ids_for_hg = []
-            for hash_bucket_index in range(len(hb_results.hash_bucket_group_to_obj_id_tuple)):
+            for hash_bucket_index in range(
+                len(hb_results.hash_bucket_group_to_obj_id_tuple)
+            ):
                 if hash_bucket_index % num_hash_group == hg_idx:
-                    obj_id_tuple = hb_results.hash_bucket_group_to_obj_id_tuple[hash_bucket_index]
+                    obj_id_tuple = hb_results.hash_bucket_group_to_obj_id_tuple[
+                        hash_bucket_index
+                    ]
                     if obj_id_tuple:
                         object_id = obj_id_tuple[0]
                         bucket_object_ids_for_hg.append(object_id)
@@ -747,4 +758,4 @@ class TestMergeMain(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

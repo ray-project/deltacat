@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, List, Any, Dict, Callable, Iterator, Union
+from typing import Optional, List, Any, Dict, Callable, Iterator
 
 from daft.daft import (
     StorageConfig,
@@ -34,7 +34,6 @@ from daft.io.scan import (
     make_partition_field,
 )
 import pyarrow as pa
-import pyarrow.fs as pafs
 
 from deltacat import logs
 from deltacat.catalog.model.table_definition import TableDefinition

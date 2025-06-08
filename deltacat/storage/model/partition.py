@@ -470,7 +470,11 @@ class PartitionKey(dict):
         transform: Optional[Transform] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionKey:
-        if len(key) > 1 and transform is not None and not transform.is_multi_field_transform:
+        if (
+            len(key) > 1
+            and transform is not None
+            and not transform.is_multi_field_transform
+        ):
             raise ValueError(f"{len(key)} keys given for 1-key transform.")
         return PartitionKey(
             {
@@ -563,18 +567,24 @@ class PartitionScheme(dict):
                 key_tuple = tuple(key.key) if key.key else ()
                 transform_type = type(key.transform) if key.transform else None
                 key_transform_pair = (key_tuple, transform_type)
-                
+
                 if key_transform_pair in seen_key_transform_pairs:
                     # Use the first field locator for the error message
                     key_name = key.key[0] if key.key else "unknown"
-                    transform_name = transform_type.__name__ if transform_type else "None"
-                    raise ValueError(f"Duplicate partition key found: {key_name} with transform type {transform_name}")
+                    transform_name = (
+                        transform_type.__name__ if transform_type else "None"
+                    )
+                    raise ValueError(
+                        f"Duplicate partition key found: {key_name} with transform type {transform_name}"
+                    )
                 seen_key_transform_pairs.add(key_transform_pair)
-                
+
                 # Check for duplicate names (when specified)
                 if key.name is not None:
                     if key.name in seen_names:
-                        raise ValueError(f"Duplicate partition key name found: {key.name}")
+                        raise ValueError(
+                            f"Duplicate partition key name found: {key.name}"
+                        )
                     seen_names.add(key.name)
 
         return PartitionScheme(

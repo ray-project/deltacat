@@ -112,16 +112,16 @@ class TestDownloadUpload(unittest.TestCase):
             "Please reduce your request rate.."
         )
         mock_get_block_metadata_list.return_value = [mock.MagicMock()]
-        
+
         # Create a proper mock for CapturedBlockWritePaths
         mock_cbwp_instance = mock.MagicMock()
         mock_cbwp_instance.write_paths.return_value = ["s3_write_path"]
         mock_cbwp_instance.blocks.return_value = [mock.MagicMock()]
         mock_captured_block_write_paths.return_value = mock_cbwp_instance
-        
+
         # Create a mock table that has a length > 0
         mock_table = mock.MagicMock()
-         
+
         with pytest.raises(RetryError):
             s3u.upload_sliced_table(
                 mock_table,

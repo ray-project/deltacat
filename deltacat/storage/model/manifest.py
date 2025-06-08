@@ -4,7 +4,7 @@ import logging
 import itertools
 
 from enum import Enum
-from typing import Optional, List, Dict, Any, Callable, Union, Tuple
+from typing import Optional, List, Dict, Any
 from uuid import uuid4
 
 from deltacat import logs

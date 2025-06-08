@@ -2549,7 +2549,7 @@ class TestPartition:
     def test_delete_partition_staged(self):
         # Given a staged partition
         partition_values = [123, "abc"]
-        staged_partition = metastore.stage_partition(
+        metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values,
             partition_scheme_id=self.tv.partition_scheme.id,
@@ -3065,7 +3065,7 @@ class TestPartition:
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        committed_partition1 = metastore.commit_partition(
+        metastore.commit_partition(
             partition=staged_partition1,
             catalog=self.catalog,
         )
@@ -3076,7 +3076,7 @@ class TestPartition:
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        committed_partition2 = metastore.commit_partition(
+        metastore.commit_partition(
             partition=staged_partition2,
             catalog=self.catalog,
         )
@@ -3087,7 +3087,7 @@ class TestPartition:
             partition_values=None,
             catalog=self.catalog,
         )
-        committed_unpartitioned1 = metastore.commit_partition(
+        metastore.commit_partition(
             partition=unpartitioned_partition1,
             catalog=self.catalog,
         )
@@ -3141,7 +3141,7 @@ class TestPartition:
             partition_values=[],
             catalog=self.catalog,
         )
-        committed_empty_list = metastore.commit_partition(
+        metastore.commit_partition(
             partition=empty_list_partition,
             catalog=self.catalog,
         )
@@ -3152,7 +3152,7 @@ class TestPartition:
             partition_values=None,
             catalog=self.catalog,
         )
-        committed_none_values = metastore.commit_partition(
+        metastore.commit_partition(
             partition=none_values_partition,
             catalog=self.catalog,
         )
@@ -3207,29 +3207,29 @@ class TestPartition:
         # Given two committed partitions in a partitioned table
         partition_values1 = [123, "abc"]
         partition_values2 = [456, "def"]
-        
+
         staged_partition1 = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values1,
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        committed_partition1 = metastore.commit_partition(
+        metastore.commit_partition(
             partition=staged_partition1,
             catalog=self.catalog,
         )
-        
+
         staged_partition2 = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values2,
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        committed_partition2 = metastore.commit_partition(
+        metastore.commit_partition(
             partition=staged_partition2,
             catalog=self.catalog,
         )
-        
+
         # When we list partitions using list_partitions
         list_result = metastore.list_partitions(
             namespace="test_partition_ns",
@@ -3237,16 +3237,16 @@ class TestPartition:
             table_version="v.1",
             catalog=self.catalog,
         )
-        
+
         # Then we should get both partitions
         partitions_list = list_result.all_items()
         assert len(partitions_list) >= 2
-        
+
         # Verify partition values are correct
         partition_values = [p.partition_values for p in partitions_list]
         assert partition_values1 in partition_values
         assert partition_values2 in partition_values
-        
+
         # Verify all returned partitions are committed and have correct properties
         for p in partitions_list:
             assert p.state == CommitState.COMMITTED
@@ -3255,7 +3255,7 @@ class TestPartition:
 
     def test_list_partitions_without_table_version(self):
         """Test list_partitions when table_version is not specified (should resolve to latest active).
-        
+
         This test verifies that list_partitions correctly resolves the latest active table version
         when table_version=None, and creates proper partition locators using the resolved stream's
         locator rather than attempting to construct locators with None table_version values.
@@ -3268,39 +3268,39 @@ class TestPartition:
             lifecycle_state=LifecycleState.ACTIVE,
             catalog=self.catalog,
         )
-        
+
         # Given a committed partition
         partition_values = [789, "ghi"]
-        
+
         staged_partition = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values,
             partition_scheme_id=self.tv.partition_scheme.id,
             catalog=self.catalog,
         )
-        committed_partition = metastore.commit_partition(
+        metastore.commit_partition(
             partition=staged_partition,
             catalog=self.catalog,
         )
-        
+
         # When we list partitions without specifying table_version (should default to latest active)
         list_result = metastore.list_partitions(
             namespace="test_partition_ns",
             table_name="mypartitiontable",
             catalog=self.catalog,
         )
-        
+
         # Then we should get the partition
         partitions_list = list_result.all_items()
         assert len(partitions_list) >= 1
-        
+
         # Find our partition in the list
         found_partition = None
         for p in partitions_list:
             if p.partition_values == partition_values:
                 found_partition = p
                 break
-        
+
         assert found_partition is not None
         assert found_partition.state == CommitState.COMMITTED
         assert found_partition.partition_scheme_id == self.tv.partition_scheme.id
@@ -3313,11 +3313,11 @@ class TestPartition:
             partition_values=None,
             catalog=self.catalog,
         )
-        committed_unpartitioned = metastore.commit_partition(
+        metastore.commit_partition(
             partition=unpartitioned_partition,
             catalog=self.catalog,
         )
-        
+
         # When we list partitions for the unpartitioned table
         list_result = metastore.list_partitions(
             namespace="test_partition_ns",
@@ -3325,22 +3325,25 @@ class TestPartition:
             table_version="v.1",
             catalog=self.catalog,
         )
-        
+
         # Then we should get the unpartitioned partition
         partitions_list = list_result.all_items()
         assert len(partitions_list) >= 1
-        
+
         # Find the unpartitioned partition
         unpartitioned_found = None
         for p in partitions_list:
             if p.partition_values is None:
                 unpartitioned_found = p
                 break
-        
+
         assert unpartitioned_found is not None
         assert unpartitioned_found.state == CommitState.COMMITTED
         assert unpartitioned_found.partition_scheme_id == UNPARTITIONED_SCHEME_ID
-        assert unpartitioned_found.locator.stream_locator == self.unpartitioned_stream.locator
+        assert (
+            unpartitioned_found.locator.stream_locator
+            == self.unpartitioned_stream.locator
+        )
 
     def test_list_partitions_error_invalid_namespace(self):
         """Test list_partitions error handling with invalid namespace."""
@@ -3407,7 +3410,7 @@ class TestPartition:
         # Given committed partitions
         partition_values1 = [333, "consistency"]
         partition_values2 = [444, "test"]
-        
+
         staged_partition1 = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values1,
@@ -3418,7 +3421,7 @@ class TestPartition:
             partition=staged_partition1,
             catalog=self.catalog,
         )
-        
+
         staged_partition2 = metastore.stage_partition(
             stream=self.stream,
             partition_values=partition_values2,
@@ -3429,7 +3432,7 @@ class TestPartition:
             partition=staged_partition2,
             catalog=self.catalog,
         )
-        
+
         # When we list partitions using list_partitions
         list_partitions_result = metastore.list_partitions(
             namespace="test_partition_ns",
@@ -3437,30 +3440,37 @@ class TestPartition:
             table_version="v.1",
             catalog=self.catalog,
         )
-        
+
         # And when we list partitions using list_stream_partitions
         list_stream_partitions_result = metastore.list_stream_partitions(
             stream=self.stream,
             catalog=self.catalog,
         )
-        
+
         # Then both should return the same partitions
         partitions_by_list_partitions = list_partitions_result.all_items()
         partitions_by_list_stream_partitions = list_stream_partitions_result.all_items()
-        
+
         # Convert to sets for comparison (ignoring order)
         def partition_to_key(p):
-            return (tuple(p.partition_values) if p.partition_values else None, p.partition_id)
-        
-        list_partitions_keys = {partition_to_key(p) for p in partitions_by_list_partitions}
-        list_stream_partitions_keys = {partition_to_key(p) for p in partitions_by_list_stream_partitions}
-        
+            return (
+                tuple(p.partition_values) if p.partition_values else None,
+                p.partition_id,
+            )
+
+        list_partitions_keys = {
+            partition_to_key(p) for p in partitions_by_list_partitions
+        }
+        list_stream_partitions_keys = {
+            partition_to_key(p) for p in partitions_by_list_stream_partitions
+        }
+
         assert list_partitions_keys == list_stream_partitions_keys
-        
+
         # Both should contain our test partitions
         expected_values = {
             (tuple(partition_values1), committed_partition1.partition_id),
-            (tuple(partition_values2), committed_partition2.partition_id)
+            (tuple(partition_values2), committed_partition2.partition_id),
         }
         assert expected_values.issubset(list_partitions_keys)
         assert expected_values.issubset(list_stream_partitions_keys)
@@ -5100,13 +5110,6 @@ class TestDelta:
             catalog=self.catalog,
         )
 
-        deltas = metastore.list_deltas(
-            namespace=self.namespace.namespace,
-            table_name=self.table.table_name,
-            table_version=self.table_version.table_version,  # Explicitly specify table version
-            catalog=self.catalog,
-        )
-
         # Retrieve the committed delta
         retrieved_delta = metastore.get_delta(
             namespace=self.namespace.namespace,
@@ -5171,12 +5174,12 @@ class TestDelta:
                 table_name="test_table",
                 stream_position=committed_delta.locator.stream_position,
                 partition_values=None,  # Using None for unpartitioned table
-            table_version="v.1",
+                table_version="v.1",
                 include_manifest=True,
                 partition_scheme_id=self.partition.partition_scheme_id,
-            catalog=self.catalog,
-        )
-        
+                catalog=self.catalog,
+            )
+
             # Verify the retrieved delta matches the committed one
             assert (
                 retrieved_delta is not None
@@ -5230,7 +5233,7 @@ class TestDelta:
             partition_scheme_id=self.partition.partition_scheme_id,
             catalog=self.catalog,
         )
-        
+
         # Verify the retrieved delta preserves custom properties
         assert (
             retrieved_delta is not None
@@ -5356,11 +5359,11 @@ class TestDelta:
             table_name="test_table",
             stream_position=committed_delta.locator.stream_position,
             partition_values=None,  # Using None for unpartitioned table
-                table_version="v.1",
+            table_version="v.1",
             include_manifest=True,
             partition_scheme_id=self.partition.partition_scheme_id,
-                catalog=self.catalog,
-            )
+            catalog=self.catalog,
+        )
 
         # Verify the retrieved delta for large dataset
         assert retrieved_delta is not None
@@ -5392,7 +5395,7 @@ class TestDelta:
         staged_delta = metastore.stage_delta(
             data=ray_dataset,
             partition=self.partition,
-                catalog=self.catalog,
+            catalog=self.catalog,
             content_type=ContentType.PARQUET,
             delta_type=DeltaType.UPSERT,
         )
@@ -5409,11 +5412,11 @@ class TestDelta:
             table_name="test_table",
             stream_position=committed_delta.locator.stream_position,
             partition_values=None,  # Using None for unpartitioned table
-                table_version="v.1",
+            table_version="v.1",
             include_manifest=True,
             partition_scheme_id=self.partition.partition_scheme_id,
-                catalog=self.catalog,
-            )
+            catalog=self.catalog,
+        )
 
         # Verify the retrieved delta
         assert retrieved_delta is not None
@@ -5460,11 +5463,11 @@ class TestDelta:
             table_name="test_table",
             stream_position=committed_delta.locator.stream_position,
             partition_values=None,  # Using None for unpartitioned table
-                table_version="v.1",
+            table_version="v.1",
             include_manifest=True,
             partition_scheme_id=self.partition.partition_scheme_id,
-                catalog=self.catalog,
-            )
+            catalog=self.catalog,
+        )
 
         # Verify complete manifest consistency
         assert retrieved_delta is not None
@@ -5512,55 +5515,6 @@ class TestDelta:
             == committed_delta.previous_stream_position
         )
 
-    def test_get_delta_without_manifest(self):
-        # Test retrieving delta without manifest for performance
-
-        df = pd.DataFrame(
-            {
-                "id": [1, 2, 3],
-                "perf_test": ["x", "y", "z"],
-            }
-        )
-
-        # Stage and commit delta
-        staged_delta = metastore.stage_delta(
-            data=df,
-            partition=self.partition,
-            catalog=self.catalog,
-            content_type=ContentType.PARQUET,
-            delta_type=DeltaType.UPSERT,
-        )
-
-        committed_delta = metastore.commit_delta(
-            delta=staged_delta,
-            catalog=self.catalog,
-        )
-
-        # Retrieve the committed delta WITHOUT manifest
-        retrieved_delta = metastore.get_delta(
-            namespace=self.namespace.locator.namespace,
-            table_name="test_table",
-            stream_position=committed_delta.locator.stream_position,
-            partition_values=None,  # Using None for unpartitioned table
-            table_version="v.1",
-            include_manifest=False,  # Do not include manifest
-            partition_scheme_id=self.partition.partition_scheme_id,
-            catalog=self.catalog,
-        )
-
-        # Verify the retrieved delta but without manifest
-        assert (
-            retrieved_delta is not None
-        ), f"Failed to retrieve delta without manifest at stream position {committed_delta.locator.stream_position}"
-        assert retrieved_delta.type == DeltaType.UPSERT
-        assert (
-            retrieved_delta.locator.stream_position
-            == committed_delta.locator.stream_position
-        )
-        assert (
-            retrieved_delta.manifest is None
-        )  # Should be None when include_manifest=False
-
     def test_get_delta_with_different_table_versions(self):
         # Test retrieving deltas from different table versions
 
@@ -5601,7 +5555,7 @@ class TestDelta:
             table_version="v.2",
             catalog=self.catalog,
         )
-        
+
         # Stage and commit partition for second table version
         partition_2 = metastore.stage_partition(
             stream=stream_2,
@@ -5611,7 +5565,7 @@ class TestDelta:
             partition=partition_2,
             catalog=self.catalog,
         )
-        
+
         # Stage and commit delta for second table version
         staged_delta_2 = metastore.stage_delta(
             data=df2,
@@ -5625,7 +5579,7 @@ class TestDelta:
             delta=staged_delta_2,
             catalog=self.catalog,
         )
-        
+
         # Retrieve delta from first table version
         retrieved_delta_1 = metastore.get_delta(
             namespace=self.namespace.locator.namespace,
@@ -5635,7 +5589,7 @@ class TestDelta:
             include_manifest=True,
             catalog=self.catalog,
         )
-        
+
         # Retrieve delta from second table version
         retrieved_delta_2 = metastore.get_delta(
             namespace=self.namespace.locator.namespace,
@@ -5677,7 +5631,7 @@ class TestDelta:
             lifecycle_state=LifecycleState.ACTIVE,
             catalog=self.catalog,
         )
-        
+
         # Stage and commit a delta
         staged_delta = metastore.stage_delta(
             data=df,
@@ -5776,7 +5730,7 @@ class TestDelta:
             delta=staged_delta_2,
             catalog=self.catalog,
         )
-        
+
         # List deltas WITHOUT specifying table_version (should infer latest active)
         deltas = metastore.list_deltas(
             namespace=self.namespace.locator.namespace,
@@ -5784,7 +5738,7 @@ class TestDelta:
             # table_version=None,  # Not specified - should infer latest active
             catalog=self.catalog,
         )
-        
+
         # Verify deltas were listed correctly
         assert len(deltas) == 2, f"Expected 2 deltas, got {len(deltas)}"
 
@@ -7907,7 +7861,8 @@ class TestDelta:
         # Should return both deltas in descending order by default
         deltas = result.all_items()
         assert isinstance(deltas, list)
-        deltas = result.all_items(); assert len(deltas) == 2
+        deltas = result.all_items()
+        assert len(deltas) == 2
         assert deltas[0].stream_position == committed_delta2.stream_position
         assert deltas[1].stream_position == committed_delta1.stream_position
         assert deltas[0].type == DeltaType.APPEND
@@ -7937,7 +7892,8 @@ class TestDelta:
         # Should return the delta
         deltas = result.all_items()
         assert isinstance(deltas, list)
-        deltas = result.all_items(); assert len(deltas) >= 1  # At least the delta we just added
+        deltas = result.all_items()
+        assert len(deltas) >= 1  # At least the delta we just added
         found_delta = next(
             (d for d in deltas if d.stream_position == committed_delta.stream_position),
             None,

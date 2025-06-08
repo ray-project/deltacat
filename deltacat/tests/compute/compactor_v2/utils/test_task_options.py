@@ -24,7 +24,6 @@ from deltacat.storage import (
     ManifestMeta,
     ManifestEntry,
     ManifestEntryList,
-    PartitionValues,
 )
 from unittest.mock import MagicMock
 from typing import Optional

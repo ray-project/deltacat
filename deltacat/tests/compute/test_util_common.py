@@ -6,7 +6,7 @@ These functions are shared between incremental and multiple rounds compaction te
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import datetime as dt
 from boto3.resources.base import ServiceResource
 from datetime import timezone
@@ -14,7 +14,6 @@ from datetime import timezone
 import tempfile
 import os
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
 
 import pyarrow as pa
 
@@ -50,11 +49,11 @@ from deltacat.storage.model.sort_key import (
     SortScheme,
 )
 from deltacat.storage.model.delta import (
-    Delta, 
+    Delta,
     DeltaType,
 )
 from deltacat.storage.model.partition import (
-    Partition, 
+    Partition,
     PartitionKeyList,
 )
 from deltacat.storage.model.stream import Stream
@@ -104,11 +103,10 @@ def get_test_partition_locator(partition_id):
     return partition_locator
 
 
-
 def create_main_deltacat_storage_kwargs() -> Dict[str, Any]:
     """
     Helper function to create main deltacat storage kwargs
-    
+
     Returns: kwargs to use for main deltacat storage, i.e. {"catalog": CatalogProperties(...)}
     """
     temp_dir = tempfile.mkdtemp()
@@ -121,7 +119,7 @@ def clean_up_main_deltacat_storage_kwargs(storage_kwargs: Dict[str, Any]):
     Cleans up directory created by create_main_deltacat_storage_kwargs
     """
     catalog = storage_kwargs["catalog"]
-    if hasattr(catalog, 'root') and os.path.exists(catalog.root):
+    if hasattr(catalog, "root") and os.path.exists(catalog.root):
         shutil.rmtree(catalog.root)
 
 
@@ -130,24 +128,24 @@ def _create_table_main(
     table_name: str,
     table_version: str,
     sort_keys: Optional[List[Any]],
-    partition_keys: Optional[List[PartitionKey]], 
+    partition_keys: Optional[List[PartitionKey]],
     input_deltas: Optional[pa.Table],
     ds_mock_kwargs: Optional[Dict[str, Any]],
 ):
     """
     Main storage version of _create_table that works for both incremental and multiple rounds tests.
-    
+
     For incremental tests, input_deltas is provided to extract schema.
     For multiple rounds tests, input_deltas can be None and we use a simpler approach.
     """
     # Create namespace first
     metastore.create_namespace(namespace=namespace, **ds_mock_kwargs)
-    
+
     # Handle schema creation
     if input_deltas is not None:
         # Incremental test approach - extract schema from input deltas
         schema = input_deltas.schema
-        
+
         # Add partition key fields to schema if they're not already present
         if partition_keys:
             for pk in partition_keys:
@@ -158,13 +156,15 @@ def _create_table_main(
                         field_type = pa.int32()
                     elif pk.key_type == PartitionKeyType.STRING:
                         field_type = pa.string()
-                    elif pk.key_type == PartitionKeyType.TIMESTAMP:  # Handle timestamp type properly
-                        field_type = pa.timestamp('us')
+                    elif (
+                        pk.key_type == PartitionKeyType.TIMESTAMP
+                    ):  # Handle timestamp type properly
+                        field_type = pa.timestamp("us")
                     else:
                         field_type = pa.string()  # Default to string
-                    
+
                     schema = schema.append(pa.field(field_name, field_type))
-        
+
         schema_obj = Schema.of(schema=schema)
     else:
         # Multiple rounds test approach - use None for schema (will be set later)
@@ -188,7 +188,7 @@ def _create_table_main(
     if storage_partition_keys:
         partition_scheme = PartitionScheme.of(
             keys=PartitionKeyList.of(storage_partition_keys),
-            scheme_id="default_partition_scheme"
+            scheme_id="default_partition_scheme",
         )
 
     # Create table version (which creates table and stream automatically)
@@ -343,7 +343,7 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_mai
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    
+
     # Convert partition values to correct types
     converted_partition_values = []
     if partition_values and partition_keys:
@@ -354,14 +354,14 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_mai
                 converted_partition_values.append(value)
     else:
         converted_partition_values = partition_values
-    
+
     staged_partition: Partition = metastore.stage_partition(
-        source_table_stream, 
+        source_table_stream,
         converted_partition_values,
         partition_scheme_id="default_partition_scheme" if partition_keys else None,
-        **ds_mock_kwargs
+        **ds_mock_kwargs,
     )
-    
+
     is_delete = False
     input_delta_length = 0
     for (
@@ -382,8 +382,12 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_mai
         input_delta_length += len(input_delta)
     metastore.commit_partition(staged_partition, **ds_mock_kwargs)
 
-    destination_table_namespace, destination_table_name, destination_table_version = (
-        create_destination_table_main(sort_keys, partition_keys, first_delta_table, ds_mock_kwargs)
+    (
+        destination_table_namespace,
+        destination_table_name,
+        destination_table_version,
+    ) = create_destination_table_main(
+        sort_keys, partition_keys, first_delta_table, ds_mock_kwargs
     )
     destination_table_stream: Stream = metastore.get_stream(
         namespace=destination_table_namespace,
@@ -393,8 +397,12 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_mai
     )
 
     # Always create rebase table for multiple rounds tests
-    rebasing_table_namespace, rebasing_table_name, rebasing_table_version = (
-        create_rebase_table_main(sort_keys, partition_keys, first_delta_table, ds_mock_kwargs)
+    (
+        rebasing_table_namespace,
+        rebasing_table_name,
+        rebasing_table_version,
+    ) = create_rebase_table_main(
+        sort_keys, partition_keys, first_delta_table, ds_mock_kwargs
     )
     rebasing_table_stream: Stream = metastore.get_stream(
         namespace=rebasing_table_namespace,
@@ -402,15 +410,15 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_mai
         table_version=rebasing_table_version,
         **ds_mock_kwargs,
     )
-    
+
     # Stage partition and add deltas to rebase table
     rebased_staged_partition: Partition = metastore.stage_partition(
-        rebasing_table_stream, 
+        rebasing_table_stream,
         converted_partition_values,
         partition_scheme_id="default_partition_scheme" if partition_keys else None,
-        **ds_mock_kwargs
+        **ds_mock_kwargs,
     )
-    
+
     for (
         input_delta,
         input_delta_type,
@@ -426,7 +434,12 @@ def multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_mai
         metastore.commit_delta(staged_delta, **ds_mock_kwargs)
     metastore.commit_partition(rebased_staged_partition, **ds_mock_kwargs)
 
-    return source_table_stream, destination_table_stream, rebasing_table_stream, is_delete
+    return (
+        source_table_stream,
+        destination_table_stream,
+        rebasing_table_stream,
+        is_delete,
+    )
 
 
 def create_src_w_deltas_destination_plus_destination_main(
@@ -451,7 +464,7 @@ def create_src_w_deltas_destination_plus_destination_main(
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    
+
     # Convert partition values to correct types
     converted_partition_values = []
     if partition_values and partition_keys:
@@ -462,12 +475,12 @@ def create_src_w_deltas_destination_plus_destination_main(
                 converted_partition_values.append(value)
     else:
         converted_partition_values = partition_values
-    
+
     staged_partition: Partition = metastore.stage_partition(
-        source_table_stream, 
+        source_table_stream,
         converted_partition_values,
         partition_scheme_id="default_partition_scheme" if partition_keys else None,
-        **ds_mock_kwargs
+        **ds_mock_kwargs,
     )
     metastore.commit_delta(
         metastore.stage_delta(
@@ -482,7 +495,7 @@ def create_src_w_deltas_destination_plus_destination_main(
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    
+
     destination_table_namespace: Optional[str] = None
     destination_table_name: Optional[str] = None
     destination_table_version: Optional[str] = None
@@ -491,7 +504,9 @@ def create_src_w_deltas_destination_plus_destination_main(
             destination_table_namespace,
             destination_table_name,
             destination_table_version,
-        ) = create_destination_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
+        ) = create_destination_table_main(
+            sort_keys, partition_keys, input_deltas, ds_mock_kwargs
+        )
     else:
         destination_table_namespace = source_namespace
         destination_table_name = source_table_name
@@ -524,7 +539,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
 ) -> Tuple[Stream, Stream, Optional[Stream]]:
     """
     Main storage version of create_src_w_deltas_destination_rebase_w_deltas_strategy
-    
+
     Creates source table with deltas, destination table, and rebase table for rebase testing.
     This test scenario sets up different source and rebase partition locators to simulate
     scenarios like hash bucket count changes.
@@ -542,7 +557,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    
+
     # Convert partition values to correct types, including timestamp handling
     converted_partition_values = []
     if partition_values and partition_keys:
@@ -553,6 +568,7 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
                 # Handle timestamp partition values
                 if isinstance(value, str) and "T" in value and value.endswith("Z"):
                     import pandas as pd
+
                     ts = pd.to_datetime(value)
                     # Convert to microseconds since epoch for PyArrow timestamp[us]
                     converted_partition_values.append(int(ts.timestamp() * 1_000_000))
@@ -562,12 +578,12 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
                 converted_partition_values.append(value)
     else:
         converted_partition_values = partition_values
-    
+
     staged_partition: Partition = metastore.stage_partition(
         source_table_stream,
         converted_partition_values,
         partition_scheme_id="default_partition_scheme" if partition_keys else None,
-        **ds_mock_kwargs
+        **ds_mock_kwargs,
     )
     staged_delta: Delta = metastore.stage_delta(
         input_deltas, staged_partition, input_delta_type, **ds_mock_kwargs
@@ -575,40 +591,44 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
     staged_delta.locator.stream_position = last_stream_position
     metastore.commit_delta(staged_delta, **ds_mock_kwargs)
     metastore.commit_partition(staged_partition, **ds_mock_kwargs)
-    
+
     source_table_stream_after_committed: Stream = metastore.get_stream(
         namespace=source_namespace,
         table_name=source_table_name,
         table_version=source_table_version,
         **ds_mock_kwargs,
     )
-    
+
     # Create the destination table
     (
         destination_table_namespace,
         destination_table_name,
         destination_table_version,
-    ) = create_destination_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
-    
+    ) = create_destination_table_main(
+        sort_keys, partition_keys, input_deltas, ds_mock_kwargs
+    )
+
     # Create the rebase table
     (
         rebase_table_namespace,
         rebase_table_name,
         rebase_table_version,
-    ) = create_rebase_table_main(sort_keys, partition_keys, input_deltas, ds_mock_kwargs)
-    
+    ) = create_rebase_table_main(
+        sort_keys, partition_keys, input_deltas, ds_mock_kwargs
+    )
+
     rebasing_table_stream: Stream = metastore.get_stream(
         namespace=rebase_table_namespace,
         table_name=rebase_table_name,
         table_version=rebase_table_version,
         **ds_mock_kwargs,
     )
-    
+
     staged_partition: Partition = metastore.stage_partition(
         rebasing_table_stream,
         converted_partition_values,
         partition_scheme_id="default_partition_scheme" if partition_keys else None,
-        **ds_mock_kwargs
+        **ds_mock_kwargs,
     )
     staged_delta: Delta = metastore.stage_delta(
         input_deltas, staged_partition, **ds_mock_kwargs
@@ -624,14 +644,14 @@ def create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
         table_version=destination_table_version,
         **ds_mock_kwargs,
     )
-    
+
     rebased_stream_after_committed: Stream = metastore.get_stream(
         namespace=rebase_table_namespace,
         table_name=rebase_table_name,
         table_version=rebase_table_version,
         **ds_mock_kwargs,
     )
-    
+
     return (
         source_table_stream_after_committed,
         destination_table_stream,
@@ -654,34 +674,41 @@ def create_incremental_deltas_on_source_table_main(
     total_records = 0
     has_delete_deltas = False
     new_delta = None
-    
+
     # Convert partition values for partition lookup (same as in other helper functions)
     converted_partition_values_for_lookup = partition_values_param
-    if partition_values_param and source_table_stream.partition_scheme and source_table_stream.partition_scheme.keys:
+    if (
+        partition_values_param
+        and source_table_stream.partition_scheme
+        and source_table_stream.partition_scheme.keys
+    ):
         converted_partition_values_for_lookup = []
-        
+
         # Get partition field names from the storage partition scheme
         storage_partition_keys = source_table_stream.partition_scheme.keys
         partition_field_names = []
-        
+
         for storage_key in storage_partition_keys:
             # Each storage PartitionKey has a 'key' property that contains FieldLocators
             # Extract the field name from the first FieldLocator
             field_name = storage_key.key[0] if storage_key.key else None
             partition_field_names.append(field_name)
-        
+
         for i, value in enumerate(partition_values_param):
             # For timestamp fields like 'region_id', we need to convert the timestamp string
             if i < len(partition_field_names):
                 field_name = partition_field_names[i]
-                
+
                 # Check if this is likely a timestamp field based on the value format
                 if isinstance(value, str) and "T" in value and value.endswith("Z"):
                     # This looks like a timestamp string - convert it
                     import pandas as pd
+
                     ts = pd.to_datetime(value)
                     # Convert to microseconds since epoch for PyArrow timestamp[us]
-                    converted_partition_values_for_lookup.append(int(ts.timestamp() * 1_000_000))
+                    converted_partition_values_for_lookup.append(
+                        int(ts.timestamp() * 1_000_000)
+                    )
                 elif isinstance(value, str) and value.isdigit():
                     # This looks like an integer string
                     converted_partition_values_for_lookup.append(int(value))
@@ -690,7 +717,7 @@ def create_incremental_deltas_on_source_table_main(
                     converted_partition_values_for_lookup.append(value)
             else:
                 converted_partition_values_for_lookup.append(value)
-    
+
     # Get the current partition to stage deltas against
     try:
         source_partition: Partition = metastore.get_partition(
@@ -698,18 +725,20 @@ def create_incremental_deltas_on_source_table_main(
             converted_partition_values_for_lookup,
             **ds_mock_kwargs,
         )
-    except Exception as e:
+    except Exception:
         # If we can't get the partition, it might not exist yet. Try to create it.
         # Stage a new partition if it doesn't exist
         staged_partition: Partition = metastore.stage_partition(
             source_table_stream,
             converted_partition_values_for_lookup,
-            partition_scheme_id="default_partition_scheme" if source_table_stream.partition_scheme else None,
-            **ds_mock_kwargs
+            partition_scheme_id="default_partition_scheme"
+            if source_table_stream.partition_scheme
+            else None,
+            **ds_mock_kwargs,
         )
         # Commit the empty partition first
         metastore.commit_partition(staged_partition, **ds_mock_kwargs)
-        
+
         # Now try to get it again
         source_partition: Partition = metastore.get_partition(
             source_table_stream.locator,
@@ -718,32 +747,34 @@ def create_incremental_deltas_on_source_table_main(
         )
 
     if source_partition is None:
-        raise ValueError(f"Could not create or retrieve partition for values: {converted_partition_values_for_lookup}")
+        raise ValueError(
+            f"Could not create or retrieve partition for values: {converted_partition_values_for_lookup}"
+        )
 
     for delta_table, delta_type, properties_dict in incremental_deltas:
         # Skip None deltas (empty incremental deltas)
         if delta_table is None:
             continue
-            
+
         total_records += len(delta_table)
-        
+
         if delta_type == DeltaType.DELETE:
             has_delete_deltas = True
 
         # Stage and commit the delta
         staged_delta: Delta = metastore.stage_delta(
-            delta_table, 
-            source_partition, 
-            delta_type, 
+            delta_table,
+            source_partition,
+            delta_type,
             entry_params=properties_dict,
-            **ds_mock_kwargs
+            **ds_mock_kwargs,
         )
         new_delta = metastore.commit_delta(staged_delta, **ds_mock_kwargs)
-    
-    # If all deltas were None, return None for new_delta  
+
+    # If all deltas were None, return None for new_delta
     if new_delta is None:
         return None, None, total_records, has_delete_deltas
-    
+
     # Get updated stream after deltas were committed
     source_table_stream_after_committed: Stream = metastore.get_stream(
         source_namespace,
@@ -751,20 +782,20 @@ def create_incremental_deltas_on_source_table_main(
         source_table_version,
         **ds_mock_kwargs,
     )
-    
+
     # Get updated partition after deltas were committed
     source_partition_after_committed: Partition = metastore.get_partition(
         source_table_stream_after_committed.locator,
         converted_partition_values_for_lookup,
         **ds_mock_kwargs,
     )
-    
+
     return (
         source_partition_after_committed.locator,
         new_delta,
         total_records,
         has_delete_deltas,
-    ) 
+    )
 
 
 def get_compacted_delta_locator_from_rcf(

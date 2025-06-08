@@ -610,13 +610,13 @@ def download_manifest_entry_ray(
         content_encoding=content_encoding,
         filesystem=filesystem,
     )
-    
+
     # If table_type is POLARS, convert to Arrow for Ray dataset compatibility
     if table_type == TableType.POLARS:
         if isinstance(result, pl.DataFrame):
             # Convert Polars DataFrame to PyArrow Table
             result = result.to_arrow()
-    
+
     return result
 
 

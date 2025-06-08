@@ -1,7 +1,5 @@
-import os
 import tempfile
 import shutil
-from typing import Dict
 
 import pytest
 from deltacat.catalog.model.properties import CatalogProperties
@@ -30,12 +28,12 @@ def main_deltacat_storage_kwargs(temp_dir):
     """
     Fixture that creates a CatalogProperties object for each test function
     using the main metastore implementation and cleans up afterwards.
-    
+
     Returns:
         dict: A dictionary with 'inner' key pointing to CatalogProperties
     """
     catalog = CatalogProperties(root=temp_dir)
     kwargs = {"inner": catalog}
     yield kwargs
-    
+
     # Cleanup happens automatically via temp_dir fixture

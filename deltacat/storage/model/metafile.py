@@ -631,7 +631,7 @@ class Metafile(dict):
                 path=catalog_root_dir,
                 filesystem=filesystem,
             )
-         
+
         self._write_metafile_revisions(
             catalog_root=catalog_root_dir,
             success_txn_log_dir=success_txn_log_dir,
@@ -1188,7 +1188,10 @@ class Metafile(dict):
         given root directory.
         """
         # For UPDATE operations, validate that the source metafile's locator is still valid
-        if current_txn_op.type == TransactionOperationType.UPDATE and current_txn_op.src_metafile:
+        if (
+            current_txn_op.type == TransactionOperationType.UPDATE
+            and current_txn_op.src_metafile
+        ):
             src_metafile = current_txn_op.src_metafile
             # For mutable locators, validate that the locator mapping still exists
             if not src_metafile.named_immutable_id and src_metafile.locator:

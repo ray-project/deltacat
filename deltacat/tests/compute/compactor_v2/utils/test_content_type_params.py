@@ -1,5 +1,4 @@
 import ray
-from typing import Dict, Any
 from deltacat.types.media import ContentType
 import pyarrow as pa
 
@@ -33,11 +32,13 @@ class TestContentTypeParamsMain:
         # Create a temporary directory for main storage
         temp_dir = tempfile.mkdtemp()
         from deltacat.catalog import CatalogProperties
+
         catalog_properties = CatalogProperties(root=temp_dir)
         storage_kwargs = {"catalog": catalog_properties}
         yield storage_kwargs
         # Clean up temporary directory
         import shutil
+
         shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test__download_parquet_metadata_for_manifest_entry_sanity(
@@ -194,7 +195,6 @@ class TestContentTypeParamsMain:
         from deltacat.compute.compactor_v2.utils.content_type_params import (
             _download_parquet_metadata_for_manifest_entry,
         )
-        from deltacat.types.partial_download import PartialParquetParameters
 
         test_file_reader_kwargs_provider = ReadKwargsProviderPyArrowCsvPureUtf8()
 
@@ -233,5 +233,8 @@ class TestContentTypeParamsMain:
         # The main functionality is validated by successful parquet_metadata retrieval
         print(f"Captured {len(caplog.records)} log records")
         if len(caplog.records) > 0:
-            assert any("file_reader_kwargs_provider" in record.message for record in caplog.records)
-        # Test passes as long as the main functionality works (parquet_metadata retrieval) 
+            assert any(
+                "file_reader_kwargs_provider" in record.message
+                for record in caplog.records
+            )
+        # Test passes as long as the main functionality works (parquet_metadata retrieval)

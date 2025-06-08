@@ -28,4 +28,4 @@ def raise_categorized_error(e: BaseException, **kwargs):
         raise MainStorageValidationError("Namespace provided is invalid!")
     else:
         # If we can't categorize it, re-raise the original exception
-        raise e 
+        raise e

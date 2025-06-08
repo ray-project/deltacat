@@ -218,7 +218,9 @@ def test_compact_partition_incremental_main(
 ):
     # Skip in-place compaction tests for main storage as it's not yet implemented
     if is_inplace:
-        pytest.skip("In-place compaction not yet implemented in main storage (delta prepending limitation)")
+        pytest.skip(
+            "In-place compaction not yet implemented in main storage (delta prepending limitation)"
+        )
 
     ds_mock_kwargs: Dict[str, Any] = main_deltacat_storage_kwargs
 
@@ -240,20 +242,26 @@ def test_compact_partition_incremental_main(
         ds_mock_kwargs,
         is_inplace,
     )
-    
+
     # Convert partition values to correct types for get_partition call
     converted_partition_values = []
     if partition_values_param and partition_keys:
         # partition_values_param is a single string, but we need to handle it as a list
-        partition_values_list = [partition_values_param] if isinstance(partition_values_param, str) else partition_values_param
+        partition_values_list = (
+            [partition_values_param]
+            if isinstance(partition_values_param, str)
+            else partition_values_param
+        )
         for i, (value, pk) in enumerate(zip(partition_values_list, partition_keys)):
             if pk.key_type == PartitionKeyType.INT:
                 converted_partition_values.append(int(value))
             else:
                 converted_partition_values.append(value)
     else:
-        converted_partition_values = [partition_values_param] if partition_values_param else []
-    
+        converted_partition_values = (
+            [partition_values_param] if partition_values_param else []
+        )
+
     source_partition: Partition = metastore.get_partition(
         source_table_stream.locator,
         converted_partition_values,

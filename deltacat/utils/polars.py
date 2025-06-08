@@ -532,13 +532,15 @@ def read_csv(
                     # Try reading as if it's already decompressed by PyArrow
                     return pl.read_csv(f, **read_kwargs)
             except Exception:
-                # If that fails, try manual decompression 
+                # If that fails, try manual decompression
                 with filesystem.open_input_file(path, **fs_open_kwargs) as f:
-                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    input_file_init = ENCODING_TO_FILE_INIT.get(
+                        content_encoding, lambda x: x
+                    )
                     with input_file_init(f) as input_file:
                         content = input_file.read()
                         if isinstance(content, str):
-                            content = content.encode('utf-8')
+                            content = content.encode("utf-8")
                         return pl.read_csv(content, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
@@ -547,12 +549,14 @@ def read_csv(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_csv(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
                     if isinstance(content, str):
-                        content = content.encode('utf-8')
+                        content = content.encode("utf-8")
                     return pl.read_csv(content, **read_kwargs)
 
 
@@ -571,7 +575,9 @@ def read_parquet(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_parquet(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
@@ -583,7 +589,9 @@ def read_parquet(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_parquet(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
@@ -605,7 +613,9 @@ def read_ipc(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_ipc(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
@@ -617,7 +627,9 @@ def read_ipc(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_ipc(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
@@ -645,13 +657,15 @@ def read_ndjson(
                     # Try reading as if it's already decompressed by PyArrow
                     return pl.read_ndjson(f, **read_kwargs)
             except Exception:
-                # If that fails, try manual decompression 
+                # If that fails, try manual decompression
                 with filesystem.open_input_file(path, **fs_open_kwargs) as f:
-                    input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                    input_file_init = ENCODING_TO_FILE_INIT.get(
+                        content_encoding, lambda x: x
+                    )
                     with input_file_init(f) as input_file:
                         content = input_file.read()
                         if isinstance(content, str):
-                            content = content.encode('utf-8')
+                            content = content.encode("utf-8")
                         return pl.read_ndjson(content, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
@@ -660,12 +674,14 @@ def read_ndjson(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_ndjson(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
                     if isinstance(content, str):
-                        content = content.encode('utf-8')
+                        content = content.encode("utf-8")
                     return pl.read_ndjson(content, **read_kwargs)
 
 
@@ -684,7 +700,9 @@ def read_avro(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_avro(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
@@ -696,7 +714,9 @@ def read_avro(
             if content_encoding == ContentEncoding.IDENTITY.value:
                 return pl.read_avro(f, **read_kwargs)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content as bytes and pass to polars
                     content = input_file.read()
@@ -715,7 +735,7 @@ def read_orc(
     Read an ORC file using pandas and convert to polars since polars doesn't have native ORC support.
     """
     import pandas as pd
-    
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
@@ -724,11 +744,14 @@ def read_orc(
                 pd_df = pd.read_orc(f, **read_kwargs)
                 return pl.from_pandas(pd_df)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content and pass to pandas
                     content = input_file.read()
                     import io
+
                     pd_df = pd.read_orc(io.BytesIO(content), **read_kwargs)
                     return pl.from_pandas(pd_df)
     else:
@@ -739,11 +762,14 @@ def read_orc(
                 pd_df = pd.read_orc(f, **read_kwargs)
                 return pl.from_pandas(pd_df)
             else:
-                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
                 with input_file_init(f) as input_file:
                     # Read decompressed content and pass to pandas
                     content = input_file.read()
                     import io
+
                     pd_df = pd.read_orc(io.BytesIO(content), **read_kwargs)
                     return pl.from_pandas(pd_df)
 
