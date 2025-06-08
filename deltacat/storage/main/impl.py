@@ -372,12 +372,29 @@ def list_partitions(
     table version if not specified. Raises an error if the table version does
     not exist.
     """
+    if not namespace:
+        raise ValueError("Namespace cannot be empty.")
+    if not table_name:
+        raise ValueError("Table name cannot be empty.")
+    # resolve default deltacat stream for the given namespace, table name, and table version
+    # TODO(pdames): debug why this doesn't work when only the table_version is provided
+    #   and PartitionLocator.stream_format is hard-coded to deltacat (we should be able
+    #   to resolve the default deltacat stream automatically)
+    stream = get_stream(
+        *args,
+        namespace=namespace,
+        table_name=table_name,
+        table_version=table_version,
+        **kwargs,
+    )
+    if not stream:
+        raise ValueError(f"Default stream for {namespace}.{table_name}.{table_version} not found.")
     locator = PartitionLocator.at(
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
-        stream_id=None,
-        stream_format=StreamFormat.DELTACAT,
+        stream_id=stream.id,
+        stream_format=stream.stream_format,
         partition_values=["placeholder"],
         partition_id="placeholder",
     )
