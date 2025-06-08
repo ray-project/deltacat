@@ -555,17 +555,21 @@ class PartitionScheme(dict):
             if len(keys) == 0:
                 raise ValueError("Partition scheme cannot have empty keys list")
 
-            # Check for duplicate keys (by field locators and names)
-            seen_keys = set()
+            # Check for duplicate keys (by field locators and transform types) and names
+            seen_key_transform_pairs = set()
             seen_names = set()
             for key in keys:
-                # Check for duplicate field locators
+                # Check for duplicate field locators with identical transform types
                 key_tuple = tuple(key.key) if key.key else ()
-                if key_tuple in seen_keys:
+                transform_type = type(key.transform) if key.transform else None
+                key_transform_pair = (key_tuple, transform_type)
+                
+                if key_transform_pair in seen_key_transform_pairs:
                     # Use the first field locator for the error message
                     key_name = key.key[0] if key.key else "unknown"
-                    raise ValueError(f"Duplicate partition key found: {key_name}")
-                seen_keys.add(key_tuple)
+                    transform_name = transform_type.__name__ if transform_type else "None"
+                    raise ValueError(f"Duplicate partition key found: {key_name} with transform type {transform_name}")
+                seen_key_transform_pairs.add(key_transform_pair)
                 
                 # Check for duplicate names (when specified)
                 if key.name is not None:
