@@ -2,6 +2,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
+# Import default constants
+from deltacat.constants import PYARROW_INFLATION_MULTIPLIER
+from deltacat.compute.compactor_v2.constants import AVERAGE_RECORD_SIZE_BYTES
+
 
 class ResourceEstimationMethod(str, Enum):
     """
@@ -61,6 +65,10 @@ class EstimateResourcesParams(dict):
     This class represents the parameters required for estimating resources.
     """
 
+    # Default constants
+    DEFAULT_PREVIOUS_INFLATION = PYARROW_INFLATION_MULTIPLIER
+    DEFAULT_AVERAGE_RECORD_SIZE_BYTES = AVERAGE_RECORD_SIZE_BYTES
+
     @staticmethod
     def of(
         resource_estimation_method: ResourceEstimationMethod = ResourceEstimationMethod.DEFAULT,
@@ -70,6 +78,14 @@ class EstimateResourcesParams(dict):
         max_files_to_sample: Optional[int] = None,
     ) -> EstimateResourcesParams:
         result = EstimateResourcesParams()
+        # Use defaults when None is passed and method requires these params
+        if (resource_estimation_method == ResourceEstimationMethod.DEFAULT and 
+            previous_inflation is None):
+            previous_inflation = EstimateResourcesParams.DEFAULT_PREVIOUS_INFLATION
+        if (resource_estimation_method == ResourceEstimationMethod.DEFAULT and 
+            average_record_size_bytes is None):
+            average_record_size_bytes = EstimateResourcesParams.DEFAULT_AVERAGE_RECORD_SIZE_BYTES
+            
         result["previous_inflation"] = previous_inflation
         result["parquet_to_pyarrow_inflation"] = parquet_to_pyarrow_inflation
         result["resource_estimation_method"] = resource_estimation_method
