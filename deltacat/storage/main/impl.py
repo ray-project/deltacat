@@ -389,12 +389,8 @@ def list_partitions(
     )
     if not stream:
         raise ValueError(f"Default stream for {namespace}.{table_name}.{table_version} not found.")
-    locator = PartitionLocator.at(
-        namespace=namespace,
-        table_name=table_name,
-        table_version=table_version,
-        stream_id=stream.id,
-        stream_format=stream.stream_format,
+    locator = PartitionLocator.of(
+        stream_locator=stream.locator,
         partition_values=["placeholder"],
         partition_id="placeholder",
     )

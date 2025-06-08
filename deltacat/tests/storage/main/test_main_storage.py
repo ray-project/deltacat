@@ -3253,10 +3253,21 @@ class TestPartition:
             assert p.partition_scheme_id == self.tv.partition_scheme.id
             assert p.locator.stream_locator == self.stream.locator
 
-    def test_list_partitions_edge_case_detection(self):
-        """Test that demonstrates the ancestor resolution issue that was fixed."""
-        # This test documents the edge case that was likely causing issues in list_partitions
-        # Note: The specific behavior depends on the main storage implementation fixes
+    def test_list_partitions_without_table_version(self):
+        """Test list_partitions when table_version is not specified (should resolve to latest active).
+        
+        This test verifies that list_partitions correctly resolves the latest active table version
+        when table_version=None, and creates proper partition locators using the resolved stream's
+        locator rather than attempting to construct locators with None table_version values.
+        """
+        # First make the table version active so it can be resolved automatically
+        metastore.update_table_version(
+            namespace="test_partition_ns",
+            table_name="mypartitiontable",
+            table_version="v.1",
+            lifecycle_state=LifecycleState.ACTIVE,
+            catalog=self.catalog,
+        )
         
         # Given a committed partition
         partition_values = [789, "ghi"]
@@ -3272,11 +3283,10 @@ class TestPartition:
             catalog=self.catalog,
         )
         
-        # When we list partitions with explicit table_version (this should work)
+        # When we list partitions without specifying table_version (should default to latest active)
         list_result = metastore.list_partitions(
             namespace="test_partition_ns",
             table_name="mypartitiontable",
-            table_version="v.1",  # Explicitly specify version to avoid ancestor resolution issues
             catalog=self.catalog,
         )
         
