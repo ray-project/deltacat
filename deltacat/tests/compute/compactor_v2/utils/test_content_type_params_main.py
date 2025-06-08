@@ -48,16 +48,15 @@ class TestContentTypeParamsMain:
         )
         from deltacat.types.partial_download import PartialParquetParameters
 
-        kwargs = {"ds_mock_kwargs": main_deltacat_storage_kwargs}
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
-            **kwargs,
+            **main_deltacat_storage_kwargs,
         )
         test_delta = commit_delta_to_staged_partition(
             partition,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
-            **kwargs,
+            **main_deltacat_storage_kwargs,
         )
         test_entry_index = 0
         obj_ref = _download_parquet_metadata_for_manifest_entry.remote(
@@ -143,16 +142,15 @@ class TestContentTypeParamsMain:
             _download_parquet_metadata_for_manifest_entry,
         )
 
-        kwargs = {"ds_mock_kwargs": main_deltacat_storage_kwargs}
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
             [self.DEDUPE_NO_DUPLICATION_STRING_PK],
-            **kwargs,
+            **main_deltacat_storage_kwargs,
         )
         test_delta = commit_delta_to_staged_partition(
             partition,
             [self.DEDUPE_NO_DUPLICATION_STRING_PK],
-            **kwargs,
+            **main_deltacat_storage_kwargs,
         )
         test_entry_index = 0
         obj_ref = _download_parquet_metadata_for_manifest_entry.remote(
@@ -204,16 +202,15 @@ class TestContentTypeParamsMain:
             "file_reader_kwargs_provider"
         ] = ReadKwargsProviderPyArrowCsvPureUtf8()
 
-        kwargs = {"ds_mock_kwargs": main_deltacat_storage_kwargs}
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
-            **kwargs,
+            **main_deltacat_storage_kwargs,
         )
         test_delta = commit_delta_to_staged_partition(
             partition,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
-            **kwargs,
+            **main_deltacat_storage_kwargs,
         )
         test_entry_index = 0
         obj_ref = _download_parquet_metadata_for_manifest_entry.remote(

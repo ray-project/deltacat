@@ -56,21 +56,26 @@ class TestMergeMain(unittest.TestCase):
         ray.init(local_mode=True, ignore_reinit_error=True)
         super().setUpClass()
 
-    def setUp(self):
+    @classmethod
+    def setUp(cls):
         # Create a temporary directory for main storage
-        self.temp_dir = tempfile.mkdtemp()
+        cls.temp_dir = tempfile.mkdtemp()
         from deltacat.catalog import CatalogProperties
-        catalog_properties = CatalogProperties(root=self.temp_dir)
-        self.kwargs = {"inner": catalog_properties}
-        self.deltacat_storage_kwargs = self.kwargs
+        catalog_properties = CatalogProperties(root=cls.temp_dir)
+        cls.kwargs = {"inner": catalog_properties}
+        cls.deltacat_storage_kwargs = cls.kwargs
 
-    def tearDown(self):
+    @classmethod
+    def tearDown(cls):
         # Clean up temporary directory
         import shutil
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        shutil.rmtree(cls.temp_dir, ignore_errors=True)
+        # Shutdown Ray to ensure clean state for the next test
+        ray.shutdown()
 
     @classmethod
     def tearDownClass(cls):
+        # Ensure Ray is shutdown when tests complete
         ray.shutdown()
         super().tearDownClass()
 
@@ -657,7 +662,6 @@ class TestMergeMain(unittest.TestCase):
 
     @patch("deltacat.compute.compactor_v2.steps.merge._compact_tables")
     def test_merge_when_local_error_categorized_correctly(self, mock_compact_tables):
-        # Force the mock to be more explicit and persistent
         mock_compact_tables.side_effect = InvalidNamespaceError("Invalid namespace")
         
         partition = stage_partition_from_file_paths(
@@ -682,6 +686,8 @@ class TestMergeMain(unittest.TestCase):
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            # Explicitly disable copy-by-reference to ensure _compact_tables gets called
+            disable_copy_by_reference=True,
         )
  
         try:

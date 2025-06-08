@@ -41,12 +41,11 @@ def parquet_delta_with_manifest(main_deltacat_storage_kwargs):
     """
     from deltacat.tests.test_utils.pyarrow_main import create_delta_from_csv_file
 
-    kwargs = {"ds_mock_kwargs": main_deltacat_storage_kwargs}
     result = create_delta_from_csv_file(
         "test_namespace_main",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.PARQUET,
-        **kwargs
+        **main_deltacat_storage_kwargs
     )
 
     result.meta["source_content_length"] = 0
@@ -62,12 +61,11 @@ def parquet_delta_with_manifest(main_deltacat_storage_kwargs):
 def utsv_delta_with_manifest(main_deltacat_storage_kwargs):
     from deltacat.tests.test_utils.pyarrow_main import create_delta_from_csv_file
 
-    kwargs = {"ds_mock_kwargs": main_deltacat_storage_kwargs}
     result = create_delta_from_csv_file(
         "test_namespace_main",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.UNESCAPED_TSV,
-        **kwargs
+        **main_deltacat_storage_kwargs
     )
 
     result.meta["source_content_length"] = 0
@@ -83,12 +81,11 @@ def utsv_delta_with_manifest(main_deltacat_storage_kwargs):
 def delta_without_manifest(main_deltacat_storage_kwargs):
     from deltacat.tests.test_utils.pyarrow_main import create_delta_from_csv_file
 
-    kwargs = {"ds_mock_kwargs": main_deltacat_storage_kwargs}
     delta = create_delta_from_csv_file(
         "test_namespace_main",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.PARQUET,
-        **kwargs
+        **main_deltacat_storage_kwargs
     )
 
     # now we intentionally remove manifest
@@ -103,12 +100,11 @@ def delta_without_manifest(main_deltacat_storage_kwargs):
 def delta_with_populated_meta(main_deltacat_storage_kwargs):
     from deltacat.tests.test_utils.pyarrow_main import create_delta_from_csv_file
 
-    kwargs = {"ds_mock_kwargs": main_deltacat_storage_kwargs}
     delta = create_delta_from_csv_file(
         "test_namespace_main",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.PARQUET,
-        **kwargs
+        **main_deltacat_storage_kwargs
     )
 
     return delta

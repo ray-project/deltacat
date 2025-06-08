@@ -83,10 +83,10 @@ def main_deltacat_storage_kwargs(temp_dir):
     using the main metastore implementation and cleans up afterwards.
     
     Returns:
-        dict: A dictionary with 'catalog' key pointing to CatalogProperties
+        dict: A dictionary with 'inner' key pointing to CatalogProperties
     """
     catalog = CatalogProperties(root=temp_dir)
-    kwargs = {"catalog": catalog}
+    kwargs = {"inner": catalog}
     yield kwargs
     
     # Cleanup happens automatically via temp_dir fixture
