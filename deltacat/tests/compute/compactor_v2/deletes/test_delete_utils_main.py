@@ -200,12 +200,22 @@ TEST_CASES_PREPARE_DELETE = {
             (
                 pa.Table.from_arrays(
                     [
-                        pa.array([40]),
+                        pa.array(["0"]),
                     ],
-                    names=["col_1"],
+                    names=["pk_col_1"],
                 ),
                 DeltaType.DELETE,
-                EntryParams.of(["col_1"]),
+                EntryParams.of(["pk_col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["1"]),
+                    ],
+                    names=["pk_col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["pk_col_1"]),
             ),
             (
                 pa.Table.from_arrays(
@@ -221,7 +231,7 @@ TEST_CASES_PREPARE_DELETE = {
             (
                 pa.Table.from_arrays(
                     [
-                        pa.array([70]),
+                        pa.array([72]),
                     ],
                     names=["col_1"],
                 ),
@@ -233,21 +243,204 @@ TEST_CASES_PREPARE_DELETE = {
         [
             pa.Table.from_arrays(
                 [
+                    pa.array(["0", "1"]),
+                ],
+                names=["pk_col_1"],
+            ),
+            pa.Table.from_arrays(
+                [
+                    pa.array([72]),
+                ],
+                names=["col_1"],
+            ),
+        ],
+        2,
+        None,
+    ),
+    "6-test-upsert-deletesequence-different-delete-params-upsert-delete": PrepareDeleteTestCaseParams(
+        [
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([str(i) for i in range(10)]),
+                        pa.array([i for i in range(40, 50)]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([40]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["1"]),
+                        pa.array([41]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["pk_col_1", "col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array(["9"]),
+                    ],
+                    names=["pk_col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["pk_col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([str(i) for i in range(10)]),
+                        pa.array([i for i in range(70, 80)]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([72]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+        ],
+        4,
+        [
+            pa.Table.from_arrays(
+                [
                     pa.array([40]),
                 ],
                 names=["col_1"],
             ),
             pa.Table.from_arrays(
                 [
-                    pa.array([70]),
+                    pa.array(["1"]),
+                    pa.array([41]),
+                ],
+                names=["pk_col_1", "col_1"],
+            ),
+            pa.Table.from_arrays(
+                [
+                    pa.array(["9"]),
+                ],
+                names=["pk_col_1"],
+            ),
+            pa.Table.from_arrays(
+                [
+                    pa.array([72]),
                 ],
                 names=["col_1"],
-            )
+            ),
         ],
         2,
         None,
     ),
-    "6-test-ten-consecutive-deletes": PrepareDeleteTestCaseParams(
+    "7-test-exception-thrown-if-properties-not-defined": PrepareDeleteTestCaseParams(
+        [
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([str(i) for i in range(10)]),
+                        pa.array([i for i in range(20, 30)]),
+                        pa.array(["foo"] * 10),
+                        pa.array([i for i in range(40, 50)]),
+                    ],
+                    names=["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([40]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                None,
+            ),
+        ],
+        0,
+        None,
+        None,
+        AssertionError,
+    ),
+    "8-test-only-deletes": PrepareDeleteTestCaseParams(
+        [
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([i for i in range(40, 50)]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([40]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([55]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([72]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+        ],
+        1,
+        [
+            pa.Table.from_arrays(
+                [
+                    pa.array([40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 40, 55, 72]),
+                ],
+                names=["col_1"],
+            ),
+        ],
+        0,
+        None,
+    ),
+    "9-test-ten-consecutive-deletes": PrepareDeleteTestCaseParams(
         [
             (
                 pa.Table.from_arrays(
@@ -373,62 +566,6 @@ TEST_CASES_PREPARE_DELETE = {
         1,
         None,
     ),
-    "7-test-upsert-ten-consecutive-deletes": PrepareDeleteTestCaseParams(
-        [
-            (
-                pa.Table.from_arrays(
-                    [
-                        pa.array([str(i) for i in range(10)]),
-                        pa.array([i for i in range(40, 50)]),
-                    ],
-                    names=["pk_col_1", "col_1"],
-                ),
-                DeltaType.UPSERT,
-                None,
-            ),
-            (
-                pa.Table.from_arrays(
-                    [
-                        pa.array([40]),
-                    ],
-                    names=["col_1"],
-                ),
-                DeltaType.DELETE,
-                EntryParams.of(["col_1"]),
-            ),
-            (
-                pa.Table.from_arrays(
-                    [
-                        pa.array([55]),
-                    ],
-                    names=["col_1"],
-                ),
-                DeltaType.DELETE,
-                EntryParams.of(["col_1"]),
-            ),
-            (
-                pa.Table.from_arrays(
-                    [
-                        pa.array([72]),
-                    ],
-                    names=["col_1"],
-                ),
-                DeltaType.DELETE,
-                EntryParams.of(["col_1"]),
-            ),
-        ],
-        1,
-        [
-            pa.Table.from_arrays(
-                [
-                    pa.array([40, 55, 72]),
-                ],
-                names=["col_1"],
-            ),
-        ],
-        1,
-        None,
-    ),
 }
 
 
@@ -483,7 +620,7 @@ class TestPrepareDeletesMain:
         source_namespace, source_table_name, source_table_version = create_src_table_main(
             None,  # sort_keys
             None,  # partition_keys
-            first_delta_table,  # input_deltas - now pass the first delta table for schema inference
+            first_delta_table,  # input_deltas - pass the first delta table for schema inference
             main_deltacat_storage_kwargs,  # ds_mock_kwargs
         )
         source_table_stream: Stream = metastore.get_stream(
@@ -581,11 +718,10 @@ class TestPrepareDeletesMain:
             expected_delta_file_envelopes_len == actual_dictionary_length
         ), f"{expected_delta_file_envelopes_len} does not match {actual_dictionary_length}"
         if expected_delta_file_envelopes_len > 0:
-            for i, (actual_delete_table, expected_delete_table) in enumerate(
+            for i, (actual_delete_table, expected_delete_tables) in enumerate(
                 zip(actual_delete_tables, expected_delete_tables)
             ):
                 actual_table = actual_delete_table.combine_chunks()
-                expected_delete_table = expected_delete_table.combine_chunks()
+                expected_delete_table = expected_delete_tables.combine_chunks()
                 assert actual_table.equals(expected_delete_table)
-        return 
         return 
