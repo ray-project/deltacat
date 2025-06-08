@@ -16,28 +16,27 @@ from deltacat.tests.compute.test_util_constant import (
 )
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
+    PartitionKey,
+    get_compacted_delta_locator_from_rcf,
+)
+from deltacat.tests.compute.test_util_common import (
+    create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
 )
 from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.tests.compute.test_util_common import (
-    get_compacted_delta_locator_from_rcf,
-)
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
-)
-from deltacat.tests.compute.test_util_create_table_deltas_repo import (
-    create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
 from deltacat.tests.compute.compact_partition_rebase_test_cases import (
     REBASE_TEST_CASES,
 )
 from typing import Any, Callable, Dict, List, Optional, Set
-from deltacat.types.media import StorageType
+from deltacat.types.media import StorageType, ContentType
 from deltacat.storage import (
     DeltaLocator,
     Partition,
+    metastore,
 )
-from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -176,14 +175,14 @@ def enable_bucketing_spec_validation(monkeypatch):
     ],
     ids=[test_name for test_name in REBASE_TEST_CASES],
 )
-def test_compact_partition_rebase_same_source_and_destination(
+def test_compact_partition_rebase_same_source_and_destination_main(
     mocker,
     s3_resource: ServiceResource,
-    local_deltacat_storage_kwargs: Dict[str, Any],
+    main_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: List[Optional[Any]],
-    partition_keys_param: Optional[List[Any]],
+    partition_keys_param: Optional[List[PartitionKey]],
     partition_values_param: List[Optional[str]],
     input_deltas_param: List[pa.Array],
     input_deltas_delta_type: str,
@@ -202,20 +201,20 @@ def test_compact_partition_rebase_same_source_and_destination(
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
-    import deltacat.tests.local_deltacat_storage as ds
-
-    ds_mock_kwargs = local_deltacat_storage_kwargs
+    ds_mock_kwargs = main_deltacat_storage_kwargs
     """
     This test tests the scenario where source partition locator == destination partition locator,
     but rebase source partition locator is different.
     This scenario could occur when hash bucket count changes.
+    
+    This version uses the main metastore implementation instead of local storage.
     """
     partition_keys = partition_keys_param
     (
         source_table_stream,
         _,
         rebased_table_stream,
-    ) = create_src_w_deltas_destination_rebase_w_deltas_strategy(
+    ) = create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
         sort_keys,
         partition_keys,
         input_deltas_param,
@@ -223,14 +222,25 @@ def test_compact_partition_rebase_same_source_and_destination(
         partition_values_param,
         ds_mock_kwargs,
     )
-    source_partition: Partition = ds.get_partition(
+    
+    # Convert partition values for partition lookup (same as in the helper function)
+    converted_partition_values_for_lookup = partition_values_param
+    if partition_values_param and partition_keys:
+        converted_partition_values_for_lookup = []
+        for i, (value, pk) in enumerate(zip(partition_values_param, partition_keys)):
+            if pk.key_type.value == "int":  # Use .value to get string representation
+                converted_partition_values_for_lookup.append(int(value))
+            else:
+                converted_partition_values_for_lookup.append(value)
+    
+    source_partition: Partition = metastore.get_partition(
         source_table_stream.locator,
-        partition_values_param,
+        converted_partition_values_for_lookup,
         **ds_mock_kwargs,
     )
-    rebased_partition: Partition = ds.get_partition(
+    rebased_partition: Partition = metastore.get_partition(
         rebased_table_stream.locator,
-        partition_values_param,
+        converted_partition_values_for_lookup,
         **ds_mock_kwargs,
     )
     num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
@@ -248,7 +258,7 @@ def test_compact_partition_rebase_same_source_and_destination(
                 "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
                 "compacted_file_content_type": ContentType.PARQUET,
                 "dd_max_parallelism_ratio": 1.0,
-                "deltacat_storage": ds,
+                "deltacat_storage": metastore,
                 "deltacat_storage_kwargs": ds_mock_kwargs,
                 "destination_partition_locator": rebased_partition.locator,
                 "hash_bucket_count": hash_bucket_count_param,
@@ -318,7 +328,7 @@ def test_compact_partition_rebase_same_source_and_destination(
         assert (
             compacted_delta_locator.stream_position == last_stream_position_to_compact
         ), "Compacted delta locator must be equal to last stream position"
-        tables = ds.download_delta(
+        tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
         )
         actual_rebase_compacted_table = pa.concat_tables(tables)
@@ -346,4 +356,4 @@ def test_compact_partition_rebase_same_source_and_destination(
                 assert False, "Compaction audit assertion failed"
         # We do not expect object store to be cleaned up when there's only one round
         if object_store_put_many_spy.call_count:
-            assert os.listdir(test_dir) != []
+            assert os.listdir(test_dir) != [] 

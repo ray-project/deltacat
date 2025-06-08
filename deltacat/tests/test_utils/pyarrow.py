@@ -1,7 +1,7 @@
 from typing import List, Optional, Union
 import pyarrow as pa
 from deltacat.storage import Delta, Partition, PartitionLocator, DeltaLocator
-import deltacat.tests.local_deltacat_storage as ds
+from deltacat.storage import metastore
 from deltacat.types.media import StorageType, ContentType
 
 
@@ -36,12 +36,13 @@ def stage_partition_from_file_paths(
     *args,
     **kwargs,
 ) -> Partition:
-    ds.create_namespace(namespace, {}, **kwargs)
+    if not metastore.namespace_exists(namespace, **kwargs):
+        metastore.create_namespace(namespace, **kwargs)
     if table_name is None:
         table_name = "-".join(file_paths).replace("/", "_")
-    ds.create_table_version(namespace, table_name, str(table_version), **kwargs)
-    stream = ds.get_stream(namespace, table_name, str(table_version), **kwargs)
-    staged_partition = ds.stage_partition(stream, [], **kwargs)
+    metastore.create_table_version(namespace, table_name, str(table_version), **kwargs)
+    stream = metastore.get_stream(namespace, table_name, str(table_version), **kwargs)
+    staged_partition = metastore.stage_partition(stream, **kwargs)
     return staged_partition
 
 
@@ -61,13 +62,13 @@ def commit_delta_to_staged_partition(
         pa_table=pa_table,
         **kwargs,
     )
-    ds.commit_partition(staged_partition, **kwargs)
+    metastore.commit_partition(staged_partition, **kwargs)
     return committed_delta
 
 
 def download_delta(delta_like: Union[Delta, DeltaLocator], *args, **kwargs) -> Delta:
     return pa.concat_tables(
-        ds.download_delta(
+        metastore.download_delta(
             delta_like,
             storage_type=StorageType.LOCAL,
             *args,
@@ -86,7 +87,7 @@ def commit_delta_to_partition(
 ) -> Delta:
 
     if isinstance(partition, PartitionLocator):
-        partition = ds.get_partition(
+        partition = metastore.get_partition(
             partition.stream_locator, partition.partition_values, *args, **kwargs
         )
     if pa_table is None:
@@ -98,8 +99,11 @@ def commit_delta_to_partition(
 
         pa_table = pa.concat_tables(tables)
 
-    staged_delta = ds.stage_delta(
-        pa_table, partition, content_type=content_type, **kwargs
+    staged_delta = metastore.stage_delta(
+        pa_table, 
+        partition, 
+        content_type=content_type, 
+        **kwargs,
     )
 
-    return ds.commit_delta(staged_delta, **kwargs)
+    return metastore.commit_delta(staged_delta, **kwargs)

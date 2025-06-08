@@ -323,7 +323,7 @@ class PartitionSchemeMapper(ModelMapper[PartitionSpec, PartitionScheme]):
         elif not schema:
             err_msg = "Schema is required for Partition Spec conversion."
             raise ValueError(err_msg)
-        keys = [PartitionKeyMapper.map(field, schema) for field in obj.fields]
+        keys = [PartitionKeyMapper.map(field, schema) for field in obj.fields] or None
         return PartitionScheme.of(
             keys=keys,
             name=name,
@@ -425,7 +425,7 @@ class SortSchemeMapper(ModelMapper[IcebergSortOrder, SortScheme]):
         elif not schema:
             err_msg = "Schema is required for Sort Order conversion."
             raise ValueError(err_msg)
-        keys = [SortKeyMapper.map(field, schema) for field in obj.fields]
+        keys = [SortKeyMapper.map(field, schema) for field in obj.fields] or None
         return SortScheme.of(
             keys=keys,
             name=name,
