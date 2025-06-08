@@ -61,9 +61,8 @@ class TestMergeMain(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         from deltacat.catalog import CatalogProperties
         catalog_properties = CatalogProperties(root=self.temp_dir)
-        self.ds_mock_kwargs = {"catalog": catalog_properties}
-        self.kwargs = {"ds_mock_kwargs": self.ds_mock_kwargs}
-        self.deltacat_storage_kwargs = self.ds_mock_kwargs
+        self.kwargs = {"inner": catalog_properties}
+        self.deltacat_storage_kwargs = self.kwargs
 
     def tearDown(self):
         # Clean up temporary directory
