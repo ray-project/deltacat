@@ -19,6 +19,7 @@ class ConvertInput(Dict):
         max_parallel_data_file_download: int,
         s3_file_system: Optional[AbstractFileSystem],
         s3_client_kwargs: Optional[Dict[str, Any]],
+        task_memory: float,
     ) -> ConvertInput:
 
         result = ConvertInput()
@@ -38,6 +39,7 @@ class ConvertInput(Dict):
         result["max_parallel_data_file_download"] = max_parallel_data_file_download
         result["s3_file_system"] = s3_file_system
         result["s3_client_kwargs"] = s3_client_kwargs
+        result["task_memory"] = task_memory
 
         return result
 
@@ -88,3 +90,7 @@ class ConvertInput(Dict):
     @property
     def s3_client_kwargs(self) -> Optional[Dict[str, Any]]:
         return self["s3_client_kwargs"]
+
+    @property
+    def task_memory(self) -> float:
+        return self["task_memory"]

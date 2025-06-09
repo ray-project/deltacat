@@ -661,10 +661,20 @@ def table_to_file(
     file_system: Optional[AbstractFileSystem],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
-    **kwargs,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
 ) -> None:
     """
     Writes the given Pyarrow Table to a file.
+
+    Args:
+        table: The PyArrow table to write
+        base_path: Base path to write to
+        file_system: Optional filesystem to use
+        block_path_provider: Provider for block path generation
+        content_type: Content type for the output file
+        fs_open_kwargs: Keyword arguments for filesystem operations
+        write_kwargs: Keyword arguments passed to the PyArrow write function
     """
     writer = CONTENT_TYPE_TO_PA_WRITE_FUNC.get(content_type)
     if not writer:
@@ -674,8 +684,14 @@ def table_to_file(
             f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}"
         )
     path = block_path_provider(base_path)
-    logger.debug(f"Writing table: {table} with kwargs: {kwargs} to path: {path}")
-    writer(table, path, filesystem=file_system, **kwargs)
+    logger.debug(f"Writing table: {table} with kwargs: {write_kwargs} to path: {path}")
+    writer(
+        table,
+        path,
+        filesystem=file_system,
+        fs_open_kwargs=fs_open_kwargs,
+        **write_kwargs,
+    )
 
 
 class RecordBatchTables:

@@ -14,6 +14,9 @@ class ConvertResult(Dict):
         input_data_files_hash_columns_in_memory_sizes: int,
         position_delete_in_memory_sizes: int,
         position_delete_on_disk_sizes: int,
+        input_data_files_on_disk_size: int,
+        peak_memory_usage_bytes: int,
+        memory_usage_percentage: float,
     ) -> ConvertResult:
 
         result = ConvertResult()
@@ -27,6 +30,9 @@ class ConvertResult(Dict):
         ] = input_data_files_hash_columns_in_memory_sizes
         result["position_delete_in_memory_sizes"] = position_delete_in_memory_sizes
         result["position_delete_on_disk_sizes"] = position_delete_on_disk_sizes
+        result["input_data_files_on_disk_size"] = input_data_files_on_disk_size
+        result["peak_memory_usage_bytes"] = peak_memory_usage_bytes
+        result["memory_usage_percentage"] = memory_usage_percentage
         return result
 
     @property
@@ -60,3 +66,15 @@ class ConvertResult(Dict):
     @property
     def position_delete_on_disk_sizes(self) -> int:
         return self["position_delete_on_disk_sizes"]
+
+    @property
+    def input_data_files_on_disk_size(self) -> int:
+        return self["input_data_files_on_disk_size"]
+
+    @property
+    def peak_memory_usage_bytes(self) -> int:
+        return self["peak_memory_usage_bytes"]
+
+    @property
+    def memory_usage_percentage(self) -> float:
+        return self["memory_usage_percentage"]

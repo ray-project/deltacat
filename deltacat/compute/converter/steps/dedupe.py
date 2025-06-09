@@ -41,6 +41,9 @@ def dedupe_data_files(
             ],
             s3_client_kwargs=s3_client_kwargs,
         )
+        logger.info(
+            f"Length of downloaded data file table: {len(data_file_to_dedupe_table)}"
+        )
         downloaded_data_file_record_count += len(data_file_to_dedupe_table)
         data_file_table.append(data_file_to_dedupe_table)
 
