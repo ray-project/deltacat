@@ -1187,29 +1187,6 @@ class Metafile(dict):
         part of the given transaction. All paths returned will be based in the
         given root directory.
         """
-        # For UPDATE operations, validate that the source metafile's locator is still valid
-        if (
-            current_txn_op.type == TransactionOperationType.UPDATE
-            and current_txn_op.src_metafile
-        ):
-            src_metafile = current_txn_op.src_metafile
-            # For mutable locators, validate that the locator mapping still exists
-            if not src_metafile.named_immutable_id and src_metafile.locator:
-                parent_path = src_metafile.parent_root_path(
-                    catalog_root=catalog_root,
-                    current_txn_start_time=current_txn_start_time,
-                    current_txn_id=current_txn_id,
-                    filesystem=filesystem,
-                )
-                # This will trigger the existing ValueError in _locator_to_id if the mapping was deleted
-                Metafile._locator_to_id(
-                    locator=src_metafile.locator,
-                    catalog_root=catalog_root,
-                    metafile_root=parent_path,
-                    filesystem=filesystem,
-                    txn_start_time=current_txn_start_time,
-                    txn_id=current_txn_id,
-                )
         parent_obj_path = self.parent_root_path(
             catalog_root=catalog_root,
             current_txn_start_time=current_txn_start_time,

@@ -2038,7 +2038,7 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.RESTATE,
+            txn_type=TransactionType.ALTER,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
