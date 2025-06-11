@@ -18,7 +18,7 @@ from deltacat.utils.ray_utils.concurrency import (
 
 from deltacat.compute.compactor.model.repartition_result import RepartitionResult
 from deltacat.utils.placement import PlacementGroupConfig
-from typing import List, Optional, Dict, Any, Tuple, Union
+from typing import List, Optional, Dict, Any
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.utils import io
 from deltacat.compute.compactor.utils import round_completion_file as rcf

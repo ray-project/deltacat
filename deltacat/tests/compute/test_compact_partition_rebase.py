@@ -1,7 +1,6 @@
-import logging
 import tempfile
 import os
-from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+from typing import Any, Callable, Dict, List, Optional, Set
 import pytest
 import pyarrow as pa
 import ray
@@ -30,7 +29,6 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
 from deltacat.tests.compute.compact_partition_rebase_test_cases import (
     REBASE_TEST_CASES,
 )
-from typing import Any, Callable, Dict, List, Optional, Set
 from deltacat.types.media import StorageType, ContentType
 from deltacat.storage import (
     DeltaLocator,
@@ -267,7 +265,7 @@ def test_compact_partition_rebase_same_source_and_destination_main(
         rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
 
         round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
-        
+
         # assert if RCF covers all files
         if compactor_version != CompactorVersion.V1.value:
             previous_end = None

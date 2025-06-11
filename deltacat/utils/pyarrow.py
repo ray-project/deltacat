@@ -23,7 +23,6 @@ from pyarrow import json as pajson
 from pyarrow import parquet as papq
 from pyarrow import orc as paorc
 from ray.data.datasource import FilenameProvider
-from deltacat.utils.s3fs import create_s3_file_system
 
 from deltacat import logs
 from deltacat.types.media import (
@@ -892,6 +891,7 @@ def s3_file_to_table(
     partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> pa.Table:
+    from deltacat.utils.s3fs import create_s3_file_system
 
     logger.debug(
         f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
@@ -973,6 +973,9 @@ def s3_file_to_parquet(
     partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> ParquetFile:
+
+    from deltacat.utils.s3fs import create_s3_file_system
+
     logger.debug(
         f"Reading {s3_url} to PyArrow ParquetFile. "
         f"Content type: {content_type}. Encoding: {content_encoding}"

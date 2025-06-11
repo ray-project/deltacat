@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
 from typing import Any, Dict, Optional

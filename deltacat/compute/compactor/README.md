@@ -134,7 +134,7 @@ s3_catalog = CatalogProperties.of({'root': 's3://my-bucket/path'})
 # Google Cloud Storage
 gcs_catalog = CatalogProperties.of({'root': 'gs://my-bucket/path'})
 
-# Azure Blob Storage  
+# Azure Blob Storage
 azure_catalog = CatalogProperties.of({'root': 'az://my-container/path'})
 
 # Local filesystem

@@ -354,7 +354,6 @@ def test_compact_partition_rebase_then_incremental_main(
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": records_per_compacted_file_param,
-
                     "source_partition_locator": source_partition_locator_w_deltas,
                     "sort_keys": sort_keys if sort_keys else None,
                 }

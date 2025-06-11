@@ -275,21 +275,21 @@ def create_rebase_table_main(
 def get_rcf(rcf_file_path: str) -> RoundCompletionInfo:
     """
     Read Round Completion File from any filesystem.
-    
+
     Args:
         rcf_file_path: Path to the RCF file (works with any filesystem scheme)
-        
+
     Returns:
         RoundCompletionInfo object
     """
     from deltacat.utils.filesystem import resolve_path_and_filesystem
     import json
-    
+
     path, filesystem = resolve_path_and_filesystem(rcf_file_path)
     with filesystem.open_input_stream(path) as stream:
         content = stream.read().decode("utf-8")
         rcf_data = json.loads(content)
-    
+
     return RoundCompletionInfo(**rcf_data)
 
 
@@ -810,10 +810,10 @@ def create_incremental_deltas_on_source_table_main(
 def get_compacted_delta_locator_from_rcf(rcf_file_path: str):
     """
     Get compacted delta locator from Round Completion File.
-    
+
     Args:
         rcf_file_path: Path to the RCF file (works with any filesystem scheme)
-        
+
     Returns:
         DeltaLocator of the compacted delta
     """
@@ -968,16 +968,16 @@ def assert_compaction_audit_no_hash_bucket(
 def read_audit_file(audit_file_path: str) -> Dict[str, Any]:
     """
     Read audit file from any filesystem.
-    
+
     Args:
         audit_file_path: Path to the audit file (works with any filesystem scheme)
-        
+
     Returns:
         Dictionary containing audit data
     """
     from deltacat.utils.filesystem import resolve_path_and_filesystem
     import json
-    
+
     path, filesystem = resolve_path_and_filesystem(audit_file_path)
     with filesystem.open_input_stream(path) as stream:
         content = stream.read().decode("utf-8")

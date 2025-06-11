@@ -54,9 +54,7 @@ class CompactPartitionParams(dict):
         assert (
             params.get("source_partition_locator") is not None
         ), "source_partition_locator is a required arg"
-        assert (
-            params.get("catalog") is not None
-        ), "catalog is a required arg"
+        assert params.get("catalog") is not None, "catalog is a required arg"
 
         result = CompactPartitionParams(params)
 
@@ -74,10 +72,10 @@ class CompactPartitionParams(dict):
         result.catalog = params.get("catalog")
         result.deltacat_storage_kwargs = params.get("deltacat_storage_kwargs", {})
         result.list_deltas_kwargs = params.get("list_deltas_kwargs", {})
-        
+
         # Add catalog to deltacat_storage_kwargs
         result.deltacat_storage_kwargs["catalog"] = result.catalog
-        
+
         result.bit_width_of_sort_keys = validate_sort_keys(
             result.source_partition_locator,
             result.sort_keys,

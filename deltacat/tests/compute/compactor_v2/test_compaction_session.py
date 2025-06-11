@@ -1,5 +1,4 @@
 import ray
-import os
 import pytest
 import tempfile
 import shutil
@@ -287,9 +286,7 @@ class TestCompactionSessionMain:
         # Verify that no RCF is written
         assert rcf_url is None
 
-    def test_compact_partition_when_rcf_was_written_by_past_commit(
-        self, catalog
-    ):
+    def test_compact_partition_when_rcf_was_written_by_past_commit(self, catalog):
         """Backward compatibility test for when a RCF was written by a previous commit."""
         # Create source and destination namespaces/tables
         _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
@@ -330,27 +327,27 @@ class TestCompactionSessionMain:
             )
         )
 
-        # Now simulate the backward compatibility scenario by moving the RCF 
+        # Now simulate the backward compatibility scenario by moving the RCF
         # from new location to old location using the catalog's filesystem
         from deltacat.utils.filesystem import resolve_path_and_filesystem
         import os
-        
+
         # Get the filesystem and resolve the RCF path
         rcf_path, filesystem = resolve_path_and_filesystem(rcf_url)
-        
+
         # Determine the old location path (without the subdirectory structure)
         # Extract directory components to simulate the old vs new location structure
         rcf_dir = os.path.dirname(rcf_path)
         rcf_filename = os.path.basename(rcf_path)
         parent_dir = os.path.dirname(rcf_dir)
         old_location_path = os.path.join(parent_dir, rcf_filename)
-        
+
         # Copy the RCF from new location to old location
         with filesystem.open_input_stream(rcf_path) as source_stream:
             content = source_stream.read()
             with filesystem.open_output_stream(old_location_path) as dest_stream:
                 dest_stream.write(content)
-        
+
         # Delete the RCF from the new location
         filesystem.delete_file(rcf_path)
 
@@ -385,8 +382,6 @@ class TestCompactionSessionMain:
             )
         )
 
-
-
         rcf = get_rcf(new_rcf_url)
 
         compaction_audit = CompactionSessionAuditInfo(
@@ -418,9 +413,7 @@ class TestCompactionSessionMain:
         assert compaction_audit.output_size_bytes > 0
         assert compaction_audit.input_size_bytes > 0
 
-    def test_compact_partition_when_incremental_then_rcf_stats_accurate(
-        self, catalog
-    ):
+    def test_compact_partition_when_incremental_then_rcf_stats_accurate(self, catalog):
         """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case."""
         # Create source and destination namespaces/tables
         _, _, _, source_stream = self._create_namespace_and_table("source", catalog)

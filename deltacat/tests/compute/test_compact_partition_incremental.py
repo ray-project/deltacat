@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Any, Dict, List, Optional, Set, Tuple, Callable
 import pytest
 import pyarrow as pa
@@ -198,7 +197,7 @@ def test_compact_partition_incremental_main(
 
     # Extract catalog from storage kwargs
     catalog = ds_mock_kwargs.get("inner")
-    
+
     # setup
     partition_keys = partition_keys_param
     (
@@ -312,7 +311,7 @@ def test_compact_partition_incremental_main(
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )
-    
+
     compaction_audit_obj: Dict[str, Any] = read_audit_file(
         round_completion_info.compaction_audit_url
     )

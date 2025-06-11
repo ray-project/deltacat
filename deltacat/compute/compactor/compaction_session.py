@@ -72,7 +72,7 @@ def _upload_audit_data(url: str, content: str, **kwargs) -> None:
     """
     try:
         path, filesystem = resolve_path_and_filesystem(url)
-        
+
         # Create parent directories if they don't exist
         parent_dir = posixpath.dirname(path)
         if parent_dir:
@@ -80,8 +80,10 @@ def _upload_audit_data(url: str, content: str, **kwargs) -> None:
                 filesystem.create_dir(parent_dir, recursive=True)
             except Exception as dir_error:
                 # Directory might already exist, which is fine
-                logger.debug(f"Directory creation warning for {parent_dir}: {dir_error}")
-        
+                logger.debug(
+                    f"Directory creation warning for {parent_dir}: {dir_error}"
+                )
+
         with filesystem.open_output_stream(path) as stream:
             stream.write(content.encode("utf-8"))
     except Exception as e:
@@ -207,7 +209,7 @@ def compact_partition(
                 partition, **deltacat_storage_kwargs
             )
             logger.info(f"Committed compacted partition: {partition}")
- 
+
             round_completion_file_path = rcf.write_round_completion_file(
                 base_path=compaction_artifact_path,
                 source_partition_locator=new_rcf_partition_locator,
@@ -253,8 +255,8 @@ def _execute_compaction_round(
     )
     # Construct audit URL using filesystem-agnostic path joining
     audit_url = posixpath.join(
-        compaction_artifact_path, 
-        "compaction-audit.json", 
+        compaction_artifact_path,
+        "compaction-audit.json",
         f"{rcf_source_partition_locator.hexdigest()}.json",
     )
 
@@ -495,7 +497,7 @@ def _execute_compaction_round(
 
     compaction_audit.set_input_records(total_hb_record_count.item())
     # TODO(pdames): when resources are freed during the last round of hash bucketing,
-    #  start running dedupe tasks that read hash bucket output from storage then 
+    #  start running dedupe tasks that read hash bucket output from storage then
     #  wait for hash bucketing to finish before continuing
 
     # create a new stream for this round
@@ -737,19 +739,23 @@ def compact_partition_from_request(
     """
     # Extract required positional arguments
     source_partition_locator = compact_partition_params.source_partition_locator
-    destination_partition_locator = compact_partition_params.destination_partition_locator
+    destination_partition_locator = (
+        compact_partition_params.destination_partition_locator
+    )
     primary_keys = compact_partition_params.primary_keys
     compaction_artifact_path = compact_partition_params.compaction_artifact_path
-    last_stream_position_to_compact = compact_partition_params.last_stream_position_to_compact
-    
+    last_stream_position_to_compact = (
+        compact_partition_params.last_stream_position_to_compact
+    )
+
     # Create a copy of params without the positional arguments
     kwargs_params = dict(compact_partition_params)
-    kwargs_params.pop('source_partition_locator', None)
-    kwargs_params.pop('destination_partition_locator', None) 
-    kwargs_params.pop('primary_keys', None)
-    kwargs_params.pop('last_stream_position_to_compact', None)
+    kwargs_params.pop("source_partition_locator", None)
+    kwargs_params.pop("destination_partition_locator", None)
+    kwargs_params.pop("primary_keys", None)
+    kwargs_params.pop("last_stream_position_to_compact", None)
     # Don't pop compaction_artifact_path as it's a computed property, not stored in the dict
-    
+
     return compact_partition(
         source_partition_locator,
         destination_partition_locator,
@@ -757,5 +763,5 @@ def compact_partition_from_request(
         compaction_artifact_path,
         last_stream_position_to_compact,
         *compact_partition_pos_args,
-        **kwargs_params
+        **kwargs_params,
     )

@@ -220,6 +220,7 @@ def get_file_info(
 
     return file_info
 
+
 def write_file(
     path: str,
     data: Union[str, bytes],
@@ -237,11 +238,11 @@ def write_file(
         path=path,
         filesystem=filesystem,
     )
-    
+
     # Convert string to bytes if necessary
     if isinstance(data, str):
-        data = data.encode('utf-8')
-    
+        data = data.encode("utf-8")
+
     with resolved_filesystem.open_output_stream(resolved_path) as f:
         f.write(data)
 
@@ -267,7 +268,7 @@ def read_file(
             path=path,
             filesystem=filesystem,
         )
-        
+
         with resolved_filesystem.open_input_stream(resolved_path) as f:
             return f.read()
     except FileNotFoundError:

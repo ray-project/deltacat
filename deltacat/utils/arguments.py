@@ -58,10 +58,11 @@ def alias(aliases: Dict[str, str]) -> Callable:
     >>> example_fn(long_parameter_name="bar")
     >>> bar
     >>> example_fn(param="baz")
-    >>> baz 
+    >>> baz
     >>> example_fn()
-    >>> foo 
+    >>> foo
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(**kwargs: Any) -> Any:
@@ -69,5 +70,7 @@ def alias(aliases: Dict[str, str]) -> Callable:
                 if name not in kwargs and alias in kwargs:
                     kwargs[name] = kwargs[alias]
             return func(**kwargs)
+
         return wrapper
+
     return decorator

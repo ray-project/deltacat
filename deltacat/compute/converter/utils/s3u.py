@@ -25,7 +25,6 @@ from deltacat.types.media import (
     ContentType,
 )
 from deltacat.constants import UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY
-import s3fs
 
 
 def get_credential():
@@ -37,6 +36,8 @@ def get_credential():
 
 
 def get_s3_file_system(content_type):
+    import s3fs  # noqa: F401
+
     token_holder = get_credential()
     content_encoding = ContentEncoding.IDENTITY
 

@@ -14,9 +14,12 @@ from deltacat.constants import (
     DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY,
     RETRYABLE_TRANSIENT_ERRORS,
 )
-
+import importlib.util
 import ray
-import s3fs
+
+if importlib.util.find_spec("s3fs") is not None:
+    import s3fs  # noqa: F401
+
 from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
@@ -215,7 +218,7 @@ def read_file(
 def upload_sliced_table(
     table: Union[LocalTable, DistributedDataset],
     s3_url_prefix: str,
-    s3_file_system: s3fs.S3FileSystem,
+    s3_file_system: "s3fs.S3FileSystem",
     max_records_per_entry: Optional[int],
     s3_table_writer_func: Callable,
     table_slicer_func: Callable,
@@ -268,7 +271,7 @@ def upload_sliced_table(
 def upload_table(
     table: Union[LocalTable, DistributedDataset],
     s3_base_url: str,
-    s3_file_system: s3fs.S3FileSystem,
+    s3_file_system: "s3fs.S3FileSystem",
     s3_table_writer_func: Callable,
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
     content_type: ContentType = ContentType.PARQUET,

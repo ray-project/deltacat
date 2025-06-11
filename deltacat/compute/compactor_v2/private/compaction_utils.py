@@ -161,8 +161,8 @@ def _build_uniform_deltas(
     )
 
     _upload_audit_data(
-        params, 
-        mutable_compaction_audit.audit_url, 
+        params,
+        mutable_compaction_audit.audit_url,
         str(json.dumps(mutable_compaction_audit)),
     )
 
@@ -269,8 +269,8 @@ def _run_hash_and_merge(
         )
 
         _upload_audit_data(
-            params, 
-            mutable_compaction_audit.audit_url, 
+            params,
+            mutable_compaction_audit.audit_url,
             str(json.dumps(mutable_compaction_audit)),
         )
 
@@ -598,8 +598,8 @@ def _process_merge_results(
         previous_task_index = mat_result.task_index
 
     _upload_audit_data(
-        params, 
-        mutable_compaction_audit.audit_url, 
+        params,
+        mutable_compaction_audit.audit_url,
         str(json.dumps(mutable_compaction_audit)),
     )
     deltas: List[Delta] = [m.delta for m in mat_results]
@@ -636,8 +636,8 @@ def _update_and_upload_compaction_audit(
         )
 
     _upload_audit_data(
-        params, 
-        mutable_compaction_audit.audit_url, 
+        params,
+        mutable_compaction_audit.audit_url,
         str(json.dumps(mutable_compaction_audit)),
     )
     return
@@ -780,8 +780,8 @@ def _commit_compaction_result(
 
 
 def _upload_audit_data(
-    params: CompactPartitionParams, 
-    audit_url: str, 
+    params: CompactPartitionParams,
+    audit_url: str,
     audit_data: str,
 ) -> None:
     """
@@ -793,30 +793,40 @@ def _upload_audit_data(
         parsed_url = urlparse(audit_url)
         # For filesystem paths, use the path component
         path = parsed_url.path if parsed_url.scheme else audit_url
-        
+
         # Ensure parent directories exist
         import os
+
         parent_dir = os.path.dirname(path)
-        if parent_dir and not filesystem.get_file_info(parent_dir).type == pyarrow.fs.FileType.Directory:
+        if (
+            parent_dir
+            and not filesystem.get_file_info(parent_dir).type
+            == pyarrow.fs.FileType.Directory
+        ):
             try:
                 filesystem.create_dir(parent_dir, recursive=True)
             except Exception as e:
                 logger.warning(f"Failed to create directory {parent_dir}: {e}")
-        
+
         with filesystem.open_output_stream(path) as output_stream:
-            output_stream.write(audit_data.encode('utf-8'))
+            output_stream.write(audit_data.encode("utf-8"))
     else:
         # Fallback: resolve filesystem from the URL
         path, filesystem = resolve_path_and_filesystem(audit_url)
-        
+
         # Ensure parent directories exist
         import os
+
         parent_dir = os.path.dirname(path)
-        if parent_dir and not filesystem.get_file_info(parent_dir).type == pyarrow.fs.FileType.Directory:
+        if (
+            parent_dir
+            and not filesystem.get_file_info(parent_dir).type
+            == pyarrow.fs.FileType.Directory
+        ):
             try:
                 filesystem.create_dir(parent_dir, recursive=True)
             except Exception as e:
                 logger.warning(f"Failed to create directory {parent_dir}: {e}")
-        
+
         with filesystem.open_output_stream(path) as output_stream:
-            output_stream.write(audit_data.encode('utf-8'))
+            output_stream.write(audit_data.encode("utf-8"))
