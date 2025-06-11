@@ -207,25 +207,12 @@ def compact_partition(
                 partition, **deltacat_storage_kwargs
             )
             logger.info(f"Committed compacted partition: {partition}")
-
-            # Construct round completion file path
-            if destination_partition_locator:
-                rcf_path = posixpath.join(
-                    compaction_artifact_path,
-                    destination_partition_locator.path(f"{new_rcf_partition_locator.hexdigest()}.json")
-                )
-            else:
-                rcf_path = posixpath.join(
-                    compaction_artifact_path,
-                    f"{new_rcf_partition_locator.hexdigest()}.json"
-                )
-            
+ 
             round_completion_file_path = rcf.write_round_completion_file(
                 base_path=compaction_artifact_path,
                 source_partition_locator=new_rcf_partition_locator,
                 destination_partition_locator=partition.locator,
                 round_completion_info=new_rci,
-                completion_file_path=rcf_path,
             )
         logger.info(f"Completed compaction session for: {source_partition_locator}")
         return round_completion_file_path
@@ -267,7 +254,8 @@ def _execute_compaction_round(
     # Construct audit URL using filesystem-agnostic path joining
     audit_url = posixpath.join(
         compaction_artifact_path, 
-        "compaction-audit", f"{rcf_source_partition_locator.hexdigest()}.json",
+        "compaction-audit.json", 
+        f"{rcf_source_partition_locator.hexdigest()}.json",
     )
 
     logger.info(f"Compaction audit will be written to {audit_url}")

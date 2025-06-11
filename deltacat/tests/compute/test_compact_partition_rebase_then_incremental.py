@@ -1,4 +1,3 @@
-import logging
 import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, Callable
 import pytest
@@ -24,10 +23,6 @@ from deltacat.tests.compute.test_util_common import (
     read_audit_file,
     PartitionKey,
     get_compacted_delta_locator_from_rcf,
-)
-from deltacat.tests.compute.test_util_common import (
-    create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
-    create_incremental_deltas_on_source_table_main,
 )
 from deltacat.tests.compute.compact_partition_rebase_then_incremental_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
