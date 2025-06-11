@@ -53,7 +53,7 @@ def materialize(
         input.write_to_partition,
         max_records_per_entry=input.max_records_per_output_file,
         content_type=input.compacted_file_content_type,
-        s3_table_writer_kwargs=input.s3_table_writer_kwargs,
+        table_writer_kwargs=input.table_writer_kwargs,
         **input.deltacat_storage_kwargs,
     )
     compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](
@@ -124,7 +124,7 @@ def generate_local_merge_input(
         max_records_per_output_file=params.records_per_compacted_file,
         enable_profiler=params.enable_profiler,
         metrics_config=params.metrics_config,
-        s3_table_writer_kwargs=params.s3_table_writer_kwargs,
+        table_writer_kwargs=params.table_writer_kwargs,
         read_kwargs_provider=params.read_kwargs_provider,
         round_completion_info=round_completion_info,
         object_store=params.object_store,

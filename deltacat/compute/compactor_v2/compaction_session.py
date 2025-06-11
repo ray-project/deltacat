@@ -104,7 +104,7 @@ def _execute_compaction(
     )
 
     base_audit_url: str = rcf_source_partition_locator.path(
-        f"s3://{params.compaction_artifact_s3_bucket}/compaction-audit"
+        f"{params.compaction_artifact_path}/compaction-audit"
     )
     audit_url: str = f"{base_audit_url}.json"
     logger.info(f"Compaction audit will be written to {audit_url}")

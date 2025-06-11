@@ -1,17 +1,16 @@
-import ray
-from moto import mock_s3
-import pytest
-import os
 import logging
-import boto3
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-from boto3.resources.base import ServiceResource
+import os
+from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+import pytest
 import pyarrow as pa
+import ray
+
 from pytest_benchmark.fixture import BenchmarkFixture
 from deltacat.types.media import StorageType
 
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
+    read_audit_file,
     PartitionKeyType,
 )
 from deltacat.tests.compute.test_util_common import (
@@ -19,12 +18,11 @@ from deltacat.tests.compute.test_util_common import (
     create_src_w_deltas_destination_plus_destination_main,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.tests.test_utils.utils import read_s3_contents
+
 from deltacat.tests.compute.compact_partition_test_cases import (
     INCREMENTAL_TEST_CASES,
 )
 from deltacat.tests.compute.test_util_constant import (
-    TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
@@ -65,31 +63,6 @@ def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
     ray.shutdown()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def mock_aws_credential():
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    yield
-
-
-@pytest.fixture(scope="module")
-def s3_resource():
-    with mock_s3():
-        yield boto3.resource("s3")
-
-
-@pytest.fixture(autouse=True, scope="module")
-def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
-    s3_resource.create_bucket(
-        ACL="authenticated-read",
-        Bucket=TEST_S3_RCF_BUCKET_NAME,
-    )
-    yield
 
 
 """
@@ -191,7 +164,6 @@ def temp_dir(tmp_path):
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
 )
 def test_compact_partition_incremental_main(
-    s3_resource: ServiceResource,
     main_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
@@ -224,6 +196,9 @@ def test_compact_partition_incremental_main(
 
     ds_mock_kwargs: Dict[str, Any] = main_deltacat_storage_kwargs
 
+    # Extract catalog from storage kwargs
+    catalog = ds_mock_kwargs.get("inner")
+    
     # setup
     partition_keys = partition_keys_param
     (
@@ -284,7 +259,7 @@ def test_compact_partition_incremental_main(
     )
     compact_partition_params = CompactPartitionParams.of(
         {
-            "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+            "catalog": catalog,
             "compacted_file_content_type": ContentType.PARQUET,
             "dd_max_parallelism_ratio": 1.0,
             "deltacat_storage": metastore,
@@ -300,7 +275,6 @@ def test_compact_partition_incremental_main(
             "rebase_source_partition_locator": None,
             "rebase_source_partition_high_watermark": None,
             "records_per_compacted_file": records_per_compacted_file_param,
-            "s3_client_kwargs": {},
             "source_partition_locator": source_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
         }
@@ -315,7 +289,6 @@ def test_compact_partition_incremental_main(
 
         Returns: args, kwargs
         """
-        s3_resource.Bucket(TEST_S3_RCF_BUCKET_NAME).objects.all().delete()
         return (compact_partition_params,), {}
 
     if add_late_deltas:
@@ -335,16 +308,13 @@ def test_compact_partition_incremental_main(
     )
 
     # validate
-    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
+    round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )
-    audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
+    
+    compaction_audit_obj: Dict[str, Any] = read_audit_file(
         round_completion_info.compaction_audit_url
-    )
-
-    compaction_audit_obj: Dict[str, Any] = read_s3_contents(
-        s3_resource, audit_bucket, audit_key
     )
     compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
         **compaction_audit_obj

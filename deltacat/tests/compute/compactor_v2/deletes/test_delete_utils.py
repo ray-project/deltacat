@@ -11,9 +11,6 @@ from deltacat.storage import (
     PartitionLocator,
     Stream,
 )
-from deltacat.tests.compute.test_util_constant import (
-    TEST_S3_RCF_BUCKET_NAME,
-)
 from deltacat.tests.compute.test_util_common import (
     create_src_table_main,
     create_destination_table_main,
@@ -680,7 +677,7 @@ class TestPrepareDeletesMain:
         )
         params = CompactPartitionParams.of(
             {
-                "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                "catalog": main_deltacat_storage_kwargs.get("inner"),
                 "deltacat_storage": metastore,
                 "deltacat_storage_kwargs": main_deltacat_storage_kwargs,
                 "destination_partition_locator": PartitionLocator.of(

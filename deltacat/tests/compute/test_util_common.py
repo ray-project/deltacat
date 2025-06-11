@@ -8,7 +8,6 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 import datetime as dt
-from boto3.resources.base import ServiceResource
 from datetime import timezone
 
 import tempfile
@@ -19,7 +18,6 @@ import pyarrow as pa
 
 
 from deltacat.tests.compute.test_util_constant import (
-    TEST_S3_RCF_BUCKET_NAME,
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
     BASE_TEST_SOURCE_TABLE_VERSION,
@@ -274,14 +272,25 @@ def create_rebase_table_main(
     )
 
 
-def get_rcf(s3_resource, rcf_file_s3_uri: str) -> RoundCompletionInfo:
-    from deltacat.tests.test_utils.utils import read_s3_contents
-
-    _, rcf_object_key = rcf_file_s3_uri.strip("s3://").split("/", 1)
-    rcf_file_output: Dict[str, Any] = read_s3_contents(
-        s3_resource, TEST_S3_RCF_BUCKET_NAME, rcf_object_key
-    )
-    return RoundCompletionInfo(**rcf_file_output)
+def get_rcf(rcf_file_path: str) -> RoundCompletionInfo:
+    """
+    Read Round Completion File from any filesystem.
+    
+    Args:
+        rcf_file_path: Path to the RCF file (works with any filesystem scheme)
+        
+    Returns:
+        RoundCompletionInfo object
+    """
+    from deltacat.utils.filesystem import resolve_path_and_filesystem
+    import json
+    
+    path, filesystem = resolve_path_and_filesystem(rcf_file_path)
+    with filesystem.open_input_stream(path) as stream:
+        content = stream.read().decode("utf-8")
+        rcf_data = json.loads(content)
+    
+    return RoundCompletionInfo(**rcf_data)
 
 
 def _add_deltas_to_partition_main(
@@ -798,12 +807,19 @@ def create_incremental_deltas_on_source_table_main(
     )
 
 
-def get_compacted_delta_locator_from_rcf(
-    s3_resource: ServiceResource, rcf_file_s3_uri: str
-):
+def get_compacted_delta_locator_from_rcf(rcf_file_path: str):
+    """
+    Get compacted delta locator from Round Completion File.
+    
+    Args:
+        rcf_file_path: Path to the RCF file (works with any filesystem scheme)
+        
+    Returns:
+        DeltaLocator of the compacted delta
+    """
     from deltacat.storage import DeltaLocator
 
-    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
+    round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_path)
 
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
@@ -947,3 +963,22 @@ def assert_compaction_audit_no_hash_bucket(
         for entry in audit_entries:
             assert entry is not None
     return True
+
+
+def read_audit_file(audit_file_path: str) -> Dict[str, Any]:
+    """
+    Read audit file from any filesystem.
+    
+    Args:
+        audit_file_path: Path to the audit file (works with any filesystem scheme)
+        
+    Returns:
+        Dictionary containing audit data
+    """
+    from deltacat.utils.filesystem import resolve_path_and_filesystem
+    import json
+    
+    path, filesystem = resolve_path_and_filesystem(audit_file_path)
+    with filesystem.open_input_stream(path) as stream:
+        content = stream.read().decode("utf-8")
+        return json.loads(content)

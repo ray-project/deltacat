@@ -1,30 +1,30 @@
-import ray
-import os
-from moto import mock_s3
+import logging
+import tempfile
+from typing import Any, Dict, List, Optional, Set, Tuple, Callable
 import pytest
-import boto3
-from boto3.resources.base import ServiceResource
 import pyarrow as pa
+import ray
+import pandas as pd
+
 from deltacat.io.file_object_store import FileObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
-import tempfile
-import pandas as pd
 
 from deltacat.tests.compute.test_util_constant import (
     BASE_TEST_SOURCE_NAMESPACE,
     BASE_TEST_SOURCE_TABLE_NAME,
     BASE_TEST_SOURCE_TABLE_VERSION,
-    TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.tests.compute.test_util_common import (
+    create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
+    create_incremental_deltas_on_source_table_main,
     get_rcf,
+    read_audit_file,
     PartitionKey,
     get_compacted_delta_locator_from_rcf,
 )
-from deltacat.tests.test_utils.utils import read_s3_contents
 from deltacat.tests.compute.test_util_common import (
     create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
     create_incremental_deltas_on_source_table_main,
@@ -32,7 +32,7 @@ from deltacat.tests.compute.test_util_common import (
 from deltacat.tests.compute.compact_partition_rebase_then_incremental_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
 )
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
 from deltacat.types.media import StorageType
 from deltacat.storage import (
     DeltaType,
@@ -62,31 +62,6 @@ def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
     ray.shutdown()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def mock_aws_credential():
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_ID"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    yield
-
-
-@pytest.fixture(scope="module")
-def s3_resource(mock_aws_credential):
-    with mock_s3():
-        yield boto3.resource("s3")
-
-
-@pytest.fixture(autouse=True, scope="module")
-def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
-    s3_resource.create_bucket(
-        ACL="authenticated-read",
-        Bucket=TEST_S3_RCF_BUCKET_NAME,
-    )
-    yield
 
 
 """
@@ -183,7 +158,6 @@ def enable_bucketing_spec_validation(monkeypatch):
     ids=[test_name for test_name in REBASE_THEN_INCREMENTAL_TEST_CASES],
 )
 def test_compact_partition_rebase_then_incremental_main(
-    s3_resource: ServiceResource,
     main_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
@@ -279,9 +253,12 @@ def test_compact_partition_rebase_then_incremental_main(
         ).pgs[0]
 
     with tempfile.TemporaryDirectory() as test_dir:
+        # Extract catalog from storage kwargs
+        catalog = ds_mock_kwargs.get("inner")
+
         compact_partition_params = CompactPartitionParams.of(
             {
-                "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                "catalog": catalog,
                 "compacted_file_content_type": ContentType.PARQUET,
                 "dd_max_parallelism_ratio": 1.0,
                 "deltacat_storage": metastore,
@@ -299,15 +276,14 @@ def test_compact_partition_rebase_then_incremental_main(
                 "read_kwargs_provider": read_kwargs_provider_param,
                 "rebase_source_partition_locator": source_partition.locator,
                 "records_per_compacted_file": records_per_compacted_file_param,
-                "s3_client_kwargs": {},
                 "source_partition_locator": rebased_partition.locator,
                 "sort_keys": sort_keys if sort_keys else None,
             }
         )
         # execute
-        rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
+        rcf_file_path = benchmark(compact_partition_func, compact_partition_params)
         compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            s3_resource, rcf_file_s3_uri
+            rcf_file_path
         )
         tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
@@ -363,7 +339,7 @@ def test_compact_partition_rebase_then_incremental_main(
 
             compact_partition_params = CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -383,7 +359,7 @@ def test_compact_partition_rebase_then_incremental_main(
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": records_per_compacted_file_param,
-                    "s3_client_kwargs": {},
+
                     "source_partition_locator": source_partition_locator_w_deltas,
                     "sort_keys": sort_keys if sort_keys else None,
                 }
@@ -393,10 +369,10 @@ def test_compact_partition_rebase_then_incremental_main(
                     compact_partition_func(compact_partition_params)
                 assert expected_terminal_exception_message in str(exc_info.value)
                 return
-            rcf_file_s3_uri = compact_partition_func(compact_partition_params)
+            rcf_file_path = compact_partition_func(compact_partition_params)
             # assert
             compacted_delta_locator: DeltaLocator = (
-                get_compacted_delta_locator_from_rcf(s3_resource, rcf_file_s3_uri)
+                get_compacted_delta_locator_from_rcf(rcf_file_path)
             )
             tables = metastore.download_delta(
                 compacted_delta_locator,
@@ -406,15 +382,9 @@ def test_compact_partition_rebase_then_incremental_main(
             actual_compact_partition_result = pa.concat_tables(tables)
 
             # Get compaction audit for verification if needed
-            round_completion_info = get_rcf(s3_resource, rcf_file_s3_uri)
-            (
-                audit_bucket,
-                audit_key,
-            ) = round_completion_info.compaction_audit_url.replace("s3://", "").split(
-                "/", 1
-            )
-            compaction_audit_obj: dict = read_s3_contents(
-                s3_resource, audit_bucket, audit_key
+            round_completion_info = get_rcf(rcf_file_path)
+            compaction_audit_obj: dict = read_audit_file(
+                round_completion_info.compaction_audit_url
             )
             compaction_audit = CompactionSessionAuditInfo(**compaction_audit_obj)
 

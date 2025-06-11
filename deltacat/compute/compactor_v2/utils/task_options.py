@@ -11,7 +11,7 @@ from deltacat.compute.compactor_v2.model.merge_file_group import (
 from deltacat.storage import (
     Manifest,
     ManifestEntry,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat.compute.compactor.model.delta_annotated import DeltaAnnotated
 from deltacat.compute.compactor.model.round_completion_info import RoundCompletionInfo
@@ -77,7 +77,7 @@ def _get_merge_task_options(
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     primary_keys: Optional[List[str]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict] = {},
     memory_logs_enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
@@ -275,7 +275,7 @@ def merge_resource_options_provider(
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
     primary_keys: Optional[List[str]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict] = {},
     memory_logs_enabled: Optional[bool] = None,
     **kwargs,
@@ -322,7 +322,7 @@ def local_merge_resource_options_provider(
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
     primary_keys: Optional[List[str]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict] = {},
     memory_logs_enabled: Optional[bool] = None,
     **kwargs,

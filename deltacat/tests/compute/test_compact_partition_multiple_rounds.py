@@ -1,36 +1,35 @@
-import ray
-import os
-from moto import mock_s3
+import logging
+import tempfile
+from typing import Any, Dict, List, Optional, Set, Tuple, Callable, Union
 import pytest
-import boto3
-from boto3.resources.base import ServiceResource
 import pyarrow as pa
+import ray
+
 from deltacat.io.file_object_store import FileObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
-import tempfile
 
 from deltacat.tests.compute.test_util_constant import (
-    TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
+    read_audit_file,
     PartitionKey,
     get_compacted_delta_locator_from_rcf,
 )
 from deltacat.tests.compute.test_util_common import (
     multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
 )
-from deltacat.tests.test_utils.utils import read_s3_contents
+
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.tests.compute.compact_partition_multiple_rounds_test_cases import (
     MULTIPLE_ROUNDS_TEST_CASES,
+    MultipleRoundsTestCaseParams,
 )
-from typing import Any, Callable, Dict, List, Optional, Set
 from deltacat.types.media import StorageType, ContentType
 from deltacat.storage import (
     DeltaLocator,
@@ -58,31 +57,6 @@ def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
     ray.shutdown()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def mock_aws_credential():
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_ID"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    yield
-
-
-@pytest.fixture(scope="module")
-def s3_resource(mock_aws_credential):
-    with mock_s3():
-        yield boto3.resource("s3")
-
-
-@pytest.fixture(autouse=True, scope="module")
-def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
-    s3_resource.create_bucket(
-        ACL="authenticated-read",
-        Bucket=TEST_S3_RCF_BUCKET_NAME,
-    )
-    yield
 
 
 """
@@ -177,7 +151,6 @@ def enable_bucketing_spec_validation(monkeypatch):
 )
 def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_main(
     mocker,
-    s3_resource: ServiceResource,
     main_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
@@ -262,7 +235,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
     with tempfile.TemporaryDirectory() as test_dir:
         compact_partition_params = CompactPartitionParams.of(
             {
-                "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                "catalog": ds_mock_kwargs.get("inner"),
                 "compacted_file_content_type": ContentType.PARQUET,
                 "dd_max_parallelism_ratio": 1.0,
                 "deltacat_storage": metastore,
@@ -281,7 +254,6 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
                 "rebase_source_partition_locator": source_partition.locator,
                 "rebase_source_partition_high_watermark": rebased_partition.stream_position,
                 "records_per_compacted_file": records_per_compacted_file_param,
-                "s3_client_kwargs": {},
                 "source_partition_locator": rebased_partition.locator,
                 "sort_keys": sort_keys if sort_keys else None,
                 "num_rounds": num_rounds_param,
@@ -306,15 +278,10 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         # execute
         rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
 
-        round_completion_info: RoundCompletionInfo = get_rcf(
-            s3_resource, rcf_file_s3_uri
-        )
-        audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
+        round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
+        
+        compaction_audit_obj: Dict[str, Any] = read_audit_file(
             round_completion_info.compaction_audit_url
-        )
-
-        compaction_audit_obj: Dict[str, Any] = read_s3_contents(
-            s3_resource, audit_bucket, audit_key
         )
         compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
             **compaction_audit_obj
@@ -335,7 +302,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
             execute_compaction_result_spy.call_args.args[-1] is False
         ), "Table version erroneously marked as in-place compacted!"
         compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            s3_resource, rcf_file_s3_uri
+            rcf_file_s3_uri
         )
         tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs

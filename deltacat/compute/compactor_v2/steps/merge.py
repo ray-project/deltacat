@@ -39,7 +39,7 @@ from deltacat.storage import (
     DeltaLocator,
     DeltaType,
     Partition,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat.storage.model.manifest import Manifest
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
@@ -254,7 +254,7 @@ def _download_compacted_table(
     rcf: RoundCompletionInfo,
     primary_keys: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
     tables = []
@@ -304,7 +304,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     hb_index_copy_by_reference: List[int],
     round_completion_info: RoundCompletionInfo,
     write_to_partition: Partition,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> List[MaterializeResult]:
 

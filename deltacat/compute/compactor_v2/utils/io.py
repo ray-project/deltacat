@@ -3,7 +3,7 @@ import functools
 from deltacat.storage import (
     PartitionLocator,
     Delta,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat import logs
 from deltacat.compute.compactor.utils import io as io_v1
@@ -38,7 +38,7 @@ def discover_deltas(
     rebase_source_partition_locator: Optional[PartitionLocator] = None,
     rebase_source_partition_high_watermark: Optional[int] = None,
     rcf_high_watermark: Optional[int] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
     list_deltas_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[Delta]:
@@ -93,7 +93,7 @@ def create_uniform_input_deltas(
     hash_bucket_count: int,
     compaction_audit: CompactionSessionAuditInfo,
     compact_partition_params: CompactPartitionParams,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[DeltaAnnotated]:
 

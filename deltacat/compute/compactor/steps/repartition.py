@@ -10,7 +10,7 @@ import ray
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.compactor.model.repartition_result import RepartitionResult
-from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.storage import metastore
 from deltacat.storage import Partition
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
@@ -56,9 +56,9 @@ def repartition_range(
     destination_partition: Partition,
     repartition_args: dict,
     max_records_per_output_file: int,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
@@ -146,7 +146,7 @@ def repartition_range(
                     destination_partition,
                     max_records_per_entry=max_records_per_output_file,
                     content_type=repartitioned_file_content_type,
-                    s3_table_writer_kwargs=s3_table_writer_kwargs,
+                    table_writer_kwargs=table_writer_kwargs,
                     **deltacat_storage_kwargs,
                 )
                 partition_deltas.append(partition_delta)
@@ -168,9 +168,9 @@ def _timed_repartition(
     max_records_per_output_file: int,
     enable_profiler: bool,
     read_kwargs_provider: Optional[ReadKwargsProvider],
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> RepartitionResult:
@@ -192,7 +192,7 @@ def _timed_repartition(
                 destination_partition=destination_partition,
                 repartition_args=repartition_args,
                 max_records_per_output_file=max_records_per_output_file,
-                s3_table_writer_kwargs=s3_table_writer_kwargs,
+                table_writer_kwargs=table_writer_kwargs,
                 repartitioned_file_content_type=repartitioned_file_content_type,
                 deltacat_storage=deltacat_storage,
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
@@ -213,9 +213,9 @@ def repartition(
     enable_profiler: bool,
     metrics_config: Optional[MetricsConfig],
     read_kwargs_provider: Optional[ReadKwargsProvider],
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     repartitioned_file_content_type: ContentType = ContentType.PARQUET,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> RepartitionResult:
@@ -231,7 +231,7 @@ def repartition(
         max_records_per_output_file=max_records_per_output_file,
         enable_profiler=enable_profiler,
         read_kwargs_provider=read_kwargs_provider,
-        s3_table_writer_kwargs=s3_table_writer_kwargs,
+        table_writer_kwargs=table_writer_kwargs,
         repartitioned_file_content_type=repartitioned_file_content_type,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,

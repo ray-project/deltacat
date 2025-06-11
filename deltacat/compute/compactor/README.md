@@ -5,6 +5,9 @@ Log-Structure-Merge (LSM) based Change-Data-Capture (CDC) implementation using
 Ray. It implements [The Flash Compactor Design](TheFlashCompactorDesign.pdf)
 using DeltaCAT's portable delta catalog storage APIs.
 
+The compactor is filesystem-agnostic and works with any valid PyArrow filesystem
+or fsspec filesystem through the DeltaCAT catalog abstraction.
+
 ## User Guide
 ### Migrating to the DeltaCAT Compactor
 Migration from your old copy-on-write CDC framework to DeltaCAT is typically
@@ -32,11 +35,16 @@ the new compactor will read and merge deltas from, then your first call to
 `compact_partition` should look something like this:
 ```python
 from deltacat.compute.compactor.compaction_session import compact_partition
+from deltacat.catalog.model.catalog_properties import CatalogProperties
+
+# Create a catalog that points to your storage location
+catalog = CatalogProperties.of({'root': 's3://your-bucket'})
+
 compact_partition(
   source_partition_locator=old_compacted_partition,  # S1
   destination_partition_locator=deltacat_compacted_partition,  # D
   primary_keys=delta_source_primary_keys,
-  compaction_artifact_s3_bucket=deltacat_s3_bucket,
+  catalog=catalog,
   last_stream_position_to_compact=delta_source_last_stream_position,
   rebase_source_partition_locator=delta_source_partition,  # S2
   rebase_source_partition_high_watermark=delta_source_last_compacted_stream_position,
@@ -51,11 +59,12 @@ Then, to compact subsequent incremental deltas from `delta_source` on top of
 the last rebase source:
 ```python
 from deltacat.compute.compactor.compaction_session import compact_partition
+
 compact_partition(
   source_partition_locator=delta_source_partition,  # S2
   destination_partition_locator=deltacat_compacted_partition,  # D
   primary_keys=delta_source_primary_keys,
-  compaction_artifact_s3_bucket=deltacat_s3_bucket,
+  catalog=catalog,  # filesystem-agnostic catalog
   last_stream_position_to_compact=delta_source_last_stream_position,
 )
 ```
@@ -77,11 +86,12 @@ cached files were corrupted, or for testing purposes. In this case, simply set
 value:
 ```python
 from deltacat.compute.compactor.compaction_session import compact_partition
+
 compact_partition(
   source_partition_locator=source_partition_to_compact,
   destination_partition_locator=deltacat_compacted_partition,
   primary_keys=delta_source_primary_keys,
-  compaction_artifact_s3_bucket=deltacat_s3_bucket,
+  catalog=catalog,
   last_stream_position_to_compact=delta_source_last_stream_position,
   rebase_source_partition_locator=source_partition_to_compact,
 )
@@ -96,11 +106,12 @@ All subsequent incremental compactions can now run as usual by simply omitting
 `rebase_source_partition_locator`:
 ```python
 from deltacat.compute.compactor.compaction_session import compact_partition
+
 compact_partition(
     source_partition_locator=source_partition_to_compact,
     destination_partition_locator=deltacat_compacted_partition,
     primary_keys=delta_source_primary_keys,
-    compaction_artifact_s3_bucket=deltacat_s3_bucket,
+    catalog=catalog,
     last_stream_position_to_compact=delta_source_last_stream_position,
 )
 ```
@@ -109,3 +120,28 @@ This will re-use the round completion file and primary key index produced by
 the last compaction round, and compact all source partition deltas between
 the prior invocation's `last_stream_position_to_compact` (exclusive) and this
 invocation's `last_stream_position_to_compact` (inclusive).
+
+### Catalog Configuration
+
+The compactor uses a catalog abstraction that works with any PyArrow or fsspec filesystem:
+
+```python
+from deltacat.catalog.model.catalog_properties import CatalogProperties
+
+# S3 filesystem
+s3_catalog = CatalogProperties.of({'root': 's3://my-bucket/path'})
+
+# Google Cloud Storage
+gcs_catalog = CatalogProperties.of({'root': 'gs://my-bucket/path'})
+
+# Azure Blob Storage  
+azure_catalog = CatalogProperties.of({'root': 'az://my-container/path'})
+
+# Local filesystem
+local_catalog = CatalogProperties.of({'root': '/path/to/local/storage'})
+
+# HDFS
+hdfs_catalog = CatalogProperties.of({'root': 'hdfs://namenode/path'})
+```
+
+The compactor will automatically use the appropriate filesystem driver based on the URL scheme.

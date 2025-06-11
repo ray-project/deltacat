@@ -220,6 +220,61 @@ def get_file_info(
 
     return file_info
 
+def write_file(
+    path: str,
+    data: Union[str, bytes],
+    filesystem: Optional[FileSystem] = None,
+) -> None:
+    """
+    Write data to a file using any filesystem.
+
+    Args:
+        path: The file path to write to.
+        data: The data to write (string or bytes).
+        filesystem: The filesystem implementation to use. If None, will be inferred from the path.
+    """
+    resolved_path, resolved_filesystem = resolve_path_and_filesystem(
+        path=path,
+        filesystem=filesystem,
+    )
+    
+    # Convert string to bytes if necessary
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+    
+    with resolved_filesystem.open_output_stream(resolved_path) as f:
+        f.write(data)
+
+
+def read_file(
+    path: str,
+    filesystem: Optional[FileSystem] = None,
+    fail_if_not_found: bool = True,
+) -> Optional[bytes]:
+    """
+    Read data from a file using any filesystem.
+
+    Args:
+        path: The file path to read from.
+        filesystem: The filesystem implementation to use. If None, will be inferred from the path.
+        fail_if_not_found: Whether to raise an error if the file is not found.
+
+    Returns:
+        The file data as bytes, or None if file not found and fail_if_not_found is False.
+    """
+    try:
+        resolved_path, resolved_filesystem = resolve_path_and_filesystem(
+            path=path,
+            filesystem=filesystem,
+        )
+        
+        with resolved_filesystem.open_input_stream(resolved_path) as f:
+            return f.read()
+    except FileNotFoundError:
+        if fail_if_not_found:
+            raise
+        return None
+
 
 def _handle_read_os_error(
     error: OSError,

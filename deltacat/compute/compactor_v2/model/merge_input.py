@@ -14,7 +14,7 @@ from deltacat.io.object_store import IObjectStore
 from deltacat.storage import (
     Partition,
     SortKey,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat.compute.compactor_v2.constants import (
     DROP_DUPLICATES,
@@ -38,13 +38,13 @@ class MergeInput(Dict):
         max_records_per_output_file: Optional[int] = MAX_RECORDS_PER_COMPACTED_FILE,
         enable_profiler: Optional[bool] = False,
         metrics_config: Optional[MetricsConfig] = None,
-        s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+        table_writer_kwargs: Optional[Dict[str, Any]] = None,
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         round_completion_info: Optional[RoundCompletionInfo] = None,
         object_store: Optional[IObjectStore] = None,
         delete_strategy: Optional[DeleteStrategy] = None,
         delete_file_envelopes: Optional[List[DeleteFileEnvelope]] = None,
-        deltacat_storage=unimplemented_deltacat_storage,
+        deltacat_storage=metastore,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
         memory_logs_enabled: Optional[bool] = None,
         disable_copy_by_reference: Optional[bool] = None,
@@ -62,7 +62,7 @@ class MergeInput(Dict):
         result["max_records_per_output_file"] = max_records_per_output_file
         result["enable_profiler"] = enable_profiler
         result["metrics_config"] = metrics_config
-        result["s3_table_writer_kwargs"] = s3_table_writer_kwargs or {}
+        result["table_writer_kwargs"] = table_writer_kwargs or {}
         result["read_kwargs_provider"] = read_kwargs_provider
         result["round_completion_info"] = round_completion_info
         result["object_store"] = object_store
@@ -116,8 +116,8 @@ class MergeInput(Dict):
         return self.get("metrics_config")
 
     @property
-    def s3_table_writer_kwargs(self) -> Optional[Dict[str, Any]]:
-        return self.get("s3_table_writer_kwargs")
+    def table_writer_kwargs(self) -> Optional[Dict[str, Any]]:
+        return self.get("table_writer_kwargs")
 
     @property
     def read_kwargs_provider(self) -> Optional[ReadKwargsProvider]:
@@ -132,7 +132,7 @@ class MergeInput(Dict):
         return self.get("object_store")
 
     @property
-    def deltacat_storage(self) -> unimplemented_deltacat_storage:
+    def deltacat_storage(self) -> metastore:
         return self["deltacat_storage"]
 
     @property

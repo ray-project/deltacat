@@ -5,7 +5,8 @@ import logging
 import ray
 import time
 import json
-from deltacat.aws import s3u as s3_utils
+import posixpath
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 import deltacat
 from deltacat import logs
 import pyarrow as pa
@@ -25,7 +26,7 @@ from deltacat.storage import (
     DeltaLocator,
     Partition,
     PartitionLocator,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
@@ -65,13 +66,25 @@ DEFAULT_DEDUPE_MAX_PARALLELISM_RATIO_ARG: int = 1
 DEFAULT_PROPERTIES_ARG: Dict[str, Any] = {}
 
 
+def _upload_audit_data(url: str, content: str, **kwargs) -> None:
+    """
+    Upload audit data to the specified URL using filesystem-agnostic operations.
+    """
+    try:
+        path, filesystem = resolve_path_and_filesystem(url)
+        with filesystem.open_output_stream(path) as stream:
+            stream.write(content.encode("utf-8"))
+    except Exception as e:
+        logger.warning(f"Failed to upload audit data to {url}: {e}")
+
+
 def check_preconditions(
     source_partition_locator: PartitionLocator,
     destination_partition_locator: PartitionLocator,
     sort_keys: List[SortKey],
     max_records_per_output_file: int,
     new_hash_bucket_count: Optional[int],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> int:
@@ -104,7 +117,7 @@ def compact_partition(
     source_partition_locator: PartitionLocator,
     destination_partition_locator: PartitionLocator,
     primary_keys: Set[str],
-    compaction_artifact_s3_bucket: str,
+    compaction_artifact_path: str,
     last_stream_position_to_compact: int,
     *,
     hash_bucket_count: Optional[int] = None,
@@ -123,10 +136,9 @@ def compact_partition(
     metrics_config: Optional[MetricsConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
-    s3_client_kwargs: Optional[Dict[str, Any]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Optional[str]:
@@ -135,9 +147,6 @@ def compact_partition(
     if not importlib.util.find_spec("memray"):
         logger.info(f"memray profiler not available, disabling all profiling")
         enable_profiler = False
-
-    if s3_client_kwargs is None:
-        s3_client_kwargs = {}
 
     # memray official documentation link:
     # https://bloomberg.github.io/memray/getting_started.html
@@ -153,7 +162,7 @@ def compact_partition(
             source_partition_locator,
             destination_partition_locator,
             primary_keys,
-            compaction_artifact_s3_bucket,
+            compaction_artifact_path,
             last_stream_position_to_compact,
             hash_bucket_count,
             sort_keys,
@@ -169,9 +178,8 @@ def compact_partition(
             metrics_config,
             list_deltas_kwargs,
             read_kwargs_provider,
-            s3_table_writer_kwargs,
+            table_writer_kwargs,
             object_store,
-            s3_client_kwargs,
             deltacat_storage,
             deltacat_storage_kwargs,
             **kwargs,
@@ -182,7 +190,7 @@ def compact_partition(
         logger.info(
             f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed"
         )
-        round_completion_file_s3_url = None
+        round_completion_file_path = None
         if partition:
             logger.info(f"Committing compacted partition to: {partition.locator}")
             partition = deltacat_storage.commit_partition(
@@ -190,22 +198,34 @@ def compact_partition(
             )
             logger.info(f"Committed compacted partition: {partition}")
 
-            round_completion_file_s3_url = rcf.write_round_completion_file(
-                compaction_artifact_s3_bucket,
-                new_rcf_partition_locator,
-                partition.locator,
-                new_rci,
-                **s3_client_kwargs,
+            # Construct round completion file path
+            if destination_partition_locator:
+                rcf_path = posixpath.join(
+                    compaction_artifact_path,
+                    destination_partition_locator.path(f"{new_rcf_partition_locator.hexdigest()}.json")
+                )
+            else:
+                rcf_path = posixpath.join(
+                    compaction_artifact_path,
+                    f"{new_rcf_partition_locator.hexdigest()}.json"
+                )
+            
+            round_completion_file_path = rcf.write_round_completion_file(
+                base_path=compaction_artifact_path,
+                source_partition_locator=new_rcf_partition_locator,
+                destination_partition_locator=partition.locator,
+                round_completion_info=new_rci,
+                completion_file_path=rcf_path,
             )
         logger.info(f"Completed compaction session for: {source_partition_locator}")
-        return round_completion_file_s3_url
+        return round_completion_file_path
 
 
 def _execute_compaction_round(
     source_partition_locator: PartitionLocator,
     destination_partition_locator: PartitionLocator,
     primary_keys: Set[str],
-    compaction_artifact_s3_bucket: str,
+    compaction_artifact_path: str,
     last_stream_position_to_compact: int,
     hash_bucket_count: Optional[int],
     sort_keys: List[SortKey],
@@ -221,10 +241,9 @@ def _execute_compaction_round(
     metrics_config: Optional[MetricsConfig],
     list_deltas_kwargs: Optional[Dict[str, Any]],
     read_kwargs_provider: Optional[ReadKwargsProvider],
-    s3_table_writer_kwargs: Optional[Dict[str, Any]],
+    table_writer_kwargs: Optional[Dict[str, Any]],
     object_store: Optional[IObjectStore],
-    s3_client_kwargs: Optional[Dict[str, Any]],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
@@ -235,10 +254,11 @@ def _execute_compaction_round(
         if rebase_source_partition_locator
         else source_partition_locator
     )
-    base_audit_url = rcf_source_partition_locator.path(
-        f"s3://{compaction_artifact_s3_bucket}/compaction-audit"
+    # Construct audit URL using filesystem-agnostic path joining
+    audit_url = posixpath.join(
+        compaction_artifact_path, 
+        "compaction-audit", f"{rcf_source_partition_locator.hexdigest()}.json",
     )
-    audit_url = f"{base_audit_url}.json"
 
     logger.info(f"Compaction audit will be written to {audit_url}")
 
@@ -313,10 +333,9 @@ def _execute_compaction_round(
     round_completion_info = None
     if not rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
-            compaction_artifact_s3_bucket,
-            source_partition_locator,
-            destination_partition_locator,
-            **s3_client_kwargs,
+            base_path=compaction_artifact_path,
+            source_partition_locator=source_partition_locator,
+            destination_partition_locator=destination_partition_locator,
         )
         if not round_completion_info:
             logger.info(
@@ -363,11 +382,7 @@ def _execute_compaction_round(
         delta_discovery_end - delta_discovery_start
     )
 
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **s3_client_kwargs,
-    )
+    _upload_audit_data(audit_url, json.dumps(compaction_audit))
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
@@ -464,11 +479,7 @@ def _execute_compaction_round(
         hb_end - hb_start,
     )
 
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **s3_client_kwargs,
-    )
+    _upload_audit_data(audit_url, json.dumps(compaction_audit))
 
     all_hash_group_idx_to_obj_id = defaultdict(list)
     for hb_result in hb_results:
@@ -485,9 +496,9 @@ def _execute_compaction_round(
     )
 
     compaction_audit.set_input_records(total_hb_record_count.item())
-    # TODO (pdames): when resources are freed during the last round of hash
-    #  bucketing, start running dedupe tasks that read existing dedupe
-    #  output from S3 then wait for hash bucketing to finish before continuing
+    # TODO(pdames): when resources are freed during the last round of hash bucketing,
+    #  start running dedupe tasks that read hash bucket output from storage then 
+    #  wait for hash bucketing to finish before continuing
 
     # create a new stream for this round
     compacted_stream_locator = destination_partition_locator.stream_locator
@@ -571,9 +582,9 @@ def _execute_compaction_round(
     logger.info(f"Materialize buckets created: " f"{len(all_mat_buckets_to_obj_id)}")
 
     compaction_audit.set_materialize_buckets(len(all_mat_buckets_to_obj_id))
-    # TODO(pdames): when resources are freed during the last round of deduping
+    # TODO(pdames): when resources are freed during the last round of deduping,
     #  start running materialize tasks that read materialization source file
-    #  tables from S3 then wait for deduping to finish before continuing
+    #  tables from storage then wait for deduping to finish before continuing
 
     # TODO(pdames): balance inputs to materialization tasks to ensure that each
     #  task has an approximately equal amount of input to materialize
@@ -584,11 +595,7 @@ def _execute_compaction_round(
     # parallel step 3:
     # materialize records to keep by index
 
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **s3_client_kwargs,
-    )
+    _upload_audit_data(audit_url, json.dumps(compaction_audit))
 
     materialize_start = time.monotonic()
     mat_tasks_pending = invoke_parallel(
@@ -610,7 +617,7 @@ def _execute_compaction_round(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
-        s3_table_writer_kwargs=s3_table_writer_kwargs,
+        table_writer_kwargs=table_writer_kwargs,
         object_store=object_store,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
@@ -693,11 +700,7 @@ def _execute_compaction_round(
         telemetry_time_hb + telemetry_time_dd + telemetry_time_materialize
     )
 
-    s3_utils.upload(
-        compaction_audit.audit_url,
-        str(json.dumps(compaction_audit)),
-        **s3_client_kwargs,
-    )
+    _upload_audit_data(audit_url, json.dumps(compaction_audit))
 
     new_round_completion_info = RoundCompletionInfo.of(
         last_stream_position_compacted,

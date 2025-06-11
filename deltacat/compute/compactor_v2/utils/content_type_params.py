@@ -11,7 +11,7 @@ from deltacat import logs
 from deltacat.storage import (
     Delta,
     ManifestEntry,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from typing import Dict, Optional, Any
 from deltacat.types.media import TableType
@@ -74,7 +74,7 @@ class AppendContentTypeParamsCache:
 def _download_parquet_metadata_for_manifest_entry(
     delta: Delta,
     entry_index: int,
-    deltacat_storage: unimplemented_deltacat_storage,
+    deltacat_storage: metastore,
     deltacat_storage_kwargs: Optional[Dict[Any, Any]] = {},
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
 ) -> Dict[str, Any]:
@@ -106,7 +106,7 @@ def append_content_type_params(
     delta: Delta,
     task_max_parallelism: int = TASK_MAX_PARALLELISM,
     max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
 ) -> bool:

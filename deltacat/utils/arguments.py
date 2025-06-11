@@ -1,5 +1,6 @@
 import inspect
-from typing import Any, Dict, List
+import functools
+from typing import Any, Callable, Dict, List
 
 
 def sanitize_kwargs_to_callable(callable: Any, kwargs: Dict) -> Dict:
@@ -42,3 +43,31 @@ def sanitize_kwargs_by_supported_kwargs(
             new_kwargs[key] = kwargs[key]
 
     return new_kwargs
+
+
+def alias(aliases: Dict[str, str]) -> Callable:
+    """
+    This decorator allows for aliases to be used for function arguments.
+    :param aliases: A dictionary of aliases to use for the function arguments.
+    :return: A decorator that can be used to decorate a function.
+
+    For example:
+    >>> @alias({'long_parameter_name': 'param'})
+    >>> def example_fn(long_parameter_name='foo', **kwargs):
+    ...     print(long_parameter_name)
+    >>> example_fn(long_parameter_name="bar")
+    >>> bar
+    >>> example_fn(param="baz")
+    >>> baz 
+    >>> example_fn()
+    >>> foo 
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(**kwargs: Any) -> Any:
+            for name, alias in aliases.items():
+                if name not in kwargs and alias in kwargs:
+                    kwargs[name] = kwargs[alias]
+            return func(**kwargs)
+        return wrapper
+    return decorator

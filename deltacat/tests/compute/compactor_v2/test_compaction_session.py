@@ -16,11 +16,7 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.compute.resource_estimation import ResourceEstimationMethod
-from deltacat.tests.compute.test_util_constant import TEST_S3_RCF_BUCKET_NAME
-from deltacat.tests.compute.test_util_common import get_rcf
-from deltacat.tests.test_utils.utils import read_s3_contents
-from moto import mock_s3
-import boto3
+from deltacat.tests.compute.test_util_common import get_rcf, read_audit_file
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -28,31 +24,6 @@ def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
     ray.shutdown()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def mock_aws_credential():
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_ID"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    yield
-
-
-@pytest.fixture(scope="module")
-def s3_resource(mock_aws_credential):
-    with mock_s3():
-        yield boto3.resource("s3")
-
-
-@pytest.fixture(autouse=True, scope="module")
-def setup_compaction_artifacts_s3_bucket(s3_resource):
-    s3_resource.create_bucket(
-        ACL="authenticated-read",
-        Bucket=TEST_S3_RCF_BUCKET_NAME,
-    )
-    yield
 
 
 @pytest.fixture
@@ -207,7 +178,7 @@ class TestCompactionSessionMain:
         rcf_url = compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -224,7 +195,6 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": source_partition.locator,
                 }
             )
@@ -235,7 +205,6 @@ class TestCompactionSessionMain:
 
         # Verify that an RCF URL was generated
         assert rcf_url is not None, "Expected a non-None RCF URL"
-        assert rcf_url.startswith("s3://"), "Expected RCF URL to be an S3 URL"
 
         # Get a fresh reference to the destination partition to see updates
         updated_dest_partition = metastore.get_partition(
@@ -293,7 +262,7 @@ class TestCompactionSessionMain:
         rcf_url = compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -310,7 +279,6 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": source_partition.locator,
                 }
             )
@@ -320,7 +288,7 @@ class TestCompactionSessionMain:
         assert rcf_url is None
 
     def test_compact_partition_when_rcf_was_written_by_past_commit(
-        self, s3_resource, catalog
+        self, catalog
     ):
         """Backward compatibility test for when a RCF was written by a previous commit."""
         # Create source and destination namespaces/tables
@@ -340,7 +308,7 @@ class TestCompactionSessionMain:
         rcf_url = compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -357,24 +325,34 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": source_delta.partition_locator,
                 }
             )
         )
 
-        bucket, backfill_key1, backfill_key2 = rcf_url.strip("s3://").split("/")
-        assert bucket == TEST_S3_RCF_BUCKET_NAME
-
-        # Now delete the RCF at new location and copy it to old location
-        # Copy the RCF from rcf_url to another location
-        s3_resource.Object(TEST_S3_RCF_BUCKET_NAME, f"{backfill_key1}.json").copy_from(
-            CopySource=f"{TEST_S3_RCF_BUCKET_NAME}/{backfill_key1}/{backfill_key2}"
-        )
-
-        s3_resource.Object(
-            TEST_S3_RCF_BUCKET_NAME, f"{backfill_key1}/{backfill_key2}"
-        ).delete()
+        # Now simulate the backward compatibility scenario by moving the RCF 
+        # from new location to old location using the catalog's filesystem
+        from deltacat.utils.filesystem import resolve_path_and_filesystem
+        import os
+        
+        # Get the filesystem and resolve the RCF path
+        rcf_path, filesystem = resolve_path_and_filesystem(rcf_url)
+        
+        # Determine the old location path (without the subdirectory structure)
+        # Extract directory components to simulate the old vs new location structure
+        rcf_dir = os.path.dirname(rcf_path)
+        rcf_filename = os.path.basename(rcf_path)
+        parent_dir = os.path.dirname(rcf_dir)
+        old_location_path = os.path.join(parent_dir, rcf_filename)
+        
+        # Copy the RCF from new location to old location
+        with filesystem.open_input_stream(rcf_path) as source_stream:
+            content = source_stream.read()
+            with filesystem.open_output_stream(old_location_path) as dest_stream:
+                dest_stream.write(content)
+        
+        # Delete the RCF from the new location
+        filesystem.delete_file(rcf_path)
 
         # Now commit incremental data and run incremental compaction
         new_source_delta = self._stage_and_commit_delta(
@@ -385,7 +363,7 @@ class TestCompactionSessionMain:
         new_rcf_url = compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -402,27 +380,17 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": new_source_delta.partition_locator,
                 }
             )
         )
 
-        new_bucket, incremental_key1, incremental_key2 = new_rcf_url.strip(
-            "s3://"
-        ).split("/")
 
-        assert new_bucket == TEST_S3_RCF_BUCKET_NAME
-        assert backfill_key1 == incremental_key1
-        assert backfill_key2 != incremental_key2
 
-        rcf = get_rcf(s3_resource, new_rcf_url)
+        rcf = get_rcf(new_rcf_url)
 
-        _, compaction_audit_key = rcf.compaction_audit_url.strip("s3://").split("/", 1)
         compaction_audit = CompactionSessionAuditInfo(
-            **read_s3_contents(
-                s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
-            )
+            **read_audit_file(rcf.compaction_audit_url)
         )
 
         # Verify incremental compaction metrics are reasonable (looser bounds due to storage differences)
@@ -451,7 +419,7 @@ class TestCompactionSessionMain:
         assert compaction_audit.input_size_bytes > 0
 
     def test_compact_partition_when_incremental_then_rcf_stats_accurate(
-        self, s3_resource, catalog
+        self, catalog
     ):
         """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case."""
         # Create source and destination namespaces/tables
@@ -471,7 +439,7 @@ class TestCompactionSessionMain:
         rcf_url = compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -488,20 +456,14 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": source_delta.partition_locator,
                 }
             )
         )
 
-        backfill_rcf = get_rcf(s3_resource, rcf_url)
-        _, compaction_audit_key = backfill_rcf.compaction_audit_url.strip(
-            "s3://"
-        ).split("/", 1)
+        backfill_rcf = get_rcf(rcf_url)
         compaction_audit = CompactionSessionAuditInfo(
-            **read_s3_contents(
-                s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
-            )
+            **read_audit_file(backfill_rcf.compaction_audit_url)
         )
 
         # Verify that inflation and record size values are reasonable (not exact due to storage differences)
@@ -540,7 +502,7 @@ class TestCompactionSessionMain:
         new_rcf_url = compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -557,20 +519,14 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": new_source_delta.partition_locator,
                 }
             )
         )
 
-        new_rcf = get_rcf(s3_resource, new_rcf_url)
-        _, compaction_audit_key = new_rcf.compaction_audit_url.strip("s3://").split(
-            "/", 1
-        )
+        new_rcf = get_rcf(new_rcf_url)
         compaction_audit = CompactionSessionAuditInfo(
-            **read_s3_contents(
-                s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
-            )
+            **read_audit_file(new_rcf.compaction_audit_url)
         )
 
         # Verify incremental compaction metrics are reasonable (looser bounds due to storage differences)
@@ -599,7 +555,7 @@ class TestCompactionSessionMain:
         assert compaction_audit.input_size_bytes > 0
 
     def test_compact_partition_when_incremental_then_intelligent_estimation_sanity(
-        self, s3_resource, catalog
+        self, catalog
     ):
         """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case with intelligent estimation."""
         # Create source and destination namespaces/tables
@@ -619,7 +575,7 @@ class TestCompactionSessionMain:
         compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -636,7 +592,6 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": source_delta.partition_locator,
                     "resource_estimation_method": ResourceEstimationMethod.INTELLIGENT_ESTIMATION,
                 }
@@ -644,7 +599,7 @@ class TestCompactionSessionMain:
         )
 
     def test_compact_partition_when_incremental_then_content_type_meta_estimation_sanity(
-        self, s3_resource, catalog
+        self, catalog
     ):
         """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case with content type meta estimation."""
         # Create source and destination namespaces/tables
@@ -664,7 +619,7 @@ class TestCompactionSessionMain:
         compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -681,7 +636,6 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": source_delta.partition_locator,
                     "resource_estimation_method": ResourceEstimationMethod.CONTENT_TYPE_META,
                 }
@@ -689,7 +643,7 @@ class TestCompactionSessionMain:
         )
 
     def test_compact_partition_when_incremental_then_previous_inflation_estimation_sanity(
-        self, s3_resource, catalog
+        self, catalog
     ):
         """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case with previous inflation estimation."""
         # Create source and destination namespaces/tables
@@ -709,7 +663,7 @@ class TestCompactionSessionMain:
         compact_partition(
             CompactPartitionParams.of(
                 {
-                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "catalog": catalog,
                     "compacted_file_content_type": ContentType.PARQUET,
                     "dd_max_parallelism_ratio": 1.0,
                     "deltacat_storage": metastore,
@@ -726,7 +680,6 @@ class TestCompactionSessionMain:
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
-                    "s3_client_kwargs": {},
                     "source_partition_locator": source_delta.partition_locator,
                     "resource_estimation_method": ResourceEstimationMethod.PREVIOUS_INFLATION,
                 }
