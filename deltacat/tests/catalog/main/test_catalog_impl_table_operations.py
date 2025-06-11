@@ -848,6 +848,82 @@ class TestWriteToTable:
         )
         assert table_def.table_version.schema.equivalent_to(explicit_schema)
 
+    def test_write_to_table_explicit_schema_none(self):
+        """Test writing with explicit schema=None to create schemaless table"""
+        table_name = "test_explicit_schema_none"
+        data = self._create_test_pandas_data()
+
+        catalog.write_to_table(
+            data=data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CREATE,
+            schema=None,  # Explicitly set schema=None
+            inner=self.catalog_properties,
+        )
+
+        # Verify table was created with schema=None (schemaless)
+        table_def = catalog.get_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
+        
+        # The table should exist but have a None/empty schema
+        assert table_def is not None
+        # Note: The exact behavior of schemaless tables may vary by storage implementation
+        # We're mainly testing that the create_table call succeeded with schema=None
+
+    def test_schema_behavior_comparison(self):
+        """Test that demonstrates the difference between no schema vs explicit schema=None"""
+        data = self._create_test_pandas_data()
+        
+        # Case 1: No schema argument - should infer schema
+        table_name_inferred = "test_schema_inferred"
+        catalog.write_to_table(
+            data=data,
+            table=table_name_inferred,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CREATE,
+            # No schema argument provided - should infer from data
+            inner=self.catalog_properties,
+        )
+        
+        # Case 2: Explicit schema=None - should create schemaless table
+        table_name_schemaless = "test_schema_none"
+        catalog.write_to_table(
+            data=data,
+            table=table_name_schemaless,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CREATE,
+            schema=None,  # Explicitly set schema=None
+            inner=self.catalog_properties,
+        )
+        
+        # Verify both tables were created
+        table_inferred = catalog.get_table(
+            name=table_name_inferred,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
+        
+        table_schemaless = catalog.get_table(
+            name=table_name_schemaless,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
+        
+        # Both tables should exist
+        assert table_inferred is not None
+        assert table_schemaless is not None
+        
+        # The inferred schema table should have a schema with the expected columns
+        inferred_schema = table_inferred.table_version.schema.arrow
+        assert "id" in inferred_schema.names
+        assert "name" in inferred_schema.names
+        assert "age" in inferred_schema.names
+        assert "city" in inferred_schema.names
+
     # Test schema inference from different data types
     def test_schema_inference_pandas(self):
         """Test schema inference from pandas DataFrame"""

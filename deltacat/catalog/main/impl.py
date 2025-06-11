@@ -121,9 +121,9 @@ def write_to_table(
 
     # Create table if needed
     if not table_exists_flag:
-        # Extract schema from data if not provided
-        schema = kwargs.get("schema")
-        if schema is None:
+        # Handle schema: differentiate between explicit schema=None vs no schema argument
+        if "schema" not in kwargs:
+            # No schema argument provided - infer schema from data
             # Try to infer schema from data
             if isinstance(data, pd.DataFrame):
                 # Pandas DataFrame - already supported
@@ -192,8 +192,17 @@ def write_to_table(
                 raise ValueError(
                     "Could not infer schema from data. Please provide schema explicitly."
                 )
-
-        kwargs["schema"] = schema
+            
+            # Set the inferred schema in kwargs
+            kwargs["schema"] = schema
+        elif kwargs["schema"] is None:
+            # User explicitly set schema=None - create schemaless table
+            # Keep schema=None in kwargs, don't infer
+            pass
+        else:
+            # User provided an explicit schema - use it as-is
+            # Schema is already in kwargs, no action needed
+            pass
         table_definition = create_table(
             table,
             namespace=namespace,
