@@ -94,7 +94,101 @@ def write_to_table(
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
     as additional keyword arguments."""
-    raise NotImplementedError("write_to_table not implemented")
+    
+    from deltacat.storage.model.types import DeltaType
+    from deltacat.storage.model.manifest import ManifestAuthor
+    
+    namespace = namespace or default_namespace()
+    
+    # Determine if table exists and what action to take
+    table_exists_flag = table_exists(table, namespace=namespace, **kwargs)
+    
+    if mode == TableWriteMode.CREATE and table_exists_flag:
+        raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
+    elif mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO) and not table_exists_flag:
+        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode}")
+    
+    # Create table if needed
+    if not table_exists_flag:
+        # Extract schema from data if not provided
+        schema = kwargs.get("schema")
+        if schema is None:
+            # Try to infer schema from data
+            if hasattr(data, "schema"):
+                # PyArrow table/dataset
+                from deltacat.storage.model.schema import Schema
+                schema = Schema.of(schema=data.schema)
+            elif hasattr(data, "dtypes"):
+                # Pandas DataFrame
+                import pyarrow as pa
+                from deltacat.storage.model.schema import Schema
+                arrow_schema = pa.Schema.from_pandas(data)
+                schema = Schema.of(schema=arrow_schema)
+            elif hasattr(data, "to_arrow"):
+                # Polars DataFrame
+                from deltacat.storage.model.schema import Schema
+                arrow_schema = data.to_arrow().schema
+                schema = Schema.of(schema=arrow_schema)
+            else:
+                raise ValueError("Could not infer schema from data. Please provide schema explicitly.")
+        
+        kwargs["schema"] = schema
+        table_definition = create_table(
+            table,
+            namespace=namespace,
+            content_types=[content_type],
+            *args,
+            **kwargs,
+        )
+    else:
+        table_definition = get_table(table, namespace=namespace, **kwargs)
+    
+    # Get the active table version and stream
+    table_version_obj = _get_latest_or_given_table_version(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_definition.table_version.table_version,
+        **kwargs,
+    )
+    
+    # Get the default stream for this table version
+    stream = _get_storage(**kwargs).get_stream(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_version_obj.table_version,
+        **kwargs,
+    )
+    
+    if not stream:
+        raise ValueError(f"No default stream found for table {namespace}.{table}")
+    
+    # Stage a partition for this data
+    partition = _get_storage(**kwargs).stage_partition(
+        stream=stream,
+        **kwargs,
+    )
+    
+    # Commit the partition
+    partition = _get_storage(**kwargs).commit_partition(
+        partition=partition,
+        **kwargs,
+    )
+    
+    # Stage a delta with the data
+    delta = _get_storage(**kwargs).stage_delta(
+        data=data,
+        partition=partition,
+        delta_type=DeltaType.UPSERT,
+        content_type=content_type,
+        author=ManifestAuthor.of(name="write_to_table", version="1.0"),
+        **kwargs,
+    )
+    
+    # Commit the delta
+    _get_storage(**kwargs).commit_delta(
+        delta=delta,
+        **kwargs,
+    )
 
 
 def read_table(
