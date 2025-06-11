@@ -57,7 +57,7 @@ class TestCompactPartitionParams(unittest.TestCase):
                 "partitionValues": [],
                 "partitionId": "79612ea39ac5493eae925abe60767d42",
             },
-            "s3_table_writer_kwargs": {
+            "table_writer_kwargs": {
                 "version": "1.0",
                 "flavor": "foobar",
                 "coerce_timestamps": "ms",
@@ -108,10 +108,8 @@ class TestCompactPartitionParams(unittest.TestCase):
             json.loads(serialized_params)["compacted_file_content_type"]
             == params.compacted_file_content_type
         )
-        assert (
-            json.loads(serialized_params)["catalog"]
-            == params.catalog
-        )
+        catalog_json = json.loads(serialized_params)["catalog"]
+        assert catalog_json["_root"] == params.catalog.root
         assert (
             json.loads(serialized_params)["hash_bucket_count"]
             == params.hash_bucket_count

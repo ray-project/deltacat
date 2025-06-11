@@ -72,6 +72,16 @@ def _upload_audit_data(url: str, content: str, **kwargs) -> None:
     """
     try:
         path, filesystem = resolve_path_and_filesystem(url)
+        
+        # Create parent directories if they don't exist
+        parent_dir = posixpath.dirname(path)
+        if parent_dir:
+            try:
+                filesystem.create_dir(parent_dir, recursive=True)
+            except Exception as dir_error:
+                # Directory might already exist, which is fine
+                logger.debug(f"Directory creation warning for {parent_dir}: {dir_error}")
+        
         with filesystem.open_output_stream(path) as stream:
             stream.write(content.encode("utf-8"))
     except Exception as e:
@@ -737,4 +747,27 @@ def compact_partition_from_request(
     passed in as a custom dictionary-like CompactPartitionParams object along with any compact_partition positional arguments.
     :param compact_partition_params:
     """
-    return compact_partition(*compact_partition_pos_args, **compact_partition_params)
+    # Extract required positional arguments
+    source_partition_locator = compact_partition_params.source_partition_locator
+    destination_partition_locator = compact_partition_params.destination_partition_locator
+    primary_keys = compact_partition_params.primary_keys
+    compaction_artifact_path = compact_partition_params.compaction_artifact_path
+    last_stream_position_to_compact = compact_partition_params.last_stream_position_to_compact
+    
+    # Create a copy of params without the positional arguments
+    kwargs_params = dict(compact_partition_params)
+    kwargs_params.pop('source_partition_locator', None)
+    kwargs_params.pop('destination_partition_locator', None) 
+    kwargs_params.pop('primary_keys', None)
+    kwargs_params.pop('last_stream_position_to_compact', None)
+    # Don't pop compaction_artifact_path as it's a computed property, not stored in the dict
+    
+    return compact_partition(
+        source_partition_locator,
+        destination_partition_locator,
+        primary_keys,
+        compaction_artifact_path,
+        last_stream_position_to_compact,
+        *compact_partition_pos_args,
+        **kwargs_params
+    )
