@@ -64,4 +64,4 @@ worker_start_ray_commands:
     #- ulimit -n 65536; ray start --address=$RAY_HEAD_IP:6379 --object-store-memory=309237645312 --object-manager-port=8076 --system-config='{"object_spilling_config":"{\"type\":\"filesystem\",\"max_io_workers\":8,\"params\":{\"directory_path\":[\"/dev/nvme0n1\",\"/dev/nvme1n1\",\"/dev/nvme2n1\",\"/dev/nvme3n1\"]}}"}'
 
 setup_commands:
-    - pip uninstall -y deltacat; pip install 'deltacat @ git+https://github.com/pdames/deltacat.git@main' 
+    - pip uninstall -y deltacat; pip install 'deltacat @ git+https://github.com/pdames/deltacat.git@main'

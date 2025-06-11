@@ -1,6 +1,5 @@
 import argparse
 import pathlib
-from typing import List
 
 from deltacat.compute import (
     job_client,
@@ -34,7 +33,7 @@ def run_async(
 ):
     """
     Run multiple compactor jobs asynchronously on a Ray cluster.
-    
+
     This function submits multiple compactor jobs to run in parallel, which is useful for:
     - Compacting multiple partitions of the same table
     - Running compaction jobs with different parameters
@@ -45,10 +44,10 @@ def run_async(
     job_number = 0
     client = job_client(cluster_cfg_file_path, restart_ray=restart_ray)
     job_ids = []
-    
+
     while jobs_to_submit > 0:
         jobs_to_submit -= 1
-        
+
         # Build the compactor command
         cmd_parts = [
             "python3 compactor.py",
@@ -68,7 +67,7 @@ def run_async(
             f"--records-per-file {records_per_file}",
             f"--table-writer-compression '{table_writer_compression}'",
         ]
-        
+
         # Add optional parameters
         if hash_bucket_count is not None:
             cmd_parts.append(f"--hash-bucket-count {hash_bucket_count}")
@@ -76,9 +75,9 @@ def run_async(
             cmd_parts.append(f"--sort-keys '{sort_keys}'")
         if catalog_root:
             cmd_parts.append(f"--catalog-root '{catalog_root}'")
-        
+
         entrypoint = " ".join(cmd_parts)
-        
+
         job_id = client.submit_job(
             entrypoint=entrypoint,
             runtime_env={"working_dir": working_dir},
@@ -90,18 +89,18 @@ def run_async(
     print(f"Waiting for all {len(job_ids)} jobs to complete...")
     job_number = 0
     all_job_logs = ""
-    
+
     for job_id in job_ids:
         job_status = client.await_job(job_id, timeout_seconds=job_timeout)
         if job_status != JobStatus.SUCCEEDED:
             print(f"Job `{job_id}` logs: ")
             print(client.get_job_logs(job_id))
             raise RuntimeError(f"Job `{job_id}` terminated with status: {job_status}")
-        
+
         all_job_logs += f"\n=== Job #{job_number} (ID: {job_id}) logs ===\n"
         all_job_logs += client.get_job_logs(job_id)
         job_number += 1
-    
+
     print("All jobs completed successfully!")
     print("=== Combined Job Logs ===")
     print(all_job_logs)
@@ -133,7 +132,7 @@ def run_sync(
 ):
     """
     Run multiple compactor jobs synchronously on a Ray cluster.
-    
+
     This function runs compactor jobs one after another, which is useful for:
     - Sequential compaction workflows
     - Debugging compaction issues
@@ -143,7 +142,7 @@ def run_sync(
     cluster_cfg_file_path = working_dir.joinpath(cloud).joinpath("deltacat.yaml")
     client = job_client(cluster_cfg_file_path, restart_ray=restart_ray)
     job_number = 0
-    
+
     while job_number < jobs_to_submit:
         # Build the compactor command
         cmd_parts = [
@@ -164,7 +163,7 @@ def run_sync(
             f"--records-per-file {records_per_file}",
             f"--table-writer-compression '{table_writer_compression}'",
         ]
-        
+
         # Add optional parameters
         if hash_bucket_count is not None:
             cmd_parts.append(f"--hash-bucket-count {hash_bucket_count}")
@@ -172,17 +171,19 @@ def run_sync(
             cmd_parts.append(f"--sort-keys '{sort_keys}'")
         if catalog_root:
             cmd_parts.append(f"--catalog-root '{catalog_root}'")
-        
+
         entrypoint = " ".join(cmd_parts)
-        
+
         print(f"Running job {job_number}...")
         job_run_result = client.run_job(
             entrypoint=entrypoint,
             runtime_env={"working_dir": working_dir},
             timeout_seconds=job_timeout,
         )
-        
-        print(f"Job ID {job_run_result.job_id} terminal state: {job_run_result.job_status}")
+
+        print(
+            f"Job ID {job_run_result.job_id} terminal state: {job_run_result.job_status}"
+        )
         print(f"Job ID {job_run_result.job_id} logs: ")
         print(job_run_result.job_logs)
         job_number += 1
@@ -215,7 +216,7 @@ def run(
 ):
     """
     Run compactor jobs on a Ray cluster.
-    
+
     Args:
         namespace: Source table namespace
         table_name: Source table name
@@ -491,4 +492,4 @@ if __name__ == "__main__":
     print(f"Command Line Arguments: {args}")
 
     # Run the job runner using the parsed arguments
-    run(**vars(args)) 
+    run(**vars(args))

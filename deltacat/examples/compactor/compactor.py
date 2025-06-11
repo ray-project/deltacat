@@ -1,6 +1,5 @@
 import argparse
 import tempfile
-from datetime import datetime
 from typing import Optional, Set, List
 
 import ray
@@ -9,10 +8,15 @@ import pyarrow as pa
 import pandas as pd
 import numpy as np
 
-from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
-from deltacat.compute.compactor.compaction_session import compact_partition_from_request as compact_partition_v1
-from deltacat.compute.compactor_v2.compaction_session import compact_partition as compact_partition_v2
-from deltacat.compute.compactor.model.compactor_version import CompactorVersion
+from deltacat.compute.compactor.model.compact_partition_params import (
+    CompactPartitionParams,
+)
+from deltacat.compute.compactor.compaction_session import (
+    compact_partition_from_request as compact_partition_v1,
+)
+from deltacat.compute.compactor_v2.compaction_session import (
+    compact_partition as compact_partition_v2,
+)
 from deltacat.storage import PartitionLocator, metastore
 from deltacat.storage.model.sort_key import SortKey
 from deltacat.catalog import CatalogProperties
@@ -62,6 +66,7 @@ def create_partition_locator(
 ) -> PartitionLocator:
     """Create a PartitionLocator from string components."""
     from deltacat.storage.model.types import StreamFormat
+
     return PartitionLocator.at(
         namespace=namespace,
         table_name=table_name,
@@ -95,7 +100,7 @@ def run(
 ) -> None:
     """
     Run the compactor with the specified parameters.
-    
+
     Args:
         namespace: Source table namespace
         table_name: Source table name
@@ -123,29 +128,33 @@ def run(
     if catalog_root is None:
         catalog_root = tempfile.mkdtemp()
         print(f"Using temporary catalog directory: {catalog_root}")
-    
+
     catalog = CatalogProperties(root=catalog_root)
-    
+
     # Parse input parameters
     partition_values_list = parse_partition_values(partition_values)
     dest_partition_values_list = parse_partition_values(dest_partition_values)
     primary_keys_set = parse_primary_keys(primary_keys)
     sort_keys_list = parse_sort_keys(sort_keys or "")
-    
+
     # Create partition locators
     source_partition_locator = create_partition_locator(
         namespace, table_name, table_version, stream_id, partition_values_list
     )
-    
+
     destination_partition_locator = create_partition_locator(
-        dest_namespace, dest_table_name, dest_table_version, dest_stream_id, dest_partition_values_list
+        dest_namespace,
+        dest_table_name,
+        dest_table_version,
+        dest_stream_id,
+        dest_partition_values_list,
     )
-    
+
     # Set default hash bucket count for V2
     if compactor_version == "V2" and hash_bucket_count is None:
         hash_bucket_count = 2
         print(f"Using default hash_bucket_count={hash_bucket_count} for V2 compactor")
-    
+
     # Create CompactPartitionParams
     params_dict = {
         "catalog": catalog,
@@ -165,17 +174,19 @@ def run(
             "use_dictionary": True,
         },
     }
-    
+
     # Add V2-specific parameters
     if compactor_version == "V2":
-        params_dict.update({
-            "hash_bucket_count": hash_bucket_count,
-            "drop_duplicates": True,
-            "dd_max_parallelism_ratio": 1.0,
-        })
-    
+        params_dict.update(
+            {
+                "hash_bucket_count": hash_bucket_count,
+                "drop_duplicates": True,
+                "dd_max_parallelism_ratio": 1.0,
+            }
+        )
+
     compact_partition_params = CompactPartitionParams.of(params_dict)
-    
+
     print(f"Starting {compactor_version} compaction...")
     print(f"Source: {source_partition_locator}")
     print(f"Destination: {destination_partition_locator}")
@@ -184,15 +195,17 @@ def run(
     print(f"Last stream position: {last_stream_position}")
     print(f"Records per file: {records_per_file}")
     print(f"Compression: {table_writer_compression}")
-    
+
     # Run compaction based on version
     if compactor_version == "V1":
         result = compact_partition_v1(compact_partition_params)
     elif compactor_version == "V2":
         result = compact_partition_v2(compact_partition_params)
     else:
-        raise ValueError(f"Invalid compactor version: {compactor_version}. Use 'V1' or 'V2'")
-    
+        raise ValueError(
+            f"Invalid compactor version: {compactor_version}. Use 'V1' or 'V2'"
+        )
+
     print(f"Compaction completed successfully!")
     print(f"Round completion file: {result}")
     return result
@@ -216,7 +229,7 @@ if __name__ == "__main__":
     $   --primary-keys 'id,user_id' \
     $   --compactor-version 'V2' \
     $   --hash-bucket-count 4
-    
+
     Example 2: Run with V1 compactor and sort keys:
     $ python compactor.py \
     $   --namespace 'events' \
@@ -403,7 +416,7 @@ if __name__ == "__main__":
             },
         ),
     ]
-    
+
     # Parse CLI input arguments
     parser = argparse.ArgumentParser(
         description="DeltaCAT Compactor Example - Compact partitions using V1 or V2 compactor"
@@ -417,4 +430,4 @@ if __name__ == "__main__":
     deltacat.init()
 
     # Run the compactor using the parsed arguments
-    run(**vars(args)) 
+    run(**vars(args))

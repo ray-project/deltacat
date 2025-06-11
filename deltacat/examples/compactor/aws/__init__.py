@@ -1,1 +1,1 @@
-# DeltaCAT Compactor AWS Examples 
+# DeltaCAT Compactor AWS Examples

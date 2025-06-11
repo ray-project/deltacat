@@ -23,7 +23,7 @@ python bootstrap.py --catalog-root /tmp/deltacat_test
 
 # This creates:
 # - Namespace: compactor_test
-# - Table: events  
+# - Table: events
 # - 2 batches of data with overlapping IDs (good for compaction testing)
 # - All necessary deltacat metadata (table version, stream, partition, deltas)
 ```
@@ -44,7 +44,7 @@ python catalog_inspector.py \
 ```
 
 The inspector will show:
-- Stream IDs (needed for `--stream-id`)  
+- Stream IDs (needed for `--stream-id`)
 - Partition information
 - Maximum stream positions (needed for `--last-stream-position`)
 - Table schema and metadata
@@ -123,7 +123,7 @@ python job_runner.py \
 ### Required Parameters
 
 - `--namespace`: Source table namespace
-- `--table-name`: Source table name  
+- `--table-name`: Source table name
 - `--table-version`: Source table version
 - `--stream-id`: Source stream ID
 - `--dest-namespace`: Destination table namespace
@@ -281,4 +281,4 @@ When modifying these examples:
 3. **Verify Ray cluster configs** work in both AWS and GCP
 4. **Test with different data sizes** to ensure scalability
 
-For questions or issues, please refer to the main DeltaCAT documentation or file an issue in the repository. 
+For questions or issues, please refer to the main DeltaCAT documentation or file an issue in the repository.

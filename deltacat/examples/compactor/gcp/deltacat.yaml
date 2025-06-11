@@ -90,4 +90,4 @@ worker_start_ray_commands:
 
 setup_commands:
   # install the latest version of deltacat
-  - pip uninstall -y deltacat; pip install 'deltacat @ git+https://github.com/pdames/deltacat.git@main' 
+  - pip uninstall -y deltacat; pip install 'deltacat @ git+https://github.com/pdames/deltacat.git@main'

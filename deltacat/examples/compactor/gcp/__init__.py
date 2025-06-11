@@ -1,1 +1,1 @@
-# DeltaCAT Compactor GCP Examples 
+# DeltaCAT Compactor GCP Examples

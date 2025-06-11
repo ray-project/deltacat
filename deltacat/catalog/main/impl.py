@@ -1,6 +1,14 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 
+import pandas as pd
+import polars as pl
+import pyarrow as pa
+import pyarrow.dataset as ds
+import numpy as np
+import ray.data as rd
+import daft
+from ray.data._internal.pandas_block import PandasBlockSchema
 import deltacat as dc
 
 from deltacat.catalog.model.properties import CatalogProperties
@@ -94,44 +102,97 @@ def write_to_table(
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
     as additional keyword arguments."""
-    
+
     from deltacat.storage.model.types import DeltaType
     from deltacat.storage.model.manifest import ManifestAuthor
-    
+
     namespace = namespace or default_namespace()
-    
+
     # Determine if table exists and what action to take
     table_exists_flag = table_exists(table, namespace=namespace, **kwargs)
-    
+
     if mode == TableWriteMode.CREATE and table_exists_flag:
         raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
-    elif mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO) and not table_exists_flag:
+    elif (
+        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
+        and not table_exists_flag
+    ):
         raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode}")
-    
+
     # Create table if needed
     if not table_exists_flag:
         # Extract schema from data if not provided
         schema = kwargs.get("schema")
         if schema is None:
             # Try to infer schema from data
-            if hasattr(data, "schema"):
-                # PyArrow table/dataset
-                from deltacat.storage.model.schema import Schema
-                schema = Schema.of(schema=data.schema)
-            elif hasattr(data, "dtypes"):
-                # Pandas DataFrame
-                import pyarrow as pa
-                from deltacat.storage.model.schema import Schema
+            if isinstance(data, pd.DataFrame):
+                # Pandas DataFrame - already supported
                 arrow_schema = pa.Schema.from_pandas(data)
                 schema = Schema.of(schema=arrow_schema)
-            elif hasattr(data, "to_arrow"):
-                # Polars DataFrame
-                from deltacat.storage.model.schema import Schema
-                arrow_schema = data.to_arrow().schema
+            elif isinstance(data, pl.DataFrame):
+                # Polars DataFrame - already supported
+                arrow_table = data.to_arrow()
+                schema = Schema.of(schema=arrow_table.schema)
+            elif isinstance(data, (pa.Table, pa.RecordBatch, ds.Dataset)):
+                # PyArrow table/dataset/recordbatch - already supported
+                schema = Schema.of(schema=data.schema)
+            elif isinstance(data, rd.Dataset):
+                # Ray Dataset - get schema using schema() method
+                ray_schema = data.schema()
+                # Convert Ray schema to PyArrow schema using base_schema
+                base_schema = ray_schema.base_schema
+                if isinstance(base_schema, pa.Schema):
+                    # Already a PyArrow schema
+                    arrow_schema = base_schema
+                elif isinstance(base_schema, PandasBlockSchema):
+                    # PandasBlockSchema - extract names and types and convert to PyArrow
+                    try:
+                        # Create a DataFrame with the correct dtypes and convert to PyArrow
+                        dtype_dict = {
+                            name: dtype
+                            for name, dtype in zip(base_schema.names, base_schema.types)
+                        }
+                        empty_df = pd.DataFrame(columns=base_schema.names).astype(
+                            dtype_dict
+                        )
+                        arrow_schema = pa.Schema.from_pandas(empty_df)
+                    except Exception as e:
+                        raise ValueError(
+                            f"Failed to convert Ray Dataset PandasBlockSchema to PyArrow schema: {e}"
+                        )
+                else:
+                    # Unknown schema type - raise error instead of fallback
+                    raise ValueError(
+                        f"Unsupported Ray Dataset schema type: {type(base_schema)}. "
+                        f"Expected PyArrow Schema or PandasBlockSchema, got {base_schema}"
+                    )
+                schema = Schema.of(schema=arrow_schema)
+            elif isinstance(data, daft.DataFrame):
+                # Daft DataFrame - get native schema and convert to PyArrow
+                daft_schema = data.schema()
+                arrow_schema = daft_schema.to_pyarrow_schema()
+                schema = Schema.of(schema=arrow_schema)
+            elif isinstance(data, np.ndarray):
+                # NumPy ndarray - already supported
+                if data.ndim == 1:
+                    # 1D array - single column
+                    arrow_type = pa.from_numpy_dtype(data.dtype)
+                    arrow_schema = pa.schema([("column_0", arrow_type)])
+                elif data.ndim == 2:
+                    # 2D array - multiple columns
+                    arrow_type = pa.from_numpy_dtype(data.dtype)
+                    fields = [(f"column_{i}", arrow_type) for i in range(data.shape[1])]
+                    arrow_schema = pa.schema(fields)
+                else:
+                    raise ValueError(
+                        f"NumPy arrays with {data.ndim} dimensions are not supported. Only 1D and 2D arrays are supported."
+                    )
                 schema = Schema.of(schema=arrow_schema)
             else:
-                raise ValueError("Could not infer schema from data. Please provide schema explicitly.")
-        
+                raise ValueError(
+                    "Could not infer schema from data. Please provide schema explicitly."
+                )
+
         kwargs["schema"] = schema
         table_definition = create_table(
             table,
@@ -142,7 +203,7 @@ def write_to_table(
         )
     else:
         table_definition = get_table(table, namespace=namespace, **kwargs)
-    
+
     # Get the active table version and stream
     table_version_obj = _get_latest_or_given_table_version(
         namespace=namespace,
@@ -150,7 +211,7 @@ def write_to_table(
         table_version=table_definition.table_version.table_version,
         **kwargs,
     )
-    
+
     # Get the default stream for this table version
     stream = _get_storage(**kwargs).get_stream(
         namespace=namespace,
@@ -158,32 +219,48 @@ def write_to_table(
         table_version=table_version_obj.table_version,
         **kwargs,
     )
-    
+
     if not stream:
         raise ValueError(f"No default stream found for table {namespace}.{table}")
-    
+
     # Stage a partition for this data
     partition = _get_storage(**kwargs).stage_partition(
         stream=stream,
         **kwargs,
     )
-    
+
     # Commit the partition
     partition = _get_storage(**kwargs).commit_partition(
         partition=partition,
         **kwargs,
     )
-    
+
+    # Convert unsupported data types to supported ones before staging delta
+    converted_data = data
+    if isinstance(data, daft.DataFrame):
+        # Daft DataFrame - convert based on execution mode
+        # Check if Daft is running with Ray backend or local backend
+        ctx = daft.context.get_context()
+        runner = ctx.get_or_create_runner()
+        runner_type = runner.name
+
+        if runner_type == "ray":
+            # Running with Ray backend - convert to Ray Dataset
+            converted_data = data.to_ray_dataset()
+        else:
+            # Running with local backend - convert to PyArrow Table
+            converted_data = data.to_arrow()
+
     # Stage a delta with the data
     delta = _get_storage(**kwargs).stage_delta(
-        data=data,
+        data=converted_data,
         partition=partition,
         delta_type=DeltaType.UPSERT,
         content_type=content_type,
         author=ManifestAuthor.of(name="write_to_table", version="1.0"),
         **kwargs,
     )
-    
+
     # Commit the delta
     _get_storage(**kwargs).commit_delta(
         delta=delta,
