@@ -221,13 +221,63 @@ def write_to_table(
         **kwargs,
     )
 
-    # Get the default stream for this table version
-    stream = _get_storage(**kwargs).get_stream(
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version_obj.table_version,
-        **kwargs,
-    )
+    # Handle different write modes
+    if mode == TableWriteMode.REPLACE:
+        # REPLACE mode: Stage and commit a new stream to replace existing data
+        stream = _get_storage(**kwargs).stage_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
+        
+        # Commit the new stream (this replaces the old stream)
+        stream = _get_storage(**kwargs).commit_stream(
+            stream=stream,
+            **kwargs,
+        )
+    elif mode == TableWriteMode.APPEND:
+        # APPEND mode: Ensure no merge keys exist (pure append operation)
+        table_schema = table_definition.table_version.schema
+        if table_schema and table_schema.merge_keys:
+            raise ValueError(
+                f"APPEND mode cannot be used with tables that have merge keys. "
+                f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
+                f"Use MERGE mode instead."
+            )
+        
+        # Get the existing stream for append
+        stream = _get_storage(**kwargs).get_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
+    elif mode == TableWriteMode.MERGE:
+        # MERGE mode: Ensure merge keys exist (required for merge operations)
+        table_schema = table_definition.table_version.schema
+        if not table_schema or not table_schema.merge_keys:
+            raise ValueError(
+                f"MERGE mode requires tables to have at least one merge key. "
+                f"Table {namespace}.{table} has no merge keys. "
+                f"Use APPEND mode instead or specify merge keys in the schema."
+            )
+        
+        # Get the existing stream for merge
+        stream = _get_storage(**kwargs).get_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
+    else:
+        # AUTO and CREATE modes: Get the existing stream
+        stream = _get_storage(**kwargs).get_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
 
     if not stream:
         raise ValueError(f"No default stream found for table {namespace}.{table}")

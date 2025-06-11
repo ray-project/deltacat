@@ -630,6 +630,39 @@ class TestWriteToTable:
     def _create_test_numpy_2d_data(self):
         """Create test 2D numpy array for schema inference testing."""
         return np.array([[1, 25], [2, 30], [3, 35]], dtype=np.int64)
+    
+    def _create_table_with_merge_keys(self, table_name: str):
+        """Create a table with merge keys for testing MERGE mode"""
+        from deltacat.storage.model.schema import Schema, Field
+        
+        # Create schema with merge keys
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # merge key
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("age", pa.int32())),
+            Field.of(pa.field("city", pa.string())),
+        ])
+        
+        catalog.create_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            inner=self.catalog_properties,
+        )
+        
+        return schema
+    
+    def _create_table_without_merge_keys(self, table_name: str):
+        """Create a table without merge keys for testing APPEND mode"""
+        # Use schema inference with no merge keys
+        data = self._create_test_pandas_data()
+        catalog.write_to_table(
+            data=data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CREATE,
+            inner=self.catalog_properties,
+        )
 
     # Test TableWriteMode.AUTO
     def test_write_to_table_auto_create_new_table_pandas(self):
@@ -812,6 +845,57 @@ class TestWriteToTable:
                 mode=TableWriteMode.APPEND,
                 inner=self.catalog_properties,
             )
+
+    def test_write_to_table_append_with_merge_keys_fails(self):
+        """Test APPEND mode fails when table has merge keys"""
+        table_name = "test_append_with_merge_keys"
+        
+        # Create a table with merge keys
+        self._create_table_with_merge_keys(table_name)
+        
+        # Create test data that matches the schema
+        data = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "age": [25, 30, 35],
+            "city": ["NYC", "LA", "Chicago"]
+        })
+        
+        # APPEND mode should fail since table has merge keys
+        with pytest.raises(ValueError, match="APPEND mode cannot be used with tables that have merge keys"):
+            catalog.write_to_table(
+                data=data,
+                table=table_name,
+                namespace=self.test_namespace,
+                mode=TableWriteMode.APPEND,
+                inner=self.catalog_properties,
+            )
+
+    def test_write_to_table_append_without_merge_keys_succeeds(self):
+        """Test APPEND mode works when table has no merge keys"""
+        table_name = "test_append_no_merge_keys"
+        
+        # Create a table without merge keys
+        self._create_table_without_merge_keys(table_name)
+        
+        # Add more data to the table
+        data2 = self._create_second_batch_pandas_data()
+        
+        # APPEND mode should work since table has no merge keys
+        catalog.write_to_table(
+            data=data2,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            inner=self.catalog_properties,
+        )
+        
+        # Table should still exist
+        assert catalog.table_exists(
+            table=table_name,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
 
     # Test explicit schema specification
     def test_write_to_table_explicit_schema(self):
@@ -1206,36 +1290,86 @@ class TestWriteToTable:
                 inner=self.catalog_properties,
             )
 
-    def test_write_to_table_replace_mode_not_implemented(self):
-        """Test that REPLACE mode raises appropriate error"""
+    def test_write_to_table_replace_mode(self):
+        """Test REPLACE mode creating a new stream to replace existing data"""
         table_name = "test_replace_mode"
+        data1 = self._create_test_pandas_data()
+        data2 = self._create_second_batch_pandas_data()
+
+        # First, create the table
+        catalog.write_to_table(
+            data=data1,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CREATE,
+            inner=self.catalog_properties,
+        )
+
+        # Verify table exists
+        assert catalog.table_exists(
+            table=table_name,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
+
+        # Now use REPLACE mode to replace all existing data
+        catalog.write_to_table(
+            data=data2,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.REPLACE,
+            inner=self.catalog_properties,
+        )
+
+        # Table should still exist
+        assert catalog.table_exists(
+            table=table_name,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
+
+    def test_write_to_table_merge_mode_with_merge_keys(self):
+        """Test MERGE mode works when table has merge keys"""
+        table_name = "test_merge_mode_with_keys"
+        
+        # Create a table with merge keys
+        self._create_table_with_merge_keys(table_name)
+        
+        # Create test data that matches the schema
+        data = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "age": [25, 30, 35],
+            "city": ["NYC", "LA", "Chicago"]
+        })
+        
+        # MERGE mode should work since table has merge keys
+        catalog.write_to_table(
+            data=data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            inner=self.catalog_properties,
+        )
+        
+        # Table should still exist
+        assert catalog.table_exists(
+            table=table_name,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
+
+    def test_write_to_table_merge_mode_without_merge_keys_fails(self):
+        """Test MERGE mode fails when table has no merge keys"""
+        table_name = "test_merge_mode_no_keys"
+        
+        # Create a table without merge keys
+        self._create_table_without_merge_keys(table_name)
+        
         data = self._create_test_pandas_data()
-
-        # REPLACE mode is not fully implemented in our current implementation
-        # Since our implementation doesn't handle REPLACE yet, it should go through
-        # to the storage layer, but let's verify the mode is accepted
-        try:
-            catalog.write_to_table(
-                data=data,
-                table=table_name,
-                namespace=self.test_namespace,
-                mode=TableWriteMode.REPLACE,
-                inner=self.catalog_properties,
-            )
-        except ValueError as e:
-            # If it fails because REPLACE isn't implemented, that's expected
-            if "does not exist and mode is" in str(e):
-                pytest.skip("REPLACE mode not fully implemented yet")
-            else:
-                raise
-
-    def test_write_to_table_merge_mode_not_implemented(self):
-        """Test that MERGE mode raises appropriate error"""
-        table_name = "test_merge_mode"
-        data = self._create_test_pandas_data()
-
-        # MERGE mode is not fully implemented in our current implementation
-        try:
+        
+        # MERGE mode should fail since table has no merge keys
+        with pytest.raises(ValueError, match="MERGE mode requires tables to have at least one merge key"):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -1243,12 +1377,6 @@ class TestWriteToTable:
                 mode=TableWriteMode.MERGE,
                 inner=self.catalog_properties,
             )
-        except ValueError as e:
-            # If it fails because MERGE isn't implemented, that's expected
-            if "does not exist and mode is" in str(e):
-                pytest.skip("MERGE mode not fully implemented yet")
-            else:
-                raise
 
     # Test default namespace behavior
     def test_write_to_table_default_namespace(self):
