@@ -192,7 +192,7 @@ def write_to_table(
                 raise ValueError(
                     "Could not infer schema from data. Please provide schema explicitly."
                 )
-            
+
             # Set the inferred schema in kwargs
             kwargs["schema"] = schema
         elif kwargs["schema"] is None:
@@ -230,7 +230,7 @@ def write_to_table(
             table_version=table_version_obj.table_version,
             **kwargs,
         )
-        
+
         # Commit the new stream (this replaces the old stream)
         stream = _get_storage(**kwargs).commit_stream(
             stream=stream,
@@ -245,7 +245,7 @@ def write_to_table(
                 f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
                 f"Use MERGE mode instead."
             )
-        
+
         # Get the existing stream for append
         stream = _get_storage(**kwargs).get_stream(
             namespace=namespace,
@@ -262,7 +262,7 @@ def write_to_table(
                 f"Table {namespace}.{table} has no merge keys. "
                 f"Use APPEND mode instead or specify merge keys in the schema."
             )
-        
+
         # Get the existing stream for merge
         stream = _get_storage(**kwargs).get_stream(
             namespace=namespace,
@@ -287,9 +287,11 @@ def write_to_table(
     # This requires deriving partition values from the data based on the partition keys
     # and transforms defined in the PartitionScheme, then using those values when
     # creating/retrieving partitions.
-    if (stream.partition_scheme and 
-        stream.partition_scheme.keys is not None and 
-        len(stream.partition_scheme.keys) > 0):
+    if (
+        stream.partition_scheme
+        and stream.partition_scheme.keys is not None
+        and len(stream.partition_scheme.keys) > 0
+    ):
         raise NotImplementedError(
             f"write_to_table does not yet support partitioned tables. "
             f"Table {namespace}.{table} has partition scheme with "
@@ -301,9 +303,11 @@ def write_to_table(
     # Check if table has sort keys and raise NotImplementedError
     # TODO: Implement support for SortScheme during write based on the table's sort keys.
     # This requires sorting the data according to the sort scheme before writing deltas.
-    if (table_version_obj.sort_scheme and 
-        table_version_obj.sort_scheme.keys is not None and 
-        len(table_version_obj.sort_scheme.keys) > 0):
+    if (
+        table_version_obj.sort_scheme
+        and table_version_obj.sort_scheme.keys is not None
+        and len(table_version_obj.sort_scheme.keys) > 0
+    ):
         raise NotImplementedError(
             f"write_to_table does not yet support tables with sort keys. "
             f"Table {namespace}.{table} has sort scheme with "
@@ -319,7 +323,7 @@ def write_to_table(
             stream=stream,
             **kwargs,
         )
-        
+
         # Commit the partition
         partition = _get_storage(**kwargs).commit_partition(
             partition=partition,
@@ -333,14 +337,14 @@ def write_to_table(
             partition_values=None,  # Assuming unpartitioned tables for now
             **kwargs,
         )
-        
+
         if not partition:
             # No existing partition found, create a new one
             partition = _get_storage(**kwargs).stage_partition(
                 stream=stream,
                 **kwargs,
             )
-            
+
             # Commit the partition
             partition = _get_storage(**kwargs).commit_partition(
                 partition=partition,

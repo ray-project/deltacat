@@ -2,7 +2,7 @@
 """
 Common utilities for DeltaCAT compactor examples.
 
-This module contains shared functionality used across bootstrap.py, explorer.py, 
+This module contains shared functionality used across bootstrap.py, explorer.py,
 and compactor.py to reduce code duplication.
 """
 
@@ -23,47 +23,51 @@ def get_default_catalog_root() -> str:
     return "/tmp/deltacat_test"
 
 
-def initialize_catalog(catalog_root: Optional[str] = None, catalog_name: str = "default") -> CatalogProperties:
+def initialize_catalog(
+    catalog_root: Optional[str] = None, catalog_name: str = "default"
+) -> CatalogProperties:
     """
     Initialize and register a DeltaCAT catalog.
-    
+
     Args:
         catalog_root: Root directory for the catalog. If None, uses default.
         catalog_name: Name to register the catalog under.
-        
+
     Returns:
         CatalogProperties instance for the initialized catalog.
     """
     if catalog_root is None:
         catalog_root = get_default_catalog_root()
-    
+
     catalog = CatalogProperties(root=catalog_root)
-    
+
     # Initialize catalog and register it
     catalog_obj = Catalog(config=catalog)
     put_catalog(catalog_name, catalog_obj)
-    
+
     return catalog
 
 
-def initialize_deltacat_url_catalog(catalog_root: Optional[str] = None, catalog_name: str = "compactor_test_catalog") -> DeltaCatUrl:
+def initialize_deltacat_url_catalog(
+    catalog_root: Optional[str] = None, catalog_name: str = "compactor_test_catalog"
+) -> DeltaCatUrl:
     """
     Initialize a DeltaCAT catalog using URL-based approach (used by explorer.py).
-    
+
     Args:
         catalog_root: Root directory for the catalog. If None, uses default.
         catalog_name: Name for the catalog URL.
-        
+
     Returns:
         DeltaCatUrl instance for the initialized catalog.
     """
     if catalog_root is None:
         catalog_root = get_default_catalog_root()
-    
+
     dc.init()
     catalog_url = DeltaCatUrl(f"dc://{catalog_name}")
     dc.put(catalog_url, root=catalog_root)
-    
+
     return catalog_url
 
 
@@ -83,7 +87,7 @@ def parse_sort_keys(sort_keys_str: str) -> List[SortKey]:
     """Parse comma-separated sort keys string into a list of SortKey objects."""
     if not sort_keys_str or not sort_keys_str.strip():
         return []
-    
+
     sort_keys = []
     for key in sort_keys_str.split(","):
         key = key.strip()
@@ -123,7 +127,7 @@ def get_actual_partition_locator(
     """
     Get the actual partition locator by using metastore to find the partition.
     This matches the approach used in bootstrap.py and ensures compatibility.
-    
+
     Args:
         namespace: Table namespace
         table_name: Table name
@@ -131,7 +135,7 @@ def get_actual_partition_locator(
         partition_values: Partition values (can be empty list)
         catalog: CatalogProperties instance
         catalog_name: Name of the registered catalog
-        
+
     Returns:
         PartitionLocator with actual partition ID
     """
@@ -139,27 +143,27 @@ def get_actual_partition_locator(
         # Initialize catalog like bootstrap.py does
         catalog_obj = Catalog(config=catalog)
         put_catalog(catalog_name, catalog_obj)
-        
+
         # Get table definition first
         table_def = get_table(
-            name=table_name,
-            namespace=namespace,
-            catalog=catalog_name
+            name=table_name, namespace=namespace, catalog=catalog_name
         )
-        
+
         # Get the actual partition using the table's stream locator
         partition = metastore.get_partition(
             stream_locator=table_def.stream.locator,
             partition_values=partition_values if partition_values else None,
             catalog=catalog,
         )
-        
+
         return partition.locator
-        
+
     except Exception as e:
         print(f"⚠️  Failed to get actual partition locator: {e}")
         print(f"   Falling back to basic partition locator")
-        return create_partition_locator(namespace, table_name, table_version, partition_values)
+        return create_partition_locator(
+            namespace, table_name, table_version, partition_values
+        )
 
 
 def format_partition_values_for_command(partition_values: Optional[List[str]]) -> str:
@@ -179,59 +183,60 @@ def get_max_stream_position_from_partition(
 ) -> int:
     """
     Get the maximum stream position from a partition by reading its deltas.
-    
+
     Args:
         namespace: Table namespace
-        table_name: Table name  
+        table_name: Table name
         table_version: Table version
         partition_values: Partition values
         catalog: CatalogProperties instance
         catalog_name: Name of the registered catalog
-        
+
     Returns:
         Maximum stream position found, or 1000 as fallback
     """
     try:
         # Get the actual partition locator
         partition_locator = get_actual_partition_locator(
-            namespace, table_name, table_version, partition_values, catalog, catalog_name
+            namespace,
+            table_name,
+            table_version,
+            partition_values,
+            catalog,
+            catalog_name,
         )
-        
+
         # Create a partition-like object for metastore API
-        partition_like = type('obj', (object,), {'locator': partition_locator})()
-        
+        partition_like = type("obj", (object,), {"locator": partition_locator})()
+
         # Get deltas from the partition
         partition_deltas = metastore.list_partition_deltas(
             partition_like=partition_like,
             include_manifest=True,
             catalog=catalog,
         )
-        
+
         delta_list = partition_deltas.all_items()
         if delta_list:
             return max(delta.stream_position for delta in delta_list)
         else:
             return 1000  # fallback
-            
+
     except Exception as e:
         print(f"⚠️  Failed to get max stream position: {e}")
         return 1000  # fallback
 
 
-def is_bootstrap_test_table(namespace: str, table_name: str) -> bool:
-    """Check if this is a table created by bootstrap.py."""
-    return (namespace == "compactor_test_source" and table_name == "events") or \
-           (namespace == "compactor_test_dest" and table_name == "events_compacted")
-
-
-def get_bootstrap_destination_info(source_namespace: str, source_table: str) -> Tuple[str, str]:
+def get_bootstrap_destination_info(
+    source_namespace: str, source_table: str
+) -> Tuple[str, str]:
     """
     Get the corresponding destination namespace and table name for bootstrap test tables.
-    
+
     Args:
         source_namespace: Source namespace
         source_table: Source table name
-        
+
     Returns:
         Tuple of (dest_namespace, dest_table_name)
     """
@@ -253,4 +258,4 @@ def print_subsection_header(title: str, char: str = "-", width: int = 70) -> Non
     """Print a formatted subsection header."""
     print(char * width)
     print(title)
-    print(char * width) 
+    print(char * width)

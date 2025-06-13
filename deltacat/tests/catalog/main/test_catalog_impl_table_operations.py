@@ -630,28 +630,30 @@ class TestWriteToTable:
     def _create_test_numpy_2d_data(self):
         """Create test 2D numpy array for schema inference testing."""
         return np.array([[1, 25], [2, 30], [3, 35]], dtype=np.int64)
-    
+
     def _create_table_with_merge_keys(self, table_name: str):
         """Create a table with merge keys for testing MERGE mode"""
         from deltacat.storage.model.schema import Schema, Field
-        
+
         # Create schema with merge keys
-        schema = Schema.of([
-            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # merge key
-            Field.of(pa.field("name", pa.string())),
-            Field.of(pa.field("age", pa.int32())),
-            Field.of(pa.field("city", pa.string())),
-        ])
-        
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # merge key
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("age", pa.int32())),
+                Field.of(pa.field("city", pa.string())),
+            ]
+        )
+
         catalog.create_table(
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
         )
-        
+
         return schema
-    
+
     def _create_table_without_merge_keys(self, table_name: str):
         """Create a table without merge keys for testing APPEND mode"""
         # Use schema inference with no merge keys
@@ -849,20 +851,25 @@ class TestWriteToTable:
     def test_write_to_table_append_with_merge_keys_fails(self):
         """Test APPEND mode fails when table has merge keys"""
         table_name = "test_append_with_merge_keys"
-        
+
         # Create a table with merge keys
         self._create_table_with_merge_keys(table_name)
-        
+
         # Create test data that matches the schema
-        data = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "age": [25, 30, 35],
-            "city": ["NYC", "LA", "Chicago"]
-        })
-        
+        data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["NYC", "LA", "Chicago"],
+            }
+        )
+
         # APPEND mode should fail since table has merge keys
-        with pytest.raises(ValueError, match="APPEND mode cannot be used with tables that have merge keys"):
+        with pytest.raises(
+            ValueError,
+            match="APPEND mode cannot be used with tables that have merge keys",
+        ):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -874,13 +881,13 @@ class TestWriteToTable:
     def test_write_to_table_append_without_merge_keys_succeeds(self):
         """Test APPEND mode works when table has no merge keys"""
         table_name = "test_append_no_merge_keys"
-        
+
         # Create a table without merge keys
         self._create_table_without_merge_keys(table_name)
-        
+
         # Add more data to the table
         data2 = self._create_second_batch_pandas_data()
-        
+
         # APPEND mode should work since table has no merge keys
         catalog.write_to_table(
             data=data2,
@@ -889,7 +896,7 @@ class TestWriteToTable:
             mode=TableWriteMode.APPEND,
             inner=self.catalog_properties,
         )
-        
+
         # Table should still exist
         assert catalog.table_exists(
             table=table_name,
@@ -952,7 +959,7 @@ class TestWriteToTable:
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
-        
+
         # The table should exist but have a None/empty schema
         assert table_def is not None
         # Note: The exact behavior of schemaless tables may vary by storage implementation
@@ -961,7 +968,7 @@ class TestWriteToTable:
     def test_schema_behavior_comparison(self):
         """Test that demonstrates the difference between no schema vs explicit schema=None"""
         data = self._create_test_pandas_data()
-        
+
         # Case 1: No schema argument - should infer schema
         table_name_inferred = "test_schema_inferred"
         catalog.write_to_table(
@@ -972,7 +979,7 @@ class TestWriteToTable:
             # No schema argument provided - should infer from data
             inner=self.catalog_properties,
         )
-        
+
         # Case 2: Explicit schema=None - should create schemaless table
         table_name_schemaless = "test_schema_none"
         catalog.write_to_table(
@@ -983,24 +990,24 @@ class TestWriteToTable:
             schema=None,  # Explicitly set schema=None
             inner=self.catalog_properties,
         )
-        
+
         # Verify both tables were created
         table_inferred = catalog.get_table(
             name=table_name_inferred,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
-        
+
         table_schemaless = catalog.get_table(
             name=table_name_schemaless,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
-        
+
         # Both tables should exist
         assert table_inferred is not None
         assert table_schemaless is not None
-        
+
         # The inferred schema table should have a schema with the expected columns
         inferred_schema = table_inferred.table_version.schema.arrow
         assert "id" in inferred_schema.names
@@ -1331,18 +1338,20 @@ class TestWriteToTable:
     def test_write_to_table_merge_mode_with_merge_keys(self):
         """Test MERGE mode works when table has merge keys"""
         table_name = "test_merge_mode_with_keys"
-        
+
         # Create a table with merge keys
         self._create_table_with_merge_keys(table_name)
-        
+
         # Create test data that matches the schema
-        data = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "age": [25, 30, 35],
-            "city": ["NYC", "LA", "Chicago"]
-        })
-        
+        data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["NYC", "LA", "Chicago"],
+            }
+        )
+
         # MERGE mode should work since table has merge keys
         catalog.write_to_table(
             data=data,
@@ -1351,7 +1360,7 @@ class TestWriteToTable:
             mode=TableWriteMode.MERGE,
             inner=self.catalog_properties,
         )
-        
+
         # Table should still exist
         assert catalog.table_exists(
             table=table_name,
@@ -1362,14 +1371,17 @@ class TestWriteToTable:
     def test_write_to_table_merge_mode_without_merge_keys_fails(self):
         """Test MERGE mode fails when table has no merge keys"""
         table_name = "test_merge_mode_no_keys"
-        
+
         # Create a table without merge keys
         self._create_table_without_merge_keys(table_name)
-        
+
         data = self._create_test_pandas_data()
-        
+
         # MERGE mode should fail since table has no merge keys
-        with pytest.raises(ValueError, match="MERGE mode requires tables to have at least one merge key"):
+        with pytest.raises(
+            ValueError,
+            match="MERGE mode requires tables to have at least one merge key",
+        ):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -1401,7 +1413,7 @@ class TestWriteToTable:
     def test_write_to_table_append_creates_separate_deltas(self):
         """Test that APPEND mode creates separate deltas in the same partition"""
         from deltacat.catalog.main.impl import _get_storage
-        
+
         table_name = "test_append_separate_deltas"
         data1 = self._create_test_pandas_data()
         data2 = self._create_second_batch_pandas_data()
@@ -1421,10 +1433,10 @@ class TestWriteToTable:
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
-        
+
         # Get storage interface
         storage = _get_storage(inner=self.catalog_properties)
-        
+
         # Get the stream
         stream = storage.get_stream(
             namespace=self.test_namespace,
@@ -1432,22 +1444,24 @@ class TestWriteToTable:
             table_version=table_def.table_version.table_version,
             inner=self.catalog_properties,
         )
-        
+
         # Get the partition (should be only one for unpartitioned table)
         partition = storage.get_partition(
             stream_locator=stream.locator,
             partition_values=None,  # unpartitioned
             inner=self.catalog_properties,
         )
-        
+
         # List deltas before second write
         deltas_before = storage.list_partition_deltas(
             partition_like=partition,
             inner=self.catalog_properties,
         ).all_items()
-        
-        assert len(deltas_before) == 1, f"Expected 1 delta before append, got {len(deltas_before)}"
-        
+
+        assert (
+            len(deltas_before) == 1
+        ), f"Expected 1 delta before append, got {len(deltas_before)}"
+
         # Append second batch using APPEND mode
         catalog.write_to_table(
             data=data2,
@@ -1456,37 +1470,47 @@ class TestWriteToTable:
             mode=TableWriteMode.APPEND,
             inner=self.catalog_properties,
         )
-        
+
         # Get the same partition again (should be the same partition object)
         partition_after = storage.get_partition(
             stream_locator=stream.locator,
             partition_values=None,  # unpartitioned
             inner=self.catalog_properties,
         )
-        
+
         # Verify it's the same partition
-        assert partition.partition_id == partition_after.partition_id, "APPEND should reuse the same partition"
-        
+        assert (
+            partition.partition_id == partition_after.partition_id
+        ), "APPEND should reuse the same partition"
+
         # List deltas after second write
         deltas_after = storage.list_partition_deltas(
             partition_like=partition_after,
             inner=self.catalog_properties,
         ).all_items()
-        
+
         # Should now have 2 deltas in the same partition
-        assert len(deltas_after) == 2, f"Expected 2 deltas after append, got {len(deltas_after)}"
-        
+        assert (
+            len(deltas_after) == 2
+        ), f"Expected 2 deltas after append, got {len(deltas_after)}"
+
         # Verify deltas have different stream positions
         stream_positions = [delta.stream_position for delta in deltas_after]
-        assert len(set(stream_positions)) == 2, "Deltas should have different stream positions"
+        assert (
+            len(set(stream_positions)) == 2
+        ), "Deltas should have different stream positions"
         assert min(stream_positions) == 1, "First delta should have stream position 1"
         assert max(stream_positions) == 2, "Second delta should have stream position 2"
 
     def test_write_to_table_partitioned_table_raises_not_implemented(self):
         """Test that write_to_table raises NotImplementedError for partitioned tables"""
-        from deltacat.storage.model.partition import PartitionScheme, PartitionKey, PartitionKeyList
+        from deltacat.storage.model.partition import (
+            PartitionScheme,
+            PartitionKey,
+            PartitionKeyList,
+        )
         from deltacat.storage.model.transform import IdentityTransform
-        
+
         table_name = "test_partitioned_table"
         data = self._create_test_pandas_data()
 
@@ -1505,7 +1529,10 @@ class TestWriteToTable:
         )
 
         # Try to create a partitioned table using write_to_table
-        with pytest.raises(NotImplementedError, match="write_to_table does not yet support partitioned tables"):
+        with pytest.raises(
+            NotImplementedError,
+            match="write_to_table does not yet support partitioned tables",
+        ):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -1519,23 +1546,25 @@ class TestWriteToTable:
         """Test that write_to_table raises NotImplementedError for tables with sort keys"""
         from deltacat.storage.model.sort_key import SortScheme, SortKey, SortKeyList
         from deltacat.storage.model.types import SortOrder, NullOrder
-        
+
         table_name = "test_sorted_table"
         data = self._create_test_pandas_data()
-        
+
         # Create sort scheme with sort keys
         sort_scheme = SortScheme.of(
-            keys=SortKeyList.of([
-                SortKey.of(
-                    key=["id"],
-                    sort_order=SortOrder.ASCENDING,
-                    null_order=NullOrder.AT_END,
-                )
-            ]),
+            keys=SortKeyList.of(
+                [
+                    SortKey.of(
+                        key=["id"],
+                        sort_order=SortOrder.ASCENDING,
+                        null_order=NullOrder.AT_END,
+                    )
+                ]
+            ),
             name="test_sort_scheme",
             scheme_id="test_sort_scheme_id",
         )
-        
+
         # Create table with sort keys
         catalog.create_table(
             name=table_name,
@@ -1543,7 +1572,7 @@ class TestWriteToTable:
             sort_keys=sort_scheme,
             inner=self.catalog_properties,
         )
-        
+
         # Attempt to write to the sorted table should raise NotImplementedError
         with pytest.raises(NotImplementedError) as exc_info:
             catalog.write_to_table(
@@ -1553,7 +1582,7 @@ class TestWriteToTable:
                 mode=TableWriteMode.APPEND,
                 inner=self.catalog_properties,
             )
-        
+
         # Verify the error message contains expected information
         assert "sort keys" in str(exc_info.value)
         assert "sort scheme with 1 sort key(s)" in str(exc_info.value)

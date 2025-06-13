@@ -1,1 +1,1 @@
-# Common utilities for DeltaCAT compactor examples 
+# Common utilities for DeltaCAT compactor examples

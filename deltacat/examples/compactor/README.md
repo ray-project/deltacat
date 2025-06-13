@@ -23,7 +23,7 @@ cd deltacat/examples/compactor
 
 ```bash
 # Run the complete end-to-end compaction demonstration
-python bootstrap.py --run-compaction yes
+python bootstrap.py --run-compaction y
 ```
 
 This single command will:
@@ -43,7 +43,7 @@ This single command will:
 - Merges and deduplicates on primary key 'id'
 - Keeps latest version for duplicates
 
-📊 DATA AFTER COMPACTION  
+📊 DATA AFTER COMPACTION
 - Destination: 1 delta with 8 unique records
 - 3 duplicate records successfully removed
 ```
@@ -56,7 +56,7 @@ You can also run compaction incrementally:
 
 ```bash
 # Create source data and destination table (without running compaction)
-python bootstrap.py --run-compaction no
+python bootstrap.py --run-compaction n
 ```
 
 This creates:
@@ -115,7 +115,7 @@ The bootstrap script creates realistic test data that demonstrates compaction:
 **Batch 1 (5 records):**
 - IDs 1,2,3,4,5 with timestamps at 10:00-10:20
 
-**Batch 2 (6 records):**  
+**Batch 2 (6 records):**
 - IDs 3,4,5,6,7,8 with timestamps at 11:00-11:25
 - IDs 3,4,5 overlap with Batch 1 (different timestamps and data)
 
@@ -133,7 +133,7 @@ The examples use a local file-based catalog at `/tmp/deltacat_test` by default:
 ├── compactor_test_source/          # Source namespace
 │   └── events/                     # Source table
 │       └── deltas/                 # 2 deltas with overlapping data
-└── compactor_test_dest/            # Destination namespace  
+└── compactor_test_dest/            # Destination namespace
     └── events_compacted/           # Destination table
         └── deltas/                 # 1 compacted delta (after compaction)
 ```
@@ -172,7 +172,7 @@ A: Simply remove the catalog directory: `rm -rf /tmp/deltacat_test`
 A: Yes, use `--catalog-root /path/to/catalog` with any of the scripts.
 
 **Q: How do I see the actual data contents?**
-A: Run `python bootstrap.py --run-compaction yes` to see complete before/after data comparison with every record displayed.
+A: Run `python bootstrap.py --run-compaction y` to see complete before/after data comparison with every record displayed.
 
 **Q: What if compaction fails?**
 A: Check that:

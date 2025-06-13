@@ -214,9 +214,13 @@ def _list_all_metafiles(
     metafiles: ListResult[Metafile] = lister(**kwargs)
     list_results.append(metafiles)
     if recursive:
+        # Process each level of the hierarchy
+        current_level_metafiles = [mf for mf in metafiles.all_items()]
+        
         for lister, kwarg_name, kwarg_val_resolver_fn in reader.listers:
+            next_level_metafiles = []
             # each subsequent lister needs to inject missing keyword args from the parent metafile
-            for metafile in metafiles.all_items():
+            for metafile in current_level_metafiles:
                 kwargs_update = (
                     {kwarg_name: kwarg_val_resolver_fn(metafile)}
                     if kwarg_name and kwarg_val_resolver_fn
@@ -226,8 +230,11 @@ def _list_all_metafiles(
                     **kwargs,
                     **kwargs_update,
                 }
-                metafiles = lister(**lister_kwargs)
-                list_results.append(metafiles)
+                child_metafiles = lister(**lister_kwargs)
+                list_results.append(child_metafiles)
+                next_level_metafiles.extend(child_metafiles.all_items())
+            # Move to the next level for the next iteration
+            current_level_metafiles = next_level_metafiles
     return [
         metafile for list_result in list_results for metafile in list_result.all_items()
     ]

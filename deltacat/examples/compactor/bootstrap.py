@@ -11,18 +11,18 @@ This script creates test data suitable for compaction testing by:
 Usage:
     # Use default catalog location
     python bootstrap.py
-    
+
     # Use custom catalog location
     python bootstrap.py --catalog-root /path/to/catalog
-    
+
     # Auto-respond to prompts (for testing)
     python bootstrap.py --auto-run-compaction yes
 
 The script creates:
-- A source namespace "compactor_test_source" 
+- A source namespace "compactor_test_source"
 - A destination namespace "compactor_test_dest"
 - Source table "events" with columns: id, timestamp, user_id, event_type, data
-- Destination table "events_compacted" 
+- Destination table "events_compacted"
 - 2 parquet files with overlapping data (suitable for compaction)
 - All necessary deltacat metadata (table version, stream, partition, deltas)
 - Working end-to-end compaction demonstration
@@ -104,9 +104,9 @@ def create_test_data_batch_2() -> pd.DataFrame:
 def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
     """Set up test namespaces and tables using lower-level metastore API to ensure separate deltas."""
     catalog = initialize_catalog(catalog_root)
-    
+
     print("Setting up test namespaces and tables using metastore API...")
-    
+
     source_namespace = "compactor_test_source"
     dest_namespace = "compactor_test_dest"
     table_name = "events"
@@ -117,28 +117,28 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
     print("Creating test data batches...")
     batch_1 = create_test_data_batch_1()
     batch_2 = create_test_data_batch_2()
-    
+
     print(f"Batch 1 shape: {batch_1.shape}")
     print(f"Batch 1 data:\n{batch_1}")
     print(f"\nBatch 2 shape: {batch_2.shape}")
     print(f"Batch 2 data:\n{batch_2}")
 
     # Create/replace source table using write_to_table for the first batch (idempotent)
-    print(f"\nCreating/replacing SOURCE table {source_namespace}.{table_name} with first batch...")
-    
+    print(
+        f"\nCreating/replacing SOURCE table {source_namespace}.{table_name} with first batch..."
+    )
+
     # Check if table exists to determine the appropriate mode
     try:
         existing_table = get_table(
-            name=table_name,
-            namespace=source_namespace,
-            catalog="default"
+            name=table_name, namespace=source_namespace, catalog="default"
         )
         table_mode = TableWriteMode.REPLACE if existing_table else TableWriteMode.CREATE
         action = "Replacing" if existing_table else "Creating"
     except:
         table_mode = TableWriteMode.CREATE
         action = "Creating"
-    
+
     print(f"{action} source table with first batch...")
     write_to_table(
         data=batch_1,
@@ -149,7 +149,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         catalog="default",
     )
     print(f"✅ {action.replace('ing', 'ed')} source table and wrote first delta")
-    
+
     # Add second batch using write_to_table with APPEND mode
     print(f"Adding second batch to SOURCE table using write_to_table APPEND mode...")
     write_to_table(
@@ -161,20 +161,18 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         catalog="default",
     )
     print(f"✅ Added second delta to source table")
-    
+
     # Get the table definition and partition
     source_table_def = get_table(
-        name=table_name,
-        namespace=source_namespace,
-        catalog="default"
+        name=table_name, namespace=source_namespace, catalog="default"
     )
-    
+
     source_partition = metastore.get_partition(
         stream_locator=source_table_def.stream.locator,
         partition_values=None,
         catalog=catalog,
     )
-    
+
     # Verify we now have 2 deltas
     partition_deltas = metastore.list_partition_deltas(
         partition_like=source_partition,
@@ -183,10 +181,12 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
     )
     delta_list = partition_deltas.all_items()
     print(f"📋 Total deltas in source table: {len(delta_list)}")
-    
+
     # Create/replace empty destination table with same schema as source (idempotent)
-    print(f"\nCreating/replacing empty DESTINATION table {dest_namespace}.{table_name}_compacted...")
-    
+    print(
+        f"\nCreating/replacing empty DESTINATION table {dest_namespace}.{table_name}_compacted..."
+    )
+
     dest_table_def = create_table(
         name=f"{table_name}_compacted",
         namespace=dest_namespace,
@@ -224,8 +224,10 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         print(f"✅ Created new destination partition")
 
     # Get the actual stream position by checking deltas
-    actual_stream_position = max(delta.stream_position for delta in delta_list) if delta_list else 2
-    
+    actual_stream_position = (
+        max(delta.stream_position for delta in delta_list) if delta_list else 2
+    )
+
     print(f"\n✅ Successfully created test data in {source_namespace}.{table_name}")
     print(f"📁 Catalog root: {catalog_root}")
     print(f"🔧 Total records: {len(batch_1) + len(batch_2)}")
@@ -259,41 +261,53 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
     print(f"     --compactor-version 'V2' \\")
     print(f"     --hash-bucket-count 1 \\")
     print(f"     --catalog-root '{catalog_root}'")
-    
-    return (source_table_def.stream.stream_id, source_table_def.table_version.table_version, source_namespace, 
-            table_name, catalog_root, actual_stream_position, dest_table_def.stream.stream_id, 
-            dest_namespace, source_partition, dest_partition, catalog)
+
+    return (
+        source_table_def.stream.stream_id,
+        source_table_def.table_version.table_version,
+        source_namespace,
+        table_name,
+        catalog_root,
+        actual_stream_position,
+        dest_table_def.stream.stream_id,
+        dest_namespace,
+        source_partition,
+        dest_partition,
+        catalog,
+    )
 
 
 def show_table_data(partition, catalog, label: str) -> None:
     """Show complete table data for a given partition."""
     try:
         print(f"\n{label} partition data:")
-        
+
         # List deltas in the partition
         partition_deltas = metastore.list_partition_deltas(
             partition_like=partition,
             include_manifest=True,
             catalog=catalog,
         )
-        
+
         delta_list = partition_deltas.all_items()
         delta_count = len(delta_list)
-        
+
         if delta_count == 0:
             print(f"   No deltas found in {label} partition")
             return
-            
+
         print(f"   Found {delta_count} delta(s) in {label} partition:")
-        
+
         total_records = 0
         for i, delta in enumerate(delta_list):
             record_count = delta.meta.record_count if delta.meta else 0
             total_records += record_count
-            print(f"   Delta {i+1}: stream_position={delta.stream_position}, type={delta.type}, records={record_count}")
-        
+            print(
+                f"   Delta {i+1}: stream_position={delta.stream_position}, type={delta.type}, records={record_count}"
+            )
+
         print(f"   Total records across all deltas: {total_records}")
-        
+
         # Try to read the complete table data using deltacat API
         if total_records > 0:
             try:
@@ -302,94 +316,221 @@ def show_table_data(partition, catalog, label: str) -> None:
                 table_locator = stream_locator.table_version_locator.table_locator
                 namespace = table_locator.namespace_locator.namespace
                 table_name = table_locator.table_name
-                
+
                 print(f"\n   📊 COMPLETE {label} TABLE CONTENTS:")
                 print(f"   Table: {namespace}.{table_name}")
-                print("   " + "="*60)
-                
+                print("   " + "=" * 60)
+
                 # Try to reconstruct table data from deltas (since direct reading has content type issues)
                 all_records = []
-                
+
                 # Sort deltas by stream position for consistent processing
                 delta_list_sorted = sorted(delta_list, key=lambda d: d.stream_position)
-                
+
                 for i, delta in enumerate(delta_list_sorted):
                     try:
                         # Reconstruct data based on delta characteristics
                         record_count = delta.meta.record_count if delta.meta else 0
-                        
+
                         if record_count == 5:
                             # This is likely Batch 1 data
                             batch_data = [
-                                {"id": 1, "timestamp": "2024-01-01 10:00:00", "user_id": 101, "event_type": "login", "data": '{"page": "home"}'},
-                                {"id": 2, "timestamp": "2024-01-01 10:05:00", "user_id": 102, "event_type": "view", "data": '{"product_id": 123}'},
-                                {"id": 3, "timestamp": "2024-01-01 10:10:00", "user_id": 103, "event_type": "click", "data": '{"button": "add_to_cart"}'},
-                                {"id": 4, "timestamp": "2024-01-01 10:15:00", "user_id": 104, "event_type": "purchase", "data": '{"amount": 99.99}'},
-                                {"id": 5, "timestamp": "2024-01-01 10:20:00", "user_id": 105, "event_type": "logout", "data": '{"session_duration": 1200}'}
+                                {
+                                    "id": 1,
+                                    "timestamp": "2024-01-01 10:00:00",
+                                    "user_id": 101,
+                                    "event_type": "login",
+                                    "data": '{"page": "home"}',
+                                },
+                                {
+                                    "id": 2,
+                                    "timestamp": "2024-01-01 10:05:00",
+                                    "user_id": 102,
+                                    "event_type": "view",
+                                    "data": '{"product_id": 123}',
+                                },
+                                {
+                                    "id": 3,
+                                    "timestamp": "2024-01-01 10:10:00",
+                                    "user_id": 103,
+                                    "event_type": "click",
+                                    "data": '{"button": "add_to_cart"}',
+                                },
+                                {
+                                    "id": 4,
+                                    "timestamp": "2024-01-01 10:15:00",
+                                    "user_id": 104,
+                                    "event_type": "purchase",
+                                    "data": '{"amount": 99.99}',
+                                },
+                                {
+                                    "id": 5,
+                                    "timestamp": "2024-01-01 10:20:00",
+                                    "user_id": 105,
+                                    "event_type": "logout",
+                                    "data": '{"session_duration": 1200}',
+                                },
                             ]
                             all_records.extend(batch_data)
                         elif record_count == 6:
                             # This is likely Batch 2 data
                             batch_data = [
-                                {"id": 3, "timestamp": "2024-01-01 11:00:00", "user_id": 103, "event_type": "view", "data": '{"page": "product", "updated": true}'},
-                                {"id": 4, "timestamp": "2024-01-01 11:05:00", "user_id": 104, "event_type": "click", "data": '{"button": "buy_now", "updated": true}'},
-                                {"id": 5, "timestamp": "2024-01-01 11:10:00", "user_id": 105, "event_type": "purchase", "data": '{"amount": 149.99, "updated": true}'},
-                                {"id": 6, "timestamp": "2024-01-01 11:15:00", "user_id": 106, "event_type": "login", "data": '{"page": "signup"}'},
-                                {"id": 7, "timestamp": "2024-01-01 11:20:00", "user_id": 107, "event_type": "view", "data": '{"product_id": 456}'},
-                                {"id": 8, "timestamp": "2024-01-01 11:25:00", "user_id": 108, "event_type": "logout", "data": '{"session_duration": 800}'}
+                                {
+                                    "id": 3,
+                                    "timestamp": "2024-01-01 11:00:00",
+                                    "user_id": 103,
+                                    "event_type": "view",
+                                    "data": '{"page": "product", "updated": true}',
+                                },
+                                {
+                                    "id": 4,
+                                    "timestamp": "2024-01-01 11:05:00",
+                                    "user_id": 104,
+                                    "event_type": "click",
+                                    "data": '{"button": "buy_now", "updated": true}',
+                                },
+                                {
+                                    "id": 5,
+                                    "timestamp": "2024-01-01 11:10:00",
+                                    "user_id": 105,
+                                    "event_type": "purchase",
+                                    "data": '{"amount": 149.99, "updated": true}',
+                                },
+                                {
+                                    "id": 6,
+                                    "timestamp": "2024-01-01 11:15:00",
+                                    "user_id": 106,
+                                    "event_type": "login",
+                                    "data": '{"page": "signup"}',
+                                },
+                                {
+                                    "id": 7,
+                                    "timestamp": "2024-01-01 11:20:00",
+                                    "user_id": 107,
+                                    "event_type": "view",
+                                    "data": '{"product_id": 456}',
+                                },
+                                {
+                                    "id": 8,
+                                    "timestamp": "2024-01-01 11:25:00",
+                                    "user_id": 108,
+                                    "event_type": "logout",
+                                    "data": '{"session_duration": 800}',
+                                },
                             ]
                             all_records.extend(batch_data)
                         elif record_count == 8:
                             # This is likely compacted data (deduplicated)
                             batch_data = [
-                                {"id": 1, "timestamp": "2024-01-01 10:00:00", "user_id": 101, "event_type": "login", "data": '{"page": "home"}'},
-                                {"id": 2, "timestamp": "2024-01-01 10:05:00", "user_id": 102, "event_type": "view", "data": '{"product_id": 123}'},
-                                {"id": 3, "timestamp": "2024-01-01 11:00:00", "user_id": 103, "event_type": "view", "data": '{"page": "product", "updated": true}'},
-                                {"id": 4, "timestamp": "2024-01-01 11:05:00", "user_id": 104, "event_type": "click", "data": '{"button": "buy_now", "updated": true}'},
-                                {"id": 5, "timestamp": "2024-01-01 11:10:00", "user_id": 105, "event_type": "purchase", "data": '{"amount": 149.99, "updated": true}'},
-                                {"id": 6, "timestamp": "2024-01-01 11:15:00", "user_id": 106, "event_type": "login", "data": '{"page": "signup"}'},
-                                {"id": 7, "timestamp": "2024-01-01 11:20:00", "user_id": 107, "event_type": "view", "data": '{"product_id": 456}'},
-                                {"id": 8, "timestamp": "2024-01-01 11:25:00", "user_id": 108, "event_type": "logout", "data": '{"session_duration": 800}'}
+                                {
+                                    "id": 1,
+                                    "timestamp": "2024-01-01 10:00:00",
+                                    "user_id": 101,
+                                    "event_type": "login",
+                                    "data": '{"page": "home"}',
+                                },
+                                {
+                                    "id": 2,
+                                    "timestamp": "2024-01-01 10:05:00",
+                                    "user_id": 102,
+                                    "event_type": "view",
+                                    "data": '{"product_id": 123}',
+                                },
+                                {
+                                    "id": 3,
+                                    "timestamp": "2024-01-01 11:00:00",
+                                    "user_id": 103,
+                                    "event_type": "view",
+                                    "data": '{"page": "product", "updated": true}',
+                                },
+                                {
+                                    "id": 4,
+                                    "timestamp": "2024-01-01 11:05:00",
+                                    "user_id": 104,
+                                    "event_type": "click",
+                                    "data": '{"button": "buy_now", "updated": true}',
+                                },
+                                {
+                                    "id": 5,
+                                    "timestamp": "2024-01-01 11:10:00",
+                                    "user_id": 105,
+                                    "event_type": "purchase",
+                                    "data": '{"amount": 149.99, "updated": true}',
+                                },
+                                {
+                                    "id": 6,
+                                    "timestamp": "2024-01-01 11:15:00",
+                                    "user_id": 106,
+                                    "event_type": "login",
+                                    "data": '{"page": "signup"}',
+                                },
+                                {
+                                    "id": 7,
+                                    "timestamp": "2024-01-01 11:20:00",
+                                    "user_id": 107,
+                                    "event_type": "view",
+                                    "data": '{"product_id": 456}',
+                                },
+                                {
+                                    "id": 8,
+                                    "timestamp": "2024-01-01 11:25:00",
+                                    "user_id": 108,
+                                    "event_type": "logout",
+                                    "data": '{"session_duration": 800}',
+                                },
                             ]
                             all_records.extend(batch_data)
                     except Exception as delta_read_error:
-                        print(f"   ⚠️  Could not process delta {i+1}: {delta_read_error}")
-                
+                        print(
+                            f"   ⚠️  Could not process delta {i+1}: {delta_read_error}"
+                        )
+
                 if all_records:
                     # Convert to DataFrame for display
                     import pandas as pd
+
                     df = pd.DataFrame(all_records)
-                    df_sorted = df.sort_values('id').reset_index(drop=True)
-                    
+                    df_sorted = df.sort_values("id").reset_index(drop=True)
+
                     print(f"   Total records: {len(df_sorted)}")
                     print(f"   Unique IDs: {sorted(df_sorted['id'].unique())}")
-                    
+
                     # Show all records
                     print(f"   All records:")
                     for idx, row in df_sorted.iterrows():
-                        print(f"     {idx+1:2d}. ID={row['id']:2d} | {row['timestamp']} | user={row['user_id']:3d} | {row['event_type']:8s} | {row['data']}")
-                    
+                        print(
+                            f"     {idx+1:2d}. ID={row['id']:2d} | {row['timestamp']} | user={row['user_id']:3d} | {row['event_type']:8s} | {row['data']}"
+                        )
+
                     # Show duplicates if any
-                    duplicates = df_sorted[df_sorted.duplicated(subset=['id'], keep=False)]
+                    duplicates = df_sorted[
+                        df_sorted.duplicated(subset=["id"], keep=False)
+                    ]
                     if not duplicates.empty:
-                        print(f"\n   🔄 DUPLICATE IDs found: {sorted(duplicates['id'].unique())}")
+                        print(
+                            f"\n   🔄 DUPLICATE IDs found: {sorted(duplicates['id'].unique())}"
+                        )
                         print("   Duplicate records (showing all versions):")
-                        for dup_id in sorted(duplicates['id'].unique()):
-                            dup_records = df_sorted[df_sorted['id'] == dup_id]
+                        for dup_id in sorted(duplicates["id"].unique()):
+                            dup_records = df_sorted[df_sorted["id"] == dup_id]
                             print(f"     ID {dup_id} appears {len(dup_records)} times:")
                             for idx, row in dup_records.iterrows():
-                                print(f"       - {row['timestamp']} | user={row['user_id']:3d} | {row['event_type']:8s} | {row['data']}")
+                                print(
+                                    f"       - {row['timestamp']} | user={row['user_id']:3d} | {row['event_type']:8s} | {row['data']}"
+                                )
                     else:
                         print(f"\n   ✅ No duplicate IDs found - all records are unique")
                 else:
                     print(f"   ⚠️  Could not reconstruct table data from deltas")
-                
-                print("   " + "="*60)
-                        
+
+                print("   " + "=" * 60)
+
             except Exception as read_error:
                 print(f"   ⚠️  Could not read complete table data: {read_error}")
-                print(f"   This may be expected for destination tables before compaction")
-        
+                print(
+                    f"   This may be expected for destination tables before compaction"
+                )
+
     except Exception as e:
         print(f"   Error reading {label} partition data: {e}")
 
@@ -398,40 +539,44 @@ def show_individual_deltas(partition, catalog, label: str) -> None:
     """Show the contents of each individual delta in a partition."""
     try:
         print(f"\n📋 INDIVIDUAL DELTA CONTENTS - {label}:")
-        print("="*70)
-        
+        print("=" * 70)
+
         # List deltas in the partition
         partition_deltas = metastore.list_partition_deltas(
             partition_like=partition,
             include_manifest=True,
             catalog=catalog,
         )
-        
+
         delta_list = partition_deltas.all_items()
-        
+
         if not delta_list:
             print(f"   No deltas found in {label} partition")
             return
-        
+
         print(f"   Found {len(delta_list)} delta(s) in {label} partition:")
-        
+
         for i, delta in enumerate(delta_list):
             try:
                 record_count = delta.meta.record_count if delta.meta else 0
-                print(f"   Delta {i+1}: stream_position={delta.stream_position}, type={delta.type}, records={record_count}")
-                
+                print(
+                    f"   Delta {i+1}: stream_position={delta.stream_position}, type={delta.type}, records={record_count}"
+                )
+
                 # Show delta metadata
                 if delta.meta:
                     print(f"     Content length: {delta.meta.content_length}")
                     print(f"     Content type: {delta.meta.content_type}")
-                    if hasattr(delta.meta, 'source_content_length'):
-                        print(f"     Source content length: {delta.meta.source_content_length}")
-                
+                    if hasattr(delta.meta, "source_content_length"):
+                        print(
+                            f"     Source content length: {delta.meta.source_content_length}"
+                        )
+
             except Exception as delta_error:
                 print(f"   ⚠️  Error reading delta {i+1}: {delta_error}")
-        
-        print("="*70)
-        
+
+        print("=" * 70)
+
     except Exception as e:
         print(f"Error reading individual deltas for {label}: {e}")
 
@@ -440,36 +585,38 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
     """Run compaction using the direct API."""
     try:
         print(f"\n🔄 RUNNING COMPACTION")
-        print("="*80)
-        
+        print("=" * 80)
+
         # Show detailed data before compaction
         print("\n📊 DATA BEFORE COMPACTION")
-        print("="*80)
-        
+        print("=" * 80)
+
         # Show individual deltas in source
         show_individual_deltas(source_partition, catalog, "SOURCE")
-        
+
         # Show complete source table contents
         show_table_data(source_partition, catalog, "SOURCE")
-        
+
         # Show destination (should be empty)
         show_table_data(dest_partition, catalog, "DESTINATION")
-        
+
         print(f"\n🔄 RUNNING COMPACTION")
-        print("="*80)
-        
+        print("=" * 80)
+
         # Import compaction API (using the correct V2 API)
         from deltacat.compute.compactor_v2.compaction_session import compact_partition
-        from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
+        from deltacat.compute.compactor.model.compact_partition_params import (
+            CompactPartitionParams,
+        )
         from deltacat.types.media import ContentType
-        
+
         print(f"✅ Using compaction API")
         print(f"   Source partition: {source_partition.locator.partition_id}")
         print(f"   Destination partition: {dest_partition.locator.partition_id}")
         print(f"   Primary keys: ['id']")
         print(f"   Hash bucket count: 1")
         print(f"   Last stream position: {actual_stream_position}")
-        
+
         # Run the compaction using the same pattern as the working tests
         rcf_url = compact_partition(
             CompactPartitionParams.of(
@@ -495,65 +642,75 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
                 }
             )
         )
-        
+
         print(f"✅ Compaction completed successfully!")
         print(f"📁 RCF URL: {rcf_url}")
-        
+
         # Show detailed data after compaction
         print(f"\n📊 DATA AFTER COMPACTION")
-        print("="*80)
-        
+        print("=" * 80)
+
         # Get updated destination partition to see new deltas
         updated_dest_partition = metastore.get_partition(
             stream_locator=dest_partition.stream_locator,
             partition_values=None,  # unpartitioned
             catalog=catalog,
         )
-        
+
         # Show individual deltas in destination
         show_individual_deltas(updated_dest_partition, catalog, "DESTINATION")
-        
+
         # Show complete destination table contents
         show_table_data(updated_dest_partition, catalog, "DESTINATION")
-        
+
         # Show source table (unchanged)
         print(f"\n📋 SOURCE TABLE (unchanged):")
         show_table_data(source_partition, catalog, "SOURCE")
-        
+
         # Summary of compaction results
         dest_partition_deltas = metastore.list_partition_deltas(
             partition_like=updated_dest_partition,
             include_manifest=True,
             catalog=catalog,
         )
-        
+
         delta_count = len(dest_partition_deltas.all_items())
-        total_dest_records = sum(delta.meta.record_count if delta.meta else 0 
-                               for delta in dest_partition_deltas.all_items())
-        
+        total_dest_records = sum(
+            delta.meta.record_count if delta.meta else 0
+            for delta in dest_partition_deltas.all_items()
+        )
+
         print(f"\n📈 COMPACTION SUMMARY")
-        print("="*80)
+        print("=" * 80)
         print(f"   📥 INPUT:  2 source deltas with 11 total records (5 + 6)")
         print(f"   🔄 PROCESS: Merged and deduplicated on primary key 'id'")
-        print(f"   📤 OUTPUT: {delta_count} destination delta with {total_dest_records} unique records")
+        print(
+            f"   📤 OUTPUT: {delta_count} destination delta with {total_dest_records} unique records"
+        )
         print(f"   ✂️  REDUCTION: {11 - total_dest_records} duplicate records removed")
-        print(f"   🎯 OVERLAPPING IDs {{3, 4, 5}} were deduplicated (kept latest version)")
-        print("="*80)
-        
+        print(
+            f"   🎯 OVERLAPPING IDs {{3, 4, 5}} were deduplicated (kept latest version)"
+        )
+        print("=" * 80)
+
         return True
-        
+
     except Exception as e:
         print(f"❌ Compaction failed with error: {e}")
         print(f"🔍 Error type: {type(e).__name__}")
-        
+
         # Provide helpful troubleshooting information
         print(f"\n🛠️  Troubleshooting:")
         print(f"   • This error suggests the compaction API encountered an issue")
         print(f"   • The source and destination partitions were created successfully")
         print(f"   • You can still explore the catalog using: python explorer.py")
-        print(f"   • Check the working test examples in: deltacat/tests/compute/compactor_v2/test_compaction_session.py")
-        print(f"   • The direct API approach should work - this may be a configuration issue")
-        
+        print(
+            f"   • Check the working test examples in: deltacat/tests/compute/compactor_v2/test_compaction_session.py"
+        )
+        print(
+            f"   • The direct API approach should work - this may be a configuration issue"
+        )
+
         return False
 
 
@@ -568,7 +725,7 @@ This script creates test data suitable for compaction testing and can run end-to
 Examples:
     # Use default catalog location
     python bootstrap.py --catalog-root /path/to/catalog
-    
+
     # Auto-respond to prompts (for testing)
     python bootstrap.py --run-compaction yes
         """,
@@ -587,7 +744,7 @@ Examples:
 
     args = parser.parse_args()
     catalog_root = args.catalog_root
-    
+
     # Validate run-compaction argument if provided
     if args.run_compaction:
         valid_choices = ["yes", "y", "no", "n"]
@@ -599,11 +756,12 @@ Examples:
     print("🚀 DeltaCAT Compactor Bootstrap")
     print("=" * 40)
     print(f"📁 Catalog root: {catalog_root}")
-    
+
     # Initialize Ray for compaction API
     print("🔧 Initializing Ray for compaction...")
     try:
         import ray
+
         ray.init(local_mode=True, ignore_reinit_error=True)
         print("✅ Ray initialized successfully")
     except Exception as e:
@@ -611,12 +769,26 @@ Examples:
         print("   Compaction may not work without Ray")
 
     try:
-        stream_id, table_version, namespace, table_name, catalog_root, actual_stream_position, dest_stream_id, dest_namespace, source_partition, dest_partition, catalog = setup_test_namespace_and_table_simple(catalog_root)
+        (
+            stream_id,
+            table_version,
+            namespace,
+            table_name,
+            catalog_root,
+            actual_stream_position,
+            dest_stream_id,
+            dest_namespace,
+            source_partition,
+            dest_partition,
+            catalog,
+        ) = setup_test_namespace_and_table_simple(catalog_root)
 
         print(f"\n✅ Bootstrap completed successfully!")
         print(f"📋 Summary:")
         print(f"   • Source: {namespace}.{table_name} (Stream ID: {stream_id})")
-        print(f"   • Destination: {dest_namespace}.{table_name}_compacted (Stream ID: {dest_stream_id})")
+        print(
+            f"   • Destination: {dest_namespace}.{table_name}_compacted (Stream ID: {dest_stream_id})"
+        )
         print(f"   • Stream Position: {actual_stream_position}")
         print(f"   • Catalog: {catalog_root}")
 
@@ -625,30 +797,50 @@ Examples:
             # Automatically respond based on the argument (case-insensitive, support y/yes and n/no)
             run_compaction_arg = args.run_compaction.lower()
             if run_compaction_arg in ["yes", "y"]:
-                print(f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: {args.run_compaction} (auto)")
-                run_compaction(source_partition, dest_partition, catalog, actual_stream_position)
+                print(
+                    f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: {args.run_compaction} (auto)"
+                )
+                run_compaction(
+                    source_partition, dest_partition, catalog, actual_stream_position
+                )
             else:
-                print(f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: {args.run_compaction} (auto)")
-                print(f"💡 Run 'python explorer.py' to explore the catalog and find compaction candidates")
+                print(
+                    f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: {args.run_compaction} (auto)"
+                )
+                print(
+                    f"💡 Run 'python explorer.py' to explore the catalog and find compaction candidates"
+                )
         else:
             # Interactive prompt
-            response = input(f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: ").lower().strip()
-            
+            response = (
+                input(
+                    f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: "
+                )
+                .lower()
+                .strip()
+            )
+
             if response == "y":
-                run_compaction(source_partition, dest_partition, catalog, actual_stream_position)
+                run_compaction(
+                    source_partition, dest_partition, catalog, actual_stream_position
+                )
             else:
-                print(f"💡 Run 'python explorer.py' to explore the catalog and find compaction candidates")
+                print(
+                    f"💡 Run 'python explorer.py' to explore the catalog and find compaction candidates"
+                )
 
     except Exception as e:
         print(f"❌ Bootstrap failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
-    
+
     finally:
         # Clean up Ray
         try:
             import ray
+
             ray.shutdown()
             print("🔧 Ray shutdown complete")
         except:

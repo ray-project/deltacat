@@ -3,7 +3,9 @@ from typing import Optional
 
 import deltacat
 from deltacat.compute.compactor_v2.compaction_session import compact_partition
-from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
+from deltacat.compute.compactor.model.compact_partition_params import (
+    CompactPartitionParams,
+)
 from deltacat.storage import metastore
 from deltacat.types.media import ContentType
 
@@ -73,16 +75,23 @@ def run(
     source_partition_locator = get_actual_partition_locator(
         namespace, table_name, table_version, partition_values_list, catalog
     )
-    
+
     # For destination, try actual first, fall back to basic if table doesn't exist yet
     try:
         dest_partition_locator = get_actual_partition_locator(
-            dest_namespace, dest_table_name, dest_table_version, dest_partition_values_list, catalog
+            dest_namespace,
+            dest_table_name,
+            dest_table_version,
+            dest_partition_values_list,
+            catalog,
         )
         print(f"✅ Using existing destination partition")
     except:
         dest_partition_locator = create_partition_locator(
-            dest_namespace, dest_table_name, dest_table_version, dest_partition_values_list
+            dest_namespace,
+            dest_table_name,
+            dest_table_version,
+            dest_partition_values_list,
         )
         print(f"✅ Creating new destination partition")
 
@@ -122,24 +131,28 @@ def run(
     if compactor_version == "V2":
         if hash_bucket_count is None:
             raise ValueError("hash_bucket_count is required for V2 compactor")
-        
-        params_dict.update({
-            "hash_bucket_count": hash_bucket_count,
-            "drop_duplicates": True,
-            "dd_max_parallelism_ratio": 1.0,
-        })
+
+        params_dict.update(
+            {
+                "hash_bucket_count": hash_bucket_count,
+                "drop_duplicates": True,
+                "dd_max_parallelism_ratio": 1.0,
+            }
+        )
 
     print(f"🚀 Starting {compactor_version} compaction...")
     print(f"   Source: {source_partition_locator}")
     print(f"   Destination: {dest_partition_locator}")
     print(f"   Primary Keys: {primary_keys_set}")
-    print(f"   Sort Keys: {[sk.key for sk in sort_keys_list] if sort_keys_list else None}")
+    print(
+        f"   Sort Keys: {[sk.key for sk in sort_keys_list] if sort_keys_list else None}"
+    )
     if compactor_version == "V2":
         print(f"   Hash Bucket Count: {hash_bucket_count}")
 
     # Run compaction
     result = compact_partition(CompactPartitionParams.of(params_dict))
-    
+
     print(f"✅ Compaction completed successfully!")
     print(f"   Result: {result}")
 

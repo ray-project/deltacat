@@ -22,7 +22,7 @@ def run_compactor_local(
 ) -> None:
     """
     Run the compactor locally using Ray.
-    
+
     This function constructs the command line arguments and runs the compactor.py
     script directly in the current Python process.
     """
@@ -40,7 +40,7 @@ def run_compactor_local(
         f"--primary-keys '{primary_keys}'",
         f"--compactor-version '{compactor_version}'",
     ]
-    
+
     # Add optional arguments
     if catalog_root:
         cmd_args.append(f"--catalog-root '{catalog_root}'")
@@ -52,14 +52,14 @@ def run_compactor_local(
         cmd_args.append(f"--records-per-file {records_per_file}")
     if table_writer_compression != "lz4":
         cmd_args.append(f"--table-writer-compression '{table_writer_compression}'")
-    
+
     # Join all arguments
     cmd_str = " ".join(cmd_args)
     print(f"Running compactor with arguments: {cmd_str}")
-    
+
     # Import and run the compactor directly
     from . import compactor
-    
+
     # Parse arguments manually and call run function
     compactor.run(
         namespace=namespace,
@@ -101,12 +101,12 @@ def run_compactor_local_job(
 ) -> None:
     """
     Submit the compactor as a local Ray job using a local job client.
-    
+
     This function creates a Ray job that runs the compactor.py script
     with the specified parameters.
     """
     from deltacat import local_job_client
-    
+
     # Build command arguments
     cmd_args = [
         "python compactor.py",
@@ -122,7 +122,7 @@ def run_compactor_local_job(
         f"--primary-keys '{primary_keys}'",
         f"--compactor-version '{compactor_version}'",
     ]
-    
+
     # Add optional arguments
     if catalog_root:
         cmd_args.append(f"--catalog-root '{catalog_root}'")
@@ -134,21 +134,21 @@ def run_compactor_local_job(
         cmd_args.append(f"--records-per-file {records_per_file}")
     if table_writer_compression != "lz4":
         cmd_args.append(f"--table-writer-compression '{table_writer_compression}'")
-    
+
     # Join all arguments
     entrypoint = " ".join(cmd_args)
     print(f"Submitting local Ray job with entrypoint: {entrypoint}")
-    
+
     # Submit the job
     client = local_job_client()
     job_run_result = client.run_job(
         entrypoint=entrypoint,
         runtime_env={"working_dir": "./deltacat/examples/compactor/"},
     )
-    
+
     print(f"Job ID {job_run_result.job_id} terminal state: {job_run_result.job_status}")
     print(f"Job logs: {job_run_result.job_logs}")
-    
+
     return job_run_result
 
 
@@ -172,10 +172,10 @@ def run_compactor_remote_job(
 ) -> None:
     """
     Submit the compactor as a remote Ray job using a remote job client.
-    
+
     This function creates a Ray job that runs the compactor.py script
     on a remote Ray cluster with the specified parameters.
-    
+
     Args:
         namespace: Source table namespace
         table_name: Source table name
@@ -195,7 +195,7 @@ def run_compactor_remote_job(
         table_writer_compression: Compression type for table writer
     """
     from deltacat import job_client
-    
+
     # Build command arguments - same as local job
     cmd_args = [
         "python compactor.py",
@@ -211,7 +211,7 @@ def run_compactor_remote_job(
         f"--primary-keys '{primary_keys}'",
         f"--compactor-version '{compactor_version}'",
     ]
-    
+
     # Add optional arguments
     if catalog_root:
         cmd_args.append(f"--catalog-root '{catalog_root}'")
@@ -223,18 +223,18 @@ def run_compactor_remote_job(
         cmd_args.append(f"--records-per-file {records_per_file}")
     if table_writer_compression != "lz4":
         cmd_args.append(f"--table-writer-compression '{table_writer_compression}'")
-    
+
     # Join all arguments
     entrypoint = " ".join(cmd_args)
     print(f"Submitting remote Ray job with entrypoint: {entrypoint}")
-    
+
     # Submit the job
     client = job_client("deltacat.yaml")  # or job_client() to use current directory
     job_run_result = client.run_job(
         entrypoint=entrypoint,
         runtime_env={"working_dir": "./deltacat/examples/compactor/"},
     )
-    
+
     print(f"Job completed with status: {job_run_result.job_status}")
     return job_run_result
 
@@ -242,12 +242,12 @@ def run_compactor_remote_job(
 if __name__ == "__main__":
     """
     DeltaCAT Job Runner Example - Run compactor jobs using different methods
-    
+
     This script demonstrates three ways to run the DeltaCAT compactor:
     1. Locally in the current process
     2. As a local Ray job
     3. As a remote Ray job
-    
+
     Example usage:
     $ python job_runner.py \
     $   --namespace 'events' \
@@ -418,8 +418,8 @@ if __name__ == "__main__":
 
     # Extract job type and remove it from args
     job_type = args.job_type
-    delattr(args, 'job_type')
-    
+    delattr(args, "job_type")
+
     # Run the appropriate job type
     if job_type == "local":
         print("Running compactor locally...")
@@ -432,5 +432,5 @@ if __name__ == "__main__":
         run_compactor_remote_job(**vars(args))
     else:
         raise ValueError(f"Invalid job type: {job_type}")
-    
+
     print("Job runner completed!")
