@@ -36,7 +36,7 @@ For the fastest way to get started with compaction testing:
 # Navigate to the compactor examples directory
 cd deltacat/examples/compactor
 
-# 1. Create test data
+# 1. Create test data (with interactive compaction option)
 python bootstrap.py
 
 # 2. Explore catalog and find compaction candidates
@@ -46,6 +46,8 @@ python explorer.py --show-compaction-candidates
 ```
 
 Both scripts use the same default catalog location (`/tmp/deltacat_test`), so they work together seamlessly without any arguments.
+
+**💡 Pro tip:** The bootstrap script now includes an interactive option to automatically run compaction and show before/after results. Just answer "y" when prompted, or use `--run-compaction` to skip the prompt.
 
 ### Bootstrapping Test Data
 
@@ -63,6 +65,8 @@ python bootstrap.py --catalog-root /path/to/your/catalog
 # - Table: events
 # - 2 batches of data with overlapping IDs (used as merge keys for compaction testing)
 # - All necessary deltacat metadata (table version, stream, partition, deltas)
+# - Ready-to-use compaction command with actual stream ID
+# - Optional interactive compaction demo with before/after data display
 ```
 
 ### Browsing Catalog Contents
