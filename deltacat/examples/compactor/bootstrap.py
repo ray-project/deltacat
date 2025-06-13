@@ -135,7 +135,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         )
         table_mode = TableWriteMode.REPLACE if existing_table else TableWriteMode.CREATE
         action = "Replacing" if existing_table else "Creating"
-    except:
+    except Exception:
         table_mode = TableWriteMode.CREATE
         action = "Creating"
 
@@ -211,7 +211,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
             print(f"✅ Using existing destination partition")
         else:
             raise Exception("No existing partition found")
-    except:
+    except Exception:
         # Create new partition if none exists
         dest_partition = metastore.stage_partition(
             stream=dest_table_def.stream,
@@ -843,7 +843,7 @@ Examples:
 
             ray.shutdown()
             print("🔧 Ray shutdown complete")
-        except:
+        except Exception:
             pass
 
 

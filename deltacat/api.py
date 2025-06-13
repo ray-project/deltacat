@@ -216,7 +216,7 @@ def _list_all_metafiles(
     if recursive:
         # Process each level of the hierarchy
         current_level_metafiles = [mf for mf in metafiles.all_items()]
-        
+
         for lister, kwarg_name, kwarg_val_resolver_fn in reader.listers:
             next_level_metafiles = []
             # each subsequent lister needs to inject missing keyword args from the parent metafile

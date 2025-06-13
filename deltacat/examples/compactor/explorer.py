@@ -2,7 +2,7 @@
 """
 DeltaCAT Catalog Explorer
 
-This script helps users discover candidate streams and partitions for compaction.
+Discover candidate streams and partitions for compaction.
 It provides an easy way to explore catalog contents and generates example compaction commands.
 
 Usage:
@@ -316,7 +316,7 @@ def print_compaction_candidates(candidates: List, catalog_root: str) -> None:
                 total_records = sum(
                     delta.meta.record_count if delta.meta else 0 for delta in delta_list
                 )
-            except:
+            except Exception:
                 delta_count = "unknown"
                 max_stream_position = "unknown"
                 total_records = "unknown"

@@ -86,7 +86,7 @@ def run(
             catalog,
         )
         print(f"✅ Using existing destination partition")
-    except:
+    except Exception:
         dest_partition_locator = create_partition_locator(
             dest_namespace,
             dest_table_name,
