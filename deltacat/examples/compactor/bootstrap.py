@@ -8,6 +8,10 @@ This script creates test data suitable for compaction testing by:
 3. Staging and committing all necessary deltacat metadata (table version, stream, partition, deltas)
 
 Usage:
+    # Use default catalog location
+    python bootstrap.py
+    
+    # Use custom catalog location
     python bootstrap.py --catalog-root /path/to/catalog
 
 The script creates:
@@ -170,24 +174,28 @@ def setup_test_namespace_and_table(catalog_root: str) -> None:
     )
 
     # Print compaction command example
-    print(f"\n🚀 To test compaction, run:")
-    print(f"cd deltacat/examples/compactor")
-    print(f"PYTHONPATH=/path/to/deltacat python compactor.py \\")
-    print(f"  --namespace '{namespace}' \\")
-    print(f"  --table-name '{table_name}' \\")
-    print(f"  --table-version '1' \\")
-    print(f"  --stream-id 'REPLACE_WITH_ACTUAL_STREAM_ID' \\")
-    print(f"  --partition-values '' \\")
-    print(f"  --dest-namespace '{namespace}' \\")
-    print(f"  --dest-table-name '{table_name}_compacted' \\")
-    print(f"  --dest-table-version '1' \\")
-    print(f"  --dest-stream-id 'compacted_stream' \\")
-    print(f"  --dest-partition-values '' \\")
-    print(f"  --last-stream-position 1000 \\")
-    print(f"  --primary-keys 'id' \\")
-    print(f"  --compactor-version 'V2' \\")
-    print(f"  --hash-bucket-count 2 \\")
-    print(f"  --catalog-root '{catalog_root}'")
+    print(f"\n🚀 Next steps:")
+    print(f"1. Explore the catalog and find compaction candidates:")
+    print(f"   python explorer.py --show-compaction-candidates")
+    print(f"")
+    print(f"2. Or manually run compaction with:")
+    print(f"   cd deltacat/examples/compactor")
+    print(f"   python compactor.py \\")
+    print(f"     --namespace '{namespace}' \\")
+    print(f"     --table-name '{table_name}' \\")
+    print(f"     --table-version '1' \\")
+    print(f"     --stream-id 'REPLACE_WITH_ACTUAL_STREAM_ID' \\")
+    print(f"     --partition-values '' \\")
+    print(f"     --dest-namespace '{namespace}' \\")
+    print(f"     --dest-table-name '{table_name}_compacted' \\")
+    print(f"     --dest-table-version '1' \\")
+    print(f"     --dest-stream-id 'compacted_stream' \\")
+    print(f"     --dest-partition-values '' \\")
+    print(f"     --last-stream-position 1000 \\")
+    print(f"     --primary-keys 'id' \\")
+    print(f"     --compactor-version 'V2' \\")
+    print(f"     --hash-bucket-count 2 \\")
+    print(f"     --catalog-root '{catalog_root}'")
 
 
 def main():
@@ -197,6 +205,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Create test data in default location 
+  python bootstrap.py
+
   # Create test data in a specific directory
   python bootstrap.py --catalog-root /tmp/deltacat_test
 
@@ -211,8 +222,8 @@ Examples:
     parser.add_argument(
         "--catalog-root",
         type=str,
-        required=True,
-        help="Root directory for the DeltaCAT catalog where test data will be created",
+        default="/tmp/deltacat_test",
+        help="Root directory for the DeltaCAT catalog where test data will be created (default: /tmp/deltacat_test)",
     )
 
     parser.add_argument(
@@ -245,6 +256,7 @@ Examples:
 
         print(f"\n✅ Bootstrap completed successfully!")
         print(f"📊 Test data is ready for compaction testing")
+        print(f"💡 Run 'python explorer.py' to explore the catalog and find compaction candidates")
 
     except Exception as e:
         print(f"\n❌ Bootstrap failed: {str(e)}")

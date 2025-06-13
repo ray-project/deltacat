@@ -1,53 +1,104 @@
 # DeltaCAT Compactor Examples
 
-This directory contains example scripts for using DeltaCAT's V1 and V2 compactors. The examples demonstrate how to compact DeltaCAT partitions using either compactor version, with support for both local execution and distributed execution on Ray clusters in AWS or GCP.
+This directory contains example scripts that demonstrate how to manually invoke the DeltaCAT V1 and V2 compactors. They demonstrate how to compact DeltaCAT partitions using either compactor version, with support for both local execution and distributed execution on Ray clusters in AWS or GCP. Note that compaction is not typically run manually as in these examples, but invoked automatically by DeltaCAT during the course of normal table IO.
 
 ## Files
 
 - `compactor.py` - Main compactor script that can run standalone or as part of a Ray job
 - `job_runner.py` - Job orchestration script for running multiple compactor jobs on Ray clusters
 - `bootstrap.py` - Creates test data for compaction testing
-- `catalog_inspector.py` - Inspects catalog metadata to find stream IDs and other compaction parameters
+- `explorer.py` - Interactive catalog explorer to discover compaction candidates
 - `aws/deltacat.yaml` - Ray cluster configuration for AWS
 - `gcp/deltacat.yaml` - Ray cluster configuration for GCP
 
 ## Quick Start
+
+### Developer Setup (Optional)
+
+If you're working with DeltaCAT source code, you can install DeltaCAT and activate its virtual environment:
+
+```bash
+# From the DeltaCAT root directory
+make install
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Set PYTHONPATH (if needed)
+export PYTHONPATH=$(pwd)
+```
+
+### Simple Workflow (Recommended)
+
+For the fastest way to get started with compaction testing:
+
+```bash
+# Navigate to the compactor examples directory
+cd deltacat/examples/compactor
+
+# 1. Create test data
+python bootstrap.py
+
+# 2. Explore catalog and find compaction candidates
+python explorer.py --show-compaction-candidates
+
+# 3. Copy and run the generated compaction command
+```
+
+Both scripts use the same default catalog location (`/tmp/deltacat_test`), so they work together seamlessly without any arguments.
 
 ### Bootstrapping Test Data
 
 Before running compaction, you can create test data using the bootstrap script:
 
 ```bash
-# Create test data in a temporary directory
-python bootstrap.py --catalog-root /tmp/deltacat_test
+# Create test data in default location (recommended)
+python bootstrap.py
+
+# Or create test data in a custom directory
+python bootstrap.py --catalog-root /path/to/your/catalog
 
 # This creates:
 # - Namespace: compactor_test
 # - Table: events
-# - 2 batches of data with overlapping IDs (good for compaction testing)
+# - 2 batches of data with overlapping IDs (used as merge keys for compaction testing)
 # - All necessary deltacat metadata (table version, stream, partition, deltas)
 ```
 
-### Inspecting Catalog Metadata
+### Browsing Catalog Contents
 
-Use the catalog inspector to find the correct parameters for compaction:
+After bootstrapping, you have two options for exploring your catalog:
+
+#### Option 1: Interactive Explorer (Recommended)
+
+Use the `explorer.py` script for an easy, user-friendly way to explore your catalog and find compaction candidates:
 
 ```bash
-# Inspect the entire catalog
-python catalog_inspector.py --catalog-root /tmp/deltacat_test
+# Navigate to the compactor examples directory
+cd deltacat/examples/compactor
 
-# Inspect specific namespace and table
-python catalog_inspector.py \
-  --catalog-root /tmp/deltacat_test \
-  --namespace compactor_test \
-  --table events
+# Explore the catalog (uses same default as bootstrap.py)
+python explorer.py
+
+# Find compaction candidates with ready-to-use commands
+python explorer.py --show-compaction-candidates
+
+# Explore with custom catalog root
+python explorer.py --catalog-root /path/to/your/catalog
+
+# Explore specific namespace only
+python explorer.py --url "dc://compactor_test_catalog/compactor_test"
+
+# Non-recursive listing (top-level only)
+python explorer.py --no-recursive
 ```
 
-The inspector will show:
-- Stream IDs (needed for `--stream-id`)
-- Partition information
-- Maximum stream positions (needed for `--last-stream-position`)
-- Table schema and metadata
+The explorer will show you:
+- 📊 Catalog summary (counts of each object type)
+- 📋 Detailed hierarchical listing of all objects
+- 🎯 Compaction candidates with ready-to-use commands
+- 🚀 Example compaction commands you can copy and run
+
 
 ### Local Execution
 
