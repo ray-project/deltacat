@@ -138,17 +138,44 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
     print(f"\nBatch 2 shape: {batch_2.shape}")
     print(f"Batch 2 data:\n{batch_2}")
 
-    # Create source table using write_to_table for the first batch
-    print(f"\nCreating SOURCE table {source_namespace}.{table_name} with first batch...")
+    # Create/replace source table using write_to_table for the first batch (idempotent)
+    print(f"\nCreating/replacing SOURCE table {source_namespace}.{table_name} with first batch...")
+    
+    # Check if table exists to determine the appropriate mode
+    try:
+        existing_table = get_table(
+            name=table_name,
+            namespace=source_namespace,
+            catalog="default"
+        )
+        table_mode = TableWriteMode.REPLACE if existing_table else TableWriteMode.CREATE
+        action = "Replacing" if existing_table else "Creating"
+    except:
+        table_mode = TableWriteMode.CREATE
+        action = "Creating"
+    
+    print(f"{action} source table with first batch...")
     write_to_table(
         data=batch_1,
         table=table_name,
         namespace=source_namespace,
-        mode=TableWriteMode.CREATE,
+        mode=table_mode,
         content_type=ContentType.PARQUET,
         catalog="default",
     )
-    print(f"✅ Created source table and wrote first delta")
+    print(f"✅ {action.replace('ing', 'ed')} source table and wrote first delta")
+    
+    # Add second batch using write_to_table with APPEND mode
+    print(f"Adding second batch to SOURCE table using write_to_table APPEND mode...")
+    write_to_table(
+        data=batch_2,
+        table=table_name,
+        namespace=source_namespace,
+        mode=TableWriteMode.APPEND,  # Use APPEND for second batch
+        content_type=ContentType.PARQUET,
+        catalog="default",
+    )
+    print(f"✅ Added second delta to source table")
     
     # Get the table definition and partition
     source_table_def = get_table(
@@ -163,24 +190,6 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         catalog=catalog,
     )
     
-    # Add second batch using lower-level metastore API to ensure separate delta
-    print(f"Adding second batch to SOURCE table using metastore API...")
-    
-    # Stage and commit a second delta manually
-    staged_delta = metastore.stage_delta(
-        data=batch_2,
-        partition=source_partition,
-        catalog=catalog,
-        content_type=ContentType.PARQUET,
-        delta_type=DeltaType.UPSERT,
-    )
-    
-    committed_delta = metastore.commit_delta(
-        delta=staged_delta,
-        catalog=catalog,
-    )
-    print(f"✅ Added second delta to source table")
-    
     # Verify we now have 2 deltas
     partition_deltas = metastore.list_partition_deltas(
         partition_like=source_partition,
@@ -190,30 +199,44 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
     delta_list = partition_deltas.all_items()
     print(f"📋 Total deltas in source table: {len(delta_list)}")
     
-    # Create empty destination table with same schema as source
-    print(f"\nCreating empty DESTINATION table {dest_namespace}.{table_name}_compacted...")
+    # Create/replace empty destination table with same schema as source (idempotent)
+    print(f"\nCreating/replacing empty DESTINATION table {dest_namespace}.{table_name}_compacted...")
     
     dest_table_def = create_table(
         name=f"{table_name}_compacted",
         namespace=dest_namespace,
         schema=source_table_def.table_version.schema,
         description="Compacted events table (destination)",
+        fail_if_exists=False,  # Allow overwriting for idempotency
         catalog="default",
     )
-    print(f"✅ Created destination table: {dest_table_def.table.table_name}")
+    print(f"✅ Created/replaced destination table: {dest_table_def.table.table_name}")
     print(f"✅ Destination namespace '{dest_namespace}' created automatically")
 
-    # Create destination partition
-    print("Creating destination partition...")
-    dest_partition = metastore.stage_partition(
-        stream=dest_table_def.stream,
-        catalog=catalog,
-    )
-    dest_partition = metastore.commit_partition(
-        partition=dest_partition,
-        catalog=catalog,
-    )
-    print(f"✅ Created destination partition")
+    # Create destination partition (idempotent)
+    print("Creating/getting destination partition...")
+    try:
+        # Try to get existing partition first
+        dest_partition = metastore.get_partition(
+            stream_locator=dest_table_def.stream.locator,
+            partition_values=None,
+            catalog=catalog,
+        )
+        if dest_partition:
+            print(f"✅ Using existing destination partition")
+        else:
+            raise Exception("No existing partition found")
+    except:
+        # Create new partition if none exists
+        dest_partition = metastore.stage_partition(
+            stream=dest_table_def.stream,
+            catalog=catalog,
+        )
+        dest_partition = metastore.commit_partition(
+            partition=dest_partition,
+            catalog=catalog,
+        )
+        print(f"✅ Created new destination partition")
 
     # Get the actual stream position by checking deltas
     actual_stream_position = max(delta.stream_position for delta in delta_list) if delta_list else 2
