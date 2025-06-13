@@ -15,9 +15,6 @@ Usage:
     # Use custom catalog location
     python bootstrap.py --catalog-root /path/to/catalog
     
-    # Run compaction automatically
-    python bootstrap.py --run-compaction
-    
     # Auto-respond to prompts (for testing)
     python bootstrap.py --auto-run-compaction yes
 
@@ -32,26 +29,14 @@ The script creates:
 """
 
 import argparse
-import os
-import subprocess
 import sys
-import tempfile
-from typing import Optional
 
 import pandas as pd
-import pyarrow as pa
 
 from deltacat.catalog import write_to_table, get_table, create_table
-from deltacat.storage.model.types import LifecycleState
-from deltacat.types.media import ContentType, DistributedDatasetType
+from deltacat.types.media import ContentType
 from deltacat.storage import metastore
-from deltacat.storage.model.schema import Schema
-from deltacat.storage.model.delta import DeltaType
 from deltacat.types.tables import TableWriteMode
-
-# Import compaction API directly
-from deltacat.compute.compactor_v2.compaction_session import compact_partition
-from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
 
 # Import common utilities
 from utils.common import (
@@ -584,11 +569,8 @@ Examples:
     # Use default catalog location
     python bootstrap.py --catalog-root /path/to/catalog
     
-    # Run compaction automatically
-    python bootstrap.py --run-compaction
-    
     # Auto-respond to prompts (for testing)
-    python bootstrap.py --auto-run-compaction yes
+    python bootstrap.py --run-compaction yes
         """,
     )
     parser.add_argument(
@@ -596,19 +578,23 @@ Examples:
         default=get_default_catalog_root(),
         help=f"Root directory for the deltacat catalog (default: {get_default_catalog_root()})",
     )
+
     parser.add_argument(
         "--run-compaction",
-        action="store_true",
-        help="Run compaction automatically after creating test data",
-    )
-    parser.add_argument(
-        "--auto-run-compaction",
-        choices=["yes", "no"],
-        help="Automatically respond to compaction prompt (for testing)",
+        type=str,
+        help="Automatically respond to compaction prompt (for testing).",
     )
 
     args = parser.parse_args()
     catalog_root = args.catalog_root
+    
+    # Validate run-compaction argument if provided
+    if args.run_compaction:
+        valid_choices = ["yes", "y", "no", "n"]
+        if args.run_compaction.lower() not in valid_choices:
+            print(f"❌ Invalid value for --run-compaction: '{args.run_compaction}'")
+            print(f"   Valid choices: {', '.join(valid_choices)} (case-insensitive)")
+            sys.exit(1)
 
     print("🚀 DeltaCAT Compactor Bootstrap")
     print("=" * 40)
@@ -636,14 +622,13 @@ Examples:
 
         # Interactive compaction option
         if args.run_compaction:
-            run_compaction(source_partition, dest_partition, catalog, actual_stream_position)
-        elif args.auto_run_compaction:
-            # Automatically respond based on the argument
-            if args.auto_run_compaction == "yes":
-                print(f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: y (auto)")
+            # Automatically respond based on the argument (case-insensitive, support y/yes and n/no)
+            run_compaction_arg = args.run_compaction.lower()
+            if run_compaction_arg in ["yes", "y"]:
+                print(f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: {args.run_compaction} (auto)")
                 run_compaction(source_partition, dest_partition, catalog, actual_stream_position)
             else:
-                print(f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: n (auto)")
+                print(f"\n🤔 Would you like to run compaction now and see the before/after results? [y/N]: {args.run_compaction} (auto)")
                 print(f"💡 Run 'python explorer.py' to explore the catalog and find compaction candidates")
         else:
             # Interactive prompt

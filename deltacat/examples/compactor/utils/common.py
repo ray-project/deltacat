@@ -6,8 +6,6 @@ This module contains shared functionality used across bootstrap.py, explorer.py,
 and compactor.py to reduce code duplication.
 """
 
-import os
-import tempfile
 from typing import Set, List, Optional, Tuple
 
 import deltacat as dc
