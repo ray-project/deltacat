@@ -1,339 +1,203 @@
 # DeltaCAT Compactor Examples
 
-This directory contains example scripts that demonstrate how to manually invoke the DeltaCAT V1 and V2 compactors. They demonstrate how to compact DeltaCAT partitions using either compactor version, with support for both local execution and distributed execution on Ray clusters in AWS or GCP. Note that compaction is not typically run manually as in these examples, but invoked automatically by DeltaCAT during the course of normal table IO.
+This directory contains examples demonstrating DeltaCAT's compaction functionality, which merges and deduplicates data across multiple deltas to optimize storage and query performance.
 
-## Files
+## Developer Setup
 
-- `compactor.py` - Main compactor script that can run standalone or as part of a Ray job
-- `job_runner.py` - Job orchestration script for running multiple compactor jobs on Ray clusters
-- `bootstrap.py` - Creates test data for compaction testing
-- `explorer.py` - Interactive catalog explorer to discover compaction candidates
-- `aws/deltacat.yaml` - Ray cluster configuration for AWS
-- `gcp/deltacat.yaml` - Ray cluster configuration for GCP
-
-## Quick Start
-
-### Developer Setup (Optional)
-
-If you're working with DeltaCAT source code, you can install DeltaCAT and activate its virtual environment:
+If you're working from DeltaCAT source code, you may want to install and activate its virtual environment:
 
 ```bash
-# From the DeltaCAT root directory
+# Install deltacat in development mode
 make install
 
 # Activate the virtual environment
 source venv/bin/activate
 
-# Set PYTHONPATH (if needed)
-export PYTHONPATH=$(pwd)
-```
-
-### Simple Workflow (Recommended)
-
-For the fastest way to get started with compaction testing:
-
-```bash
-# Navigate to the compactor examples directory
+# Navigate to examples
 cd deltacat/examples/compactor
+```
 
-# 1. Create test data (with interactive compaction option)
-python bootstrap.py
+## Quick Start - End-to-End Compaction Demo
 
-# 2. Explore catalog and find compaction candidates
+**🚀 The easiest way to see compaction in action:**
+
+```bash
+# Run the complete end-to-end compaction demonstration
+python bootstrap.py --auto-run-compaction yes
+```
+
+This single command will:
+1. Create test data with overlapping records (perfect for compaction)
+2. Set up source and destination tables with proper metadata
+3. Run compaction using the direct DeltaCAT API
+4. Show detailed before/after data comparison
+5. Demonstrate successful deduplication (11 → 8 records)
+
+**Example output:**
+```
+📊 DATA BEFORE COMPACTION
+- Source: 2 deltas with 11 total records
+- Overlapping IDs: {3, 4, 5} appear twice
+
+🔄 RUNNING COMPACTION
+- Merges and deduplicates on primary key 'id'
+- Keeps latest version for duplicates
+
+📊 DATA AFTER COMPACTION  
+- Destination: 1 delta with 8 unique records
+- 3 duplicate records successfully removed
+```
+
+## Step-by-Step Learning Workflow
+
+For educational purposes, you can run the compaction process incrementally:
+
+### Step 1: Create Test Data
+
+```bash
+# Create source data and destination table (without running compaction)
+python bootstrap.py --auto-run-compaction no
+```
+
+This creates:
+- **Source table**: `compactor_test_source.events` with 2 deltas (11 records total)
+- **Destination table**: `compactor_test_dest.events_compacted` (empty, ready for compaction)
+- Overlapping data on IDs {3, 4, 5} perfect for demonstrating deduplication
+
+### Step 2: Explore the Catalog
+
+```bash
+# Browse the created data and find compaction candidates
 python explorer.py --show-compaction-candidates
-
-# 3. Copy and run the generated compaction command
 ```
 
-Both scripts use the same default catalog location (`/tmp/deltacat_test`), so they work together seamlessly without any arguments.
+This shows:
+- Complete catalog structure
+- Available tables and deltas
+- Compaction candidates with multiple deltas
+- Ready-to-use compaction commands
 
-**💡 Pro tip:** The bootstrap script now includes an interactive option to automatically run compaction and show before/after results. Just answer "y" when prompted, or use `--run-compaction` to skip the prompt.
+### Step 3: Run Compaction
 
-### Bootstrapping Test Data
-
-Before running compaction, you can create test data using the bootstrap script:
-
-```bash
-# Create test data in default location (recommended)
-python bootstrap.py
-
-# Or create test data in a custom directory
-python bootstrap.py --catalog-root /path/to/your/catalog
-
-# This creates:
-# - Namespace: compactor_test
-# - Table: events
-# - 2 batches of data with overlapping IDs (used as merge keys for compaction testing)
-# - All necessary deltacat metadata (table version, stream, partition, deltas)
-# - Ready-to-use compaction command with actual stream ID
-# - Optional interactive compaction demo with before/after data display
-```
-
-### Browsing Catalog Contents
-
-After bootstrapping, you have two options for exploring your catalog:
-
-#### Option 1: Interactive Explorer (Recommended)
-
-Use the `explorer.py` script for an easy, user-friendly way to explore your catalog and find compaction candidates:
+Copy and run the exact command generated by the explorer:
 
 ```bash
-# Navigate to the compactor examples directory
-cd deltacat/examples/compactor
-
-# Explore the catalog (uses same default as bootstrap.py)
-python explorer.py
-
-# Find compaction candidates with ready-to-use commands
-python explorer.py --show-compaction-candidates
-
-# Explore with custom catalog root
-python explorer.py --catalog-root /path/to/your/catalog
-
-# Explore specific namespace only
-python explorer.py --url "dc://compactor_test_catalog/compactor_test"
-
-# Non-recursive listing (top-level only)
-python explorer.py --no-recursive
-```
-
-The explorer will show you:
-- 📊 Catalog summary (counts of each object type)
-- 📋 Detailed hierarchical listing of all objects
-- 🎯 Compaction candidates with ready-to-use commands
-- 🚀 Example compaction commands you can copy and run
-
-
-### Local Execution
-
-Run the compactor locally with Ray:
-
-```bash
-# V2 Compactor (recommended)
+# Example command (generated by explorer.py)
 python compactor.py \
-  --namespace 'events' \
-  --table-name 'user_events' \
+  --namespace 'compactor_test_source' \
+  --table-name 'events' \
   --table-version '1' \
-  --stream-id 'events_stream' \
   --partition-values '' \
-  --dest-namespace 'events' \
-  --dest-table-name 'compacted_events' \
+  --dest-namespace 'compactor_test_dest' \
+  --dest-table-name 'events_compacted' \
   --dest-table-version '1' \
-  --dest-stream-id 'compacted_stream' \
   --dest-partition-values '' \
-  --last-stream-position 10000 \
-  --primary-keys 'user_id,event_id' \
+  --last-stream-position 2 \
+  --primary-keys 'id' \
   --compactor-version 'V2' \
-  --hash-bucket-count 4
-
-# V1 Compactor with sort keys
-python compactor.py \
-  --namespace 'events' \
-  --table-name 'user_events' \
-  --table-version '1' \
-  --stream-id 'events_stream' \
-  --partition-values 'region=us-west-2' \
-  --dest-namespace 'events' \
-  --dest-table-name 'compacted_events' \
-  --dest-table-version '1' \
-  --dest-stream-id 'compacted_stream' \
-  --dest-partition-values 'region=us-west-2' \
-  --last-stream-position 5000 \
-  --primary-keys 'user_id,event_id' \
-  --sort-keys 'timestamp,event_type' \
-  --compactor-version 'V1' \
-  --records-per-file 500000 \
-  --table-writer-compression 'snappy'
+  --hash-bucket-count 1 \
+  --catalog-root '/tmp/deltacat_test'
 ```
 
-### Distributed Execution
+## Alternative: Integrated Compaction
 
-Run multiple compactor jobs on a Ray cluster:
+You can also run compaction directly through bootstrap.py:
 
 ```bash
-# Submit multiple jobs asynchronously to AWS cluster
-python job_runner.py \
-  --namespace 'events' \
-  --table-name 'user_events' \
-  --table-version '1' \
-  --stream-id 'events_stream' \
-  --partition-values 'region=us-west-2' \
-  --dest-namespace 'events' \
-  --dest-table-name 'compacted_events' \
-  --dest-table-version '1' \
-  --dest-stream-id 'compacted_stream' \
-  --dest-partition-values 'region=us-west-2' \
-  --last-stream-position 10000 \
-  --primary-keys 'user_id,event_id' \
-  --compactor-version 'V2' \
-  --hash-bucket-count 4 \
-  --asynchronous \
-  --jobs-to-submit 5 \
-  --job-timeout 1800 \
-  --cloud-provider aws
+# Run bootstrap with automatic compaction
+python bootstrap.py --run-compaction
 ```
 
-## Parameters
+This approach provides more detailed before/after data visualization and uses the same underlying compaction API.
 
-### Required Parameters
+## Files Overview
 
-- `--namespace`: Source table namespace
-- `--table-name`: Source table name
-- `--table-version`: Source table version
-- `--stream-id`: Source stream ID
-- `--dest-namespace`: Destination table namespace
-- `--dest-table-name`: Destination table name
-- `--dest-table-version`: Destination table version
-- `--dest-stream-id`: Destination stream ID
-- `--last-stream-position`: Last stream position to compact
-- `--primary-keys`: Comma-separated primary keys (e.g., `user_id,event_id`)
+| File | Purpose |
+|------|---------|
+| `bootstrap.py` | **Main script** - Creates test data and runs end-to-end compaction |
+| `explorer.py` | Browse catalog contents and find compaction candidates |
+| `compactor.py` | **CLI compaction script** - Works independently with any DeltaCAT tables |
+| `job_runner.py` | Run compaction jobs locally or on Ray clusters |
 
-### Optional Parameters
+## Understanding the Test Data
 
-- `--partition-values`: Comma-separated partition values (default: empty)
-- `--dest-partition-values`: Destination partition values (default: empty)
-- `--catalog-root`: Root path for catalog (default: temp directory)
-- `--compactor-version`: Compactor version `V1` or `V2` (default: `V2`)
-- `--sort-keys`: Comma-separated sort keys (optional)
-- `--hash-bucket-count`: Number of hash buckets (required for V2, ignored for V1)
-- `--records-per-file`: Records per compacted file (default: 1000000)
-- `--table-writer-compression`: Compression type: `lz4`, `snappy`, `gzip`, `brotli`, `zstd` (default: `lz4`)
+The bootstrap script creates realistic test data that demonstrates compaction:
 
-### Job Runner Parameters
+**Batch 1 (5 records):**
+- IDs 1,2,3,4,5 with timestamps at 10:00-10:20
 
-- `--asynchronous`: Run jobs asynchronously (default: synchronous)
-- `--jobs-to-submit`: Number of jobs to submit (default: 1)
-- `--job-timeout`: Job timeout in seconds (default: 1800)
-- `--cloud-provider`: Cloud provider `aws` or `gcp` (default: `aws`)
-- `--restart-ray`: Restart Ray on existing cluster
+**Batch 2 (6 records):**  
+- IDs 3,4,5,6,7,8 with timestamps at 11:00-11:25
+- IDs 3,4,5 overlap with Batch 1 (different timestamps and data)
 
-## Compactor Versions
+**Compaction Result:**
+- 8 unique records (IDs 1,2,3,4,5,6,7,8)
+- For overlapping IDs {3,4,5}, keeps the latest version from Batch 2
+- Demonstrates perfect deduplication: 11 input → 8 output records
 
-### V1 Compactor
-- **Features**: Supports sort keys, incremental compaction, rebase compaction
-- **Use Cases**: When you need sort keys or working with legacy data
-- **Parameters**: Does not require `hash-bucket-count`
+## Catalog Structure
 
-### V2 Compactor (Recommended)
-- **Features**: Better performance, drop duplicates, intelligent resource estimation
-- **Use Cases**: New workloads, performance-critical applications
-- **Parameters**: Requires `hash-bucket-count` parameter
+The examples use a local file-based catalog at `/tmp/deltacat_test` by default:
 
-## Ray Cluster Configuration
+```
+/tmp/deltacat_test/
+├── compactor_test_source/          # Source namespace
+│   └── events/                     # Source table
+│       └── deltas/                 # 2 deltas with overlapping data
+└── compactor_test_dest/            # Destination namespace  
+    └── events_compacted/           # Destination table
+        └── deltas/                 # 1 compacted delta (after compaction)
+```
 
-### AWS Configuration (`aws/deltacat.yaml`)
-- **Head Node**: `r8g.4xlarge` (16 vCPUs, 128 GB RAM)
-- **Worker Nodes**: `r8g.xlarge` (4 vCPUs, 32 GB RAM)
-- **Max Workers**: 200
-- **Object Store**: 20% of memory allocated for compaction workloads
-- **Shared Memory**: 10% for intermediate data processing
+## Working with Your Own Data
 
-### GCP Configuration (`gcp/deltacat.yaml`)
-- **Head Node**: `e2-highmem-16` (16 vCPUs, 128 GB RAM)
-- **Worker Nodes**: `e2-highmem-4` (4 vCPUs, 32 GB RAM)
-- **Max Workers**: 200
-- **Object Store**: 20% of memory allocated for compaction workloads
-- **Shared Memory**: 10% for intermediate data processing
+The `compactor.py` script works with any DeltaCAT tables:
 
-## Performance Tuning
+1. **Find compaction candidates** in your catalog:
+   ```bash
+   python explorer.py --show-compaction-candidates --catalog-root /path/to/your/catalog
+   ```
 
-### For Large Datasets
-- Increase `--hash-bucket-count` for V2 compactor (try 8, 16, or 32)
-- Reduce `--records-per-file` to create smaller, more manageable files
-- Use `zstd` or `snappy` compression for better compression ratios
-- Increase `--job-timeout` for long-running compactions
-
-### For High Throughput
-- Use `lz4` compression for faster processing
-- Increase `--records-per-file` to reduce number of output files
-- Use `--asynchronous` mode with multiple jobs
-- Scale up Ray cluster with more worker nodes
-
-### Memory Optimization
-- For memory-constrained environments, reduce `--hash-bucket-count`
-- Use V1 compactor if V2 uses too much memory
-- Adjust Ray cluster configuration to allocate more memory per node
+2. **Run compaction** using the generated commands:
+   ```bash
+   python compactor.py \
+     --namespace 'your_namespace' \
+     --table-name 'your_table' \
+     --table-version 'your_version' \
+     --dest-namespace 'dest_namespace' \
+     --dest-table-name 'compacted_table' \
+     --dest-table-version '1' \
+     --last-stream-position <position> \
+     --primary-keys 'id,user_id' \
+     --compactor-version 'V2' \
+     --hash-bucket-count 1 \
+     --catalog-root /path/to/your/catalog
+   ```
 
 ## Troubleshooting
 
-### Common Issues
+**Q: How do I clean up test data?**
+A: Simply remove the catalog directory: `rm -rf /tmp/deltacat_test`
 
-1. **V2 requires hash-bucket-count**: Add `--hash-bucket-count 2` (or higher)
-2. **Out of memory errors**: Reduce `--hash-bucket-count` or increase cluster resources
-3. **Job timeouts**: Increase `--job-timeout` or reduce data size per job
-4. **Partition not found**: Verify namespace, table, and partition values are correct
+**Q: Can I use a different catalog location?**
+A: Yes, use `--catalog-root /path/to/catalog` with any of the scripts.
 
-### Debugging
+**Q: How do I see the actual data contents?**
+A: Run `python bootstrap.py --auto-run-compaction yes` to see complete before/after data comparison with every record displayed.
 
-1. **Enable verbose logging**:
-   ```bash
-   export DELTACAT_LOG_LEVEL=DEBUG
-   python compactor.py [args...]
-   ```
+**Q: What if compaction fails?**
+A: Check that:
+- Source table exists and has multiple deltas
+- Destination table exists (or can be created)
+- Primary keys are correctly specified
+- Hash bucket count is provided for V2 compactor
 
-2. **Test with small data first**:
-   - Use low `--last-stream-position`
-   - Start with `--hash-bucket-count 2`
-   - Use `--records-per-file 1000`
+**Q: How do I compact partitioned tables?**
+A: Use `--partition-values 'key1=value1,key2=value2'` to specify partition values for both source and destination.
 
-3. **Check Ray cluster status**:
-   ```bash
-   ray status  # when connected to cluster
-   ```
+## Next Steps
 
-## Examples for Different Use Cases
-
-### Incremental Compaction
-```bash
-python compactor.py \
-  --namespace 'logs' \
-  --table-name 'application_logs' \
-  --table-version '1' \
-  --stream-id 'main' \
-  --last-stream-position 50000 \
-  --primary-keys 'log_id' \
-  --compactor-version 'V2' \
-  --hash-bucket-count 8
-```
-
-### Partitioned Data Compaction
-```bash
-python compactor.py \
-  --namespace 'sales' \
-  --table-name 'transactions' \
-  --table-version '1' \
-  --stream-id 'daily' \
-  --partition-values 'year=2024,month=01,day=15' \
-  --dest-partition-values 'year=2024,month=01,day=15' \
-  --last-stream-position 100000 \
-  --primary-keys 'transaction_id' \
-  --sort-keys 'timestamp,customer_id' \
-  --compactor-version 'V1'
-```
-
-### Bulk Processing with Job Runner
-```bash
-python job_runner.py \
-  --namespace 'analytics' \
-  --table-name 'events' \
-  --table-version '1' \
-  --stream-id 'hourly' \
-  --last-stream-position 1000000 \
-  --primary-keys 'event_id,user_id' \
-  --compactor-version 'V2' \
-  --hash-bucket-count 16 \
-  --asynchronous \
-  --jobs-to-submit 10 \
-  --cloud-provider aws
-```
-
-## Contributing
-
-When modifying these examples:
-
-1. **Test both V1 and V2 compactors** with your changes
-2. **Update documentation** if you add new parameters
-3. **Verify Ray cluster configs** work in both AWS and GCP
-4. **Test with different data sizes** to ensure scalability
-
-For questions or issues, please refer to the main DeltaCAT documentation or file an issue in the repository.
+- Explore the working test examples in `deltacat/tests/compute/compactor_v2/test_compaction_session.py`
+- Try modifying the test data in `bootstrap.py` to experiment with different compaction scenarios
+- Use `explorer.py` to browse real DeltaCAT catalogs and find compaction opportunities
+- Run compaction jobs on Ray clusters using `job_runner.py`
