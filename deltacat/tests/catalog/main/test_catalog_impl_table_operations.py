@@ -1397,3 +1397,164 @@ class TestWriteToTable:
         assert catalog.table_exists(
             table=table_name, namespace=default_ns, inner=self.catalog_properties
         )
+
+    def test_write_to_table_append_creates_separate_deltas(self):
+        """Test that APPEND mode creates separate deltas in the same partition"""
+        from deltacat.catalog.main.impl import _get_storage
+        
+        table_name = "test_append_separate_deltas"
+        data1 = self._create_test_pandas_data()
+        data2 = self._create_second_batch_pandas_data()
+
+        # Create table with first batch
+        catalog.write_to_table(
+            data=data1,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CREATE,
+            inner=self.catalog_properties,
+        )
+
+        # Get the table definition to access stream information
+        table_def = catalog.get_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            inner=self.catalog_properties,
+        )
+        
+        # Get storage interface
+        storage = _get_storage(inner=self.catalog_properties)
+        
+        # Get the stream
+        stream = storage.get_stream(
+            namespace=self.test_namespace,
+            table_name=table_name,
+            table_version=table_def.table_version.table_version,
+            inner=self.catalog_properties,
+        )
+        
+        # Get the partition (should be only one for unpartitioned table)
+        partition = storage.get_partition(
+            stream_locator=stream.locator,
+            partition_values=None,  # unpartitioned
+            inner=self.catalog_properties,
+        )
+        
+        # List deltas before second write
+        deltas_before = storage.list_partition_deltas(
+            partition_like=partition,
+            inner=self.catalog_properties,
+        ).all_items()
+        
+        assert len(deltas_before) == 1, f"Expected 1 delta before append, got {len(deltas_before)}"
+        
+        # Append second batch using APPEND mode
+        catalog.write_to_table(
+            data=data2,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            inner=self.catalog_properties,
+        )
+        
+        # Get the same partition again (should be the same partition object)
+        partition_after = storage.get_partition(
+            stream_locator=stream.locator,
+            partition_values=None,  # unpartitioned
+            inner=self.catalog_properties,
+        )
+        
+        # Verify it's the same partition
+        assert partition.partition_id == partition_after.partition_id, "APPEND should reuse the same partition"
+        
+        # List deltas after second write
+        deltas_after = storage.list_partition_deltas(
+            partition_like=partition_after,
+            inner=self.catalog_properties,
+        ).all_items()
+        
+        # Should now have 2 deltas in the same partition
+        assert len(deltas_after) == 2, f"Expected 2 deltas after append, got {len(deltas_after)}"
+        
+        # Verify deltas have different stream positions
+        stream_positions = [delta.stream_position for delta in deltas_after]
+        assert len(set(stream_positions)) == 2, "Deltas should have different stream positions"
+        assert min(stream_positions) == 1, "First delta should have stream position 1"
+        assert max(stream_positions) == 2, "Second delta should have stream position 2"
+
+    def test_write_to_table_partitioned_table_raises_not_implemented(self):
+        """Test that write_to_table raises NotImplementedError for partitioned tables"""
+        from deltacat.storage.model.partition import PartitionScheme, PartitionKey, PartitionKeyList
+        from deltacat.storage.model.transform import IdentityTransform
+        
+        table_name = "test_partitioned_table"
+        data = self._create_test_pandas_data()
+
+        # Create a partition scheme with partition keys
+        partition_keys = [
+            PartitionKey.of(
+                key=["city"],
+                name="city_partition",
+                transform=IdentityTransform.of(),
+            )
+        ]
+        partition_scheme = PartitionScheme.of(
+            keys=PartitionKeyList.of(partition_keys),
+            name="test_partition_scheme",
+            scheme_id="test_partition_scheme_id",
+        )
+
+        # Try to create a partitioned table using write_to_table
+        with pytest.raises(NotImplementedError, match="write_to_table does not yet support partitioned tables"):
+            catalog.write_to_table(
+                data=data,
+                table=table_name,
+                namespace=self.test_namespace,
+                mode=TableWriteMode.CREATE,
+                partition_scheme=partition_scheme,  # This makes it partitioned
+                inner=self.catalog_properties,
+            )
+
+    def test_write_to_table_sorted_table_raises_not_implemented(self):
+        """Test that write_to_table raises NotImplementedError for tables with sort keys"""
+        from deltacat.storage.model.sort_key import SortScheme, SortKey, SortKeyList
+        from deltacat.storage.model.types import SortOrder, NullOrder
+        
+        table_name = "test_sorted_table"
+        data = self._create_test_pandas_data()
+        
+        # Create sort scheme with sort keys
+        sort_scheme = SortScheme.of(
+            keys=SortKeyList.of([
+                SortKey.of(
+                    key=["id"],
+                    sort_order=SortOrder.ASCENDING,
+                    null_order=NullOrder.AT_END,
+                )
+            ]),
+            name="test_sort_scheme",
+            scheme_id="test_sort_scheme_id",
+        )
+        
+        # Create table with sort keys
+        catalog.create_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            sort_keys=sort_scheme,
+            inner=self.catalog_properties,
+        )
+        
+        # Attempt to write to the sorted table should raise NotImplementedError
+        with pytest.raises(NotImplementedError) as exc_info:
+            catalog.write_to_table(
+                data=data,
+                table=table_name,
+                namespace=self.test_namespace,
+                mode=TableWriteMode.APPEND,
+                inner=self.catalog_properties,
+            )
+        
+        # Verify the error message contains expected information
+        assert "sort keys" in str(exc_info.value)
+        assert "sort scheme with 1 sort key(s)" in str(exc_info.value)
+        assert "id" in str(exc_info.value)

@@ -282,17 +282,70 @@ def write_to_table(
     if not stream:
         raise ValueError(f"No default stream found for table {namespace}.{table}")
 
-    # Stage a partition for this data
-    partition = _get_storage(**kwargs).stage_partition(
-        stream=stream,
-        **kwargs,
-    )
+    # Check if table is partitioned and raise NotImplementedError
+    # TODO: Honor partitioning during write based on the table's PartitionScheme.
+    # This requires deriving partition values from the data based on the partition keys
+    # and transforms defined in the PartitionScheme, then using those values when
+    # creating/retrieving partitions.
+    if (stream.partition_scheme and 
+        stream.partition_scheme.keys is not None and 
+        len(stream.partition_scheme.keys) > 0):
+        raise NotImplementedError(
+            f"write_to_table does not yet support partitioned tables. "
+            f"Table {namespace}.{table} has partition scheme with "
+            f"{len(stream.partition_scheme.keys)} partition key(s): "
+            f"{[key.name or key.key[0] for key in stream.partition_scheme.keys]}. "
+            f"Please use the lower-level metastore API for partitioned tables."
+        )
 
-    # Commit the partition
-    partition = _get_storage(**kwargs).commit_partition(
-        partition=partition,
-        **kwargs,
-    )
+    # Check if table has sort keys and raise NotImplementedError
+    # TODO: Implement support for SortScheme during write based on the table's sort keys.
+    # This requires sorting the data according to the sort scheme before writing deltas.
+    if (table_version_obj.sort_scheme and 
+        table_version_obj.sort_scheme.keys is not None and 
+        len(table_version_obj.sort_scheme.keys) > 0):
+        raise NotImplementedError(
+            f"write_to_table does not yet support tables with sort keys. "
+            f"Table {namespace}.{table} has sort scheme with "
+            f"{len(table_version_obj.sort_scheme.keys)} sort key(s): "
+            f"{[key.key[0] for key in table_version_obj.sort_scheme.keys]}. "
+            f"Please use the lower-level metastore API for sorted tables."
+        )
+
+    # Handle partition creation/retrieval based on write mode
+    if mode == TableWriteMode.REPLACE or not table_exists_flag:
+        # REPLACE mode or new table: Create a new partition
+        partition = _get_storage(**kwargs).stage_partition(
+            stream=stream,
+            **kwargs,
+        )
+        
+        # Commit the partition
+        partition = _get_storage(**kwargs).commit_partition(
+            partition=partition,
+            **kwargs,
+        )
+    else:
+        # APPEND/MERGE/AUTO modes on existing table: Get existing partition
+        # For unpartitioned tables, partition_values should be None
+        partition = _get_storage(**kwargs).get_partition(
+            stream_locator=stream.locator,
+            partition_values=None,  # Assuming unpartitioned tables for now
+            **kwargs,
+        )
+        
+        if not partition:
+            # No existing partition found, create a new one
+            partition = _get_storage(**kwargs).stage_partition(
+                stream=stream,
+                **kwargs,
+            )
+            
+            # Commit the partition
+            partition = _get_storage(**kwargs).commit_partition(
+                partition=partition,
+                **kwargs,
+            )
 
     # Convert unsupported data types to supported ones before staging delta
     converted_data = data

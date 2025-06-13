@@ -41,12 +41,13 @@ from typing import Optional
 import pandas as pd
 import pyarrow as pa
 
-from deltacat.catalog import create_namespace, namespace_exists
+from deltacat.catalog import write_to_table, get_table, create_table
 from deltacat.storage.model.types import LifecycleState
 from deltacat.types.media import ContentType, DistributedDatasetType
 from deltacat.storage import metastore
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.delta import DeltaType
+from deltacat.types.tables import TableWriteMode
 
 # Import compaction API directly
 from deltacat.compute.compactor_v2.compaction_session import compact_partition
@@ -56,8 +57,6 @@ from deltacat.compute.compactor.model.compact_partition_params import CompactPar
 from utils.common import (
     get_default_catalog_root,
     initialize_catalog,
-    print_section_header,
-    print_subsection_header,
 )
 
 
@@ -117,108 +116,58 @@ def create_test_data_batch_2() -> pd.DataFrame:
     )
 
 
-def setup_test_namespace_and_table(catalog_root: str) -> tuple:
-    """Set up the test namespace and table with proper schema. Returns the stream ID, table version, namespace, table name, and actual stream position."""
-    print("Setting up test namespaces and tables...")
-
-    # Initialize deltacat with the catalog
+def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
+    """Set up test namespaces and tables using lower-level metastore API to ensure separate deltas."""
     catalog = initialize_catalog(catalog_root)
-
+    
+    print("Setting up test namespaces and tables using metastore API...")
+    
     source_namespace = "compactor_test_source"
     dest_namespace = "compactor_test_dest"
     table_name = "events"
 
-    # Create source namespace if it doesn't exist
-    if not namespace_exists(source_namespace, catalog="default"):
-        print(f"Creating source namespace: {source_namespace}")
-        create_namespace(
-            namespace=source_namespace,
-            catalog="default",
-        )
-    else:
-        print(f"Source namespace {source_namespace} already exists")
-
-    # Create destination namespace if it doesn't exist
-    if not namespace_exists(dest_namespace, catalog="default"):
-        print(f"Creating destination namespace: {dest_namespace}")
-        create_namespace(
-            namespace=dest_namespace,
-            catalog="default",
-        )
-    else:
-        print(f"Destination namespace {dest_namespace} already exists")
-
-    # Define schema for the table
-    schema = pa.schema(
-        [
-            ("id", pa.int64()),
-            ("timestamp", pa.timestamp("ns")),
-            ("user_id", pa.int64()),
-            ("event_type", pa.string()),
-            ("data", pa.string()),
-        ]
-    )
-
-    print(f"Table schema: {schema}")
+    # Note: metastore API will automatically create namespaces as needed
 
     # Create test data batches
     print("Creating test data batches...")
     batch_1 = create_test_data_batch_1()
     batch_2 = create_test_data_batch_2()
-
+    
     print(f"Batch 1 shape: {batch_1.shape}")
     print(f"Batch 1 data:\n{batch_1}")
     print(f"\nBatch 2 shape: {batch_2.shape}")
     print(f"Batch 2 data:\n{batch_2}")
 
-    # Create SOURCE table using metastore API
-    print(f"\nCreating SOURCE table {source_namespace}.{table_name} using metastore API...")
-    
-    # Create source table, table version, and stream using metastore
-    source_table, source_table_version, source_stream = metastore.create_table_version(
-        namespace=source_namespace,
-        table_name=table_name,
-        catalog=catalog,
-        schema=Schema.of(schema=schema),
-        table_description="Test events table for compaction testing (source)",
-        lifecycle_state=LifecycleState.ACTIVE,
-    )
-    
-    print(f"✅ Created source table: {source_table.table_name}")
-    print(f"📋 Source Stream ID: {source_stream.stream_id}")
-    
-    # Create and commit SOURCE partition
-    source_partition = metastore.stage_partition(
-        stream=source_stream,
-        catalog=catalog,
-    )
-    source_partition = metastore.commit_partition(
-        partition=source_partition,
-        catalog=catalog,
-    )
-    
-    print(f"✅ Created source partition: {source_partition.locator.partition_id}")
-    
-    # Stage and commit first delta to SOURCE
-    print(f"Writing batch 1 as delta 1 to SOURCE...")
-    staged_delta_1 = metastore.stage_delta(
+    # Create source table using write_to_table for the first batch
+    print(f"\nCreating SOURCE table {source_namespace}.{table_name} with first batch...")
+    write_to_table(
         data=batch_1,
-        partition=source_partition,
-        catalog=catalog,
+        table=table_name,
+        namespace=source_namespace,
+        mode=TableWriteMode.CREATE,
         content_type=ContentType.PARQUET,
-        delta_type=DeltaType.UPSERT,
+        catalog="default",
+    )
+    print(f"✅ Created source table and wrote first delta")
+    
+    # Get the table definition and partition
+    source_table_def = get_table(
+        name=table_name,
+        namespace=source_namespace,
+        catalog="default"
     )
     
-    source_delta_1 = metastore.commit_delta(
-        delta=staged_delta_1,
+    source_partition = metastore.get_partition(
+        stream_locator=source_table_def.stream.locator,
+        partition_values=None,
         catalog=catalog,
     )
     
-    print(f"✅ Committed source delta 1 at stream position: {source_delta_1.stream_position}")
+    # Add second batch using lower-level metastore API to ensure separate delta
+    print(f"Adding second batch to SOURCE table using metastore API...")
     
-    # Stage and commit second delta to SOURCE
-    print(f"Writing batch 2 as delta 2 to SOURCE...")
-    staged_delta_2 = metastore.stage_delta(
+    # Stage and commit a second delta manually
+    staged_delta = metastore.stage_delta(
         data=batch_2,
         partition=source_partition,
         catalog=catalog,
@@ -226,43 +175,48 @@ def setup_test_namespace_and_table(catalog_root: str) -> tuple:
         delta_type=DeltaType.UPSERT,
     )
     
-    source_delta_2 = metastore.commit_delta(
-        delta=staged_delta_2,
+    committed_delta = metastore.commit_delta(
+        delta=staged_delta,
         catalog=catalog,
     )
+    print(f"✅ Added second delta to source table")
     
-    print(f"✅ Committed source delta 2 at stream position: {source_delta_2.stream_position}")
+    # Verify we now have 2 deltas
+    partition_deltas = metastore.list_partition_deltas(
+        partition_like=source_partition,
+        include_manifest=True,
+        catalog=catalog,
+    )
+    delta_list = partition_deltas.all_items()
+    print(f"📋 Total deltas in source table: {len(delta_list)}")
     
-    # Create DESTINATION table using metastore API
-    print(f"\nCreating DESTINATION table {dest_namespace}.{table_name}_compacted using metastore API...")
+    # Create empty destination table with same schema as source
+    print(f"\nCreating empty DESTINATION table {dest_namespace}.{table_name}_compacted...")
     
-    # Create destination table, table version, and stream using metastore
-    dest_table, dest_table_version, dest_stream = metastore.create_table_version(
+    dest_table_def = create_table(
+        name=f"{table_name}_compacted",
         namespace=dest_namespace,
-        table_name=f"{table_name}_compacted",
-        catalog=catalog,
-        schema=Schema.of(schema=schema),
-        table_description="Compacted events table (destination)",
-        lifecycle_state=LifecycleState.ACTIVE,
+        schema=source_table_def.table_version.schema,
+        description="Compacted events table (destination)",
+        catalog="default",
     )
-    
-    print(f"✅ Created destination table: {dest_table.table_name}")
-    print(f"📋 Destination Stream ID: {dest_stream.stream_id}")
-    
-    # Create and commit DESTINATION partition
+    print(f"✅ Created destination table: {dest_table_def.table.table_name}")
+    print(f"✅ Destination namespace '{dest_namespace}' created automatically")
+
+    # Create destination partition
+    print("Creating destination partition...")
     dest_partition = metastore.stage_partition(
-        stream=dest_stream,
+        stream=dest_table_def.stream,
         catalog=catalog,
     )
     dest_partition = metastore.commit_partition(
         partition=dest_partition,
         catalog=catalog,
     )
-    
-    print(f"✅ Created destination partition: {dest_partition.locator.partition_id}")
-    
-    # Get the final stream position
-    actual_stream_position = source_delta_2.stream_position
+    print(f"✅ Created destination partition")
+
+    # Get the actual stream position by checking deltas
+    actual_stream_position = max(delta.stream_position for delta in delta_list) if delta_list else 2
     
     print(f"\n✅ Successfully created test data in {source_namespace}.{table_name}")
     print(f"📁 Catalog root: {catalog_root}")
@@ -270,13 +224,13 @@ def setup_test_namespace_and_table(catalog_root: str) -> tuple:
     print(
         f"🔄 Overlapping IDs: {set(batch_1['id']) & set(batch_2['id'])} (good for compaction)"
     )
-    print(f"📋 Source Stream ID: {source_stream.stream_id}")
-    print(f"📋 Destination Stream ID: {dest_stream.stream_id}")
-    print(f"📋 Table Version: {source_table_version.table_version}")
+    print(f"📋 Source Stream ID: {source_table_def.stream.stream_id}")
+    print(f"📋 Destination Stream ID: {dest_table_def.stream.stream_id}")
+    print(f"📋 Table Version: {source_table_def.table_version.table_version}")
     print(f"📋 Actual Stream Position: {actual_stream_position}")
-    print(f"📋 Number of Source Deltas: 2")
+    print(f"📋 Number of Source Deltas: {len(delta_list)}")
 
-    # Print compaction command example with actual stream ID and position
+    # Print compaction command example
     print(f"\n🚀 Next steps:")
     print(f"1. Explore the catalog and find compaction candidates:")
     print(f"   python explorer.py --show-compaction-candidates")
@@ -286,7 +240,7 @@ def setup_test_namespace_and_table(catalog_root: str) -> tuple:
     print(f"   python compactor.py \\")
     print(f"     --namespace '{source_namespace}' \\")
     print(f"     --table-name '{table_name}' \\")
-    print(f"     --table-version '{source_table_version.table_version}' \\")
+    print(f"     --table-version '{source_table_def.table_version.table_version}' \\")
     print(f"     --partition-values '' \\")
     print(f"     --dest-namespace '{dest_namespace}' \\")
     print(f"     --dest-table-name '{table_name}_compacted' \\")
@@ -298,8 +252,8 @@ def setup_test_namespace_and_table(catalog_root: str) -> tuple:
     print(f"     --hash-bucket-count 1 \\")
     print(f"     --catalog-root '{catalog_root}'")
     
-    return (source_stream.stream_id, source_table_version.table_version, source_namespace, 
-            table_name, catalog_root, actual_stream_position, dest_stream.stream_id, 
+    return (source_table_def.stream.stream_id, source_table_def.table_version.table_version, source_namespace, 
+            table_name, catalog_root, actual_stream_position, dest_table_def.stream.stream_id, 
             dest_namespace, source_partition, dest_partition, catalog)
 
 
@@ -451,35 +405,22 @@ def show_individual_deltas(partition, catalog, label: str) -> None:
             print(f"   No deltas found in {label} partition")
             return
         
-        # Sort deltas by stream position for consistent display
-        delta_list_sorted = sorted(delta_list, key=lambda d: d.stream_position)
+        print(f"   Found {len(delta_list)} delta(s) in {label} partition:")
         
-        for i, delta in enumerate(delta_list_sorted):
-            record_count = delta.meta.record_count if delta.meta else 0
-            print(f"\n🔸 Delta {i+1} (Stream Position {delta.stream_position}):")
-            print(f"   Type: {delta.type}, Records: {record_count}")
-            
-            if delta.manifest and delta.manifest.entries:
-                print(f"   Manifest entries: {len(delta.manifest.entries)}")
+        for i, delta in enumerate(delta_list):
+            try:
+                record_count = delta.meta.record_count if delta.meta else 0
+                print(f"   Delta {i+1}: stream_position={delta.stream_position}, type={delta.type}, records={record_count}")
                 
-                # Try to read this specific delta's data
-                try:
-                    # For now, we'll show that the delta exists and has data
-                    # Reading individual delta data requires more complex setup
-                    print(f"   ✅ Delta contains {record_count} records")
-                    
-                    # Show which batch this likely corresponds to based on record count
-                    if record_count == 5:
-                        print(f"   📝 This appears to be Batch 1 data (5 records: IDs 1,2,3,4,5)")
-                    elif record_count == 6:
-                        print(f"   📝 This appears to be Batch 2 data (6 records: IDs 3,4,5,6,7,8)")
-                    else:
-                        print(f"   📝 This appears to be compacted data ({record_count} unique records)")
-                        
-                except Exception as delta_read_error:
-                    print(f"   ⚠️  Could not read individual delta data: {delta_read_error}")
-            else:
-                print(f"   ⚠️  No manifest entries found")
+                # Show delta metadata
+                if delta.meta:
+                    print(f"     Content length: {delta.meta.content_length}")
+                    print(f"     Content type: {delta.meta.content_type}")
+                    if hasattr(delta.meta, 'source_content_length'):
+                        print(f"     Source content length: {delta.meta.source_content_length}")
+                
+            except Exception as delta_error:
+                print(f"   ⚠️  Error reading delta {i+1}: {delta_error}")
         
         print("="*70)
         
@@ -488,13 +429,13 @@ def show_individual_deltas(partition, catalog, label: str) -> None:
 
 
 def run_compaction(source_partition, dest_partition, catalog, actual_stream_position):
-    """Run compaction using the direct API (not CLI script)."""
-    print("\n🚀 Running compaction using direct API...")
-    
+    """Run compaction using the direct API."""
     try:
+        print(f"\n🔄 RUNNING COMPACTION")
+        print("="*80)
+        
         # Show detailed data before compaction
-        print("\n" + "="*80)
-        print("📊 DATA BEFORE COMPACTION")
+        print("\n📊 DATA BEFORE COMPACTION")
         print("="*80)
         
         # Show individual deltas in source
@@ -506,16 +447,22 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
         # Show destination (should be empty)
         show_table_data(dest_partition, catalog, "DESTINATION")
         
-        # Run compaction using the direct API (following test pattern exactly)
-        print(f"\n" + "="*80)
-        print("🔄 RUNNING COMPACTION")
+        print(f"\n🔄 RUNNING COMPACTION")
         print("="*80)
+        
+        # Import compaction API (using the correct V2 API)
+        from deltacat.compute.compactor_v2.compaction_session import compact_partition
+        from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
+        from deltacat.types.media import ContentType
+        
+        print(f"✅ Using compaction API")
         print(f"   Source partition: {source_partition.locator.partition_id}")
         print(f"   Destination partition: {dest_partition.locator.partition_id}")
-        print(f"   Last stream position to compact: {actual_stream_position}")
-        print(f"   Primary keys for deduplication: ['id']")
-        print(f"   Expected result: Remove duplicates from overlapping IDs {3, 4, 5}")
+        print(f"   Primary keys: ['id']")
+        print(f"   Hash bucket count: 1")
+        print(f"   Last stream position: {actual_stream_position}")
         
+        # Run the compaction using the same pattern as the working tests
         rcf_url = compact_partition(
             CompactPartitionParams.of(
                 {
@@ -545,8 +492,7 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
         print(f"📁 RCF URL: {rcf_url}")
         
         # Show detailed data after compaction
-        print(f"\n" + "="*80)
-        print("📊 DATA AFTER COMPACTION")
+        print(f"\n📊 DATA AFTER COMPACTION")
         print("="*80)
         
         # Get updated destination partition to see new deltas
@@ -577,14 +523,13 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
         total_dest_records = sum(delta.meta.record_count if delta.meta else 0 
                                for delta in dest_partition_deltas.all_items())
         
-        print(f"\n" + "="*80)
-        print("📈 COMPACTION SUMMARY")
+        print(f"\n📈 COMPACTION SUMMARY")
         print("="*80)
         print(f"   📥 INPUT:  2 source deltas with 11 total records (5 + 6)")
         print(f"   🔄 PROCESS: Merged and deduplicated on primary key 'id'")
         print(f"   📤 OUTPUT: {delta_count} destination delta with {total_dest_records} unique records")
         print(f"   ✂️  REDUCTION: {11 - total_dest_records} duplicate records removed")
-        print(f"   🎯 OVERLAPPING IDs {3, 4, 5} were deduplicated (kept latest version)")
+        print(f"   🎯 OVERLAPPING IDs {{3, 4, 5}} were deduplicated (kept latest version)")
         print("="*80)
         
         return True
@@ -657,7 +602,7 @@ Examples:
         print("   Compaction may not work without Ray")
 
     try:
-        stream_id, table_version, namespace, table_name, catalog_root, actual_stream_position, dest_stream_id, dest_namespace, source_partition, dest_partition, catalog = setup_test_namespace_and_table(catalog_root)
+        stream_id, table_version, namespace, table_name, catalog_root, actual_stream_position, dest_stream_id, dest_namespace, source_partition, dest_partition, catalog = setup_test_namespace_and_table_simple(catalog_root)
 
         print(f"\n✅ Bootstrap completed successfully!")
         print(f"📋 Summary:")
