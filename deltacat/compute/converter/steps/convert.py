@@ -24,6 +24,7 @@ from pyiceberg.manifest import DataFileContent
 from deltacat import logs
 from fsspec import AbstractFileSystem
 from typing import List, Dict, Tuple, Optional, Any
+from deltacat.utils.resources import get_current_process_peak_memory_usage_in_bytes
 from deltacat.compute.converter.model.convert_input_files import (
     DataFileList,
     DataFileListGroup,
@@ -49,6 +50,8 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
     max_parallel_data_file_download = convert_input.max_parallel_data_file_download
     s3_file_system = convert_input.s3_file_system
     s3_client_kwargs = convert_input.s3_client_kwargs
+    task_memory = convert_input.task_memory
+
     if not position_delete_for_multiple_data_files:
         raise NotImplementedError(
             f"Distributed file level position delete compute is not supported yet"
@@ -105,9 +108,17 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
             for file_list in applicable_data_files:
                 for file in file_list:
                     data_files_downloaded_during_convert.append(file)
+
         data_files_to_dedupe = get_additional_applicable_data_files(
             all_data_files=all_data_files_for_this_bucket,
             data_files_downloaded=data_files_downloaded_during_convert,
+        )
+
+        dedupe_file_size_bytes = sum(
+            data_file.file_size_in_bytes for _, data_file in data_files_to_dedupe
+        )
+        logger.info(
+            f"Total on-disk size of files to dedupe: {dedupe_file_size_bytes} bytes"
         )
 
         logger.info(
@@ -172,6 +183,18 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
         data_file_to_dedupe_record_count = 0
         data_file_to_dedupe_size = 0
 
+    peak_memory_usage_bytes = (
+        get_current_process_peak_memory_usage_in_bytes()
+    )  # Convert KB to bytes
+    memory_usage_percentage = (peak_memory_usage_bytes / task_memory) * 100
+
+    logger.info(
+        f"[Convert task {convert_task_index}]: Memory usage stats - "
+        f"Peak memory usage: {peak_memory_usage_bytes} bytes, "
+        f"Allocated task memory: {convert_input.task_memory} bytes, "
+        f"Usage percentage: {memory_usage_percentage:.2f}%"
+    )
+
     convert_res = ConvertResult.of(
         convert_task_index=convert_task_index,
         to_be_added_files=to_be_added_files_list,
@@ -183,6 +206,9 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
         position_delete_on_disk_sizes=sum(
             file.file_size_in_bytes for file in to_be_added_files_list
         ),
+        input_data_files_on_disk_size=dedupe_file_size_bytes,
+        peak_memory_usage_bytes=peak_memory_usage_bytes,
+        memory_usage_percentage=memory_usage_percentage,
     )
     return convert_res
 
@@ -336,4 +362,5 @@ def compute_pos_delete_with_limited_parallelism(
 
     if not remaining_data_table:
         logger.info("No data table remaining after converting equality deletes")
+
     return new_pos_delete_table_total, remaining_data_table

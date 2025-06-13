@@ -36,6 +36,9 @@ from deltacat.compute.converter.pyiceberg.update_snapshot_overrides import (
 
 from pyiceberg.typedef import Record
 
+# Task memory in bytes for testing
+TASK_MEMORY_BYTES = 1024
+
 
 def run_spark_commands(spark, sqls: List[str]) -> None:
     for sql in sqls:
@@ -257,6 +260,7 @@ def test_converter_drop_duplicates_success(
             max_parallel_data_file_download=10,
             s3_file_system=s3_file_system,
             s3_client_kwargs={},
+            task_memory=TASK_MEMORY_BYTES,
         )
 
     number_partitioned_array_1 = pa.array([0, 0, 0], type=pa.int32())
@@ -422,6 +426,7 @@ def test_converter_pos_delete_read_by_spark_success(
             max_parallel_data_file_download=10,
             s3_file_system=s3_file_system,
             s3_client_kwargs={},
+            task_memory=TASK_MEMORY_BYTES,
         )
 
     primary_key_array_1 = pa.array(["pk1", "pk2", "pk3"])
@@ -576,6 +581,7 @@ def test_converter_pos_delete_multiple_identifier_fields_success(
             max_parallel_data_file_download=10,
             s3_file_system=s3_file_system,
             s3_client_kwargs={},
+            task_memory=TASK_MEMORY_BYTES,
         )
 
     names = ["primary_key1", "primary_key2"]
@@ -777,6 +783,7 @@ def test_converter_equality_delete_with_duplicates_success(
             max_parallel_data_file_download=10,
             s3_file_system=s3_file_system,
             s3_client_kwargs={},
+            task_memory=TASK_MEMORY_BYTES,
         )
 
     primary_key_array_1 = pa.array(["pk1", "pk2", "pk3"])
