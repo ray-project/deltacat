@@ -4,6 +4,7 @@ import logging
 import itertools
 import math
 import posixpath
+import os
 import tarfile
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
@@ -505,6 +506,9 @@ class Dataset:
             Dataset: New dataset instance with the schema automatically inferred
                      from the tar file.
         """
+        def normalize_filename(filename): # helper function for from_webdataset()
+            return (filename).lower().replace(".jpeg", ".jpg")
+
         # TODO: Integrate this with filesystem from deltacat catalog
         file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
         if metadata_uri is None:
@@ -520,7 +524,7 @@ class Dataset:
                     "File URI and metadata URI must be on the same filesystem."
                 )
         dataset_schema = Schema()
-        image_binaries = []
+        media_binaries = []
 
         with tarfile.open(file_uri, "r") as tar:
             tar_members = tar.getmembers()
@@ -544,15 +548,15 @@ class Dataset:
                                 pyarrow_table = pyarrow.json.read_json(f)
                                 image_filename = pyarrow_table[merge_key][0].as_py() 
 
-                                truncated_filename = image_filename[image_filename.index('/') + 1:].lower()
-
-                                if truncated_filename in [t.name for t in tar_members]:
+                                # truncated_filename = normalize_filename(image_filename[image_filename.index('/') + 1:])
+                                truncated_filename = normalize_filename(os.path.basename(image_filename))
+                                if truncated_filename in [normalize_filename(t.name) for t in tar_members]:
                                     image_member = next((t for t in tar_members if t.name == truncated_filename), None)
                                     if image_member:
                                         fi = tar.extractfile(image_member)
                                         if fi:
-                                            image_binary = fi.read()
-                                            image_binaries.extend([image_binary])
+                                            media_binary = fi.read()
+                                            media_binaries.extend([media_binary])
   
                                 if current_batch is None:
                                     current_batch = pyarrow_table
@@ -567,19 +571,19 @@ class Dataset:
                                 except Exception as e:
                                     print(f"Error merging schema: {e}")
 
-            if current_batch is not None and image_binaries:
-                if len(image_binaries) == current_batch.num_rows:
-                    try: 
-                        image_column = pyarrow.array(image_binaries, type=pyarrow.binary())
+            if current_batch is not None and media_binaries:
+                if len(media_binaries) == current_batch.num_rows:
+                    try:
+                        image_column = pyarrow.array(media_binaries, type=pyarrow.binary())
                         current_batch = current_batch.add_column(
                             len(current_batch.schema),
-                            'image_binary',
+                            'media_binary',
                             image_column
                         )
-                        # edit dataset_schema to have image_binaries as a field object
-                        dataset_schema.add_field(Field('image_binary', Datatype.binary(image_filename[image_filename.index('.') + 1:].lower())))
+                        # edit dataset_schema to have media_binaries as a field object
+                        dataset_schema.add_field(Field('media_binary', Datatype.binary(image_filename[image_filename.index('.') + 1:].lower())))
                     except Exception as e:
-                        print(f"Mismatch between image binaries and batch rows: {e}")
+                        print(f"Mismatch between media binaries and batch rows: {e}")
         
 
         dataset = cls(

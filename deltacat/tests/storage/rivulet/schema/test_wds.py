@@ -31,7 +31,7 @@ def test_schema_fields(tmp_path):
     assert "width" in dataset.fields
     assert "height" in dataset.fields
     assert "filename" in dataset.fields
-    assert "image_binary" in dataset.fields
+    assert "media_binary" in dataset.fields
     assert len(dataset.fields) == 5
 
 
@@ -132,8 +132,10 @@ def test_inconsistent_tar_fields(tmp_path):
     assert "extra" in dataset.fields
     assert len(dataset.fields) == 5
 
-def test_image_binary(tmp_path):
-    tar_path = "../../../test_utils/resources/test_wds.tar"
+def test_media_binary_with_txt(tmp_path):
+    """Test that media_binary is an added column after Dataset is created from webdataset,
+    where media files for this example are .TXT files."""
+    tar_path = "../../../test_utils/resources/test_wds.tar" # media files for this example are .TXT files
     dataset = Dataset.from_webdataset(
         name="test_webdataset",
         file_uri=tar_path,
@@ -144,4 +146,22 @@ def test_image_binary(tmp_path):
     assert "width" in dataset.fields
     assert "height" in dataset.fields
     assert "filename" in dataset.fields
-    assert "image_binary" in dataset.fields
+    assert "media_binary" in dataset.fields
+
+def test_media_binary_with_jpg(tmp_path):
+    """Test that media_binary is an added column after Dataset is created from webdataset,
+    where media files for this example are .JPG files."""
+    tar_path = "../../../test_utils/resources/test_wds_jpg.tar"
+    dataset = Dataset.from_webdataset(
+        name="test_webdataset",
+        file_uri=tar_path,
+        metadata_uri=tmp_path,
+        merge_keys="filename"
+    )
+    assert "label" in dataset.fields
+    assert "width" in dataset.fields
+    assert "height" in dataset.fields
+    assert "filename" in dataset.fields
+    print(dataset.fields["media_binary"].datatype)
+    assert "media_binary" in dataset.fields
+    # assert dataset.fields["media_binary"].datatype == Datatype.binary('image')
