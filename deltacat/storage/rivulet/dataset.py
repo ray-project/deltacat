@@ -580,7 +580,7 @@ class Dataset:
                             'media_binary',
                             image_column
                         )
-                        # edit dataset_schema to have media_binaries as a field object
+                        # Edit dataset_schema to have media_binaries as a field object
                         dataset_schema.add_field(Field('media_binary', Datatype.binary(image_filename[image_filename.index('.') + 1:].lower())))
                     except Exception as e:
                         print(f"Mismatch between media binaries and batch rows: {e}")
@@ -641,7 +641,6 @@ class Dataset:
                 )
 
         # Read the CSV file into a PyArrow Table
-        # table = pyarrow.csv.read_csv(file_uri, filesystem=file_fs)
         table = pyarrow.csv.read_csv(file_uri)
         pyarrow_schema = table.schema
 

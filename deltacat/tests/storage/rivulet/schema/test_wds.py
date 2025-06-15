@@ -164,4 +164,3 @@ def test_media_binary_with_jpg(tmp_path):
     assert "filename" in dataset.fields
     print(dataset.fields["media_binary"].datatype)
     assert "media_binary" in dataset.fields
-    # assert dataset.fields["media_binary"].datatype == Datatype.binary('image')
