@@ -11,6 +11,7 @@ import daft
 from ray.data._internal.pandas_block import PandasBlockSchema
 import deltacat as dc
 
+from deltacat.storage.model.manifest import ManifestAuthor
 from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
@@ -38,7 +39,7 @@ from deltacat.storage.model.partition import (
 )
 from deltacat.storage.model.table_version import TableVersion
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
-from deltacat.storage.model.delta import DeltaType
+from deltacat.storage.model.types import DeltaType
 from deltacat.types.media import ContentType, TableType, DistributedDatasetType
 from deltacat.types.tables import TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
@@ -102,10 +103,6 @@ def write_to_table(
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
     as additional keyword arguments."""
-
-    from deltacat.storage.model.types import DeltaType
-    from deltacat.storage.model.manifest import ManifestAuthor
-
     namespace = namespace or default_namespace()
 
     # Determine if table exists and what action to take
@@ -195,14 +192,10 @@ def write_to_table(
 
             # Set the inferred schema in kwargs
             kwargs["schema"] = schema
-        elif kwargs["schema"] is None:
-            # User explicitly set schema=None - create schemaless table
-            # Keep schema=None in kwargs, don't infer
-            pass
-        else:
-            # User provided an explicit schema - use it as-is
-            # Schema is already in kwargs, no action needed
-            pass
+        # ELSE User explicitly set schema=None - create schemaless table
+        #   Keep schema=None in kwargs, don't infer
+        # OR User provided an explicit schema - use it as-is
+        #   Schema is already in kwargs, no action needed
         table_definition = create_table(
             table,
             namespace=namespace,
@@ -316,6 +309,7 @@ def write_to_table(
             f"Please use the lower-level metastore API for sorted tables."
         )
 
+    commit_staged_partition = False
     # Handle partition creation/retrieval based on write mode
     if mode == TableWriteMode.REPLACE or not table_exists_flag:
         # REPLACE mode or new table: Create a new partition
@@ -323,12 +317,7 @@ def write_to_table(
             stream=stream,
             **kwargs,
         )
-
-        # Commit the partition
-        partition = _get_storage(**kwargs).commit_partition(
-            partition=partition,
-            **kwargs,
-        )
+        commit_staged_partition = True
     else:
         # APPEND/MERGE/AUTO modes on existing table: Get existing partition
         # For unpartitioned tables, partition_values should be None
@@ -344,12 +333,7 @@ def write_to_table(
                 stream=stream,
                 **kwargs,
             )
-
-            # Commit the partition
-            partition = _get_storage(**kwargs).commit_partition(
-                partition=partition,
-                **kwargs,
-            )
+            commit_staged_partition = True
 
     # Convert unsupported data types to supported ones before staging delta
     converted_data = data
@@ -382,6 +366,13 @@ def write_to_table(
         delta=delta,
         **kwargs,
     )
+
+    if commit_staged_partition:
+        # Commit the partition
+        _get_storage(**kwargs).commit_partition(
+            partition=partition,
+            **kwargs,
+        )
 
 
 def read_table(

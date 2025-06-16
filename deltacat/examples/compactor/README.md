@@ -19,8 +19,6 @@ cd deltacat/examples/compactor
 
 ## Quick Start - End-to-End Compaction Demo
 
-**🚀 The easiest way to see compaction in action:**
-
 ```bash
 # Run the complete end-to-end compaction demonstration
 python bootstrap.py --run-compaction y
@@ -37,10 +35,10 @@ This single command will:
 ```
 📊 DATA BEFORE COMPACTION
 - Source: 2 deltas with 11 total records
-- Overlapping IDs: {3, 4, 5} appear twice
+- Overlapping merge key IDs: {3, 4, 5} appear twice
 
 🔄 RUNNING COMPACTION
-- Merges and deduplicates on primary key 'id'
+- Merges and deduplicates on merge key 'id'
 - Keeps latest version for duplicates
 
 📊 DATA AFTER COMPACTION
@@ -62,7 +60,7 @@ python bootstrap.py --run-compaction n
 This creates:
 - **Source table**: `compactor_test_source.events` with 2 deltas (11 records total)
 - **Destination table**: `compactor_test_dest.events_compacted` (empty, ready to store the results of compaction)
-- Overlapping data on IDs {3, 4, 5} perfect for demonstrating deduplication
+- Overlapping data on merge key IDs {3, 4, 5} for demonstrating deduplication
 
 ### Step 2: Explore the Catalog
 
@@ -122,7 +120,7 @@ The bootstrap script creates realistic test data that demonstrates compaction:
 **Compaction Result:**
 - 8 unique records (IDs 1,2,3,4,5,6,7,8)
 - For overlapping IDs {3,4,5}, keeps the latest version from Batch 2
-- Demonstrates perfect deduplication: 11 input → 8 output records
+- Demonstrates deduplication: 11 input → 8 output records
 
 ## Catalog Structure
 
@@ -173,13 +171,6 @@ A: Yes, use `--catalog-root /path/to/catalog` with any of the scripts.
 
 **Q: How do I see the actual data contents?**
 A: Run `python bootstrap.py --run-compaction y` to see complete before/after data comparison with every record displayed.
-
-**Q: What if compaction fails?**
-A: Check that:
-- Source table exists and has multiple deltas
-- Destination table exists (or can be created)
-- Primary keys are correctly specified
-- Hash bucket count is provided for V2 compactor
 
 **Q: How do I compact partitioned tables?**
 A: Use `--partition-values 'key1=value1,key2=value2'` to specify partition values for both source and destination.
