@@ -39,7 +39,7 @@ from deltacat.storage import metastore
 from deltacat.types.tables import TableWriteMode
 
 # Import common utilities
-from utils.common import (
+from deltacat.examples.compactor.utils.common import (
     get_default_catalog_root,
     initialize_catalog,
 )

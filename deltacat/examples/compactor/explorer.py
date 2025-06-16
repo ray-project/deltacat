@@ -42,7 +42,7 @@ from deltacat.storage.model.partition import Partition
 from deltacat.storage.model.delta import Delta
 
 # Import common utilities
-from utils.common import (
+from deltacat.examples.compactor.utils.common import (
     get_default_catalog_root,
     initialize_deltacat_url_catalog,
     format_partition_values_for_command,

@@ -10,7 +10,7 @@ from deltacat.storage import metastore
 from deltacat.types.media import ContentType
 
 # Import common utilities
-from utils.common import (
+from deltacat.examples.compactor.utils.common import (
     initialize_catalog,
     parse_primary_keys,
     parse_partition_values,
