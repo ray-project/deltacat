@@ -1,5 +1,7 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple, Any
 from deltacat.exceptions import RetryableError
+from pyiceberg.manifest import DataFile
+from deltacat.compute.converter.model.convert_input_files import ConvertInputFiles
 
 AVERAGE_FILE_PATH_COLUMN_SIZE_BYTES = 80
 AVERAGE_POS_COLUMN_SIZE_BYTES = 4
@@ -10,11 +12,15 @@ MEMORY_BUFFER_RATE = 2
 PYARROW_AGGREGATE_MEMORY_MULTIPLIER = 2
 
 
-def estimate_fixed_hash_columns(hash_value_size_bytes_per_record, total_record_count):
+def estimate_fixed_hash_columns(
+    hash_value_size_bytes_per_record: int, total_record_count: int
+) -> int:
     return hash_value_size_bytes_per_record * total_record_count
 
 
-def get_total_record_from_iceberg_files(iceberg_files_list):
+def get_total_record_from_iceberg_files(
+    iceberg_files_list: List[Tuple[int, DataFile]]
+) -> int:
     total_record_count = 0
     # file are in form of tuple (sequence_number, DataFile)
     total_record_count += sum(file[1].record_count for file in iceberg_files_list)
@@ -22,8 +28,8 @@ def get_total_record_from_iceberg_files(iceberg_files_list):
 
 
 def estimate_iceberg_pos_delete_additional_columns(
-    include_columns, num_of_record_count
-):
+    include_columns: List[str], num_of_record_count: int
+) -> int:
     total_additional_columns_sizes = 0
     if "file_path" in include_columns:
         total_additional_columns_sizes += (
@@ -36,7 +42,10 @@ def estimate_iceberg_pos_delete_additional_columns(
     return total_additional_columns_sizes
 
 
-def estimate_convert_remote_option_resources(data_files, equality_delete_files):
+def estimate_convert_remote_option_resources(
+    data_files: List[Tuple[int, DataFile]],
+    equality_delete_files: List[Tuple[int, DataFile]],
+) -> float:
     data_file_record_count = get_total_record_from_iceberg_files(data_files)
     equality_delete_record_count = get_total_record_from_iceberg_files(
         equality_delete_files
@@ -53,9 +62,9 @@ def estimate_convert_remote_option_resources(data_files, equality_delete_files):
 
 def _get_task_options(
     memory: float,
-    ray_custom_resources: Optional[Dict] = None,
+    ray_custom_resources: Optional[Dict[str, Any]] = None,
     scheduling_strategy: str = "SPREAD",
-) -> Dict:
+) -> Dict[str, Any]:
 
     # NOTE: With DEFAULT scheduling strategy in Ray 2.20.0, autoscaler does
     # not spin up enough nodes fast and hence we see only approximately
@@ -80,7 +89,9 @@ def _get_task_options(
     return task_opts
 
 
-def estimate_dedupe_memory(all_data_files_for_dedupe):
+def estimate_dedupe_memory(
+    all_data_files_for_dedupe: List[Tuple[int, DataFile]]
+) -> float:
     dedupe_record_count = get_total_record_from_iceberg_files(all_data_files_for_dedupe)
     produced_pos_memory_required = estimate_iceberg_pos_delete_additional_columns(
         ["file_path", "pos"], dedupe_record_count
@@ -95,7 +106,9 @@ def estimate_dedupe_memory(all_data_files_for_dedupe):
     return memory_with_buffer
 
 
-def convert_resource_options_provider(index, convert_input_files):
+def convert_resource_options_provider(
+    index: int, convert_input_files: ConvertInputFiles
+) -> Dict[str, Any]:
     applicable_data_files = convert_input_files.applicable_data_files
     applicable_equality_delete_files = (
         convert_input_files.applicable_equality_delete_files

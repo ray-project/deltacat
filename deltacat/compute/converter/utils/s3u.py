@@ -4,7 +4,7 @@ from tenacity import (
     stop_after_delay,
     wait_random_exponential,
 )
-from typing import Union
+from typing import Union, Optional, Dict, Any, List, Callable
 from deltacat.types.tables import (
     CapturedBlockWritePaths,
     UuidBlockWritePathProvider,
@@ -14,7 +14,6 @@ from deltacat.types.tables import (
     get_table_length,
     TABLE_CLASS_TO_SLICER_FUNC,
 )
-from typing import Optional, Dict, Any
 from deltacat.exceptions import RetryableError
 from deltacat.storage import (
     DistributedDataset,
@@ -25,13 +24,15 @@ from deltacat.types.media import (
     ContentType,
 )
 from deltacat.constants import UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY
+import s3fs
+import boto3
+from boto3.session import Session
+from botocore.credentials import Credentials
 
 
-def get_credential():
-    import boto3
-
-    boto3_session = boto3.Session()
-    credentials = boto3_session.get_credentials()
+def get_credential() -> Credentials:
+    boto3_session: Session = boto3.Session()
+    credentials: Credentials = boto3_session.get_credentials()
     return credentials
 
 
@@ -61,9 +62,9 @@ def upload_table_with_retry(
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
     content_type: ContentType = ContentType.PARQUET,
     max_records_per_file: Optional[int] = 4000000,
-    s3_file_system=None,
-    **s3_client_kwargs,
-):
+    s3_file_system: Optional[s3fs.S3FileSystem] = None,
+    **s3_client_kwargs: Any,
+) -> List[str]:
     """
     Writes the given table to 1 or more S3 files and return Redshift
     manifest entries describing the uploaded files.
@@ -121,20 +122,21 @@ def upload_table_with_retry(
     return s3_write_paths
 
 
-def construct_s3_url(path):
+def construct_s3_url(path: Optional[str]) -> Optional[str]:
     if path:
         return f"s3://{path}"
+    return None
 
 
 def upload_table(
-    table_slices,
-    s3_base_url,
-    s3_file_system,
-    s3_table_writer_func,
-    block_write_path_provider,
-    content_type,
-    s3_table_writer_kwargs,
-):
+    table_slices: Union[LocalTable, DistributedDataset],
+    s3_base_url: str,
+    s3_file_system: s3fs.S3FileSystem,
+    s3_table_writer_func: Callable,
+    block_write_path_provider: UuidBlockWritePathProvider,
+    content_type: ContentType,
+    s3_table_writer_kwargs: Dict[str, Any],
+) -> None:
     s3_table_writer_func(
         table_slices,
         s3_base_url,

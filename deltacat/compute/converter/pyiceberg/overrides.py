@@ -11,7 +11,7 @@ from pyiceberg.io.pyarrow import (
     MetricsMode,
     StatsAggregator,
 )
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Any, Tuple
 from deltacat.compute.converter.utils.iceberg_columns import (
     ICEBERG_RESERVED_FIELD_ID_FOR_FILE_PATH_COLUMN,
     ICEBERG_RESERVED_FIELD_ID_FOR_POS_COLUMN,
@@ -24,18 +24,23 @@ from pyiceberg.manifest import (
     DataFileContent,
     FileFormat,
 )
-from pyiceberg.table import _min_sequence_number, _open_manifest
+from pyiceberg.table import _min_sequence_number, _open_manifest, Table
 from pyiceberg.utils.concurrent import ExecutorFactory
 from itertools import chain
 from pyiceberg.typedef import (
     KeyDefaultDict,
+)
+from pyiceberg.schema import Schema
+from pyiceberg.io import FileIO
+from deltacat.compute.converter.model.convert_input_files import (
+    DataFileList,
 )
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def parquet_path_to_id_mapping_override(schema):
+def parquet_path_to_id_mapping_override(schema: Schema) -> Dict[str, int]:
     res = parquet_path_to_id_mapping(schema)
     # Override here to insert position delete reserved column field IDs
     res["file_path"] = ICEBERG_RESERVED_FIELD_ID_FOR_FILE_PATH_COLUMN
@@ -155,13 +160,16 @@ def data_file_statistics_from_parquet_metadata(
     )
 
 
-def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict):
-    data_file_content_type = DataFileContent.POSITION_DELETES
+def parquet_files_dict_to_iceberg_data_files(
+    io: FileIO,
+    table_metadata: Any,
+    files_dict: Dict[Any, List[str]],
+    file_content_type: DataFileContent,
+) -> List[DataFile]:
     iceberg_files = []
     schema = table_metadata.schema()
     for partition_value, file_paths in files_dict.items():
         for file_path in file_paths:
-            logger.info(f"DEBUG_file_path:{file_path}")
             input_file = io.new_input(file_path)
             with input_file.open() as input_stream:
                 parquet_metadata = pq.read_metadata(input_stream)
@@ -177,7 +185,7 @@ def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict):
             )
 
             data_file = DataFile(
-                content=data_file_content_type,
+                content=file_content_type,
                 file_path=file_path,
                 file_format=FileFormat.PARQUET,
                 partition=partition_value,
@@ -192,10 +200,11 @@ def parquet_files_dict_to_iceberg_data_files(io, table_metadata, files_dict):
     return iceberg_files
 
 
-def fetch_all_bucket_files(table):
+def fetch_all_bucket_files(
+    table: Table,
+) -> Tuple[Dict[Any, DataFileList], Dict[Any, DataFileList], Dict[Any, DataFileList]]:
     # step 1: filter manifests using partition summaries
     # the filter depends on the partition spec used to write the manifest file, so create a cache of filters for each spec id
-
     data_scan = table.scan()
     snapshot = data_scan.snapshot()
     if not snapshot:

@@ -4,25 +4,33 @@ import deltacat.compute.converter.utils.iceberg_columns as sc
 from deltacat.compute.converter.utils.io import (
     download_data_table_and_append_iceberg_columns,
 )
+from deltacat.compute.converter.utils.converter_session_utils import (
+    sort_data_files_maintaining_order,
+)
 import logging
 from deltacat import logs
+from typing import List, Dict, Tuple, Optional, Any
+from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def dedupe_data_files(
-    data_file_to_dedupe,
-    identifier_columns,
-    merge_sort_column,
-    s3_client_kwargs,
-):
+    data_file_to_dedupe: List[Tuple[int, DataFile]],
+    identifier_columns: List[str],
+    remaining_data_table_after_convert: Optional[pa.Table],
+    merge_sort_column: str,
+    s3_client_kwargs: Optional[Dict[str, Any]],
+) -> Tuple[pa.Table, int, int]:
     data_file_table = []
+    if remaining_data_table_after_convert:
+        data_file_table.append(remaining_data_table_after_convert)
 
+    data_file_to_dedupe = sort_data_files_maintaining_order(
+        data_files=data_file_to_dedupe
+    )
     downloaded_data_file_record_count = 0
-    # Sort data files by file sequence number first
-    data_file_to_dedupe = sorted(data_file_to_dedupe, key=lambda f: f[0])
     for file_tuple in data_file_to_dedupe:
-        sequence_number = file_tuple[0]
         data_file = file_tuple[1]
         data_file_to_dedupe_table = download_data_table_and_append_iceberg_columns(
             file=data_file,
@@ -31,17 +39,22 @@ def dedupe_data_files(
                 sc._FILE_PATH_COLUMN_NAME,
                 sc._ORDERED_RECORD_IDX_COLUMN_NAME,
             ],
-            sequence_number=sequence_number,
             s3_client_kwargs=s3_client_kwargs,
+        )
+        logger.info(
+            f"Length of downloaded data file table: {len(data_file_to_dedupe_table)}"
         )
         downloaded_data_file_record_count += len(data_file_to_dedupe_table)
         data_file_table.append(data_file_to_dedupe_table)
 
     final_data_to_dedupe = pa.concat_tables(data_file_table)
 
-    assert len(final_data_to_dedupe) == downloaded_data_file_record_count, (
+    dedupe_input_record_count = downloaded_data_file_record_count
+    if remaining_data_table_after_convert:
+        dedupe_input_record_count += len(remaining_data_table_after_convert)
+    assert len(final_data_to_dedupe) == dedupe_input_record_count, (
         f"Mismatch record count while performing table concat, Got {len(final_data_to_dedupe)} in final table, "
-        f"while input table length is: {downloaded_data_file_record_count}"
+        f"while input table length is: {dedupe_input_record_count}"
     )
 
     logger.info(f"Length of pyarrow table to dedupe:{len(final_data_to_dedupe)}")

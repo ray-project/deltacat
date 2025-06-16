@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import Optional, Dict
+from typing import Optional, Dict, Any, List
 from deltacat.compute.converter.constants import (
     DEFAULT_CONVERTER_TASK_MAX_PARALLELISM,
 )
 from deltacat.constants import DEFAULT_NAMESPACE
 from fsspec import AbstractFileSystem
+from pyiceberg.catalog import Catalog
 
 
 class ConverterSessionParams(dict):
@@ -13,7 +14,7 @@ class ConverterSessionParams(dict):
     """
 
     @staticmethod
-    def of(params: Optional[Dict]) -> ConverterSessionParams:
+    def of(params: Optional[Dict[str, Any]]) -> ConverterSessionParams:
         params = {} if params is None else params
         assert params.get("catalog") is not None, "catalog is a required arg"
         assert (
@@ -47,7 +48,7 @@ class ConverterSessionParams(dict):
         return result
 
     @property
-    def catalog(self):
+    def catalog(self) -> Catalog:
         return self["catalog"]
 
     @property
@@ -63,7 +64,7 @@ class ConverterSessionParams(dict):
         return self["iceberg_namespace"]
 
     @iceberg_namespace.setter
-    def iceberg_namespace(self, iceberg_namespace) -> None:
+    def iceberg_namespace(self, iceberg_namespace: str) -> None:
         self["iceberg_namespace"] = iceberg_namespace
 
     @property
@@ -71,7 +72,9 @@ class ConverterSessionParams(dict):
         return self["enforce_primary_key_uniqueness"]
 
     @enforce_primary_key_uniqueness.setter
-    def enforce_primary_key_uniqueness(self, enforce_primary_key_uniqueness) -> None:
+    def enforce_primary_key_uniqueness(
+        self, enforce_primary_key_uniqueness: bool
+    ) -> None:
         self["enforce_primary_key_uniqueness"] = enforce_primary_key_uniqueness
 
     @property
@@ -80,7 +83,7 @@ class ConverterSessionParams(dict):
 
     @compact_previous_position_delete_files.setter
     def compact_previous_position_delete_files(
-        self, compact_previous_position_delete_files
+        self, compact_previous_position_delete_files: bool
     ) -> None:
         self[
             "compact_previous_position_delete_files"
@@ -92,50 +95,50 @@ class ConverterSessionParams(dict):
 
     @position_delete_for_multiple_data_files.setter
     def position_delete_for_multiple_data_files(
-        self, position_delete_for_multiple_data_files
+        self, position_delete_for_multiple_data_files: bool
     ) -> None:
         self[
             "position_delete_for_multiple_data_files"
         ] = position_delete_for_multiple_data_files
 
     @property
-    def task_max_parallelism(self) -> str:
+    def task_max_parallelism(self) -> int:
         return self["task_max_parallelism"]
 
     @task_max_parallelism.setter
-    def task_max_parallelism(self, task_max_parallelism) -> None:
+    def task_max_parallelism(self, task_max_parallelism: int) -> None:
         self["task_max_parallelism"] = task_max_parallelism
 
     @property
-    def merge_keys(self) -> str:
+    def merge_keys(self) -> Optional[List[str]]:
         return self["merge_keys"]
 
     @merge_keys.setter
-    def merge_keys(self, merge_keys) -> None:
+    def merge_keys(self, merge_keys: Optional[List[str]]) -> None:
         self["merge_keys"] = merge_keys
 
     @property
-    def s3_client_kwargs(self) -> Dict:
+    def s3_client_kwargs(self) -> Dict[str, Any]:
         return self["s3_client_kwargs"]
 
     @s3_client_kwargs.setter
-    def s3_client_kwargs(self, s3_client_kwargs) -> None:
+    def s3_client_kwargs(self, s3_client_kwargs: Dict[str, Any]) -> None:
         self["s3_client_kwargs"] = s3_client_kwargs
 
     @property
-    def s3_file_system(self) -> AbstractFileSystem:
+    def s3_file_system(self) -> Optional[AbstractFileSystem]:
         return self["s3_file_system"]
 
     @s3_file_system.setter
-    def s3_file_system(self, s3_file_system) -> None:
+    def s3_file_system(self, s3_file_system: Optional[AbstractFileSystem]) -> None:
         self["s3_file_system"] = s3_file_system
 
     @property
-    def location_provider_prefix_override(self) -> str:
+    def location_provider_prefix_override(self) -> Optional[str]:
         return self["location_provider_prefix_override"]
 
     @location_provider_prefix_override.setter
     def location_provider_prefix_override(
-        self, location_provider_prefix_override
+        self, location_provider_prefix_override: Optional[str]
     ) -> None:
         self["location_provider_prefix_override"] = location_provider_prefix_override

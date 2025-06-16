@@ -1,23 +1,25 @@
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Any, Optional
 from deltacat.compute.converter.model.convert_input_files import ConvertInputFiles
+from fsspec import AbstractFileSystem
 
 
 class ConvertInput(Dict):
     @staticmethod
     def of(
-        convert_input_files,
-        convert_task_index,
-        iceberg_table_warehouse_prefix,
-        identifier_fields,
-        table_io,
-        table_metadata,
-        compact_previous_position_delete_files,
-        enforce_primary_key_uniqueness,
-        position_delete_for_multiple_data_files,
-        max_parallel_data_file_download,
-        s3_file_system,
-        s3_client_kwargs,
+        convert_input_files: ConvertInputFiles,
+        convert_task_index: int,
+        iceberg_table_warehouse_prefix: str,
+        identifier_fields: List[str],
+        table_io: Any,
+        table_metadata: Any,
+        compact_previous_position_delete_files: bool,
+        enforce_primary_key_uniqueness: bool,
+        position_delete_for_multiple_data_files: bool,
+        max_parallel_data_file_download: int,
+        s3_file_system: Optional[AbstractFileSystem],
+        s3_client_kwargs: Optional[Dict[str, Any]],
+        task_memory: float,
     ) -> ConvertInput:
 
         result = ConvertInput()
@@ -37,6 +39,7 @@ class ConvertInput(Dict):
         result["max_parallel_data_file_download"] = max_parallel_data_file_download
         result["s3_file_system"] = s3_file_system
         result["s3_client_kwargs"] = s3_client_kwargs
+        result["task_memory"] = task_memory
 
         return result
 
@@ -57,11 +60,11 @@ class ConvertInput(Dict):
         return self["iceberg_table_warehouse_prefix"]
 
     @property
-    def table_io(self):
+    def table_io(self) -> Any:
         return self["table_io"]
 
     @property
-    def table_metadata(self):
+    def table_metadata(self) -> Any:
         return self["table_metadata"]
 
     @property
@@ -81,9 +84,13 @@ class ConvertInput(Dict):
         return self["max_parallel_data_file_download"]
 
     @property
-    def s3_file_system(self):
+    def s3_file_system(self) -> Optional[AbstractFileSystem]:
         return self["s3_file_system"]
 
     @property
-    def s3_client_kwargs(self):
+    def s3_client_kwargs(self) -> Optional[Dict[str, Any]]:
         return self["s3_client_kwargs"]
+
+    @property
+    def task_memory(self) -> float:
+        return self["task_memory"]

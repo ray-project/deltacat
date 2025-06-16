@@ -232,7 +232,7 @@ def read_csv(
 ) -> pa.Table:
     # TODO(pdames): Merge in decimal256 support from pure S3 path reader.
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
@@ -256,7 +256,7 @@ def read_feather(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
@@ -310,7 +310,7 @@ def read_json(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
@@ -334,7 +334,7 @@ def read_orc(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
@@ -373,7 +373,7 @@ def read_parquet(
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
@@ -407,7 +407,7 @@ def read_avro(
         return pl_df.to_arrow()
 
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
@@ -475,7 +475,7 @@ def write_feather(
     **write_kwargs,
 ) -> None:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             paf.write_feather(table, f, **write_kwargs)
     else:
@@ -515,7 +515,7 @@ def write_orc(
     **write_kwargs,
 ) -> None:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             paorc.write_table(table, f, **write_kwargs)
     else:
@@ -532,7 +532,7 @@ def write_parquet(
     **write_kwargs,
 ) -> None:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
-        path, filesystem = resolve_path_and_filesystem(path)
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
             papq.write_table(table, f, **write_kwargs)
     else:
@@ -1040,6 +1040,14 @@ def table_to_file(
 ) -> None:
     """
     Writes the given Pyarrow Table to a file.
+
+    Args:
+        table: The PyArrow table to write
+        base_path: Base path to write to
+        file_system: Optional filesystem to use
+        block_path_provider: Provider for block path generation
+        content_type: Content type for the output file
+        kwargs: Keyword arguments passed to the PyArrow write function
     """
     writer = CONTENT_TYPE_TO_PA_WRITE_FUNC.get(content_type)
     if not writer:

@@ -12,8 +12,7 @@ from deltacat import logs
 from deltacat.compute.converter.model.converter_session_params import (
     ConverterSessionParams,
 )
-
-
+from typing import Dict, List, Any, Callable
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
@@ -31,15 +30,15 @@ from deltacat.compute.converter.pyiceberg.catalog import load_table
 from deltacat.compute.converter.utils.converter_session_utils import (
     group_all_files_to_each_bucket,
 )
+from deltacat.compute.converter.model.convert_result import ConvertResult
+from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def converter_session(params: ConverterSessionParams, **kwargs):
+def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     """
-    Convert equality delete to position delete.
-    Compute and memory heavy work from downloading equality delete table and compute position deletes
-    will be executed on Ray remote tasks.
+    Convert equality deletes to position deletes with option to enforce primary key uniqueness.
     """
 
     catalog = params.catalog
@@ -86,7 +85,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     else:
         identifier_fields = merge_keys
 
-    convert_options_provider = functools.partial(
+    convert_options_provider: Callable = functools.partial(
         task_resource_options_provider,
         resource_amount_provider=convert_resource_options_provider,
     )
@@ -98,7 +97,8 @@ def converter_session(params: ConverterSessionParams, **kwargs):
     #  Note that approach 2 will ideally require shared object store to avoid download equality delete files * number of child tasks times.
     max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 
-    def convert_input_provider(index, item):
+    def convert_input_provider(index: int, item: Any) -> Dict[str, ConvertInput]:
+        task_opts = convert_options_provider(index, item)
         return {
             "convert_input": ConvertInput.of(
                 convert_input_files=item,
@@ -113,6 +113,7 @@ def converter_session(params: ConverterSessionParams, **kwargs):
                 max_parallel_data_file_download=max_parallel_data_file_download,
                 s3_client_kwargs=s3_client_kwargs,
                 s3_file_system=s3_file_system,
+                task_memory=task_opts["memory"],
             )
         }
 
@@ -127,10 +128,10 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         kwargs_provider=convert_input_provider,
     )
 
-    to_be_deleted_files_list = []
+    to_be_deleted_files_list: List[List[DataFile]] = []
     logger.info(f"Finished invoking {len(convert_tasks_pending)} convert tasks.")
 
-    convert_results = ray.get(convert_tasks_pending)
+    convert_results: List[ConvertResult] = ray.get(convert_tasks_pending)
     logger.info(f"Got {len(convert_tasks_pending)} convert tasks.")
 
     total_position_delete_record_count = sum(
@@ -153,8 +154,36 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         convert_result.position_delete_on_disk_sizes
         for convert_result in convert_results
     )
+    total_input_data_files_on_disk_size = sum(
+        convert_result.input_data_files_on_disk_size
+        for convert_result in convert_results
+    )
 
-    to_be_added_files_list = []
+    # Calculate memory usage statistics
+    max_peak_memory_usage = max(
+        convert_result.peak_memory_usage_bytes for convert_result in convert_results
+    )
+    avg_memory_usage_percentage = sum(
+        convert_result.memory_usage_percentage for convert_result in convert_results
+    ) / len(convert_results)
+    max_memory_usage_percentage = max(
+        convert_result.memory_usage_percentage for convert_result in convert_results
+    )
+
+    logger.info(
+        f"Aggregated stats for {table_name}: "
+        f"total position delete record count: {total_position_delete_record_count}, "
+        f"total input data file record count: {total_input_data_file_record_count}, "
+        f"total data file hash columns in memory sizes: {total_data_file_hash_columns_in_memory_sizes}, "
+        f"total position delete file in memory sizes: {total_position_delete_file_in_memory_sizes}, "
+        f"total position delete file on disk sizes: {total_position_delete_on_disk_sizes}, "
+        f"total input data files on disk size: {total_input_data_files_on_disk_size}, "
+        f"max peak memory usage: {max_peak_memory_usage} bytes, "
+        f"average memory usage percentage: {avg_memory_usage_percentage:.2f}%, "
+        f"max memory usage percentage: {max_memory_usage_percentage:.2f}%"
+    )
+
+    to_be_added_files_list: List[DataFile] = []
     for convert_result in convert_results:
         to_be_added_files = convert_result.to_be_added_files
         to_be_deleted_files = convert_result.to_be_deleted_files
@@ -162,24 +191,21 @@ def converter_session(params: ConverterSessionParams, **kwargs):
         to_be_deleted_files_list.extend(to_be_deleted_files.values())
         to_be_added_files_list.extend(to_be_added_files)
 
+    logger.info(f"To be deleted files list length: {len(to_be_deleted_files_list)}")
+    logger.info(f"To be added files list length: {len(to_be_added_files_list)}")
+
     if not to_be_deleted_files_list and to_be_added_files_list:
+        logger.info(f"Committing append snapshot for {table_name}.")
         commit_append_snapshot(
             iceberg_table=iceberg_table,
             new_position_delete_files=to_be_added_files_list,
         )
     else:
+        logger.info(f"Committing replace snapshot for {table_name}.")
         commit_replace_snapshot(
             iceberg_table=iceberg_table,
-            to_be_deleted_files_list=to_be_deleted_files_list,
+            to_be_deleted_files=to_be_deleted_files_list,
             new_position_delete_files=to_be_added_files_list,
         )
-    logger.info(
-        f"Aggregated stats for {table_name}: "
-        f"total position delete record count: {total_position_delete_record_count}, "
-        f"total input data file record_count: {total_input_data_file_record_count}, "
-        f"total data file hash columns in memory sizes: {total_data_file_hash_columns_in_memory_sizes}, "
-        f"total position delete file in memory sizes: {total_position_delete_file_in_memory_sizes}, "
-        f"total position delete file on disk sizes: {total_position_delete_on_disk_sizes}."
-    )
 
     logger.info(f"Committed new Iceberg snapshot.")
