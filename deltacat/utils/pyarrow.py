@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import copy
 import bz2
 import gzip
 import io
@@ -22,7 +23,6 @@ from pyarrow import json as pajson
 from pyarrow import parquet as papq
 from pyarrow import orc as paorc
 from ray.data.datasource import FilenameProvider
-from deltacat.utils.s3fs import create_s3_file_system
 
 from deltacat import logs
 from deltacat.types.media import (
@@ -51,6 +51,19 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 RAISE_ON_EMPTY_CSV_KWARG = "raise_on_empty_csv"
 READER_TYPE_KWARG = "reader_type"
+OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG = "override_content_encoding_for_parquet"
+
+"""
+By default, round decimal values using half_to_even round mode when
+rescaling a decimal to the given scale and precision in the schema would cause
+data loss. Setting any non null value of this argument will result
+in an error instead.
+"""
+RAISE_ON_DECIMAL_OVERFLOW = "raise_on_decimal_overflow"
+# Note the maximum from https://arrow.apache.org/docs/python/generated/pyarrow.Decimal256Type.html#pyarrow.Decimal256Type
+DECIMAL256_DEFAULT_SCALE = 38
+DECIMAL256_MAX_PRECISION = 76
+MAX_INT_BYTES = 2147483646
 
 
 def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Schema:
@@ -69,42 +82,142 @@ def _filter_schema_for_columns(schema: pa.Schema, columns: List[str]) -> pa.Sche
     return target_schema
 
 
-def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
-    try:
-        new_kwargs = sanitize_kwargs_by_supported_kwargs(
-            ["read_options", "parse_options", "convert_options", "memory_pool"], kwargs
+def _extract_arrow_schema_from_read_csv_kwargs(kwargs: Dict[str, Any]) -> pa.Schema:
+    schema = None
+    if (
+        "convert_options" in kwargs
+        and kwargs["convert_options"].column_types is not None
+    ):
+        schema = kwargs["convert_options"].column_types
+        if not isinstance(schema, pa.Schema):
+            schema = pa.schema(schema)
+        if kwargs["convert_options"].include_columns:
+            schema = _filter_schema_for_columns(
+                schema, kwargs["convert_options"].include_columns
+            )
+        elif (
+            kwargs.get("read_options") is not None
+            and kwargs["read_options"].column_names
+        ):
+            schema = _filter_schema_for_columns(
+                schema, kwargs["read_options"].column_names
+            )
+    else:
+        logger.debug(
+            "Schema not specified in the kwargs."
+            " Hence, schema could not be inferred from the empty CSV."
         )
+
+    return schema
+
+
+def _new_schema_with_replaced_fields(
+    schema: pa.Schema, field_to_replace: Callable[[pa.Field], Optional[pa.Field]]
+) -> pa.Schema:
+    if schema is None:
+        return None
+
+    new_schema_fields = []
+    for field in schema:
+        new_field = field_to_replace(field)
+        if new_field is not None:
+            new_schema_fields.append(new_field)
+        else:
+            new_schema_fields.append(field)
+
+    return pa.schema(new_schema_fields, metadata=schema.metadata)
+
+
+def _read_csv_rounding_decimal_columns_to_fit_scale(
+    schema: pa.Schema, reader_args: List[Any], reader_kwargs: Dict[str, Any]
+) -> pa.Table:
+    # Note: We read decimals as strings first because CSV
+    # conversion to decimal256 isn't implemented as of pyarrow==12.0.1
+    new_schema = _new_schema_with_replaced_fields(
+        schema,
+        lambda fld: (
+            pa.field(fld.name, pa.string(), metadata=fld.metadata)
+            if pa.types.is_decimal128(fld.type) or pa.types.is_decimal256(fld.type)
+            else None
+        ),
+    )
+    new_kwargs = sanitize_kwargs_by_supported_kwargs(
+        ["read_options", "parse_options", "convert_options", "memory_pool"],
+        reader_kwargs,
+    )
+    # Creating a shallow copy for efficiency
+    new_convert_options = copy.copy(new_kwargs["convert_options"])
+    new_convert_options.column_types = new_schema
+    new_reader_kwargs = {**new_kwargs, "convert_options": new_convert_options}
+    arrow_table = pacsv.read_csv(*reader_args, **new_reader_kwargs)
+
+    for column_index, field in enumerate(schema):
+        if pa.types.is_decimal128(field.type) or pa.types.is_decimal256(field.type):
+            column_array = arrow_table[field.name]
+            # We always cast to decimal256 to accomodate fixed scale of 38
+            cast_to_type = pa.decimal256(
+                DECIMAL256_MAX_PRECISION, DECIMAL256_DEFAULT_SCALE
+            )
+            casted_decimal_array = pc.cast(column_array, cast_to_type)
+            # Note that scale can be negative
+            rounded_column_array = pc.round(
+                casted_decimal_array, ndigits=field.type.scale
+            )
+            final_decimal_array = pc.cast(rounded_column_array, field.type)
+            arrow_table = arrow_table.set_column(
+                column_index,
+                field,
+                final_decimal_array,
+            )
+            logger.debug(
+                f"Rounded decimal column: {field.name} to {field.type.scale} scale and"
+                f" {field.type.precision} precision"
+            )
+
+    return arrow_table
+
+
+def pyarrow_read_csv_default(*args, **kwargs):
+    new_kwargs = sanitize_kwargs_by_supported_kwargs(
+        ["read_options", "parse_options", "convert_options", "memory_pool"], kwargs
+    )
+
+    try:
         return pacsv.read_csv(*args, **new_kwargs)
     except pa.lib.ArrowInvalid as e:
-        if e.__str__() == "Empty CSV file" and not kwargs.get(RAISE_ON_EMPTY_CSV_KWARG):
-            schema = None
-            if (
-                "convert_options" in kwargs
-                and kwargs["convert_options"].column_types is not None
-            ):
-                schema = kwargs["convert_options"].column_types
-                if not isinstance(schema, pa.Schema):
-                    schema = pa.schema(schema)
-                if kwargs["convert_options"].include_columns:
-                    schema = _filter_schema_for_columns(
-                        schema, kwargs["convert_options"].include_columns
-                    )
-                elif (
-                    kwargs.get("read_options") is not None
-                    and kwargs["read_options"].column_names
-                ):
-                    schema = _filter_schema_for_columns(
-                        schema, kwargs["read_options"].column_names
-                    )
+        error_str = e.__str__()
+        schema = _extract_arrow_schema_from_read_csv_kwargs(kwargs)
 
-            else:
-                logger.debug(
-                    "Schema not specified in the kwargs."
-                    " Hence, schema could not be inferred from the empty CSV."
-                )
-
+        if error_str == "Empty CSV file" and not kwargs.get(RAISE_ON_EMPTY_CSV_KWARG):
             logger.debug(f"Read CSV empty schema being used: {schema}")
             return pa.Table.from_pylist([], schema=schema)
+        if not kwargs.get(RAISE_ON_DECIMAL_OVERFLOW):
+            # Note, this logic requires expensive casting. To prevent downgrading performance
+            # for happy path reads, we are handling this case in response to an error.
+            logger.warning(
+                "Rescaling Decimal to the given scale in the schema. "
+                f"Original error: {error_str}"
+            )
+
+            if schema is not None and "convert_options" in kwargs:
+                if (
+                    "Rescaling Decimal" in error_str
+                    and "value would cause data loss" in error_str
+                ):
+                    logger.debug(f"Checking if the file: {args[0]}...")
+                    # Since we are re-reading the file, we have to seek to beginning
+                    if isinstance(args[0], io.IOBase) and args[0].seekable():
+                        logger.debug(f"Seeking to the beginning of the file {args[0]}")
+                        args[0].seek(0)
+                    return _read_csv_rounding_decimal_columns_to_fit_scale(
+                        schema=schema, reader_args=args, reader_kwargs=kwargs
+                    )
+            else:
+                logger.debug(
+                    "Schema is None when trying to adjust decimal values. "
+                    "Hence, bubbling up exception..."
+                )
+
         raise e
 
 
@@ -114,14 +227,24 @@ def read_csv(
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # TODO(pdames): Merge in decimal256 support from pure S3 path reader.
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            return pacsv.read_csv(f, **read_kwargs)
-    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-        return pacsv.read_csv(f, **read_kwargs)
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pacsv.read_csv(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pacsv.read_csv(input_file, **read_kwargs)
 
 
 def read_feather(
@@ -129,14 +252,53 @@ def read_feather(
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            return paf.read_feather(f, **read_kwargs)
-    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-        return paf.read_feather(f, **read_kwargs)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return paf.read_table(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem - Feather requires seekable files
+        # For local files, we can use the file path directly
+        if hasattr(filesystem, "protocol") and filesystem.protocol == "file":
+            if content_encoding != ContentEncoding.IDENTITY.value:
+                # For compressed files, decompress to a temporary file
+                import tempfile
+                import shutil
+
+                with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+                    input_file_init = ENCODING_TO_FILE_INIT.get(
+                        content_encoding, lambda x: x
+                    )
+                    with input_file_init(f) as input_file:
+                        # Create temporary file to hold decompressed data
+                        with tempfile.NamedTemporaryFile() as temp_file:
+                            shutil.copyfileobj(input_file, temp_file)
+                            temp_file.flush()
+                            return paf.read_table(temp_file.name, **read_kwargs)
+            else:
+                # No compression, can read directly from file path
+                return paf.read_table(path, **read_kwargs)
+        else:
+            # For non-local filesystems, always decompress to temporary file
+            import tempfile
+            import shutil
+
+            with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
+                with input_file_init(f) as input_file:
+                    # Create temporary file to hold data
+                    with tempfile.NamedTemporaryFile() as temp_file:
+                        shutil.copyfileobj(input_file, temp_file)
+                        temp_file.flush()
+                        return paf.read_table(temp_file.name, **read_kwargs)
 
 
 def read_json(
@@ -144,14 +306,23 @@ def read_json(
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            return pajson.read_json(f, **read_kwargs)
-    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-        return pajson.read_json(f, **read_kwargs)
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pajson.read_json(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return pajson.read_json(input_file, **read_kwargs)
 
 
 def read_orc(
@@ -159,14 +330,38 @@ def read_orc(
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            return paorc.read_table(f, **read_kwargs)
-    with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-        return paorc.read_table(f, **read_kwargs)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return paorc.read_table(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem - ORC requires seekable files, so handle compression differently
+        if content_encoding != ContentEncoding.IDENTITY.value:
+            # For compressed files with fsspec, we need to decompress to a temporary file
+            # since ORC requires seekable streams
+            import tempfile
+            import shutil
+
+            with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+                input_file_init = ENCODING_TO_FILE_INIT.get(
+                    content_encoding, lambda x: x
+                )
+                with input_file_init(f) as input_file:
+                    # Create temporary file to hold decompressed data
+                    with tempfile.NamedTemporaryFile() as temp_file:
+                        shutil.copyfileobj(input_file, temp_file)
+                        temp_file.flush()
+                        return paorc.read_table(temp_file.name, **read_kwargs)
+        else:
+            # No compression, can read directly
+            with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+                return paorc.read_table(f, **read_kwargs)
 
 
 def read_parquet(
@@ -174,27 +369,100 @@ def read_parquet(
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_input_file(path, **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return papq.read_table(input_file, **read_kwargs)
+    else:
+        # fsspec AbstractFileSystem
+        with filesystem.open(path, "rb", **fs_open_kwargs) as f:
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                return papq.read_table(input_file, **read_kwargs)
+
+
+def read_avro(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> pa.Table:
+    """
+    Read an Avro file using polars and convert to PyArrow.
+    """
+    import polars as pl
+
+    # If path is a file-like object, read directly
+    if hasattr(path, "read"):
+        pl_df = pl.read_avro(path, **read_kwargs)
+        return pl_df.to_arrow()
+
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            return papq.read_table(f, **read_kwargs)
+            # Handle compression
+            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+            with input_file_init(f) as input_file:
+                pl_df = pl.read_avro(input_file, **read_kwargs)
+                return pl_df.to_arrow()
     with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-        return papq.read_table(f, **read_kwargs)
+        input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+        with input_file_init(f) as input_file:
+            pl_df = pl.read_avro(input_file, **read_kwargs)
+            return pl_df.to_arrow()
 
 
-CONTENT_TYPE_TO_PA_READ_FUNC: Dict[str, Callable] = {
+def pyarrow_read_csv(*args, **kwargs) -> pa.Table:
+    schema = _extract_arrow_schema_from_read_csv_kwargs(kwargs)
+
+    # CSV conversion to decimal256 isn't supported as of pyarrow=12.0.1
+    # Below ensures decimal256 is casted properly.
+    schema_includes_decimal256 = (
+        (True if any([pa.types.is_decimal256(x.type) for x in schema]) else False)
+        if schema is not None
+        else None
+    )
+    if schema_includes_decimal256 and not kwargs.get(RAISE_ON_DECIMAL_OVERFLOW):
+        # falling back to expensive method of reading CSV
+        return _read_csv_rounding_decimal_columns_to_fit_scale(
+            schema, reader_args=args, reader_kwargs=kwargs
+        )
+    else:
+        return pyarrow_read_csv_default(*args, **kwargs)
+
+
+CONTENT_TYPE_TO_PA_S3_READ_FUNC: Dict[str, Callable] = {
     ContentType.UNESCAPED_TSV.value: pyarrow_read_csv,
     ContentType.TSV.value: pyarrow_read_csv,
     ContentType.CSV.value: pyarrow_read_csv,
     ContentType.PSV.value: pyarrow_read_csv,
     ContentType.PARQUET.value: papq.read_table,
     ContentType.FEATHER.value: paf.read_table,
-    # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
-    # https://issues.apache.org/jira/browse/ARROW-7811
-    # ContentType.ORC.value: paorc.ContentType.ORCFile,
     ContentType.JSON.value: pajson.read_json,
+    ContentType.ORC.value: paorc.read_table,
+    ContentType.AVRO.value: read_avro,
+}
+
+
+CONTENT_TYPE_TO_READ_FN: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: read_csv,
+    ContentType.TSV.value: read_csv,
+    ContentType.CSV.value: read_csv,
+    ContentType.PSV.value: read_csv,
+    ContentType.PARQUET.value: read_parquet,
+    ContentType.FEATHER.value: read_feather,
+    ContentType.JSON.value: read_json,
+    ContentType.ORC.value: read_orc,
+    ContentType.AVRO.value: read_avro,
 }
 
 
@@ -223,19 +491,18 @@ def write_csv(
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
+    if write_kwargs.get("write_options") is None:
+        # column names are kept in table metadata, so omit header
+        write_kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            pacsv.write_csv(table, f, **write_kwargs)
+            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                pacsv.write_csv(table, out, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
             # TODO (pdames): Add support for client-specified compression types.
             with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                if write_kwargs.get("write_options") is None:
-                    # column names are kept in table metadata, so omit header
-                    write_kwargs["write_options"] = pacsv.WriteOptions(
-                        include_header=False
-                    )
                 pacsv.write_csv(table, out, **write_kwargs)
 
 
@@ -273,15 +540,106 @@ def write_parquet(
             papq.write_table(table, f, **write_kwargs)
 
 
+def write_json(
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
+) -> None:
+    """
+    Write a PyArrow Table to a JSON file by delegating to polars implementation.
+    """
+    import polars as pl
+    from deltacat.utils.polars import write_json as polars_write_json
+
+    # Convert PyArrow Table to polars DataFrame
+    pl_df = pl.from_arrow(table)
+
+    # Delegate to polars write_json implementation with GZIP compression
+    polars_write_json(
+        pl_df,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        **write_kwargs,
+    )
+
+
+def write_avro(
+    table: pa.Table,
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, any] = {},
+    **write_kwargs,
+) -> None:
+    """
+    Write a PyArrow Table to an AVRO file by delegating to polars implementation.
+    """
+    import polars as pl
+    from deltacat.utils.polars import write_avro as polars_write_avro
+
+    # Convert PyArrow Table to polars DataFrame
+    pl_df = pl.from_arrow(table)
+
+    # Delegate to polars write_avro implementation
+    polars_write_avro(
+        pl_df,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        **write_kwargs,
+    )
+
+
 CONTENT_TYPE_TO_PA_WRITE_FUNC: Dict[str, Callable] = {
-    # TODO (pdames): add support for other delimited text content types as
-    #  pyarrow adds support for custom delimiters, escaping, and None value
-    #  representations to pyarrow.csv.WriteOptions.
+    ContentType.UNESCAPED_TSV.value: write_csv,
+    ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
-    ContentType.ORC.value: write_orc,
+    ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: write_parquet,
     ContentType.FEATHER.value: write_feather,
+    ContentType.JSON.value: write_json,
+    ContentType.AVRO.value: write_avro,
+    ContentType.ORC.value: write_orc,
 }
+
+
+def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
+    """
+    Returns writer kwargs for the given content type when writing with pyarrow.
+    """
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(
+                delimiter="\t",
+                include_header=False,
+                quoting_style="none",
+            )
+        }
+    if content_type == ContentType.TSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(include_header=False, delimiter="\t")
+        }
+    if content_type == ContentType.CSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(include_header=False, delimiter=",")
+        }
+    if content_type == ContentType.PSV.value:
+        return {
+            "write_options": pacsv.WriteOptions(include_header=False, delimiter="|")
+        }
+    if content_type in {
+        ContentType.PARQUET.value,
+        ContentType.FEATHER.value,
+        ContentType.JSON.value,
+        ContentType.AVRO.value,
+        ContentType.ORC.value,
+    }:
+        return {}
+    raise ValueError(f"Unsupported content type: {content_type}")
 
 
 def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
@@ -303,12 +661,10 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
         ContentType.PARQUET.value,
         ContentType.FEATHER.value,
         ContentType.JSON.value,
+        ContentType.ORC.value,
+        ContentType.AVRO.value,
     }:
         return {}
-    # Pyarrow.orc is disabled in Pyarrow 0.15, 0.16:
-    # https://issues.apache.org/jira/browse/ARROW-7811
-    # if DataTypes.ContentType.ORC:
-    #   return {},
     raise ValueError(f"Unsupported content type: {content_type}")
 
 
@@ -535,6 +891,7 @@ def s3_file_to_table(
     partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> pa.Table:
+    from deltacat.utils.s3fs import create_s3_file_system
 
     logger.debug(
         f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
@@ -546,6 +903,15 @@ def s3_file_to_table(
 
     if pa_read_func_kwargs_provider is not None:
         kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    if OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG in kwargs:
+        new_content_encoding = kwargs.pop(OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG)
+        if content_type == ContentType.PARQUET.value:
+            logger.debug(
+                f"Overriding {s3_url} content encoding from {content_encoding} "
+                f"to {new_content_encoding}"
+            )
+            content_encoding = new_content_encoding
 
     if (
         content_type == ContentType.PARQUET.value
@@ -576,8 +942,8 @@ def s3_file_to_table(
                 **s3_client_kwargs,
             )
 
-        if READER_TYPE_KWARG in kwargs:
-            kwargs.pop(READER_TYPE_KWARG)
+    if READER_TYPE_KWARG in kwargs:
+        kwargs.pop(READER_TYPE_KWARG)
 
     filesystem = io
     if s3_url.startswith("s3://"):
@@ -585,7 +951,7 @@ def s3_file_to_table(
 
     logger.debug(f"Read S3 object from {s3_url} using filesystem: {filesystem}")
     input_file_init = ENCODING_TO_FILE_INIT[content_encoding]
-    pa_read_func = CONTENT_TYPE_TO_PA_READ_FUNC[content_type]
+    pa_read_func = CONTENT_TYPE_TO_PA_S3_READ_FUNC[content_type]
 
     with filesystem.open(s3_url, "rb") as s3_file, input_file_init(
         s3_file
@@ -607,14 +973,28 @@ def s3_file_to_parquet(
     partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     **s3_client_kwargs,
 ) -> ParquetFile:
+
+    from deltacat.utils.s3fs import create_s3_file_system
+
     logger.debug(
         f"Reading {s3_url} to PyArrow ParquetFile. "
         f"Content type: {content_type}. Encoding: {content_encoding}"
     )
+    kwargs = {}
+    if pa_read_func_kwargs_provider:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
+    if OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG in kwargs:
+        new_content_encoding = kwargs.pop(OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG)
+        if content_type == ContentType.PARQUET.value:
+            logger.debug(
+                f"Overriding {s3_url} content encoding from {content_encoding} "
+                f"to {new_content_encoding}"
+            )
+            content_encoding = new_content_encoding
     if (
         content_type != ContentType.PARQUET.value
-        or content_encoding != ContentEncoding.IDENTITY
+        or content_encoding != ContentEncoding.IDENTITY.value
     ):
         raise ContentTypeValidationError(
             f"S3 file with content type: {content_type} and content encoding: {content_encoding} "
@@ -624,14 +1004,9 @@ def s3_file_to_parquet(
     if s3_client_kwargs is None:
         s3_client_kwargs = {}
 
-    kwargs = {}
-
     if s3_url.startswith("s3://"):
         s3_file_system = create_s3_file_system(s3_client_kwargs)
         kwargs["filesystem"] = s3_file_system
-
-    if pa_read_func_kwargs_provider:
-        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
 
     logger.debug(f"Pre-sanitize kwargs for {s3_url}: {kwargs}")
 
@@ -658,11 +1033,10 @@ def parquet_file_size(table: papq.ParquetFile) -> int:
 def table_to_file(
     table: pa.Table,
     base_path: str,
-    file_system: Optional[AbstractFileSystem],
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
-    fs_open_kwargs: Dict[str, any] = {},
-    **write_kwargs,
+    **kwargs,
 ) -> None:
     """
     Writes the given Pyarrow Table to a file.
@@ -673,8 +1047,7 @@ def table_to_file(
         file_system: Optional filesystem to use
         block_path_provider: Provider for block path generation
         content_type: Content type for the output file
-        fs_open_kwargs: Keyword arguments for filesystem operations
-        write_kwargs: Keyword arguments passed to the PyArrow write function
+        kwargs: Keyword arguments passed to the PyArrow write function
     """
     writer = CONTENT_TYPE_TO_PA_WRITE_FUNC.get(content_type)
     if not writer:
@@ -684,14 +1057,10 @@ def table_to_file(
             f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}"
         )
     path = block_path_provider(base_path)
-    logger.debug(f"Writing table: {table} with kwargs: {write_kwargs} to path: {path}")
-    writer(
-        table,
-        path,
-        filesystem=file_system,
-        fs_open_kwargs=fs_open_kwargs,
-        **write_kwargs,
-    )
+    writer_kwargs = content_type_to_writer_kwargs(content_type)
+    writer_kwargs.update(kwargs)
+    logger.debug(f"Writing table: {table} with kwargs: {writer_kwargs} to path: {path}")
+    writer(table, path, filesystem=filesystem, **writer_kwargs)
 
 
 class RecordBatchTables:
@@ -935,7 +1304,6 @@ def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
     TODO: deprecate this function when pyarrow performs proper ChunkedArray -> ChunkedArray casting
     """
     dtype = array.type
-    MAX_BYTES = 2147483646
     max_str_len = None
     if pa.types.is_integer(dtype):
         max_str_len = _int_max_string_len()
@@ -947,7 +1315,7 @@ def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
         max_str_len = _max_decimal256_string_len()
 
     if max_str_len is not None:
-        max_elems_per_chunk = MAX_BYTES // (2 * max_str_len)  # safety factor of 2
+        max_elems_per_chunk = MAX_INT_BYTES // (2 * max_str_len)  # safety factor of 2
         all_chunks = []
         for chunk in array.chunks:
             if len(chunk) < max_elems_per_chunk:
@@ -962,3 +1330,154 @@ def sliced_string_cast(array: pa.ChunkedArray) -> pa.ChunkedArray:
         array = pa.chunked_array(all_chunks, type=dtype)
 
     return pc.cast(array, pa.string())
+
+
+def file_to_table(
+    path: str,
+    content_type: str,
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    **kwargs,
+) -> pa.Table:
+    """
+    Read a file into a PyArrow Table using any filesystem.
+
+    Args:
+        path: The file path to read
+        content_type: The content type of the file (e.g., ContentType.CSV.value)
+        content_encoding: The content encoding (default: IDENTITY)
+        filesystem: The filesystem to use (if None, will be inferred from path)
+        column_names: Optional column names to assign
+        include_columns: Optional columns to include in the result
+        pa_read_func_kwargs_provider: Optional kwargs provider for customization
+        fs_open_kwargs: Optional kwargs for filesystem open operations
+        **kwargs: Additional kwargs passed to the reader function
+
+    Returns:
+        pa.Table: The loaded PyArrow Table
+    """
+    logger.debug(
+        f"Reading {path} to PyArrow. Content type: {content_type}. "
+        f"Encoding: {content_encoding}"
+    )
+
+    pa_read_func = CONTENT_TYPE_TO_READ_FN.get(content_type)
+    if not pa_read_func:
+        raise NotImplementedError(
+            f"PyArrow reader for content type '{content_type}' not "
+            f"implemented. Known content types: "
+            f"{list(CONTENT_TYPE_TO_READ_FN.keys())}"
+        )
+
+    reader_kwargs = content_type_to_reader_kwargs(content_type)
+    _add_column_kwargs(content_type, column_names, include_columns, reader_kwargs)
+
+    # Merge with provided kwargs
+    reader_kwargs.update(kwargs)
+
+    if pa_read_func_kwargs_provider:
+        reader_kwargs = pa_read_func_kwargs_provider(content_type, reader_kwargs)
+
+    logger.debug(f"Reading {path} via {pa_read_func} with kwargs: {reader_kwargs}")
+
+    table, latency = timed_invocation(
+        pa_read_func,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        content_encoding=content_encoding,
+        **reader_kwargs,
+    )
+    logger.debug(f"Time to read {path} into PyArrow Table: {latency}s")
+    return table
+
+
+def file_to_parquet(
+    path: str,
+    content_type: str = ContentType.PARQUET.value,
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    **kwargs,
+) -> ParquetFile:
+    """
+    Read a file into a PyArrow ParquetFile using any filesystem.
+
+    This function is equivalent to s3_file_to_parquet but works with any filesystem.
+    It returns a ParquetFile object which provides metadata access and lazy loading.
+
+    Args:
+        path: The file path to read
+        content_type: The content type (must be PARQUET, default: PARQUET)
+        content_encoding: The content encoding (must be IDENTITY, default: IDENTITY)
+        filesystem: The filesystem to use (if None, will be inferred from path)
+        column_names: Optional column names (unused for ParquetFile but kept for API consistency)
+        include_columns: Optional columns (unused for ParquetFile but kept for API consistency)
+        pa_read_func_kwargs_provider: Optional kwargs provider for customization
+        fs_open_kwargs: Optional kwargs for filesystem open operations
+        **kwargs: Additional kwargs passed to ParquetFile constructor
+
+    Returns:
+        ParquetFile: The ParquetFile object for lazy loading and metadata access
+
+    Raises:
+        ContentTypeValidationError: If content_type is not PARQUET or content_encoding is not IDENTITY
+    """
+    logger.debug(
+        f"Reading {path} to PyArrow ParquetFile. "
+        f"Content type: {content_type}. Encoding: {content_encoding}"
+    )
+    # Validate content type and encoding (same validation as s3_file_to_parquet)
+    if (
+        content_type != ContentType.PARQUET.value
+        or content_encoding != ContentEncoding.IDENTITY.value
+    ):
+        raise ContentTypeValidationError(
+            f"File with content type: {content_type} and content encoding: {content_encoding} "
+            "cannot be read into pyarrow.parquet.ParquetFile"
+        )
+
+    # Resolve filesystem and path
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+
+    # Build kwargs for ParquetFile constructor
+    parquet_kwargs = {}
+
+    # Add filesystem to kwargs if we have one
+    if filesystem:
+        parquet_kwargs["filesystem"] = filesystem
+
+    # Apply kwargs provider if provided
+    if pa_read_func_kwargs_provider:
+        parquet_kwargs = pa_read_func_kwargs_provider(content_type, parquet_kwargs)
+
+    # Merge with provided kwargs
+    parquet_kwargs.update(kwargs)
+
+    logger.debug(f"Pre-sanitize kwargs for {path}: {parquet_kwargs}")
+
+    # Sanitize kwargs to only include those supported by ParquetFile.__init__
+    parquet_kwargs = sanitize_kwargs_to_callable(ParquetFile.__init__, parquet_kwargs)
+
+    logger.debug(
+        f"Reading the file from {path} into ParquetFile with kwargs: {parquet_kwargs}"
+    )
+
+    def _create_parquet_file():
+        return ParquetFile(path, **parquet_kwargs)
+
+    pq_file, latency = timed_invocation(_create_parquet_file)
+
+    logger.debug(f"Time to get {path} into parquet file: {latency}s")
+
+    return pq_file

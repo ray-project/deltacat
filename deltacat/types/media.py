@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Set
+from typing import Set, Dict
 
 
 class ContentType(str, Enum):
@@ -55,6 +55,28 @@ class ContentEncoding(str, Enum):
     SNAPPY = "snappy"
 
 
+# Map of file extensions to content types
+EXT_TO_CONTENT_TYPE: Dict[str, ContentType] = {
+    ".parquet": ContentType.PARQUET,
+    ".pq": ContentType.PARQUET,
+    ".csv": ContentType.CSV,
+    ".tsv": ContentType.TSV,
+    ".json": ContentType.JSON,
+    ".feather": ContentType.FEATHER,
+    ".avro": ContentType.AVRO,
+}
+
+# Map of file extensions to content encodings
+EXT_TO_CONTENT_ENCODING: Dict[str, ContentEncoding] = {
+    ".gz": ContentEncoding.GZIP,
+    ".bz2": ContentEncoding.BZIP2,
+    ".zst": ContentEncoding.ZSTD,
+    ".sz": ContentEncoding.SNAPPY,
+    ".zz": ContentEncoding.DEFLATE,
+    ".zip": ContentEncoding.DEFLATE,
+}
+
+
 DELIMITED_TEXT_CONTENT_TYPES: Set[str] = {
     ContentType.UNESCAPED_TSV.value,
     ContentType.TSV.value,
@@ -79,6 +101,9 @@ EXPLICIT_COMPRESSION_CONTENT_TYPES: Set[str] = {
     ContentType.CSV.value,
     ContentType.PSV.value,
     ContentType.JSON.value,
+    ContentType.TEXT.value,
+    ContentType.HTML.value,
+    ContentType.XML.value,
 }
 
 

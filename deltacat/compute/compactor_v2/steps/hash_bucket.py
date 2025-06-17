@@ -18,7 +18,7 @@ from deltacat.compute.compactor_v2.utils.primary_key_index import (
     group_hash_bucket_indices,
     group_by_pk_hash_bucket,
 )
-from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.storage import metastore
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
     get_current_ray_worker_id,
@@ -51,7 +51,7 @@ def _group_file_records_by_pk_hash_bucket(
     num_hash_buckets: int,
     primary_keys: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int, int]:
     # read input parquet s3 objects into a list of delta file envelopes

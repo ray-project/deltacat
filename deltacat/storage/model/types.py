@@ -6,6 +6,7 @@ from typing import List, Union
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import polars as pl
 from ray.data.dataset import Dataset as RayDataset
 from daft import DataFrame as DaftDataFrame
 
@@ -13,6 +14,7 @@ from daft import DataFrame as DaftDataFrame
 LocalTable = Union[
     pa.Table,
     pd.DataFrame,
+    pl.DataFrame,
     np.ndarray,
     pa.parquet.ParquetFile,
 ]

@@ -71,8 +71,6 @@ class TestCatalog(unittest.TestCase):
             catalog = IcebergCatalog.from_config(config)
 
             # Check that the implementation is set to iceberg_catalog
-            print(f"catalog.impl: {catalog.impl}")
-            print(f"mock_iceberg_catalog: {mock_iceberg_catalog}")
             self.assertEqual(catalog.impl, mock_iceberg_catalog)
             # Check that the inner state is set to the output of initialize
             self.assertEqual(catalog.inner, {"iceberg": True})

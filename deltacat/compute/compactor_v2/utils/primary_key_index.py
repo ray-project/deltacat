@@ -10,6 +10,7 @@ from deltacat.compute.compactor_v2.constants import (
     TOTAL_BYTES_IN_SHA1_HASH,
     PK_DELIMITER,
     MAX_SIZE_OF_RECORD_BATCH_IN_GIB,
+    SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED,
 )
 import time
 from deltacat.compute.compactor.model.delta_file_envelope import DeltaFileEnvelope
@@ -48,6 +49,13 @@ def _is_sha1_desired(hash_columns: List[pa.Array]) -> bool:
         f"Found total length of hash column={total_len} and total_size={total_size}"
     )
 
+    if SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED:
+        logger.info(
+            f"SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED is True. "
+            f"Returning False for is_sha1_desired"
+        )
+        return False
+
     return total_size > TOTAL_BYTES_IN_SHA1_HASH * total_len
 
 
@@ -70,13 +78,25 @@ def _append_table_by_hash_bucket(
         f"Grouping a pki table of length {len(pki_table)} took {groupby_latency}s"
     )
 
+    hb_pk_grouped_by = hb_pk_grouped_by.sort_by(sc._HASH_BUCKET_IDX_COLUMN_NAME)
     group_count_array = hb_pk_grouped_by[f"{sc._HASH_BUCKET_IDX_COLUMN_NAME}_count"]
     hb_group_array = hb_pk_grouped_by[sc._HASH_BUCKET_IDX_COLUMN_NAME]
 
     result_len = 0
     for i, group_count in enumerate(group_count_array):
         hb_idx = hb_group_array[i].as_py()
-        pyarrow_table = hb_pk_table.slice(offset=result_len, length=group_count.as_py())
+        group_count_py = group_count.as_py()
+        pyarrow_table = hb_pk_table.slice(offset=result_len, length=group_count_py)
+        assert group_count_py == len(
+            pyarrow_table
+        ), f"Group count {group_count_py} not equal to {len(pyarrow_table)}"
+        all_buckets = pc.unique(pyarrow_table[sc._HASH_BUCKET_IDX_COLUMN_NAME])
+        assert (
+            len(all_buckets) == 1
+        ), f"Only one hash bucket is allowed but found {len(all_buckets)}"
+        assert (
+            all_buckets[0].as_py() == hb_idx
+        ), f"Hash bucket not equal, {all_buckets[0]} and {hb_idx}"
         pyarrow_table = pyarrow_table.drop(
             [sc._HASH_BUCKET_IDX_COLUMN_NAME, sc._PK_HASH_STRING_COLUMN_NAME]
         )
@@ -108,9 +128,10 @@ def _optimized_group_record_batches_by_hash_bucket(
     record_batches = []
     result_len = 0
     for record_batch in table_batches:
-        current_bytes += record_batch.nbytes
-        record_batches.append(record_batch)
-        if current_bytes >= MAX_SIZE_OF_RECORD_BATCH_IN_GIB:
+        if (
+            record_batches
+            and current_bytes + record_batch.nbytes >= MAX_SIZE_OF_RECORD_BATCH_IN_GIB
+        ):
             logger.info(
                 f"Total number of record batches without exceeding {MAX_SIZE_OF_RECORD_BATCH_IN_GIB} "
                 f"is {len(record_batches)} and size {current_bytes}"
@@ -127,6 +148,9 @@ def _optimized_group_record_batches_by_hash_bucket(
             result_len += appended_len
             current_bytes = 0
             record_batches.clear()
+
+        current_bytes += record_batch.nbytes
+        record_batches.append(record_batch)
 
     if record_batches:
         appended_len, append_latency = timed_invocation(

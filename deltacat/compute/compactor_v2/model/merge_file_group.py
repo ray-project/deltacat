@@ -16,7 +16,7 @@ from deltacat.compute.compactor_v2.utils.primary_key_index import (
     hash_group_index_to_hash_bucket_indices,
 )
 
-from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.storage import metastore
 
 from deltacat.io.object_store import IObjectStore
 
@@ -88,7 +88,7 @@ class LocalMergeFileGroupsProvider(MergeFileGroupsProvider):
         self,
         uniform_deltas: List[DeltaAnnotated],
         read_kwargs_provider: Optional[ReadKwargsProvider],
-        deltacat_storage=unimplemented_deltacat_storage,
+        deltacat_storage=metastore,
         deltacat_storage_kwargs: Optional[dict] = None,
     ):
         self._deltas = uniform_deltas

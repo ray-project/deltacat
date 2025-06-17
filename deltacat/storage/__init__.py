@@ -31,6 +31,7 @@ from deltacat.storage.model.partition import (
     PartitionLocator,
     PartitionLocatorAlias,
     PartitionKey,
+    PartitionKeyList,
     PartitionScheme,
     PartitionSchemeList,
     PartitionValues,
@@ -93,6 +94,7 @@ from deltacat.storage.model.types import (
 )
 from deltacat.storage.model.sort_key import (
     SortKey,
+    SortKeyList,
     SortScheme,
     SortSchemeList,
 )
@@ -138,6 +140,7 @@ __all__ = [
     "NullOrder",
     "Partition",
     "PartitionKey",
+    "PartitionKeyList",
     "PartitionLocator",
     "PartitionLocatorAlias",
     "PartitionScheme",
@@ -147,6 +150,7 @@ __all__ = [
     "SchemaList",
     "SchemaConsistencyType",
     "SortKey",
+    "SortKeyList",
     "SortOrder",
     "SortScheme",
     "SortSchemeList",

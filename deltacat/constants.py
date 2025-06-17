@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import botocore.exceptions
 
+from daft.exceptions import DaftTransientError
 from deltacat.utils.common import env_string, env_bool
+from deltacat.utils.common import env_integer
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -92,6 +95,8 @@ TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"
 SUCCESS_TXN_DIR_NAME: str = "success"
+DATA_FILE_DIR_NAME: str = "data"
+REV_DIR_NAME: str = "rev"
 TXN_PART_SEPARATOR = "_"
 
 # Storage interface defaults
@@ -103,3 +108,26 @@ DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
 DEFAULT_PARTITION_ID = "partition"
 DEFAULT_PARTITION_VALUES = ["default"]
+
+# Upload/Download Retry Defaults
+UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY = env_integer(
+    "UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY", 10 * 60
+)
+UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY = env_integer(
+    "UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY", 30 * 60
+)
+DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY = env_integer(
+    "DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY", 30 * 60
+)
+DEFAULT_FILE_READ_TIMEOUT_MS = env_integer(
+    "DEFAULT_FILE_READ_TIMEOUT_MS", 300_000
+)  # 5 mins
+RETRYABLE_TRANSIENT_ERRORS = (
+    OSError,
+    botocore.exceptions.ConnectionError,
+    botocore.exceptions.HTTPClientError,
+    botocore.exceptions.NoCredentialsError,
+    botocore.exceptions.ConnectTimeoutError,
+    botocore.exceptions.ReadTimeoutError,
+    DaftTransientError,
+)

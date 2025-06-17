@@ -123,6 +123,7 @@ def copy(
         "gz": 35,
         "bz2": 35,
         "zip": 35,
+        "zst": 35,
         "7z": 35,
         "*": 2.5,
     },
@@ -135,11 +136,10 @@ def copy(
     Copies data from the source datastore to the destination datastore. By
     default, this method launches one parallel Ray process to read/transform
     each input file found in the source followed by one parallel Ray process
-    to write each output file to the destination. Files written to the
-    destination are split or combined to contain uniform record counts. To
-    ensure that adequate resources are available to complete the operation,
-    you may optionally specify minimum cluster and/or worker CPUs to wait for
-    before starting parallel processing.
+    to write each output file to the destination. To ensure that adequate
+    resources are available to complete the operation, you may optionally
+    specify minimum cluster and/or worker CPUs to wait for before starting
+    parallel processing.
 
     Args:
         src: DeltaCAT URL of the source datastore to read.
@@ -214,9 +214,13 @@ def _list_all_metafiles(
     metafiles: ListResult[Metafile] = lister(**kwargs)
     list_results.append(metafiles)
     if recursive:
+        # Process each level of the hierarchy
+        current_level_metafiles = [mf for mf in metafiles.all_items()]
+
         for lister, kwarg_name, kwarg_val_resolver_fn in reader.listers:
+            next_level_metafiles = []
             # each subsequent lister needs to inject missing keyword args from the parent metafile
-            for metafile in metafiles.all_items():
+            for metafile in current_level_metafiles:
                 kwargs_update = (
                     {kwarg_name: kwarg_val_resolver_fn(metafile)}
                     if kwarg_name and kwarg_val_resolver_fn
@@ -226,8 +230,11 @@ def _list_all_metafiles(
                     **kwargs,
                     **kwargs_update,
                 }
-                metafiles = lister(**lister_kwargs)
-                list_results.append(metafiles)
+                child_metafiles = lister(**lister_kwargs)
+                list_results.append(child_metafiles)
+                next_level_metafiles.extend(child_metafiles.all_items())
+            # Move to the next level for the next iteration
+            current_level_metafiles = next_level_metafiles
     return [
         metafile for list_result in list_results for metafile in list_result.all_items()
     ]
@@ -351,6 +358,7 @@ def _copy_external_ray(
         "gz": 35,
         "bz2": 35,
         "zip": 35,
+        "zst": 35,
         "7z": 35,
         "*": 2.5,
     },

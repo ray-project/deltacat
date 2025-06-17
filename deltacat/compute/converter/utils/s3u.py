@@ -5,7 +5,10 @@ from tenacity import (
     wait_random_exponential,
 )
 from typing import Union, Optional, Dict, Any, List, Callable
-from deltacat.aws.s3u import CapturedBlockWritePaths, UuidBlockWritePathProvider
+from deltacat.types.tables import (
+    CapturedBlockWritePaths,
+    UuidBlockWritePathProvider,
+)
 from deltacat.types.tables import (
     get_table_writer,
     get_table_length,
@@ -20,7 +23,7 @@ from deltacat.types.media import (
     ContentEncoding,
     ContentType,
 )
-from deltacat.aws.s3u import UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY
+from deltacat.constants import UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY
 import s3fs
 import boto3
 from boto3.session import Session
@@ -33,7 +36,9 @@ def get_credential() -> Credentials:
     return credentials
 
 
-def get_s3_file_system(content_type: ContentType) -> s3fs.S3FileSystem:
+def get_s3_file_system(content_type):
+    import s3fs  # noqa: F401
+
     token_holder = get_credential()
     content_encoding = ContentEncoding.IDENTITY
 

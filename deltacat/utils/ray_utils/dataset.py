@@ -2,7 +2,10 @@ import logging
 from typing import Callable, Dict, List, Optional, Union
 
 from fsspec import AbstractFileSystem
+
 from pyarrow import csv as pacsv
+import pyarrow.fs as pafs
+
 from ray.data import Dataset
 from ray.data.datasource import FilenameProvider
 
@@ -16,7 +19,7 @@ def write_parquet(
     dataset: Dataset,
     base_path: str,
     *,
-    filesystem: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
@@ -34,15 +37,27 @@ def write_csv(
     dataset: Dataset,
     base_path: str,
     *,
-    filesystem: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     **kwargs,
 ) -> None:
+    """
+    Write a Ray Dataset to a CSV file (or other delimited text format).
+    """
+    # Extract CSV-specific options from kwargs
+    delimiter = kwargs.pop("delimiter", ",")
+    quoting_style = kwargs.pop("quoting_style", None)
+    include_header = kwargs.pop("include_header", False)
 
-    # column names are kept in table metadata, so omit header
-    arrow_csv_args_fn = lambda: {
-        "write_options": pacsv.WriteOptions(include_header=False)
-    }
+    # Create a function that will generate WriteOptions inside the worker process
+    def arrow_csv_args_fn():
+        write_options = pacsv.WriteOptions(
+            delimiter=delimiter,
+            include_header=include_header,
+            quoting_style=quoting_style,
+        )
+        return {"write_options": write_options}
+
     pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
     dataset.write_csv(
         base_path,
@@ -55,10 +70,66 @@ def write_csv(
     )
 
 
+def write_json(
+    dataset: Dataset,
+    base_path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
+    block_path_provider: Union[Callable, FilenameProvider],
+    **kwargs,
+) -> None:
+    """
+    Write a Ray Dataset to a JSON file using Ray's native JSON writer.
+    """
+    pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
+    dataset.write_json(
+        base_path,
+        arrow_open_stream_args=pa_open_stream_args,
+        filesystem=filesystem,
+        try_create_dir=False,
+        filename_provider=block_path_provider,
+        **kwargs,
+    )
+
+
 CONTENT_TYPE_TO_DATASET_WRITE_FUNC: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: write_csv,
+    ContentType.TSV.value: write_csv,
     ContentType.CSV.value: write_csv,
+    ContentType.PSV.value: write_csv,
     ContentType.PARQUET.value: write_parquet,
+    ContentType.JSON.value: write_json,
 }
+
+
+def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
+    """
+    Returns writer kwargs for the given content type when writing with Ray Dataset.
+    """
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "delimiter": "\t",
+            "include_header": False,
+            "quoting_style": "none",
+        }
+    if content_type == ContentType.TSV.value:
+        return {
+            "delimiter": "\t",
+            "include_header": False,
+        }
+    if content_type == ContentType.CSV.value:
+        return {
+            "delimiter": ",",
+            "include_header": False,
+        }
+    if content_type == ContentType.PSV.value:
+        return {
+            "delimiter": "|",
+            "include_header": False,
+        }
+    if content_type in {ContentType.PARQUET.value, ContentType.JSON.value}:
+        return {}
+    raise ValueError(f"Unsupported content type: {content_type}")
 
 
 def slice_dataset(dataset: Dataset, max_len: Optional[int]) -> List[Dataset]:
@@ -88,7 +159,7 @@ def dataset_size(dataset: Dataset) -> int:
 def dataset_to_file(
     table: Dataset,
     base_path: str,
-    file_system: AbstractFileSystem,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
     **kwargs,
@@ -103,10 +174,12 @@ def dataset_to_file(
             f" implemented. Known content types: "
             f"{CONTENT_TYPE_TO_DATASET_WRITE_FUNC.keys}"
         )
+    writer_kwargs = content_type_to_writer_kwargs(content_type)
+    writer_kwargs.update(kwargs)
     writer(
         table,
         base_path,
-        filesystem=file_system,
+        filesystem=filesystem,
         block_path_provider=block_path_provider,
-        **kwargs,
+        **writer_kwargs,
     )

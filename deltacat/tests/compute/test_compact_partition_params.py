@@ -1,5 +1,5 @@
 import json
-
+import tempfile
 import unittest
 
 
@@ -8,9 +8,14 @@ class TestCompactPartitionParams(unittest.TestCase):
     def setUpClass(cls):
         from deltacat.types.media import ContentType
         from deltacat.utils.metrics import MetricsConfig, MetricsTarget
+        from deltacat.catalog import CatalogProperties
+
+        # Create a temporary catalog for testing
+        tmpdir = tempfile.mkdtemp()
+        cls.test_catalog = CatalogProperties(root=tmpdir)
 
         cls.VALID_COMPACT_PARTITION_PARAMS = {
-            "compaction_artifact_s3_bucket": "foobar",
+            "catalog": cls.test_catalog,
             "compacted_file_content_type": ContentType.PARQUET,
             "deltacat_storage": "foobar",
             "destination_partition_locator": {
@@ -52,7 +57,7 @@ class TestCompactPartitionParams(unittest.TestCase):
                 "partitionValues": [],
                 "partitionId": "79612ea39ac5493eae925abe60767d42",
             },
-            "s3_table_writer_kwargs": {
+            "table_writer_kwargs": {
                 "version": "1.0",
                 "flavor": "foobar",
                 "coerce_timestamps": "ms",
@@ -103,10 +108,8 @@ class TestCompactPartitionParams(unittest.TestCase):
             json.loads(serialized_params)["compacted_file_content_type"]
             == params.compacted_file_content_type
         )
-        assert (
-            json.loads(serialized_params)["compaction_artifact_s3_bucket"]
-            == params.compaction_artifact_s3_bucket
-        )
+        catalog_json = json.loads(serialized_params)["catalog"]
+        assert catalog_json["_root"] == params.catalog.root
         assert (
             json.loads(serialized_params)["hash_bucket_count"]
             == params.hash_bucket_count

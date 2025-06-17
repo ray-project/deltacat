@@ -5,6 +5,7 @@ from typing import Generator, Optional
 import pyarrow
 import pyarrow.fs
 
+from deltacat.constants import REV_DIR_NAME
 from deltacat.storage import Delta
 from deltacat.storage.model.partition import PartitionLocator
 from deltacat.experimental.storage.rivulet.fs.file_provider import FileProvider
@@ -83,7 +84,7 @@ class DatasetMetastore:
         param: filesystem: The filesystem to search for the revisions.
         returns: The latest revision as a RivuletDelta.
         """
-        rev_directory = posixpath.join(delta_dir, "rev")
+        rev_directory = posixpath.join(delta_dir, REV_DIR_NAME)
         revisions = filesystem.get_file_info(
             pyarrow.fs.FileSelector(rev_directory, allow_not_found=True)
         )
@@ -128,7 +129,7 @@ class DatasetMetastore:
             return
 
         # Locate "rev" directory inside the partition
-        rev_directory = posixpath.join(partition_path, "rev")
+        rev_directory = posixpath.join(partition_path, REV_DIR_NAME)
         rev_info = filesystem.get_file_info(rev_directory)
 
         if rev_info.type != pyarrow.fs.FileType.Directory:

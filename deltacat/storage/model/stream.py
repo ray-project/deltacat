@@ -382,8 +382,8 @@ class StreamLocatorAlias(Locator, dict):
                     ),
                 }
             )
-            if parent_stream.state == CommitState.COMMITTED
-            else None  # only committed streams can be resolved by alias
+            if parent_stream.state != CommitState.STAGED
+            else None  # staged streams cannot be resolved by alias
         )
 
     @property

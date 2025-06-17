@@ -1,8 +1,17 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 
+import pandas as pd
+import polars as pl
+import pyarrow as pa
+import pyarrow.dataset as ds
+import numpy as np
+import ray.data as rd
+import daft
+from ray.data._internal.pandas_block import PandasBlockSchema
 import deltacat as dc
 
+from deltacat.storage.model.manifest import ManifestAuthor
 from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
@@ -30,7 +39,7 @@ from deltacat.storage.model.partition import (
 )
 from deltacat.storage.model.table_version import TableVersion
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
-from deltacat.storage.model.delta import DeltaType
+from deltacat.storage.model.types import DeltaType
 from deltacat.types.media import ContentType, TableType, DistributedDatasetType
 from deltacat.types.tables import TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
@@ -94,7 +103,276 @@ def write_to_table(
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
     as additional keyword arguments."""
-    raise NotImplementedError("write_to_table not implemented")
+    namespace = namespace or default_namespace()
+
+    # Determine if table exists and what action to take
+    table_exists_flag = table_exists(table, namespace=namespace, **kwargs)
+
+    if mode == TableWriteMode.CREATE and table_exists_flag:
+        raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
+    elif (
+        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
+        and not table_exists_flag
+    ):
+        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode}")
+
+    # Create table if needed
+    if not table_exists_flag:
+        # Handle schema: differentiate between explicit schema=None vs no schema argument
+        if "schema" not in kwargs:
+            # No schema argument provided - infer schema from data
+            # Try to infer schema from data
+            if isinstance(data, pd.DataFrame):
+                # Pandas DataFrame - already supported
+                arrow_schema = pa.Schema.from_pandas(data)
+                schema = Schema.of(schema=arrow_schema)
+            elif isinstance(data, pl.DataFrame):
+                # Polars DataFrame - already supported
+                arrow_table = data.to_arrow()
+                schema = Schema.of(schema=arrow_table.schema)
+            elif isinstance(data, (pa.Table, pa.RecordBatch, ds.Dataset)):
+                # PyArrow table/dataset/recordbatch - already supported
+                schema = Schema.of(schema=data.schema)
+            elif isinstance(data, rd.Dataset):
+                # Ray Dataset - get schema using schema() method
+                ray_schema = data.schema()
+                # Convert Ray schema to PyArrow schema using base_schema
+                base_schema = ray_schema.base_schema
+                if isinstance(base_schema, pa.Schema):
+                    # Already a PyArrow schema
+                    arrow_schema = base_schema
+                elif isinstance(base_schema, PandasBlockSchema):
+                    # PandasBlockSchema - extract names and types and convert to PyArrow
+                    try:
+                        # Create a DataFrame with the correct dtypes and convert to PyArrow
+                        dtype_dict = {
+                            name: dtype
+                            for name, dtype in zip(base_schema.names, base_schema.types)
+                        }
+                        empty_df = pd.DataFrame(columns=base_schema.names).astype(
+                            dtype_dict
+                        )
+                        arrow_schema = pa.Schema.from_pandas(empty_df)
+                    except Exception as e:
+                        raise ValueError(
+                            f"Failed to convert Ray Dataset PandasBlockSchema to PyArrow schema: {e}"
+                        )
+                else:
+                    # Unknown schema type - raise error instead of fallback
+                    raise ValueError(
+                        f"Unsupported Ray Dataset schema type: {type(base_schema)}. "
+                        f"Expected PyArrow Schema or PandasBlockSchema, got {base_schema}"
+                    )
+                schema = Schema.of(schema=arrow_schema)
+            elif isinstance(data, daft.DataFrame):
+                # Daft DataFrame - get native schema and convert to PyArrow
+                daft_schema = data.schema()
+                arrow_schema = daft_schema.to_pyarrow_schema()
+                schema = Schema.of(schema=arrow_schema)
+            elif isinstance(data, np.ndarray):
+                # NumPy ndarray - already supported
+                if data.ndim == 1:
+                    # 1D array - single column
+                    arrow_type = pa.from_numpy_dtype(data.dtype)
+                    arrow_schema = pa.schema([("column_0", arrow_type)])
+                elif data.ndim == 2:
+                    # 2D array - multiple columns
+                    arrow_type = pa.from_numpy_dtype(data.dtype)
+                    fields = [(f"column_{i}", arrow_type) for i in range(data.shape[1])]
+                    arrow_schema = pa.schema(fields)
+                else:
+                    raise ValueError(
+                        f"NumPy arrays with {data.ndim} dimensions are not supported. Only 1D and 2D arrays are supported."
+                    )
+                schema = Schema.of(schema=arrow_schema)
+            else:
+                raise ValueError(
+                    "Could not infer schema from data. Please provide schema explicitly."
+                )
+
+            # Set the inferred schema in kwargs
+            kwargs["schema"] = schema
+        # ELSE User explicitly set schema=None - create schemaless table
+        #   Keep schema=None in kwargs, don't infer
+        # OR User provided an explicit schema - use it as-is
+        #   Schema is already in kwargs, no action needed
+        table_definition = create_table(
+            table,
+            namespace=namespace,
+            content_types=[content_type],
+            *args,
+            **kwargs,
+        )
+    else:
+        table_definition = get_table(table, namespace=namespace, **kwargs)
+
+    # Get the active table version and stream
+    table_version_obj = _get_latest_or_given_table_version(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_definition.table_version.table_version,
+        **kwargs,
+    )
+
+    # Handle different write modes
+    if mode == TableWriteMode.REPLACE:
+        # REPLACE mode: Stage and commit a new stream to replace existing data
+        stream = _get_storage(**kwargs).stage_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
+
+        # Commit the new stream (this replaces the old stream)
+        stream = _get_storage(**kwargs).commit_stream(
+            stream=stream,
+            **kwargs,
+        )
+    elif mode == TableWriteMode.APPEND:
+        # APPEND mode: Ensure no merge keys exist (pure append operation)
+        table_schema = table_definition.table_version.schema
+        if table_schema and table_schema.merge_keys:
+            raise ValueError(
+                f"APPEND mode cannot be used with tables that have merge keys. "
+                f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
+                f"Use MERGE mode instead."
+            )
+
+        # Get the existing stream for append
+        stream = _get_storage(**kwargs).get_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
+    elif mode == TableWriteMode.MERGE:
+        # MERGE mode: Ensure merge keys exist (required for merge operations)
+        table_schema = table_definition.table_version.schema
+        if not table_schema or not table_schema.merge_keys:
+            raise ValueError(
+                f"MERGE mode requires tables to have at least one merge key. "
+                f"Table {namespace}.{table} has no merge keys. "
+                f"Use APPEND mode instead or specify merge keys in the schema."
+            )
+
+        # Get the existing stream for merge
+        stream = _get_storage(**kwargs).get_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
+    else:
+        # AUTO and CREATE modes: Get the existing stream
+        stream = _get_storage(**kwargs).get_stream(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            **kwargs,
+        )
+
+    if not stream:
+        raise ValueError(f"No default stream found for table {namespace}.{table}")
+
+    # Check if table is partitioned and raise NotImplementedError
+    # TODO: Honor partitioning during write based on the table's PartitionScheme.
+    # This requires deriving partition values from the data based on the partition keys
+    # and transforms defined in the PartitionScheme, then using those values when
+    # creating/retrieving partitions.
+    if (
+        stream.partition_scheme
+        and stream.partition_scheme.keys is not None
+        and len(stream.partition_scheme.keys) > 0
+    ):
+        raise NotImplementedError(
+            f"write_to_table does not yet support partitioned tables. "
+            f"Table {namespace}.{table} has partition scheme with "
+            f"{len(stream.partition_scheme.keys)} partition key(s): "
+            f"{[key.name or key.key[0] for key in stream.partition_scheme.keys]}. "
+            f"Please use the lower-level metastore API for partitioned tables."
+        )
+
+    # Check if table has sort keys and raise NotImplementedError
+    # TODO: Implement support for SortScheme during write based on the table's sort keys.
+    # This requires sorting the data according to the sort scheme before writing deltas.
+    if (
+        table_version_obj.sort_scheme
+        and table_version_obj.sort_scheme.keys is not None
+        and len(table_version_obj.sort_scheme.keys) > 0
+    ):
+        raise NotImplementedError(
+            f"write_to_table does not yet support tables with sort keys. "
+            f"Table {namespace}.{table} has sort scheme with "
+            f"{len(table_version_obj.sort_scheme.keys)} sort key(s): "
+            f"{[key.key[0] for key in table_version_obj.sort_scheme.keys]}. "
+            f"Please use the lower-level metastore API for sorted tables."
+        )
+
+    commit_staged_partition = False
+    # Handle partition creation/retrieval based on write mode
+    if mode == TableWriteMode.REPLACE or not table_exists_flag:
+        # REPLACE mode or new table: Create a new partition
+        partition = _get_storage(**kwargs).stage_partition(
+            stream=stream,
+            **kwargs,
+        )
+        commit_staged_partition = True
+    else:
+        # APPEND/MERGE/AUTO modes on existing table: Get existing partition
+        # For unpartitioned tables, partition_values should be None
+        partition = _get_storage(**kwargs).get_partition(
+            stream_locator=stream.locator,
+            partition_values=None,  # Assuming unpartitioned tables for now
+            **kwargs,
+        )
+
+        if not partition:
+            # No existing partition found, create a new one
+            partition = _get_storage(**kwargs).stage_partition(
+                stream=stream,
+                **kwargs,
+            )
+            commit_staged_partition = True
+
+    # Convert unsupported data types to supported ones before staging delta
+    converted_data = data
+    if isinstance(data, daft.DataFrame):
+        # Daft DataFrame - convert based on execution mode
+        # Check if Daft is running with Ray backend or local backend
+        ctx = daft.context.get_context()
+        runner = ctx.get_or_create_runner()
+        runner_type = runner.name
+
+        if runner_type == "ray":
+            # Running with Ray backend - convert to Ray Dataset
+            converted_data = data.to_ray_dataset()
+        else:
+            # Running with local backend - convert to PyArrow Table
+            converted_data = data.to_arrow()
+
+    # Stage a delta with the data
+    delta = _get_storage(**kwargs).stage_delta(
+        data=converted_data,
+        partition=partition,
+        delta_type=DeltaType.UPSERT,
+        content_type=content_type,
+        author=ManifestAuthor.of(name="write_to_table", version="1.0"),
+        **kwargs,
+    )
+
+    # Commit the delta
+    _get_storage(**kwargs).commit_delta(
+        delta=delta,
+        **kwargs,
+    )
+
+    if commit_staged_partition:
+        # Commit the partition
+        _get_storage(**kwargs).commit_partition(
+            partition=partition,
+            **kwargs,
+        )
 
 
 def read_table(
