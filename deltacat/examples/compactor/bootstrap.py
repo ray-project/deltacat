@@ -15,8 +15,14 @@ Usage:
     # Use custom catalog location
     python bootstrap.py --catalog-root /path/to/catalog
 
-    # Auto-respond to prompts (for testing)
-    python bootstrap.py --auto-run-compaction yes
+    # Automatically run compaction after bootstrapping
+    python bootstrap.py --run-compaction yes
+
+    # Automatically run compaction after bootstrapping
+    python bootstrap.py --run-compaction yes
+
+    # Automatically run compaction against an S3 catalog (bucket must exist)
+    python bootstrap.py --run-compaction yes --catalog-root s3://bucket/key
 
 The script creates:
 - A source namespace "compactor_test_source"
@@ -723,10 +729,10 @@ DeltaCAT Compactor Bootstrap Script
 This script creates test data suitable for compaction testing and can run end-to-end compaction.
 
 Examples:
-    # Use default catalog location
+    # Manually specify a new catalog root location
     python bootstrap.py --catalog-root /path/to/catalog
 
-    # Auto-respond to prompts (for testing)
+    # Automatically run compaction after bootstrapping
     python bootstrap.py --run-compaction yes
         """,
     )
@@ -739,7 +745,7 @@ Examples:
     parser.add_argument(
         "--run-compaction",
         type=str,
-        help="Automatically respond to compaction prompt (for testing).",
+        help="Automatically respond yes/no to run-compaction prompts.",
     )
 
     args = parser.parse_args()
