@@ -1110,6 +1110,13 @@ class TestWriteToTable:
 
     def test_schema_inference_ray_dataset(self):
         """Test schema inference from Ray Dataset"""
+
+        # in Ray 2.46.0 this fails due to the following internal Ray Core Error:
+        # task_manager.cc:618: Check failed: stream_it != object_ref_streams_.end() PeekObjectRefStream API can be used only when the stream has been created and not removed
+        pytest.skip(
+            "Skip crashing Ray Dataset schema inference test. See Comments. "
+            "Update Ray version and re-enable."
+        )
         table_name = "test_schema_inference_ray"
         data = self._create_test_ray_data()
 
