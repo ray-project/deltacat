@@ -66,8 +66,8 @@ def upload_table_with_retry(
     **s3_client_kwargs: Any,
 ) -> List[str]:
     """
-    Writes the given table to 1 or more S3 files and return Redshift
-    manifest entries describing the uploaded files.
+    Writes the given table to 1 or more S3 files and return the paths
+    of the S3 files written.
     """
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
