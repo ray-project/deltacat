@@ -8,6 +8,7 @@ import pyarrow as pa
 from typing import Optional, List, Dict, Any
 from deltacat.utils.pyarrow import sliced_string_cast
 from deltacat.compute.converter.constants import IDENTIFIER_FIELD_DELIMITER
+from deltacat.compute.converter.utils.s3u import upload_table_with_retry
 from pyiceberg.manifest import DataFile
 import pyarrow.compute as pc
 
@@ -119,3 +120,50 @@ def concatenate_hashed_identifier_columns(
     )
 
     return pk_hash_columns_concatenated
+
+
+def write_sliced_table(
+    table: Union[LocalTable, DistributedDataset],
+    base_path: str,
+    table_writer_kwargs: Optional[Dict[str, Any]],
+    content_type: ContentType = ContentType.PARQUET,
+    max_records_per_file: Optional[int] = 4000000,
+    filesystem: Optional[Union["s3fs.S3FileSystem", pa.fs.FileSystem]] = None,
+    **kwargs,
+) -> List[str]:
+    """
+    Writes the given table to 1 or more files and return the paths
+    of the files written.
+    """
+    if isinstance(filesystem, pa.fs.FileSystem):
+        from deltacat.types.tables import (
+            get_table_writer,
+            get_table_slicer,
+            write_sliced_table,
+        )
+        table_writer_fn = get_table_writer(table)
+        table_slicer_fn = get_table_slicer(table)
+        # TODO(pdames): Disable redundant file info fetch currently
+        #   used to construct unused manifest entry metadata.
+        manifest_entry_list = write_sliced_table(
+            table=table,
+            base_path=base_path,
+            filesystem=filesystem,
+            max_records_per_entry=max_records_per_file,
+            table_writer_fn=table_writer_fn,
+            table_slicer_fn=table_slicer_fn,
+            table_writer_kwargs=table_writer_kwargs,
+            content_type=content_type,
+        )
+        paths = [entry.uri for entry in manifest_entry_list]
+        return paths
+    else:
+        return upload_table_with_retry(
+            table=table,
+            s3_url_prefix=base_path,
+            s3_table_writer_kwargs=table_writer_kwargs,
+            content_type=content_type,
+            max_records_per_file=max_records_per_file,
+            s3_file_system=filesystem,
+            **kwargs,
+        )

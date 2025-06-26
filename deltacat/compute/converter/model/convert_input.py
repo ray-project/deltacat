@@ -17,7 +17,7 @@ class ConvertInput(Dict):
         enforce_primary_key_uniqueness: bool,
         position_delete_for_multiple_data_files: bool,
         max_parallel_data_file_download: int,
-        s3_file_system: Optional[AbstractFileSystem],
+        filesystem: Optional[AbstractFileSystem],
         s3_client_kwargs: Optional[Dict[str, Any]],
         task_memory: float,
     ) -> ConvertInput:
@@ -37,7 +37,7 @@ class ConvertInput(Dict):
             "position_delete_for_multiple_data_files"
         ] = position_delete_for_multiple_data_files
         result["max_parallel_data_file_download"] = max_parallel_data_file_download
-        result["s3_file_system"] = s3_file_system
+        result["filesystem"] = filesystem
         result["s3_client_kwargs"] = s3_client_kwargs
         result["task_memory"] = task_memory
 
@@ -84,8 +84,8 @@ class ConvertInput(Dict):
         return self["max_parallel_data_file_download"]
 
     @property
-    def s3_file_system(self) -> Optional[AbstractFileSystem]:
-        return self["s3_file_system"]
+    def filesystem(self) -> Optional[AbstractFileSystem]:
+        return self["filesystem"]
 
     @property
     def s3_client_kwargs(self) -> Optional[Dict[str, Any]]:

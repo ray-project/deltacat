@@ -94,7 +94,7 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     )
     task_max_parallelism = params.task_max_parallelism
     s3_client_kwargs = params.s3_client_kwargs
-    s3_file_system = params.s3_file_system
+    s3_file_system = params.filesystem
     location_provider_prefix_override = params.location_provider_prefix_override
     position_delete_for_multiple_data_files = (
         params.position_delete_for_multiple_data_files
@@ -153,7 +153,7 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
                 position_delete_for_multiple_data_files=position_delete_for_multiple_data_files,
                 max_parallel_data_file_download=max_parallel_data_file_download,
                 s3_client_kwargs=s3_client_kwargs,
-                s3_file_system=s3_file_system,
+                filesystem=s3_file_system,
                 task_memory=task_opts["memory"],
             )
         }

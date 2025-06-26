@@ -244,7 +244,7 @@ def create_convert_input(
             enforce_primary_key_uniqueness=True,
             position_delete_for_multiple_data_files=True,
             max_parallel_data_file_download=10,
-            s3_file_system=s3_file_system,
+            filesystem=s3_file_system,
             s3_client_kwargs={},
             task_memory=TASK_MEMORY_BYTES,
         )

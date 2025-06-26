@@ -8,7 +8,7 @@ import ray
 import logging
 from deltacat.compute.converter.model.convert_input import ConvertInput
 from deltacat.compute.converter.steps.dedupe import dedupe_data_files
-from deltacat.compute.converter.utils.s3u import upload_table_with_retry
+from deltacat.compute.converter.utils.io import write_sliced_table
 from deltacat.compute.converter.utils.io import (
     download_data_table_and_append_iceberg_columns,
 )
@@ -48,7 +48,7 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
         convert_input.position_delete_for_multiple_data_files
     )
     max_parallel_data_file_download = convert_input.max_parallel_data_file_download
-    s3_file_system = convert_input.s3_file_system
+    filesystem = convert_input.filesystem
     s3_client_kwargs = convert_input.s3_client_kwargs
     task_memory = convert_input.task_memory
 
@@ -96,7 +96,7 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
             iceberg_table_warehouse_prefix_with_partition=iceberg_table_warehouse_prefix_with_partition,
             convert_task_index=convert_task_index,
             max_parallel_data_file_download=max_parallel_data_file_download,
-            s3_file_system=s3_file_system,
+            s3_file_system=filesystem,
             s3_client_kwargs=s3_client_kwargs,
         )
         if pos_delete_after_converting_equality_delete:
@@ -149,11 +149,11 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
 
     to_be_added_files_list = []
     if total_pos_delete:
-        to_be_added_files_list_parquet = upload_table_with_retry(
+        to_be_added_files_list_parquet = write_sliced_table(
             table=total_pos_delete,
-            s3_url_prefix=iceberg_table_warehouse_prefix_with_partition,
-            s3_table_writer_kwargs={},
-            s3_file_system=s3_file_system,
+            base_path=iceberg_table_warehouse_prefix_with_partition,
+            table_writer_kwargs={},
+            filesystem=filesystem,
         )
 
         to_be_added_files_dict = defaultdict()
