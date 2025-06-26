@@ -1,16 +1,26 @@
 import logging
+
+from fsspec import AbstractFileSystem
 from deltacat import logs
 import deltacat.compute.converter.utils.iceberg_columns as sc
 import daft
 from deltacat.utils.daft import _get_s3_io_config
 from daft import TimeUnit, DataFrame
 import pyarrow as pa
-from typing import Optional, List, Dict, Any
+from typing import Callable, Optional, List, Dict, Any
 from deltacat.utils.pyarrow import sliced_string_cast
 from deltacat.compute.converter.constants import IDENTIFIER_FIELD_DELIMITER
 from deltacat.compute.converter.utils.s3u import upload_table_with_retry
 from pyiceberg.manifest import DataFile
 import pyarrow.compute as pc
+from deltacat.types.media import ContentType
+from deltacat.types.tables import (
+    get_table_writer,
+    get_table_slicer,
+    write_sliced_table as types_write_sliced_table,
+)
+from deltacat.storage import LocalTable, DistributedDataset
+from typing import Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -136,21 +146,45 @@ def write_sliced_table(
     of the files written.
     """
     if isinstance(filesystem, pa.fs.FileSystem):
-        from deltacat.types.tables import (
-            get_table_writer,
-            get_table_slicer,
-            write_sliced_table,
-        )
         table_writer_fn = get_table_writer(table)
         table_slicer_fn = get_table_slicer(table)
+        
+        # Create a wrapper for the table writer that ensures directory creation
+        def table_writer_with_dir_creation(
+            dataframe: Any,
+            base_path: str,
+            filesystem: Optional[Union[AbstractFileSystem, pa.fs.FileSystem]],
+            block_path_provider: Callable,
+            content_type: str = ContentType.PARQUET.value,
+            **kwargs,
+        ):
+            try:
+                # Ensure base path directory exists 
+                if isinstance(base_path, str):
+                    # Normalize the base path and ensure it's treated as a directory path
+                    base_dir = base_path.rstrip('/')
+                    filesystem.create_dir(base_dir, recursive=True)
+            except Exception:
+                # Directory might already exist or there might be permission issues
+                # Let the original write attempt proceed 
+                pass
+            return table_writer_fn(
+                dataframe,
+                base_path,
+                filesystem,
+                block_path_provider,
+                content_type,
+                **kwargs,
+            )
+        
         # TODO(pdames): Disable redundant file info fetch currently
         #   used to construct unused manifest entry metadata.
-        manifest_entry_list = write_sliced_table(
+        manifest_entry_list = types_write_sliced_table(
             table=table,
             base_path=base_path,
             filesystem=filesystem,
             max_records_per_entry=max_records_per_file,
-            table_writer_fn=table_writer_fn,
+            table_writer_fn=table_writer_with_dir_creation,
             table_slicer_fn=table_slicer_fn,
             table_writer_kwargs=table_writer_kwargs,
             content_type=content_type,
