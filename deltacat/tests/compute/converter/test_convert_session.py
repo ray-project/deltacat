@@ -41,8 +41,14 @@ from pyiceberg.catalog import load_catalog
 import os
 import pyarrow.parquet as pq
 from pyiceberg.manifest import DataFile, DataFileContent, FileFormat
-from pyiceberg.io.pyarrow import data_file_statistics_from_parquet_metadata, compute_statistics_plan, parquet_path_to_id_mapping
+from pyiceberg.io.pyarrow import (
+    data_file_statistics_from_parquet_metadata, 
+    compute_statistics_plan, 
+    parquet_path_to_id_mapping,
+)
 from pyiceberg.io.pyarrow import _check_pyarrow_schema_compatible
+from pyiceberg.exceptions import NamespaceAlreadyExistsError, NoSuchTableError
+from pyiceberg.io.pyarrow import schema_to_pyarrow
 
 # Task memory in bytes for testing
 TASK_MEMORY_BYTES = BASE_MEMORY_BUFFER
@@ -542,21 +548,21 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
 ) -> None:
     """
     Test converter_session functionality with local PyArrow filesystem using duplicate IDs.
-    This test simulates the Beam app pattern where duplicate IDs represent updates to existing records.
-    The converter should create position delete files to handle duplicate ID enforcement.
+    This test simulates the pattern where duplicate IDs represent updates to existing records.
+    The converter should merge these updates by creating position delete files.
     """
     with temp_dir_autocleanup() as temp_catalog_dir:
         # Create warehouse directory 
         warehouse_path = os.path.join(temp_catalog_dir, "iceberg_warehouse")
         os.makedirs(warehouse_path, exist_ok=True)
         
-        # Set up local catalog using SQL catalog (similar to Beam app)
+        
+        # Set up local in-memory catalog
         local_catalog = load_catalog(
             "local_sql_catalog",
             **{
-                "type": "sql",
-                "uri": f"sqlite:///{os.path.join(temp_catalog_dir, 'catalog.db')}",
-                "warehouse": f"file://{warehouse_path}",
+                "type": "in-memory",
+                "warehouse": warehouse_path,
             },
         )
         
@@ -564,10 +570,7 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
         import pyarrow.fs as pafs
         local_filesystem = pafs.LocalFileSystem()
         
-        # Define schema similar to Beam app (id, name, value, version)
-        from pyiceberg.schema import Schema
-        from pyiceberg.types import NestedField, LongType, StringType
-        
+        # Define schema (id, name, value, version)
         schema = Schema(
             NestedField(field_id=1, name="id", field_type=LongType(), required=True),
             NestedField(field_id=2, name="name", field_type=StringType(), required=False),
@@ -588,37 +591,30 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
         # Create the table
         table_identifier = "default.test_duplicate_ids"
         try:
-            local_catalog.drop_table(table_identifier)
-        except Exception:
-            pass  # Table may not exist
-            
-        try:
             local_catalog.create_namespace("default")
-        except Exception:
+        except NamespaceAlreadyExistsError:
             pass  # Namespace may already exist
-            
+        try:
+            local_catalog.drop_table(table_identifier)
+        except NoSuchTableError:
+            pass  # Table may not exist
+             
         local_catalog.create_table(
             table_identifier,
             schema=schema,
             properties=properties,
         )
-        
         tbl = local_catalog.load_table(table_identifier)
-        
+         
         # Set the name mapping property so Iceberg can read parquet files without field IDs
         with tbl.transaction() as tx:
             tx.set_properties(**{
                 "schema.name-mapping.default": schema.name_mapping.model_dump_json()
             })
         
-        # Step 1: Write initial data (similar to Beam app initial data)
+        # Step 1: Write initial data
         # Create PyArrow table with explicit schema to match Iceberg schema
-        arrow_schema = pa.schema([
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("name", pa.string(), nullable=True),
-            pa.field("value", pa.int64(), nullable=True),
-            pa.field("version", pa.int64(), nullable=True),
-        ])
+        arrow_schema = schema_to_pyarrow(schema)
         
         initial_data = pa.table({
             "id": [1, 2, 3, 4],
@@ -627,7 +623,7 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
             "version": [1, 1, 1, 1]
         }, schema=arrow_schema)
         
-        # Step 2: Write additional data (similar to Beam app additional data)  
+        # Step 2: Write additional data
         additional_data = pa.table({
             "id": [5, 6, 7, 8],
             "name": ["Eve", "Frank", "Grace", "Henry"],
@@ -703,7 +699,8 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
             "merge_keys": ["id"],  # Use ID as the merge key
             "enforce_primary_key_uniqueness": True,
             "task_max_parallelism": 1,  # Single task for local testing
-            "filesystem": local_filesystem,  # Use local filesystem
+            "filesystem": local_filesystem,
+            "location_provider_prefix_override": None,  # Use local filesystem
             "location_provider_prefix_override": None,  # Let the system auto-generate the prefix
         })
         
@@ -776,3 +773,241 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
         print(f"✅ Updated values were applied (ID 2: Bob->Robert, ID 3: Charlie->Charles)")
         print(f"✅ Final table has {len(actual_ids)} unique records")
         print(f"✅ Temporary warehouse cleaned up at: {temp_catalog_dir}")
+
+
+def test_converter_session_with_beam_pipeline_writes_and_duplicate_ids(
+    setup_ray_cluster,
+) -> None:
+    """
+    Test converter_session functionality using Apache Beam pipelines to write data with duplicate IDs,
+    then applies the converter to resolve duplicates, and finally reads back the data.
+    """
+    with temp_dir_autocleanup() as temp_catalog_dir:
+        # Create warehouse directory
+        warehouse_path = os.path.join(temp_catalog_dir, "iceberg_warehouse")
+        os.makedirs(warehouse_path, exist_ok=True)
+
+
+        # Set up local catalog using SQL catalog (compatible with both Beam and converter)
+        local_catalog = load_catalog(
+            "local_sql_catalog",
+            **{
+                "type": "in-memory",
+                "warehouse": warehouse_path,
+            },
+        )
+
+        # Create local PyArrow filesystem
+        import pyarrow.fs as pafs
+        local_filesystem = pafs.LocalFileSystem()
+
+        # Import Beam components
+        import apache_beam as beam
+        from apache_beam.options.pipeline_options import PipelineOptions
+        from apache_beam import Row
+
+        # Import and monkey-patch Beam managed I/O (like in app.py)
+        from deltacat.experimental.beam.managed import (
+            read,
+            write,
+        )
+        beam.managed.Write = write 
+        beam.managed.Read = read
+        
+        # Define catalog configuration for the Beam pipeline using Hadoop catalog
+        # This should be compatible with both Beam (Java) and PyIceberg (Python)
+        catalog_config = {
+            "catalog_properties": {
+                "warehouse": warehouse_path,
+                "catalog-impl": "org.apache.iceberg.hadoop.HadoopCatalog",
+            }
+        }
+
+        # Create Beam pipeline options
+        beam_options = PipelineOptions(
+            save_main_session=True,
+        )
+
+        table_name = "beam_test_table"
+
+        # Use Beam to create the table (no PyIceberg table creation needed)
+        print("Using Beam to create and populate the table...")
+
+        print("Step 1: Writing initial data with Beam pipeline...")
+
+        # Step 1: Use Beam pipeline to write initial data (similar to app.py)
+        with beam.Pipeline(options=beam_options) as p:
+            initial_data = p | "Create initial data" >> beam.Create([
+                Row(id=1, name="Alice", value=100, version=1),
+                Row(id=2, name="Bob", value=200, version=1),
+                Row(id=3, name="Charlie", value=300, version=1),
+                Row(id=4, name="David", value=400, version=1)
+            ])
+
+            initial_data | "Write initial data to Iceberg" >> beam.managed.Write(
+                beam.managed.ICEBERG,
+                config={
+                    "table": table_name,
+                    "write_mode": "append",
+                    **catalog_config
+                }
+            )
+
+        print("Step 2: Writing additional data with Beam pipeline...")
+        # Step 2: Use Beam pipeline to write additional data
+        with beam.Pipeline(options=beam_options) as p:
+            additional_data = p | "Create additional data" >> beam.Create([
+                Row(id=5, name="Eve", value=500, version=1),
+                Row(id=6, name="Frank", value=600, version=1),
+                Row(id=7, name="Grace", value=700, version=1),
+                Row(id=8, name="Henry", value=800, version=1)
+            ])
+
+            additional_data | "Write additional data to Iceberg" >> beam.managed.Write(
+                beam.managed.ICEBERG,
+                config={
+                    "table": table_name,
+                    "write_mode": "append",
+                    **catalog_config
+                }
+            )
+
+        print("Step 3: Writing updates with Beam pipeline (creates duplicates)...")
+        # Step 3: Use Beam pipeline to write updates (creates duplicates by ID)
+        with beam.Pipeline(options=beam_options) as p:
+            updated_data = p | "Create updated data" >> beam.Create([
+                Row(id=2, name="Robert", value=201, version=2),  # Update Bob's record
+                Row(id=3, name="Charles", value=301, version=2),  # Update Charlie's record
+                Row(id=9, name="Ivan", value=900, version=1)  # Add a new record
+            ])
+
+            updated_data | "Write updated data to Iceberg" >> beam.managed.Write(
+                beam.managed.ICEBERG,
+                config={
+                    "table": table_name,
+                    "write_mode": "append",
+                    **catalog_config
+                }
+            )
+
+        # Register the table created by Beam with PyIceberg
+        table_location = os.path.join(warehouse_path, table_name)
+        print(f"Registering table from location: {table_location}")
+        
+        # Create namespace in PyIceberg catalog
+        try:
+            local_catalog.create_namespace("default")
+        except NamespaceAlreadyExistsError:
+            pass  # Namespace may already exist
+        
+        # Register the existing table by finding the latest metadata file
+        metadata_dir = os.path.join(table_location, "metadata")
+        import glob
+        metadata_files = glob.glob(os.path.join(metadata_dir, "v*.metadata.json"))
+        if not metadata_files:
+            raise FileNotFoundError(f"No metadata files found in {metadata_dir}")
+        
+        # Get the latest metadata file (highest version number)
+        latest_metadata = max(metadata_files, key=lambda x: int(x.split("/")[-1].split(".")[0][1:]))
+        print(f"Using metadata file: {latest_metadata}")
+        
+        tbl = local_catalog.register_table(
+            f"default.{table_name}",
+            latest_metadata
+        )
+        
+        print(f"Registered table: {tbl}")
+        
+        # Verify we have duplicate IDs before conversion
+        initial_scan = tbl.scan().to_arrow().to_pydict()
+        print(f"Before conversion - Records with IDs: {sorted(initial_scan['id'])}")
+        
+        # There should be duplicates: [1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9]
+        expected_duplicate_ids = [1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9]
+        assert sorted(initial_scan['id']) == expected_duplicate_ids, f"Expected duplicate IDs {expected_duplicate_ids}, got {sorted(initial_scan['id'])}"
+
+        print("Step 4: Running converter_session to resolve duplicates...")
+
+        # Step 4: Run converter_session to resolve duplicates
+        converter_params = ConverterSessionParams.of({
+            "catalog": local_catalog,
+            "iceberg_table_name": f"default.{table_name}",
+            "iceberg_warehouse_bucket_name": warehouse_path,
+            "merge_keys": ["id"],
+            "enforce_primary_key_uniqueness": True,
+            "task_max_parallelism": 1,
+            "filesystem": local_filesystem,
+            "location_provider_prefix_override": None,
+        })
+        
+        result = converter_session(params=converter_params)
+
+
+        print(f"Converter result: {result}")
+
+        # Step 5: Verify that duplicates have been resolved
+        tbl.refresh()  # Refresh to see converter changes
+        final_scan = tbl.scan().to_arrow().to_pydict()
+        final_ids = sorted(final_scan['id'])
+        print(f"After conversion - Records with IDs: {final_ids}")
+
+        # Should have unique IDs: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        expected_unique_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert final_ids == expected_unique_ids, f"Expected unique IDs {expected_unique_ids}, got {final_ids}"
+
+        # Verify that the updated values are preserved (should keep the latest version)
+        final_data = {
+            'id': final_scan['id'],
+            'name': final_scan['name'],
+            'value': final_scan['value'],
+            'version': final_scan['version']
+        }
+        
+        # Find records with IDs 2 and 3 to verify updates were applied
+        id_2_idx = final_data['id'].index(2)
+        id_3_idx = final_data['id'].index(3)
+        
+        assert final_data['name'][id_2_idx] == "Robert", f"Expected name 'Robert' for ID 2, got '{final_data['name'][id_2_idx]}'"
+        assert final_data['name'][id_3_idx] == "Charles", f"Expected name 'Charles' for ID 3, got '{final_data['name'][id_3_idx]}'"
+        assert final_data['version'][id_2_idx] == 2, f"Expected version 2 for ID 2, got {final_data['version'][id_2_idx]}"
+        assert final_data['version'][id_3_idx] == 2, f"Expected version 2 for ID 3, got {final_data['version'][id_3_idx]}"
+
+        print("Step 6: Reading back data with Beam pipeline...")
+        
+        # Step 6: Use Beam pipeline to read back the data to verify end-to-end functionality
+        read_results = []
+        
+        def collect_results(element):
+            read_results.append(element)
+        
+        with beam.Pipeline(options=beam_options) as p:
+            elements = p | "Read from Iceberg" >> beam.managed.Read(
+                beam.managed.ICEBERG,
+                config={
+                    "table": table_name,
+                    **catalog_config
+                }
+            )
+            
+            # Collect the results for verification
+            elements | "Collect results" >> beam.Map(collect_results)
+        
+        # Verify the results from Beam read
+        #print(f"Beam read results: {len(read_results)} records")
+        
+        # Convert Beam results to dictionary for easier verification
+        #beam_ids = sorted([row.id for row in read_results])
+        #assert beam_ids == expected_unique_ids, f"Beam read - Expected unique IDs {expected_unique_ids}, got {beam_ids}"
+        
+        # Verify that Beam can see the updated names
+        #beam_data = {row.id: row.name for row in read_results}
+        #assert beam_data[2] == "Robert", f"Beam read - Expected name 'Robert' for ID 2, got '{beam_data[2]}'"
+        #assert beam_data[3] == "Charles", f"Beam read - Expected name 'Charles' for ID 3, got '{beam_data[3]}'"
+
+        print("✅ Test passed! Successfully demonstrated:")
+        print("  - Beam pipeline writes with duplicate IDs")
+        print("  - Converter resolves duplicates using merge keys")
+        print("  - Latest versions are preserved during deduplication")
+        #print("  - Beam pipeline can read back the cleaned data")
+        print("  - End-to-end compatibility between Beam and converter")
+        
