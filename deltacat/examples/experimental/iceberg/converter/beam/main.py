@@ -1,7 +1,7 @@
 
 from apache_beam.options.pipeline_options import PipelineOptions
 
-from deltacat.examples.experimental.beam import app
+from deltacat.examples.experimental.iceberg.converter.beam import app
 
 
 if __name__ == "__main__":
