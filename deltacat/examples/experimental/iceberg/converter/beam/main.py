@@ -1,4 +1,5 @@
 from apache_beam.options.pipeline_options import PipelineOptions
+import pyarrow.fs as pafs
 
 from deltacat.examples.experimental.iceberg.converter.beam import app
 
@@ -15,10 +16,10 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Start REST catalog server first:
-  docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest
+  # Start REST catalog server first (Iceberg 1.6.0 with table format v2 default):
+  docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0
   
-  # Write sample data with DeltaCat optimizer (automatic duplicate resolution):
+  # Write sample data with DeltaCAT optimizer (automatic duplicate resolution):
   python main.py --mode write --input-text "Custom Name"
   
   # Read data back:
@@ -57,6 +58,26 @@ Examples:
         help="Custom warehouse path (default: temporary directory).",
     )
     
+    parser.add_argument(
+        "--table-name",
+        default="default.demo_table",
+        help="Table name to use (default: default.demo_table).",
+    )
+    
+    parser.add_argument(
+        "--deltacat-converter-interval",
+        type=float,
+        default=3.0,
+        help="DeltaCat converter monitoring interval in seconds (default: 3.0).",
+    )
+    
+    parser.add_argument(
+        "--ray-inactivity-timeout",
+        type=int,
+        default=10,
+        help="Ray cluster shutdown timeout after inactivity in seconds (default: 10).",
+    )
+    
     args, beam_args = parser.parse_known_args()
 
     beam_options = PipelineOptions(
@@ -70,14 +91,17 @@ Examples:
     print(f"Mode: {args.mode}")
     print(f"REST Catalog URI: {args.rest_uri}")
     print(f"Warehouse Path: {args.warehouse_path or 'temporary directory'}")
+    print(f"Table Name: {args.table_name}")
     print(f"Input Text: {args.input_text}")
+    print(f"Converter Interval: {args.deltacat_converter_interval}s")
+    print(f"Ray Inactivity Timeout: {args.ray_inactivity_timeout}s")
     print()
     
     # Remind user about prerequisites
     if args.mode == "write":
         print("📋 Prerequisites:")
         print("   Make sure the Iceberg REST catalog server is running:")
-        print("   docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest")
+        print("   docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0")
         print()
     
     app.run(
@@ -86,4 +110,8 @@ Examples:
         mode=args.mode,
         rest_catalog_uri=args.rest_uri,
         warehouse_path=args.warehouse_path,
+        table_name=args.table_name,
+        deltacat_converter_interval=args.deltacat_converter_interval,
+        ray_inactivity_timeout=args.ray_inactivity_timeout,
+        filesystem=pafs.LocalFileSystem(),
     )

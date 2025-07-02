@@ -1,17 +1,18 @@
-# DeltaCat Beam Iceberg Converter Example
+# DeltaCAT Apache Beam Iceberg Upsert Example
 
-This example demonstrates how to use DeltaCat's managed Beam I/O with Iceberg REST Catalog to:
+This example demonstrates how to use DeltaCAT's experimental Apache Beam managed I/O wrapper with an Iceberg REST Catalog to:
 
-1. **Write data** to Iceberg tables with automatic duplicate detection
-2. **Monitor table versions** in real-time using PyIceberg  
-3. **Trigger Ray-based converter jobs** automatically when duplicates are detected
+1. **Upsert Data** by defining merge keys for data appended by Apache Beam managed Iceberg I/O
+2. **Monitor Tables** for updates using a local or remote DeltaCAT agent with PyIceberg
+3. **Trigger Table Management Jobs** on Ray to automatically merge data by key
+4. **Cleanup** by shutting down Ray automatically after a configurable interval with no updates
 
-## 🏗️ Architecture
+## Component Overview
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Apache Beam   │───▶│  REST Catalog   │◀───│   PyIceberg     │
-│   (Java Write)  │    │    (Shared)     │    │  (Python Read)  │
+│  (Managed I/O)  │    │    (Shared)     │    │  (Python I/O)   │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
                                 ▼
@@ -23,98 +24,83 @@ This example demonstrates how to use DeltaCat's managed Beam I/O with Iceberg RE
                                 ▼
                        ┌─────────────────┐
                        │  Ray Converter  │
-                       │  (Duplicate     │
-                       │   Resolution)   │
+                       │  (Merge by Key) │
+                       │                 │
                        └─────────────────┘
 ```
 
-## ✨ Features Implemented
+## Limitations
+- **Iceberg >=1.4.0**: Iceberg Java >=1.4.0
+- **Iceberg Spec V2+**: Iceberg table format version >=2
+- **Eventually Consistent**: Upserts are not applied inline when Beam appends data to an Iceberg table. Instead, appended records are merged by key in a subsequent table update.
+- **Merge on Read**: This example uses Iceberg merge-on-read tables to **merge data logically**, rather than physically by overwriting the original data files, using Iceberg **positional delete files**.
+- **Beam Read Limitation**: Apache Beam cannot read back Iceberg tables that contain positional delete files created by DeltaCAT. Use PyIceberg or other Iceberg readers (e.g., Spark) to read tables with positional deletes.
 
-### 🔄 **Automatic Duplicate Detection & Conversion**
-- **Real-time monitoring**: Detects new table versions every 3 seconds
-- **Ray integration**: Initializes Ray clusters automatically for converter sessions
-- **Intelligent error handling**: Provides clear guidance for format version limitations
-- **Resource management**: Properly initializes and shuts down Ray clusters
-
-### 📊 **Table Format Support Status**
-- **Format Version 1**: ✅ Detection and monitoring ⚠️ No position deletes (converter limitation)
-- **Format Version 2**: ✅ Full converter support with position deletes *(requires manual table creation)*
-
-### 🔧 **Current Implementation Status**
-
-**✅ COMPLETED:**
-- [x] Ray cluster initialization (local mode)
-- [x] Converter session execution
-- [x] Automatic duplicate detection via table monitoring
-- [x] Error handling with informative messages
-- [x] Resource cleanup (Ray shutdown)
-- [x] REST catalog integration
-- [x] Thread-based table version monitoring
-- [x] Merge-on-read support
-
-**⚠️ LIMITATION:**
-- Beam's Iceberg connector creates format version 1 tables by default
-- Position deletes require format version 2 tables
-- Converter sessions detect duplicates but cannot resolve them in v1 tables
-
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Start REST Catalog Server
 ```bash
-docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest
+docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0
 ```
 
-### 2. Write Data (Triggers Converter)
+### 2. Write Data (Automatically Triggers Upsert Merge)
 ```bash
+# Basic usage
 python main.py --mode write --input-text "Your Name"
-```
 
-**Expected Output:**
-```
-🔧 Using Iceberg REST Catalog
-📊 Data writing completed. Waiting for DeltaCat converter to process duplicates...
-
-[DELTACAT DEBUG] New table version detected - snapshot ID: 1234567890
-[DELTACAT DEBUG] Triggering converter session to resolve duplicates...
-[DELTACAT DEBUG] Initializing Ray cluster for converter session...
-[DELTACAT DEBUG] Format version: 1
-[DELTACAT INFO] Table format version 1 detected - cannot create position deletes
-[DELTACAT INFO] To enable automatic duplicate resolution:
-[DELTACAT INFO] 1. Use a catalog that supports format version 2 table creation
-[DELTACAT INFO] 2. Or manually upgrade the table to format version 2
-[DELTACAT INFO] 3. Beam's Iceberg connector currently creates v1 tables by default
-[DELTACAT DEBUG] Ray cluster shutdown completed
+# With custom configuration
+python main.py --mode write --input-text "Your Name" \
+  --table-name "default.my_table" \
+  --deltacat-converter-interval 5.0 \
+  --ray-inactivity-timeout 30
 ```
 
 ### 3. Read Data
 ```bash
+# Note: This will fail if positional deletes exist due to Beam limitation
 python main.py --mode read
 ```
 
-### 4. Full Workflow Test
+```python
+# Use Spark or PyIceberg directly to read tables with positional deletes:
+from pyiceberg.catalog import load_catalog
+catalog = load_catalog(
+    'test', 
+    type='rest', 
+    warehouse='/tmp/iceberg_rest_warehouse', 
+    uri='http://localhost:8181',
+)
+print(catalog.load_table('default.demo_table').scan().to_pandas())
+```
+
+### 4. Full E2E Workflow Test
 ```bash
 python test_workflow.py
 ```
 
-## 🔧 Configuration Options
+## Configuration Options
 
 ### Command Line Options
 ```bash
 python main.py [OPTIONS]
 
 Options:
-  --mode {write,read}          Operation mode (default: write)
-  --input-text TEXT           Custom text for sample data
-  --rest-uri TEXT             REST catalog URI (default: http://localhost:8181)
-  --warehouse-path TEXT       Custom warehouse path (optional)
+  --mode {write,read}                     Operation mode (default: write)
+  --input-text TEXT                       Custom text for sample data
+  --rest-uri TEXT                         REST catalog URI (default: http://localhost:8181)
+  --warehouse-path TEXT                   Custom warehouse path (optional)
+  --table-name TEXT                       Table name including namespace (default: default.demo_table)
+  --deltacat-converter-interval FLOAT     Monitoring interval in seconds (default: 3.0)
+  --ray-inactivity-timeout FLOAT          Ray cluster idle shutdown timeout in seconds (default: 10.0)
 ```
 
-### DeltaCat Configuration
-- **Monitoring Interval**: 3 seconds (configurable via `deltacat_optimizer_interval`)
+### DeltaCAT Configuration
+- **Monitoring Interval**: 3 seconds (configurable via `deltacat_converter_interval`)
 - **Merge Keys**: `["id"]` (configurable via `merge_keys`)
-- **Ray Mode**: Local mode with reinitialization error handling
+- **Ray Timeout**: 10 seconds (configurable via `ray_inactivity_timeout`)
+- **Ray Mode**: Local mode with reinitialization error handling and automatic cleanup
 
-## 📋 Data Flow
+## Data Flow
 
 1. **Write Phase**: 
    - Creates initial data (IDs 1-4)
@@ -122,55 +108,21 @@ Options:
    - Writes updates (ID 2: Bob→Robert, ID 3: Charlie→Charles, ID 9: new)
 
 2. **Monitor Phase**:
-   - Detects new table snapshots
-   - Triggers converter sessions for duplicate resolution
+   - Detects new Iceberg table snapshots
+   - Launches DeltaCAT data upsert sessions on Ray to merge data by key
 
-3. **Convert Phase**:
-   - Initializes Ray cluster
-   - Runs converter session
-   - Handles format version limitations gracefully
-   - Shuts down Ray cluster
+3. **Upsert Phase**:
+   - Initializes Ray
+   - Runs DeltaCAT data upsert session on Ray
+   - Shuts down Ray cluster after a configurable period of inactivity
 
-## 🧪 Testing & Verification
-
-### Manual Testing Commands
-```bash
-# Test conversion system
-python main.py --mode write --input-text "Test"
-
-# Check converter logs
-python main.py --mode write --input-text "Debug" 2>&1 | grep DELTACAT
-
-# Verify table contents
-python main.py --mode read | grep BeamSchema
-```
-
-### Automated Workflow Test
-```bash
-python test_workflow.py
-```
-
-## 📈 Performance & Scalability
-
+## Performance & Scalability
 - **Monitoring**: Lightweight threading with configurable intervals
 - **Ray Integration**: Local mode for development, production-ready for distributed
 - **Resource Management**: Automatic cleanup prevents resource leaks
 - **Error Recovery**: Graceful handling of Ray initialization failures
 
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-**Ray Initialization Errors**:
-```
-Solution: Handled automatically with Ray shutdown and cleanup
-```
-
-**Format Version Limitations**:
-```
-Error: Cannot store delete manifests in a v1 table
-Solution: System provides clear guidance for format v2 upgrade
-```
+## Troubleshooting
 
 **REST Catalog Connection**:
 ```bash
@@ -181,33 +133,16 @@ curl http://localhost:8181/v1/config
 docker restart iceberg-rest-catalog
 ```
 
-## 🔮 Future Enhancements
-
-- **Format Version 2 Support**: Automatic table creation with v2 format
-- **Distributed Ray**: Support for multi-node Ray clusters
-- **Advanced Monitoring**: Configurable monitoring strategies
-- **Batch Processing**: Support for batch converter jobs
-
-## 🧹 Cleanup
+## Cleanup
 
 ```bash
-# Stop and remove REST catalog
+# Stop and remove REST catalog docker container
 docker stop iceberg-rest-catalog && docker rm iceberg-rest-catalog
-
-# Clean up workspace
-rm -rf /tmp/iceberg_rest_warehouse*
 ```
 
----
+## Related Documentation
 
-## 🎯 Summary
-
-This example successfully demonstrates the complete integration of DeltaCat's managed Beam I/O with Ray-based converter sessions. The system automatically detects duplicates and triggers converter jobs, providing a foundation for production-ready duplicate resolution workflows.
-
-**Key Achievement**: Complete migration from threading-based proof-of-concept to Ray-based production architecture with comprehensive error handling and resource management.
-
-## 📚 Related Documentation
-
+- [Apache Iceberg Specification](https://iceberg.apache.org/spec/)
 - [Apache Iceberg REST Catalog](https://iceberg.apache.org/docs/latest/rest/)
-- [DeltaCat Converter Documentation](../../../../compute/converter/)
+- [DeltaCAT Converter](../../../../compute/converter/)
 - [Apache Beam Iceberg I/O](https://beam.apache.org/releases/javadoc/current/org/apache/beam/sdk/io/iceberg/package-summary.html) 

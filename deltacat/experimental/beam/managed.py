@@ -10,6 +10,7 @@ from pyiceberg.catalog import load_catalog
 from pyiceberg.exceptions import NoSuchTableError
 from deltacat.compute.converter.converter_session import converter_session
 from deltacat.compute.converter.model.converter_session_params import ConverterSessionParams
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 
 # Store original functions before monkey-patching
@@ -18,6 +19,84 @@ _original_read = beam.managed.Read
 
 # Global dictionary to track monitoring threads
 _monitoring_threads = {}
+
+# Global Ray cluster management
+_ray_cluster_initialized = False
+_ray_last_activity_time = None
+_ray_inactivity_timeout = 300  # Default 5 minutes
+_ray_shutdown_timer = None
+
+
+def _initialize_ray_if_needed() -> bool:
+    """
+    Initialize Ray cluster if not already initialized.
+    
+    Returns:
+        bool: True if Ray is ready (either was already initialized or just initialized)
+    """
+    global _ray_cluster_initialized, _ray_last_activity_time
+    
+    if not _ray_cluster_initialized and not ray.is_initialized():
+        try:
+            ray.init(local_mode=True, ignore_reinit_error=True)
+            _ray_cluster_initialized = True
+            print(f"[DELTACAT DEBUG] Ray cluster initialized successfully")
+        except Exception as e:
+            print(f"[DELTACAT ERROR] Failed to initialize Ray cluster: {e}")
+            return False
+    elif ray.is_initialized():
+        # Ray is already initialized but our flag wasn't set
+        _ray_cluster_initialized = True
+    
+    # Update last activity time
+    _ray_last_activity_time = time.time()
+    return True
+
+
+def _schedule_ray_shutdown():
+    """
+    Schedule Ray cluster shutdown after the configured timeout period.
+    Cancels any existing shutdown timer.
+    """
+    global _ray_shutdown_timer
+    
+    # Cancel existing timer if any
+    if _ray_shutdown_timer is not None:
+        _ray_shutdown_timer.cancel()
+    
+    # Schedule new shutdown
+    _ray_shutdown_timer = threading.Timer(_ray_inactivity_timeout, _shutdown_ray_cluster)
+    _ray_shutdown_timer.daemon = True  # Don't prevent program exit
+    _ray_shutdown_timer.start()
+    
+    print(f"[DELTACAT DEBUG] Scheduled Ray cluster shutdown in {_ray_inactivity_timeout} seconds")
+
+
+def _shutdown_ray_cluster():
+    """
+    Shutdown the Ray cluster if it's been inactive for the timeout period.
+    """
+    global _ray_cluster_initialized, _ray_last_activity_time, _ray_shutdown_timer
+    
+    current_time = time.time()
+    if _ray_last_activity_time and (current_time - _ray_last_activity_time) >= _ray_inactivity_timeout:
+        try:
+            if ray.is_initialized():
+                print(f"[DELTACAT DEBUG] Shutting down Ray cluster after {_ray_inactivity_timeout}s of inactivity...")
+                ray.shutdown()
+                print(f"[DELTACAT DEBUG] Ray cluster shutdown completed")
+            _ray_cluster_initialized = False
+            _ray_last_activity_time = None
+            _ray_shutdown_timer = None
+        except Exception as e:
+            print(f"[DELTACAT DEBUG] Ray shutdown error (can be ignored): {e}")
+    else:
+        # Activity detected, reschedule shutdown
+        remaining_time = _ray_inactivity_timeout - (current_time - (_ray_last_activity_time or current_time))
+        if remaining_time > 0:
+            _ray_shutdown_timer = threading.Timer(remaining_time, _shutdown_ray_cluster)
+            _ray_shutdown_timer.daemon = True
+            _ray_shutdown_timer.start()
 
 
 def _extract_catalog_config_from_beam(config):
@@ -31,67 +110,51 @@ def _extract_catalog_config_from_beam(config):
     warehouse = catalog_properties.get("warehouse", "")
     uri = catalog_properties.get("uri", "")
     
+    # Extract Ray cluster inactivity timeout (seconds) - support both old and new names
+    ray_inactivity_timeout = config.get("ray_inactivity_timeout") or config.get("ray_cluster_shutdown_timeout", 300)
+    
     return {
         "catalog_impl": catalog_impl,
         "warehouse": warehouse,
         "uri": uri,
+        "ray_inactivity_timeout": ray_inactivity_timeout,
         "catalog_properties": catalog_properties
     }
 
 
-def _upgrade_table_to_format_v2(catalog, table_identifier: str) -> bool:
+def _raise_format_version_error(table_identifier: str) -> None:
     """
-    Upgrade an Iceberg table from format version 1 to version 2.
+    Raise an informative error when encountering format version 1 tables.
     
     Args:
-        catalog: PyIceberg catalog instance
         table_identifier: Table identifier (e.g., "default.table_name")
         
-    Returns:
-        bool: True if upgrade was successful, False otherwise
+    Raises:
+        RuntimeError: With instructions to upgrade Iceberg installation
     """
-    try:
-        print(f"[DELTACAT INFO] 🔧 Attempting to upgrade table {table_identifier} to format version 2...")
-        
-        # Load the table
-        tbl = catalog.load_table(table_identifier)
-        current_version = tbl.metadata.format_version
-        
-        if current_version >= 2:
-            print(f"[DELTACAT INFO] ✅ Table {table_identifier} is already format version {current_version}")
-            return True
-        
-        print(f"[DELTACAT INFO] ⬆️  Upgrading table from format version {current_version} to version 2...")
-        
-        # Upgrade using transaction with proper commit
-        with tbl.transaction() as tx:
-            # Use PyIceberg's dedicated upgrade method
-            tx.upgrade_table_version(format_version=2)
-            # Also set merge-on-read properties for converter compatibility
-            tx.set_properties(**{
-                "write.format.default": "parquet",
-                "write.delete.mode": "merge-on-read",
-                "write.update.mode": "merge-on-read", 
-                "write.merge.mode": "merge-on-read",
-            })
-            # Explicitly commit the transaction
-            tx.commit_transaction()
-        
-        # Refresh and verify the upgrade
-        tbl.refresh()
-        new_version = tbl.metadata.format_version
-        
-        if new_version >= 2:
-            print(f"[DELTACAT INFO] ✅ Successfully upgraded table {table_identifier} to format version {new_version}")
-            print(f"[DELTACAT INFO] ✅ Position deletes are now supported for duplicate resolution")
-            return True
-        else:
-            print(f"[DELTACAT ERROR] ❌ Table upgrade failed - still format version {new_version}")
-            return False
-            
-    except Exception as e:
-        print(f"[DELTACAT ERROR] ❌ Failed to upgrade table {table_identifier}: {str(e)}")
-        return False
+    error_message = f"""
+❌ TABLE FORMAT VERSION 1 DETECTED
+
+Table '{table_identifier}' is using Iceberg format version 1, but DeltaCAT converter
+requires format version 2 or higher for position delete support.
+
+🔧 SOLUTION: Upgrade to Iceberg 1.4.0+ which defaults to format version 2
+
+If using Docker, replace your current Iceberg REST catalog with:
+
+    docker stop iceberg-rest-catalog
+    docker rm iceberg-rest-catalog  
+    docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0
+
+📚 Why format version 2?
+- Position deletes for efficient duplicate resolution
+- Better performance and modern Iceberg features
+- Industry standard since Iceberg 1.4.0
+
+For more information, see: https://iceberg.apache.org/docs/latest/
+    """.strip()
+    
+    raise RuntimeError(error_message)
 
 
 def _run_converter_session_with_ray(
@@ -99,29 +162,30 @@ def _run_converter_session_with_ray(
     table_identifier: str,
     warehouse_path: str,
     merge_keys: list,
+    filesystem: pafs.FileSystem,
 ) -> bool:
     """
-    Initialize Ray, run converter session, and shutdown Ray.
+    Run converter session using managed Ray cluster.
     
-    Returns True if conversion was successful, False otherwise.
+    Args:
+        catalog: Iceberg catalog instance
+        table_identifier: Table identifier (e.g., "default.table_name")
+        warehouse_path: Warehouse path
+        merge_keys: List of merge key column names
+        filesystem: PyArrow filesystem instance to use
+        
+    Returns:
+        True if conversion was successful, False otherwise.
     """
-    print(f"[DELTACAT DEBUG] Initializing Ray cluster for converter session...")
+    print(f"[DELTACAT DEBUG] Running converter session with managed Ray cluster...")
+    
+    # Initialize Ray cluster if needed
+    if not _initialize_ray_if_needed():
+        print(f"[DELTACAT ERROR] Failed to initialize Ray cluster")
+        return False
     
     try:
-        # Initialize Ray the same way as setup_ray_cluster fixture
-        ray.init(local_mode=True, ignore_reinit_error=True)
-        print(f"[DELTACAT DEBUG] Ray cluster initialized successfully")
-        
-        # Determine appropriate filesystem based on warehouse path
-        if warehouse_path.startswith("s3://") or warehouse_path.startswith("s3a://"):
-            # For S3 paths, we'd need S3 filesystem configuration
-            # For now, assume local filesystem for compatibility with REST catalog example
-            filesystem = pafs.LocalFileSystem()
-        else:
-            # Local filesystem
-            filesystem = pafs.LocalFileSystem()
-        
-        # Create converter session parameters following the test pattern
+        # Create converter session parameters using the provided filesystem
         converter_params = ConverterSessionParams.of({
             "catalog": catalog,
             "iceberg_table_name": table_identifier,
@@ -145,34 +209,20 @@ def _run_converter_session_with_ray(
         print(f"[DELTACAT DEBUG] Converter session completed successfully")
         print(f"[DELTACAT DEBUG] Conversion result: {result}")
         
+        # Schedule Ray cluster shutdown after successful conversion
+        _schedule_ray_shutdown()
+        
         return True
         
     except Exception as e:
         error_msg = str(e)
         print(f"[DELTACAT ERROR] Error during converter session: {error_msg}")
         
-        # Handle specific errors with automatic remediation
+        # Handle specific errors 
         if "Cannot store delete manifests in a v1 table" in error_msg:
-            print(f"[DELTACAT INFO] 🔍 Table format version 1 detected - attempting automatic upgrade...")
-            
-            # Attempt to upgrade the table automatically
-            upgrade_success = _upgrade_table_to_format_v2(catalog, table_identifier)
-            
-            if upgrade_success:
-                print(f"[DELTACAT INFO] 🔄 Retrying converter session with upgraded table...")
-                try:
-                    # Retry the converter session after successful upgrade
-                    result = converter_session(params=converter_params)
-                    print(f"[DELTACAT DEBUG] ✅ Converter session completed successfully after table upgrade")
-                    print(f"[DELTACAT DEBUG] Conversion result: {result}")
-                    return True
-                except Exception as retry_error:
-                    print(f"[DELTACAT ERROR] ❌ Converter session failed even after table upgrade: {str(retry_error)}")
-                    return False
-            else:
-                print(f"[DELTACAT ERROR] ❌ Table upgrade failed - cannot resolve duplicates")
-                print(f"[DELTACAT INFO] Manual intervention may be required")
-                return False
+            print(f"[DELTACAT INFO] 🔍 Table format version 1 detected")
+            # Raise informative error instead of attempting automatic upgrade
+            _raise_format_version_error(table_identifier)
                 
         elif "cannot schedule new futures after shutdown" in error_msg:
             print(f"[DELTACAT INFO] Ray cluster already shutdown, skipping duplicate conversion")
@@ -180,27 +230,25 @@ def _run_converter_session_with_ray(
             print(f"[DELTACAT ERROR] Unexpected error during conversion:")
             traceback.print_exc()
         
-        return False
+        # Schedule Ray cluster shutdown after error (but keep it alive for retries)
+        _schedule_ray_shutdown()
         
-    finally:
-        # Always try to shutdown Ray if it was initialized
-        try:
-            if ray.is_initialized():
-                print(f"[DELTACAT DEBUG] Shutting down Ray cluster...")
-                ray.shutdown()
-                print(f"[DELTACAT DEBUG] Ray cluster shutdown completed")
-        except Exception as shutdown_error:
-            print(f"[DELTACAT DEBUG] Ray shutdown error (can be ignored): {shutdown_error}")
+        return False
 
 
 def _monitor_table_versions(
-    beam_catalog_config: dict, table_name: str, interval: float, merge_keys: list
+    beam_catalog_config: dict, table_name: str, interval: float, merge_keys: list, filesystem: pafs.FileSystem = None
 ):
     """Monitor table versions using PyIceberg catalog that matches the Beam catalog type."""
     
     print(
         f"[DELTACAT DEBUG] Starting table version monitor for {table_name} (interval: {interval}s, merge_keys: {merge_keys})"
     )
+
+    # Set global Ray shutdown timeout from configuration
+    global _ray_inactivity_timeout
+    _ray_inactivity_timeout = beam_catalog_config.get("ray_inactivity_timeout", 300)
+    print(f"[DELTACAT DEBUG] Ray cluster shutdown timeout: {_ray_inactivity_timeout}s")
 
     # Extract catalog configuration from Beam config
     beam_catalog_impl = beam_catalog_config["catalog_impl"]
@@ -210,6 +258,16 @@ def _monitor_table_versions(
     print(f"[DELTACAT DEBUG] Beam catalog implementation: {beam_catalog_impl}")
     print(f"[DELTACAT DEBUG] Warehouse path: {warehouse_path}")
     print(f"[DELTACAT DEBUG] Beam URI: {beam_uri}")
+    
+    # If no filesystem provided, auto-resolve it from the warehouse path
+    if filesystem is None:
+        normalized_warehouse_path, filesystem = resolve_path_and_filesystem(warehouse_path)
+        print(f"[DELTACAT DEBUG] Auto-resolved filesystem: {type(filesystem).__name__}")
+        print(f"[DELTACAT DEBUG] Normalized warehouse path: {normalized_warehouse_path}")
+        # Update warehouse_path to the normalized path
+        warehouse_path = normalized_warehouse_path
+    else:
+        print(f"[DELTACAT DEBUG] Using provided filesystem: {type(filesystem).__name__}")
     
     # Mapping from Beam/Java catalog implementations to PyIceberg catalog types
     CATALOG_TYPE_MAPPING = {
@@ -302,12 +360,13 @@ def _monitor_table_versions(
                     if tbl.metadata.snapshots and len(tbl.metadata.snapshots) > 1:
                         print(f"[DELTACAT DEBUG] Triggering converter session to resolve duplicates...")
                         
-                        # Run converter session with Ray
+                        # Run converter session with Ray using the resolved filesystem
                         conversion_success = _run_converter_session_with_ray(
                             catalog=catalog,
                             table_identifier=table_identifier,
                             warehouse_path=warehouse_path,
                             merge_keys=merge_keys,
+                            filesystem=filesystem,
                         )
                         
                         if conversion_success:
@@ -342,20 +401,53 @@ def write(*args, **kwargs):
 
     # Extract and pop deltacat-specific config keys
     config = kwargs.get("config", {}).copy() if kwargs.get("config") else {}
-    deltacat_optimizer_interval = config.pop("deltacat_optimizer_interval", 1.0)
-    merge_keys = config.pop("merge_keys", ["id"])
+    
+    # Extract DeltaCAT converter properties from parent config or individual keys (for backward compatibility)
+    deltacat_converter_properties = config.pop("deltacat_converter_properties", {})
+    
+    # Support both new nested structure and old flat structure for backward compatibility
+    deltacat_converter_interval = (
+        deltacat_converter_properties.get("deltacat_converter_interval") or
+        deltacat_converter_properties.get("deltacat_optimizer_interval") or
+        config.pop("deltacat_converter_interval", None) or 
+        config.pop("deltacat_optimizer_interval", 1.0)
+    )
+    
+    merge_keys = (
+        deltacat_converter_properties.get("merge_keys") or
+        config.pop("merge_keys", ["id"])
+    )
+    
+    ray_inactivity_timeout = (
+        deltacat_converter_properties.get("ray_inactivity_timeout") or
+        deltacat_converter_properties.get("ray_cluster_shutdown_timeout") or
+        config.pop("ray_inactivity_timeout", None) or 
+        config.pop("ray_cluster_shutdown_timeout", 300)
+    )
+    
+    # Extract filesystem parameter (optional) - can be in converter properties or top-level config
+    filesystem = (
+        deltacat_converter_properties.get("filesystem") or
+        config.pop("filesystem", None)
+    )
 
     # Extract table name and warehouse path
     table_name = config.get("table", "unknown")
     warehouse_path = config.get("catalog_properties", {}).get("warehouse", "")
 
     print(f"  - table: {table_name}")
-    print(f"  - deltacat_optimizer_interval: {deltacat_optimizer_interval}s")
+    print(f"  - deltacat_converter_interval: {deltacat_converter_interval}s")
     print(f"  - merge_keys: {merge_keys}")
+    print(f"  - ray_inactivity_timeout: {ray_inactivity_timeout}s")
     print(f"  - warehouse_path: {warehouse_path}")
+    print(f"  - filesystem: {type(filesystem).__name__ if filesystem else 'None (auto-resolve)'}")
+    print(f"  - using deltacat_converter_properties: {len(deltacat_converter_properties) > 0}")
 
-    # Extract catalog configuration for monitoring
-    beam_catalog_config = _extract_catalog_config_from_beam(config)
+    # Extract catalog configuration for monitoring (including Ray timeout)
+    beam_catalog_config = _extract_catalog_config_from_beam({
+        **config,
+        "ray_inactivity_timeout": ray_inactivity_timeout
+    })
     print(f"  - catalog_impl: {beam_catalog_config['catalog_impl']}")
 
     # Update kwargs with the modified config
@@ -370,7 +462,7 @@ def write(*args, **kwargs):
     ):
         monitor_thread = threading.Thread(
             target=_monitor_table_versions,
-            args=(beam_catalog_config, table_name, deltacat_optimizer_interval, merge_keys),
+            args=(beam_catalog_config, table_name, deltacat_converter_interval, merge_keys, filesystem),
             daemon=True,
         )
         monitor_thread.start()
