@@ -15,6 +15,7 @@ from resource import getrusage, RUSAGE_SELF
 import platform
 import psutil
 import schedule
+import os
 from deltacat.constants import BYTES_PER_GIBIBYTE
 
 
@@ -167,6 +168,12 @@ def get_current_process_peak_memory_usage_in_bytes():
         return usage
     else:
         return psutil.Process().memory_info().peak_wset
+
+
+def get_current_process_current_memory_usage_in_bytes():
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info
 
 
 def get_size_of_object_in_bytes(obj: object) -> float:

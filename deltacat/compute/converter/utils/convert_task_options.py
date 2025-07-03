@@ -3,13 +3,14 @@ from deltacat.exceptions import RetryableError
 from pyiceberg.manifest import DataFile
 from deltacat.compute.converter.model.convert_input_files import ConvertInputFiles
 
-AVERAGE_FILE_PATH_COLUMN_SIZE_BYTES = 80
+AVERAGE_FILE_PATH_COLUMN_SIZE_BYTES = 160
 AVERAGE_POS_COLUMN_SIZE_BYTES = 4
 XXHASH_BYTE_PER_RECORD = 8
 MEMORY_BUFFER_RATE = 2
-# TODO: Add audit info to check this number in practice
 # Worst case 2 as no duplicates exists across all pk
 PYARROW_AGGREGATE_MEMORY_MULTIPLIER = 2
+# Observed base memory usage at the beginning of each process
+BASE_MEMORY_BUFFER = 0.3 * 1024 * 1024 * 1024
 
 
 def estimate_fixed_hash_columns(
@@ -115,6 +116,7 @@ def convert_resource_options_provider(
     )
     all_data_files_for_dedupe = convert_input_files.all_data_files_for_dedupe
     total_memory_required = 0
+    total_memory_required += BASE_MEMORY_BUFFER
     if applicable_data_files and applicable_equality_delete_files:
         memory_requirement_for_convert_equality_deletes = (
             estimate_convert_remote_option_resources(

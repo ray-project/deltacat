@@ -31,6 +31,12 @@ from deltacat.compute.converter.utils.converter_session_utils import (
     group_all_files_to_each_bucket,
 )
 from deltacat.compute.converter.model.convert_result import ConvertResult
+from deltacat.compute.converter.utils.converter_session_utils import (
+    _get_snapshot_description,
+    _determine_snapshot_type,
+    SnapshotType,
+)
+
 from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -194,18 +200,50 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     logger.info(f"To be deleted files list length: {len(to_be_deleted_files_list)}")
     logger.info(f"To be added files list length: {len(to_be_added_files_list)}")
 
-    if not to_be_deleted_files_list and to_be_added_files_list:
-        logger.info(f"Committing append snapshot for {table_name}.")
-        commit_append_snapshot(
-            iceberg_table=iceberg_table,
-            new_position_delete_files=to_be_added_files_list,
-        )
-    else:
-        logger.info(f"Committing replace snapshot for {table_name}.")
-        commit_replace_snapshot(
-            iceberg_table=iceberg_table,
-            to_be_deleted_files=to_be_deleted_files_list,
-            new_position_delete_files=to_be_added_files_list,
-        )
+    # Determine snapshot type and commit
+    snapshot_type = _determine_snapshot_type(
+        to_be_deleted_files_list, to_be_added_files_list
+    )
 
-    logger.info(f"Committed new Iceberg snapshot.")
+    if snapshot_type == SnapshotType.NONE:
+        logger.info(
+            _get_snapshot_description(
+                snapshot_type, to_be_deleted_files_list, to_be_added_files_list
+            )
+        )
+        return
+
+    logger.info(
+        f"Snapshot action: {_get_snapshot_description(snapshot_type, to_be_deleted_files_list, to_be_added_files_list)}"
+    )
+
+    try:
+        if snapshot_type == SnapshotType.APPEND:
+            logger.info(f"Committing append snapshot for {table_name}.")
+            commit_append_snapshot(
+                iceberg_table=iceberg_table,
+                new_position_delete_files=to_be_added_files_list,
+            )
+        elif snapshot_type == SnapshotType.REPLACE:
+            logger.info(f"Committing replace snapshot for {table_name}.")
+            commit_replace_snapshot(
+                iceberg_table=iceberg_table,
+                to_be_deleted_files=to_be_deleted_files_list,
+                new_position_delete_files=to_be_added_files_list,
+            )
+        elif snapshot_type == SnapshotType.DELETE:
+            logger.info(f"Committing delete snapshot for {table_name}.")
+            commit_replace_snapshot(
+                iceberg_table=iceberg_table,
+                to_be_deleted_files=to_be_deleted_files_list,
+                new_position_delete_files=[],  # No new files to add
+            )
+        else:
+            logger.warning(f"Unexpected snapshot type: {snapshot_type}")
+            return
+
+        logger.info(f"Successfully committed new Iceberg snapshot for {table_name}.")
+
+    except Exception as e:
+        logger.error(f"Failed to commit snapshot for {table_name}: {str(e)}")
+        raise
