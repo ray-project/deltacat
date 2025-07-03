@@ -2,7 +2,7 @@
 
 ## Overview
 
-This module provides automatic duplicate resolution for Apache Beam pipelines writing to Apache Iceberg tables using DeltaCAT's Ray-based converter sessions. When duplicate records are detected across multiple write operations, the system automatically creates position delete files to maintain data consistency.
+This module provides upsert support for Apache Beam pipelines writing to Apache Iceberg tables using DeltaCAT's Ray-based converter sessions. It merges duplicate records by key by using either Iceberg positional deletes or delete vectors within an Iceberg merge-on-read table.
 
 ## Key Features
 
@@ -173,7 +173,7 @@ print(catalog.load_table('default.demo_table').scan().to_pandas())
 │   (Write Data)  │    │  (Multiple       │    │  (Background    │
 │                 │    │   Snapshots)     │    │   Thread)       │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
-                                                        │
+                                                       │
                        ┌─────────────────┐             ▼
                        │  Position       │    ┌─────────────────┐
                        │  Delete Files   │◀───│  Ray Converter  │
