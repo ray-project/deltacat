@@ -310,8 +310,15 @@ class Field(dict):
 
     @staticmethod
     def _validate_merge_key(field: pa.Field):
-        if not (pa.types.is_string(field.type) or pa.types.is_primitive(field.type)):
-            raise ValueError(f"Merge key {field} must be a primitive type.")
+        # Note: large_strings were explicitly allowed for compatibility with PyIceberg Iceberg Schema to PyArrow converter
+        if not (
+            pa.types.is_string(field.type)
+            or pa.types.is_primitive(field.type)
+            or pa.types.is_large_string(field.type)
+        ):
+            raise ValueError(
+                f"Merge key {field} must be a primitive type or large string."
+            )
         if pa.types.is_floating(field.type):
             raise ValueError(f"Merge key {field} cannot be floating point.")
 
