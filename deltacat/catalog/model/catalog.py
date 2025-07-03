@@ -182,7 +182,7 @@ def init(
     ray_init_args: Dict[str, Any] = {},
     *,
     force=False,
-) -> None:
+) -> Optional[ray.runtime.BaseContext]:
     """
     Initialize DeltaCAT catalogs.
 
@@ -194,16 +194,17 @@ def init(
     :param force: Whether to force DeltaCAT reinitialization. If True, reruns
         ray.init(**ray_init_args) and overwrites all previously registered
         catalogs.
+    :returns: The Ray context object if Ray was initialized, otherwise None.
     """
     global all_catalogs
 
     if is_initialized() and not force:
         logger.warning("DeltaCAT already initialized.")
-        return
+        return None
 
     # initialize ray (and ignore reinitialization errors)
     ray_init_args["ignore_reinit_error"] = True
-    ray.init(**ray_init_args)
+    context = ray.init(**ray_init_args)
 
     # register custom serializer for catalogs since these may contain
     # unserializable objects like boto3 clients with SSLContext
@@ -213,6 +214,7 @@ def init(
     # TODO(pdames): If no catalogs are provided then re-initialize DeltaCAT
     #  with all catalogs from the last session
     all_catalogs = Catalogs.remote(catalogs=catalogs, default=default)
+    return context
 
 
 def get_catalog(name: Optional[str] = None) -> Catalog:

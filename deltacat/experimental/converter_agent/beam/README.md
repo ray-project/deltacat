@@ -81,8 +81,6 @@ with beam.Pipeline() as p:
 | `catalog_properties.warehouse` | Warehouse path | Required |
 | `catalog_properties.uri` | Catalog URI (for REST/Hive catalogs) | Required |
 
-**Note**: The old flat configuration structure (`deltacat_optimizer_interval`, `merge_keys`, `ray_cluster_shutdown_timeout`) is still supported for backward compatibility but deprecated.
-
 ## Supported Catalog Types
 
 | Beam Catalog Implementation | PyIceberg Type | Status |
@@ -96,11 +94,9 @@ with beam.Pipeline() as p:
 
 ## How It Works
 
-1. **Table Monitoring**: Background threads monitor each table for new snapshots
-2. **Duplicate Detection**: When multiple snapshots exist, potential duplicates are detected
-3. **Ray Cluster Management**: Ray cluster is initialized on-demand and kept alive for efficiency
-4. **Position Deletes**: Converter creates position delete files to resolve duplicates
-5. **Automatic Cleanup**: Ray cluster shuts down after configured inactivity timeout
+1. **Table Monitoring**: Background Ray job monitors each table for new snapshots
+2. **Upsert Processing**: Ray converter job creates position delete files to merge data with duplicate records by key, with the values from later records kept over values from earlier records
+5. **Automatic Cleanup**: Ray cluster shuts down after a configured inactivity timeout
 
 ## Error Handling
 
@@ -114,7 +110,7 @@ Table 'default.my_table' is using Iceberg format version 1, but DeltaCAT convert
 requires format version 2 or higher for position delete support.
 ```
 
-**Solution**: Upgrade to Iceberg 1.4.0+ which defaults to format version 2:
+Upgrade to Iceberg 1.4.0+ which defaults to format version 2:
 
 ```bash
 # Stop old container
@@ -125,28 +121,9 @@ docker rm iceberg-rest-catalog
 docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0
 ```
 
-### Common Issues
-
-- **Connection Refused**: Ensure your Iceberg catalog server is running
-- **Table Not Found**: Check table names and namespaces are correct
-- **Ray Initialization**: Ensure sufficient memory and no port conflicts
-- **Beam Read Limitation**: Apache Beam cannot read back Iceberg tables with positional delete files created by DeltaCAT. Use PyIceberg or other Iceberg readers (e.g., Spark) to read tables with positional deletes.
-
-## Example Application
-
-See the example application in this directory:
-
-```bash
-# Start Iceberg REST catalog
-docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0
-
-# Run the example
-python main.py --mode write --input-text "Test Data"
-
-```
+Beam reads fail after writing positional deletes:
 
 ```python
-# Note: Beam reads may fail if positional deletes exist
 # Use Spark or PyIceberg directly instead:
 from pyiceberg.catalog import load_catalog
 catalog = load_catalog(
@@ -157,39 +134,6 @@ catalog = load_catalog(
 )
 print(catalog.load_table('default.demo_table').scan().to_pandas())
 ```
-
-## Performance Considerations
-
-- **Monitoring Interval**: Shorter intervals provide faster duplicate resolution but higher overhead
-- **Ray Resources**: Local mode is suitable for MB-GB scale tests; [launch a Ray cluster](https://docs.ray.io/en/latest/cluster/getting-started.html) for large-scale tests 
-- **Merge Keys**: Choose selective merge keys to minimize false duplicates
-- **Table Size**: Larger tables may require longer conversion times
-
-## Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Beam Pipeline │───▶│  Iceberg Table   │───▶│  Table Monitor  │
-│   (Write Data)  │    │  (Multiple       │    │  (Background    │
-│                 │    │   Snapshots)     │    │   Thread)       │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                                       │
-                       ┌─────────────────┐             ▼
-                       │  Position       │    ┌─────────────────┐
-                       │  Delete Files   │◀───│  Ray Converter  │
-                       │  (Duplicates    │    │  Session        │
-                       │   Resolved)     │    │  (Temporary)    │
-                       └─────────────────┘    └─────────────────┘
-```
-
-## Contributing
-
-When modifying this module:
-
-1. Ensure compatibility with supported catalog types
-2. Test with both Iceberg table format version 1 (error handling) and 2 (success path)
-3. Verify Ray cluster lifecycle management
-4. Update documentation for any configuration changes
 
 ## References
 

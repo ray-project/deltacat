@@ -84,10 +84,18 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
 
     catalog = params.catalog
     table_name = params.iceberg_table_name
-    iceberg_table = load_table(catalog, table_name)
+    if "." not in table_name:
+        iceberg_namespace = params.iceberg_namespace
+        table_name = params.iceberg_table_name
+        table_identifier = f"{iceberg_namespace}.{table_name}"
+    else:
+        table_identifier = table_name
+        identifier_parts = table_identifier.split(".")
+        iceberg_namespace = identifier_parts[0]
+        table_name = identifier_parts[1]
+    iceberg_table = load_table(catalog, table_identifier)
     enforce_primary_key_uniqueness = params.enforce_primary_key_uniqueness
     iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
-    iceberg_namespace = params.iceberg_namespace
     merge_keys = params.merge_keys
     compact_previous_position_delete_files = (
         params.compact_previous_position_delete_files
@@ -212,7 +220,7 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     )
 
     logger.info(
-        f"Aggregated stats for {table_name}: "
+        f"Aggregated stats for {table_identifier}: "
         f"total position delete record count: {total_position_delete_record_count}, "
         f"total input data file record count: {total_input_data_file_record_count}, "
         f"total data file hash columns in memory sizes: {total_data_file_hash_columns_in_memory_sizes}, "
@@ -235,10 +243,26 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     logger.info(f"To be deleted files list length: {len(to_be_deleted_files_list)}")
     logger.info(f"To be added files list length: {len(to_be_added_files_list)}")
 
+<<<<<<< HEAD
     # Determine snapshot type and commit
     snapshot_type = _determine_snapshot_type(
         to_be_deleted_files_list, to_be_added_files_list
     )
+=======
+    if not to_be_deleted_files_list and to_be_added_files_list:
+        logger.info(f"Committing append snapshot for {table_identifier}.")
+        commit_append_snapshot(
+            iceberg_table=iceberg_table,
+            new_position_delete_files=to_be_added_files_list,
+        )
+    else:
+        logger.info(f"Committing replace snapshot for {table_identifier}.")
+        commit_replace_snapshot(
+            iceberg_table=iceberg_table,
+            to_be_deleted_files=to_be_deleted_files_list,
+            new_position_delete_files=to_be_added_files_list,
+        )
+>>>>>>> 97fe179 ([WIP] DeltaCAT converter example using a Ray job.)
 
     if snapshot_type == SnapshotType.NONE:
         logger.info(
