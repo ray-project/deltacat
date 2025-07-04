@@ -9,7 +9,7 @@ XXHASH_BYTE_PER_RECORD = 8
 MEMORY_BUFFER_RATE = 2
 # Worst case 2 as no duplicates exists across all pk
 PYARROW_AGGREGATE_MEMORY_MULTIPLIER = 2
-# Observed base memory usage at the beginning of each process
+# Observed base memory usage at the beginning of each worker process
 BASE_MEMORY_BUFFER = 0.3 * 1024 * 1024 * 1024
 
 

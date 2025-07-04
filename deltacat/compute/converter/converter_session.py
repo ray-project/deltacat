@@ -32,7 +32,7 @@ from deltacat.compute.converter.utils.converter_session_utils import (
 )
 from deltacat.compute.converter.model.convert_result import ConvertResult
 from deltacat.compute.converter.utils.converter_session_utils import (
-    _get_snapshot_description,
+    _get_snapshot_action_description,
     _determine_snapshot_type,
     SnapshotType,
 )
@@ -45,6 +45,41 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     """
     Convert equality deletes to position deletes with option to enforce primary key uniqueness.
+
+    This function processes Iceberg table files to convert equality delete files to position delete files.
+    It can optionally enforce primary key uniqueness by keeping only the latest version of each
+    primary key across all data files.
+
+    **Memory Requirements:**
+    - Minimum 512MB of free memory is required to run the converter
+
+    **Process Overview:**
+    1. Fetches all bucket files (data files, equality deletes, position deletes)
+    2. Groups files by bucket for parallel processing
+    3. Converts equality deletes to position deletes using Ray parallel tasks
+    4. Enforces primary key uniqueness if enabled
+    5. Commits appropriate snapshot (append, replace, or delete) to the Iceberg table
+
+
+    Args:
+        params: ConverterSessionParams containing all configuration parameters
+            - catalog: Iceberg catalog instance
+            - iceberg_table_name: Name of the target Iceberg table
+            - enforce_primary_key_uniqueness: Whether to enforce PK uniqueness
+            - iceberg_warehouse_bucket_name: S3 bucket for Iceberg warehouse
+            - iceberg_namespace: Iceberg namespace
+            - merge_keys: Optional list of merge key fields (uses table identifier fields if not provided)
+            - compact_previous_position_delete_files: Whether to compact existing position delete files
+            - task_max_parallelism: Maximum number of parallel Ray tasks
+            - s3_client_kwargs: Additional S3 client configuration
+            - s3_file_system: S3 file system instance
+            - location_provider_prefix_override: Optional prefix override for file locations
+            - position_delete_for_multiple_data_files: Whether to generate position deletes for multiple data files
+        **kwargs: Additional keyword arguments (currently unused)
+
+    Raises:
+        Exception: If snapshot commitment fails or other critical errors occur
+
     """
 
     catalog = params.catalog
@@ -207,14 +242,14 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
 
     if snapshot_type == SnapshotType.NONE:
         logger.info(
-            _get_snapshot_description(
+            _get_snapshot_action_description(
                 snapshot_type, to_be_deleted_files_list, to_be_added_files_list
             )
         )
         return
 
     logger.info(
-        f"Snapshot action: {_get_snapshot_description(snapshot_type, to_be_deleted_files_list, to_be_added_files_list)}"
+        f"Snapshot action: {_get_snapshot_action_description(snapshot_type, to_be_deleted_files_list, to_be_added_files_list)}"
     )
 
     try:

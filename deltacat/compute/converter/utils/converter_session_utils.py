@@ -134,7 +134,7 @@ class SnapshotType(Enum):
     DELETE = "delete"
 
 
-def _get_snapshot_description(
+def _get_snapshot_action_description(
     snapshot_type: SnapshotType,
     files_to_delete: List[List[DataFile]],
     files_to_add: List[DataFile],
