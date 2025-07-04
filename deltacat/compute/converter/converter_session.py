@@ -265,20 +265,20 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
     try:
         if snapshot_type == SnapshotType.APPEND:
             logger.info(f"Committing append snapshot for {table_identifier}.")
-            updated_table_metadata = commit_append_snapshot(
+            converter_snapshot_id = commit_append_snapshot(
                 iceberg_table=iceberg_table,
                 new_position_delete_files=to_be_added_files_list,
             )
         elif snapshot_type == SnapshotType.REPLACE:
             logger.info(f"Committing replace snapshot for {table_identifier}.")
-            updated_table_metadata = commit_replace_snapshot(
+            converter_snapshot_id = commit_replace_snapshot(
                 iceberg_table=iceberg_table,
                 to_be_deleted_files=to_be_deleted_files_list,
                 new_position_delete_files=to_be_added_files_list,
             )
         elif snapshot_type == SnapshotType.DELETE:
             logger.info(f"Committing delete snapshot for {table_identifier}.")
-            updated_table_metadata = commit_replace_snapshot(
+            converter_snapshot_id = commit_replace_snapshot(
                 iceberg_table=iceberg_table,
                 to_be_deleted_files=to_be_deleted_files_list,
                 new_position_delete_files=[],  # No new files to add
@@ -288,11 +288,11 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
             return
 
         logger.info(
-            f"Committed new Iceberg snapshot for {table_identifier}: {updated_table_metadata.current_snapshot_id}"
+            f"Committed new Iceberg snapshot for {table_identifier}: {converter_snapshot_id}"
         )
 
-        # Return the updated table metadata with the new snapshot
-        return updated_table_metadata
+        # Return the converter committed snapshot id
+        return converter_snapshot_id
     except Exception as e:
         logger.error(f"Failed to commit snapshot for {table_identifier}: {str(e)}")
         raise
