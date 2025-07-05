@@ -76,7 +76,7 @@ def main():
     verification_success = verify_duplicate_resolution(table_name)
     
     # Step 5: Read data back to show final state
-    print(f"\n📋 Phase 4: Reading final table state with Beam")
+    print(f"\n📋 Phase 4: Reading final table state")
     if not run_example("read", table_name):
         print("❌ Read test failed")  
         sys.exit(1)
@@ -87,24 +87,18 @@ def main():
     if verification_success:
         print("\n✅ SUCCESS:")
         print("  ✅ Table creation and writes")
-        print("  ✅ DeltaCAT monitoring detected duplicates")
-        print("  ✅ Ray-based converter session executed")
-        print("  ✅ Merged by key")
+        print("  ✅ DeltaCAT monitoring merged duplicates")
         print("  ✅ Read operations correctly read merged data")
     else:
         print("\n⚠️  PARTIAL SUCCESS:")
         print("  ✅ Table creation and writes")
-        print("  ✅ DeltaCAT monitoring detected duplicates")
         print("  ❓ Converter may still be processing or failed")
         print("  📝 Check logs for converter execution details")
     
     print("\n📚 What happened:")
     print("  1. Beam wrote data creating duplicates (IDs 2,3)")
-    print("  2. DeltaCAT monitoring detected the duplicates")
-    print("  3. Ray data converter job was initialized")
-    print("  4. Converter session merged data by key")
-    print("  5. Ray cluster was shutdown after completion")
-    print("  6. Table now contains merged data")
+    print("  2. DeltaCAT monitoring merged duplicates")
+    print("  3. Table now contains merged data")
     
     print("\n🧹 Cleanup:")
     print("  docker stop iceberg-rest-catalog && docker rm iceberg-rest-catalog")

@@ -96,7 +96,7 @@ with beam.Pipeline() as p:
 
 1. **Table Monitoring**: Background Ray job monitors each table for new snapshots
 2. **Upsert Processing**: Ray converter job creates position delete files to merge data with duplicate records by key, with the values from later records kept over values from earlier records
-5. **Automatic Cleanup**: Ray cluster shuts down after a configured inactivity timeout
+5. **Automatic Cleanup**: Ray shuts down after a configured inactivity timeout
 
 ## Error Handling
 

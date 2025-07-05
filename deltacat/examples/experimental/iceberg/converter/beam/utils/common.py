@@ -8,7 +8,7 @@ import time
 from pyiceberg.catalog import load_catalog
 import requests
 from deltacat import local_job_client
-from deltacat.experimental.converter_agent.beam.managed import _generate_job_name
+from deltacat.experimental.converter_agent.table_monitor import _generate_job_name
 
 
 def generate_random_suffix(length=8):

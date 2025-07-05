@@ -12,47 +12,40 @@ Key Features:
 - Backward compatible with existing managed.py interface
 """
 
-import os
-import hashlib
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any
 
 import apache_beam as beam
-import pyarrow.fs as pafs
+from pyiceberg.catalog import CatalogType
 
-from deltacat import job_client, local_job_client
-from deltacat.utils.filesystem import FilesystemType
+from deltacat.experimental.converter_agent.table_monitor import submit_table_monitor_job
 from deltacat.compute.converter.constants import DEFAULT_CONVERTER_TASK_MAX_PARALLELISM
+import deltacat.logs as logs
 
+# Initialize DeltaCAT logger
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 # Store original functions before monkey-patching
 _original_write = beam.managed.Write
 
 
-def _generate_job_name(warehouse_path: str, namespace: str, table_name: str) -> str:
-    """
-    Generate a unique job name based on warehouse path, namespace, and table name.
-    
-    Args:
-        warehouse_path: Warehouse path
-        namespace: Table namespace
-        table_name: Table name
-        
-    Returns:
-        Job name string
-    """ 
-    # Create a sha1 digest of the warehouse path, namespace, and table name
-    digest = hashlib.sha1(f"{warehouse_path}-{namespace}-{table_name}".encode()).hexdigest()
-    job_name = f"deltacat-monitor-{digest}"
-    
-    return job_name
-
+# Create a dictionary of Java catalog impl to CatalogType
+JAVA_ICEBERG_CATALOG_IMPL_TO_TYPE = {
+    "org.apache.iceberg.rest.restcatalog": CatalogType.REST,
+    "org.apache.iceberg.hive.hivecatalog": CatalogType.HIVE,
+    "org.apache.iceberg.aws.glue.gluecatalog": CatalogType.GLUE,
+    "org.apache.iceberg.jdbc.jdbccatalog": CatalogType.SQL,
+}
 
 def _extract_catalog_config_from_beam(config: Dict[str, Any]) -> Dict[str, Any]:
     """Extract catalog configuration from Beam config."""
     catalog_properties = config.get("catalog_properties", {})
     
     # Extract catalog implementation class
-    catalog_impl = catalog_properties.get("catalog-impl", "org.apache.iceberg.hadoop.HadoopCatalog")
+    catalog_impl = catalog_properties.get("catalog-impl")
+
+    # Extract catalog type
+    catalog_type = catalog_properties.get("type")
     
     # Extract other relevant properties
     warehouse = catalog_properties.get("warehouse", "")
@@ -60,148 +53,18 @@ def _extract_catalog_config_from_beam(config: Dict[str, Any]) -> Dict[str, Any]:
     
     return {
         "catalog_impl": catalog_impl,
+        "type": catalog_type,
         "warehouse": warehouse,
         "uri": uri,
         "catalog_properties": catalog_properties
     }
 
 
-def _submit_table_monitor_job(
-    beam_catalog_config: Dict[str, Any],
-    namespace: str,
-    table_name: str,
-    merge_keys: list,
-    monitor_interval: float,
-    max_converter_parallelism: int,
-    filesystem: pafs.FileSystem = None,
-    cluster_cfg_file_path: Optional[str] = None,
-    ray_inactivity_timeout: int = 10,
-) -> str:
-    """
-    Submit a table monitor job to Ray cluster.
-    
-    Args:
-        beam_catalog_config: Beam catalog configuration
-        namespace: Table namespace
-        table_name: Table name to monitor
-        merge_keys: List of merge key column names
-        monitor_interval: Seconds between monitoring checks
-        max_converter_parallelism: Maximum number of concurrent converter tasks
-        filesystem: PyArrow filesystem instance
-        cluster_cfg_file_path: Path to cluster config file (None for local)
-        ray_inactivity_timeout: Seconds to wait before shutting down Ray cluster
-    Returns:
-        Job ID of the submitted job
-    """
-    
-    # Parse table identifier to extract namespace and table name
-    if not namespace:
-        namespace = "default"
-    
-    # Generate unique job ID based on the warehouse and table path
-    job_name = _generate_job_name(
-        warehouse_path=beam_catalog_config["warehouse"],
-        namespace=namespace,
-        table_name=table_name
-    )
-     
-    # Resolve the appropriate local or remote job client
-    if cluster_cfg_file_path:
-        # Submit to remote cluster
-        print(f"[MANAGED JOB] Preparing to submit job to remote cluster: {cluster_cfg_file_path}")
-        # Set the cluster name to the job ID to prevent starting multiple Ray clusters monitoring the same table.
-        client = job_client(cluster_cfg_file_path, cluster_name_override=job_name)
-    else:
-        # Submit to local cluster using DeltaCAT local job client
-        ray_init_args = {"local_mode": True, "resources": {"convert_task": max_converter_parallelism}}
-        print(f"[MANAGED JOB] Preparing to submit job to locally with ray init args: {ray_init_args}")
-        client = local_job_client(ray_init_args=ray_init_args)
-
-    # Check for any redundant jobs for the same table in a RUNNING or PENDING status
-    # Note that this isn't a perfect solution since it is subject to race conditions,
-    # but we have an additional safeguard for remote clusters by using the job ID as 
-    # the cluster name to prevent starting multiple Ray clusters monitoring the same table.
-    # Table monitoring and delete conversion jobs are also idempotent, so the worst case
-    # of redundant local jobs is wasted compute resources.
-    job_details_list = client.list_jobs()
-    existing_job_details = [job_details for job_details in job_details_list if job_details.submission_id == job_name]
-    live_job_ids = set([job_details.job_id for job_details in existing_job_details if job_details.status == "RUNNING" or job_details.status == "PENDING"])
-    stopped_job_ids = set()
-    # Stop any redundant jobs for the same table in a RUNNING or PENDING status
-    if len(live_job_ids) > 1:
-        for job_id in live_job_ids[1:]:
-            print(f"[MANAGED JOB] Stopping redundant job ID: {job_id}")
-            client.stop_job(job_id)
-            stopped_job_ids.add(job_id)
-    # Update the list of live job IDs
-    live_job_ids -= stopped_job_ids
-    if live_job_ids:
-        if len(live_job_ids) > 1:
-            raise ValueError(f"Expected to resolve 1 live job for table {table_name} but found: {live_job_ids}")
-        return live_job_ids.pop()
-
-    # Add filesystem type - determine from filesystem instance
-    filesystem_type = FilesystemType.from_filesystem(filesystem)
-
-    # Build CLI arguments for table_monitor job
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(current_dir)
-    table_monitor_script_path = os.path.join(parent_dir, "table_monitor.py")
-    
-    print(f"[MANAGED JOB] Path resolution:")
-    print(f"  - Current dir: {current_dir}")
-    print(f"  - Parent dir: {parent_dir}")
-    print(f"  - Table monitor path: {table_monitor_script_path}")
-    print(f"  - Table monitor exists: {os.path.exists(table_monitor_script_path)}")
-    
-    cmd_args = [
-        f"python {table_monitor_script_path}",
-        f"--catalog-impl '{beam_catalog_config['catalog_impl']}'",
-        f"--warehouse-path '{beam_catalog_config['warehouse']}'",
-        f"--catalog-uri '{beam_catalog_config['uri']}'",
-        f"--namespace '{namespace}'",
-        f"--table-name '{table_name}'",
-        f"--merge-keys '{','.join(merge_keys)}'",
-        f"--monitor-interval {monitor_interval}",
-        f"--max-converter-parallelism {max_converter_parallelism}",
-        f"--ray-inactivity-timeout {ray_inactivity_timeout}",
-        f"--filesystem-type '{filesystem_type}'",
-    ]
-    
-    # Join all arguments
-    entrypoint = " ".join(cmd_args)
-    
-    print(f"[MANAGED JOB] Submitting table monitor job:")
-    print(f"  - Job Name: {job_name}")
-    print(f"  - Namespace: {namespace}")
-    print(f"  - Table: {table_name}")
-    print(f"  - Warehouse: {beam_catalog_config['warehouse']}")
-    print(f"  - Merge keys: {merge_keys}")
-    print(f"  - Monitor interval: {monitor_interval}s")
-    print(f"  - Max converter parallelism: {max_converter_parallelism}")
-    print(f"  - Ray inactivity timeout: {ray_inactivity_timeout}s")
-    print(f"  - Filesystem type: {filesystem_type}")
-    print(f"  - Entrypoint: {entrypoint}")
-     
-    # Submit the job with the correct working directory
-    # Working directory should be the converter_agent directory where table_monitor.py is located
-    job_submission_id = client.submit_job(
-        submission_id=job_name,
-        entrypoint=entrypoint,
-        runtime_env={"working_dir": parent_dir},
-    )
-    
-    print(f"[MANAGED JOB] Table monitor job submitted successfully: {job_submission_id}")
-        
-    return job_submission_id
-
-
 def write(*args, **kwargs):
-    """Wrapper that submits DeltaCAT table monitor jobs for beam.managed.Write operations."""
-    print(f"[MANAGED JOB] Initializing DeltaCAT job-based monitor for WRITE operation")
-    print(f"[MANAGED JOB] WRITE operation called with:")
-    print(f"  - args: {args}")
-    print(f"  - kwargs keys: {list(kwargs.keys()) if kwargs else 'None'}")
+    """Wrapper over beam.managed.Write that automatically creates a DeltaCAT table monitor & converter job."""
+    logger.debug(f"Starting DeltaCAT write operation")
+    logger.debug(f"args: {args}")
+    logger.debug(f"kwargs keys: {list(kwargs.keys()) if kwargs else 'None'}")
 
     # Extract and pop deltacat-specific config keys
     config = kwargs.get("config", {}).copy() if kwargs.get("config") else {}
@@ -212,7 +75,7 @@ def write(*args, **kwargs):
     # Support both new nested structure and old flat structure for backward compatibility
     deltacat_converter_interval = deltacat_converter_properties.get("deltacat_converter_interval", 3.0)
     
-    merge_keys = deltacat_converter_properties.get("merge_keys", ["id"])
+    merge_keys = deltacat_converter_properties.get("merge_keys")
     
     # Extract filesystem parameter (optional) - can be in converter properties or top-level config
     filesystem = deltacat_converter_properties.get("filesystem", None)
@@ -230,8 +93,11 @@ def write(*args, **kwargs):
     ray_inactivity_timeout = deltacat_converter_properties.get("ray_inactivity_timeout", 10)
 
     # Extract table identifier and warehouse path
-    table_identifier = config.get("table", "unknown")
-    if "." in table_identifier:
+    table_identifier = config.get("table")
+    if not table_identifier:
+        raise ValueError("Table is required")
+
+    if table_identifier and "." in table_identifier:
         namespace, table_name = table_identifier.split(".", 1)
     else:
         namespace = "default"
@@ -239,28 +105,44 @@ def write(*args, **kwargs):
 
     warehouse_path = config.get("catalog_properties", {}).get("warehouse", "")
 
-    print(f"  - table: {table_name}")
-    print(f"  - deltacat_converter_interval: {deltacat_converter_interval}s")
-    print(f"  - merge_keys: {merge_keys}")
-    print(f"  - warehouse_path: {warehouse_path}")
-    print(f"  - filesystem: {type(filesystem).__name__ if filesystem else 'None (auto-resolve)'}")
-    print(f"  - cluster_cfg_file_path: {cluster_cfg_file_path or 'None (local)'}")
-    print(f"  - max_converter_parallelism: {max_converter_parallelism}")
-    print(f"  - ray_inactivity_timeout: {ray_inactivity_timeout}s")
-    print(f"  - using deltacat_converter_properties: {len(deltacat_converter_properties) > 0}")
-
     # Extract catalog configuration for monitoring
     beam_catalog_config = _extract_catalog_config_from_beam(config)
-    print(f"  - catalog_impl: {beam_catalog_config['catalog_impl']}")
+
+    # Derive CatalogType from "catalog_impl" or "type" property
+    catalog_impl = beam_catalog_config.get("catalog_impl")
+    if catalog_impl:
+        catalog_type = JAVA_ICEBERG_CATALOG_IMPL_TO_TYPE.get(catalog_impl.lower())
+        if not catalog_type:
+            raise ValueError(f"Unsupported catalog implementation: {catalog_impl}")
+    else:
+        catalog_type_str = beam_catalog_config.get("type")
+        if catalog_type_str:
+            catalog_type = CatalogType(catalog_type_str.lower())
+        else:
+            raise ValueError(f"No catalog implementation or type found in config: {beam_catalog_config}")
 
     # Update kwargs with the modified config
     if "config" in kwargs:
         kwargs["config"] = config
 
+    logger.debug(f"Preparing to submit table monitor job...")
+    logger.debug(f"table_name: {table_name}")
+    logger.debug(f"deltacat_converter_interval: {deltacat_converter_interval}s")
+    logger.debug(f"merge_keys: {merge_keys}")
+    logger.debug(f"warehouse_path: {warehouse_path}")
+    logger.debug(f"filesystem: {type(filesystem).__name__ if filesystem else 'None (auto-resolve)'}")
+    logger.debug(f"cluster_cfg_file_path: {cluster_cfg_file_path or 'None (local)'}")
+    logger.debug(f"max_converter_parallelism: {max_converter_parallelism}")
+    logger.debug(f"ray_inactivity_timeout: {ray_inactivity_timeout}s")
+    logger.debug(f"using deltacat_converter_properties: {len(deltacat_converter_properties) > 0}")
+    logger.debug(f"catalog_type: {catalog_type}")
+
     # Submit monitoring job
     try:
-        _submit_table_monitor_job(
-            beam_catalog_config=beam_catalog_config,
+        submit_table_monitor_job(
+            warehouse_path=warehouse_path,
+            catalog_type=catalog_type,
+            catalog_uri=beam_catalog_config.get("uri"),
             namespace=namespace,
             table_name=table_name,
             merge_keys=merge_keys,
@@ -272,6 +154,7 @@ def write(*args, **kwargs):
         ) 
     except Exception as e:
         # Don't fail the write operation, just log the error
-        print(f"[MANAGED JOB] Failed to submit table monitor job: {e}")
-    print(f"[MANAGED JOB] Delegating to beam.managed.Write")
+        logger.error(f"Failed to submit table monitor job: {e}")
+        logger.error(f"Exception traceback:", exc_info=True)
+    logger.info(f"Delegating to beam.managed.Write")
     return _original_write(*args, **kwargs)
