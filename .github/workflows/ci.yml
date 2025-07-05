@@ -70,9 +70,3 @@ jobs:
 
                   # Enable Job Summary for PRs
                   summary-always: true
-
-                  # Enable alert commit comment
-                  #
-                  # By default, this action marks the result as performance regression
-                  # when it is worse than the previous exceeding 200% threshold.
-                  comment-on-alert: true
