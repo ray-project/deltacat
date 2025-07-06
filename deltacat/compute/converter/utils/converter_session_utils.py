@@ -7,6 +7,8 @@ from deltacat.compute.converter.model.convert_input_files import (
     DataFileListGroup,
 )
 from typing import List, Dict, Tuple, Any
+from enum import Enum
+from pyiceberg.manifest import DataFile
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -121,3 +123,53 @@ def sort_data_files_maintaining_order(data_files: DataFileList) -> DataFileList:
     if data_files:
         data_files = sorted(data_files, key=lambda f: (f[0], f[1].file_path))
     return data_files
+
+
+class SnapshotType(Enum):
+    """Enumeration of possible snapshot types."""
+
+    NONE = "none"
+    APPEND = "append"
+    REPLACE = "replace"
+    DELETE = "delete"
+
+
+def _get_snapshot_action_description(
+    snapshot_type: SnapshotType,
+    files_to_delete: List[List[DataFile]],
+    files_to_add: List[DataFile],
+) -> str:
+    """Get a human-readable description of the snapshot action."""
+    descriptions = {
+        SnapshotType.NONE: "No changes needed",
+        SnapshotType.APPEND: f"Adding {len(files_to_add)} new files",
+        SnapshotType.REPLACE: f"Replacing {sum(len(files) for files in files_to_delete)} files with {len(files_to_add)} new files",
+        SnapshotType.DELETE: f"Deleting {sum(len(files) for files in files_to_delete)} files",
+    }
+    return descriptions[snapshot_type]
+
+
+def _determine_snapshot_type(
+    to_be_deleted_files: List[List[DataFile]], to_be_added_files: List[DataFile]
+) -> SnapshotType:
+    """
+    Determine the snapshot type based on file changes.
+
+    Args:
+        to_be_deleted_files: List of files to be deleted
+        to_be_added_files: List of files to be added
+
+    Returns:
+        SnapshotType indicating what kind of snapshot to commit
+    """
+    has_files_to_delete = bool(to_be_deleted_files)
+    has_files_to_add = bool(to_be_added_files)
+
+    if not has_files_to_delete and not has_files_to_add:
+        return SnapshotType.NONE
+    elif not has_files_to_delete and has_files_to_add:
+        return SnapshotType.APPEND
+    elif has_files_to_delete and has_files_to_add:
+        return SnapshotType.REPLACE
+    else:  # has_files_to_delete and not has_files_to_add
+        return SnapshotType.DELETE

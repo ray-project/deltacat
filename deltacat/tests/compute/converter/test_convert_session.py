@@ -33,9 +33,10 @@ from deltacat.compute.converter.pyiceberg.update_snapshot_overrides import (
 )
 
 from pyiceberg.typedef import Record
+from deltacat.compute.converter.utils.convert_task_options import BASE_MEMORY_BUFFER
 
 # Task memory in bytes for testing
-TASK_MEMORY_BYTES = 1024
+TASK_MEMORY_BYTES = BASE_MEMORY_BUFFER
 
 
 # Test data fixtures
