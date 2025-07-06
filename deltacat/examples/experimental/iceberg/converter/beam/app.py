@@ -1,5 +1,5 @@
 import time
-from typing import Callable, Optional
+from typing import Optional
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam import Row
@@ -9,6 +9,7 @@ from deltacat.experimental.converter_agent.beam.managed import write as deltacat
 from deltacat.examples.experimental.iceberg.converter.beam.utils.common import (
     generate_random_suffix,
     verify_duplicate_resolution,
+    wait_for_deltacat_jobs,
 )
 from deltacat.examples.experimental.iceberg.converter.beam.utils.spark import (
     SparkSQLIcebergRead,
@@ -108,9 +109,7 @@ def run(
             "   docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0"
         )
         print()
-
-    with beam.Pipeline(options=beam_options) as p:
-        if mode == "write":
+        with beam.Pipeline(options=beam_options) as p:
             # Step 1: Write initial data to create the table
             initial_data = p | "Create initial data" >> beam.Create(
                 [
@@ -118,6 +117,17 @@ def run(
                     Row(id=2, name="Bob", value=200, version=1),
                     Row(id=3, name="Charlie", value=300, version=1),
                     Row(id=4, name="David", value=400, version=1),
+                    Row(id=5, name="Eve", value=500, version=1),
+                    Row(id=6, name="Frank", value=600, version=1),
+                    Row(id=7, name="Grace", value=700, version=1),
+                    Row(id=8, name="Henry", value=800, version=1),
+                    Row(
+                        id=2, name="Robert", value=201, version=2
+                    ),  # Update Bob's record
+                    Row(
+                        id=3, name="Charles", value=301, version=2
+                    ),  # Update Charlie's record
+                    Row(id=9, name="Ivy", value=900, version=1),  # Add a new record
                 ]
             )
 
@@ -130,66 +140,24 @@ def run(
                 },
             )
 
-            # Step 2: Write additional data (this will create new data files)
-            additional_data = p | "Create additional data" >> beam.Create(
-                [
-                    Row(id=5, name="Eve", value=500, version=1),
-                    Row(id=6, name="Frank", value=600, version=1),
-                    Row(id=7, name="Grace", value=700, version=1),
-                    Row(id=8, name="Henry", value=800, version=1),
-                ]
-            )
+        # Wait for the DeltaCAT converter job to complete and shutdown
+        wait_for_deltacat_jobs(full_table_name, warehouse_path, ray_inactivity_timeout*2)
 
-            additional_data | "Write additional data to Iceberg" >> beam.managed.Write(
-                beam.managed.ICEBERG,
-                config={
-                    "table": full_table_name,  # Use fully qualified table name for REST catalog
-                    "write_mode": "append",
-                    **catalog_config,
-                },
-            )
+        print(f"\n📝 Data writing completed with DeltaCAT optimization enabled.")
+        print(
+            f"   - Table monitoring interval: {deltacat_converter_interval} seconds"
+        )
+        print(
+            f"   - Ray cluster shutdown timeout: {ray_inactivity_timeout} seconds"
+        )
+        print(f"   - Automatic duplicate detection and resolution")
+        print(f"   - Position delete creation for duplicate resolution")
+        print(f"   - Job-based table monitoring with Ray")
+        print(f"   - Filesystem: {type(filesystem).__name__}")
+        print(f"🔍 Read the table with: `python main.py --mode read --table-name {full_table_name}`")
 
-            # Wait before writing updates to prior IDs to ensure that it's appended last
-            time.sleep(1)
-
-            # Step 3: Write updates to existing records (this creates merge-on-read scenarios)
-            # These updates will be written as new data files, and the DeltaCat optimizer will
-            # detect duplicates and trigger converter jobs to create position delete files
-            updated_data = p | "Create updated data" >> beam.Create(
-                [
-                    Row(
-                        id=2, name="Robert", value=201, version=2
-                    ),  # Update Bob's record
-                    Row(
-                        id=3, name="Charles", value=301, version=2
-                    ),  # Update Charlie's record
-                    Row(id=9, name="Ivy", value=900, version=1),  # Add a new record
-                ]
-            )
-
-            updated_data | "Write updated data to Iceberg" >> beam.managed.Write(
-                beam.managed.ICEBERG,
-                config={
-                    "table": full_table_name,  # Use fully qualified table name for REST catalog
-                    "write_mode": "append",
-                    **catalog_config,
-                },
-            )
-
-            print(f"\n📝 Data writing completed with DeltaCat optimization enabled.")
-            print(
-                f"   - Table monitoring interval: {deltacat_converter_interval} seconds"
-            )
-            print(
-                f"   - Ray cluster shutdown timeout: {ray_inactivity_timeout} seconds"
-            )
-            print(f"   - Automatic duplicate detection and resolution")
-            print(f"   - Position delete creation for duplicate resolution")
-            print(f"   - Job-based table monitoring with Ray")
-            print(f"   - Filesystem: {type(filesystem).__name__}")
-            print(f"Read the table with: `python main.py --mode read --table-name {full_table_name}`")
-
-        elif mode == "read":
+    elif mode == "read":
+        with beam.Pipeline(options=beam_options) as p:
             # Read from the Iceberg table using Spark SQL
             # Note: We use Spark SQL instead of beam.managed.Read because Beam's native Iceberg I/O
             # cannot handle positional delete files created by DeltaCAT converter sessions.
@@ -227,7 +195,8 @@ def run(
             # Verify that the data was correctly merged by ID
             verify_duplicate_resolution(full_table_name, warehouse_path)
 
-        elif mode == "rewrite":
+    elif mode == "rewrite":
+        with beam.Pipeline(options=beam_options) as p:
             # Rewrite table data files to materialize positional deletes
             print(f"🔄 Rewriting Iceberg table to materialize positional deletes")
             print(f"   - Table: {full_table_name}")
@@ -252,7 +221,7 @@ def run(
             rewrite_results | "Log rewrite results" >> beam.Map(
                 lambda result: print(f"📋 Rewrite result: {result}")
             )
-        else:
-            raise ValueError(
-                f"Unknown mode: {mode}. Use 'write', 'read', or 'rewrite'."
-            )
+    else:
+        raise ValueError(
+            f"Unknown mode: {mode}. Use 'write', 'read', or 'rewrite'."
+        )

@@ -9,7 +9,6 @@ import sys
 from deltacat.examples.experimental.iceberg.converter.beam.utils.common import (
     generate_random_suffix, 
     check_rest_catalog, 
-    wait_for_deltacat_jobs
 )
 from deltacat.examples.experimental.iceberg.converter.beam.utils.common import verify_duplicate_resolution
 
@@ -65,18 +64,12 @@ def main():
         print("❌ Write test failed")
         sys.exit(1)
     
-    # Step 3: Wait for DeltaCAT converter jobs to complete
-    print(f"\n📋 Phase 2: Waiting for DeltaCAT converter jobs to complete")
-    if not wait_for_deltacat_jobs(table_name):
-        print("⚠️  DeltaCAT job monitoring timed out, but proceeding with verification")
-    
-    # Step 4: Additional verification using PyIceberg directly
-    print(f"\n📋 Phase 3: Direct verification of duplicate resolution")
-    
+    # Step 3: Verify upsert merge worked as expected
+    print(f"\n📋 Phase 2: Direct verification of duplicate resolution")
     verification_success = verify_duplicate_resolution(table_name)
     
-    # Step 5: Read data back to show final state
-    print(f"\n📋 Phase 4: Reading final table state")
+    # Step 4: Read data back to show final state
+    print(f"\n📋 Phase 3: Reading final table state")
     if not run_example("read", table_name):
         print("❌ Read test failed")  
         sys.exit(1)

@@ -127,12 +127,9 @@ def monitor_table(
                     logger.debug(f"Converter Session Parameters: {converter_params}")
                     
                     logger.info(f"Starting converter session...")
+                    updated_metadata = converter_session(params=converter_params)
                     logger.info(f"Converter session completed successfully")
-                    converter_session(params=converter_params)
-                    # TODO(pdames): Return the written snapshot ID from the converter session
-                    #   since this is subject to race conditions with a concurrent write.
-                    tbl = catalog.load_table(table_identifier)
-                    current_snapshot_id = tbl.metadata.current_snapshot_id
+                    current_snapshot_id = updated_metadata.current_snapshot_id
                     logger.info(f"Current snapshot ID updated to: {current_snapshot_id}")
                 except Exception as e:
                     logger.error(f"Converter session failed: {e}")
@@ -189,8 +186,10 @@ def _generate_job_name(warehouse_path: str, namespace: str, table_name: str) -> 
 
 def _cleanup_terminated_jobs_for_submission_id(client: DeltaCatJobClient, submission_id: str) -> bool:
     """Clean up any terminated jobs with the given submission ID."""
+    logger.debug(f"Searching for terminated jobs to cleanup with submission ID: {submission_id}")
     try:
         all_jobs = client.list_jobs()
+        logger.debug(f"All jobs: {all_jobs}")
         for job in all_jobs:
             if job.submission_id == submission_id and job.status.is_terminal():
                 logger.info(f"Cleaning up terminated job: {submission_id} (status: {job.status})")

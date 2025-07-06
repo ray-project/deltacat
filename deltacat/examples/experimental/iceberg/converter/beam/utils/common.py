@@ -60,52 +60,35 @@ def wait_for_deltacat_jobs(table_name, warehouse_path="/tmp/iceberg_rest_warehou
     )
     
     start_time = time.time()
-    last_status_check = 0
     
     try:
         # Get the job client
         client = local_job_client(ray_init_args={"local_mode": True})
-        job_details_list = client.list_jobs()
-
-        job_submission_ids = [job_details.submission_id for job_details in job_details_list]
 
         while time.time() - start_time < timeout:
-            # Check if we have any tracked jobs for this table
-            if job_name in job_submission_ids:
-                job_submission_id = job_submission_ids[job_name]
+            job_details_list = client.list_jobs()
+            print(f"🔍 Job details list: {job_details_list}")
+            job_submission_ids = [job_details.submission_id for job_details in job_details_list]
 
+            # Check if we have any tracked jobs for this table
+            print(f"🔍 Looking for submission ID: {job_name} in {job_submission_ids}")
+            if job_name in job_submission_ids:
                 # Check job status with Ray
                 try:
-                    job_status = client.get_job_status(job_submission_id)
-                    
-                    # Log status periodically
-                    if time.time() - last_status_check > 10:  # Every 10 seconds
-                        print(f"📊 Job {job_submission_id} status: {job_status}")
-                        last_status_check = time.time()
-                    
+                    job_status = client.get_job_status(job_name)
+                    print(f"📊 Job {job_name} status: {job_status}")
                     # Check if job is still running
                     if job_status and str(job_status) in ["PENDING", "RUNNING"]:
                         time.sleep(2)  # Short polling interval
                         continue
                     else:
-                        print(f"✅ Job {job_submission_id} completed with status: {job_status}")
+                        print(f"✅ Job {job_name} completed with status: {job_status}")
                         return True
                         
                 except Exception as e:
-                    print(f"⚠️  Could not check job status for {job_submission_id}: {e}")
+                    print(f"⚠️  Could not check job status for {job_name}: {e}")
                     # If we can't check status, assume job is done
-                    return True
-            else:
-                # No job found - either not submitted yet or already completed
-                print(f"🔍 No active job found for {job_name}")
-                # Give it a moment in case the job is still being submitted
-                time.sleep(1)
-                
-                # After 10 seconds, assume no job will be submitted
-                if time.time() - start_time > 10:
-                    print(f"✅ No converter job needed or job completed quickly")
-                    return True
-            
+                    return True 
             time.sleep(1)
             
         print(f"⏰ Timeout waiting for DeltaCAT job completion after {timeout} seconds")
@@ -114,8 +97,8 @@ def wait_for_deltacat_jobs(table_name, warehouse_path="/tmp/iceberg_rest_warehou
     except Exception as e:
         print(f"❌ Error monitoring DeltaCAT jobs: {e}")
         # Fall back to short sleep if monitoring fails
-        print(f"🔄 Falling back to 5-second wait...")
-        time.sleep(5)
+        print(f"🔄 Falling back to {timeout}-second wait...")
+        time.sleep(timeout)
         return True
 
 
